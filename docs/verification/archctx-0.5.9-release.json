@@ -1,0 +1,137 @@
+{
+  "version": "0.5.9",
+  "status": "published",
+  "baseCommit": "c0cd391151e9b3b4e752e5e60a1090385bbcb64f",
+  "pullRequest": "https://github.com/Ancienttwo/arch-context/pull/152",
+  "contentPullRequest": "https://github.com/Ancienttwo/arch-context/pull/151",
+  "checks": {
+    "npmReleaseDryRun": {
+      "status": "verified",
+      "ok": true,
+      "version": "0.5.9",
+      "evidence": "docs/verification/fg6-npm-release-dry-run.json"
+    },
+    "localProductTarballSmoke": {
+      "status": "pass",
+      "version": "0.5.9",
+      "cli": true,
+      "daemon": true,
+      "mcpTools": 6,
+      "lifecycle": "install/upgrade/uninstall passed with retained state",
+      "evidence": "docs/verification/fg6-local-product-tarball-smoke.json"
+    },
+    "releasePackaging": {
+      "status": "verified",
+      "gates": ["AL10-10", "AL10-11"],
+      "migrationMatrix": "7/7 pass, sqlite integrity ok",
+      "failures": [],
+      "evidence": "docs/verification/architecture-ledger-al10-release-packaging-readback.json"
+    },
+    "releaseProvenanceReadback": {
+      "result": "fail",
+      "reason": "distributionReadbackVerified, officialNpmReadbackVerified and registryMetadataMatchesOfficialRelease still resolve against the 0.5.2-era hand-authored evidence in docs/verification/architecture-ledger-al10-npm-release-readback.json and docs/verification/fg6-release-distribution-readback.json, which have not been refreshed since 0.5.2 and were equally stale for 0.5.3 through 0.5.8",
+      "failures": [
+        "distributionReadbackVerified",
+        "officialNpmReadbackVerified",
+        "registryMetadataMatchesOfficialRelease"
+      ],
+      "registryAssertionsPassed": [
+        "registryLatestMatchesRoot",
+        "sourceHelpMatchesPublishedHelp",
+        "productManifestMatchesRoot",
+        "generatedPackageMatchesRoot"
+      ],
+      "committedEvidenceUnchanged": true
+    },
+    "ciRun": 34379845788,
+    "ciResult": "10 checks passed; developer review neutral",
+    "artifactInputsUnchangedSinceBuild": true,
+    "registrySmoke": {
+      "ok": true,
+      "node": "v24.18.0",
+      "installPackage": "archctx@0.5.9",
+      "cleanRoomOutsideRepo": true,
+      "capabilitiesOk": true,
+      "capabilitiesVersion": "0.5.9",
+      "capabilitiesFeatureCount": 10,
+      "capabilitiesIncludesProjectionPriorCommittedApplies": true,
+      "projectionResultProtocol": "archcontext.projection-result/v2",
+      "helpOk": true,
+      "helpRequestId": "help",
+      "helpCommandCount": 42,
+      "doctorOk": true,
+      "doctorProductVersion": "0.5.9",
+      "doctorCliVersion": "0.5.9",
+      "doctorDaemonVersion": "0.5.9",
+      "doctorMcpVersion": "0.5.9",
+      "updateCheckOk": true,
+      "updateCheckCurrentVersion": "0.5.9",
+      "updateCheckLatestVersion": "0.5.9",
+      "updateCheckStatus": "current"
+    },
+    "engineFloorSmoke": {
+      "ok": true,
+      "node": "v22.22.0",
+      "installPackage": "archctx@0.5.9",
+      "capabilitiesOk": true,
+      "capabilitiesVersion": "0.5.9",
+      "doctorOk": true,
+      "doctorProductVersion": "0.5.9"
+    }
+  },
+  "artifacts": {
+    "archctx-0.5.9.tgz": {
+      "path": "/Users/ancienttwo/Projects/arch-context-wt-release-0.5.9/_ops/npm/fg6-release-dry-run/archctx-0.5.9.tgz",
+      "sha1": "2007ef6155a9eefc417f56b74246d20e466f8fc9",
+      "sha256": "cb6ab0af867b3e6c748fb6a470b9243a8f2367574243f9826d404f3a97959485"
+    },
+    "archctx-contracts-0.5.9.tgz": {
+      "path": "/Users/ancienttwo/Projects/arch-context-wt-release-0.5.9/_ops/npm/fg6-release-dry-run/archctx-contracts-0.5.9.tgz",
+      "sha1": "5db3720851d126cd7c7b4e042c16334cdc373565",
+      "sha256": "c6282d0d4cf5d594e196faa1b113458a63733ae9133d75c67bd99677b7ca3a9c"
+    }
+  },
+  "finalSourceCommit": "c0cd391151e9b3b4e752e5e60a1090385bbcb64f",
+  "mergeCommit": "647bfc343393594ce4aba3936b1f51b2c7bd0060",
+  "observedAt": "2026-09-09T17:35:20.869911+00:00",
+  "registry": {
+    "archctx-contracts": {
+      "version": "0.5.9",
+      "latest": "0.5.9",
+      "dist": {
+        "shasum": "5db3720851d126cd7c7b4e042c16334cdc373565",
+        "tarball": "https://registry.npmjs.org/archctx-contracts/-/archctx-contracts-0.5.9.tgz",
+        "fileCount": 179,
+        "integrity": "sha512-sQ9gQ5EOJ1nafdp+vQDG44QX7QfCmZ1pOxXiwL8ioPEYQkY3fts0JTBX9CiBbV69eFfoHm2fHb1nKunHZH7tXQ==",
+        "signatures": [
+          {
+            "sig": "MEYCIQCrndpRN4Qxm4iLicS6fYe4RMjN1wELxqwE4sEhd5lufgIhAOHVbIQXt/IVwEpfOP4IWldF4SrqdF1gLKjWaikF+CFT",
+            "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+          }
+        ],
+        "unpackedSize": 520075
+      },
+      "tarballByteConsistency": "pass"
+    },
+    "archctx": {
+      "version": "0.5.9",
+      "latest": "0.5.9",
+      "dist": {
+        "shasum": "2007ef6155a9eefc417f56b74246d20e466f8fc9",
+        "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.5.9.tgz",
+        "fileCount": 87,
+        "integrity": "sha512-W7z2Seqa4xFIbBpYKdUA1e+Uc0YnhCd8PHW2Lh1cD4/tbVQBdeQ16d/uSx+v6s0G33vyKMU3t3anR7UcHgFxdg==",
+        "signatures": [
+          {
+            "sig": "MEUCIQDMdpCKf7BpZupjDf/hc2xP7Nbk2ZJPGsp1lXD12G/MfwIgWyzs8egvJdM6URPya26V5Kz701kYBnOG2BEvpdagl20=",
+            "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+          }
+        ],
+        "unpackedSize": 2326786
+      },
+      "tarballByteConsistency": "pass"
+    }
+  },
+  "publicationAuthentication": "npm web auth",
+  "release": "https://github.com/Ancienttwo/arch-context/releases/tag/v0.5.9"
+}

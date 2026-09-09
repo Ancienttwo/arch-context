@@ -84,8 +84,11 @@ their ledger readback identity.
 
 ## Release State
 
-`archctx@0.5.8` and `archctx-contracts@0.5.8` are the current published release on `latest`,
-verified by registry readback on 2026-09-09. `init --help` and `init -h` return help without
+`archctx@0.5.9` and `archctx-contracts@0.5.9` are the current published release on `latest`,
+verified by registry readback on 2026-09-10. Projection results carry the optional
+`priorCommittedApplies` field on `archcontext.projection-result/v2`, so a retry under an
+interrupted request's `requestId` can name the projection-owned files an earlier committed
+attempt already wrote. `init --help` and `init -h` return help without
 initializing runtime state or writing architecture model files. Refactor verification responses report live Git identity while ledger replay
 and append retain the recommendation partition; historical verification evidence stays immutable.
 The packages retain the `0.5.2` protocols: the `refactor scan|record|verify` surface, the

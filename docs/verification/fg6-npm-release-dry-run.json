@@ -4,10 +4,10 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-09-03T16:16:01.068Z",
+  "generatedAt": "2026-09-09T17:19:16.168Z",
   "package": {
     "name": "archctx",
-    "version": "0.5.2",
+    "version": "0.5.9",
     "private": false,
     "homepage": "https://archcontext.repoharness.com",
     "license": "Apache-2.0",
@@ -32,12 +32,12 @@
   },
   "artifact": {
     "artifactDir": "_ops/npm/fg6-release-dry-run",
-    "tarball": "archctx-0.5.2.tgz",
-    "publishDryRunId": "archctx@0.5.2",
-    "integrity": "sha512-14vrH31DhxV0Wk1X4ygS2WCh6SS73Wr9BAqRdp50FWAQ0Iix42VAMVzzdJiI6JkBdRNp673FckF1JifYnN7HdQ==",
-    "shasum": "3f247035699d9e15e2bf8935b7b16a3d50b31ce6",
-    "size": 438492,
-    "unpackedSize": 2316835,
+    "tarball": "archctx-0.5.9.tgz",
+    "publishDryRunId": "archctx@0.5.9",
+    "integrity": "sha512-W7z2Seqa4xFIbBpYKdUA1e+Uc0YnhCd8PHW2Lh1cD4/tbVQBdeQ16d/uSx+v6s0G33vyKMU3t3anR7UcHgFxdg==",
+    "shasum": "2007ef6155a9eefc417f56b74246d20e466f8fc9",
+    "size": 440498,
+    "unpackedSize": 2326786,
     "entryCount": 87,
     "files": [
       "NOTICE.md",
@@ -135,7 +135,7 @@
     "ok": true,
     "source": {
       "name": "@archcontext/contracts",
-      "version": "0.5.2",
+      "version": "0.5.9",
       "files": [
         "src",
         "fixtures"
@@ -146,7 +146,7 @@
     },
     "package": {
       "name": "archctx-contracts",
-      "version": "0.5.2",
+      "version": "0.5.9",
       "private": false,
       "files": [
         "src",
@@ -162,12 +162,12 @@
       }
     },
     "artifact": {
-      "tarball": "archctx-contracts-0.5.2.tgz",
-      "publishDryRunId": "archctx-contracts@0.5.2",
-      "integrity": "sha512-vEhtv6gJtBDlkdBxC9jKSJBeKMOuchyvZjwD3WX1hrVxn5/1cyFwiFjOChM5+rMp3krr8y0m0OIfhU1aN6pJsA==",
-      "shasum": "adc159e15bceec26480bfa607907717ce0e81924",
-      "size": 87653,
-      "unpackedSize": 513692,
+      "tarball": "archctx-contracts-0.5.9.tgz",
+      "publishDryRunId": "archctx-contracts@0.5.9",
+      "integrity": "sha512-sQ9gQ5EOJ1nafdp+vQDG44QX7QfCmZ1pOxXiwL8ioPEYQkY3fts0JTBX9CiBbV69eFfoHm2fHb1nKunHZH7tXQ==",
+      "shasum": "5db3720851d126cd7c7b4e042c16334cdc373565",
+      "size": 89124,
+      "unpackedSize": 520075,
       "entryCount": 179,
       "files": [
         "fixtures/boundary/agent-job-expired.json",
@@ -449,7 +449,7 @@
     "noticeMentionsAllAttribution": true
   },
   "rollout": {
-    "postPublishInstallCommand": "npm install -g archctx@0.5.2",
+    "postPublishInstallCommand": "npm install -g archctx@0.5.9",
     "homeUrl": "https://archcontext.repoharness.com"
   },
   "assertions": {
