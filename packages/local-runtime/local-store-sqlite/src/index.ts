@@ -47,7 +47,7 @@ import {
   type ArchitectureBookFtsMatch,
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
-import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
+import type { ChangeOperationKind, ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
 import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
 import explorerProjectionV2Schema from "../../../../schemas/runtime/explorer-projection-v2.schema.json";
 
@@ -7603,6 +7603,27 @@ function readChangeSetJournalTaskSessionId(metadataJson: string, journalId: stri
   return reason.taskSessionId;
 }
 
+/**
+ * Closed vocabulary on purpose: a journal row written by a future or corrupted operation kind must
+ * not be reported as a write, because "this path was written with this body hash" is exactly the
+ * claim a caller acts on. Unknown kinds fail the lookup instead.
+ */
+export function committedChangeSetFileOperation(operation: string, journalId: string, path: string): "delete" | "write" {
+  switch (operation as ChangeOperationKind) {
+    case "delete_entity":
+      return "delete";
+    case "create_entity":
+    case "update_entity_fields":
+    case "write_policy":
+    case "write_waiver":
+    case "render_projection":
+    case "render_agent_context":
+      return "write";
+    default:
+      throw new Error(`changeset-journal-file-malformed: ${journalId}:${path}:${operation}`);
+  }
+}
+
 function committedChangeSetJournalFiles(filesJson: string, journalId: string): CommittedChangeSetForTaskSessionFile[] {
   let parsed: unknown;
   try {
@@ -7621,7 +7642,7 @@ function committedChangeSetJournalFiles(filesJson: string, journalId: string): C
       }
       return {
         path: entry.path,
-        operation: entry.operation === "delete_entity" ? "delete" as const : "write" as const,
+        operation: committedChangeSetFileOperation(entry.operation, journalId, entry.path),
         hash: entry.bodyHash
       };
     })

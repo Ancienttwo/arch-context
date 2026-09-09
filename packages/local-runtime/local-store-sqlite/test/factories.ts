@@ -26,7 +26,7 @@ import {
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
 import { canonicalProjectionReadPlanV1, digestJson, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
-import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type CommittedChangeSetForTaskSession, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
+import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, committedChangeSetFileOperation, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type CommittedChangeSetForTaskSession, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
@@ -464,6 +464,12 @@ export class TestLocalStore implements RuntimeLocalStore {
         record.status === "committed"
         && canonicalRepositoryRoot(record.root) === canonicalRoot
         && record.draft.reason.taskSessionId === taskSessionId)
+      // Same ordering contract as the SQLite store: consumers dedupe a repeated changeSetId by
+      // keeping the last row, so committedAt then journal id must decide the order here too.
+      .sort(([leftId, left], [rightId, right]) =>
+        left.committedAt === right.committedAt
+          ? (leftId < rightId ? -1 : leftId > rightId ? 1 : 0)
+          : String(left.committedAt) < String(right.committedAt) ? -1 : 1)
       .map(([journalId, record]) => ({
         journalId,
         changeSetId: record.draft.id,
@@ -478,7 +484,7 @@ export class TestLocalStore implements RuntimeLocalStore {
             }
             return {
               path: file.path,
-              operation: file.operation === "delete_entity" ? "delete" as const : "write" as const,
+              operation: committedChangeSetFileOperation(file.operation, journalId, file.path),
               hash: file.bodyHash
             };
           })

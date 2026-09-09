@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -114,6 +115,23 @@ function writeRepoHarnessProfileModel(root: string): void {
   );
 }
 
+/** Reads the committed journal rows straight from the store, independently of whatever the CLI
+ * result claims, so an assertion about the reported changeSetId can actually fail. */
+function committedJournalRows(root: string, taskSessionId: string): { journalId: string; changeSetId: string; completedAt: string }[] {
+  const database = new Database(join(stateRoot(root), "local-store.sqlite"), { readonly: true });
+  try {
+    return database.query("SELECT journal_id, changeset_id, metadata_json, completed_at FROM changeset_journal WHERE status = 'committed' ORDER BY completed_at ASC, journal_id ASC")
+      .all()
+      .filter((row) => (JSON.parse(String((row as { metadata_json: string }).metadata_json)) as { reason: { taskSessionId: string } }).reason.taskSessionId === taskSessionId)
+      .map((row) => {
+        const typed = row as { journal_id: string; changeset_id: string; completed_at: string };
+        return { journalId: typed.journal_id, changeSetId: typed.changeset_id, completedAt: typed.completed_at };
+      });
+  } finally {
+    database.close();
+  }
+}
+
 async function reachCleanProjection(root: string, daemon: RuntimeDaemonClient): Promise<void> {
   const preview = await runTestCli("docs", ["adopt", "--profile", "repo-harness/v1"], root, daemon);
   expect(preview.ok, JSON.stringify(preview)).toBe(true);
@@ -164,11 +182,16 @@ test("a repeated projection request learns what its own killed attempt already c
     expect(retryResult.files).toEqual([]);
     expect(projectionResultInvariantIssues(retryResult)).toEqual([]);
 
+    const committedRows = committedJournalRows(root, requestId);
+    expect(committedRows).toHaveLength(1);
+    const expectedChangeSetId = committedRows[0]!.changeSetId;
+    expect(expectedChangeSetId).toMatch(/^changeset\.docs-projection-[a-f0-9]{16}$/);
+
     const prior = retryResult.priorCommittedApplies;
     expect(prior).toHaveLength(1);
     expect(prior![0]!.requestId).toBe(requestId);
-    expect(prior![0]!.changeSetId).toBe(firstResult.applyReceipt?.semanticCommit.changeSetId ?? prior![0]!.changeSetId);
-    expect(Date.parse(prior![0]!.committedAt)).toBeGreaterThan(0);
+    expect(prior![0]!.changeSetId).toBe(expectedChangeSetId);
+    expect(prior![0]!.committedAt).toBe(committedRows[0]!.completedAt);
     // A plain drift-repair apply commits without an apply receipt, so recovery identity is absent
     // rather than invented.
     expect(prior![0]!.applyId).toBeUndefined();
@@ -206,10 +229,36 @@ test("a repeated projection request learns what its own killed attempt already c
       },
       body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "listProjectionPriorCommittedApplies", params: [root, requestId] })
     });
-    expect(await response.json()).toMatchObject({ ok: true, data: { applies: [{ requestId, changeSetId: prior![0]!.changeSetId }] } });
+    expect(await response.json()).toMatchObject({ ok: true, data: { applies: [{ requestId, changeSetId: expectedChangeSetId }] } });
+
+    // A killed attempt and its retry both commit under one requestId, and the protocol changeSetId
+    // is digest-derived, so the journal legitimately holds two committed rows carrying one
+    // changeSetId. Reporting both would violate the result contract's sorted-unique invariant and
+    // make every later run for this requestId fail permanently.
+    const duplicateAt = new Date(Date.parse(committedRows[0]!.completedAt) + 1000).toISOString();
+    const writable = new Database(join(stateRoot(root), "local-store.sqlite"));
+    try {
+      writable.query(
+        `INSERT INTO changeset_journal
+          (journal_id, changeset_id, root, status, metadata_json, files_json, created_at, updated_at, completed_at)
+          SELECT ?, changeset_id, root, status, metadata_json, files_json, created_at, ?, ?
+          FROM changeset_journal WHERE journal_id = ?`
+      ).run("changeset_duplicate-retry", duplicateAt, duplicateAt, committedRows[0]!.journalId);
+    } finally {
+      writable.close();
+    }
+    expect(committedJournalRows(root, requestId)).toHaveLength(2);
+
+    const afterDuplicate = await runTestCli("projection", ["run", "--request-json", JSON.stringify(projectionRequest(root, requestId))], root, daemon);
+    expect(afterDuplicate.ok, JSON.stringify(afterDuplicate)).toBe(true);
+    const afterDuplicateResult = afterDuplicate.data as ProjectionResultV2;
+    expect(projectionResultInvariantIssues(afterDuplicateResult)).toEqual([]);
+    expect(afterDuplicateResult.priorCommittedApplies).toHaveLength(1);
+    expect(afterDuplicateResult.priorCommittedApplies![0]!.changeSetId).toBe(expectedChangeSetId);
+    expect(afterDuplicateResult.priorCommittedApplies![0]!.committedAt).toBe(duplicateAt);
   } finally {
     if (rpcServer) await rpcServer.stop();
-    else await daemon.stop();
+    await daemon.stop();
     if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
     else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
     rmSync(stateRoot(root), { recursive: true, force: true });

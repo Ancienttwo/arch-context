@@ -2935,9 +2935,18 @@ export class ArchctxDaemon {
         error instanceof Error ? error.message : String(error)
       );
     }
-    const applies: ProjectionPriorCommittedApplyV1[] = committed
-      .filter((entry) => entry.files.length > 0)
-      .map((entry) => ({
+    // changeset_journal is keyed by journal_id, not changeset_id, and the projection protocol derives
+    // its changeSetId from the projection digest. Two killed-then-retried attempts of the same
+    // request therefore commit two journal rows carrying one changeSetId, which the wire contract's
+    // sorted-unique changeSetId invariant would reject — permanently failing every later run for
+    // that requestId. Collapsing them is lossless: an equal changeSetId means an equal projection
+    // digest, so both rows declare the same output file set; only the commit instant differs. The
+    // store hands rows back ordered by committedAt then journal id, so upserting into an
+    // insertion-ordered map keeps the latest commit of each changeSetId with that same tie-break.
+    const byChangeSetId = new Map<string, ProjectionPriorCommittedApplyV1>();
+    for (const entry of committed) {
+      if (entry.files.length === 0) continue;
+      byChangeSetId.set(entry.changeSetId, {
         ...(entry.applyId === undefined || entry.lookupKey === undefined
           ? {}
           : { applyId: entry.applyId as ProjectionPriorCommittedApplyV1["applyId"], lookupKey: entry.lookupKey as ProjectionPriorCommittedApplyV1["lookupKey"] }),
@@ -2945,7 +2954,9 @@ export class ArchctxDaemon {
         changeSetId: entry.changeSetId,
         committedAt: entry.committedAt,
         files: entry.files
-      }))
+      });
+    }
+    const applies: ProjectionPriorCommittedApplyV1[] = [...byChangeSetId.values()]
       .sort((left, right) => left.changeSetId < right.changeSetId ? -1 : left.changeSetId > right.changeSetId ? 1 : 0);
     const issues = applies.length === 0 ? [] : projectionPriorCommittedAppliesIssues(applies, requestId);
     if (issues.length > 0) {
