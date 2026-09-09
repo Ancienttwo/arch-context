@@ -17,6 +17,15 @@
 - `ChangeSetJournalFile.bodyHash` is `digestJson({ body })`, the digest archctx already uses for
   bodies in `assertExpectedHash` and `currentBodyHash`, so the reported hash is directly comparable
   with the `outputDigest` convention a projection result already carries.
+- `changeset_journal` is keyed by `journal_id`, and the protocol changeSetId is derived from the
+  projection digest, so one requestId can legitimately hold two committed rows carrying one
+  changeSetId. The daemon keeps the latest commit of each changeSetId rather than reporting both:
+  an equal changeSetId means an equal projection digest and therefore an equal declared file set,
+  so the collapse is lossless, and reporting both would violate the wire contract's sorted-unique
+  invariant and fail every later run for that requestId permanently.
+- The journal file operation mapping is a closed `ChangeOperationKind` whitelist. Defaulting an
+  unrecognized kind to `write` would assert "this path was written with this body hash" about an
+  operation nobody has reasoned about, which is the claim the caller acts on.
 - Root matching in the journal lookup goes through `canonicalRepositoryRoot`, the same authority the
   runtime uses for repository identity. A raw `resolve()` comparison answered "no earlier attempt
   committed" for a `/var` vs `/private/var` spelling of the same root, which is the exact wrong

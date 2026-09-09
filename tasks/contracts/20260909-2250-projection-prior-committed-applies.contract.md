@@ -143,23 +143,82 @@ delegation:
 exit_criteria:
   files_exist:
     - schemas/runtime/projection-result.schema.json
+    - tests/projection-prior-committed-applies.test.ts
   artifacts_exist:
     - tasks/notes/20260909-2250-projection-prior-committed-applies.notes.md
-  tests_pass:
-    - path: tests/projection-prior-committed-applies.test.ts
-    - path: packages/contracts/test/contracts.test.ts
-    - path: packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts
-  commands_succeed:
-    - bun run typecheck
-    - bun run check:package-boundaries
-# Optional exact-subject reuse is fail-closed and opt-in. List only deterministic
-# criteria whose inputs are fully bound by the frozen subject/toolchain context.
-# criterion_reuse:
-#   tests_pass:
-#     - path/to/deterministic.test.ts
-#   commands_succeed:
-#     - bun test --timeout 60000
+  files_contain:
+    - path: packages/contracts/src/projection.ts
+      text: "projection-prior-committed-applies-v1"
+    - path: packages/contracts/fixtures/valid/archctx-capabilities.json
+      text: "projection-prior-committed-applies-v1"
 ```
+
+## Verification Plan
+
+```json
+{
+  "protocol": 1,
+  "checks": [
+    {
+      "id": "typecheck",
+      "kind": "command",
+      "command": "bun run typecheck",
+      "cwd": ".",
+      "phase": "preflight",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "The change edits a shared contract type consumed by four packages, so type breakage must surface before behavioral checks.",
+      "inputs": { "env": [] }
+    },
+    {
+      "id": "contract-invariants",
+      "kind": "command",
+      "command": "bun test packages/contracts/test/contracts.test.ts --timeout 60000",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Covers the new result field's invariants, its receipt-digest binding and the capabilities handshake.",
+      "inputs": { "env": [] }
+    },
+    {
+      "id": "journal-lookup",
+      "kind": "command",
+      "command": "bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 60000",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Covers the task-session journal lookup, its root and commit-status scoping, the duplicate changeSetId state and the fail-closed parsing.",
+      "inputs": { "env": [] }
+    },
+    {
+      "id": "prior-committed-applies-e2e",
+      "kind": "command",
+      "command": "bun test tests/projection-prior-committed-applies.test.ts --timeout 60000",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Proves the end-to-end behavior this contract exists for: a repeated requestId learns what its killed attempt committed.",
+      "inputs": { "env": [] }
+    },
+    {
+      "id": "package-boundaries",
+      "kind": "command",
+      "command": "bun run check:package-boundaries",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "The change adds a cross-package import from the local store into architecture-domain.",
+      "inputs": { "env": [] }
+    }
+  ]
+}
+```
+
+This is the sole executable verification authority.
 
 ## Acceptance Notes (Human Review)
 

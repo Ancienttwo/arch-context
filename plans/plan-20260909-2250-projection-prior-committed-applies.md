@@ -169,12 +169,12 @@ reporting an incomplete file list.
 
 ## Task Breakdown
 
-- [ ] Contract: `ProjectionPriorCommittedApplyV1`, optional result field, invariants, capabilities feature `projection-prior-committed-applies-v1`, JSON schema and fixture updates
-- [ ] Engine: `ChangeSetJournalFile.bodyHash` recorded by `applyFileOperation`
-- [ ] Store: `listCommittedChangeSetsForTaskSession` over `changeset_journal` joined to `projection_apply_receipts`, fail-closed parsing
-- [ ] Daemon: `listProjectionPriorCommittedApplies` RPC method, client method, dispatch case
-- [ ] CLI: snapshot lookup at the top of `runProjectionProtocolCommand`, thread through every `ProjectionResultV2` construction path, fail closed on lookup failure
-- [ ] Tests: store unit test, CLI same-requestId/different-requestId integration test, capabilities feature test
+- [x] Contract: `ProjectionPriorCommittedApplyV1`, optional result field, invariants, capabilities feature `projection-prior-committed-applies-v1`, JSON schema and fixture updates
+- [x] Engine: `ChangeSetJournalFile.bodyHash` recorded by `applyFileOperation`
+- [x] Store: `listCommittedChangeSetsForTaskSession` over `changeset_journal` joined to `projection_apply_receipts`, fail-closed parsing
+- [x] Daemon: `listProjectionPriorCommittedApplies` RPC method, client method, dispatch case
+- [x] CLI: snapshot lookup at the top of `runProjectionProtocolCommand`, thread through every `ProjectionResultV2` construction path, fail closed on lookup failure
+- [x] Tests: store unit test, CLI same-requestId/different-requestId integration test, capabilities feature test
 
 ## Verification
 
@@ -193,9 +193,9 @@ rules, package version bumps, publishing.
 <!-- [NOTE]: prefixed inline. Claude processes all and revises. -->
 
 ## Task Breakdown
-- [ ] Contract: `ProjectionPriorCommittedApplyV1`, optional result field, invariants, capabilities feature `projection-prior-committed-applies-v1`, JSON schema and fixture updates
-- [ ] Engine: `ChangeSetJournalFile.bodyHash` recorded by `applyFileOperation`
-- [ ] Store: `listCommittedChangeSetsForTaskSession` over `changeset_journal` joined to `projection_apply_receipts`, fail-closed parsing
-- [ ] Daemon: `listProjectionPriorCommittedApplies` RPC method, client method, dispatch case
-- [ ] CLI: snapshot lookup at the top of `runProjectionProtocolCommand`, thread through every `ProjectionResultV2` construction path, fail closed on lookup failure
-- [ ] Tests: store unit test, CLI same-requestId/different-requestId integration test, capabilities feature test
+- [x] Contract: `ProjectionPriorCommittedApplyV1`, optional result field, invariants, capabilities feature `projection-prior-committed-applies-v1`, JSON schema and fixture updates
+- [x] Engine: `ChangeSetJournalFile.bodyHash` recorded by `applyFileOperation`
+- [x] Store: `listCommittedChangeSetsForTaskSession` over `changeset_journal` joined to `projection_apply_receipts`, fail-closed parsing
+- [x] Daemon: `listProjectionPriorCommittedApplies` RPC method, client method, dispatch case
+- [x] CLI: snapshot lookup at the top of `runProjectionProtocolCommand`, thread through every `ProjectionResultV2` construction path, fail closed on lookup failure
+- [x] Tests: store unit test, CLI same-requestId/different-requestId integration test, capabilities feature test
