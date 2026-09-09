@@ -1,7 +1,7 @@
-import type { CrossRepoRelation, Landscape } from "@archcontext/core/architecture-domain";
+import { canonicalRepositoryRoot, type CrossRepoRelation, type Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/changeset-engine";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
 import {
   applyArchitectureLedgerEvidenceEvent,
   applyArchitectureLedgerGraphEvent,
@@ -458,11 +458,11 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]> {
-    const canonicalRoot = resolve(root);
+    const canonicalRoot = canonicalRepositoryRoot(root);
     return [...this.changeSetJournals.entries()]
       .filter(([, record]) =>
         record.status === "committed"
-        && resolve(record.root) === canonicalRoot
+        && canonicalRepositoryRoot(record.root) === canonicalRoot
         && record.draft.reason.taskSessionId === taskSessionId)
       .map(([journalId, record]) => ({
         journalId,

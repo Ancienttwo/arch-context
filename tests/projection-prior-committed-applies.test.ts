@@ -7,7 +7,7 @@ import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint }
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
-import { createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { digestJson, projectionResultInvariantIssues, stableYaml, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { runCli } from "../packages/surfaces/cli/src/main";
@@ -136,6 +136,7 @@ test("a repeated projection request learns what its own killed attempt already c
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
     codeGraphProviderFactory: () => new MockCodeGraphProvider()
   });
+  let rpcServer: ArchctxRuntimeRpcServer | undefined;
   try {
     writeRepoHarnessProfileModel(root);
     await reachCleanProjection(root, daemon);
@@ -186,8 +187,29 @@ test("a repeated projection request learns what its own killed attempt already c
     expect(otherResult.status).toBe("noop");
     expect(otherResult.priorCommittedApplies).toBeUndefined();
     expect(otherResult.receiptDigest).not.toBe(retryResult.receiptDigest);
+
+    // In production the CLI always reaches the daemon over RPC, and an unrouted method degrades to
+    // a generic schema error rather than a type error, so the transport hop is asserted directly.
+    rpcServer = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      token: "prior-committed-applies-token",
+      connectionPath: join(stateRoot(root), "prior-applies-rpc.json"),
+      lockPath: join(stateRoot(root), "prior-applies-rpc.lock")
+    });
+    const connection = await rpcServer.start();
+    const response = await fetch(new URL("rpc", connection.url), {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${connection.token}`,
+        "Content-Type": "application/json",
+        "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION
+      },
+      body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "listProjectionPriorCommittedApplies", params: [root, requestId] })
+    });
+    expect(await response.json()).toMatchObject({ ok: true, data: { applies: [{ requestId, changeSetId: prior![0]!.changeSetId }] } });
   } finally {
-    await daemon.stop();
+    if (rpcServer) await rpcServer.stop();
+    else await daemon.stop();
     if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
     else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
     rmSync(stateRoot(root), { recursive: true, force: true });

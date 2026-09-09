@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   LANDSCAPE_FILE,
+  canonicalRepositoryRoot,
   computeWorktreeDigest,
   landscapeDigest,
   parseCrossRepoRelationFile,
@@ -2276,7 +2277,10 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   async listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]> {
     const db = await this.database();
-    const canonicalRoot = resolve(root);
+    // The journal stores whatever root string its writer passed. Canonicalize both sides through the
+    // same authority the runtime already uses for repository identity so a symlinked or
+    // differently spelled root cannot silently answer "no earlier attempt committed".
+    const canonicalRoot = canonicalRepositoryRoot(root);
     const rows = db.prepare(
       `SELECT journal.journal_id, journal.changeset_id, journal.root, journal.metadata_json, journal.files_json,
               journal.completed_at, journal.updated_at, receipt.apply_id, receipt.lookup_key
@@ -2287,7 +2291,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     ).all();
     const matched: CommittedChangeSetForTaskSession[] = [];
     for (const row of rows) {
-      if (resolve(String(row.root)) !== canonicalRoot) continue;
+      if (canonicalRepositoryRoot(String(row.root)) !== canonicalRoot) continue;
       const journalId = String(row.journal_id);
       if (readChangeSetJournalTaskSessionId(String(row.metadata_json), journalId) !== taskSessionId) continue;
       matched.push({
