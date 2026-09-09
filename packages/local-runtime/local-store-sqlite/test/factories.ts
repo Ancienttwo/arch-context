@@ -1,4 +1,4 @@
-import type { CrossRepoRelation, Landscape } from "@archcontext/core/architecture-domain";
+import { canonicalRepositoryRoot, type CrossRepoRelation, type Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/changeset-engine";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -26,7 +26,7 @@ import {
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
 import { canonicalProjectionReadPlanV1, digestJson, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
-import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
+import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, committedChangeSetFileOperation, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type CommittedChangeSetForTaskSession, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
@@ -43,6 +43,7 @@ export class TestLocalStore implements RuntimeLocalStore {
     draft: ChangeSetDraft;
     files: ChangeSetJournalFile[];
     status: "pending" | "committed" | "aborted" | "recovered";
+    committedAt?: string;
     reason?: string;
     ledger?: {
       plannedEvent?: ArchitectureEventV1;
@@ -453,6 +454,42 @@ export class TestLocalStore implements RuntimeLocalStore {
     const record = this.changeSetJournals.get(journalId);
     if (!record) throw new Error(`ChangeSet journal not found: ${journalId}`);
     record.status = "committed";
+    record.committedAt = new Date().toISOString();
+  }
+
+  async listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]> {
+    const canonicalRoot = canonicalRepositoryRoot(root);
+    return [...this.changeSetJournals.entries()]
+      .filter(([, record]) =>
+        record.status === "committed"
+        && canonicalRepositoryRoot(record.root) === canonicalRoot
+        && record.draft.reason.taskSessionId === taskSessionId)
+      // Same ordering contract as the SQLite store: consumers dedupe a repeated changeSetId by
+      // keeping the last row, so committedAt then journal id must decide the order here too.
+      .sort(([leftId, left], [rightId, right]) =>
+        left.committedAt === right.committedAt
+          ? (leftId < rightId ? -1 : leftId > rightId ? 1 : 0)
+          : String(left.committedAt) < String(right.committedAt) ? -1 : 1)
+      .map(([journalId, record]) => ({
+        journalId,
+        changeSetId: record.draft.id,
+        committedAt: record.committedAt ?? new Date(0).toISOString(),
+        ...(record.projectionApplyReceipt
+          ? { applyId: record.projectionApplyReceipt.identity.applyId, lookupKey: record.projectionApplyReceipt.identity.lookupKey }
+          : {}),
+        files: record.files
+          .map((file) => {
+            if (typeof file.bodyHash !== "string" || file.bodyHash === "") {
+              throw new Error(`changeset-journal-file-body-hash-missing: ${journalId}:${file.path}`);
+            }
+            return {
+              path: file.path,
+              operation: committedChangeSetFileOperation(file.operation, journalId, file.path),
+              hash: file.bodyHash
+            };
+          })
+          .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+      }));
   }
 
   async completeChangeSetCleanup(): Promise<void> {}

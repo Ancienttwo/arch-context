@@ -442,10 +442,62 @@ test("refresh-required signals bind the exact accepted ChangeSet event and taxon
   })).toContain("signal.acceptedChange.reasonCodes must match signal reasonCodes");
 });
 
+test("prior committed applies stay bound to the request, the digest and a both-or-neither recovery identity", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const entry = {
+    applyId: `sha256:${"a".repeat(64)}` as const,
+    lookupKey: `sha256:${"b".repeat(64)}` as const,
+    requestId: valid.requestId,
+    changeSetId: "changeset.docs-projection-0123456789abcdef",
+    committedAt: "2026-09-09T09:29:58.858Z",
+    files: [
+      { path: "docs/architecture/.projection-manifest.json", operation: "write" as const, hash: `sha256:${"c".repeat(64)}` },
+      { path: "docs/architecture/index.md", operation: "delete" as const, hash: "missing" }
+    ]
+  };
+  const withPrior = (priorCommittedApplies: unknown[]) => {
+    const { receiptDigest: _receiptDigest, ...payload } = valid;
+    const withoutReceipt = { ...payload, priorCommittedApplies };
+    const receiptDigest = projectionResultReceiptDigest(withoutReceipt as unknown as Omit<ProjectionResultV2, "receiptDigest">);
+    return {
+      ...withoutReceipt,
+      refreshSignals: withoutReceipt.refreshSignals.map((signal) => ({ ...signal, projectionReceiptDigest: receiptDigest })),
+      receiptDigest
+    } as unknown as ProjectionResultV2;
+  };
+
+  const accepted = withPrior([entry]);
+  expect(projectionResultInvariantIssues(accepted)).toEqual([]);
+  expect(validateJsonSchema(schema as any, accepted as any).valid).toBe(true);
+  // The field is inside the receipt digest, so a consumer that recomputes the digest over the body
+  // it received cannot be handed a silently edited prior-apply claim.
+  expect(accepted.receiptDigest).not.toBe(valid.receiptDigest);
+
+  expect(projectionResultInvariantIssues(withPrior([]))).toContain("priorCommittedApplies must be omitted instead of empty");
+  expect(validateJsonSchema(schema as any, withPrior([]) as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(withPrior([{ ...entry, requestId: "projection_request.other" }])))
+    .toContain("priorCommittedApplies[0].requestId must match the projection result requestId");
+  expect(projectionResultInvariantIssues(withPrior([{ ...entry, lookupKey: undefined }])))
+    .toContain("priorCommittedApplies[0].applyId and lookupKey must be present together or both absent");
+  expect(validateJsonSchema(schema as any, withPrior([{ ...entry, lookupKey: undefined }]) as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(withPrior([{ ...entry, committedAt: "2026-09-09 09:29:58" }])))
+    .toContain("priorCommittedApplies[0].committedAt must be an ISO-8601 UTC instant");
+  expect(projectionResultInvariantIssues(withPrior([{ ...entry, files: [{ ...entry.files[1]!, hash: `sha256:${"c".repeat(64)}` }] }])))
+    .toContain("priorCommittedApplies[0].files[0].hash must be \"missing\" for a delete");
+  expect(projectionResultInvariantIssues(withPrior([{ ...entry, files: [{ ...entry.files[0]!, hash: "missing" }] }])))
+    .toContain("priorCommittedApplies[0].files[0].hash must be a SHA-256 body digest");
+  expect(projectionResultInvariantIssues(withPrior([{ ...entry, files: [] }])))
+    .toContain("priorCommittedApplies[0].files must name at least one committed file");
+  expect(projectionResultInvariantIssues(withPrior([entry, { ...entry, changeSetId: "changeset.aaa" }])))
+    .toContain("priorCommittedApplies.changeSetId must be sorted and unique");
+});
+
 test("capabilities fixture is the exact static handshake advertised by contracts", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
   expect(archctxCapabilities(ARCHCONTEXT_PRODUCT_VERSION)).toEqual(fixture);
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
+  expect(fixture.features).toContain("projection-prior-committed-applies-v1");
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
 });

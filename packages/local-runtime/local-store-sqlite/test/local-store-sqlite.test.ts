@@ -16,7 +16,7 @@ import {
   replayArchitectureLedgerEvents
 } from "@archcontext/core/architecture-ledger";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { canonicalProjectionReadPlanV1, createProjectionApplyIdentity, digestJson, projectionApplyRecoveryProofDigest, projectionResultReceiptDigest, type AgentJobV1, type ArchitectureEventV1, type ArchitectureRefreshSignalV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { canonicalProjectionReadPlanV1, createProjectionApplyIdentity, digestJson, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, projectionResultReceiptDigest, type AgentJobV1, type ArchitectureEventV1, type ArchitectureRefreshSignalV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
   DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY,
@@ -2139,7 +2139,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         tempPath,
         backupPath,
         existed: true,
-        operation: "update_entity_fields"
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: original })
       });
       renameSync(absolutePath, backupPath);
       writeFileSync(tempPath, "partial write", "utf8");
@@ -2200,7 +2201,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         tempPath,
         backupPath,
         existed: true,
-        operation: "update_entity_fields"
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: original })
       });
       first.close();
 
@@ -2235,7 +2237,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         tempPath,
         backupPath,
         existed: true,
-        operation: "update_entity_fields"
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: "schemaVersion: archcontext.policy/v1\nid: policy.final\n" })
       });
       await first.commitChangeSet(journalId);
       first.close();
@@ -2345,7 +2348,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         tempPath,
         backupPath,
         existed: true,
-        operation: "update_entity_fields"
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: original })
       });
       const event = architectureLedgerEvent(42);
       await first.recordChangeSetLedgerPlan(journalId, { event });
@@ -3482,6 +3486,142 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(graphSubjects).toContainEqual({ authorityClass: "architecture-fact", subjectKind: "subject", subjectId, operation: "reference" });
     }
     expect(graphSubjects).toContainEqual({ authorityClass: "architecture-fact", subjectKind: "relation", subjectId: "rel.api", operation: "delete" });
+  });
+
+  test("committed changeset lookup is scoped by task session, root and commit status", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-task-session-journal-"));
+    const otherRoot = mkdtempSync(join(tmpdir(), "archctx-task-session-other-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const draftFor = (id: string, taskSessionId: string) => ({
+        ...changeSetDraft(id, "docs/architecture/.projection-manifest.json"),
+        reason: { taskSessionId }
+      });
+      const manifestFile = (bodyHash: string) => ({
+        path: "docs/architecture/.projection-manifest.json",
+        existed: true,
+        operation: "render_projection" as const,
+        bodyHash
+      });
+
+      const matching = await store.beginChangeSet(root, draftFor("changeset.matching", "repo-harness.projection.job-1"));
+      await store.recordChangeSetFile(matching, manifestFile(digestJson({ body: "manifest" })));
+      await store.recordChangeSetFile(matching, { path: "docs/architecture/index.md", existed: false, operation: "delete_entity", bodyHash: "missing" });
+      await store.commitChangeSet(matching);
+
+      const pending = await store.beginChangeSet(root, draftFor("changeset.pending", "repo-harness.projection.job-1"));
+      await store.recordChangeSetFile(pending, manifestFile(digestJson({ body: "pending" })));
+
+      const otherSession = await store.beginChangeSet(root, draftFor("changeset.other-session", "repo-harness.projection.job-2"));
+      await store.recordChangeSetFile(otherSession, manifestFile(digestJson({ body: "other-session" })));
+      await store.commitChangeSet(otherSession);
+
+      const otherRepository = await store.beginChangeSet(otherRoot, draftFor("changeset.other-root", "repo-harness.projection.job-1"));
+      await store.recordChangeSetFile(otherRepository, manifestFile(digestJson({ body: "other-root" })));
+      await store.commitChangeSet(otherRepository);
+
+      const found = await store.listCommittedChangeSetsForTaskSession(root, "repo-harness.projection.job-1");
+      expect(found.map((entry) => entry.changeSetId)).toEqual(["changeset.matching"]);
+      expect(found[0]!.journalId).toBe(matching);
+      expect(found[0]!.applyId).toBeUndefined();
+      expect(found[0]!.lookupKey).toBeUndefined();
+      expect(Date.parse(found[0]!.committedAt)).toBeGreaterThan(0);
+      expect(found[0]!.files).toEqual([
+        { path: "docs/architecture/.projection-manifest.json", operation: "write", hash: digestJson({ body: "manifest" }) },
+        { path: "docs/architecture/index.md", operation: "delete", hash: "missing" }
+      ]);
+      expect(await store.listCommittedChangeSetsForTaskSession(root, "repo-harness.projection.job-3")).toEqual([]);
+      expect((await store.listCommittedChangeSetsForTaskSession(otherRoot, "repo-harness.projection.job-1")).map((entry) => entry.changeSetId))
+        .toEqual(["changeset.other-root"]);
+
+      const database = new Database(join(root, "runtime.sqlite"));
+      database.query("UPDATE changeset_journal SET files_json = ? WHERE journal_id = ?")
+        .run(JSON.stringify([{ path: "docs/architecture/.projection-manifest.json", existed: true, operation: "render_projection" }]), matching);
+      database.close();
+      await expect(store.listCommittedChangeSetsForTaskSession(root, "repo-harness.projection.job-1"))
+        .rejects.toThrow(/changeset-journal-file-body-hash-missing/);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+      rmSync(otherRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("one task session can commit the same changeSetId twice, which the wire contract alone rejects", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-task-session-duplicate-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const taskSessionId = "repo-harness.projection.job-retried";
+      // The protocol changeSetId is derived from the projection digest, so a killed attempt and its
+      // retry commit two journal rows (journal_id is the primary key) carrying one changeSetId.
+      for (const body of ["first attempt", "second attempt"]) {
+        const journalId = await store.beginChangeSet(root, {
+          ...changeSetDraft("changeset.docs-projection-0123456789abcdef", "docs/architecture/.projection-manifest.json"),
+          reason: { taskSessionId }
+        });
+        await store.recordChangeSetFile(journalId, {
+          path: "docs/architecture/.projection-manifest.json",
+          existed: true,
+          operation: "render_projection",
+          bodyHash: digestJson({ body })
+        });
+        await store.commitChangeSet(journalId);
+      }
+
+      const rows = await store.listCommittedChangeSetsForTaskSession(root, taskSessionId);
+      expect(rows).toHaveLength(2);
+      expect(new Set(rows.map((entry) => entry.changeSetId)).size).toBe(1);
+      expect(new Set(rows.map((entry) => entry.journalId)).size).toBe(2);
+      // Reporting both rows verbatim is what fails: the result contract requires sorted-unique
+      // changeSetIds, so an undeduped mapping would make every later run for this requestId invalid.
+      expect(projectionPriorCommittedAppliesIssues(
+        rows.map((entry) => ({ requestId: taskSessionId, changeSetId: entry.changeSetId, committedAt: entry.committedAt, files: entry.files })),
+        taskSessionId
+      )).toContain("priorCommittedApplies.changeSetId must be sorted and unique");
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("committed changeset lookup rejects a journal file operation outside the change operation vocabulary", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-task-session-operation-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const journalId = await store.beginChangeSet(root, {
+        ...changeSetDraft("changeset.unknown-operation", "docs/architecture/.projection-manifest.json"),
+        reason: { taskSessionId: "repo-harness.projection.job-operation" }
+      });
+      await store.recordChangeSetFile(journalId, {
+        path: "docs/architecture/.projection-manifest.json",
+        existed: true,
+        operation: "render_projection",
+        bodyHash: digestJson({ body: "manifest" })
+      });
+      await store.commitChangeSet(journalId);
+      expect(await store.listCommittedChangeSetsForTaskSession(root, "repo-harness.projection.job-operation")).toHaveLength(1);
+
+      const database = new Database(dbPath);
+      database.query("UPDATE changeset_journal SET files_json = ? WHERE journal_id = ?").run(
+        JSON.stringify([{
+          path: "docs/architecture/.projection-manifest.json",
+          existed: true,
+          operation: "transmute_entity",
+          bodyHash: digestJson({ body: "manifest" })
+        }]),
+        journalId
+      );
+      database.close();
+      await expect(store.listCommittedChangeSetsForTaskSession(root, "repo-harness.projection.job-operation"))
+        .rejects.toThrow(/changeset-journal-file-malformed:.*transmute_entity/);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

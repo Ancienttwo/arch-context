@@ -111,6 +111,13 @@ export interface ChangeSetJournalFile {
   backupPath?: string;
   existed: boolean;
   operation: ChangeOperationKind;
+  /**
+   * `digestJson({ body })` of the bytes this operation wrote, or `"missing"` for a delete. The
+   * journal is the only durable record of what a committed ChangeSet actually wrote: the draft
+   * metadata keeps `expectedHash` (the preimage) and drops projection bodies entirely, so without
+   * this a later reader cannot name the committed content.
+   */
+  bodyHash: string;
 }
 
 export interface ChangeSetJournalPort {
@@ -354,7 +361,8 @@ export class ChangeSetEngine {
         tempPath,
         backupPath,
         existed,
-        operation
+        operation,
+        bodyHash: operation === "delete_entity" ? "missing" : digestJson({ body })
       });
     }
     backups.push(backup);

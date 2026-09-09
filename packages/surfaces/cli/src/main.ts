@@ -3,8 +3,8 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, archctxCapabilities, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2, Sha256Digest } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, archctxCapabilities, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2, Sha256Digest } from "@archcontext/contracts";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -1285,7 +1285,8 @@ async function runArchitectureDocsAdoptionCommand(
   projection: ReturnType<typeof buildArchitectureDocsProjection>,
   profile: ArchitectureProjectionProfile,
   generatedAt: string,
-  protocolRequest?: ProjectionRequestV1
+  protocolRequest?: ProjectionRequestV1,
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = []
 ) {
   if (profile !== REPO_HARNESS_PROJECTION_PROFILE) {
     return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", `docs adopt requires --profile ${REPO_HARNESS_PROJECTION_PROFILE}`);
@@ -1336,7 +1337,7 @@ async function runArchitectureDocsAdoptionCommand(
     return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", `projection-adoption-fixed-point-unproven: drift=${drift}; rejected=${reasons}; digest=${canonical.plan.projectionDigest === canonicalFirst.plan.projectionDigest ? "stable" : "changed"}`);
   }
   if (protocolRequest) {
-    return applyProjectionProtocolFixedPoint(protocolRequest, projection, canonical, adoption.changeSetId, root, daemon);
+    return applyProjectionProtocolFixedPoint(protocolRequest, projection, canonical, adoption.changeSetId, root, daemon, priorCommittedApplies);
   }
   const filesByPath = new Map<string, { path: string; body: string }>();
   for (const file of canonical.files) filesByPath.set(file.path, file);
@@ -1364,7 +1365,8 @@ async function applyProjectionProtocolFixedPoint(
   fixedPoint: ReturnType<typeof buildArchitectureDocsProjection>,
   changeSetId: string,
   root: string,
-  daemon: RuntimeDaemonClient
+  daemon: RuntimeDaemonClient,
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[]
 ): Promise<JsonEnvelope> {
   const committedFiles = projectionProtocolFilesForExpectedOutput(root, fixedPoint);
   const committedSignals = request.acceptedChange
@@ -1387,7 +1389,7 @@ async function applyProjectionProtocolFixedPoint(
   const appliedResult = projectionProtocolResult(request, input, "applied", fixedPoint, applyIdentity, {
     files: committedFiles,
     refreshSignals: committedSignals
-  });
+  }, priorCommittedApplies);
   let recoveryBinding: ProjectionApplyRecoveryBindingV1 | undefined;
   if (applyIdentity) {
     try {
@@ -1485,6 +1487,18 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, daemon:
 
   const root = findRepositoryRoot(cwd);
   const generatedAt = new Date(0).toISOString();
+  // Snapshot the journal before this command can write anything: whatever is committed under this
+  // requestId now belongs to an earlier attempt by construction, so no changeSetId comparison is
+  // needed against this run's own commit (the protocol changeSetId is derived from the projection
+  // digest and repeats across attempts of the same request).
+  let priorCommittedApplies: ProjectionPriorCommittedApplyV1[];
+  try {
+    const listed = await daemon.listProjectionPriorCommittedApplies(root, request.requestId);
+    if (!listed.ok) return listed;
+    priorCommittedApplies = parseProjectionPriorCommittedApplies(listed.data, request.requestId);
+  } catch (error) {
+    return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `projection prior committed apply lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
   if (request.mode === "apply" && request.acceptedChange) {
     try {
       assertProjectionExpectedSnapshotAgainstModel(request, root, loadNativeModelFromArchContext(root));
@@ -1510,7 +1524,7 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, daemon:
   }
 
   const blocked = projectionProtocolHumanStatus(request, projection);
-  if (blocked) return projectionProtocolEnvelope(request, projection, blocked);
+  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies);
 
   if (request.mode === "adopt") {
     const expectedWorktreeDigest = computeWorktreeDigest(root);
@@ -1521,7 +1535,7 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, daemon:
       "--adoption-plan-id", request.adoptionPlanId!,
       "--expected-worktree-digest", expectedWorktreeDigest,
       "--task-session-id", request.requestId
-    ], root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request);
+    ], root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request, priorCommittedApplies);
     if (!adopted.ok) return adopted;
     return adopted;
   }
@@ -1547,11 +1561,22 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, daemon:
     } catch (error) {
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
     }
-    return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, changeSetId, root, daemon);
+    return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, changeSetId, root, daemon, priorCommittedApplies);
   }
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
-  return projectionProtocolEnvelope(request, projection, status);
+  return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies);
+}
+
+/** Strict decoder for the daemon reply; an unreadable answer must fail the run, never omit the field. */
+function parseProjectionPriorCommittedApplies(value: unknown, requestId: string): ProjectionPriorCommittedApplyV1[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("prior committed apply reply must be an object");
+  const applies = (value as { applies?: unknown }).applies;
+  if (!Array.isArray(applies)) throw new Error("prior committed apply reply must carry an applies array");
+  if (applies.length === 0) return [];
+  const issues = projectionPriorCommittedAppliesIssues(applies as ProjectionPriorCommittedApplyV1[], requestId);
+  if (issues.length > 0) throw new Error(`prior committed apply invariant failed: ${issues.join("; ")}`);
+  return applies as ProjectionPriorCommittedApplyV1[];
 }
 
 /**
@@ -1761,9 +1786,10 @@ function projectionProtocolEnvelope(
   request: ProjectionRequestV1,
   input: ReturnType<typeof buildArchitectureDocsProjection>,
   status: ProjectionResultV2["status"],
-  output: ReturnType<typeof buildArchitectureDocsProjection> = input
+  output: ReturnType<typeof buildArchitectureDocsProjection>,
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[]
 ): JsonEnvelope {
-  return projectionProtocolResultEnvelope(projectionProtocolResult(request, input, status, output));
+  return projectionProtocolResultEnvelope(projectionProtocolResult(request, input, status, output, undefined, undefined, priorCommittedApplies));
 }
 
 function projectionProtocolResult(
@@ -1775,7 +1801,8 @@ function projectionProtocolResult(
   overrides?: {
     files: ProjectionResultV2["files"];
     refreshSignals: ArchitectureRefreshSignalV1[];
-  }
+  },
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = []
 ): ProjectionResultV2 {
   const inputSnapshot = projectionProtocolSnapshot(request, input.plan.provenance);
   const outputSnapshot = projectionProtocolSnapshot(request, output.plan.provenance);
@@ -1806,7 +1833,8 @@ function projectionProtocolResult(
     files,
     humanActions,
     refreshSignals,
-    ...(applyReceipt ? { applyReceipt } : {})
+    ...(applyReceipt ? { applyReceipt } : {}),
+    ...(priorCommittedApplies.length > 0 ? { priorCommittedApplies } : {})
   };
   const receiptDigest = projectionResultReceiptDigest(withoutReceipt);
   const result: ProjectionResultV2 = {
