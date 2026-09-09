@@ -8,14 +8,15 @@
 > **Last Updated**: 2026-09-09 23:30
 > **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: sha256:91c4763c8df4c1cd956b8ce968f85360156522868235eaec60af5928bc743fa4
+> **Reviewed Subject SHA256**: sha256:07277b9b0c357d93446a5bab77b993405838543bce9465d648a02c161924011a
 > **Reviewed Subject Scope**: substantive-change-diff
 > **Reviewed Target Revision**: 7ab6a994b506cad9b5a135777bf742724516c3c4
-> **Substantive Change SHA256**: `sha256:91c4763c8df4c1cd956b8ce968f85360156522868235eaec60af5928bc743fa4`
+> **Substantive Change SHA256**: `sha256:07277b9b0c357d93446a5bab77b993405838543bce9465d648a02c161924011a`
 
 The subject digest above is the substantive-change digest emitted by
 `REPO_HARNESS_DIFF_BASE=origin/main REPO_HARNESS_DIFF_MODE=merge-base repo-harness run check-task-sync`
-at revision `7ab6a99`. The scope is labelled for what it is rather than as
+for this branch's substantive diff against `origin/main`; the substantive paths have been frozen
+since `7ab6a99`, which is the target revision recorded above. The scope is labelled for what it is rather than as
 `normalized-final-content`, because no acceptance run has produced that digest for this
 subject; see the Acceptance Receipt Projection below.
 
