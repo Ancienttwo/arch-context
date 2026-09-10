@@ -105,7 +105,7 @@
     },
     "windowsFixtureDelta": {
       "previousRun": 34467186132,
-      "status": "awaiting-exact-head-ci",
+      "status": "pass",
       "cases": 2,
       "assertionsPreserved": 26,
       "timeoutMilliseconds": 15000,
@@ -115,7 +115,19 @@
       },
       "localBeforeMilliseconds": 2020,
       "localAfterMilliseconds": 1306,
-      "timingLimit": "Local single samples do not prove Windows timing; new Required CI is mandatory."
+      "timingLimit": "Local single samples do not prove Windows timing; new Required CI is mandatory.",
+      "requiredCI": {
+        "runId": 34476248680,
+        "commit": "d11624db12b13b1279324c956664aee7f1df622e",
+        "jobsPassed": 10
+      }
+    },
+    "acceptance": {
+      "disposition": "user_waiver",
+      "sourceCandidate": "d11624db12b13b1279324c956664aee7f1df622e",
+      "preparedRun": "run-20260910T202110-30411-20260910-2016-release-closeout-0-5-10",
+      "finalVerification": "pass",
+      "archivedPlan": "plans/archive/plan-20260910-2016-release-closeout-0-5-10.md"
     }
   }
 }

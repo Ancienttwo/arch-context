@@ -1,6 +1,16 @@
+> **Archived**: 2026-09-10 20:36
+> **Related Plan**: plans/archive/plan-20260910-2016-release-closeout-0-5-10.md
+> **Outcome**: Completed
+> **Lifecycle**: plan
+> **Parent Run ID**: run-20260910-2036
+> **Archive Projection V1**: `plans/plan-20260910-2016-release-closeout-0-5-10.md` => `plans/archive/plan-20260910-2016-release-closeout-0-5-10.md`
+> **Archive Projection V1**: `tasks/notes/20260910-2016-release-closeout-0-5-10.notes.md` => `tasks/archive/notes-20260910-2036-release-closeout-0-5-10.md`
+> **Archive Projection V1**: `tasks/contracts/20260910-2016-release-closeout-0-5-10.contract.md` => `tasks/archive/contract-20260910-2036-release-closeout-0-5-10.md`
+> **Archive Projection V1**: `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md` => `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md`
+
 # Plan: Complete 0.5.10 release records and Windows fixture verification
 
-> **Status**: Executing
+> **Status**: Archived
 > **Substantive Change SHA256**: `sha256:2ac16e1356998538dc05e20ba2e2686f326d6911c649cc0719b3ff02838458e1`
 > **Created**: 20260910-2016
 > **Slug**: release-closeout-0-5-10
@@ -13,9 +23,9 @@
 > **Rollback Surface**: Revert bounded fixture and workflow delta without changing published package bytes
 > **Spec**: `docs/spec.md`
 > **Research**: See `docs/researches/`
-> **Task Contract**: `tasks/contracts/20260910-2016-release-closeout-0-5-10.contract.md`
-> **Task Review**: `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md`
-> **Implementation Notes**: `tasks/notes/20260910-2016-release-closeout-0-5-10.notes.md`
+> **Task Contract**: `tasks/archive/contract-20260910-2036-release-closeout-0-5-10.md`
+> **Task Review**: `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md`
+> **Implementation Notes**: `tasks/archive/notes-20260910-2036-release-closeout-0-5-10.md`
 
 ## Agentic Routing
 - Selected route: planning
@@ -29,16 +39,16 @@
 ## Workflow Inventory
 Complete this inventory before implementation. If any line is unknown, keep the plan in Draft and fill it before projection.
 
-- Active plan: `plans/plan-20260910-2016-release-closeout-0-5-10.md`
-- Sprint contract: `tasks/contracts/20260910-2016-release-closeout-0-5-10.contract.md`
-- Sprint review: `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md`
-- Implementation notes: `tasks/notes/20260910-2016-release-closeout-0-5-10.notes.md`
+- Active plan: `plans/archive/plan-20260910-2016-release-closeout-0-5-10.md`
+- Sprint contract: `tasks/archive/contract-20260910-2036-release-closeout-0-5-10.md`
+- Sprint review: `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md`
+- Implementation notes: `tasks/archive/notes-20260910-2036-release-closeout-0-5-10.md`
 - Deferred-goal ledger: `tasks/todos.md`
 - Current checks: `.ai/harness/checks/latest.json`
 - Run snapshots: `.ai/harness/runs/`
-- Scope authority: `tasks/contracts/20260910-2016-release-closeout-0-5-10.contract.md` `allowed_paths`
+- Scope authority: `tasks/archive/contract-20260910-2036-release-closeout-0-5-10.md` `allowed_paths`
 - Concurrency rule: `.ai/harness/active-plan` selects the active plan for this worktree when present; `.ai/harness/active-worktree` records the owning worktree. If another worktree already owns active work, open or switch to the matching worktree instead of serializing unrelated plans.
-- Execution isolation: approved contract-level work projects through `repo-harness run plan-to-todo --plan plans/plan-20260910-2016-release-closeout-0-5-10.md` and may start `repo-harness run contract-worktree start --plan plans/plan-20260910-2016-release-closeout-0-5-10.md`.
+- Execution isolation: approved contract-level work projects through `repo-harness run plan-to-todo --plan plans/archive/plan-20260910-2016-release-closeout-0-5-10.md` and may start `repo-harness run contract-worktree start --plan plans/archive/plan-20260910-2016-release-closeout-0-5-10.md`.
 
 ## Approach
 ### Strategy
@@ -67,11 +77,11 @@ See captured planning output.
 | Captured plan lacks enough detail | Medium | Execution may need clarification | Stop before implementation if the captured output contradicts repo rules or lacks concrete file targets |
 
 ## Task Contracts
-- Contract file: `tasks/contracts/20260910-2016-release-closeout-0-5-10.contract.md`
-- Review file: `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md`
-- Implementation notes file: `tasks/notes/20260910-2016-release-closeout-0-5-10.notes.md`
+- Contract file: `tasks/archive/contract-20260910-2036-release-closeout-0-5-10.md`
+- Review file: `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md`
+- Implementation notes file: `tasks/archive/notes-20260910-2036-release-closeout-0-5-10.md`
 - Template: `.claude/templates/contract.template.md`
-- Verification command: `repo-harness run verify-contract --contract tasks/contracts/20260910-2016-release-closeout-0-5-10.contract.md --strict`
+- Verification command: `repo-harness run verify-contract --contract tasks/archive/contract-20260910-2036-release-closeout-0-5-10.md --strict`
 - Active plan rule: this captured plan is written to `.ai/harness/active-plan` and the owning worktree is written to `.ai/harness/active-worktree` unless --no-active is used. Do not infer active execution from the latest non-archived plan.
 
 ## Handoff
@@ -81,18 +91,18 @@ See captured planning output.
 
 ## Promotion Gate
 
-- **Merge/PR unit**: Captured plan `plans/plan-20260910-2016-release-closeout-0-5-10.md` is the proposed mergeable execution unit; revise before execute if this is only a checklist step.
+- **Merge/PR unit**: Captured plan `plans/archive/plan-20260910-2016-release-closeout-0-5-10.md` is the proposed mergeable execution unit; revise before execute if this is only a checklist step.
 - **Rollback surface**: Revert bounded fixture and workflow delta without changing published package bytes
 - **Verification boundary**: Exact-head Windows CI plus stable-identity sprint migration readback
-- **Review/acceptance boundary**: `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md` must record pass against the captured acceptance criteria.
+- **Review/acceptance boundary**: `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md` must record pass against the captured acceptance criteria.
 - **High-risk surface**: Risks named in captured planning output; keep the plan Draft if risk ownership is not concrete.
 - **Why not checklist row**: verification_boundary
 
 ## Evidence Contract
 
-- **State/progress path**: `plans/plan-20260910-2016-release-closeout-0-5-10.md` task breakdown, `tasks/todos.md` deferred-goal ledger, `tasks/contracts/20260910-2016-release-closeout-0-5-10.contract.md`, `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md`, and `tasks/notes/20260910-2016-release-closeout-0-5-10.notes.md`
+- **State/progress path**: `plans/archive/plan-20260910-2016-release-closeout-0-5-10.md` task breakdown, `tasks/todos.md` deferred-goal ledger, `tasks/archive/contract-20260910-2036-release-closeout-0-5-10.md`, `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md`, and `tasks/archive/notes-20260910-2036-release-closeout-0-5-10.md`
 - **Verification evidence**: `.ai/harness/checks/latest.json`, `.ai/harness/runs/`, and the commands named in the captured planning output
-- **Evaluator rubric**: `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md` must record a passing Waza /check style recommendation
+- **Evaluator rubric**: `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md` must record a passing Waza /check style recommendation
 - **Stop condition**: all task breakdown items are complete, sprint verification passes, and the review recommends pass
 - **Rollback surface**: Revert bounded fixture and workflow delta without changing published package bytes
 

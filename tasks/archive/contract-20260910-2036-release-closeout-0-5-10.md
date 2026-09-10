@@ -1,14 +1,24 @@
+> **Archived**: 2026-09-10 20:36
+> **Related Plan**: plans/archive/plan-20260910-2016-release-closeout-0-5-10.md
+> **Outcome**: Completed
+> **Lifecycle**: contract
+> **Parent Run ID**: run-20260910-2036
+> **Archive Projection V1**: `plans/plan-20260910-2016-release-closeout-0-5-10.md` => `plans/archive/plan-20260910-2016-release-closeout-0-5-10.md`
+> **Archive Projection V1**: `tasks/notes/20260910-2016-release-closeout-0-5-10.notes.md` => `tasks/archive/notes-20260910-2036-release-closeout-0-5-10.md`
+> **Archive Projection V1**: `tasks/contracts/20260910-2016-release-closeout-0-5-10.contract.md` => `tasks/archive/contract-20260910-2036-release-closeout-0-5-10.md`
+> **Archive Projection V1**: `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md` => `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md`
+
 # Task Contract: release-closeout-0-5-10
 
-> **Status**: Active
-> **Plan**: plans/plan-20260910-2016-release-closeout-0-5-10.md
+> **Status**: Fulfilled
+> **Plan**: plans/archive/plan-20260910-2016-release-closeout-0-5-10.md
 > **Task Profile**: code-change
 > <!-- legal values: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | bugfix (omit for legacy passthrough); see docs/reference-configs/sprint-contracts.md -->
 > **Owner**: ancienttwo
 > **Capability ID**: root
 > **Last Updated**: 2026-09-10 20:16
-> **Review File**: `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md`
-> **Notes File**: `tasks/notes/20260910-2016-release-closeout-0-5-10.notes.md`
+> **Review File**: `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md`
+> **Notes File**: `tasks/archive/notes-20260910-2036-release-closeout-0-5-10.md`
 > **Exemplar**: `docs/reference-configs/contract-brief-example.md`
 
 ## Why
@@ -43,10 +53,10 @@ Any changed protocol or lockfile assertion, altered task status or identity, or 
 
 ## Workflow Inventory
 
-- Source plan: `plans/plan-20260910-2016-release-closeout-0-5-10.md`
+- Source plan: `plans/archive/plan-20260910-2016-release-closeout-0-5-10.md`
 - Deferred-goal ledger: `tasks/todos.md`
-- Review file: `tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md`
-- Notes file: `tasks/notes/20260910-2016-release-closeout-0-5-10.notes.md`
+- Review file: `tasks/archive/review-20260910-2036-release-closeout-0-5-10.md`
+- Notes file: `tasks/archive/notes-20260910-2036-release-closeout-0-5-10.md`
 - Checks file: `.ai/harness/checks/latest.json`
 - Run snapshots: `.ai/harness/runs/`
 - Scope gate: edit only paths listed under `allowed_paths`; update this contract before widening scope.

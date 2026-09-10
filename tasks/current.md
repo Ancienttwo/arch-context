@@ -1,13 +1,13 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-09-10T18:32:58+0800 -->
+<!-- updated_at: 2026-09-10T20:36:48+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: ManualClearedWithActiveWork
-> **Updated At**: 2026-09-10T18:32:58+0800
-> **Source Branch**: codex/projection-journal-read
-> **Source Commit**: 6d6679d
+> **Updated At**: 2026-09-10T20:36:48+0800
+> **Source Branch**: codex/release-record-0-5-10
+> **Source Commit**: d11624d
 > **Target Branch**: main
 > **Stale After**: 24h
 > **Reason**: archive-workflow
@@ -46,16 +46,16 @@ This file is an ignored local read model derived from this worktree's artifacts.
 - Summary: 10 changed/untracked path(s)
 
 ```
- D plans/plan-20260910-1639-projection-journal-read.md
- D tasks/contracts/20260910-1639-projection-journal-read.contract.md
- D tasks/notes/20260910-1639-projection-journal-read.notes.md
- D tasks/reviews/20260910-1639-projection-journal-read.review.md
+ D plans/plan-20260910-2016-release-closeout-0-5-10.md
+ D tasks/contracts/20260910-2016-release-closeout-0-5-10.contract.md
+ D tasks/notes/20260910-2016-release-closeout-0-5-10.notes.md
+ D tasks/reviews/20260910-2016-release-closeout-0-5-10.review.md
  M tasks/todos.md
-?? plans/archive/plan-20260910-1639-projection-journal-read.md
-?? tasks/archive/contract-20260910-1832-projection-journal-read.md
-?? tasks/archive/notes-20260910-1832-projection-journal-read.md
-?? tasks/archive/review-20260910-1832-projection-journal-read.md
-?? tasks/archive/todo-20260910-1832-projection-journal-read.md
+?? plans/archive/plan-20260910-2016-release-closeout-0-5-10.md
+?? tasks/archive/contract-20260910-2036-release-closeout-0-5-10.md
+?? tasks/archive/notes-20260910-2036-release-closeout-0-5-10.md
+?? tasks/archive/review-20260910-2036-release-closeout-0-5-10.md
+?? tasks/archive/todo-20260910-2036-release-closeout-0-5-10.md
 ```
 
 ## Source Artifacts
