@@ -98,8 +98,24 @@
     "architectureSync": "pass",
     "taskSync": "pass",
     "strictTaskWorkflow": {
-      "status": "blocked",
-      "reason": "Existing plans/sprints/20260902-2336-refactor-instrumentation-resolution-ledger.sprint.md lacks schema v2 task IDs required by the currently installed repo-harness. No sprint migration is part of this release-record delta."
+      "status": "pass",
+      "migrationReceipt": "plans/sprints/20260902-2336-refactor-instrumentation-resolution-ledger.schema-migration.v1.json",
+      "taskIdentitiesPreserved": 10,
+      "completedLeasesReconciled": 7
+    },
+    "windowsFixtureDelta": {
+      "previousRun": 34467186132,
+      "status": "awaiting-exact-head-ci",
+      "cases": 2,
+      "assertionsPreserved": 26,
+      "timeoutMilliseconds": 15000,
+      "daemonStartsPerCase": {
+        "before": 5,
+        "after": 1
+      },
+      "localBeforeMilliseconds": 2020,
+      "localAfterMilliseconds": 1306,
+      "timingLimit": "Local single samples do not prove Windows timing; new Required CI is mandatory."
     }
   }
 }
