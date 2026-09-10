@@ -197,14 +197,21 @@ exit_criteria:
       "command": "bun run verify:governance",
       "cwd": ".",
       "phase": "verification",
-      "cost": "normal",
-      "evidence_policy": "current_exact",
-      "necessity": "Version-derived deterministic governance readbacks must match 0.5.10.",
+      "cost": "expensive",
+      "evidence_policy": "baseline_with_delta",
+      "necessity": "Version-derived deterministic governance readbacks must match 0.5.10. Preserve the successful dd054768 baseline; only the public guide and release/workflow records changed afterward, checked by release-doc-delta.",
       "inputs": {
         "env": [
           "PATH"
         ]
-      }
+      },
+      "baseline": {
+        "run_file": ".ai/harness/runs/verification-vx-bc74c8984926476aaded.json",
+        "execution_id": "vx-bc74c8984926476aaded"
+      },
+      "delta_checks": [
+        "release-doc-delta"
+      ]
     },
     {
       "id": "release-tarballs",
@@ -228,8 +235,43 @@ exit_criteria:
       "cwd": ".",
       "phase": "verification",
       "cost": "expensive",
+      "evidence_policy": "baseline_with_delta",
+      "necessity": "Verify CLI, daemon, MCP, packaged assets and lifecycle from the Node-installed 0.5.10 tarball; source tests do not prove package contents. Preserve the successful dd054768 baseline; only the public guide and release/workflow records changed afterward, checked by release-doc-delta.",
+      "inputs": {
+        "env": [
+          "PATH"
+        ]
+      },
+      "baseline": {
+        "run_file": ".ai/harness/runs/verification-vx-74048205de4240fc9975.json",
+        "execution_id": "vx-74048205de4240fc9975"
+      },
+      "delta_checks": [
+        "release-doc-delta"
+      ]
+    },
+    {
+      "id": "release-doc-delta",
+      "kind": "command",
+      "command": "git diff --exit-code dd0547686634304752c74f5e11e8c10b753da23e -- . ':!docs/runbooks/personal-user-install.md' ':!tasks/**' ':!plans/**' ':!docs/verification/archctx-0.5.10-release.json' && git diff --exit-code e4a3a56640155bf9889b2dbb02754774035493b4 -- docs/runbooks/personal-user-install.md",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
       "evidence_policy": "current_exact",
-      "necessity": "Verify CLI, daemon, MCP, packaged assets and lifecycle from the Node-installed 0.5.10 tarball; source tests do not prove package contents.",
+      "necessity": "Prove candidate code, version manifests, generated product assets and test inputs remain byte-identical to the passing release baseline, and the installation guide retains the currently published 0.5.9 instructions.",
+      "inputs": {
+        "env": []
+      }
+    },
+    {
+      "id": "migration-packaging",
+      "kind": "command",
+      "command": "bun scripts/architecture-ledger-al10-release-packaging-readback.ts run --out artifacts/release-0.5.10/migration-packaging.json --report artifacts/release-0.5.10/migration-packaging.md --json",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Verify the official tarball contains ledger runtime/migration support and passes the existing migration matrix.",
       "inputs": {
         "env": [
           "PATH"
@@ -253,3 +295,7 @@ exit_criteria:
 
 - Commit / checkpoint: e4a3a56640155bf9889b2dbb02754774035493b4.
 - Revert strategy: revert only the runtime/test change; no runtime data migration.
+
+## Release evidence delta
+
+Baseline dd054768 passed all six checks in run-20260910T175146-81774, including full verify:governance (342551 ms) and installed-product smoke (22129 ms). The only post-baseline correction restores the public install guide to verified 0.5.9 pending registry publication; release records and workflow evidence reflect the actual candidate state. No package input or product behavior changes. Baseline_with_delta retains expensive evidence without claiming a full-suite pass for the newer documentation subject. Hosted Required CI still runs for the new PR head.

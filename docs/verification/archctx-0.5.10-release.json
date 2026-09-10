@@ -4,14 +4,27 @@
   "baseCommit": "e4a3a56640155bf9889b2dbb02754774035493b4",
   "scope": "Historical projection journal lookup no longer initializes a repository session or hashes workspace content.",
   "checks": {
-    "journalRegression": "pending for versioned candidate",
-    "releaseTarballs": "pending",
-    "installedRuntime": "pending",
-    "requiredCI": "pending"
+    "localAcceptanceBaseline": {
+      "status": "pass",
+      "run": "run-20260910T175146-81774",
+      "sourceCommit": "dd0547686634304752c74f5e11e8c10b753da23e",
+      "checks": [
+        "journal-regression",
+        "typecheck",
+        "package-boundaries",
+        "governance",
+        "release-tarballs",
+        "installed-product"
+      ]
+    },
+    "requiredCI": "pending",
+    "semanticAcceptance": "one installation-guide finding corrected; final receipt pending"
   },
   "publication": "not published",
   "notes": [
-    "Previous 0.5.9 fixture proved the bounded journal fix with 2 passing tests and zero snapshots in the installed Node 24 probe.",
-    "Official semantic acceptance and npm authentication remain separate requirements; no receipt is synthesized."
-  ]
+    "Public install guide stays on verified 0.5.9 until registry publication and readback succeed.",
+    "The journal source/version/package inputs remain unchanged after the passing baseline; final documentation delta is checked separately."
+  ],
+  "sourceCommit": "dd0547686634304752c74f5e11e8c10b753da23e",
+  "pullRequest": "https://github.com/Ancienttwo/arch-context/pull/154"
 }
