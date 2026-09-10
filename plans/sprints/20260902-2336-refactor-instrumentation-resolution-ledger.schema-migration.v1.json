@@ -1,0 +1,66 @@
+{
+  "protocol": 1,
+  "kind": "repo-harness-sprint-schema-migration",
+  "from_schema": 1,
+  "to_schema": 2,
+  "sprint_path": "plans/sprints/20260902-2336-refactor-instrumentation-resolution-ledger.sprint.md",
+  "target_ref": "main",
+  "target_commit": "a01cde3ea6b80237af48783d14072e35a99347d7",
+  "sprint_sha256_before": "sha256:119f3cf91c211b6c30a78764093da233a9f780647ee9fcc63648bed75317f46b",
+  "sprint_sha256_after": "sha256:c3160495b3754dc267d36d74c0bdf4c0695899c116b801ae0d21c97b351fd361",
+  "work_graph_path": null,
+  "work_graph_sha256_before": null,
+  "work_graph_sha256_after": null,
+  "tasks": [
+    {
+      "row_index": "1",
+      "task_id": "e7d8d14b9c1b4e67a7cd7b093b7a844c8fe36053a4f6e5fa35c702da0d5066f8",
+      "task_cell": "rf0-characterization-freeze"
+    },
+    {
+      "row_index": "2",
+      "task_id": "65b73a99e87cee5e9724a28bc4b05fa407cdf13f1fabdc86fc80881be191018e",
+      "task_cell": "rf1a-contracts-freeze"
+    },
+    {
+      "row_index": "3",
+      "task_id": "522d75d788118387ae3ded6a23fdde147b29e7923e8507a39d5377a28d21c5fe",
+      "task_cell": "rf1b-module-statistics-snapshot"
+    },
+    {
+      "row_index": "4",
+      "task_id": "0a5b07c273c10a6ce628380cf8408ca9e3c0f8569cccd7c1287c61fa8e65deaa",
+      "task_cell": "rf2-assessment-observations-scale"
+    },
+    {
+      "row_index": "5",
+      "task_id": "9abf0f60630bfdb3d2a9da3255683f52cdf9426142ee5250d870b54ddcfbeb1e",
+      "task_cell": "rf3-recommendation-v3-ledger-recording"
+    },
+    {
+      "row_index": "6",
+      "task_id": "e664577c8e0257e39cc024669ea2bbcf4f16bbf02ce61f294e70a9a6c8da469e",
+      "task_cell": "rf5a-cli-rpc-capabilities-0.5.0"
+    },
+    {
+      "row_index": "7",
+      "task_id": "ee3fe0b630f21046c6c11ae19f565a36f7be34607a8d1344b16736fc75380c7f",
+      "task_cell": "rf5a-release-readback-0.5.0 (superseded)"
+    },
+    {
+      "row_index": "8",
+      "task_id": "18827ebbc19b23f56f91019966a14d8096994a7977d0caa33d3f35932dff4c5a",
+      "task_cell": "rf4-resolution-verification"
+    },
+    {
+      "row_index": "9",
+      "task_id": "e1d5f05d33f82e9dc8e9a36b96e18b104d8250afc036ae3eab44523f75f1a192",
+      "task_cell": "rf5b-cli-verify-0.5.1"
+    },
+    {
+      "row_index": "10",
+      "task_id": "96633203eb6483293858f539d4f45f8544cf19f7d821d041aa68e3dae5ee0af3",
+      "task_cell": "rf5b-release-readback-0.5.1 (superseded)"
+    }
+  ]
+}
