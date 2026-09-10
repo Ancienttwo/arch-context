@@ -1,12 +1,14 @@
 # Sprint: Refactor Instrumentation, Module Statistics and Resolution Ledger
 
-> **Status**: Approved
+> **Status**: Done
 > **Slug**: refactor-instrumentation-resolution-ledger
 > **Created**: 2026-09-02 23:36
-> **Updated**: 2026-09-03 19:02
+> **Updated**: 2026-09-04 16:34
 > **Source PRD**: `plans/prds/20260902-2312-refactor-intelligence-resolution-ledger.prd.md`
 > **Source Spec**: `docs/spec.md`
 > **Goal Mode**: incremental
+
+Implementation is verified and the installable scope is published as `0.5.2`.
 
 Program-level sprint container. The Source PRD summary and ordered backlog
 decompose product intent into ordered rows. Contract rows become task-contract
@@ -113,10 +115,10 @@ execution for small tasks. Every row needs a concrete acceptance line.
 | 4 | [x] | rf2-assessment-observations-scale | contract | `bun test packages/core/refactor-assessment` passes fixtures single-module (S1 `scale=module`), cross-module (S2 `scale=cross_module`), architecture-owner-change (S3 `scale=architecture`, no placeholder target strings), incomplete-evidence five sub-cases (S5 only `insufficient_evidence`/`model_adoption_required`), observation-only (S7 `scale=null`, zero `refactor_proposal`), heuristic-isolation (same scale with and without `task` text) | `plans/archive/plan-20260903-0512-rf2-assessment-observations-scale.md` |
 | 5 | [x] | rf3-recommendation-v3-ledger-recording | contract | `bun test packages/core/recommendation-engine packages/local-runtime/local-store-sqlite packages/local-runtime/runtime-daemon` passes with: `refactor_scan` in `ArchitectureEventSource`; `refactorRecord` RPC in dispatch table; second `record` at same HEAD returns `duplicate-active-fingerprint`; `regressesFrom` link on re-detected fingerprint; `ledger migrate --recommendation-v3` then `ledger rebuild` digest equals pre-migration rebuild digest; `recommendations resolve` without `--evidence-digest` on non-practice category returns `AC_REFACTOR_EVIDENCE_REQUIRED` | `plans/archive/plan-20260903-0715-rf3-recommendation-v3-ledger-recording.md` |
 | 6 | [x] | rf5a-cli-rpc-capabilities-0.5.0 | contract | `archctx refactor scan --json` and `refactor record` wired through `refactorScan`/`refactorRecord` RPC; `capabilities --json` features include `module-statistics-v1`, `refactor-assessment-v1`, `recommendation-v3`; help `commands` includes `refactor`; `packaged-cli-smoke` covers `refactor scan`; version bumped to `0.5.0` with `rg '0\.4\.8' --glob '!CHANGELOG*' --glob '!docs/**'` empty; `bun run verify` exit 0 | `plans/archive/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md` |
-| 7 | [ ] | rf5a-release-readback-0.5.0 | inline | `npm view archctx@0.5.0 version` prints `0.5.0`; `npm view archctx-contracts@0.5.0 version` prints `0.5.0`; clean-room readback script exit 0; readback record committed under `docs/` following the 0.4.8 precedent | (pending) |
+| 7 | [x] | rf5a-release-readback-0.5.0 (superseded) | inline | `0.5.0` was deliberately not published; its implementation scope shipped in `0.5.2`, whose registry tarball, integrity, dependencies, capabilities and outside-repository clean-room install are verified by `deploy/release-checklists/archctx-0.5.2.md` and `docs/verification/architecture-ledger-al10-npm-release-readback.json` | (superseded by `0.5.2`) |
 | 8 | [x] | rf4-resolution-verification | contract | `bun test packages/core/refactor-assessment packages/local-runtime/runtime-daemon` passes fixtures: resolved (S4 `disposition=resolved`, resolve succeeds with `--evidence-digest`), not-improved (S6 `disposition=not_improved`, resolve returns `AC_REFACTOR_EVIDENCE_REQUIRED`), stale base (`disposition=stale`), HEAD drift (`AC_REFACTOR_STALE`), incomplete after-coverage never `resolved`; `refactorVerify` RPC in dispatch table; evidence bound via `EvidenceBinding/v1` | `plans/archive/plan-20260903-1330-rf4-resolution-verification.md` |
 | 9 | [x] | rf5b-cli-verify-0.5.1 | contract | `archctx refactor verify --request-json` wired through `refactorVerify` RPC; `capabilities --json` features include `refactor-resolution-v1`; `packaged-cli-smoke` covers `refactor verify`; version bumped to `0.5.1` with `rg '0\.5\.0' --glob '!CHANGELOG*' --glob '!docs/**'` empty; `bun run verify` exit 0 | `plans/archive/plan-20260903-1546-rf5b-cli-verify-0-5-1.md` |
-| 10 | [ ] | rf5b-release-readback-0.5.1 | inline | `npm view archctx@0.5.1 version` prints `0.5.1`; clean-room readback script exit 0; readback record committed under `docs/` | (pending) |
+| 10 | [x] | rf5b-release-readback-0.5.1 (superseded) | inline | `0.5.1` reached npm but failed the outside-repository clean-room startup gate because its release manifest omitted `koffi`; `0.5.2` fixes the package assembly, is live on `latest`, and passes the complete clean-room and registry readback recorded in `deploy/release-checklists/archctx-0.5.2.md` | (superseded by `0.5.2`) |
 
 ## Execution Log
 
@@ -132,3 +134,5 @@ Keep this section last; `repo-harness run sprint-backlog complete-task` appends 
 | 2026-09-03 12:12 | rf5a-cli-rpc-capabilities-0.5.0 | `plans/archive/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md` | done |
 | 2026-09-03 15:45 | rf4-resolution-verification | `plans/archive/plan-20260903-1330-rf4-resolution-verification.md` | done |
 | 2026-09-03 19:02 | rf5b-cli-verify-0.5.1 | `plans/archive/plan-20260903-1546-rf5b-cli-verify-0-5-1.md` | done |
+| 2026-09-04 16:34 | rf5a-release-readback-0.5.0 | `deploy/release-checklists/archctx-0.5.2.md` | superseded: `0.5.0` was not published; scope shipped and verified in `0.5.2` |
+| 2026-09-04 16:34 | rf5b-release-readback-0.5.1 | `deploy/release-checklists/archctx-0.5.2.md` | superseded: broken `0.5.1` artifact replaced by verified `0.5.2` on `latest` |
