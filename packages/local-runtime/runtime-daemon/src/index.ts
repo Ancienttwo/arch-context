@@ -2924,7 +2924,8 @@ export class ArchctxDaemon {
    */
   async listProjectionPriorCommittedApplies(root: string, requestId: string): Promise<JsonEnvelope> {
     this.assertRunning();
-    await this.openSession(root);
+    // The journal owns historical commits; opening a current source session
+    // would hash unrelated workspace/runtime bytes before this read.
     let committed: Awaited<ReturnType<RuntimeLocalStore["listCommittedChangeSetsForTaskSession"]>>;
     try {
       committed = await this.localStore.listCommittedChangeSetsForTaskSession(root, requestId);

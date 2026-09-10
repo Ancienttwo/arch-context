@@ -145,6 +145,34 @@ async function reachCleanProjection(root: string, daemon: RuntimeDaemonClient): 
   expect(applied.ok, JSON.stringify(applied)).toBe(true);
 }
 
+function snapshotCount(root: string): number {
+  const db = new Database(join(stateRoot(root), "local-store.sqlite"), { readonly: true });
+  try {
+    return (db.query("SELECT COUNT(*) AS count FROM snapshots").get() as { count: number }).count;
+  } finally {
+    db.close();
+  }
+}
+
+test("prior projection journal reads do not create workspace snapshots or sessions", async () => {
+  const root = createFixture();
+  const daemon = await createStartedDaemon({ localStorePath: join(stateRoot(root), "local-store.sqlite") });
+  try {
+    mkdirSync(join(root, ".ai/harness/evidence"), { recursive: true });
+    writeFileSync(join(root, ".ai/harness/evidence/runtime.jsonl"), "runtime evidence is not an input to a journal read\n");
+    const before = snapshotCount(root);
+    expect(daemon.status().sessions).toBe(0);
+    expect(await daemon.listProjectionPriorCommittedApplies(root, "uncommitted-request"))
+      .toMatchObject({ ok: true, data: { applies: [] } });
+    expect(snapshotCount(root)).toBe(before);
+    expect(daemon.status().sessions).toBe(0);
+  } finally {
+    await daemon.stop();
+    rmSync(stateRoot(root), { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a repeated projection request learns what its own killed attempt already committed", async () => {
   const root = createFixture();
   const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
@@ -175,12 +203,14 @@ test("a repeated projection request learns what its own killed attempt already c
 
     // This is the retry the killed caller performs: the fixed point is already reached, so status
     // and files carry no evidence of the earlier write.
+    const snapshotsBeforeRetry = snapshotCount(root);
     const retry = await runTestCli("projection", ["run", "--request-json", JSON.stringify(projectionRequest(root, requestId))], root, daemon);
     expect(retry.ok, JSON.stringify(retry)).toBe(true);
     const retryResult = retry.data as ProjectionResultV2;
     expect(retryResult.status).toBe("noop");
     expect(retryResult.files).toEqual([]);
     expect(projectionResultInvariantIssues(retryResult)).toEqual([]);
+    expect(snapshotCount(root)).toBe(snapshotsBeforeRetry);
 
     const committedRows = committedJournalRows(root, requestId);
     expect(committedRows).toHaveLength(1);
