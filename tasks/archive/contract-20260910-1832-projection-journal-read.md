@@ -1,14 +1,24 @@
+> **Archived**: 2026-09-10 18:32
+> **Related Plan**: plans/archive/plan-20260910-1639-projection-journal-read.md
+> **Outcome**: Completed
+> **Lifecycle**: contract
+> **Parent Run ID**: run-20260910-1832
+> **Archive Projection V1**: `plans/plan-20260910-1639-projection-journal-read.md` => `plans/archive/plan-20260910-1639-projection-journal-read.md`
+> **Archive Projection V1**: `tasks/notes/20260910-1639-projection-journal-read.notes.md` => `tasks/archive/notes-20260910-1832-projection-journal-read.md`
+> **Archive Projection V1**: `tasks/contracts/20260910-1639-projection-journal-read.contract.md` => `tasks/archive/contract-20260910-1832-projection-journal-read.md`
+> **Archive Projection V1**: `tasks/reviews/20260910-1639-projection-journal-read.review.md` => `tasks/archive/review-20260910-1832-projection-journal-read.md`
+
 # Task Contract: projection-journal-read
 
-> **Status**: Active
-> **Plan**: plans/plan-20260910-1639-projection-journal-read.md
+> **Status**: Fulfilled
+> **Plan**: plans/archive/plan-20260910-1639-projection-journal-read.md
 > **Task Profile**: bugfix
 > <!-- legal values: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | bugfix (omit for legacy passthrough); see docs/reference-configs/sprint-contracts.md -->
 > **Owner**: ancienttwo
 > **Capability ID**: root
 > **Last Updated**: 2026-09-10 16:39
-> **Review File**: `tasks/reviews/20260910-1639-projection-journal-read.review.md`
-> **Notes File**: `tasks/notes/20260910-1639-projection-journal-read.notes.md`
+> **Review File**: `tasks/archive/review-20260910-1832-projection-journal-read.md`
+> **Notes File**: `tasks/archive/notes-20260910-1832-projection-journal-read.md`
 > **Exemplar**: `docs/reference-configs/contract-brief-example.md`
 
 ## Why
@@ -44,10 +54,10 @@ If prior apply lookup still creates a snapshot after removing the session initia
 
 ## Workflow Inventory
 
-- Source plan: `plans/plan-20260910-1639-projection-journal-read.md`
+- Source plan: `plans/archive/plan-20260910-1639-projection-journal-read.md`
 - Deferred-goal ledger: `tasks/todos.md`
-- Review file: `tasks/reviews/20260910-1639-projection-journal-read.review.md`
-- Notes file: `tasks/notes/20260910-1639-projection-journal-read.notes.md`
+- Review file: `tasks/archive/review-20260910-1832-projection-journal-read.md`
+- Notes file: `tasks/archive/notes-20260910-1832-projection-journal-read.md`
 - Checks file: `.ai/harness/checks/latest.json`
 - Run snapshots: `.ai/harness/runs/`
 - Scope gate: edit only paths listed under `allowed_paths`; update this contract before widening scope.
@@ -91,10 +101,10 @@ allowed_paths:
   - tests/projection-prior-committed-applies.test.ts
   - tasks/todos.md
   - docs/researches/20260910-projection-journal-read.md
-  - plans/plan-20260910-1639-projection-journal-read.md
-  - tasks/contracts/20260910-1639-projection-journal-read.contract.md
-  - tasks/reviews/20260910-1639-projection-journal-read.review.md
-  - tasks/notes/20260910-1639-projection-journal-read.notes.md
+  - plans/archive/plan-20260910-1639-projection-journal-read.md
+  - tasks/archive/contract-20260910-1832-projection-journal-read.md
+  - tasks/archive/review-20260910-1832-projection-journal-read.md
+  - tasks/archive/notes-20260910-1832-projection-journal-read.md
 ```
 
 ## Evidence Requirements

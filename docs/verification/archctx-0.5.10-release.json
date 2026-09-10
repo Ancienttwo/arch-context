@@ -1,6 +1,6 @@
 {
   "version": "0.5.10",
-  "status": "candidate",
+  "status": "published",
   "baseCommit": "e4a3a56640155bf9889b2dbb02754774035493b4",
   "scope": "Historical projection journal lookup no longer initializes a repository session or hashes workspace content.",
   "checks": {
@@ -17,14 +17,89 @@
         "installed-product"
       ]
     },
-    "requiredCI": "pending",
-    "semanticAcceptance": "one installation-guide finding corrected; final receipt pending"
+    "requiredCI": {
+      "status": "pass",
+      "runId": 34463788974,
+      "commit": "6d6679d78bf92a3fb4ac5d6edc1ec95988ea1091",
+      "jobsPassed": 10
+    },
+    "semanticAcceptance": {
+      "disposition": "user_waiver",
+      "actor": "ancienttwo",
+      "reviewSubjectSha256": "sha256:996efa7e463fa76670aaf06520aaabe38729e9d55c284a70ba1ab310ad2bedf0",
+      "reason": "Owner continued publication through Web Auth after the corrected final candidate was presented. One external review found an installation-guide claim; the guide was restored to the verified release before acceptance."
+    },
+    "finalAcceptance": {
+      "status": "pass",
+      "run": "run-20260910T180047-1631",
+      "sourceCommit": "6d6679d78bf92a3fb4ac5d6edc1ec95988ea1091",
+      "baselineWithDelta": [
+        "governance",
+        "installed-product"
+      ]
+    },
+    "registryJournalProbe": {
+      "runtime": "v24.18.0",
+      "target": "/Users/ancienttwo/Projects/repo-harness",
+      "lookup_seconds": 0.056,
+      "snapshots_created": 0,
+      "response": {
+        "schemaVersion": "archcontext.envelope/v1",
+        "ok": true,
+        "requestId": "projection.prior-committed-applies",
+        "data": {
+          "applies": []
+        }
+      },
+      "passed": true
+    },
+    "registryCapabilities": {
+      "status": "pass",
+      "version": "0.5.10",
+      "runtime": "Node 24.18.0"
+    }
   },
-  "publication": "not published",
+  "publication": {
+    "auth": "npm Web Auth",
+    "registry": "https://registry.npmjs.org/",
+    "packages": {
+      "archctx-contracts": {
+        "version": "0.5.10",
+        "dist.integrity": "sha512-E3kcM00S4JDe9ZsDUfk8Z/DQ9ZKf+E1A8ZANJrem2yVbJ+/++/WIvI55aRr6YT/j3x5j4gqLa49XBJWpcpjjrA==",
+        "dist.shasum": "6985d9d93b2ef96c7abd661c1699560611fe167c",
+        "dist.tarball": "https://registry.npmjs.org/archctx-contracts/-/archctx-contracts-0.5.10.tgz",
+        "latest": "0.5.10",
+        "tarballSha256": "57da66269d2566e508e208514c6b609d971fe68a8e203bdda448d9b840a23a0e",
+        "matchesTestedArtifact": true
+      },
+      "archctx": {
+        "version": "0.5.10",
+        "dist.integrity": "sha512-SlkjdpeYqTwWNfKy1rSoVk5nMjNlVuCFTT4kDjAK8nvdcetmmvjIgS3LXlCj7WxH4U6S9vmPEsSekgXxJErCrQ==",
+        "dist.shasum": "8846406f25ccb74a5e216bb2d0672506365f2f44",
+        "dist.tarball": "https://registry.npmjs.org/archctx/-/archctx-0.5.10.tgz",
+        "latest": "0.5.10",
+        "tarballSha256": "30fff2591a299e059aa6916aabd972449d318af1d6c77902956f2b86b37b3bdf",
+        "matchesTestedArtifact": true
+      }
+    }
+  },
   "notes": [
-    "Public install guide stays on verified 0.5.9 until registry publication and readback succeed.",
-    "The journal source/version/package inputs remain unchanged after the passing baseline; final documentation delta is checked separately."
+    "Both downloaded registry tarballs are byte-identical to the locally tested artifacts.",
+    "The candidate and merge commit have the same Git tree 8649b89a0412104e95026063b504a27fc7581b95.",
+    "The global shared archctx runtime prefix remains on 0.5.9 while existing MCP hosts are live; this record proves publication and clean installation, not a host-wide runtime restart."
   ],
-  "sourceCommit": "dd0547686634304752c74f5e11e8c10b753da23e",
-  "pullRequest": "https://github.com/Ancienttwo/arch-context/pull/154"
+  "sourceCommit": "dc4fcc3d9ee7e70f66654d934f50a55f30381cf2",
+  "pullRequest": "https://github.com/Ancienttwo/arch-context/pull/154",
+  "candidateCommit": "6d6679d78bf92a3fb4ac5d6edc1ec95988ea1091",
+  "tag": "v0.5.10",
+  "releaseUrl": "https://github.com/Ancienttwo/arch-context/releases/tag/v0.5.10",
+  "closeoutChecks": {
+    "deploySqlOrder": "pass",
+    "architectureSync": "pass",
+    "taskSync": "pass",
+    "strictTaskWorkflow": {
+      "status": "blocked",
+      "reason": "Existing plans/sprints/20260902-2336-refactor-instrumentation-resolution-ledger.sprint.md lacks schema v2 task IDs required by the currently installed repo-harness. No sprint migration is part of this release-record delta."
+    }
+  }
 }

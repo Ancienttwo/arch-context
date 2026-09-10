@@ -1,6 +1,16 @@
+> **Archived**: 2026-09-10 18:32
+> **Related Plan**: plans/archive/plan-20260910-1639-projection-journal-read.md
+> **Outcome**: Completed
+> **Lifecycle**: plan
+> **Parent Run ID**: run-20260910-1832
+> **Archive Projection V1**: `plans/plan-20260910-1639-projection-journal-read.md` => `plans/archive/plan-20260910-1639-projection-journal-read.md`
+> **Archive Projection V1**: `tasks/notes/20260910-1639-projection-journal-read.notes.md` => `tasks/archive/notes-20260910-1832-projection-journal-read.md`
+> **Archive Projection V1**: `tasks/contracts/20260910-1639-projection-journal-read.contract.md` => `tasks/archive/contract-20260910-1832-projection-journal-read.md`
+> **Archive Projection V1**: `tasks/reviews/20260910-1639-projection-journal-read.review.md` => `tasks/archive/review-20260910-1832-projection-journal-read.md`
+
 # Plan: Avoid workspace hashing for prior projection journal reads
 
-> **Status**: Executing
+> **Status**: Archived
 > **Substantive Change SHA256**: `sha256:56263e1bf0dca8966a4d0d96d877bf3ff648a29efb706566eaead17b514f9290`
 > **Created**: 20260910-1639
 > **Slug**: projection-journal-read
@@ -13,9 +23,9 @@
 > **Rollback Surface**: Revert the bounded runtime/test diff; no schema or runtime evidence migration
 > **Spec**: `docs/spec.md`
 > **Research**: See `docs/researches/`
-> **Task Contract**: `tasks/contracts/20260910-1639-projection-journal-read.contract.md`
-> **Task Review**: `tasks/reviews/20260910-1639-projection-journal-read.review.md`
-> **Implementation Notes**: `tasks/notes/20260910-1639-projection-journal-read.notes.md`
+> **Task Contract**: `tasks/archive/contract-20260910-1832-projection-journal-read.md`
+> **Task Review**: `tasks/archive/review-20260910-1832-projection-journal-read.md`
+> **Implementation Notes**: `tasks/archive/notes-20260910-1832-projection-journal-read.md`
 
 ## Agentic Routing
 - Selected route: planning
@@ -29,16 +39,16 @@
 ## Workflow Inventory
 Complete this inventory before implementation. If any line is unknown, keep the plan in Draft and fill it before projection.
 
-- Active plan: `plans/plan-20260910-1639-projection-journal-read.md`
-- Sprint contract: `tasks/contracts/20260910-1639-projection-journal-read.contract.md`
-- Sprint review: `tasks/reviews/20260910-1639-projection-journal-read.review.md`
-- Implementation notes: `tasks/notes/20260910-1639-projection-journal-read.notes.md`
+- Active plan: `plans/archive/plan-20260910-1639-projection-journal-read.md`
+- Sprint contract: `tasks/archive/contract-20260910-1832-projection-journal-read.md`
+- Sprint review: `tasks/archive/review-20260910-1832-projection-journal-read.md`
+- Implementation notes: `tasks/archive/notes-20260910-1832-projection-journal-read.md`
 - Deferred-goal ledger: `tasks/todos.md`
 - Current checks: `.ai/harness/checks/latest.json`
 - Run snapshots: `.ai/harness/runs/`
-- Scope authority: `tasks/contracts/20260910-1639-projection-journal-read.contract.md` `allowed_paths`
+- Scope authority: `tasks/archive/contract-20260910-1832-projection-journal-read.md` `allowed_paths`
 - Concurrency rule: `.ai/harness/active-plan` selects the active plan for this worktree when present; `.ai/harness/active-worktree` records the owning worktree. If another worktree already owns active work, open or switch to the matching worktree instead of serializing unrelated plans.
-- Execution isolation: approved contract-level work projects through `repo-harness run plan-to-todo --plan plans/plan-20260910-1639-projection-journal-read.md` and may start `repo-harness run contract-worktree start --plan plans/plan-20260910-1639-projection-journal-read.md`.
+- Execution isolation: approved contract-level work projects through `repo-harness run plan-to-todo --plan plans/archive/plan-20260910-1639-projection-journal-read.md` and may start `repo-harness run contract-worktree start --plan plans/archive/plan-20260910-1639-projection-journal-read.md`.
 
 ## Approach
 ### Strategy
@@ -67,11 +77,11 @@ See captured planning output.
 | Captured plan lacks enough detail | Medium | Execution may need clarification | Stop before implementation if the captured output contradicts repo rules or lacks concrete file targets |
 
 ## Task Contracts
-- Contract file: `tasks/contracts/20260910-1639-projection-journal-read.contract.md`
-- Review file: `tasks/reviews/20260910-1639-projection-journal-read.review.md`
-- Implementation notes file: `tasks/notes/20260910-1639-projection-journal-read.notes.md`
+- Contract file: `tasks/archive/contract-20260910-1832-projection-journal-read.md`
+- Review file: `tasks/archive/review-20260910-1832-projection-journal-read.md`
+- Implementation notes file: `tasks/archive/notes-20260910-1832-projection-journal-read.md`
 - Template: `.claude/templates/contract.template.md`
-- Verification command: `repo-harness run verify-contract --contract tasks/contracts/20260910-1639-projection-journal-read.contract.md --strict`
+- Verification command: `repo-harness run verify-contract --contract tasks/archive/contract-20260910-1832-projection-journal-read.md --strict`
 - Active plan rule: this captured plan is written to `.ai/harness/active-plan` and the owning worktree is written to `.ai/harness/active-worktree` unless --no-active is used. Do not infer active execution from the latest non-archived plan.
 
 ## Handoff
@@ -81,18 +91,18 @@ See captured planning output.
 
 ## Promotion Gate
 
-- **Merge/PR unit**: Captured plan `plans/plan-20260910-1639-projection-journal-read.md` is the proposed mergeable execution unit; revise before execute if this is only a checklist step.
+- **Merge/PR unit**: Captured plan `plans/archive/plan-20260910-1639-projection-journal-read.md` is the proposed mergeable execution unit; revise before execute if this is only a checklist step.
 - **Rollback surface**: Revert the bounded runtime/test diff; no schema or runtime evidence migration
 - **Verification boundary**: Historical journal reads stay independent of workspace bytes; real daemon SQLite replay tests and packaged Node check
-- **Review/acceptance boundary**: `tasks/reviews/20260910-1639-projection-journal-read.review.md` must record pass against the captured acceptance criteria.
+- **Review/acceptance boundary**: `tasks/archive/review-20260910-1832-projection-journal-read.md` must record pass against the captured acceptance criteria.
 - **High-risk surface**: Risks named in captured planning output; keep the plan Draft if risk ownership is not concrete.
 - **Why not checklist row**: verification_boundary
 
 ## Evidence Contract
 
-- **State/progress path**: `plans/plan-20260910-1639-projection-journal-read.md` task breakdown, `tasks/todos.md` deferred-goal ledger, `tasks/contracts/20260910-1639-projection-journal-read.contract.md`, `tasks/reviews/20260910-1639-projection-journal-read.review.md`, and `tasks/notes/20260910-1639-projection-journal-read.notes.md`
+- **State/progress path**: `plans/archive/plan-20260910-1639-projection-journal-read.md` task breakdown, `tasks/todos.md` deferred-goal ledger, `tasks/archive/contract-20260910-1832-projection-journal-read.md`, `tasks/archive/review-20260910-1832-projection-journal-read.md`, and `tasks/archive/notes-20260910-1832-projection-journal-read.md`
 - **Verification evidence**: `.ai/harness/checks/latest.json`, `.ai/harness/runs/`, and the commands named in the captured planning output
-- **Evaluator rubric**: `tasks/reviews/20260910-1639-projection-journal-read.review.md` must record a passing Waza /check style recommendation
+- **Evaluator rubric**: `tasks/archive/review-20260910-1832-projection-journal-read.md` must record a passing Waza /check style recommendation
 - **Stop condition**: all task breakdown items are complete, sprint verification passes, and the review recommends pass
 - **Rollback surface**: Revert the bounded runtime/test diff; no schema or runtime evidence migration
 
@@ -133,3 +143,9 @@ The user approved archctx 0.5.10 on 2026-09-10. Extend this same bounded work-pa
 - [ ] Publish both packages, verify registry bytes and release provenance.
 
 The prior local package evidence is a 0.5.9 fixture baseline only. New 0.5.10 evidence must bind the actual candidate. npm login currently needs restoration (E401); no public or installed success is claimed.
+
+## Published release closeout
+
+`archctx@0.5.10` and `archctx-contracts@0.5.10` are published through npm Web Auth. The source PR passed all ten CI jobs and merged at dc4fcc3d9ee7e70f66654d934f50a55f30381cf2; tag v0.5.10 points there. Registry tarball digests and a fresh Node 24 installation match the tested artifacts. Full details are promoted to docs/verification/archctx-0.5.10-release.json and the personal install guide. This archive records the completed implementation and publication; existing shared MCP hosts have not been restarted.
+
+> **Substantive Change SHA256**: `sha256:ca305a9b77f634eafbe171902427c94635956f3a1c6ea6bcdc620415079379cd`

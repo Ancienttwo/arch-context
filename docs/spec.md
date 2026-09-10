@@ -84,8 +84,8 @@ their ledger readback identity.
 
 ## Release State
 
-`archctx@0.5.9` and `archctx-contracts@0.5.9` are the current published release on `latest`,
-verified by registry readback on 2026-09-10. Projection results carry the optional
+`archctx@0.5.10` and `archctx-contracts@0.5.10` are the current published release on `latest`,
+verified by registry readback on 2026-09-10. Historical committed-apply lookups read the journal directly without initializing a session or hashing workspace content. Projection results carry the optional
 `priorCommittedApplies` field on `archcontext.projection-result/v2`, so a retry under an
 interrupted request's `requestId` can name the projection-owned files an earlier committed
 attempt already wrote. `init --help` and `init -h` return help without

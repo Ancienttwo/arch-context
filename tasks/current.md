@@ -1,37 +1,32 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-09-05T04:35:18+0800 -->
+<!-- updated_at: 2026-09-10T18:32:58+0800 -->
 <!-- stale_after: 24h -->
 
-> **Status**: Idle
-> **Updated At**: 2026-09-05T04:35:18+0800
-> **Source Branch**: main
-> **Source Commit**: effd918
+> **Status**: ManualClearedWithActiveWork
+> **Updated At**: 2026-09-10T18:32:58+0800
+> **Source Branch**: codex/projection-journal-read
+> **Source Commit**: 6d6679d
 > **Target Branch**: main
 > **Stale After**: 24h
-> **Reason**: architecture-evidence-complete
+> **Reason**: archive-workflow
 > **Derived From**: active-plan, active-sprint, workstreams, handoff, checks, git status
 
-This file is a tracked mainline snapshot derived from repo artifacts. It is not a live lock, not a kanban board, and not an implementation gate. If it is stale, read the source artifacts below.
+This file is an ignored local read model derived from this worktree's artifacts. It is not tracked, not a live lock, not a kanban board, and not an implementation gate. If it is stale, read the source artifacts below.
 
 ## Current Focus
 
-- Status: Idle
+- Status: ManualClearedWithActiveWork
 - Active Plan: (none)
 - Plan Status: (none)
-- Next Task: (none)
-- Clear Note: (none)
-
-## Mainline Snapshot Reading
-
-- Current worktree: `tasks/current.md`
-- Target branch snapshot: `git show main:tasks/current.md`
-- Rule: non-target worktrees may read the target branch snapshot, but must verify against source artifacts before acting.
+- Next Task: inspect active worktree marker(s)
+- Clear Note: Manual clear requested, but active work markers still exist. Idle was not written.
 
 ## Active Work
 
-- (none)
+- linked-worktree-491400b9e583: plans/plan-20260901-1836-ownership-change-acceptance-recovery.md
+- linked-worktree-491400b9e583: active-worktree owner -> self
 ## Active Sprint
 
 - Sprint: (none)
@@ -44,14 +39,23 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 
 ## Checks
 
-- status=(none), source=(none), exit_code=(none), file=.ai/harness/checks/latest.json
+- status=pass, source=verify-sprint, exit_code=0, file=.ai/harness/checks/latest.json
 
 ## Git Status
 
-- Summary: clean
+- Summary: 10 changed/untracked path(s)
 
 ```
-(none)
+ D plans/plan-20260910-1639-projection-journal-read.md
+ D tasks/contracts/20260910-1639-projection-journal-read.contract.md
+ D tasks/notes/20260910-1639-projection-journal-read.notes.md
+ D tasks/reviews/20260910-1639-projection-journal-read.review.md
+ M tasks/todos.md
+?? plans/archive/plan-20260910-1639-projection-journal-read.md
+?? tasks/archive/contract-20260910-1832-projection-journal-read.md
+?? tasks/archive/notes-20260910-1832-projection-journal-read.md
+?? tasks/archive/review-20260910-1832-projection-journal-read.md
+?? tasks/archive/todo-20260910-1832-projection-journal-read.md
 ```
 
 ## Source Artifacts
