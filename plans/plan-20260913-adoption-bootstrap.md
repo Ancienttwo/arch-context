@@ -1,6 +1,6 @@
 # First-adoption manifest fixed point
 
-Status: Executing. Owner authorized the upstream repair on 2026-09-13.
+Status: Implementation verified; remote review and merge pending. Owner authorized the upstream repair on 2026-09-13.
 
 ## Goal and boundary
 
@@ -17,7 +17,7 @@ Make preview-bound adoption converge when existing human documents have no prior
 - [x] Capture a failing no-baseline/no-flow approved-adoption regression.
 - [x] Settle the canonical manifest before the final fixed-point assertion.
 - [x] Run adoption regressions, projection-engine tests and typecheck.
-- [ ] Package the exact candidate and replay the original AiphaBee adoption.
+- [x] Package the exact candidate and replay the original AiphaBee adoption.
 
 ## Evidence
 
@@ -26,3 +26,5 @@ Logs live outside this checkout under the AiphaBee parent checkout's Garbage/clo
 ## Verified evidence
 
 The new regression failed before the source fix with the exact AiphaBee `projection-manifest-stale; digest=stable` error. After the four-line CLI fix: 3 adoption tests passed (including preview binding, semantic acceptance and preserved unresolved-proof behavior), 129 projection-engine tests passed, typecheck passed, and the one-package Node tarball lifecycle smoke passed. The source package version remains 0.5.10 for local candidate compatibility; no registry release is claimed.
+
+The Node tarball passed its official lifecycle smoke and was installed as an isolated local candidate. The original AiphaBee preview-bound adoption now applies successfully; subsequent real daemon flow updates and semantic acceptance converge to a noop provider check. Removing the temporary candidate package link and checking through the published 0.5.10 provider also yields noop. Human architecture prose remains unchanged. Branch source is pushed; GitHub PR creation returned server errors on three attempts, so no PR, hosted CI, merge, registry release or global package replacement is claimed.
