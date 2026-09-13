@@ -107,7 +107,15 @@ test("CLI init help never calls the runtime, including with a product name", asy
 });
 
 test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-valid ProjectionResultV2", async () => {
-  const root = createInitializedGitRepo();
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection App");
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
   try {
     nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
     writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
@@ -132,9 +140,10 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     }), "utf8");
     writeFileSync(join(root, "AGENTS.md"), "# Agent context\n", "utf8");
     writeFileSync(join(root, "CLAUDE.md"), "# Agent context\n", "utf8");
+    git(root, "init");
     git(root, "add", ".");
-    git(root, "commit", "-m", "projection protocol fixture");
-    const plan = await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root);
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "projection protocol fixture");
+    const plan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
     expect(plan.ok, JSON.stringify(plan)).toBe(true);
     const provenance = (plan.data as any).provenance;
     const request = {
@@ -153,7 +162,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     };
     mkdirSync(join(root, ".ai/harness/journal/post-edit/pending"), { recursive: true });
     writeFileSync(join(root, ".ai/harness/journal/post-edit/pending/change.json"), "{}\n", "utf8");
-    const result = await runTestCli("projection", ["run", "--request-json", JSON.stringify(request)], root);
+    const result = await cli("projection", ["run", "--request-json", JSON.stringify(request)]);
     expect(result.ok, JSON.stringify(result)).toBe(true);
     const projection = result.data as unknown as ProjectionResultV2;
     expect(projection.schemaVersion).toBe("archcontext.projection-result/v2");
@@ -161,22 +170,22 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     expect(projection.inputSnapshot).not.toBe(projection.outputSnapshot);
     expect(projectionResultInvariantIssues(projection)).toEqual([]);
 
-    const stale = await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+    const stale = await cli("projection", ["run", "--request-json", JSON.stringify({
       ...request,
       expected: { ...request.expected, worktreeDigest: `sha256:${"f".repeat(64)}` }
-    })], root);
+    })]);
     expect(stale.ok).toBe(false);
     expect((stale as any).error?.code).toBe("AC_PRECONDITION_FAILED");
     expect((stale as any).error?.message).toContain("worktreeDigest");
 
-    const partialAcceptance = await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+    const partialAcceptance = await cli("projection", ["run", "--request-json", JSON.stringify({
       ...request,
       acceptedChange: { changeSetId: "changeset.partial" }
-    })], root);
+    })]);
     expect(partialAcceptance.ok).toBe(false);
     expect((partialAcceptance as any).error?.code).toBe("AC_SCHEMA_INVALID");
 
-    const nonCanonicalAcceptance = await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+    const nonCanonicalAcceptance = await cli("projection", ["run", "--request-json", JSON.stringify({
       ...request,
       acceptedChange: {
         changeSetId: "changeset.noncanonical",
@@ -184,10 +193,11 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
         reasonCodes: ["responsibility-changed", "ownership-changed"],
         affectedNodeIds: ["capability.z", "capability.a"]
       }
-    })], root);
+    })]);
     expect(nonCanonicalAcceptance.ok).toBe(false);
     expect((nonCanonicalAcceptance as any).error?.message).toContain("sorted and unique");
   } finally {
+    await daemon.stop();
     removeTempRoot(root);
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
@@ -1683,9 +1693,16 @@ describe("archctx CLI", () => {
   });
 
   test("CLI docs commands keep Context7 manual and lockfile explicit", async () => {
-    const root = createInitializedGitRepo();
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-docs-"));
+    initializeArchContextModel(root, "Docs App");
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore()
+    });
+    const cli = (args: string[]) => runCli("docs", args, root, { runtimeClient: daemon });
     try {
-      const status = await runTestCli("docs", ["status"], root);
+      const status = await cli(["status"]);
       expect(status.ok).toBe(true);
       expect((status.data as any)).toMatchObject({
         schemaVersion: "archcontext.external-docs-status/v1",
@@ -1697,16 +1714,16 @@ describe("archctx CLI", () => {
         egress: "none"
       });
 
-      const blockedResolve = await runTestCli("docs", ["resolve", "--library", "React", "--query", "state hooks"], root);
+      const blockedResolve = await cli(["resolve", "--library", "React", "--query", "state hooks"]);
       expect(blockedResolve.ok).toBe(false);
       expect((blockedResolve as any).error.message).toContain("--allow-network");
 
-      const pinPreview = await runTestCli("docs", ["pin", "--library-id", "/facebook/react", "--version", "18.2.0"], root);
+      const pinPreview = await cli(["pin", "--library-id", "/facebook/react", "--version", "18.2.0"]);
       expect(pinPreview.ok).toBe(true);
       expect((pinPreview.data as any).approved).toBe(false);
       expect(existsSync(join(root, ".archcontext", "integrations", "context7.lock.yaml"))).toBe(false);
 
-      const pin = await runTestCli("docs", ["pin", "--library-id", "/facebook/react", "--version", "18.2.0", "--approved"], root);
+      const pin = await cli(["pin", "--library-id", "/facebook/react", "--version", "18.2.0", "--approved"]);
       expect(pin.ok).toBe(true);
       expect((pin.data as any).approved).toBe(true);
       const lockPath = join(root, ".archcontext", "integrations", "context7.lock.yaml");
@@ -1716,10 +1733,11 @@ describe("archctx CLI", () => {
         libraries: [{ libraryId: "/facebook/react", version: "18.2.0" }]
       });
 
-      const blockedFetch = await runTestCli("docs", ["fetch", "--library-id", "/facebook/react", "--intent", "state hooks"], root);
+      const blockedFetch = await cli(["fetch", "--library-id", "/facebook/react", "--intent", "state hooks"]);
       expect(blockedFetch.ok).toBe(false);
       expect((blockedFetch as any).error.message).toContain("--allow-network");
     } finally {
+      await daemon.stop();
       removeTempRoot(root);
     }
   }, CLI_DOCS_TEST_TIMEOUT_MS);
