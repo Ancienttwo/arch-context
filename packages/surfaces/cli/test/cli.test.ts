@@ -4031,6 +4031,48 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("first docs adoption settles its manifest while preserving unresolved flow proof", async () => {
+    const root = createInitializedGitRepo();
+    const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
+    const humanTail = "## 3. Human decisions\nretain  exact spacing  \n";
+    try {
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+      writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
+        schemaVersion: "archcontext.node/v2", id: "capability.runtime-harness.hook-adapters",
+        kind: "capability", name: "Hook Adapters", status: "active", summary: "Routes hook events.",
+        extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
+      }), "utf8");
+      mkdirSync(dirname(join(root, modulePath)), { recursive: true });
+      writeFileSync(join(root, modulePath), `# Hook Adapters\n\n## 1. Map\n\n## 2. Trace\n\n${humanTail}`, "utf8");
+      expect(existsSync(join(root, "docs/architecture/.projection-manifest.json"))).toBe(false);
+      const preview = await runTestCli("docs", ["adopt", "--profile", "repo-harness/v1"], root);
+      expect(preview.ok, JSON.stringify(preview)).toBe(true);
+      const binding = preview.data as { allowed: boolean; adoptionPlanId: string; expectedWorktreeDigest: string };
+      expect(binding.allowed).toBe(true);
+      const adopted = await runTestCli("docs", [
+        "adopt", "--profile", "repo-harness/v1", "--approved",
+        "--adoption-plan-id", binding.adoptionPlanId,
+        "--expected-worktree-digest", binding.expectedWorktreeDigest
+      ], root);
+      expect(adopted.ok, JSON.stringify(adopted)).toBe(true);
+      const body = readFileSync(join(root, modulePath), "utf8");
+      expect(body).toStartWith("# Hook Adapters\n<!-- BEGIN ARCHCONTEXT:generated");
+      expect(body).toEndWith(humanTail);
+      const manifestBefore = readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8");
+      const next = await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root);
+      expect(next.ok, JSON.stringify(next)).toBe(true);
+      const plan = next.data as { drift: { ok: boolean }; majorChange: { mode: string }; refreshSignals: { mode: string }[] };
+      expect(plan.drift.ok).toBe(true);
+      expect(plan.majorChange.mode).toBe("human-action-required");
+      expect(plan.refreshSignals).toHaveLength(1);
+      expect(plan.refreshSignals[0]!.mode).toBe("human-action-required");
+      expect(readFileSync(join(root, modulePath), "utf8")).toBe(body);
+      expect(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).toBe(manifestBefore);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("projection adopt composes ownership adoption with one accepted semantic change", async () => {
     const root = createInitializedGitRepo();
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";

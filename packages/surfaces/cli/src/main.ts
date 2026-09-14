@@ -1330,6 +1330,10 @@ async function runArchitectureDocsAdoptionCommand(
   const canonicalFirst = buildArchitectureDocsProjection(root, generatedAt, profile, [...simulatedByPath.values()]);
   const canonicalExistingByPath = new Map(simulatedByPath);
   for (const file of canonicalFirst.files) canonicalExistingByPath.set(file.path, file);
+  // Adoption changes whole-document digests. Refresh signal IDs then settle against that
+  // canonical baseline in the manifest before a final render can prove the fixed point.
+  const canonicalBaseline = buildArchitectureDocsProjection(root, generatedAt, profile, [...canonicalExistingByPath.values()]);
+  for (const file of canonicalBaseline.files) canonicalExistingByPath.set(file.path, file);
   const canonical = buildArchitectureDocsProjection(root, generatedAt, profile, [...canonicalExistingByPath.values()]);
   if (!canonical.plan.drift.ok || canonical.plan.rejected.length > 0 || canonical.plan.projectionDigest !== canonicalFirst.plan.projectionDigest) {
     const reasons = canonical.plan.rejected.map((entry) => entry.reasonCode).join(",") || "none";
