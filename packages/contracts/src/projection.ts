@@ -8,6 +8,7 @@ export const PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION = "archcontext.pro
 export const PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION = "archcontext.projection-apply-recovery-intent/v1" as const;
 export const PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION = "archcontext.projection-apply-recovery-proof/v1" as const;
 export const PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-recovery-result/v1" as const;
+export const PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-readback-result/v1" as const;
 export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v1" as const;
 export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
 export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v4" as const;
@@ -60,6 +61,7 @@ export const ARCHCTX_FEATURES = [
   "architecture-docs-renderer-v2",
   "architecture-refresh-signal-v1",
   "module-statistics-v1",
+  "projection-apply-readback-v1",
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
   "projection-prior-committed-applies-v1",
@@ -290,6 +292,28 @@ export interface ProjectionApplyRecoveryResultV1 {
   proof: ProjectionApplyRecoveryProofV1;
   refreshSignals: ArchitectureRefreshSignalV1[];
 }
+
+/** Non-consuming receipt retrieval; current state is rebuilt for every response. */
+export interface ProjectionApplyReadbackResultV1 {
+  schemaVersion: typeof PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION;
+  requestId: string;
+  requestDigest: Sha256Digest;
+  receipt: ProjectionApplyReceiptV1;
+  current: ProjectionApplyRecoveryProofV1["current"];
+  readbackDigest: Sha256Digest;
+}
+
+/** Exact-request absence observed under the same writer boundary used by apply. */
+export interface ProjectionApplyAbsenceV1 {
+  schemaVersion: "archcontext.projection-apply-absence/v1";
+  requestId: string;
+  requestDigest: Sha256Digest;
+  lookupKey: Sha256Digest;
+  current: ProjectionExpectedSnapshotV1;
+  absenceDigest: Sha256Digest;
+}
+
+export type ProjectionApplyReadbackV1 = ProjectionApplyReadbackResultV1 | ProjectionApplyAbsenceV1;
 
 export interface ArchctxCapabilitiesV1 {
   schemaVersion: typeof ARCHCTX_CAPABILITIES_SCHEMA_VERSION;
@@ -545,6 +569,89 @@ export function projectionApplyRecoveryBindingInvariantIssues(
     const expectedDigests = projectionApplyReceiptResultingDigests(receipt);
     if (!expectedDigests || digestJson(binding.expectedResultingDigests as unknown as Json) !== digestJson(expectedDigests as unknown as Json)) {
       issues.push("recovery expectedResultingDigests must match committed refresh signals");
+    }
+  }
+  return issues;
+}
+
+/** Readback carries the original accepted apply request, never caller-authored receipt data. */
+export function projectionApplyReadbackRequestInvariantIssues(request: ProjectionRequestV1): string[] {
+  const issues = projectionRequestInvariantIssues(request);
+  const allowed = new Set(["schemaVersion", "requestId", "profile", "mode", "targets", "changedPaths", "expected", "acceptedChange"]);
+  if (Object.keys(request).some((key) => !allowed.has(key))) issues.push("readback request contains unsupported fields");
+  if (request.mode !== "apply" || !request.acceptedChange) issues.push("readback requires an accepted apply request");
+  if (request.schemaVersion !== PROJECTION_REQUEST_SCHEMA_VERSION || request.profile !== "repo-harness/v1") issues.push("readback request protocol is invalid");
+  if (typeof request.requestId !== "string"
+    || request.targets.some((target) => !(PROJECTION_TARGETS as readonly string[]).includes(target))
+    || request.changedPaths.some((path) => typeof path !== "string" || !isRepoRelativePosixPath(path))) issues.push("readback request fields are invalid");
+  const expectedKeys = ["repositoryId", "workspaceId", "headSha", "worktreeDigest"];
+  if (Object.keys(request.expected).some((key) => !expectedKeys.includes(key))
+    || expectedKeys.some((key) => typeof request.expected[key as keyof ProjectionExpectedSnapshotV1] !== "string")
+    || !request.expected.repositoryId || !request.expected.workspaceId
+    || !/^[a-f0-9]{40}$/.test(request.expected.headSha)
+    || !SHA256_DIGEST.test(request.expected.worktreeDigest)) issues.push("readback expected snapshot is invalid");
+  if (request.acceptedChange && Object.keys(request.acceptedChange).some((key) => !["changeSetId", "eventId", "reasonCodes", "affectedNodeIds"].includes(key))) {
+    issues.push("readback accepted change contains unsupported fields");
+  }
+  return issues;
+}
+
+export function projectionApplyAbsenceInvariantIssues(input: ProjectionApplyAbsenceV1, request: ProjectionRequestV1): string[] {
+  const issues = projectionApplyReadbackRequestInvariantIssues(request);
+  if (input.schemaVersion !== "archcontext.projection-apply-absence/v1") issues.push("absence schemaVersion is invalid");
+  if (Object.keys(input).some((key) => !["schemaVersion", "requestId", "requestDigest", "lookupKey", "current", "absenceDigest"].includes(key))) issues.push("absence contains unsupported fields");
+  const { absenceDigest, ...body } = input;
+  if (absenceDigest !== digestJson(body as unknown as Json)) issues.push("absenceDigest must bind the complete absence result");
+  if (input.requestId !== request.requestId || input.requestDigest !== digestJson(request as unknown as Json)) issues.push("absence request identity mismatch");
+  if (digestJson(input.current as unknown as Json) !== digestJson(request.expected as unknown as Json)) issues.push("absence current snapshot differs from request");
+  if (!request.acceptedChange || input.lookupKey !== projectionApplyLookupKey({
+    repositoryId: request.expected.repositoryId, workspaceId: request.expected.workspaceId, acceptedChange: request.acceptedChange
+  })) issues.push("absence lookup identity mismatch");
+  return issues;
+}
+
+export function projectionApplyReadbackResultDigest(input: Omit<ProjectionApplyReadbackResultV1, "readbackDigest">): Sha256Digest {
+  return digestJson(input as unknown as Json) as Sha256Digest;
+}
+
+export function projectionApplyReadbackResultInvariantIssues(
+  input: ProjectionApplyReadbackResultV1,
+  request?: ProjectionRequestV1
+): string[] {
+  const issues = projectionApplyReceiptInvariantIssues(input.receipt);
+  const { readbackDigest, ...body } = input;
+  if (input.schemaVersion !== PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION) issues.push("readback schemaVersion is invalid");
+  if (projectionApplyReadbackResultDigest(body) !== readbackDigest) issues.push("readbackDigest must bind the complete readback result");
+  if (!/^[a-zA-Z0-9_.:-]+$/.test(input.requestId)) issues.push("readback requestId is invalid");
+  for (const value of [input.requestDigest, input.current.ownedOutputDigest, input.current.fixedPointDigest]) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(value)) issues.push("readback digest is invalid");
+  }
+  const receipt = input.receipt;
+  if (receipt.schemaVersion !== PROJECTION_APPLY_RECEIPT_SCHEMA_VERSION) issues.push("readback receipt schemaVersion is invalid");
+  const binding = receipt.recovery;
+  if (!binding) return [...issues, "committed receipt lacks its original recovery binding"];
+  for (const field of ["repositoryId", "workspaceId", "headSha", "worktreeDigest"] as const) {
+    if (input.current.snapshot[field] !== binding.originalExpectedSnapshot[field]) issues.push(`readback current ${field} differs from approval`);
+  }
+  if (input.current.snapshot.generatedFrom.codeGraphStatus !== "ready"
+    || input.current.snapshot.rendererVersion !== binding.rendererVersion
+    || input.current.snapshot.layoutVersion !== binding.layoutVersion
+    || input.current.snapshot.projectionInputDigest !== receipt.result.outputSnapshot.projectionInputDigest
+    || input.current.snapshot.codeGraphDigest !== receipt.result.outputSnapshot.codeGraphDigest
+    || digestJson(input.current.snapshot.generatedFrom as unknown as Json) !== digestJson(binding.generatedFrom as unknown as Json)
+    || digestJson(input.current.resultingDigests as unknown as Json) !== digestJson(binding.expectedResultingDigests as unknown as Json)
+    || input.current.ownedOutputDigest !== binding.ownedOutputDigest) {
+    issues.push("readback current state differs from committed recovery binding");
+  }
+  if (input.requestId !== receipt.result.requestId) issues.push("readback requestId differs from committed request");
+  if (request) {
+    issues.push(...projectionApplyReadbackRequestInvariantIssues(request));
+    if (input.requestDigest !== digestJson(request as unknown as Json) || input.requestId !== request.requestId) issues.push("readback request identity mismatch");
+    if (digestJson(request.expected as unknown as Json) !== digestJson(binding.originalExpectedSnapshot as unknown as Json)
+      || digestJson(request.acceptedChange as unknown as Json) !== digestJson(receipt.identity.acceptedChange as unknown as Json)
+      || digestJson(request.targets as unknown as Json) !== digestJson(binding.targets as unknown as Json)
+      || digestJson(request.changedPaths as unknown as Json) !== digestJson(binding.changedPaths as unknown as Json)) {
+      issues.push("readback request differs from committed approval binding");
     }
   }
   return issues;

@@ -63,7 +63,7 @@ not imply a new published provider version or activation of a downstream schedul
 
 已提交的 accepted projection apply 若在写入后因并发非 owned 变更返回
 `applied-reconcile-required`，其 refresh signal 保持在原始 receipt 中且不被普通
-`projection run apply` 重试消费。唯一恢复入口是 `projection recover --request-json`：客户端只提交
+`projection run apply` 重试消费。交付恢复入口是 `projection recover --request-json`：客户端只提交
 receipt identity intent；daemon 在 writer 临界区以不消费的方式读取 receipt，再重建当前无
 accepted-change 的 projection fixed point，并严格比对
 原 approval、model/source/flow-proof/projection digest、renderer/layout、CodeGraph ready
@@ -71,6 +71,18 @@ provenance 与 owned output bytes。所有绑定一致后，daemon 才在同一�
 其权威 snapshot 并原子消费原 signal；RPC 不暴露 direct delivery，重复请求只返回
 `already-delivered` proof，不写 projection。
 旧 v0.4.7 receipt 仍可读取，但没有该 immutable binding 时必须拒绝 recovery，绝不猜测或降级。
+
+若 consumer 在 provider 完成交付后未能写出自身 receipt，使用
+`projection readback --request-json <原始 accepted apply request>`。公开 feature 为
+`projection-apply-readback-v1`；daemon 每次在 writer 临界区重新验证当前 fixed point，
+返回原始完整 receipt/result/signals、当前证明和绑定整个响应的 readbackDigest。
+该读取既不消费 pending signal，也不改变 delivered checkpoint；consumer 使用自身原有幂等
+refresh checkpoints 完成剩余动作。请求、批准、snapshot 或输出任何绑定不一致均拒绝，
+缺失 immutable recovery binding 也拒绝。若准确请求尚无 committed receipt，则返回绑定
+该请求与当前 snapshot 的 `projection-apply-absence/v1`；consumer 只有未记录原结果的
+intent 才能据此重试 apply，显式 recover 不得写入。apply 在 writer 临界区再次检查 committed
+receipt，防止缺席读取与写入之间的并发重复。此接口仅支持 accepted apply，
+不将 adopt 请求转换为 apply。源码接口不表示已发布或共享 daemon 已升级。
 
 ### Recommendation Readback Identity
 

@@ -1,0 +1,1064 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/projection-apply-readback.schema.json",
+  "title": "ProjectionApplyReadbackV1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/readbackResult"
+    },
+    {
+      "$ref": "#/$defs/absence"
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "nullableDigest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryId",
+        "workspaceId",
+        "headSha",
+        "baseHeadSha",
+        "worktreeDigest",
+        "sourceTreeDigest",
+        "modelDigest",
+        "codeGraphDigest",
+        "indexedWorktreeDigest",
+        "projectionInputDigest",
+        "rendererVersion",
+        "layoutVersion",
+        "generatedFrom"
+      ],
+      "properties": {
+        "repositoryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "headSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "baseHeadSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "worktreeDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sourceTreeDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "modelDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "codeGraphDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "indexedWorktreeDigest": {
+          "$ref": "#/$defs/nullableDigest"
+        },
+        "projectionInputDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "rendererVersion": {
+          "const": "archcontext.docs-renderer/v4"
+        },
+        "layoutVersion": {
+          "const": "archcontext.docs-layout/v1"
+        },
+        "generatedFrom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "codeGraphPackage",
+            "codeGraphVersion",
+            "codeGraphBinaryDigest",
+            "codeGraphStatus"
+          ],
+          "properties": {
+            "codeGraphPackage": {
+              "const": "@colbymchenry/codegraph"
+            },
+            "codeGraphVersion": {
+              "const": "1.5.0"
+            },
+            "codeGraphBinaryDigest": {
+              "$ref": "#/$defs/digest"
+            },
+            "codeGraphStatus": {
+              "enum": [
+                "ready",
+                "unavailable"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "action",
+        "preimageDigest",
+        "outputDigest"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "(^|/)\\.\\.(/|$)"
+              }
+            ]
+          }
+        },
+        "action": {
+          "enum": [
+            "create",
+            "delete",
+            "unchanged",
+            "update"
+          ]
+        },
+        "preimageDigest": {
+          "$ref": "#/$defs/nullableDigest"
+        },
+        "outputDigest": {
+          "$ref": "#/$defs/nullableDigest"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "create"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "preimageDigest": {
+                "const": null
+              },
+              "outputDigest": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "delete"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "preimageDigest": {
+                "$ref": "#/$defs/digest"
+              },
+              "outputDigest": {
+                "const": null
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "unchanged",
+                  "update"
+                ]
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "preimageDigest": {
+                "$ref": "#/$defs/digest"
+              },
+              "outputDigest": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "humanAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reasonCode",
+        "affectedNodeIds",
+        "requestPayloadDigest"
+      ],
+      "properties": {
+        "reasonCode": {
+          "enum": [
+            "adoption-required",
+            "manual-region-conflict",
+            "target-collision",
+            "unprovable-required-flow",
+            "unresolved-major-change"
+          ]
+        },
+        "affectedNodeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "requestPayloadDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "digestSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelDigest",
+        "sourceTreeDigest",
+        "flowProofDigest",
+        "projectionDigest"
+      ],
+      "properties": {
+        "modelDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sourceTreeDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "flowProofDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "projectionDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "reasonCode": {
+      "enum": [
+        "constraint-changed",
+        "entrypoint-changed",
+        "interface-changed",
+        "lifecycle-changed",
+        "node-added",
+        "node-moved",
+        "node-removed",
+        "node-renamed",
+        "ownership-changed",
+        "relation-changed",
+        "responsibility-changed",
+        "risk-boundary-changed",
+        "verified-flow-proof-changed"
+      ]
+    },
+    "refreshSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "signalId",
+        "idempotencyKey",
+        "mode",
+        "repository",
+        "worktree",
+        "cause",
+        "reasonCodes",
+        "affectedNodeIds",
+        "refreshTargets",
+        "baseDigests",
+        "resultingDigests",
+        "projectionReceiptDigest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.architecture-refresh-signal/v1"
+        },
+        "signalId": {
+          "$ref": "#/$defs/digest"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/digest"
+        },
+        "mode": {
+          "enum": [
+            "human-action-required",
+            "refresh-required"
+          ]
+        },
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryId"
+          ],
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "worktree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workspaceId",
+            "headSha",
+            "worktreeDigest"
+          ],
+          "properties": {
+            "workspaceId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "headSha": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "worktreeDigest": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "cause": {
+          "enum": [
+            "accepted-semantic-delta",
+            "unresolved-major-candidate",
+            "verified-flow-proof-delta"
+          ]
+        },
+        "acceptedChange": {
+          "$ref": "#/$defs/acceptedChange"
+        },
+        "reasonCodes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reasonCode"
+          }
+        },
+        "affectedNodeIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "refreshTargets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "architecture-contract-context",
+              "architecture-readiness",
+              "architecture-request-index",
+              "capability-context",
+              "capability-index"
+            ]
+          }
+        },
+        "baseDigests": {
+          "$ref": "#/$defs/digestSet"
+        },
+        "resultingDigests": {
+          "$ref": "#/$defs/digestSet"
+        },
+        "projectionReceiptDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "cause": {
+                "const": "unresolved-major-candidate"
+              }
+            },
+            "required": [
+              "cause"
+            ]
+          },
+          "then": {
+            "properties": {
+              "mode": {
+                "const": "human-action-required"
+              }
+            },
+            "not": {
+              "required": [
+                "acceptedChange"
+              ]
+            }
+          },
+          "else": {
+            "properties": {
+              "mode": {
+                "const": "refresh-required"
+              }
+            },
+            "required": [
+              "acceptedChange"
+            ]
+          }
+        }
+      ]
+    },
+    "acceptedChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changeSetId",
+        "eventId",
+        "reasonCodes",
+        "affectedNodeIds"
+      ],
+      "properties": {
+        "changeSetId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasonCodes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reasonCode"
+          }
+        },
+        "affectedNodeIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "priorCommittedApply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "changeSetId",
+        "committedAt",
+        "files"
+      ],
+      "properties": {
+        "applyId": {
+          "$ref": "#/$defs/digest"
+        },
+        "lookupKey": {
+          "$ref": "#/$defs/digest"
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_.:-]+$",
+          "minLength": 1
+        },
+        "changeSetId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "committedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Canonical wire order is by path and is enforced by projectionResultInvariantIssues.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "operation",
+              "hash"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "^/"
+                    },
+                    {
+                      "pattern": "\\\\"
+                    },
+                    {
+                      "pattern": "(^|/)\\.\\.(/|$)"
+                    }
+                  ]
+                }
+              },
+              "operation": {
+                "enum": [
+                  "delete",
+                  "write"
+                ]
+              },
+              "hash": {
+                "type": "string",
+                "pattern": "^(?:sha256:[a-f0-9]{64}|missing)$"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "operation": {
+                      "const": "delete"
+                    }
+                  },
+                  "required": [
+                    "operation"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "hash": {
+                      "const": "missing"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "hash": {
+                      "$ref": "#/$defs/digest"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "dependentRequired": {
+        "applyId": [
+          "lookupKey"
+        ],
+        "lookupKey": [
+          "applyId"
+        ]
+      }
+    },
+    "applyIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "applyId",
+        "lookupKey",
+        "repositoryId",
+        "workspaceId",
+        "acceptedChange",
+        "semanticCommit",
+        "ownedFilesDigest",
+        "refreshSignalsDigest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.projection-apply-identity/v1"
+        },
+        "applyId": {
+          "$ref": "#/$defs/digest"
+        },
+        "lookupKey": {
+          "$ref": "#/$defs/digest"
+        },
+        "repositoryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acceptedChange": {
+          "$ref": "#/$defs/acceptedChange"
+        },
+        "semanticCommit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "changeSetId",
+            "idempotencyKey"
+          ],
+          "properties": {
+            "changeSetId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "ownedFilesDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "refreshSignalsDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "projectionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "status",
+        "inputSnapshot",
+        "outputSnapshot",
+        "affectedNodeIds",
+        "files",
+        "humanActions",
+        "refreshSignals",
+        "receiptDigest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.projection-result/v2"
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_.:-]+$",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "adoption-required",
+            "applied",
+            "applied-reconcile-required",
+            "blocked",
+            "human-action-required",
+            "noop",
+            "permanent-failure",
+            "planned",
+            "retryable-failure"
+          ]
+        },
+        "inputSnapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "outputSnapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "affectedNodeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Canonical wire order is lexicographic and is enforced by projectionResultInvariantIssues.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "files": {
+          "type": "array",
+          "description": "Canonical wire order is by path and is enforced by projectionResultInvariantIssues.",
+          "items": {
+            "$ref": "#/$defs/file"
+          }
+        },
+        "humanActions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/humanAction"
+          }
+        },
+        "refreshSignals": {
+          "type": "array",
+          "description": "Canonical wire order is by signalId and cross-object receipt/snapshot bindings are enforced by projectionResultInvariantIssues.",
+          "items": {
+            "$ref": "#/$defs/refreshSignal"
+          }
+        },
+        "applyReceipt": {
+          "$ref": "#/$defs/applyIdentity"
+        },
+        "priorCommittedApplies": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Omitted, never empty. Canonical wire order is by changeSetId and is enforced by projectionResultInvariantIssues.",
+          "items": {
+            "$ref": "#/$defs/priorCommittedApply"
+          }
+        },
+        "receiptDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "adoption-required",
+                  "human-action-required"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "humanActions": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "humanActions": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "applied-reconcile-required"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "applyReceipt"
+            ],
+            "properties": {
+              "refreshSignals": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "expectedSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryId",
+        "workspaceId",
+        "headSha",
+        "worktreeDigest"
+      ],
+      "properties": {
+        "repositoryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "headSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "worktreeDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "repoPath": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "^/"
+          },
+          {
+            "pattern": "\\\\"
+          },
+          {
+            "pattern": "(^|/)\\.\\.(/|$)"
+          }
+        ]
+      }
+    },
+    "recoveryBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "targets",
+        "changedPaths",
+        "originalExpectedSnapshot",
+        "expectedResultingDigests",
+        "rendererVersion",
+        "layoutVersion",
+        "generatedFrom",
+        "ownedOutputDigest",
+        "receiptDigest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.projection-apply-recovery-binding/v1"
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Canonical wire order is lexicographic and is enforced by projectionRequestInvariantIssues.",
+          "items": {
+            "enum": [
+              "agent-context",
+              "architecture-docs"
+            ]
+          }
+        },
+        "changedPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Canonical wire order is lexicographic and is enforced by projectionRequestInvariantIssues.",
+          "items": {
+            "$ref": "#/$defs/repoPath"
+          }
+        },
+        "originalExpectedSnapshot": {
+          "$ref": "#/$defs/expectedSnapshot"
+        },
+        "expectedResultingDigests": {
+          "$ref": "#/$defs/digestSet"
+        },
+        "rendererVersion": {
+          "const": "archcontext.docs-renderer/v4"
+        },
+        "layoutVersion": {
+          "const": "archcontext.docs-layout/v1"
+        },
+        "generatedFrom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "codeGraphPackage",
+            "codeGraphVersion",
+            "codeGraphBinaryDigest",
+            "codeGraphStatus"
+          ],
+          "properties": {
+            "codeGraphPackage": {
+              "const": "@colbymchenry/codegraph"
+            },
+            "codeGraphVersion": {
+              "const": "1.5.0"
+            },
+            "codeGraphBinaryDigest": {
+              "$ref": "#/$defs/digest"
+            },
+            "codeGraphStatus": {
+              "enum": [
+                "ready",
+                "unavailable"
+              ]
+            }
+          }
+        },
+        "ownedOutputDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "receiptDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "identity",
+        "result",
+        "recovery"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.projection-apply-receipt/v1"
+        },
+        "identity": {
+          "$ref": "#/$defs/applyIdentity"
+        },
+        "result": {
+          "$ref": "#/$defs/projectionResult"
+        },
+        "recovery": {
+          "$ref": "#/$defs/recoveryBinding"
+        }
+      }
+    },
+    "readbackResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "requestDigest",
+        "receipt",
+        "current",
+        "readbackDigest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.projection-apply-readback-result/v1"
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_.:-]+$",
+          "minLength": 1
+        },
+        "requestDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "receipt": {
+          "$ref": "#/$defs/receipt"
+        },
+        "current": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "snapshot",
+            "resultingDigests",
+            "ownedOutputDigest",
+            "fixedPointDigest"
+          ],
+          "properties": {
+            "snapshot": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/snapshot"
+                },
+                {
+                  "properties": {
+                    "generatedFrom": {
+                      "properties": {
+                        "codeGraphStatus": {
+                          "const": "ready"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "resultingDigests": {
+              "$ref": "#/$defs/digestSet"
+            },
+            "ownedOutputDigest": {
+              "$ref": "#/$defs/digest"
+            },
+            "fixedPointDigest": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "readbackDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "absence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "requestDigest",
+        "lookupKey",
+        "current",
+        "absenceDigest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.projection-apply-absence/v1"
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_.:-]+$",
+          "minLength": 1
+        },
+        "requestDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "lookupKey": {
+          "$ref": "#/$defs/digest"
+        },
+        "current": {
+          "$ref": "#/$defs/expectedSnapshot"
+        },
+        "absenceDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  }
+}

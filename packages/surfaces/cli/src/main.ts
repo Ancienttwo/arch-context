@@ -3,8 +3,8 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, archctxCapabilities, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2, Sha256Digest } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, archctxCapabilities, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2, Sha256Digest } from "@archcontext/contracts";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -1477,8 +1477,9 @@ async function applyProjectionProtocolFixedPoint(
  */
 async function runProjectionProtocolCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient): Promise<JsonEnvelope> {
   const subcommand = args[0] ?? "run";
+  if (subcommand === "readback") return runProjectionApplyReadbackCommand(args.slice(1), cwd, daemon);
   if (subcommand === "recover") return runProjectionApplyRecoveryCommand(args.slice(1), cwd, daemon);
-  if (subcommand !== "run") return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover --request-json <request>");
+  if (subcommand !== "run") return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>");
   const raw = readFlag(args, "--request-json");
   if (!raw) return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection run requires --request-json");
 
@@ -1581,6 +1582,30 @@ function parseProjectionPriorCommittedApplies(value: unknown, requestId: string)
   const issues = projectionPriorCommittedAppliesIssues(applies as ProjectionPriorCommittedApplyV1[], requestId);
   if (issues.length > 0) throw new Error(`prior committed apply invariant failed: ${issues.join("; ")}`);
   return applies as ProjectionPriorCommittedApplyV1[];
+}
+
+/** Readback verifies the original apply without changing its delivery checkpoint. */
+async function runProjectionApplyReadbackCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient): Promise<JsonEnvelope> {
+  const raw = readFlag(args, "--request-json");
+  if (!raw) return errorEnvelope("projection.readback", "AC_SCHEMA_INVALID", "projection readback requires --request-json");
+  let request: ProjectionRequestV1;
+  try {
+    request = parseProjectionProtocolRequest(raw);
+    const issues = projectionApplyReadbackRequestInvariantIssues(request);
+    if (issues.length > 0) throw new Error(issues.join("; "));
+  } catch (error) {
+    return errorEnvelope("projection.readback", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  try {
+    const result = await daemon.readbackProjectionApply(findRepositoryRoot(cwd), request);
+    if (!result.ok) return result;
+    const issues = (result.data as any)?.schemaVersion === "archcontext.projection-apply-absence/v1"
+      ? projectionApplyAbsenceInvariantIssues(result.data as unknown as ProjectionApplyAbsenceV1, request)
+      : projectionApplyReadbackResultInvariantIssues(result.data as unknown as ProjectionApplyReadbackResultV1, request);
+    return issues.length === 0 ? result : errorEnvelope("projection.readback", "AC_SCHEMA_INVALID", issues.join("; "));
+  } catch (error) {
+    return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+  }
 }
 
 /**
