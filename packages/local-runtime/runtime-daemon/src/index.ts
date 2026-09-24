@@ -2644,6 +2644,7 @@ export class ArchctxDaemon {
     this.changesets.set(draft.id, draft);
     this.changeSetRoots.set(draft.id, canonicalRepositoryRoot(root));
     this.changeSetWorktreeDigestProfiles.set(draft.id, "repository");
+    this.mcpChangeSets.delete(draft.id);
     return okEnvelope("practices.waive", {
       schemaVersion: "archcontext.practice-waiver-plan/v1",
       waiver,
