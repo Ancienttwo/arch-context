@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -20,7 +20,7 @@ test("the Bun version gate rejects a mismatch before test code loads", () => {
       writeFileSync(join(cwd, "probe.test.ts"), 'import { writeFileSync } from "node:fs"; writeFileSync("loaded", "yes");\n');
       const commands = directory === "." ? [["test", "probe.test.ts"]] : [["test", "probe.test.ts"], ["run", "test"]];
       for (const command of commands) {
-        expect(() => execFileSync(process.execPath, command, { cwd, stdio: "pipe", env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH}` } })).toThrow("requires bun@0.0.0");
+        expect(() => execFileSync(process.execPath, command, { cwd, stdio: "pipe", env: { ...process.env, PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH}` } })).toThrow("requires bun@0.0.0");
         expect(existsSync(join(cwd, "loaded"))).toBe(false);
       }
     }
