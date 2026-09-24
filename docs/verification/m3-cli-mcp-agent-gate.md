@@ -51,7 +51,7 @@ Observed result:
 
 ## Boundary Notes
 
-- MCP exposes exactly five workflow tools.
+- The M3 baseline exposed five workflow tools. The current local surface exposes six, including `archcontext_practices`; the authoritative list is `LOCAL_MCP_TOOLS`.
 - `archcontext_apply_update` is annotated destructive and requires confirmation.
 - stdio MCP writes protocol output to stdout and logs to stderr.
 - Skills are SOP-only and do not carry runtime business logic.

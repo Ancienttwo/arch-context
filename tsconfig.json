@@ -67,7 +67,6 @@
     ]
   },
   "include": [
-    "apps/**/*.ts",
     "deploy/**/*.mjs",
     "deploy/**/*.ts",
     "packages/**/*.ts",

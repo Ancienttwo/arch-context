@@ -2,11 +2,12 @@
 schemaVersion: archcontext.adr/v1
 id: adr.0022.no-slack-in-mvp
 title: No Slack in MVP
-status: accepted
+status: superseded
 decidedAt: 2026-06-19
 appliesTo:
   - component.architecture-context.core.application
 supersedes: []
+supersededBy: adr.0029.notification-providers
 ---
 
 # Context

@@ -1,49 +1,49 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" sourceDigest="sha256:f0122631908fe80dab14babccd5911ba36206ff2189426fd1948d33417056310" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:bae3c36e4277d0a3a0885141f1ba8ddc5762f45d12bd9b675d8ee19f5075ba8b" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" sourceDigest="sha256:08d9dc7f7ada4784c5e0b40968edd95ca4cc96a85ddf246bef1bcc64eb9570a2" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:b9a2f39ba0903a744cfc490cf9f45dfc0d86097987cc698f7d47ca5aa78a26c9" -->
 # Architecture Decision Index
 
-- [Context](../../docs/adr/ADR-0001-agentic-architecture-control-loop.md) — accepted
-- [Context](../../docs/adr/ADR-0002-codegraph-required-code-facts-engine.md) — accepted
-- [Context](../../docs/adr/ADR-0003-local-first-trust-boundary.md) — accepted
-- [Context](../../docs/adr/ADR-0004-sqlite-local-store.md) — accepted
-- [Context](../../docs/adr/ADR-0005-single-writer-runtime-daemon.md) — accepted
-- [Context](../../docs/adr/ADR-0006-cli-and-mcp-thin-adapters.md) — accepted
-- [Context](../../docs/adr/ADR-0007-structured-architecture-source-of-truth.md) — accepted
-- [Context](../../docs/adr/ADR-0008-declared-observed-verified.md) — accepted
-- [Context](../../docs/adr/ADR-0009-target-state-vs-migration-state.md) — accepted
-- [Context](../../docs/adr/ADR-0010-compatibility-code-requires-contract.md) — accepted
-- [Context](../../docs/adr/ADR-0011-architecture-intervention.md) — accepted
-- [Context](../../docs/adr/ADR-0012-changeset-only-architecture-writes.md) — accepted
-- [Context](../../docs/adr/ADR-0013-progressive-architecture.md) — accepted
-- [Context](../../docs/adr/ADR-0014-context-compiler-with-budget.md) — accepted
-- [Context](../../docs/adr/ADR-0015-github-app-without-contents-permission.md) — accepted
-- [Context](../../docs/adr/ADR-0016-signed-local-attestation.md) — accepted
-- [Context](../../docs/adr/ADR-0017-cloudflare-control-plane.md) — accepted
-- [Context](../../docs/adr/ADR-0018-dual-mcp-surface.md) — accepted
-- [Context](../../docs/adr/ADR-0019-chatgpt-secure-mcp-tunnel.md) — accepted
-- [Context](../../docs/adr/ADR-0020-mcp-apps-standard-first-ui.md) — accepted
-- [Context](../../docs/adr/ADR-0021-first-party-skills-sop-only.md) — accepted
-- [Context](../../docs/adr/ADR-0022-no-slack-in-mvp.md) — accepted
-- [Context](../../docs/adr/ADR-0023-user-level-private-entitlement.md) — accepted
-- [Context](../../docs/adr/ADR-0024-developer-vs-organization-attestation.md) — accepted
-- [Context](../../docs/adr/ADR-0025-evidence-confidence-proof-required.md) — accepted
-- [Context](../../docs/adr/ADR-0026-multi-repo-architecture-context.md) — accepted
-- [Context](../../docs/adr/ADR-0027-trusted-runner-attestation.md) — accepted
-- [Context](../../docs/adr/ADR-0028-per-seat-billing-v1.md) — accepted
-- [Context](../../docs/adr/ADR-0029-notification-providers.md) — accepted
-- [Context](../../docs/adr/ADR-0030-model-interop-adapters.md) — accepted
-- [Context](../../docs/adr/ADR-0031-chatgpt-app-ga.md) — accepted
-- [Context](../../docs/adr/ADR-0032-browser-architecture-explorer.md) — accepted
-- [Context](../../docs/adr/ADR-0033-semantic-retrieval-embeddings.md) — accepted
-- [Context](../../docs/adr/ADR-0034-one-package-local-product-distribution.md) — accepted
-- [Context](../../docs/adr/ADR-0035-github-governance-privacy-contract.md) — accepted
-- [Context](../../docs/adr/ADR-0036-deterministic-gate-llm-advisory.md) — accepted
-- [Context](../../docs/adr/ADR-0037-runtime-state-placement.md) — accepted
-- [Context](../../docs/adr/ADR-0038-versioned-architecture-practice-assets.md) — accepted
-- [Context](../../docs/adr/ADR-0039-external-documentation-advisory-untrusted.md) — accepted
-- [Context](../../docs/adr/ADR-0040-hybrid-architecture-ledger.md) — accepted
-- [Context](../../docs/adr/ADR-0041-native-local-audit.md) — accepted
-- [Context](../../docs/adr/ADR-0042-local-github-issue-publishing.md) — accepted
-- [Context](../../docs/adr/ADR-0043-agent-context-provider.md) — accepted
-- [Context](../../docs/adr/ADR-0044-authority-aware-explorer-view-compiler.md) — accepted
-- [ADR-0045: Authority-Separated Data Engine](../../docs/adr/ADR-0045-authority-separated-data-engine.md) — accepted
+- [Agentic Architecture Control Loop](../../adr/ADR-0001-agentic-architecture-control-loop.md) — accepted
+- [CodeGraph as Required Code Facts Engine](../../adr/ADR-0002-codegraph-required-code-facts-engine.md) — accepted
+- [Local-first Trust Boundary](../../adr/ADR-0003-local-first-trust-boundary.md) — accepted
+- [SQLite Local Store](../../adr/ADR-0004-sqlite-local-store.md) — accepted
+- [Single-writer Runtime Daemon](../../adr/ADR-0005-single-writer-runtime-daemon.md) — accepted
+- [CLI and MCP as Thin Adapters](../../adr/ADR-0006-cli-and-mcp-thin-adapters.md) — accepted
+- [Structured Architecture Source of Truth](../../adr/ADR-0007-structured-architecture-source-of-truth.md) — accepted
+- [Declared / Observed / Verified](../../adr/ADR-0008-declared-observed-verified.md) — accepted
+- [Target State vs Migration State](../../adr/ADR-0009-target-state-vs-migration-state.md) — accepted
+- [Compatibility Code Requires Contract](../../adr/ADR-0010-compatibility-code-requires-contract.md) — accepted
+- [Architecture Intervention](../../adr/ADR-0011-architecture-intervention.md) — accepted
+- [ChangeSet-only Architecture Writes](../../adr/ADR-0012-changeset-only-architecture-writes.md) — accepted
+- [Progressive Architecture](../../adr/ADR-0013-progressive-architecture.md) — accepted
+- [Context Compiler with Budget](../../adr/ADR-0014-context-compiler-with-budget.md) — accepted
+- [GitHub Governance API Allowlist without Contents Permission](../../adr/ADR-0015-github-app-without-contents-permission.md) — accepted
+- [Signed Local Attestation](../../adr/ADR-0016-signed-local-attestation.md) — accepted
+- [Cloudflare Control Plane](../../adr/ADR-0017-cloudflare-control-plane.md) — accepted
+- [Dual MCP Surface](../../adr/ADR-0018-dual-mcp-surface.md) — accepted
+- [ChatGPT via Secure MCP Tunnel](../../adr/ADR-0019-chatgpt-secure-mcp-tunnel.md) — accepted
+- [MCP Apps Standard-first UI](../../adr/ADR-0020-mcp-apps-standard-first-ui.md) — accepted
+- [First-party Skills as SOP Only](../../adr/ADR-0021-first-party-skills-sop-only.md) — accepted
+- [No Slack in MVP](../../adr/ADR-0022-no-slack-in-mvp.md) — superseded
+- [User-level Private Entitlement](../../adr/ADR-0023-user-level-private-entitlement.md) — accepted
+- [Developer vs Organization Attestation](../../adr/ADR-0024-developer-vs-organization-attestation.md) — accepted
+- [Evidence Confidence and Proof Required](../../adr/ADR-0025-evidence-confidence-proof-required.md) — accepted
+- [Multi-repo Architecture Context](../../adr/ADR-0026-multi-repo-architecture-context.md) — accepted
+- [Trusted Runner Attestation](../../adr/ADR-0027-trusted-runner-attestation.md) — accepted
+- [Per-seat Billing v1](../../adr/ADR-0028-per-seat-billing-v1.md) — accepted
+- [Notification Providers](../../adr/ADR-0029-notification-providers.md) — accepted
+- [Model Interop Adapters](../../adr/ADR-0030-model-interop-adapters.md) — accepted
+- [ChatGPT App GA](../../adr/ADR-0031-chatgpt-app-ga.md) — accepted
+- [Browser Architecture Explorer](../../adr/ADR-0032-browser-architecture-explorer.md) — accepted
+- [Semantic Retrieval and Embeddings](../../adr/ADR-0033-semantic-retrieval-embeddings.md) — accepted
+- [One-package Local Product Distribution](../../adr/ADR-0034-one-package-local-product-distribution.md) — accepted
+- [GitHub Governance Privacy Contract](../../adr/ADR-0035-github-governance-privacy-contract.md) — accepted
+- [Deterministic Gate, LLM Advisory](../../adr/ADR-0036-deterministic-gate-llm-advisory.md) — accepted
+- [Runtime State Placement and Identity](../../adr/ADR-0037-runtime-state-placement.md) — accepted
+- [Versioned Architecture Practice Assets](../../adr/ADR-0038-versioned-architecture-practice-assets.md) — accepted
+- [External Documentation Is Advisory and Untrusted](../../adr/ADR-0039-external-documentation-advisory-untrusted.md) — accepted
+- [Hybrid Architecture Ledger](../../adr/ADR-0040-hybrid-architecture-ledger.md) — accepted
+- [Daemon-Driven Local Architecture Audit with Advisory GitHub Issue Drafts](../../adr/ADR-0041-native-local-audit.md) — accepted
+- [Local Approve-and-Publish for Advisory GitHub Issue Drafts](../../adr/ADR-0042-local-github-issue-publishing.md) — accepted
+- [Agent Context Provider](../../adr/ADR-0043-agent-context-provider.md) — accepted
+- [Authority-Aware Explorer View Compiler](../../adr/ADR-0044-authority-aware-explorer-view-compiler.md) — accepted
+- [Authority-Separated Data Engine](../../adr/ADR-0045-authority-separated-data-engine.md) — accepted
 <!-- END ARCHCONTEXT:generated target="projection_target.decision.index" -->
