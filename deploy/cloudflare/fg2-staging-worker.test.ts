@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import worker from "./fg2-staging-worker";
 
 const webhookSecret = "test-webhook-secret";
+const readbackSecret = "test-readback-secret";
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString();
 
@@ -12,6 +13,7 @@ const env = {
   GITHUB_APP_ID: "12345",
   GITHUB_APP_PRIVATE_KEY_PEM: privateKeyPem,
   GITHUB_WEBHOOK_SECRET: webhookSecret,
+  ARCHCONTEXT_READBACK_SECRET: readbackSecret,
   FG2_STAGING_REPOSITORY: "Ancienttwo/arch-context"
 };
 
@@ -39,8 +41,50 @@ describe("fg2 staging Cloudflare Worker", () => {
     expect(JSON.stringify(body)).not.toContain(webhookSecret);
   });
 
+  test("rejects the webhook key as readback authorization", async () => {
+    const path = "/v1/fg5/check-delivery/failure-injection";
+    const timestamp = new Date().toISOString();
+    const response = await worker.fetch(new Request(`https://worker.example${path}`, {
+      method: "POST",
+      headers: {
+        "x-archcontext-readback-timestamp": timestamp,
+        "x-archcontext-readback-signature": signReadback({ method: "POST", path, timestamp, secret: webhookSecret })
+      }
+    }), env);
+    expect(response.status).toBe(401);
+  });
+
+  test.each([
+    new Date(Date.now() - 301_000).toISOString(),
+    new Date(Date.now() + 60_000).toISOString(),
+    "invalid", "2026-02-30T00:00:00.000Z"
+  ])("rejects invalid or out-of-window readback timestamp %s", async (timestamp) => {
+    const path = "/v1/fg5/check-delivery/failure-injection";
+    const response = await worker.fetch(new Request(`https://worker.example${path}`, {
+      method: "POST",
+      headers: {
+        "x-archcontext-readback-timestamp": timestamp,
+        "x-archcontext-readback-signature": signReadback({ method: "POST", path, timestamp })
+      }
+    }), env);
+    expect(response.status).toBe(401);
+  });
+
+  test.each([undefined, webhookSecret])("fails closed without an independent readback key %s", async (secret) => {
+    const path = "/v1/fg5/check-delivery/failure-injection";
+    const timestamp = new Date().toISOString();
+    const response = await worker.fetch(new Request(`https://worker.example${path}`, {
+      method: "POST",
+      headers: {
+        "x-archcontext-readback-timestamp": timestamp,
+        "x-archcontext-readback-signature": signReadback({ method: "POST", path, timestamp, secret: webhookSecret })
+      }
+    }), { ...env, ARCHCONTEXT_READBACK_SECRET: secret });
+    expect(response.status).toBe(401);
+  });
+
   test("exercises FG5 Check API failure retry DLQ and replay through staging readback", async () => {
-    const timestamp = "2026-06-22T01:02:03.000Z";
+    const timestamp = new Date().toISOString();
     const path = "/v1/fg5/check-delivery/failure-injection";
     const response = await worker.fetch(new Request(`https://worker.example${path}`, {
       method: "POST",
@@ -105,6 +149,7 @@ describe("fg2 staging Cloudflare Worker", () => {
     });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain(webhookSecret);
+    expect(serialized).not.toContain(readbackSecret);
     expect(serialized).not.toContain("Bearer ");
     expect(serialized).not.toContain("diff --git");
     expect(serialized).not.toContain("nonce_");
@@ -384,8 +429,8 @@ function sign(rawBody: string): string {
   return `sha256=${createHmac("sha256", webhookSecret).update(rawBody).digest("hex")}`;
 }
 
-function signReadback(input: { method: string; path: string; timestamp: string }): string {
-  return `sha256=${createHmac("sha256", webhookSecret)
+function signReadback(input: { method: string; path: string; timestamp: string; secret?: string }): string {
+  return `sha256=${createHmac("sha256", input.secret ?? readbackSecret)
     .update(`${input.method}\n${input.path}\n${input.timestamp}`)
     .digest("hex")}`;
 }

@@ -14,6 +14,8 @@ const SECRET_PATTERNS = [
   /Bearer\s+[A-Za-z0-9._-]+/i,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /GITHUB_WEBHOOK_SECRET/i,
+  /ARCHCONTEXT_READBACK_SECRET/i,
+  /readbackSecret/i,
   /installation[_-]?token/i,
   /jwt/i,
   /x-hub-signature/i,
@@ -63,7 +65,7 @@ export async function buildFg5CheckFailureReadbackConfig(env: NodeJS.ProcessEnv 
     envFile,
     outputPath,
     stagingUrl: normalizeBaseUrl(readFlag(args, "--staging-url") ?? env.ARCHCONTEXT_STAGING_URL ?? dotenv.ARCHCONTEXT_STAGING_URL ?? DEFAULT_STAGING_URL),
-    webhookSecret: readFlag(args, "--webhook-secret") ?? env.GITHUB_WEBHOOK_SECRET ?? dotenv.GITHUB_WEBHOOK_SECRET ?? "",
+    readbackSecret: env.ARCHCONTEXT_READBACK_SECRET ?? dotenv.ARCHCONTEXT_READBACK_SECRET ?? "",
     json: args.includes("--json"),
     now: () => new Date().toISOString()
   };
@@ -72,7 +74,7 @@ export async function buildFg5CheckFailureReadbackConfig(env: NodeJS.ProcessEnv 
 export async function runFg5CheckFailureReadback(config: Awaited<ReturnType<typeof buildFg5CheckFailureReadbackConfig>>) {
   const generatedAt = config.now();
   const failures: string[] = [];
-  if (!config.webhookSecret) failures.push("GITHUB_WEBHOOK_SECRET missing");
+  if (!config.readbackSecret) failures.push("readback signing key missing");
   if (failures.length > 0) {
     const failed = failedRecording(config, generatedAt, failures);
     await writeRecording(config, failed);
@@ -86,7 +88,7 @@ export async function runFg5CheckFailureReadback(config: Awaited<ReturnType<type
       accept: "application/json",
       [READBACK_TIMESTAMP_HEADER]: generatedAt,
       [READBACK_SIGNATURE_HEADER]: signReadback({
-        secret: config.webhookSecret,
+        secret: config.readbackSecret,
         method: "POST",
         path: FG5_CHECK_FAILURE_READBACK_PATH,
         timestamp: generatedAt
