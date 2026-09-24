@@ -1,5 +1,7 @@
 # FG3 Developer Review Verification
 
+> 2026-09-25 scope correction (#162): the connection flow described below was an in-memory scaffold, not real OAuth or durable key storage. The CLI now rejects `github connect`, and status/review require a verified connection adapter instead of trusting a local record. FG3 scripts inject an explicitly named connection fixture and do not prove cloud authentication. ADR-0016 and ADR-0017 define the remaining delivery gate.
+
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - Started At: 2026-06-20
 - Current slice: FG3-01 through FG3-24 plus FG3-EG1 through FG3-EG8

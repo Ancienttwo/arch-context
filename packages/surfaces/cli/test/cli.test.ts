@@ -11,9 +11,10 @@ import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-fact
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, grantAuditConsent, readAuditConsent, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
+import { DevicePrivateKeyStore, InMemoryCredentialSecretStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
 import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { createFixtureGithubConnectionReader } from "./github-connection-fixture";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
@@ -2786,58 +2787,43 @@ describe("archctx CLI", () => {
     }
   });
 
-  test("github connect, status, and disconnect use control-plane credential refs without gh", async () => {
+  test("github connect fails closed without creating credentials or claiming a connection", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-"));
-    const credentials = new InMemoryCredentialSecretStore();
-    const devicePrivateKeyStore = new DevicePrivateKeyStore(credentials);
-    const tokenStore = new KeychainTokenStore();
     const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
     process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
     try {
-      const connect = await runCli("github", [
-        "connect",
-        "--account-id", "acct_42",
-        "--github-user-id", "42",
-        "--public-key-id", "key_device_0001",
-        "--issuer", "https://archcontext.repoharness.com",
-        "--verifier", "fixed-verifier",
-        "--now", "2026-06-20T11:00:00Z"
-      ], root, { devicePrivateKeyStore, tokenStore });
-      expect(connect.ok).toBe(true);
-      expect(connect.requestId).toBe("github.connect");
-      expect((connect.data as any).connected).toBe(true);
-      expect((connect.data as any).ghCli).toBe("not-used");
-      expect((connect.data as any).authorizationUrl).toContain("code_challenge_method=S256");
-      expect((connect.data as any).deviceKey.keyRef).toBe("keychain://archcontext/device/acct_42/key_device_0001");
-      expect((connect.data as any).deviceKey.publicKeyFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
-
+      const connect = await runCli("github", ["connect", "--account-id", "acct_42"], root);
+      expect(connect.ok).toBe(false);
+      expect((connect as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
       const connectionPath = join(testRuntimePaths(root).workspaceStateDir, "github-connection.json");
-      expect(existsSync(connectionPath)).toBe(true);
-      const persisted = readFileSync(connectionPath, "utf8");
-      expect(persisted).toContain("keychain://archcontext/device/acct_42/key_device_0001");
-      expect(persisted).not.toContain("fixed-verifier");
-      expect(persisted).not.toContain("refresh_acct_42");
-      expect(persisted).not.toContain("PRIVATE KEY");
-      expect(persisted).not.toContain("BEGIN PUBLIC KEY");
-
-      const status = await runCli("github", ["status"], root);
-      expect(status.ok).toBe(true);
-      expect((status.data as any).connected).toBe(true);
-      expect((status.data as any).accountId).toBe("acct_42");
-      expect(JSON.stringify(status.data)).not.toContain("fixed-verifier");
-      expect(JSON.stringify(status.data)).not.toContain("PRIVATE KEY");
-
-      const disconnect = await runCli("github", ["disconnect"], root, { devicePrivateKeyStore, tokenStore });
-      expect(disconnect.ok).toBe(true);
-      expect((disconnect.data as any).disconnected).toBe(true);
       expect(existsSync(connectionPath)).toBe(false);
-      expect(() => devicePrivateKeyStore.readPrivateKey("keychain://archcontext/device/acct_42/key_device_0001")).toThrow("device-private-key-not-found");
+      const processConnect = await runCliProcessRaw(root, "github", "connect");
+      expect(processConnect.code).not.toBe(0);
+      expect(JSON.parse(processConnect.stdout).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(existsSync(connectionPath)).toBe(false);
+      const status = await runCli("github", ["status"], root);
+      expect((status.data as any).connected).toBe(false);
 
-      const disconnectedStatus = await runCli("github", ["status"], root);
-      expect((disconnectedStatus.data as any).connected).toBe(false);
-
-      const invalid = await runCli("github", ["review"], root);
-      expect(invalid.ok).toBe(false);
+      mkdirSync(dirname(connectionPath), { recursive: true });
+      const legacy = JSON.stringify({
+        schemaVersion: "archcontext.github-connection/v1", status: "connected",
+        accountId: "acct_42", githubUserId: "42", refreshTokenRef: "keychain://archcontext/acct_42/github-refresh"
+      });
+      writeFileSync(connectionPath, legacy);
+      const legacyStatus = await runCli("github", ["status"], root);
+      expect((legacyStatus.data as any).connected).toBe(false);
+      expect(JSON.stringify(legacyStatus.data)).not.toContain("acct_42");
+      const processStatus = await runCliProcess(root, "github", "status");
+      expect(processStatus.data.connected).toBe(false);
+      const review = await runCli("github", ["review", "claim"], root);
+      expect(review.ok).toBe(false);
+      expect((review as any).error.code).toBe("AC_RUNTIME_UNAVAILABLE");
+      expect(readFileSync(connectionPath, "utf8")).toBe(legacy);
+      const disconnect = await runCli("github", ["disconnect"], root);
+      expect(disconnect.ok).toBe(true);
+      expect((disconnect.data as any).localRecordRemoved).toBe(true);
+      expect((disconnect.data as any).remoteRevoked).toBe(false);
+      expect(existsSync(connectionPath)).toBe(false);
     } finally {
       if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
       else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
@@ -2949,7 +2935,6 @@ describe("archctx CLI", () => {
     const root = createInitializedGitRepo();
     const credentials = new InMemoryCredentialSecretStore();
     const devicePrivateKeyStore = new DevicePrivateKeyStore(credentials);
-    const tokenStore = new KeychainTokenStore();
     const provider = new MockCodeGraphProvider();
     const headSha = gitOut(root, "rev-parse", "HEAD");
     const baseSha = headSha;
@@ -2971,7 +2956,9 @@ describe("archctx CLI", () => {
       codeFacts: new CodeGraphAdapter(provider),
       codeGraphProviderFactory: () => new MockCodeGraphProvider(),
       devicePrivateKeyStore,
-      tokenStore,
+      githubConnectionReader: createFixtureGithubConnectionReader(devicePrivateKeyStore, {
+        accountId: "acct_review", githubUserId: "42", publicKeyId: "key_device_review"
+      }),
       githubGovernancePort: {
         async getPullHeadMetadata(input: any) {
           return { ...input, headSha, baseSha };
@@ -2991,16 +2978,6 @@ describe("archctx CLI", () => {
     const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
     process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
     try {
-      const connect = await runCli("github", [
-        "connect",
-        "--account-id", "acct_review",
-        "--github-user-id", "42",
-        "--public-key-id", "key_device_review",
-        "--verifier", "fixed-review-verifier",
-        "--now", "2026-06-20T08:59:00Z"
-      ], root, deps);
-      expect(connect.ok).toBe(true);
-
       const claim = await runCli("github", [
         "review",
         "claim",
