@@ -83,7 +83,7 @@ LLM advisory is also optional and separate. Local Core commands do not require p
 
 ## Optional Audit
 
-`archctx audit` is a local, read-only architecture audit driven by the repository daemon. The daemon spawns `claude` as a subagent restricted at the process level to read-only tools (`Read`, `Grep`, `Glob`; `Bash`, `Edit`, and `Write` are not wired into that session and are also explicitly disallowed), has it review the repository, and turns the result into advisory GitHub issue drafts. Nothing is published automatically: drafts sit in local state until a human runs a separate approve step. See `docs/adr/ADR-0041-native-local-audit.md` and `docs/adr/ADR-0042-local-github-issue-publishing.md` for the full design.
+`archctx audit` is a local, read-only architecture audit driven by the repository daemon. The daemon spawns `claude` as a subagent restricted at the process level to read-only tools (`Read`, `Grep`, `Glob`; `Bash`, `Edit`, and `Write` are not wired into that session and are also explicitly disallowed), has it review the repository, and turns the result into advisory GitHub issue drafts. Nothing is published automatically: drafts sit in local state until a human runs a separate approve step. The audit is not local-only: `claude` sends the repository content it reads to its configured model provider, and `archctx doctor` reports that as `egress.effectiveOutbound: "non-local"` once it is enabled. See `docs/adr/ADR-0041-native-local-audit.md` and `docs/adr/ADR-0042-local-github-issue-publishing.md` for the full design.
 
 Audit is opt-in and off by default. Enable it per repository in `.archcontext/manifest.yaml`:
 
@@ -91,6 +91,13 @@ Audit is opt-in and off by default. Enable it per repository in `.archcontext/ma
 audit:
   githubIssues:
     enabled: true
+```
+
+The manifest only declares that the repository supports audit; because it is committed to the repository, a cloned repository can set it. `archctx audit run` and `archctx audit approve` also require your own consent for this repository, stored in your user state directory (never in the repository) and bound to the repository and its `origin` URL:
+
+```bash
+archctx audit consent            # allow this repository to be audited
+archctx audit consent --revoke   # withdraw it
 ```
 
 Run an audit and inspect its drafts:

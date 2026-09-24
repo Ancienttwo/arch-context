@@ -13,12 +13,150 @@ export interface NodeInvestigationTransportOptions {
 }
 
 /**
+ * Exact variable names the investigation child may inherit: process basics (PATH/HOME, locale,
+ * temp dir, terminal, the Windows equivalents), outbound proxy/CA settings the model call may need,
+ * and the Claude Code / Anthropic model-provider configuration. Anything not listed here — the
+ * daemon's GitHub publish PAT (`ARCHCONTEXT_GH_ISSUES_TOKEN`), `GH_TOKEN`/`GITHUB_TOKEN`, daemon
+ * control tokens, cloud credentials, unrelated secrets — is dropped (issue #161).
+ */
+export const INVESTIGATION_ENV_ALLOWLIST = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TERM",
+  "TZ",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_CACHE_HOME",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "SystemRoot",
+  "ComSpec",
+  "PATHEXT",
+  "HTTPS_PROXY",
+  "HTTP_PROXY",
+  "NO_PROXY",
+  "https_proxy",
+  "http_proxy",
+  "no_proxy",
+  "NODE_EXTRA_CA_CERTS",
+  "SSL_CERT_FILE",
+  "DO_NOT_TRACK",
+  // Claude Code privacy/behavior opt-outs: not credentials, and dropping them would silently
+  // re-enable telemetry, error reporting, and non-essential model calls in the investigator.
+  "DISABLE_TELEMETRY",
+  "DISABLE_ERROR_REPORTING",
+  "DISABLE_AUTOUPDATER",
+  "DISABLE_BUG_COMMAND",
+  "DISABLE_COST_WARNINGS",
+  "DISABLE_NON_ESSENTIAL_MODEL_CALLS",
+  "CLAUDE_CONFIG_DIR"
+] as const;
+
+/**
+ * Model-provider configuration and auth for the `claude` runner. `ANTHROPIC_*` covers
+ * `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`;
+ * `CLAUDE_CODE_*` covers `CLAUDE_CODE_OAUTH_TOKEN` and the Bedrock/Vertex switches. These are the
+ * only credential-bearing variables forwarded by default, because they are the runner's own
+ * model-provider auth. Names containing `ADMIN` (e.g. `ANTHROPIC_ADMIN_KEY`, an organization admin
+ * credential, not inference auth) are excluded even under these prefixes.
+ */
+export const INVESTIGATION_ENV_ALLOWED_PREFIXES = ["ANTHROPIC_", "CLAUDE_CODE_"] as const;
+export const INVESTIGATION_ENV_EXCLUDED_SUBSTRINGS = ["ADMIN"] as const;
+
+/**
+ * Cloud credentials and config forwarded only when the runner is explicitly configured to reach
+ * the model through that cloud (`CLAUDE_CODE_USE_BEDROCK` / `CLAUDE_CODE_USE_VERTEX`); otherwise
+ * they are unrelated secrets and stay in the daemon.
+ */
+export const INVESTIGATION_ENV_PROVIDER_CONDITIONAL: readonly { switchVar: string; names: readonly string[]; prefixes: readonly string[] }[] = [
+  {
+    switchVar: "CLAUDE_CODE_USE_BEDROCK",
+    names: [
+      "AWS_REGION",
+      "AWS_DEFAULT_REGION",
+      "AWS_PROFILE",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+      "AWS_BEARER_TOKEN_BEDROCK",
+      "AWS_CONFIG_FILE",
+      "AWS_SHARED_CREDENTIALS_FILE",
+      "AWS_WEB_IDENTITY_TOKEN_FILE",
+      "AWS_ROLE_ARN",
+      "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+      "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+      "AWS_CONTAINER_AUTHORIZATION_TOKEN"
+    ],
+    prefixes: []
+  },
+  {
+    switchVar: "CLAUDE_CODE_USE_VERTEX",
+    names: ["CLOUD_ML_REGION", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CONFIG"],
+    prefixes: ["VERTEX_REGION_CLAUDE_"]
+  }
+];
+
+/**
+ * Builds the investigation child's environment from an explicit allowlist instead of inheriting
+ * the daemon's `process.env`. Contrast `runGh` in github-issue-executor.ts, which builds its child
+ * env from exactly PATH/HOME/GH_TOKEN: the investigator is the process an audited repository can
+ * prompt-inject, so it must never hold the publish credential (ADR-0042).
+ */
+export function investigationChildEnv(
+  source: Record<string, string | undefined> = process.env,
+  platform: NodeJS.Platform = process.platform
+): Record<string, string> {
+  // Windows environment names are case-insensitive and commonly surface as `Path`, `SystemRoot`,
+  // etc., so match on an upper-cased key there while keeping the original spelling in the child env.
+  const key = platform === "win32" ? (name: string) => name.toUpperCase() : (name: string) => name;
+  const lookup = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(source)) lookup.set(key(name), value);
+  const env: Record<string, string> = {};
+  const allowed = new Set<string>(INVESTIGATION_ENV_ALLOWLIST.map(key));
+  const prefixes: string[] = INVESTIGATION_ENV_ALLOWED_PREFIXES.map(key);
+  for (const conditional of INVESTIGATION_ENV_PROVIDER_CONDITIONAL) {
+    if (!isTruthyEnv(lookup.get(key(conditional.switchVar)))) continue;
+    for (const name of conditional.names) allowed.add(key(name));
+    prefixes.push(...conditional.prefixes.map(key));
+  }
+  // A runtime may expose one Windows variable under several spellings (`PATH` and `Path`); forward
+  // only the first so the child never receives case-colliding duplicates.
+  const forwarded = new Set<string>();
+  for (const [name, value] of Object.entries(source)) {
+    if (value === undefined || forwarded.has(key(name))) continue;
+    const prefixMatch = prefixes.some((prefix) => key(name).startsWith(prefix));
+    const excluded = INVESTIGATION_ENV_EXCLUDED_SUBSTRINGS.some((substring) => name.toUpperCase().includes(substring));
+    if (allowed.has(key(name)) || (prefixMatch && !excluded)) {
+      env[name] = value;
+      forwarded.add(key(name));
+    }
+  }
+  return env;
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  return value !== undefined && value !== "" && value !== "0" && value.toLowerCase() !== "false";
+}
+
+/**
  * Real (non-fake) investigation transport: spawns the runner command (e.g. `claude --print
  * --output-format json`) with no shell, feeds it the runner stdin, and unwraps the Claude Code
  * `--output-format json` envelope into the shape `createCommandInvestigationRunner` expects.
  *
  * Safety properties:
  * - No shell is used (`spawn(command, args)`), so stdin content can never be interpreted as shell syntax.
+ * - The child env is `investigationChildEnv(process.env)`, never the daemon's full environment, so
+ *   the GitHub publish PAT and other unrelated credentials are not visible to the investigator.
  * - `maxOutputBytes` and the timeout are hard transport-level failures (reject the promise); a
  *   malformed/unexpected envelope is a soft failure (resolve with a non-zero exit code) so the
  *   caller's normal fallback-report path handles it without an uncaught rejection.
@@ -40,7 +178,8 @@ function runNodeInvestigationTransport(
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(input.command, input.args, {
       stdio: ["pipe", "pipe", "pipe"],
-      cwd: input.cwd ?? options.cwd
+      cwd: input.cwd ?? options.cwd,
+      env: investigationChildEnv(process.env)
     });
     let stdout = "";
     let stderr = "";
