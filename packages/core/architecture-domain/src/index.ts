@@ -511,8 +511,13 @@ export function validateAdrAppliesTo(files: readonly { path: string; body: strin
   const referenceErrors: string[] = [];
   for (const file of files) {
     if (!ADR_FILE_PATH.test(file.path)) continue;
-    const frontmatter = file.body.match(/^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/);
-    if (!frontmatter) continue;
+    const body = file.body.replace(/^\uFEFF/, "");
+    const frontmatter = body.match(/^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/);
+    if (!frontmatter) {
+      // An opening delimiter without a closing one would otherwise hide `appliesTo` from this check.
+      if (/^---[ \t]*\r?\n/.test(body)) errors.push(`${file.path}: ADR frontmatter has no closing --- delimiter`);
+      continue;
+    }
     const appliesTo = extractAdrAppliesTo(frontmatter[1] ?? "");
     if (appliesTo.kind === "absent") continue;
     if (appliesTo.kind === "malformed") {

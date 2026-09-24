@@ -321,6 +321,21 @@ describe("@archcontext/core/architecture-domain", () => {
       ])).toEqual({ errors: unknown, referenceErrors: unknown });
     });
 
+    test("reports unterminated ADR frontmatter instead of skipping its appliesTo", () => {
+      const unterminated = {
+        path: "docs/adr/ADR-0003-open.md",
+        body: ["---", "id: adr.0003.open", "appliesTo:", "  - package.bogus", "", "# Body", ""].join("\n")
+      };
+      const bom = { path: "docs/adr/ADR-0004-bom.md", body: `\uFEFF${adr("x", ["package.bogus"]).body}` };
+      const result = validateAdrAppliesTo([node("module.api"), unterminated, bom]);
+      expect(result.errors).toEqual([
+        "docs/adr/ADR-0003-open.md: ADR frontmatter has no closing --- delimiter",
+        "docs/adr/ADR-0004-bom.md: ADR appliesTo references unknown node package.bogus"
+      ]);
+      expect(result.referenceErrors).toEqual(["docs/adr/ADR-0004-bom.md: ADR appliesTo references unknown node package.bogus"]);
+      expect(validateAdrAppliesTo([{ path: "docs/adr/ADR-0005-plain.md", body: "# No frontmatter\n" }])).toEqual(clean);
+    });
+
     test("accepts hand-written YAML forms of appliesTo", () => {
       const files = [
         node("module.api"),
