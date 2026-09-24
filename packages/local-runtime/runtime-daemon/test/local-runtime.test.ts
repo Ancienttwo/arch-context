@@ -2278,25 +2278,37 @@ describe("local runtime foundation", () => {
     }
   });
 
-  test("audit approve aborts the entire batch when any draft matches a secret-shaped pattern", async () => {
-    const { executor, calls } = fakeGithubIssueExecutor();
-    const draftRecords = [
-      auditDraftRecord({ title: "Draft One" }),
-      auditDraftRecord({ title: "Draft Two", bodyMarkdown: "Rotate the leaked token ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
-    ];
-    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
-    try {
-      await withAuditApproveToken("gh_pat_test_token", async () => {
-        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
-        expect(result.ok).toBe(false);
-        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((result as any).error.message).toContain("secret-shaped");
-      });
-      expect(calls.createIssue).toHaveLength(0);
-    } finally {
-      removeTempRepo(fixture.root);
-    }
-  });
+  for (const [label, bodyMarkdown, expectedMessage] of [
+    ["secret", "Rotate ghp_" + "x".repeat(24), "secret-shaped"],
+    ["oversized body", "x".repeat(70_000), "size limit"],
+    ["unified diff", "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after", "forbidden raw"]
+  ]) {
+    test(`issue #169: audit run rejects ${label} drafts before persistence or publishing`, async () => {
+      const { executor, calls } = fakeGithubIssueExecutor();
+      const root = createGitRepo();
+      enableAuditWithConsent(root);
+      const store = new TestLocalStore();
+      try {
+        const now = "2026-07-05T00:00:00.000Z";
+        const daemon = await createStartedTestDaemon({
+          localStore: store, clock: () => now, githubIssueExecutor: executor,
+          investigationTransport: auditInvestigationTransportWithDrafts([
+            auditDraftRecord({ title: "Draft One" }), auditDraftRecord({ title: "Rejected draft", bodyMarkdown })
+          ], now)
+        });
+        const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+        expect(run.ok).toBe(false);
+        expect(run.error?.code).toBe("AC_SCHEMA_INVALID");
+        expect(run.error?.message).toContain(expectedMessage);
+        expect(JSON.stringify(await daemon.jobsList(root))).not.toContain(JSON.stringify(bodyMarkdown).slice(1, -1));
+        expect(store.architectureEvents.some((event) => event.eventType === "architecture.agent_audit.run_pending")).toBe(false);
+        expect(calls.createIssue).toHaveLength(0);
+        expect(calls.repoView).toHaveLength(0);
+      } finally {
+        removeTempRepo(root);
+      }
+    });
+  }
 
   // Issue #117 end-to-end: a benign JWT/installation-token architecture finding is publishable.
   test("audit approve publishes benign JWT and installation-token findings instead of aborting the batch", async () => {
@@ -2369,23 +2381,6 @@ describe("local runtime foundation", () => {
       }
     });
   }
-
-  test("audit approve rejects a draft whose body exceeds the GitHub issue length limit before any gh call", async () => {
-    const { executor, calls } = fakeGithubIssueExecutor();
-    const draftRecords = [auditDraftRecord({ title: "Oversized draft", bodyMarkdown: "x".repeat(70_000) })];
-    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
-    try {
-      await withAuditApproveToken("gh_pat_test_token", async () => {
-        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
-        expect(result.ok).toBe(false);
-        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((result as any).error.message).toContain("exceeding");
-      });
-      expect(calls.createIssue).toHaveLength(0);
-    } finally {
-      removeTempRepo(fixture.root);
-    }
-  });
 
   test("audit approve rejects a run whose investigation failed, zero gh calls", async () => {
     const { executor, calls } = fakeGithubIssueExecutor();
