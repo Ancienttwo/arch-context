@@ -11,7 +11,9 @@ import {
   CONTRACTS_PUBLIC_PACKAGE_NAME,
   CONTRACTS_SOURCE_FILES,
   CONTRACTS_SOURCE_PACKAGE_NAME,
-  preparePublicContractsReleaseStage
+  preparePublicContractsReleaseStage,
+  buildPublicContractsReleaseManifest,
+  publicContractsReleaseManifestIssues
 } from "./contracts-release-stage.mjs";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -134,7 +136,12 @@ function buildContext(env) {
     exportRoot: CONTRACTS_PUBLIC_EXPORTS["."],
     schemaExportRoot: CONTRACTS_PUBLIC_EXPORTS["./schemas/*"]
   };
-  const pack = npmPackDryRun(manifest, env);
+  const manifestIssues = publicContractsReleaseManifestIssues(
+    manifest, buildPublicContractsReleaseManifest(manifest, publishPackageName), publishPackageName
+  );
+  const pack = manifestIssues.length === 0
+    ? npmPackDryRun(manifest, env)
+    : { ok: false, skipped: true, reason: "invalid contracts release manifest" };
   const whoami = run("npm", ["whoami", "--registry", registry], { env });
   const npmIdentity = {
     ok: whoami.status === 0,
@@ -161,12 +168,8 @@ function buildContext(env) {
     expected,
     checks: {
       manifest: {
-        ok: manifest.name === expected.sourceName
-          && manifest.private === false
-          && manifest.license === expected.license
-          && manifest.publishConfig?.access === "public"
-          && JSON.stringify(manifest.files ?? []) === JSON.stringify(expected.sourceFiles)
-          && manifest.exports?.["."] === expected.exportRoot
+        ok: manifestIssues.length === 0,
+        issues: manifestIssues
       },
       pack,
       npmIdentity,
@@ -178,7 +181,7 @@ function buildContext(env) {
 
 function collectPreflightBlockers(context, publishing) {
   const blockers = [];
-  if (!context.checks.manifest.ok) blockers.push("contracts package manifest is not publishable");
+  if (!context.checks.manifest.ok) blockers.push("contracts source/public manifests violate the release contract");
   if (!context.checks.pack.ok) blockers.push(`npm pack dry-run failed: ${context.checks.pack.reason}`);
   if (!context.checks.npmIdentity.ok) blockers.push(`npm identity unavailable: ${context.checks.npmIdentity.error}`);
   if (context.checks.scopeAccess.ok !== true && context.checks.registryReadback.published !== true) {
