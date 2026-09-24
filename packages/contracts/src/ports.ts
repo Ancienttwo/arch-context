@@ -775,3 +775,64 @@ export interface ChatGptGaToolContract {
   requiresLocalConfirmationForWrite: boolean;
   disclosure: string;
 }
+
+export type DetachedReviewWorktreeReason =
+  | "HEAD_UNAVAILABLE"
+  | "HEAD_SHA_MISMATCH"
+  | "TREE_OID_MISMATCH"
+  | "WORKTREE_NOT_DETACHED"
+  | "WORKTREE_NOT_CLEAN";
+
+export interface DetachedReviewWorktreeVerification {
+  schemaVersion: "archcontext.detached-review-worktree-verification/v1";
+  accepted: boolean;
+  reasonCode?: DetachedReviewWorktreeReason;
+  expected: {
+    headSha: string;
+    headTreeOid?: string;
+  };
+  observed: {
+    headSha?: string;
+    headTreeOid?: string;
+    detached?: boolean;
+    clean?: boolean;
+  };
+}
+
+
+export interface ReviewCheckoutGitPort {
+  findRepositoryRoot(start: string): string;
+  readOriginUrl(root: string): string | null;
+  verifyDetachedWorktree(input: {
+    worktreeRoot: string;
+    expectedHeadSha: string;
+    expectedHeadTreeOid?: string;
+  }): DetachedReviewWorktreeVerification;
+}
+
+export interface NonLocalEgressChannel {
+  channel: "context7" | "agent-audit" | "github-issue-publishing";
+  destination: string;
+  trigger: string;
+  data: string;
+  status: "enabled" | "declared-awaiting-user-consent";
+}
+
+export interface LocalEgressReport {
+  ok: boolean;
+  defaultOutbound: "local-only";
+  effectiveOutbound: "local-only" | "non-local";
+  nonLocalEgress: NonLocalEgressChannel[];
+  cloudContentUpload: "deny";
+  secureMcpTunnel: "disabled-by-default";
+  thirdPartyTelemetry: "disabled" | "not-disabled-by-env";
+  codeGraph: {
+    provider: "codegraph";
+    telemetry: "disabled" | "not-disabled-by-env";
+    envVar: string;
+    configuredValue: string | null;
+    effectiveValue: string;
+    source: "archcontext-default" | "environment";
+  };
+  warnings: string[];
+}

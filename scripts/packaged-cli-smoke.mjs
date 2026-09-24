@@ -168,16 +168,9 @@ try {
   });
   assert(mcpEnvelope(planned)?.ok === true, "mcp plan_update must succeed through daemon RPC");
 
-  const applied = await runArchctx(
-    "apply",
-    "--id",
-    "changeset.packaged-mcp",
-    "--approved",
-    "--expected-worktree-digest",
-    status.data.worktreeDigest
-  );
-  assert(applied.ok === true, "cli apply must consume the MCP-created daemon ChangeSet draft");
-  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp.yaml")), "cli apply must write the MCP-planned model file");
+  const applied = await approveAndApplyMcpPlan(planned);
+  assert(applied.ok === true, "MCP apply must consume the CLI-approved daemon ChangeSet draft");
+  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp.yaml")), "approved MCP apply must write the planned model file");
 
   const again = await runArchctx("daemon", "start");
   assert(again.ok === true, "second daemon start must succeed");
@@ -242,16 +235,9 @@ try {
   const restartDraftDigest = mcpEnvelope(plannedAfterRestart)?.data?.draft?.base?.worktreeDigest;
   assert(/^sha256:/.test(String(restartDraftDigest)), "mcp plan_update after restart must return a draft worktree digest");
 
-  const appliedAfterRestart = await runArchctx(
-    "apply",
-    "--id",
-    "changeset.packaged-mcp-restart",
-    "--approved",
-    "--expected-worktree-digest",
-    restartDraftDigest
-  );
-  assert(appliedAfterRestart.ok === true, "cli apply after restart must consume the MCP-created ChangeSet draft");
-  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp-restart.yaml")), "cli apply after restart must write the MCP-planned model file");
+  const appliedAfterRestart = await approveAndApplyMcpPlan(plannedAfterRestart);
+  assert(appliedAfterRestart.ok === true, "approved MCP apply after restart must consume the MCP-created ChangeSet draft");
+  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp-restart.yaml")), "approved MCP apply after restart must write the MCP-planned model file");
 
   // `refactor scan` classifies a proposal against declared ownership: a scope path no node claims
   // is `model_adoption_required` and produces no proposal recommendation to verify. This node
@@ -294,16 +280,9 @@ try {
   const ownerDraftDigest = mcpEnvelope(plannedOwner)?.data?.draft?.base?.worktreeDigest;
   assert(/^sha256:/.test(String(ownerDraftDigest)), "mcp plan_update must return a draft worktree digest for the owner node");
 
-  const appliedOwner = await runArchctx(
-    "apply",
-    "--id",
-    "changeset.packaged-legacy-owner",
-    "--approved",
-    "--expected-worktree-digest",
-    ownerDraftDigest
-  );
-  assert(appliedOwner.ok === true, "cli apply must write the kill-list owner node");
-  assert(existsSync(join(repo, `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`)), "cli apply must write the owner model file");
+  const appliedOwner = await approveAndApplyMcpPlan(plannedOwner);
+  assert(appliedOwner.ok === true, "approved MCP apply must write the kill-list owner node");
+  assert(existsSync(join(repo, `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`)), "approved MCP apply must write the owner model file");
 
   const stopped = await runArchctx("daemon", "stop");
   assert(stopped.ok === true, "daemon stop must succeed");
@@ -711,6 +690,23 @@ function cleanupRoot(path) {
     }
     throw error;
   }
+}
+
+async function approveAndApplyMcpPlan(planned) {
+  const preview = mcpEnvelope(planned).data;
+  const approval = await runArchctx(
+    "approve", "--id", preview.draft.id, "--approved",
+    "--expected-worktree-digest", preview.draft.base.worktreeDigest,
+    "--expected-changeset-digest", preview.changeSetDigest
+  );
+  assert(approval.ok === true, "local CLI must issue a preview-bound approval token");
+  return mcpEnvelope(await runArchctxMcp({
+    jsonrpc: "2.0", id: 10, method: "tools/call",
+    params: {
+      name: "archcontext_apply_update",
+      arguments: { root: repo, id: preview.draft.id, expectedWorktreeDigest: preview.draft.base.worktreeDigest, approvalToken: approval.data.approvalToken }
+    }
+  }));
 }
 
 function mcpEnvelope(response) {

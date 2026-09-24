@@ -806,12 +806,26 @@ export type RuntimeWorktreeDigestProfile = "repository" | "architecture-document
 
 export interface RuntimePlanUpdateInput {
   id: string;
+  approvalChannel?: "mcp";
   operations: ChangeOperation[];
   reason?: { taskSessionId: string; interventionId?: string };
   worktreeDigestPrecondition?: {
     profile: "architecture-documentation-projection";
     expectedDigest: string;
   };
+}
+
+/** Issued only by the explicit local CLI approval flow, never by an MCP tool. */
+export interface RuntimeMcpApprovalInput {
+  id: string;
+  expectedWorktreeDigest: string;
+  expectedChangeSetDigest: string;
+}
+
+export interface RuntimeMcpApplyInput {
+  id: string;
+  expectedWorktreeDigest: string;
+  approvalToken: string;
 }
 
 export interface RuntimeApplyUpdateInput {
@@ -842,6 +856,9 @@ function decodeRuntimePlanUpdateInput(value: unknown): RuntimePlanUpdateInput {
   if (!Array.isArray(input.operations)) {
     throw new RuntimeUpdateInputError("plan_update operations must be an array");
   }
+  if (input.approvalChannel !== undefined && input.approvalChannel !== "mcp") {
+    throw new RuntimeUpdateInputError("plan_update approvalChannel must be mcp");
+  }
   let worktreeDigestPrecondition: RuntimePlanUpdateInput["worktreeDigestPrecondition"];
   if (input.worktreeDigestPrecondition !== undefined) {
     const precondition = runtimeUpdateInputRecord(
@@ -867,6 +884,7 @@ function decodeRuntimePlanUpdateInput(value: unknown): RuntimePlanUpdateInput {
   return {
     id: input.id,
     operations: input.operations as ChangeOperation[],
+    ...(input.approvalChannel === "mcp" ? { approvalChannel: "mcp" as const } : {}),
     ...(input.reason === undefined
       ? {}
       : { reason: input.reason as RuntimePlanUpdateInput["reason"] }),
@@ -1078,6 +1096,8 @@ export interface RuntimeDaemonClient {
   planUpdate(root: string, input: RuntimePlanUpdateInput): Promise<JsonEnvelope> | JsonEnvelope;
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
   applyUpdate(root: string, input: RuntimeApplyUpdateInput): Promise<JsonEnvelope> | JsonEnvelope;
+  approveMcpUpdate(root: string, input: RuntimeMcpApprovalInput): Promise<JsonEnvelope> | JsonEnvelope;
+  applyMcpUpdate(root: string, input: RuntimeMcpApplyInput): Promise<JsonEnvelope> | JsonEnvelope;
   inspectProjectionApplyReceipt(root: string, lookupKey: string): Promise<JsonEnvelope> | JsonEnvelope;
   listProjectionPriorCommittedApplies(root: string, requestId: string): Promise<JsonEnvelope> | JsonEnvelope;
   recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1): Promise<JsonEnvelope> | JsonEnvelope;
@@ -1294,6 +1314,9 @@ export class ArchctxDaemon {
   private readonly checkpointBaselines = new Map<string, PracticeCheckpointSnapshotV1>();
   private readonly checkpointCoalesced = new Map<string, CheckpointCoalesceEntry>();
   private readonly changesets = new Map<string, ChangeSetDraft>();
+  private readonly changeSetRoots = new Map<string, string>();
+  private readonly mcpChangeSets = new Set<string>();
+  private readonly mcpApprovals = new Map<string, { root: string; id: string; draftDigest: string; worktreeDigest: string; expiresAt: number }>();
   private readonly changeSetWorktreeDigestProfiles = new Map<string, RuntimeWorktreeDigestProfile>();
   private readonly deferredArchitectureChangeFeedFailures = new Map<string, string>();
   private readonly refactorAssessments = new RefactorAssessmentRegistry();
@@ -1389,6 +1412,7 @@ export class ArchctxDaemon {
     // record — never a crash or a silently corrupted state, just a missed observability record.
     try {
       for (const controller of this.auditRunAbortControllers.values()) controller.abort();
+      this.mcpApprovals.clear();
       this.sessions.clear();
       this.checkpointBaselines.clear();
       this.checkpointCoalesced.clear();
@@ -2622,7 +2646,9 @@ export class ArchctxDaemon {
       operations: [{ op: "write_waiver", path, expectedHash, body }]
     });
     this.changesets.set(draft.id, draft);
+    this.changeSetRoots.set(draft.id, canonicalRepositoryRoot(root));
     this.changeSetWorktreeDigestProfiles.set(draft.id, "repository");
+    this.mcpChangeSets.delete(draft.id);
     return okEnvelope("practices.waive", {
       schemaVersion: "archcontext.practice-waiver-plan/v1",
       waiver,
@@ -2826,9 +2852,13 @@ export class ArchctxDaemon {
       operations: input.operations
     });
     this.changesets.set(draft.id, draft);
+    this.changeSetRoots.set(draft.id, canonicalRepositoryRoot(root));
     this.changeSetWorktreeDigestProfiles.set(draft.id, worktreeDigestProfile);
+    if (input.approvalChannel === "mcp") this.mcpChangeSets.add(draft.id);
+    else this.mcpChangeSets.delete(draft.id);
     return okEnvelope("plan_update", {
       draft,
+      changeSetDigest: digestJson(draft as unknown as Json),
       preview: this.changeSetEngine.preview(root, draft)
     } as unknown as Json);
   }
@@ -2970,7 +3000,55 @@ export class ArchctxDaemon {
     }
   }
 
+  async approveMcpUpdate(root: string, input: RuntimeMcpApprovalInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const draft = this.changesets.get(input?.id);
+    const canonicalRoot = canonicalRepositoryRoot(root);
+    const now = Date.parse(this.clock());
+    if (!draft || this.changeSetRoots.get(input.id) !== canonicalRoot ||
+        this.changeSetWorktreeDigestProfiles.get(input.id) !== "repository" ||
+        input.expectedChangeSetDigest !== digestJson(draft as unknown as Json) ||
+        input.expectedWorktreeDigest !== draft.base.worktreeDigest ||
+        input.expectedWorktreeDigest !== runtimeWorktreeDigest(root, "repository") || !Number.isFinite(now)) {
+      return errorEnvelope("approve_mcp_update", "AC_PRECONDITION_FAILED", "Approval must match the current ChangeSet preview and repository");
+    }
+    for (const [key, grant] of this.mcpApprovals) if (grant.expiresAt <= now) this.mcpApprovals.delete(key);
+    if (this.mcpApprovals.size >= 256) return errorEnvelope("approve_mcp_update", "AC_PRECONDITION_FAILED", "Too many outstanding approvals; consume an approval or wait for expiry");
+    const approvalToken = randomBytes(32).toString("hex");
+    const expiresAt = now + 5 * 60_000;
+    this.mcpApprovals.set(digestJson(approvalToken), {
+      root: canonicalRoot, id: input.id, draftDigest: input.expectedChangeSetDigest,
+      worktreeDigest: input.expectedWorktreeDigest, expiresAt
+    });
+    return okEnvelope("approve_mcp_update", { approvalToken, expiresAt: new Date(expiresAt).toISOString() });
+  }
+
+  async applyMcpUpdate(root: string, input: RuntimeMcpApplyInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const denied = () => errorEnvelope("apply_update", "AC_USER_CONFIRMATION_REQUIRED", "A fresh one-time token from archctx approve is required");
+    if (typeof input?.approvalToken !== "string" || !/^[a-f0-9]{64}$/.test(input.approvalToken)) return denied();
+    const key = digestJson(input.approvalToken);
+    const grant = this.mcpApprovals.get(key);
+    if (!grant) return denied();
+    // Consume before any asynchronous work: racing calls can never spend the same grant twice.
+    this.mcpApprovals.delete(key);
+    const draft = this.changesets.get(input.id);
+    const now = Date.parse(this.clock());
+    if (!Number.isFinite(now) || grant.expiresAt <= now || grant.root !== canonicalRepositoryRoot(root) ||
+        grant.id !== input.id || grant.worktreeDigest !== input.expectedWorktreeDigest ||
+        !draft || grant.draftDigest !== digestJson(draft as unknown as Json)) return denied();
+    return this.applyAuthorizedUpdate(root, { id: input.id, expectedWorktreeDigest: input.expectedWorktreeDigest, approved: true });
+  }
+
   async applyUpdate(root: string, rawInput: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (this.mcpChangeSets.has(rawInput?.id)) {
+      return errorEnvelope("apply_update", "AC_USER_CONFIRMATION_REQUIRED", "MCP ChangeSets require a one-time approval token through applyMcpUpdate");
+    }
+    return this.applyAuthorizedUpdate(root, rawInput);
+  }
+
+  private async applyAuthorizedUpdate(root: string, rawInput: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
     this.assertRunning();
     let input: RuntimeApplyUpdateInput;
     try {
@@ -6269,6 +6347,14 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("applyUpdate", [root, input]);
   }
 
+  approveMcpUpdate(root: string, input: RuntimeMcpApprovalInput) {
+    return this.call("approveMcpUpdate", [root, input]);
+  }
+
+  applyMcpUpdate(root: string, input: RuntimeMcpApplyInput) {
+    return this.call("applyMcpUpdate", [root, input]);
+  }
+
   inspectProjectionApplyReceipt(root: string, lookupKey: string) {
     return this.call("inspectProjectionApplyReceipt", [root, lookupKey]);
   }
@@ -6757,6 +6843,10 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.completeTask(params[0] as string, params[1] as RuntimeCompleteTaskInput | undefined);
       case "applyUpdate":
         return this.daemon.applyUpdate(params[0] as string, params[1] as RuntimeApplyUpdateInput);
+      case "approveMcpUpdate":
+        return this.daemon.approveMcpUpdate(params[0] as string, params[1] as RuntimeMcpApprovalInput);
+      case "applyMcpUpdate":
+        return this.daemon.applyMcpUpdate(params[0] as string, params[1] as RuntimeMcpApplyInput);
       case "inspectProjectionApplyReceipt":
         return this.daemon.inspectProjectionApplyReceipt(params[0] as string, params[1] as string);
       case "listProjectionPriorCommittedApplies":

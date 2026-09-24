@@ -1,7 +1,43 @@
 import { describe, expect, test } from "bun:test";
-import { inspectFg5CheckFailureReadback } from "./fg5-check-failure-readback";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import worker from "../deploy/cloudflare/fg2-staging-worker";
+import { buildFg5CheckFailureReadbackConfig, runFg5CheckFailureReadback, inspectFg5CheckFailureReadback } from "./fg5-check-failure-readback";
 
 describe("fg5 Check failure readback evidence", () => {
+  test("the operator client uses only the independent key and excludes it from evidence", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-readback-auth-"));
+    const originalFetch = globalThis.fetch;
+    const secret = "independent-readback-fixture-key";
+    const webhook = "webhook-fixture-key";
+    let requests = 0;
+    try {
+      writeFileSync(join(root, "fixture.env"), `GITHUB_WEBHOOK_SECRET=${webhook}\nARCHCONTEXT_READBACK_SECRET=${secret}\n`);
+      globalThis.fetch = (async (input, init) => {
+        requests++;
+        return worker.fetch(new Request(input, init), {
+          ARCHCONTEXT_ENV: "staging", GITHUB_WEBHOOK_SECRET: webhook, ARCHCONTEXT_READBACK_SECRET: secret
+        });
+      }) as typeof fetch;
+      await expect(buildFg5CheckFailureReadbackConfig({}, ["--root", root, "--env-file", "fixture.env", "--webhook-secret", webhook])).rejects.toThrow("unsupported readback argument");
+      await expect(buildFg5CheckFailureReadbackConfig({}, ["--root", root, "--env-file", "fixture.env", `--webhook-secret=${webhook}`])).rejects.toThrow("unsupported readback argument");
+      const config = await buildFg5CheckFailureReadbackConfig({}, ["--root", root, "--env-file", "fixture.env", "--out", "result.json", "--staging-url", "https://worker.example"]);
+      expect((await runFg5CheckFailureReadback(config)).ok).toBe(true);
+      expect(requests).toBe(1);
+      const saved = readFileSync(join(root, "result.json"), "utf8");
+      expect(saved).not.toContain(secret);
+      expect(saved).not.toContain(webhook);
+      writeFileSync(join(root, "fixture.env"), `GITHUB_WEBHOOK_SECRET=${webhook}\n`);
+      const missing = await buildFg5CheckFailureReadbackConfig({}, ["--root", root, "--env-file", "fixture.env", "--out", "missing.json"]);
+      expect((await runFg5CheckFailureReadback(missing)).ok).toBe(false);
+      expect(requests).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("accepts sanitized staging retry DLQ replay evidence", () => {
     expect(inspectFg5CheckFailureReadback(verifiedRecording())).toEqual({ ok: true, failures: [] });
   });

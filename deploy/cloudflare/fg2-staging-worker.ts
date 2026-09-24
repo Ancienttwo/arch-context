@@ -31,6 +31,7 @@ interface Env {
   GITHUB_APP_ID?: string;
   GITHUB_APP_PRIVATE_KEY_PEM?: string;
   GITHUB_WEBHOOK_SECRET?: string;
+  ARCHCONTEXT_READBACK_SECRET?: string;
   FG2_STAGING_REPOSITORY?: string;
 }
 
@@ -49,6 +50,8 @@ const FG5_READBACK_SECRET_PATTERNS = [
   /Bearer\s+[A-Za-z0-9._-]+/i,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /GITHUB_WEBHOOK_SECRET/i,
+  /ARCHCONTEXT_READBACK_SECRET/i,
+  /readbackSecret/i,
   /installation[_-]?token/i,
   /jwt/i,
   /x-hub-signature/i,
@@ -81,6 +84,7 @@ const FG5_READBACK_FORBIDDEN_KEYS = new Set([
   "authorization",
   "privatekey",
   "webhooksecret",
+  "readbacksecret",
   "signature256",
   "nonce"
 ]);
@@ -621,10 +625,16 @@ function ignoredWebhookResponse(eventName: string, deliveryId: string): Response
 }
 
 function verifyReadbackSignature(input: { request: Request; env: Env; path: string }): void {
-  const secret = requireEnv(input.env.GITHUB_WEBHOOK_SECRET, "GITHUB_WEBHOOK_SECRET");
+  const secret = requireEnv(input.env.ARCHCONTEXT_READBACK_SECRET, "ARCHCONTEXT_READBACK_SECRET");
+  if (secret === input.env.GITHUB_WEBHOOK_SECRET) throw new Error("readback-key-must-be-independent");
   const timestamp = input.request.headers.get(READBACK_TIMESTAMP_HEADER);
   const signature = input.request.headers.get(READBACK_SIGNATURE_HEADER);
   if (!timestamp || !signature) throw new Error("readback-signature-missing");
+  const signedAt = Date.parse(timestamp);
+  const ageMs = Date.now() - signedAt;
+  if (!Number.isFinite(signedAt) || new Date(signedAt).toISOString() !== timestamp || ageMs > 300_000 || ageMs < -30_000) {
+    throw new Error("readback-timestamp-invalid");
+  }
   const expected = signReadbackPayload({
     secret,
     method: input.request.method,

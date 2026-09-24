@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" sourceDigest="sha256:e006ec68ae886ba1667584c70a92eb1ecbba6c3d9369732cd197df1fbd5ffa58" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:fea6d2b13df1e149e34e0cb2e352a1201eee52b3fdb273a11187762d89da821c" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" sourceDigest="sha256:08d9dc7f7ada4784c5e0b40968edd95ca4cc96a85ddf246bef1bcc64eb9570a2" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:b9a2f39ba0903a744cfc490cf9f45dfc0d86097987cc698f7d47ca5aa78a26c9" -->
 # Architecture Decision Index
 
 - [Agentic Architecture Control Loop](../../adr/ADR-0001-agentic-architecture-control-loop.md) — accepted
@@ -22,7 +22,7 @@
 - [ChatGPT via Secure MCP Tunnel](../../adr/ADR-0019-chatgpt-secure-mcp-tunnel.md) — accepted
 - [MCP Apps Standard-first UI](../../adr/ADR-0020-mcp-apps-standard-first-ui.md) — accepted
 - [First-party Skills as SOP Only](../../adr/ADR-0021-first-party-skills-sop-only.md) — accepted
-- [No Slack in MVP](../../adr/ADR-0022-no-slack-in-mvp.md) — accepted
+- [No Slack in MVP](../../adr/ADR-0022-no-slack-in-mvp.md) — superseded
 - [User-level Private Entitlement](../../adr/ADR-0023-user-level-private-entitlement.md) — accepted
 - [Developer vs Organization Attestation](../../adr/ADR-0024-developer-vs-organization-attestation.md) — accepted
 - [Evidence Confidence and Proof Required](../../adr/ADR-0025-evidence-confidence-proof-required.md) — accepted

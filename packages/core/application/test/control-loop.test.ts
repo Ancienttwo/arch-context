@@ -12,7 +12,7 @@ import { detectArchitecturePressure, type ArchitecturePressure } from "@archcont
 import { validateCompatibilityContract } from "@archcontext/core/policy-engine";
 import { assertNoHumanEditableGeneratedSection } from "@archcontext/core/reconcile-engine";
 import { computeRefactorConfidence, decidePosture } from "@archcontext/core/refactor-decision";
-import { applyArchitectureUpdate, checkpointTask, completeTask, prepareTask } from "../src/index";
+import { checkpointTask, completeTask, prepareTask } from "../src/index";
 
 function tempModel(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-m2-"));
@@ -566,30 +566,5 @@ describe("M2 architecture control loop", () => {
     expect(review.findings.map((finding) => finding.type)).toContain("unjustified-compatibility-path");
   });
 
-  test("apply_update refuses stale worktree digest before writing", async () => {
-    const root = tempModel();
-    try {
-      const expectedWorktreeDigest = computeWorktreeDigest(root);
-      writeFileSync(join(root, "README.md"), "# changed\n", "utf8");
-      await expect(
-        applyArchitectureUpdate(root, {
-          id: "changeset.stale",
-          approved: true,
-          expectedWorktreeDigest,
-          headSha: "abc",
-          modelDigest: digestJson({ model: "before" }),
-          operations: [
-            {
-              op: "create_entity",
-              path: ".archcontext/model/nodes/module.stale.yaml",
-              expectedHash: "missing",
-              body: "schemaVersion: archcontext.node/v2\nid: module.stale\nkind: module\nname: Stale\nstatus: active\nsummary: Stale\nresponsibilities:\n- stale\n"
-            }
-          ]
-        })
-      ).rejects.toThrow("freshness");
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
+
 });

@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const DEFAULT_ENV_FILE = "_ops/env/fg2-staging.env";
 const REQUIRED_ENV_KEYS = [
   "GITHUB_APP_ID",
-  "GITHUB_WEBHOOK_SECRET"
+  "GITHUB_WEBHOOK_SECRET",
+  "ARCHCONTEXT_READBACK_SECRET"
 ];
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -29,12 +30,14 @@ export async function installSecrets(options = {}) {
   const secrets = {
     GITHUB_APP_ID: env.GITHUB_APP_ID,
     GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
+    ARCHCONTEXT_READBACK_SECRET: env.ARCHCONTEXT_READBACK_SECRET,
     GITHUB_APP_PRIVATE_KEY_PEM: privateKeyPem || (dryRun && privateKeyPath ? `<from:${privateKeyPath}>` : "")
   };
 
   for (const key of REQUIRED_ENV_KEYS) {
     if (!secrets[key]) throw new Error(`missing required env key: ${key}`);
   }
+  if (secrets.ARCHCONTEXT_READBACK_SECRET === secrets.GITHUB_WEBHOOK_SECRET) throw new Error("readback key must be independent of webhook key");
   if (!secrets.GITHUB_APP_PRIVATE_KEY_PEM) {
     throw new Error("missing required env key: GITHUB_APP_PRIVATE_KEY_PEM or GITHUB_APP_PRIVATE_KEY_PEM_PATH");
   }
