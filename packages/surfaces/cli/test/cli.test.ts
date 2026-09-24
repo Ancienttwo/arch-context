@@ -1620,6 +1620,15 @@ describe("archctx CLI", () => {
       expect(approveShort.ok).toBe(false);
       expect((approveShort as any).error.code).toBe("AC_SCHEMA_INVALID");
 
+      // An unknown flag cannot hide as a recognized value flag's value, and a value flag at the
+      // end of the argument list is missing its value.
+      for (const args of [["run", "--reason", "--bogus"], ["run", "--reason"], ["approve", "audit_run.cli_test", "--confirm-public-repo", "--bogus"]]) {
+        const smuggled = await runCli("audit", args, root, { runtimeClient: throwingRuntime as any });
+        expect(smuggled.ok).toBe(false);
+        expect((smuggled as any).error.code).toBe("AC_SCHEMA_INVALID");
+        expect((smuggled as any).error.message).toContain("requires a value for");
+      }
+
       // The known per-subcommand flags plus the global --format/--json flags this fix must not
       // break still reach the daemon untouched.
       const calls: any[] = [];

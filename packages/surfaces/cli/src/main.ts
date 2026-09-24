@@ -2540,9 +2540,9 @@ function runAuditConsentCommand(args: string[], cwd: string) {
  * the same way an unrecognized `--status` already fails `audit list`; a short unrecognized flag
  * (`-n`, `-y`, a typoed `-help`) must fail the same way, not fall through and start a real run.
  * `-h` never reaches this scan: the caller checks `--help`/`-h` first and returns before calling
- * this. A recognized value flag's own value is skipped unread: this only needs to catch flags the
- * caller didn't mean to pass, not validate every value's shape (that happens where each flag is
- * actually read below).
+ * this. A recognized value flag must be followed by a value that is not itself flag-shaped, so
+ * `--reason --bogus` cannot smuggle an unknown flag past the scan as the reason's value. Returns
+ * the rejection reason, or undefined when every flag is recognized.
  */
 function findUnknownAuditFlag(args: string[], valueFlags: readonly string[], booleanFlags: readonly string[]): string | undefined {
   for (let index = 1; index < args.length; index += 1) {
@@ -2550,10 +2550,12 @@ function findUnknownAuditFlag(args: string[], valueFlags: readonly string[], boo
     if (!token || !token.startsWith("-")) continue;
     if (booleanFlags.includes(token)) continue;
     if (valueFlags.includes(token)) {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("-")) return `requires a value for ${token}`;
       index += 1;
       continue;
     }
-    return token;
+    return `does not recognize the flag ${token}`;
   }
   return undefined;
 }
@@ -2621,8 +2623,8 @@ async function runAuditCommand(args: string[], cwd: string, runtime: () => Promi
         }
       } as unknown as Json);
     }
-    const unknownFlag = findUnknownAuditFlag(args, AUDIT_APPROVE_VALUE_FLAGS, AUDIT_APPROVE_BOOLEAN_FLAGS);
-    if (unknownFlag) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", `audit approve does not recognize the flag ${unknownFlag}`);
+    const flagProblem = findUnknownAuditFlag(args, AUDIT_APPROVE_VALUE_FLAGS, AUDIT_APPROVE_BOOLEAN_FLAGS);
+    if (flagProblem) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", `audit approve ${flagProblem}`);
     const runId = readFlag(args, "--run-id") ?? args[1];
     if (!runId) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", "audit approve requires <run-id> or --run-id");
     if (!auditGithubIssuesEnabled(cwd)) {
@@ -2670,8 +2672,8 @@ async function runAuditCommand(args: string[], cwd: string, runtime: () => Promi
       }
     } as unknown as Json);
   }
-  const unknownFlag = findUnknownAuditFlag(args, AUDIT_RUN_VALUE_FLAGS, AUDIT_RUN_BOOLEAN_FLAGS);
-  if (unknownFlag) return errorEnvelope("audit.run", "AC_SCHEMA_INVALID", `audit run does not recognize the flag ${unknownFlag}`);
+  const flagProblem = findUnknownAuditFlag(args, AUDIT_RUN_VALUE_FLAGS, AUDIT_RUN_BOOLEAN_FLAGS);
+  if (flagProblem) return errorEnvelope("audit.run", "AC_SCHEMA_INVALID", `audit run ${flagProblem}`);
   if (!auditGithubIssuesEnabled(cwd)) {
     return errorEnvelope(
       "audit.run",
