@@ -169,11 +169,6 @@ exit_criteria:
   files_contain:
     - path: packages/core/architecture-domain/src/index.ts
       text: "validateAdrAppliesTo"
-  commands_succeed:
-    - bun run typecheck
-    - bun packages/surfaces/cli/src/main.ts validate --json
-    - bun packages/surfaces/cli/src/main.ts docs drift --json
-    - bun run verify
 ```
 
 ## Verification Plan

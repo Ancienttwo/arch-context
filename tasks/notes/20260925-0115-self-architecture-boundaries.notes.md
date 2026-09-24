@@ -15,6 +15,13 @@
   Base-model gates (ChangeSet before-apply, daemon `apply_update`, ledger projection writes) use
   `baseModelBlockingErrors`, which ignores them, so a change that restores a deleted node is not
   blocked. The after-apply model is validated in full, and `archctx validate` still reports them.
+  Only well-formed unknown ids are reference errors; a malformed `appliesTo` still blocks a write.
+- PR-2: ADR frontmatter is hand-written YAML, so the check reads only the top-level `appliesTo`
+  key with a tolerant extractor (inline or block list, comments, quotes) instead of parsing the
+  whole frontmatter with StableYamlParser. Other frontmatter keys can never fail validation.
+- PR-2: ADR-0021 (`skills.archcontext-develop`) maps to `capability.architecture-context`. The
+  first-party skills are not a component of their own, and the capability is kept as their umbrella
+  owner (orchestrator decision) instead of adding a node only to satisfy this reference.
 
 ## Deviations From Plan Or Spec
 
