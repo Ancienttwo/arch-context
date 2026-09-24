@@ -118,6 +118,7 @@ import {
   renderArchitectureDocumentationProjection,
   REPO_HARNESS_PROJECTION_PROFILE,
   type ArchitectureProjectionManifestVerifiedAgainstReadback,
+  type ArchitectureProjectionVerifiedAgainst,
   type CapabilitySourceChangeSet,
   type CapabilitySourceChangeSetForCommit,
   type CapabilitySourceChangeSinceStamp,
@@ -132,8 +133,8 @@ import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProv
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
+import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import {
   createNodeGithubIssueExecutor,
@@ -262,6 +263,11 @@ export interface RuntimeStatus {
   architectureChangeFeed: {
     deferredScopeCount: number;
     failureDigests: string[];
+  };
+  /** Present only when startup recovery left ChangeSet journals unresolved; writes are refused. */
+  changeSetRecovery?: {
+    writable: false;
+    unresolvedJournals: UnresolvedChangeSetJournal[];
   };
 }
 
@@ -1276,6 +1282,7 @@ export class ArchctxDaemon {
   private explorer?: ExplorerServerSession;
   private running = false;
   private writerLocked = false;
+  private unresolvedChangeSetJournals: UnresolvedChangeSetJournal[] = [];
 
   constructor(deps: RuntimeDeps = {}, options: RuntimeConstructionOptions = {}) {
     if (options.compositionMode === "production") assertProductionRuntimeDeps(deps);
@@ -1314,11 +1321,22 @@ export class ArchctxDaemon {
   }
 
   async start(): Promise<void> {
-    await this.localStore.migrate();
-    this.localStore.recoverPendingSnapshots();
-    this.localStore.recoverPendingChangeSets();
-    await this.restoreLandscape();
-    await this.restoreRepositorySessions();
+    // Ownership first (#160): migrations and crash recovery rewrite state, and recovery cannot tell a
+    // crashed writer's pending journal from a live one's, so no other process may be writing.
+    this.localStore.acquireWriterOwnership?.();
+    try {
+      await this.localStore.migrate();
+      this.localStore.recoverPendingSnapshots();
+      this.localStore.recoverPendingChangeSets();
+      // Recovery gate (#172): a journal still pending here failed to recover. Its backups are kept
+      // for the next start's retry, and nothing may write over them in the meantime.
+      this.unresolvedChangeSetJournals = this.localStore.listUnresolvedChangeSetJournals();
+      await this.restoreLandscape();
+      await this.restoreRepositorySessions();
+    } catch (error) {
+      this.localStore.close();
+      throw error;
+    }
     this.running = true;
   }
 
@@ -1353,7 +1371,10 @@ export class ArchctxDaemon {
       architectureChangeFeed: {
         deferredScopeCount: this.deferredArchitectureChangeFeedFailures.size,
         failureDigests: [...this.deferredArchitectureChangeFeedFailures.values()].sort()
-      }
+      },
+      ...(this.unresolvedChangeSetJournals.length === 0
+        ? {}
+        : { changeSetRecovery: { writable: false, unresolvedJournals: this.unresolvedChangeSetJournals.map((journal) => ({ ...journal })) } })
     };
   }
 
@@ -1387,7 +1408,14 @@ export class ArchctxDaemon {
   async init(root: string, productName?: string): Promise<JsonEnvelope> {
     this.assertRunning();
     return this.withWriter(async () => {
-      initializeArchContextModel(root, productName);
+      try {
+        initializeArchContextModel(root, productName);
+      } catch (error) {
+        if (error instanceof ArchContextInitRefusedError) {
+          return errorEnvelope("init", "AC_PRECONDITION_FAILED", error.message, "init-would-overwrite-existing-model");
+        }
+        throw error;
+      }
       rebuildGeneratedProjection(root);
       const session = await this.openSession(root);
       return okEnvelope("init", {
@@ -5720,6 +5748,9 @@ export class ArchctxDaemon {
   }
 
   private async withWriter<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.unresolvedChangeSetJournals.length > 0) {
+      throw new Error(`changeset-recovery-unresolved: ${unresolvedChangeSetJournalSummary(this.unresolvedChangeSetJournals)}; fix the cause and restart archctxd to retry recovery`);
+    }
     if (this.writerLocked) throw new Error("runtime writer is locked");
     this.writerLocked = true;
     try {
@@ -6292,8 +6323,16 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
    * *and* body, so a daemon that starts a response and stalls still fails. A timed-out call is
    * never replayed here: the daemon may have already committed a mutation whose response was lost,
    * so reconciliation is the caller's decision, not a silent retry.
+   *
+   * Every request also opts out of HTTP keep-alive (`Connection: close`, #178). The daemon closes an
+   * idle kept-alive socket on its own keep-alive timer; when a synchronous RPC such as `planUpdate`
+   * blocks the daemon's event loop past that deadline, the close fires right after the response,
+   * while the client (whose keep-alive clock also stalls during synchronous CLI work) is reusing the
+   * same pooled socket for the next call. That next call, e.g. `applyUpdate`, then dies with
+   * `fetch failed` before the daemon reads it. A fresh loopback connection per call costs far less
+   * than any retry, and a retry is not an option here for the same reason as above.
    */
-  private async request(method: string, timeoutMs: number, url: string, init: RequestInit): Promise<unknown> {
+  private async request(method: string, timeoutMs: number, url: string, init: { method?: string; headers: Record<string, string>; body?: string }): Promise<unknown> {
     const controller = new AbortController();
     const startedAt = Date.now();
     let timedOut = false;
@@ -6306,7 +6345,7 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     if (callerSignal?.aborted) controller.abort();
     else callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
     try {
-      const response = await fetch(url, { ...init, signal: controller.signal });
+      const response = await fetch(url, { ...init, headers: { ...init.headers, "Connection": "close" }, signal: controller.signal });
       return await response.json();
     } catch (error) {
       const elapsedMs = Date.now() - startedAt;
@@ -8283,23 +8322,35 @@ function readHeadCommittedAt(root: string): string {
   }
 }
 
+/** Same shape `assertArchitectureProjectionVerifiedAgainst` accepts for a stamp commit. */
+const GIT_OBJECT_NAME_PATTERN = /^[0-9a-f]{7,64}$/;
+
 /**
  * Repo-relative paths that changed between `commit` and HEAD. Fails closed: a shallow clone, an
  * unknown commit, or a missing Git binary returns `unavailable` with the Git error, so the
  * freshness gate reports "could not measure" instead of reading an unmeasurable range as "nothing
  * changed". Only committed history is compared — an uncommitted edit is work in progress, not a
  * projection that fell behind a commit.
+ *
+ * `commit` comes from the committed projection manifest, i.e. repository content: anything that is
+ * not a hex object name is refused before Git runs, and `--end-of-options` keeps Git from ever
+ * reading it as an option (`--output=…` would otherwise write through a committed symlink). Paths
+ * are read NUL-framed so non-ASCII, newline, and whitespace-bearing names come back verbatim
+ * instead of C-quoted or trimmed.
  */
 function readChangedPathsSince(root: string, commit: string): CapabilitySourceChangeSet {
+  if (!GIT_OBJECT_NAME_PATTERN.test(commit)) {
+    return { status: "unavailable", reason: `refusing to measure changes since a non-hex commit: ${JSON.stringify(commit)}` };
+  }
   try {
-    const output = execFileSync("git", ["diff", "--name-only", `${commit}..HEAD`], {
+    const output = execFileSync("git", ["diff", "--name-only", "-z", "--end-of-options", `${commit}..HEAD`], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
     });
     return {
       status: "measured",
-      paths: output.split("\n").map((line) => line.trim()).filter((line) => line.length > 0)
+      paths: output.split("\0").filter((path) => path.length > 0)
     };
   } catch (error) {
     const stderr = (error as { stderr?: Buffer | string }).stderr;
@@ -8500,6 +8551,12 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
   ].filter((key) => key in deps);
 }
 
+function unresolvedChangeSetJournalSummary(journals: UnresolvedChangeSetJournal[]): string {
+  return `${journals.length} ChangeSet journal(s) left pending by startup recovery (${journals
+    .map((journal) => `${journal.journalId} [${journal.changeSetId}] at ${journal.root}: ${journal.reason}`)
+    .join("; ")})`;
+}
+
 function acquireDaemonLock(lockPath: string, root: string): number {
   try {
     const fd = openSync(lockPath, "wx", 0o600);
@@ -8671,11 +8728,22 @@ function measureChangeSetsForManifestStamps(
   manifest: ArchitectureProjectionManifestVerifiedAgainstReadback
 ): CapabilitySourceChangeSetForCommit[] {
   if (manifest.status !== "present") return [];
+  // Only stamps that pass the same validation the probe applies are measured; an invalid one is
+  // reported by the probe as unusable provenance and must never reach Git.
   return [...new Set(manifest.nodes
-    .map((entry) => (entry.verifiedAgainst as { commit?: unknown } | undefined)?.commit)
-    .filter((commit): commit is string => typeof commit === "string" && commit.length > 0))]
+    .map((entry) => validManifestStampCommit(entry.verifiedAgainst))
+    .filter((commit): commit is string => commit !== undefined))]
     .sort((left, right) => left.localeCompare(right))
     .map((commit) => ({ commit, changeSet: readChangedPathsSince(root, commit) }));
+}
+
+function validManifestStampCommit(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  try {
+    return assertArchitectureProjectionVerifiedAgainst(raw as ArchitectureProjectionVerifiedAgainst).commit;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

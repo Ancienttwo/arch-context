@@ -258,6 +258,27 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     }
   });
 
+  test("refuses option-shaped revisions before any Git process can read them as flags (#159)", () => {
+    const root = createGitFixture();
+    const tempRoot = mkdtempSync(join(tmpdir(), "archctx-review-worktrees-"));
+    try {
+      const headTreeOid = gitOut(root, "rev-parse", "HEAD^{tree}");
+      const hostile = "--output=trap";
+      expect(() => readCommitChangeMetadata(root, hostile)).toThrow("invalid git revision argument");
+      expect(() => readStagedChangeMetadata(root, hostile)).toThrow("invalid git revision argument");
+      expect(() => readTrackedTreeEntries(root, hostile)).toThrow("invalid git revision argument");
+      expect(() => readCommitChangeMetadata(root, "")).toThrow("invalid git revision argument");
+      // Even with a caller-supplied tree OID, the head is never handed to `git worktree add`.
+      const prepared = prepareDetachedReviewWorktree({ sourceRoot: root, headSha: hostile, expectedHeadTreeOid: headTreeOid, tempRoot });
+      expect(prepared).toMatchObject({ accepted: false, reasonCode: "HEAD_UNAVAILABLE" });
+      expect(prepared.worktree).toBeUndefined();
+      expect(existsSync(join(root, "trap"))).toBe(false);
+    } finally {
+      removeTempRoot(root);
+      removeTempRoot(tempRoot);
+    }
+  });
+
   test("rejects unavailable heads, tree mismatches, non-detached roots, and dirty tracked worktrees", () => {
     const root = createGitFixture();
     const tempRoot = mkdtempSync(join(tmpdir(), "archctx-review-worktrees-"));
