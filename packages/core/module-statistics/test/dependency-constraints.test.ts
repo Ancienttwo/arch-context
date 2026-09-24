@@ -84,8 +84,8 @@ describe("evaluateDependencyConstraints", () => {
 
   test("no constraints is not-applicable, whatever the index says", () => {
     expect(evaluateDependencyConstraints(input({ constraints: [], importEdges: [CORE_TO_RUNTIME] })).status).toBe("not-applicable");
-    expect(evaluateDependencyConstraints(input({ constraints: [], codeFacts: { availability: "unavailable", indexedWorktreeDigest: null } })).status)
-      .toBe("not-applicable");
+    const unobserved = evaluateDependencyConstraints(input({ constraints: [], codeFacts: { availability: "unavailable", indexedWorktreeDigest: null } }));
+    expect(unobserved).toMatchObject({ status: "not-applicable", coverage: "unknown", reasonCodes: [], violations: [] });
   });
 
   test("an unavailable index is undetermined, never pass", () => {

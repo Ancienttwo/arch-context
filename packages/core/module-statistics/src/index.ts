@@ -120,6 +120,19 @@ export interface DependencyConstraintInputV1 {
 export function evaluateDependencyConstraints(input: DependencyConstraintInputV1): DependencyConstraintEvaluationV1 {
   const constraints = [...input.constraints].sort((left, right) => compare(left.id, right.id));
   const certification = certifyCodeFacts(input.codeFacts, input.worktreeDigest, input.truncated);
+  if (constraints.length === 0) {
+    // Nothing is declared, so nothing was asked of the evidence: no gap can make this undetermined.
+    return {
+      schemaVersion: "archcontext.dependency-constraint-evaluation/v1",
+      status: "not-applicable",
+      coverage: certification.coverage,
+      reasonCodes: [],
+      constraintIds: [],
+      importEdgeCount: 0,
+      unresolvedImports: [],
+      violations: []
+    };
+  }
   const files = new Set(input.files);
   const edges = certification.measurable ? resolveEdges(input.importEdges, input.workspacePackages, files) : [];
   const paths = new Set(files);
@@ -169,9 +182,7 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
     || compare(left.toPath, right.toPath));
   return {
     schemaVersion: "archcontext.dependency-constraint-evaluation/v1",
-    status: constraints.length === 0
-      ? "not-applicable"
-      : sortedViolations.length > 0 ? "violated" : reasonCodes.size > 0 ? "undetermined" : "pass",
+    status: sortedViolations.length > 0 ? "violated" : reasonCodes.size > 0 ? "undetermined" : "pass",
     coverage: certification.coverage,
     reasonCodes: [...reasonCodes].sort(),
     constraintIds: constraints.map((constraint) => constraint.id),

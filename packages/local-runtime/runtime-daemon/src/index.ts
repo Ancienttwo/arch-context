@@ -77,6 +77,7 @@ import {
 import {
   REPOSITORY_REFACTOR_REQUEST,
   RefactorScanError,
+  evaluateReviewDependencyConstraints,
   runRefactorScan,
   type RefactorScanResultV1
 } from "./refactor-scan";
@@ -2825,14 +2826,22 @@ export class ArchctxDaemon {
       : undefined;
     const projectionDrift = completeTaskProjectionDrift(session.workspace.root);
     const projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
+    const worktreeDigest = computeWorktreeDigest(session.workspace.root);
+    // Constraints and the review policy are read through the model store port, so the ledger read
+    // mode sees the same model `validate` does.
+    const modelFiles = (await this.readModelStore.loadModel(session.workspace)).filter(isModelFile);
+    const dependencyConstraints = evaluateReviewDependencyConstraints({ root: session.workspace.root, worktreeDigest, modelFiles });
     const reviewInput: CompleteTaskInput = {
       taskSessionId,
       posture: input.posture ?? "normal",
       headSha: input.headSha ?? currentHeadSha!,
       currentHeadSha: currentHeadSha!,
-      worktreeDigest: computeWorktreeDigest(session.workspace.root),
+      worktreeDigest,
       modelDigest: model.modelDigest,
       codeFactsDigest: codeFactsDigest(codeFacts),
+      ...(model.valid ? {} : { modelValidationErrors: model.errors }),
+      dependencyConstraints,
+      reviewPolicy: readReviewPolicy(modelFiles).policy,
       ...(projectionDrift === undefined ? {} : { projectionDrift }),
       ...(projectionFreshness === undefined ? {} : { projectionFreshness }),
       ...(input.compatibilityContract === undefined ? {} : { compatibilityContract: input.compatibilityContract }),
