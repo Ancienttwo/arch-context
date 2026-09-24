@@ -1,6 +1,6 @@
 # module/architecture-context/core 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-core" sourceDigest="sha256:bd585b0919e7ff24f5125b48e78188f6b22063462f4e3df5c0f2f33ada51cb4f" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:f0733bf1ca5340ca7424409029f509d657d1bc2f54e1861e2a8fabc03aac670d" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-core" sourceDigest="sha256:f38d7ebfcb57020d23c0e827bebaf242f8789651d6409b9f9a5226f88c15065f" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:e86ab48029a1f3be55eab7963e63ef5da27d763d454e23419ef41acc9b77e170" -->
 > **狀態**:`active`
 > **Capability ID**:`module.architecture-context.core`(kind `module`)
 > **Matched Prefixes**:`packages/core/**/src/**`、`packages/core/package.json`
@@ -22,7 +22,7 @@ Holds the runtime-independent domain engines that compute architecture context, 
 
 ### 1.3 規模信號
 
-- 規模量級:`20–50` 個文件 / `10k–20k` 行
+- 規模量級:`20–50` 個文件 / `20k–50k` 行
 - 匹配前綴:`packages/core/**/src/**`、`packages/core/package.json`
 - 排除前綴:`packages/core/**/test/**`
 - 推導:掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`,再按 1–2–5 階梯分桶。精確計數不入本文檔:量級足以回答「這個能力有多大」,而逐行計數會讓覆蓋範圍內任何一次源碼改動都改寫本文檔。

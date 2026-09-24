@@ -1,6 +1,6 @@
 # component/architecture-context/core/review-engine 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.component-architecture-context-core-review-engine" sourceDigest="sha256:3a0cf5eac849883c84eedb5616f8239888af0d0d3fd528cb70e3f11b454b33ff" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:1a7b7e7de039ab655f30f61496d82a172c22a613df3e8efcc363fdfe470565cc" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.component-architecture-context-core-review-engine" sourceDigest="sha256:1e80309291a0391b35442e795e566718396454e47163fab701b3edd422101011" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:d2297136f24764b6264047bac6d02da9a62c7719c6bbbca9c30d08b4862944c9" -->
 > **狀態**:`active`
 > **Capability ID**:`component.architecture-context.core.review-engine`(kind `component`)
 > **Matched Prefixes**:`packages/core/review-engine/src/**`
@@ -22,7 +22,7 @@ Gates task completion by validating the landscape, cross-repo pressure, and comp
 
 ### 1.3 規模信號
 
-- 規模量級:`1–2` 個文件 / `200–500` 行
+- 規模量級:`1–2` 個文件 / `500–1000` 行
 - 匹配前綴:`packages/core/review-engine/src/**`
 - 推導:掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`,再按 1–2–5 階梯分桶。精確計數不入本文檔:量級足以回答「這個能力有多大」,而逐行計數會讓覆蓋範圍內任何一次源碼改動都改寫本文檔。
 
