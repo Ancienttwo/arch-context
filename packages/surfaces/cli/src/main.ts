@@ -3851,7 +3851,7 @@ async function doctorDaemon(cwd: string) {
       lockPath: defaultDaemonLockPath(cwd)
     };
   }
-  const health = await client.health().catch(() => undefined);
+  const health = await client.health({ includeEgress: true }).catch(() => undefined);
   const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
   if (healthIssue) return incompatibleDaemonStatus(healthIssue);
   if ((health as any)?.ok === true) {

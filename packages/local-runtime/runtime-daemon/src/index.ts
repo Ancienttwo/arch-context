@@ -6141,8 +6141,9 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     this.timeouts = { ...RUNTIME_RPC_CLIENT_TIMEOUT_POLICY, ...options.timeouts };
   }
 
-  async health(): Promise<Json> {
-    return await this.request("health", this.timeouts.health, `${this.connection.url}health`, {
+  async health(options: { includeEgress?: boolean } = {}): Promise<Json> {
+    const suffix = options.includeEgress ? "?egress=1" : "";
+    return await this.request("health", options.includeEgress ? this.timeouts.normal : this.timeouts.health, `${this.connection.url}health${suffix}`, {
       headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION }
     }) as Json;
   }
@@ -6634,7 +6635,10 @@ export class ArchctxRuntimeRpcServer {
         version: 1,
         product: this.options.productManifest?.() ?? productVersionManifest(),
         composition: this.daemon.compositionReport(),
-        egress: await this.daemon.egressReport(this.options.root ?? process.cwd()),
+        // Startup and idle liveness probes must not spawn Git processes to inspect egress policy.
+        ...(url.searchParams.get("egress") === "1"
+          ? { egress: await this.daemon.egressReport(this.options.root ?? process.cwd()) }
+          : {}),
         // Alive but write-gated (#172): readers still work, so `ok` stays true, but callers must see it.
         ...(changeSetRecovery ? { changeSetRecovery } : {})
       });

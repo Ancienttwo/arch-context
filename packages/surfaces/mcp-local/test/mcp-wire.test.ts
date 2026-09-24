@@ -1,39 +1,14 @@
 import { expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { EmptyResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { execFileSync } from "node:child_process";
 import { runStdioMcpLoop } from "../src/index";
 
-test("issue #174: official MCP SDK negotiates, lists schemas, calls tools and receives protocol errors", async () => {
-  const transport = new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL("./fixtures/stdio-server.ts", import.meta.url))], stderr: "pipe" });
-  const client = new Client({ name: "archctx-contract-test", version: "1" });
-  let stderr = "";
-  transport.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
-  let stage = "initialize";
-  try {
-    await client.connect(transport, { timeout: 10_000 });
-    stage = "list tools";
-    const { tools } = await client.listTools();
-    expect(tools).toHaveLength(6);
-    for (const tool of tools) expect(tool.inputSchema.type).toBe("object");
-    stage = "call tools";
-    const result = await client.callTool({ name: "archcontext_practices", arguments: { root: "/fixture" } });
-    expect(result.isError).toBe(false);
-    expect(result.content).toEqual([{ type: "text", text: JSON.stringify({ ok: true, requestId: "practices", data: { practices: [] } }) }]);
-    const denied = await client.callTool({ name: "archcontext_apply_update", arguments: { root: "/fixture", id: "test", expectedWorktreeDigest: "digest", approved: false } });
-    expect(denied.isError).toBe(true);
-    await expect(client.callTool({ name: "archcontext_practices", arguments: { root: 42 } })).rejects.toMatchObject({ code: -32602 });
-    await expect(client.callTool({ name: "missing", arguments: {} })).rejects.toMatchObject({ code: -32602 });
-    await expect(client.request({ method: "unknown/method" }, EmptyResultSchema)).rejects.toMatchObject({ code: -32601 });
-    stage = "ping";
-    expect(await client.ping()).toEqual({});
-  } catch (error) {
-    throw new Error(`MCP SDK ${stage} failed: ${String(error)}; server stderr: ${stderr}`);
-  } finally {
-    await client.close();
-  }
-}, process.platform === "win32" ? 60_000 : 15_000);
+test("issue #174: official MCP SDK negotiates, lists schemas, calls tools and receives protocol errors", () => {
+  const output = execFileSync("node", [
+    fileURLToPath(new URL("./fixtures/sdk-client.mjs", import.meta.url)), process.execPath
+  ], { encoding: "utf8", timeout: 30_000 });
+  expect(output.trim()).toBe("SDK protocol assertions passed");
+}, 35_000);
 
 test("issue #174: malformed lines, invalid requests and invalid params leave stdio usable", async () => {
   const output: any[] = [];

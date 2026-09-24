@@ -5863,6 +5863,25 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
+  test("runtime health does not compute egress unless explicitly requested", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0 });
+    let egressCalls = 0;
+    daemon.egressReport = async () => { egressCalls += 1; return { source: "daemon", ok: true } as any; };
+    try {
+      const connection = await rpc.start();
+      const client = new RuntimeRpcClient(connection);
+      expect((await client.health() as any).ok).toBe(true);
+      expect(egressCalls).toBe(0);
+      expect((await client.health({ includeEgress: true }) as any).egress.source).toBe("daemon");
+      expect(egressCalls).toBe(1);
+    } finally {
+      await rpc.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("runtime RPC bounds request bodies and applies a body read deadline", async () => {
     const root = tempRepo();
     const daemon = await createStartedTestDaemon();
