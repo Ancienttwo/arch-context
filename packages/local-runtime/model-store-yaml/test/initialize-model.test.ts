@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ArchContextInitRefusedError, initializeArchContextModel, rebuildGeneratedProjection } from "../src/index";
@@ -34,6 +34,13 @@ describe("initializeArchContextModel is create-only (#167)", () => {
     try {
       initializeArchContextModel(root, "Fresh App");
       for (const path of INIT_FILES) expect(existsSync(join(root, path))).toBe(true);
+      // Model files are ordinary repository files: readable and writable under the process umask.
+      if (process.platform !== "win32") {
+        const expectedMode = 0o666 & ~process.umask();
+        for (const path of [...INIT_FILES, ".archcontext/generated/ARCHITECTURE.md"]) {
+          expect(statSync(join(root, path)).mode & 0o777).toBe(expectedMode);
+        }
+      }
       expect(existsSync(join(root, ".archcontext/generated/ARCHITECTURE.md"))).toBe(true);
     } finally {
       rmSync(base, { recursive: true, force: true });

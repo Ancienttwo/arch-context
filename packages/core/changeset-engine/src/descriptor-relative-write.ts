@@ -50,6 +50,11 @@ const POSIX_FLAGS: Record<"darwin" | "linux", PosixFlags> = {
   }
 };
 
+/** The mode `open(..., 0o666)` would produce under the process umask, i.e. a plain new file. */
+function defaultCreateMode(): number {
+  return 0o666 & ~process.umask();
+}
+
 export function descriptorRelativeWrite(request: DescriptorRelativeWriteRequest): void {
   if (process.platform === "win32") {
     writeWithLockedWindowsParents(request);
@@ -114,7 +119,10 @@ function writeWithPosixDirectoryDescriptor(
     tempCreated = true;
     try {
       writeAll(tempFd, Buffer.from(request.body, "utf8"), write);
-      if (request.mode !== undefined) checkedResult(fchmod(tempFd, request.mode), `fchmod ${request.tempName}`);
+      // Always set the mode explicitly. `openat` is variadic, and this binding declares its mode as
+      // a fixed argument: Apple arm64 passes variadic arguments on the stack, so the creation mode
+      // it receives is garbage there (a file can come out 0000). fchmod is not variadic.
+      checkedResult(fchmod(tempFd, request.mode ?? defaultCreateMode()), `fchmod ${request.tempName}`);
       checkedResult(fsync(tempFd), `fsync ${request.tempName}`);
     } finally {
       checkedResult(close(tempFd), `close ${request.tempName}`);
