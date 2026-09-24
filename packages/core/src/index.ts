@@ -28,3 +28,6 @@ export {
 export * from "../refactor-decision/src/index";
 export * from "../retrieval/src/index";
 export * from "../review-engine/src/index";
+export * from "../module-statistics/src/index";
+export * from "../recommendation-engine/src/index";
+export * from "../refactor-assessment/src/index";

@@ -18,8 +18,8 @@ import {
   type RefactorTargetOutcomeV1,
   type StructuralObservationPayloadV1
 } from "@archcontext/contracts";
-import { resolveOwnership, type ModuleStatisticsTrackedFileV1 } from "../../module-statistics/src/index";
-import type { NativeModel } from "../../projection-engine/src/index";
+import { resolveOwnership, type ModuleStatisticsTrackedFileV1 } from "@archcontext/core/module-statistics";
+import type { NativeModel } from "@archcontext/core/projection-engine";
 
 const DIGEST_PREFIX_LENGTH = "sha256:".length;
 const OUTCOME_ID_LENGTH = 16;

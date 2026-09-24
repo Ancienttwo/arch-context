@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { digestJson, moduleStatisticsSnapshotInvariantIssues, type DependencyConstraintV1, type Json } from "@archcontext/contracts";
-import type { NativeNode } from "../../projection-engine/src/index";
+import type { NativeNode } from "@archcontext/core/projection-engine";
 import {
   buildModuleStatisticsSnapshot,
   evaluateDependencyConstraints,

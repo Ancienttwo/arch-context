@@ -19,8 +19,8 @@ import {
   type RecommendationV3,
   type AgentJobV1
 } from "@archcontext/contracts";
-import type { ChangeSetDraft } from "../../changeset-engine/src/index";
-import { canonicalArchitectureYaml, parseJsonOrStableYaml } from "../../architecture-domain/src/index";
+import type { ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { canonicalArchitectureYaml, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 
 export type ArchitectureLedgerWriter = "runtime-daemon";
 export const ARCHITECTURE_LEDGER_GIT_CURSOR_ID = "source.git.current";

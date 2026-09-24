@@ -1,4 +1,4 @@
-import { matchesGlob, nativeNodeSource, type NativeNode } from "../../projection-engine/src/index";
+import { matchesGlob, nativeNodeSource, type NativeNode } from "@archcontext/core/projection-engine";
 
 export interface OwnershipResolution {
   /** Node ids that own this file. More than one id means the claim is contested. */

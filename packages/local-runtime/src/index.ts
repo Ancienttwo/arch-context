@@ -3,3 +3,6 @@ export * from "../git-adapter/src/index";
 export * from "../local-store-sqlite/src/index";
 export * from "../model-store-yaml/src/index";
 export * from "../runtime-daemon/src/index";
+export * from "../context7-adapter/src/index";
+export * from "../explorer-html/src/index";
+export * from "../runtime-daemon/src/egress";

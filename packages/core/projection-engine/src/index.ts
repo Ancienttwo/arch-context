@@ -17,7 +17,7 @@ import {
   type ModelExportResult,
   type ProjectionTargetV1
 } from "@archcontext/contracts";
-import { assertRepoRelativePath, computeWorktreeDigest, parseJsonOrStableYaml } from "../../architecture-domain/src/index";
+import { assertRepoRelativePath, computeWorktreeDigest, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import {
   agentContextTargetPaths,
   ARCHITECTURE_DOCS_LAYOUT_VERSION,

@@ -8,7 +8,7 @@ import {
   type RefactorProposalV1,
   type RefactorScale
 } from "@archcontext/contracts";
-import { assessRefactor, type RefactorAssessmentInputV1 } from "../../refactor-assessment/src/index";
+import { assessRefactor, type RefactorAssessmentInputV1 } from "@archcontext/core/refactor-assessment";
 import {
   CONTESTED_MODEL,
   CYCLE_EDGES,
@@ -29,7 +29,7 @@ import {
   type PlanRefactorRecommendationRunInput,
   type PreviousRecommendationV3
 } from "../src/index";
-import { architectureSubjectSelectorId } from "../../architecture-delta/src/index";
+import { architectureSubjectSelectorId } from "@archcontext/core/architecture-delta";
 
 const NOW = "2026-09-03T07:30:00.000Z";
 const CATALOG_DIGEST = digestOf("refactor-classifier-ruleset");

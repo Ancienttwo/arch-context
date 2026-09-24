@@ -11,8 +11,8 @@ import {
   type RefactorProposalV1,
   type RefactorRequestV1
 } from "@archcontext/contracts";
-import { buildModuleStatisticsSnapshot, type ModuleStatisticsInputV1 } from "../../module-statistics/src/index";
-import type { NativeModel } from "../../projection-engine/src/index";
+import { buildModuleStatisticsSnapshot, type ModuleStatisticsInputV1 } from "@archcontext/core/module-statistics";
+import type { NativeModel } from "@archcontext/core/projection-engine";
 import type { RefactorAssessmentInputV1 } from "../src/index";
 
 export function digestOf(seed: string): string {

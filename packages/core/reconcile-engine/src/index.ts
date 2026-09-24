@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { CrossRepoRelation } from "@archcontext/core/architecture-domain";
-import type { ArchitectureLedgerDriftReport, ArchitectureLedgerProjectionDiff } from "../../architecture-ledger/src/index";
+import type { ArchitectureLedgerDriftReport, ArchitectureLedgerProjectionDiff } from "@archcontext/core/architecture-ledger";
 import type { ObservedEvidence } from "@archcontext/contracts";
 
 export interface ProjectionRebuilderPort {
