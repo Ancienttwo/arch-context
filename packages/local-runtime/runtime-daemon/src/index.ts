@@ -118,6 +118,7 @@ import {
   renderArchitectureDocumentationProjection,
   REPO_HARNESS_PROJECTION_PROFILE,
   type ArchitectureProjectionManifestVerifiedAgainstReadback,
+  type ArchitectureProjectionVerifiedAgainst,
   type CapabilitySourceChangeSet,
   type CapabilitySourceChangeSetForCommit,
   type CapabilitySourceChangeSinceStamp,
@@ -8306,23 +8307,35 @@ function readHeadCommittedAt(root: string): string {
   }
 }
 
+/** Same shape `assertArchitectureProjectionVerifiedAgainst` accepts for a stamp commit. */
+const GIT_OBJECT_NAME_PATTERN = /^[0-9a-f]{7,64}$/;
+
 /**
  * Repo-relative paths that changed between `commit` and HEAD. Fails closed: a shallow clone, an
  * unknown commit, or a missing Git binary returns `unavailable` with the Git error, so the
  * freshness gate reports "could not measure" instead of reading an unmeasurable range as "nothing
  * changed". Only committed history is compared — an uncommitted edit is work in progress, not a
  * projection that fell behind a commit.
+ *
+ * `commit` comes from the committed projection manifest, i.e. repository content: anything that is
+ * not a hex object name is refused before Git runs, and `--end-of-options` keeps Git from ever
+ * reading it as an option (`--output=…` would otherwise write through a committed symlink). Paths
+ * are read NUL-framed so non-ASCII, newline, and whitespace-bearing names come back verbatim
+ * instead of C-quoted or trimmed.
  */
 function readChangedPathsSince(root: string, commit: string): CapabilitySourceChangeSet {
+  if (!GIT_OBJECT_NAME_PATTERN.test(commit)) {
+    return { status: "unavailable", reason: `refusing to measure changes since a non-hex commit: ${JSON.stringify(commit)}` };
+  }
   try {
-    const output = execFileSync("git", ["diff", "--name-only", `${commit}..HEAD`], {
+    const output = execFileSync("git", ["diff", "--name-only", "-z", "--end-of-options", `${commit}..HEAD`], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
     });
     return {
       status: "measured",
-      paths: output.split("\n").map((line) => line.trim()).filter((line) => line.length > 0)
+      paths: output.split("\0").filter((path) => path.length > 0)
     };
   } catch (error) {
     const stderr = (error as { stderr?: Buffer | string }).stderr;
@@ -8700,11 +8713,22 @@ function measureChangeSetsForManifestStamps(
   manifest: ArchitectureProjectionManifestVerifiedAgainstReadback
 ): CapabilitySourceChangeSetForCommit[] {
   if (manifest.status !== "present") return [];
+  // Only stamps that pass the same validation the probe applies are measured; an invalid one is
+  // reported by the probe as unusable provenance and must never reach Git.
   return [...new Set(manifest.nodes
-    .map((entry) => (entry.verifiedAgainst as { commit?: unknown } | undefined)?.commit)
-    .filter((commit): commit is string => typeof commit === "string" && commit.length > 0))]
+    .map((entry) => validManifestStampCommit(entry.verifiedAgainst))
+    .filter((commit): commit is string => commit !== undefined))]
     .sort((left, right) => left.localeCompare(right))
     .map((commit) => ({ commit, changeSet: readChangedPathsSince(root, commit) }));
+}
+
+function validManifestStampCommit(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  try {
+    return assertArchitectureProjectionVerifiedAgainst(raw as ArchitectureProjectionVerifiedAgainst).commit;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
