@@ -13,7 +13,7 @@ import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } 
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
@@ -4229,6 +4229,101 @@ describe("archctx CLI", () => {
       removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("projection readback preserves delivered receipt and validates every current read over RPC", async () => {
+    const { root, modulePath, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
+    const daemon = await createStartedDaemon({
+      localStorePath: testRuntimePaths(root).localStorePath,
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider()
+    });
+    const paths = testRuntimePaths(root);
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root, port: 0, token: "projection-readback-test-token",
+      connectionPath: paths.daemonConnectionPath, lockPath: paths.daemonLockPath
+    });
+    try {
+      const rpcClient = new RuntimeRpcClient(await rpc.start());
+      const request: ProjectionRequestV1 = { ...protocolRequest, mode: "apply", acceptedChange,
+        requestId: "projection_request.readback" };
+      const absent = await runCli("projection", ["readback", "--request-json", JSON.stringify(request)], root, { runtimeClient: rpcClient });
+      expect(absent).toMatchObject({ ok: true, data: { schemaVersion: "archcontext.projection-apply-absence/v1", current: request.expected } });
+      let appliedInput: Parameters<RuntimeDaemonClient["applyUpdate"]> | undefined;
+      let pendingReadbacks = 0;
+      const client = new Proxy(rpcClient, {
+        get(target, property, receiver) {
+          if (property === "applyUpdate") return (...args: Parameters<RuntimeDaemonClient["applyUpdate"]>) => {
+            appliedInput = args;
+            return target.applyUpdate(...args);
+          };
+          if (property === "recoverProjectionApply") return async (...args: Parameters<RuntimeDaemonClient["recoverProjectionApply"]>) => {
+            const readback = await runCli("projection", ["readback", "--request-json", JSON.stringify(request)], root, { runtimeClient: rpcClient });
+            expect(readback.ok, JSON.stringify(readback)).toBe(true);
+            const receipt = (readback.data as any).receipt;
+            expect(receipt.result.refreshSignals.length).toBeGreaterThan(0);
+            expect(await daemon.inspectProjectionApplyReceipt(root, receipt.identity.lookupKey))
+              .toMatchObject({ ok: true, data: { deliveryStatus: "pending" } });
+            pendingReadbacks += 1;
+            return target.recoverProjectionApply(...args);
+          };
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+      const applied = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: client });
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
+      expect(pendingReadbacks).toBe(1);
+      expect(appliedInput).toBeDefined();
+      const duplicate = await rpcClient.applyUpdate(...appliedInput!);
+      expect(duplicate).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
+      const original = applied.data as ProjectionResultV2;
+      const before = await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey);
+      expect(before).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
+      const read = (value: ProjectionRequestV1) => runCli("projection", ["readback", "--request-json", JSON.stringify(value)], root, { runtimeClient: client });
+      const first = await read(request);
+      expect(first.ok, JSON.stringify(first)).toBe(true);
+      const readback = first.data as any;
+      const schema = JSON.parse(readFileSync(join(REPOSITORY_ROOT, "schemas/runtime/projection-apply-readback.schema.json"), "utf8"));
+      expect(validateJsonSchema(schema, readback)).toEqual({ valid: true, issues: [] });
+      expect(validateJsonSchema(schema, { ...readback, unknown: true }).valid).toBe(false);
+      expect(validateJsonSchema(schema, { ...readback, current: { ...readback.current, snapshot: {
+        ...readback.current.snapshot, generatedFrom: { ...readback.current.snapshot.generatedFrom, codeGraphStatus: "unavailable" }
+      } } }).valid).toBe(false);
+      expect(projectionApplyReadbackResultInvariantIssues(readback, request)).toEqual([]);
+      expect(projectionApplyReadbackResultInvariantIssues({ ...readback, requestDigest: `sha256:${"0".repeat(64)}` }, request)).not.toEqual([]);
+      const { readbackDigest: _digest, ...body } = readback;
+      const altered = { ...body, current: { ...body.current, ownedOutputDigest: `sha256:${"0".repeat(64)}` } };
+      expect(projectionApplyReadbackResultInvariantIssues({ ...altered, readbackDigest: projectionApplyReadbackResultDigest(altered) }, request))
+        .toContain("readback current state differs from committed recovery binding");
+      expect(readback.receipt.result).toEqual(original);
+      expect((first.data as any).receipt.result.refreshSignals.length).toBeGreaterThan(0);
+      expect((await read(request)).data).toEqual(first.data);
+      expect(await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey)).toEqual(before);
+      for (const invalid of [
+        { ...request, requestId: "projection_request.wrong" },
+        { ...request, targets: ["agent-context"] as ProjectionRequestV1["targets"] },
+        { ...request, changedPaths: ["README.md"] },
+        { ...request, expected: { ...request.expected, worktreeDigest: `sha256:${"0".repeat(64)}` as const } }
+      ]) {
+        const rejected = await read(invalid);
+        expect(rejected.ok, JSON.stringify(rejected)).toBe(false);
+        expect((rejected as any).error.code).toBe("AC_PRECONDITION_FAILED");
+      }
+      const originalBody = readFileSync(join(root, modulePath), "utf8");
+      writeFileSync(join(root, modulePath), originalBody.replace("# runtime-harness/", "# tampered-runtime-harness/"));
+      const tamperedBody = readFileSync(join(root, modulePath), "utf8");
+      expect(tamperedBody).not.toBe(originalBody);
+      const rejected = await read(request);
+      expect(rejected.ok, JSON.stringify(rejected)).toBe(false);
+      expect((rejected as any).error.code).toBe("AC_PRECONDITION_FAILED");
+      expect(readFileSync(join(root, modulePath), "utf8")).toBe(tamperedBody);
+      expect(await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey)).toEqual(before);
+    } finally {
+      await rpc.stop();
+      await daemon.stop();
+      removeTempRoot(root);
+    }
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   test("projection recovery leaves a post-write non-owned race receipt pending", async () => {
     const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario();

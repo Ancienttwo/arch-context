@@ -61,6 +61,9 @@ import {
   ARCHCTX_FEATURES,
   architectureRefreshSignalInvariantIssues,
   archctxCapabilities,
+  projectionApplyAbsenceInvariantIssues,
+  projectionApplyLookupKey,
+  projectionApplyReadbackRequestInvariantIssues,
   projectionApplyRecoveryProofInvariantIssues,
   projectionApplyRecoveryProofDigest,
   projectionApplyRecoveryResultInvariantIssues,
@@ -318,6 +321,48 @@ test("projection result keeps its embedded refresh signal schema synchronized", 
   const standalone = readJson("schemas/runtime/architecture-refresh-signal.schema.json") as any;
   const { $schema: _schema, $id: _id, title: _title, $defs: _defs, ...standaloneShape } = standalone;
   expect(resultSchema.$defs.refreshSignal).toEqual(standaloneShape);
+});
+
+test("projection readback schema embeds canonical request and result contracts", () => {
+  const readback = readJson("schemas/runtime/projection-apply-readback.schema.json") as any;
+  const result = readJson("schemas/runtime/projection-result.schema.json") as any;
+  const request = readJson("schemas/runtime/projection-request.schema.json") as any;
+  const { $schema: _schema, $id: _id, title: _title, $defs, ...resultShape } = result;
+  expect(readback.$defs.projectionResult).toEqual(resultShape);
+  for (const [name, shape] of Object.entries($defs)) expect(readback.$defs[name]).toEqual(shape);
+  expect(readback.$defs.expectedSnapshot).toEqual(request.$defs.expectedSnapshot);
+  expect(readback.$defs.repoPath).toEqual(request.$defs.repoPath);
+  expect(readback.$defs.recoveryBinding.properties.targets).toEqual(request.properties.targets);
+  expect(readback.$defs.recoveryBinding.properties.changedPaths).toEqual(request.properties.changedPaths);
+  const valid = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
+  expect(projectionApplyReadbackRequestInvariantIssues(valid)).toContain("readback requires an accepted apply request");
+  expect(projectionApplyReadbackRequestInvariantIssues({ ...valid, profile: "wrong" } as any)).toContain("readback request protocol is invalid");
+  expect(projectionApplyReadbackRequestInvariantIssues({ ...valid, expected: { ...valid.expected, extra: true } } as any)).toContain("readback expected snapshot is invalid");
+  expect(projectionApplyReadbackRequestInvariantIssues({ ...valid, mode: "adopt", adoptionPlanId: "adoption_plan.test" }))
+    .toContain("readback request contains unsupported fields");
+});
+
+test("projection absence binds the original request and exact current snapshot", () => {
+  const fixture = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
+  const request: ProjectionRequestV1 = { ...fixture, mode: "apply", acceptedChange: {
+    changeSetId: "changeset.absence", eventId: "event.approval", reasonCodes: ["entrypoint-changed"], affectedNodeIds: ["capability.example"]
+  } };
+  const body = {
+    schemaVersion: "archcontext.projection-apply-absence/v1" as const,
+    requestId: request.requestId, requestDigest: digestJson(request as unknown as Json) as `sha256:${string}`,
+    lookupKey: projectionApplyLookupKey({ ...request.expected, acceptedChange: request.acceptedChange! }),
+    current: request.expected
+  };
+  const result = { ...body, absenceDigest: digestJson(body as unknown as Json) as `sha256:${string}` };
+  const schema = readJson("schemas/runtime/projection-apply-readback.schema.json");
+  expect(validateJsonSchema(schema as any, result as unknown as Json).valid).toBe(true);
+  expect(projectionApplyAbsenceInvariantIssues(result, request)).toEqual([]);
+  expect(projectionApplyAbsenceInvariantIssues({ ...result, requestDigest: `sha256:${"0".repeat(64)}` }, request)).not.toEqual([]);
+  expect(projectionApplyAbsenceInvariantIssues({ ...result, lookupKey: `sha256:${"0".repeat(64)}` }, request)).not.toEqual([]);
+  const changed = { ...body, current: { ...body.current, workspaceId: "workspace.other" } };
+  expect(projectionApplyAbsenceInvariantIssues({ ...changed, absenceDigest: digestJson(changed as unknown as Json) as `sha256:${string}` }, request))
+    .toContain("absence current snapshot differs from request");
+  expect(validateJsonSchema(schema as any, { ...result, unknown: true } as unknown as Json).valid).toBe(false);
 });
 
 test("projection apply recovery schemas require one exact intent, proof, or result shape", () => {
