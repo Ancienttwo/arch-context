@@ -204,11 +204,13 @@ export function initializeArchContextModel(root: string, productName = "ArchCont
       writeFileWithoutFollowingSymlinks({ root, path: file.path, body: withTrailingNewline(file.body), expectedHash: "missing" });
       created.push(file.path);
     }
+    // Part of the same all-or-nothing step: a failed rebuild must not leave an initialized model
+    // behind that would refuse every retry.
+    rebuildGeneratedProjection(root);
   } catch (error) {
     for (const path of created.reverse()) rmSync(resolve(root, path), { force: true });
     throw error;
   }
-  rebuildGeneratedProjection(root);
 }
 
 export function rebuildGeneratedProjection(root: string): void {

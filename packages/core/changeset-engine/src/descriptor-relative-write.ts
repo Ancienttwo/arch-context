@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, fstatSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { digestJson } from "@archcontext/contracts";
 import koffi from "koffi";
@@ -79,6 +79,7 @@ function writeWithPosixDirectoryDescriptor(
   const fchmod = libc.func("fchmod", "int", ["int", "uint"]);
   const fsync = libc.func("fsync", "int", ["int"]);
   const renameat = libc.func("renameat", "int", ["int", "str", "int", "str"]);
+  const linkat = libc.func("linkat", "int", ["int", "str", "int", "str", "int"]);
   const unlinkat = libc.func("unlinkat", "int", ["int", "str", "int"]);
   const close = libc.func("close", "int", ["int"]);
   const errno = koffi.os.errno;
@@ -128,8 +129,18 @@ function writeWithPosixDirectoryDescriptor(
       checkedResult(close(tempFd), `close ${request.tempName}`);
     }
 
-    checkedResult(renameat(directoryFd, request.tempName, directoryFd, leaf), `renameat ${leaf}`);
-    tempCreated = false;
+    if (request.expectedHash === "missing") {
+      // Create-only: link fails with EEXIST instead of replacing a file that appeared after the
+      // missing-check above, so a concurrent writer can never be overwritten. The temp name is
+      // unlinked in the finally block.
+      if (linkat(directoryFd, request.tempName, directoryFd, leaf, 0) < 0) {
+        if (koffi.errno() === koffi.os.errno.EEXIST) throw new Error(`Expected hash mismatch: ${leaf}`);
+        throw posixError(`linkat ${leaf}`);
+      }
+    } else {
+      checkedResult(renameat(directoryFd, request.tempName, directoryFd, leaf), `renameat ${leaf}`);
+      tempCreated = false;
+    }
     checkedResult(fsync(directoryFd), `fsync parent for ${leaf}`);
 
     assertPinnedParentVisible(request, pinnedParent);
@@ -294,8 +305,31 @@ function windowsAtomicPathWrite(request: DescriptorRelativeWriteRequest): void {
     } finally {
       closeSync(fd);
     }
-    renameSync(temp, absolute);
+    if (request.expectedHash === "missing") commitCreateOnly(temp, absolute, request);
+    else renameSync(temp, absolute);
   } finally {
     rmSync(temp, { force: true });
+  }
+}
+
+/**
+ * Create-only commit: a hard link fails with EEXIST rather than replacing a destination that
+ * appeared after the missing-check, unlike `rename`. Volumes without hard links fall back to an
+ * exclusive create, which still refuses an existing destination.
+ */
+function commitCreateOnly(temp: string, absolute: string, request: DescriptorRelativeWriteRequest): void {
+  try {
+    linkSync(temp, absolute);
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") throw new Error(`Expected hash mismatch: ${request.path}`);
+    if (code !== "EPERM" && code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "ENOSYS") throw error;
+  }
+  try {
+    writeFileSync(absolute, request.body, request.mode === undefined ? { encoding: "utf8", flag: "wx" } : { encoding: "utf8", mode: request.mode, flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Expected hash mismatch: ${request.path}`);
+    throw error;
   }
 }

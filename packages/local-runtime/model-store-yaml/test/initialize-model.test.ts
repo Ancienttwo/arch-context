@@ -148,6 +148,24 @@ describe("initializeArchContextModel is create-only (#167)", () => {
     }
   });
 
+  test("a failed generated rebuild rolls the model back so init can be retried", () => {
+    const { base, root, outside } = tempRoots();
+    try {
+      mkdirSync(join(root, ".archcontext"), { recursive: true });
+      symlinkSync(outside, join(root, ".archcontext/generated"));
+
+      expect(() => initializeArchContextModel(root, "Retry App")).toThrow("symlink");
+      for (const path of INIT_FILES) expect(existsSync(join(root, path))).toBe(false);
+      expect(existsSync(join(outside, "ARCHITECTURE.md"))).toBe(false);
+
+      rmSync(join(root, ".archcontext/generated"), { force: true });
+      initializeArchContextModel(root, "Retry App");
+      for (const path of INIT_FILES) expect(existsSync(join(root, path))).toBe(true);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   test("a failure part-way removes the files that init created", () => {
     const { base, root } = tempRoots();
     try {
