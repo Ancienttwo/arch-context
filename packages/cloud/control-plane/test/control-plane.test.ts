@@ -2720,7 +2720,7 @@ describe("control plane", () => {
     for (const [attestation, reasonCode] of [
       [{}, "ATTESTATION_SCHEMA_UNSUPPORTED"],
       [{ schemaVersion: "archcontext.attestation/v1" }, "ATTESTATION_SCHEMA_UNSUPPORTED"],
-      [{ ...request.attestation, sourceCode: "private-content-fixture" }, "PAYLOAD_PRIVACY_VIOLATION"]
+      [{ ...request.attestation, rawBody: "private-content-fixture" }, "PAYLOAD_PRIVACY_VIOLATION"]
     ] as const) {
       expect(cp.submitReviewChallengeApi({ ...request, attestation })).toMatchObject({ accepted: false, reasonCode });
     }
