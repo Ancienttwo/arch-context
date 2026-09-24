@@ -2796,6 +2796,27 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("concurrent cold starts all succeed: starters that lose store ownership wait for the winning daemon (#160)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-concurrent-cold-start-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      // Every command finds no daemon and spawns one; only one can own the store, and the others'
+      // children exit as losers. Their commands must still reach the winner, never fail.
+      const results = await Promise.all(Array.from({ length: 6 }, () => runCliProcessRaw(root, "status")));
+      for (const result of results) {
+        expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: "" });
+        const envelope = JSON.parse(result.stdout);
+        expect(envelope.ok).toBe(true);
+        expect(envelope.data.running).toBe(true);
+      }
+      const daemonStatus = await runCliProcess(root, "daemon", "status");
+      expect(daemonStatus.data.running).toBe(true);
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("MCP stdio runtime tool call auto-starts the background daemon", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-mcp-autostart-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
