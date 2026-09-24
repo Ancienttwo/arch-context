@@ -11,7 +11,7 @@
 | `archctx practices validate --strict` | 通过（catalog 2026.06.0） |
 | `node scripts/package-boundary-audit.mjs` | 通过（仅约束 5 个 workspace 级边界，不约束子包/层方向的全部规则） |
 | `archctx refactor scan --json`（自扫描） | 23 个模块；`codeFacts.coverage=unknown`、`truncated=true`、reasonCodes=`code-facts-missing, code-facts-truncated, caller-coverage-unknown, unowned-paths`；`crossModuleEdgeCount=0`，1238/1318 tracked 文件无 owner |
-| `bun test` | 见文末“验证环境说明” |
+| `bun test`（bun 1.4.0，`node_modules/.bin` 在 PATH） | 1778 pass / 0 fail，170 个文件，262.6s |
 
 人工审计按四个维度并行展开，关键结论均由主线程回到源码逐条复核：写权威/变更边界、模块内聚与 god-file、声明模型与代码漂移（含 ADR 卫生）、信任边界与云端。
 
@@ -160,5 +160,5 @@
 
 ## 验证环境说明
 
-- 容器预装 bun 1.3.11，而仓库 `packageManager` 固定 `bun@1.4.0`。在 1.3.11 下 `bun test` 于约 47s 处因 N-API finalizer 触发 Bun 自身 panic（`napi_reference_unref`，exit 132），属运行时缺陷而非仓库测试失败；崩溃前唯一失败为上述 `codegraph` PATH 依赖用例。随后使用本地安装的 bun 1.4.0 重跑，结果见提交说明/PR 描述。
+- 容器预装 bun 1.3.11，而仓库 `packageManager` 固定 `bun@1.4.0`。在 1.3.11 下 `bun test` 于约 47s 处因 N-API finalizer 触发 Bun 自身 panic（`napi_reference_unref`，exit 132），属运行时缺陷而非仓库测试失败；崩溃前唯一失败为上述 `codegraph` PATH 依赖用例。随后使用本地安装的 bun 1.4.0（并把 `node_modules/.bin` 加入 PATH）重跑：1778 pass / 0 fail。建议 CI/开发环境显式校验 bun 版本与 `packageManager` 一致。
 - 自扫描 `code-facts-missing` 源于本环境未建立 CodeGraph 索引；本轮为避免写入状态未执行 `archctx sync`。
