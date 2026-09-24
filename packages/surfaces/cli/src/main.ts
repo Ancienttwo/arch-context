@@ -2507,14 +2507,85 @@ function runAuditConsentCommand(args: string[], cwd: string) {
   } as unknown as Json);
 }
 
+/**
+ * Flags `audit run` and `audit approve` accept beyond `--help`/`-h` (checked separately) and
+ * approve's own positional `<run-id>`. `--format` and `--json` are global rendering flags every
+ * command's `args` may carry (`--format` is read once at the very top of this file; `--json` is
+ * accepted CLI-wide as a JSON-output hint), so they're allowed here too even though neither
+ * subcommand's own input builder reads them.
+ */
+const AUDIT_GLOBAL_VALUE_FLAGS = ["--format"] as const;
+const AUDIT_GLOBAL_BOOLEAN_FLAGS = ["--json"] as const;
+const AUDIT_RUN_VALUE_FLAGS = ["--task-session-id", "--reason", "--risk", "--uncertainty", "--context-max-items", "--model-id", "--timeout-ms", ...AUDIT_GLOBAL_VALUE_FLAGS];
+const AUDIT_RUN_BOOLEAN_FLAGS = ["--no-wait", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
+const AUDIT_APPROVE_VALUE_FLAGS = ["--run-id", "--confirm-public-repo", ...AUDIT_GLOBAL_VALUE_FLAGS];
+const AUDIT_APPROVE_BOOLEAN_FLAGS = ["--resume", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
+
+/**
+ * First token in `args` (skipping index 0, the subcommand) that looks like a long flag but isn't
+ * in `valueFlags`/`booleanFlags` — issue #182: `audit run`/`audit approve` must reject an unknown
+ * flag with `AC_SCHEMA_INVALID` instead of silently ignoring it, the same way an unrecognized
+ * `--status` already fails `audit list`. A recognized value flag's own value is skipped unread:
+ * this only needs to catch flags the caller didn't mean to pass, not validate every value's shape
+ * (that happens where each flag is actually read below).
+ */
+function findUnknownAuditFlag(args: string[], valueFlags: readonly string[], booleanFlags: readonly string[]): string | undefined {
+  for (let index = 1; index < args.length; index += 1) {
+    const token = args[index];
+    if (!token || !token.startsWith("--")) continue;
+    if (booleanFlags.includes(token)) continue;
+    if (valueFlags.includes(token)) {
+      index += 1;
+      continue;
+    }
+    return token;
+  }
+  return undefined;
+}
+
 async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "run";
+  if (subcommand === "--help" || subcommand === "-h") {
+    return okEnvelope("audit", {
+      schemaVersion: "archcontext.audit-help/v1",
+      usage: [
+        "archctx audit run [options]",
+        "archctx audit approve <run-id> [options]",
+        "archctx audit list [--status <status>[,<status>...]]",
+        "archctx audit show <run-id>",
+        "archctx audit consent [--revoke]"
+      ],
+      description: "Manage architecture audit runs. Run `archctx audit <subcommand> --help` for a subcommand's own options."
+    } as unknown as Json);
+  }
   if (subcommand === "list") {
+    if (args.includes("--help") || args.includes("-h")) {
+      return okEnvelope("audit.list", {
+        schemaVersion: "archcontext.audit-list-help/v1",
+        usage: "archctx audit list [--status <status>[,<status>...]]",
+        description: "List architecture audit runs, most recent first.",
+        options: {
+          "--status <status>": `Filter by run status; repeatable or comma-separated (${AUDIT_RUN_STATUSES.join("|")}).`,
+          "--help, -h": "Show help without listing anything."
+        }
+      } as unknown as Json);
+    }
     const statusResult = readAuditRunStatuses(args, "audit.list");
     if (!statusResult.ok) return statusResult.envelope;
     return daemon.auditList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
   }
   if (subcommand === "show") {
+    if (args.includes("--help") || args.includes("-h")) {
+      return okEnvelope("audit.show", {
+        schemaVersion: "archcontext.audit-show-help/v1",
+        usage: "archctx audit show <run-id>",
+        description: "Show one audit run's detail, including its drafted GitHub issues.",
+        options: {
+          "<run-id>": "The audit run to show; may also be passed as --run-id <id>.",
+          "--help, -h": "Show help without reading anything."
+        }
+      } as unknown as Json);
+    }
     const runId = readFlag(args, "--run-id") ?? args[1];
     if (!runId) return errorEnvelope("audit.show", "AC_SCHEMA_INVALID", "audit show requires <run-id> or --run-id");
     const result = await daemon.auditShow(cwd, runId);
@@ -2522,6 +2593,21 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     return { ...result, data: auditShowDataWithFiledSummary(result.data) };
   }
   if (subcommand === "approve") {
+    if (args.includes("--help") || args.includes("-h")) {
+      return okEnvelope("audit.approve", {
+        schemaVersion: "archcontext.audit-approve-help/v1",
+        usage: "archctx audit approve <run-id> [--confirm-public-repo <token>] [--resume]",
+        description: "Approve a pending audit run and publish its drafted GitHub issues. Requires audit.githubIssues.enabled in .archcontext/manifest.yaml and archctx audit consent.",
+        options: {
+          "<run-id>": "The audit run to approve; may also be passed as --run-id <id>.",
+          "--confirm-public-repo <token>": "Required once, verbatim, when the run's repository resolves to non-private visibility.",
+          "--resume": "Continue a run left in \"issuing\" status by a prior crashed/partial approve call.",
+          "--help, -h": "Show help without approving or publishing anything."
+        }
+      } as unknown as Json);
+    }
+    const unknownFlag = findUnknownAuditFlag(args, AUDIT_APPROVE_VALUE_FLAGS, AUDIT_APPROVE_BOOLEAN_FLAGS);
+    if (unknownFlag) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", `audit approve does not recognize the flag ${unknownFlag}`);
     const runId = readFlag(args, "--run-id") ?? args[1];
     if (!runId) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", "audit approve requires <run-id> or --run-id");
     if (!auditGithubIssuesEnabled(cwd)) {
@@ -2550,6 +2636,26 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
   if (subcommand !== "run") {
     return errorEnvelope("audit", "AC_SCHEMA_INVALID", "audit requires run|list|show|approve|consent");
   }
+  if (args.includes("--help") || args.includes("-h")) {
+    return okEnvelope("audit.run", {
+      schemaVersion: "archcontext.audit-run-help/v1",
+      usage: "archctx audit run [--reason <text>] [--task-session-id <id>] [--risk <level>] [--uncertainty <level>] [--context-max-items <n>] [--model-id <id>] [--timeout-ms <ms>] [--no-wait]",
+      description: "Start an architecture audit run. Requires audit.githubIssues.enabled in .archcontext/manifest.yaml and archctx audit consent.",
+      options: {
+        "--reason <text>": "Human-readable reason recorded with the run.",
+        "--task-session-id <id>": "Correlate this run with an existing task session.",
+        "--risk <level>": "Investigation risk hint passed to the daemon.",
+        "--uncertainty <level>": "Investigation uncertainty hint passed to the daemon.",
+        "--context-max-items <n>": "Cap on context items gathered for the run.",
+        "--model-id <id>": "Override the model used for the run.",
+        "--timeout-ms <ms>": `How long the CLI polls \`archctx audit list\` before returning (default: ${AUDIT_RUN_DEFAULT_TIMEOUT_MS}ms); ignored with --no-wait.`,
+        "--no-wait": "Return immediately after the daemon accepts the run instead of polling audit list.",
+        "--help, -h": "Show help without starting an audit run."
+      }
+    } as unknown as Json);
+  }
+  const unknownFlag = findUnknownAuditFlag(args, AUDIT_RUN_VALUE_FLAGS, AUDIT_RUN_BOOLEAN_FLAGS);
+  if (unknownFlag) return errorEnvelope("audit.run", "AC_SCHEMA_INVALID", `audit run does not recognize the flag ${unknownFlag}`);
   if (!auditGithubIssuesEnabled(cwd)) {
     return errorEnvelope(
       "audit.run",
