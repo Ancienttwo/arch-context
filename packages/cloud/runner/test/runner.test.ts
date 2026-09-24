@@ -1,3 +1,4 @@
+import { createReviewCheckoutGitPort } from "../../../local-runtime/git-adapter/src/index";
 import { describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
@@ -659,7 +660,7 @@ describe("@archcontext/cloud/runner", () => {
         expectedHeadSha: expected.headSha,
         expectedHeadTreeOid: expected.headTreeOid,
         githubRepository: "ancienttwo/arch-context"
-      })).toMatchObject({
+      }, createReviewCheckoutGitPort())).toMatchObject({
         ok: true,
         expected: {
           repository: "ancienttwo/arch-context",
@@ -681,21 +682,21 @@ describe("@archcontext/cloud/runner", () => {
         expectedHeadSha: expected.headSha,
         expectedHeadTreeOid: expected.headTreeOid,
         githubRepository: "ancienttwo/arch-context"
-      })).toMatchObject({ ok: false, reasonCode: "REPOSITORY_MISMATCH" });
+      }, createReviewCheckoutGitPort())).toMatchObject({ ok: false, reasonCode: "REPOSITORY_MISMATCH" });
       expect(verifyReviewActionCheckout({
         checkoutRoot: fixture,
         expectedRepository: "ancienttwo/arch-context",
         expectedHeadSha: "f".repeat(40),
         expectedHeadTreeOid: expected.headTreeOid,
         githubRepository: "ancienttwo/arch-context"
-      })).toMatchObject({ ok: false, reasonCode: "HEAD_SHA_MISMATCH" });
+      }, createReviewCheckoutGitPort())).toMatchObject({ ok: false, reasonCode: "HEAD_SHA_MISMATCH" });
       expect(verifyReviewActionCheckout({
         checkoutRoot: fixture,
         expectedRepository: "ancienttwo/arch-context",
         expectedHeadSha: expected.headSha,
         expectedHeadTreeOid: "0".repeat(40),
         githubRepository: "ancienttwo/arch-context"
-      })).toMatchObject({ ok: false, reasonCode: "TREE_OID_MISMATCH" });
+      }, createReviewCheckoutGitPort())).toMatchObject({ ok: false, reasonCode: "TREE_OID_MISMATCH" });
       writeFileSync(join(fixture, "tracked.txt"), "dirty\n");
       expect(verifyReviewActionCheckout({
         checkoutRoot: fixture,
@@ -703,7 +704,7 @@ describe("@archcontext/cloud/runner", () => {
         expectedHeadSha: expected.headSha,
         expectedHeadTreeOid: expected.headTreeOid,
         githubRepository: "ancienttwo/arch-context"
-      })).toMatchObject({ ok: false, reasonCode: "WORKTREE_NOT_CLEAN" });
+      }, createReviewCheckoutGitPort())).toMatchObject({ ok: false, reasonCode: "WORKTREE_NOT_CLEAN" });
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }

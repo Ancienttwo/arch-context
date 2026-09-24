@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
 import { matchesGlob } from "@archcontext/core/projection-engine";
-import { digestJson, type Json } from "@archcontext/contracts";
+import { digestJson, type Json, type ReviewCheckoutGitPort, type DetachedReviewWorktreeVerification } from "@archcontext/contracts";
 
 /** One `git cat-file --batch` carries every measured blob; a repository-sized tree needs the headroom. */
 const GIT_CAT_FILE_MAX_BYTES = 512 * 1024 * 1024;
@@ -137,12 +137,6 @@ export function computeGitChangeFingerprint(input: GitChangeFingerprintInput): s
   } as unknown as Json);
 }
 
-export type DetachedReviewWorktreeReason =
-  | "HEAD_UNAVAILABLE"
-  | "HEAD_SHA_MISMATCH"
-  | "TREE_OID_MISMATCH"
-  | "WORKTREE_NOT_DETACHED"
-  | "WORKTREE_NOT_CLEAN";
 
 export interface DetachedReviewWorktree {
   schemaVersion: "archcontext.detached-review-worktree/v1";
@@ -155,21 +149,6 @@ export interface DetachedReviewWorktree {
   clean: true;
 }
 
-export interface DetachedReviewWorktreeVerification {
-  schemaVersion: "archcontext.detached-review-worktree-verification/v1";
-  accepted: boolean;
-  reasonCode?: DetachedReviewWorktreeReason;
-  expected: {
-    headSha: string;
-    headTreeOid?: string;
-  };
-  observed: {
-    headSha?: string;
-    headTreeOid?: string;
-    detached?: boolean;
-    clean?: boolean;
-  };
-}
 
 export interface DetachedReviewWorktreePreparation extends DetachedReviewWorktreeVerification {
   worktree?: DetachedReviewWorktree;
@@ -515,4 +494,21 @@ function gitSucceeds(root: string, args: string[]): boolean {
 
 function isGitWorktreeError(error: unknown): boolean {
   return error instanceof Error && /git|Command failed/.test(error.message);
+}
+
+/** Local Git observation provider injected by runner composition. */
+export function createReviewCheckoutGitPort(): ReviewCheckoutGitPort {
+  return {
+    findRepositoryRoot,
+    readOriginUrl(root) {
+      try {
+        return execFileSync("git", ["config", "--get", "remote.origin.url"], {
+          cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]
+        }).trim();
+      } catch {
+        return null;
+      }
+    },
+    verifyDetachedWorktree: verifyDetachedReviewWorktree
+  };
 }

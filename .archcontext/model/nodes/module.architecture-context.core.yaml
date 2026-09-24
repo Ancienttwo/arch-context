@@ -4,7 +4,7 @@ kind: module
 name: "Core Workspace"
 status: active
 parent: capability.architecture-context
-summary: "Holds the runtime-independent domain engines that compute architecture context, pressure, policy, recommendations, and change sets."
+summary: "Contains architecture analysis engines and filesystem-backed model, policy, and projection logic. ChangeSet filesystem mutation is invoked by daemon-owned write orchestration."
 source:
   exclude:
     - "packages/core/**/test/**"

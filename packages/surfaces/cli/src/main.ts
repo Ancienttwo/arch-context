@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { localEgressStatus } from "@archcontext/local-runtime/egress";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -3609,11 +3610,11 @@ async function doctorReport(cwd: string, args: string[] = []) {
   const sqlite = doctorSqlite(cwd);
   const permissions = doctorPermissions(cwd);
   const auditRoot = auditManifestGateRoot(cwd);
-  const hardening = diagnostics({
+  const hardening = diagnostics(localEgressStatus(process.env, {
     auditEnabled: auditGithubIssuesEnabled(cwd),
     auditUserConsent: auditConsentGrantedForDoctor(auditRoot),
     githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV
-  });
+  }));
   const daemonEgress = "health" in daemon ? daemon.health?.egress : undefined;
   const egress = daemon.running
     ? daemonEgress ?? { ok: false, source: "daemon", effectiveOutbound: "unknown", warnings: ["Running daemon did not provide an egress report"] }

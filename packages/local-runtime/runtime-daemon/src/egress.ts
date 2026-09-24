@@ -1,3 +1,4 @@
+import type { LocalEgressReport, NonLocalEgressChannel } from "@archcontext/contracts";
 import { CODEGRAPH_TELEMETRY_DISABLED_VALUE, CODEGRAPH_TELEMETRY_ENV } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, DEFAULT_CONTEXT7_API_BASE } from "@archcontext/local-runtime/context7-adapter";
 
@@ -14,13 +15,6 @@ export interface LiveEgressConfig {
   githubIssuesTokenEnv?: string;
 }
 
-export interface NonLocalEgressChannel {
-  channel: "context7" | "agent-audit" | "github-issue-publishing";
-  destination: string;
-  trigger: string;
-  data: string;
-  status: "enabled" | "declared-awaiting-user-consent";
-}
 
 /**
  * `defaultOutbound` is the product's default policy; `effectiveOutbound` / `nonLocalEgress` are
@@ -60,7 +54,7 @@ export function effectiveEgressChannels(env: Record<string, string | undefined>,
   return channels;
 }
 
-export function localEgressStatus(env: Record<string, string | undefined> = process.env, live: LiveEgressConfig = {}) {
+export function localEgressStatus(env: Record<string, string | undefined> = process.env, live: LiveEgressConfig = {}): LocalEgressReport {
   const configuredDoNotTrack = env[CODEGRAPH_TELEMETRY_ENV];
   const effectiveDoNotTrack = configuredDoNotTrack ?? CODEGRAPH_TELEMETRY_DISABLED_VALUE;
   const codeGraphTelemetry = effectiveDoNotTrack === CODEGRAPH_TELEMETRY_DISABLED_VALUE ? "disabled" : "not-disabled-by-env";

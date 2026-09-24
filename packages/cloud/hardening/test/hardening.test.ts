@@ -1,4 +1,4 @@
-import { localEgressStatus } from "@archcontext/local-runtime/egress";
+import { localEgressStatus } from "../../../local-runtime/runtime-daemon/src/egress";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,8 +29,8 @@ describe("@archcontext/cloud/hardening", () => {
       defaultEgress: "local-only",
       applyChangeSetRequiresApproval: true
     });
-    expect(diagnostics().privacyRouteDigest).toMatch(/^sha256:/);
-    expect(diagnostics().egress.ok).toBe(true);
+    expect(diagnostics(localEgressStatus({})).privacyRouteDigest).toMatch(/^sha256:/);
+    expect(diagnostics(localEgressStatus({})).egress.ok).toBe(true);
     expect(isSupportedNodeVersion("v22.21.1")).toBe(false);
     expect(isSupportedNodeVersion("v22.22.0")).toBe(true);
     expect(isSupportedNodeVersion("v23.11.1")).toBe(true);
