@@ -3968,6 +3968,11 @@ setInterval(() => undefined, 1 << 30);
       expect(unknownOwner.ok).toBe(false);
       expect((unknownOwner as any).error.code).toBe("AC_SCHEMA_INVALID");
 
+      await daemon.planUpdate(root, {
+        id: "changeset.practice-waiver-cycle",
+        operations: [],
+        approvalChannel: "mcp"
+      });
       const plan = await daemon.planPracticeWaiver(root, {
         id: "changeset.practice-waiver-cycle",
         waiverId: "cycle-waiver",
