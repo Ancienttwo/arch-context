@@ -41,6 +41,7 @@ import {
   renderArchitectureDocumentationProjection
 } from "@archcontext/core/projection-engine";
 import {
+  ArchctxDaemon,
   ArchctxRuntimeRpcServer,
   RUNTIME_RPC_VERSION,
   RuntimeRpcClient,
@@ -3103,7 +3104,7 @@ setInterval(() => undefined, 1 << 30);
       writer = spawn(process.execPath, [writerScript, dbPath, root, relativePath, absolutePath, backupPath, tempPath], { stdio: ["ignore", "pipe", "inherit"] });
       await waitForStdoutLine(writer, "READY");
 
-      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toThrow("local-store-writer-owned");
+      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toThrow(`local-store-writer-owned: ${dbPath} is owned by another live process (owner record: pid ${writer.pid}`);
       expect(existsSync(absolutePath)).toBe(false);
       expect(readText(backupPath)).toBe(original);
       expect(readText(tempPath)).toBe("partial write");
@@ -3118,12 +3119,44 @@ setInterval(() => undefined, 1 << 30);
       expect(existsSync(tempPath)).toBe(false);
       expect(recovered.status().changeSetRecovery).toBeUndefined();
       await recovered.stop();
-      expect(existsSync(`${dbPath}.owner.lock`)).toBe(false);
+      // The lock file itself stays (it is only ever locked, never deleted); the diagnostic owner
+      // record leaves with its owner.
+      expect(existsSync(`${dbPath}.writer.lock`)).toBe(true);
+      expect(existsSync(`${dbPath}.owner.json`)).toBe(false);
     } finally {
       if (writer) {
         writer.kill("SIGKILL");
         await once(writer, "exit").catch(() => undefined);
       }
+      removeTempRepo(dir);
+    }
+  });
+
+  test("an RPC server whose start fails after starting the daemon releases store ownership for the retry (#160)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "archctx-rpc-start-cleanup-"));
+    const dbPath = join(dir, "state", "runtime.sqlite");
+    const lockPath = join(dir, "control", "archctxd.lock");
+    const occupiedLock = JSON.stringify({ pid: process.pid, root: dir, startedAt: "2026-01-01T00:00:00.000Z" });
+    let retry: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      mkdirSync(dirname(lockPath), { recursive: true });
+      // A live process (this one) already holds the daemon lock, so start() fails after it has
+      // started the daemon and claimed store ownership.
+      writeFileSync(lockPath, occupiedLock, { mode: 0o600 });
+      const daemon = new ArchctxDaemon({
+        codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+        codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+        localStorePath: dbPath
+      });
+      const rpc = new ArchctxRuntimeRpcServer(daemon, { root: dir, port: 0, lockPath, connectionPath: join(dir, "control", "archctxd.json") });
+      await expect(rpc.start()).rejects.toThrow("archctxd already running");
+      expect(daemon.status().running).toBe(false);
+      expect(readText(lockPath)).toBe(occupiedLock);
+
+      retry = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      expect(retry.status().running).toBe(true);
+    } finally {
+      await retry?.stop();
       removeTempRepo(dir);
     }
   });
@@ -3165,8 +3198,34 @@ setInterval(() => undefined, 1 << 30);
       expect(status.changeSetRecovery?.writable).toBe(false);
       expect(status.changeSetRecovery?.unresolvedJournals.map((journal) => journal.journalId)).toEqual([journalId]);
       await expect(daemon.init(join(dir, "other-repo"), "Blocked App")).rejects.toThrow("changeset-recovery-unresolved");
+      // An approved docs pin writes tracked `.archcontext/` state too, so the gate covers it.
+      const pin = await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true });
+      expect(pin.ok).toBe(false);
+      expect(pin.error?.code).toBe("AC_PRECONDITION_FAILED");
+      expect(pin.error?.message).toContain("changeset-recovery-unresolved");
+      expect(existsSync(join(root, ".archcontext", "integrations", "context7.lock.yaml"))).toBe(false);
       expect(readText(backupPath)).toBe(original);
-      await daemon.stop();
+
+      // Over RPC the refusal is a typed envelope, and /health reports the daemon as write-gated.
+      const rpc = new ArchctxRuntimeRpcServer(daemon, {
+        root,
+        port: 0,
+        connectionPath: join(dir, "control", "archctxd.json"),
+        lockPath: join(dir, "control", "archctxd.lock")
+      });
+      const connection = await rpc.start();
+      try {
+        const health = await (await fetch(`${connection.url}health`, { headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION } })).json() as any;
+        expect(health.ok).toBe(true);
+        expect(health.changeSetRecovery.writable).toBe(false);
+        expect(health.changeSetRecovery.unresolvedJournals.map((journal: { journalId: string }) => journal.journalId)).toEqual([journalId]);
+        const refused = await new RuntimeRpcClient(connection).init(join(dir, "other-repo"), "Blocked App");
+        expect(refused.ok).toBe(false);
+        expect(refused.error?.code).toBe("AC_PRECONDITION_FAILED");
+        expect(refused.error?.message).toContain("changeset-recovery-unresolved");
+      } finally {
+        await rpc.stop();
+      }
       daemon = undefined;
 
       nodeRmSync(dirname(absolutePath), { force: true });

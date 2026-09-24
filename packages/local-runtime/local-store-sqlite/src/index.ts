@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
@@ -3391,10 +3391,16 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   }
 
   close(): void {
-    this.db?.close();
+    const db = this.db;
+    const writerOwnership = this.writerOwnership;
     this.db = undefined;
-    this.writerOwnership?.release();
     this.writerOwnership = undefined;
+    try {
+      db?.close();
+    } finally {
+      // Ownership must not outlive the handle even when closing the database throws.
+      writerOwnership?.release();
+    }
   }
 
   private async database(): Promise<SqliteDatabase> {
@@ -7236,96 +7242,163 @@ interface LocalStoreWriterOwnership {
   release(): void;
 }
 
+/** Message prefix every caller (CLI daemon starter, tests) keys "another live process owns the store" on. */
+export const LOCAL_STORE_WRITER_OWNED_ERROR = "local-store-writer-owned";
+
 /**
- * Pid lock beside the store file (#160). Every runtime entrypoint — RPC server, foreground daemon,
- * embedded CLI runtime, maintenance scripts — opens the store through `ArchctxDaemon.start()`, which
- * claims this before migrations or crash recovery, so a second process can never roll back a live
- * writer's pending journal as if it were crash residue. A lock whose pid is gone is taken over.
+ * Writer ownership beside the store file (#160). Every runtime entrypoint — RPC server, foreground
+ * daemon, embedded CLI runtime, maintenance scripts — opens the store through `ArchctxDaemon.start()`,
+ * which claims this before migrations or crash recovery, so a second process can never roll back a
+ * live writer's pending journal as if it were crash residue.
+ *
+ * The lock is a sidecar SQLite database held in `BEGIN EXCLUSIVE` for the owner's lifetime. SQLite
+ * takes it with fcntl byte-range locks (LockFileEx on Windows), which the OS drops when the owning
+ * process dies, so there is no stale lock to detect and no takeover to race: a starter either gets
+ * the lock or the owner is alive. A second connection in the same process is refused as well
+ * (SQLite tracks locks per inode across a process's connections). The lock file is never deleted —
+ * deleting it would let a starter lock a fresh inode while another still holds the old one — and the
+ * owner must never open it through `node:fs`, since closing any descriptor on a file drops that
+ * process's fcntl locks on it.
  */
 export function localStoreWriterOwnershipPath(databasePath: string): string {
+  return `${databasePath}.writer.lock`;
+}
+
+/**
+ * Where builds before the SQLite lock (PR #176 as merged at 29114d3) kept a JSON pid record. Such a
+ * build never takes the SQLite lock, so while its recorded pid is alive it is still a live writer and
+ * this build refuses; a record whose pid is gone, or that cannot be read, is crash residue and is
+ * removed once the new lock is held. It is never opened as SQLite: that fails with SQLITE_NOTADB.
+ */
+export function localStoreLegacyOwnerLockPath(databasePath: string): string {
   return `${databasePath}.owner.lock`;
 }
 
+/** Diagnostic owner record (pid, acquiredAt) for error messages only; never the lock authority. */
+export function localStoreWriterOwnerRecordPath(databasePath: string): string {
+  return `${databasePath}.owner.json`;
+}
+
+/**
+ * Taking an EXCLUSIVE lock passes through SHARED, so two starters racing for a free lock can each see
+ * the other's momentary SHARED lock and both fail. Those collisions last microseconds; a lock held by
+ * a live owner does not. A few short jittered retries separate the two and still fail fast (roughly
+ * 100-200ms) instead of waiting on SQLite's busy handler.
+ */
+const LOCAL_STORE_OWNER_LOCK_ATTEMPTS = 6;
+const LOCAL_STORE_OWNER_LOCK_RETRY_MS = 20;
+
 function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWriterOwnership {
   const lockPath = localStoreWriterOwnershipPath(databasePath);
-  ensurePrivateDir(dirname(lockPath));
-  publishLocalStoreOwnerLock(lockPath, databasePath);
+  const recordPath = localStoreWriterOwnerRecordPath(databasePath);
+  const lock = openSqliteDatabaseSync(lockPath);
+  try {
+    lock.exec("PRAGMA busy_timeout = 0");
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        lock.exec("BEGIN EXCLUSIVE");
+        break;
+      } catch (error) {
+        if (!isSqliteBusyError(error)) throw error;
+        if (attempt >= LOCAL_STORE_OWNER_LOCK_ATTEMPTS) {
+          throw new Error(`${LOCAL_STORE_WRITER_OWNED_ERROR}: ${databasePath} is owned by another live process (${describeOwnerRecord(recordPath)}); lock=${lockPath}`);
+        }
+        sleepSync(LOCAL_STORE_OWNER_LOCK_RETRY_MS + Math.floor(Math.random() * LOCAL_STORE_OWNER_LOCK_RETRY_MS));
+      }
+    }
+    const legacyPath = localStoreLegacyOwnerLockPath(databasePath);
+    const legacyOwnerPid = readLegacyOwnerLockPid(legacyPath);
+    if (legacyOwnerPid !== undefined && legacyOwnerPid !== process.pid && isProcessAlive(legacyOwnerPid)) {
+      throw new Error(`${LOCAL_STORE_WRITER_OWNED_ERROR}: ${databasePath} is owned by live process ${legacyOwnerPid} of an older archctx build; lock=${legacyPath}`);
+    }
+    // Dead, unreadable, or ours: crash residue of an older build. Best effort; it never blocks a start.
+    try {
+      rmSync(legacyPath, { force: true });
+    } catch {
+      // Leaving it behind only costs the same check on the next start.
+    }
+  } catch (error) {
+    lock.close();
+    throw error;
+  }
+  makePrivateFile(lockPath);
+  const token = randomUUID();
+  writeOwnerRecord(recordPath, { pid: process.pid, databasePath, acquiredAt: nowIso(), token });
   let released = false;
   return {
     release() {
       if (released) return;
       released = true;
-      if (readOwnerLockPid(lockPath) === process.pid) rmSync(lockPath, { force: true });
+      try {
+        // Only the lock holder writes the record, so while the lock is still held it is ours.
+        if (readOwnerRecord(recordPath)?.token === token) rmSync(recordPath, { force: true });
+      } finally {
+        try {
+          lock.exec("ROLLBACK");
+        } catch {
+          // Closing the connection releases the lock regardless.
+        }
+        lock.close();
+      }
     }
   };
 }
 
-/** A lock whose record cannot be read is only crash residue once it is this old (see below). */
-const LOCAL_STORE_OWNER_LOCK_UNREADABLE_GRACE_MS = 10_000;
-
-/**
- * Publishes the complete owner record atomically: it is written to a private temp file and then
- * hard-linked into place, and `link` fails with EEXIST instead of replacing an existing lock. A
- * reader therefore never sees a created-but-empty lock, which it would otherwise mistake for a stale
- * one, delete, and take over while the creator still believes it owns the store.
- */
-function publishLocalStoreOwnerLock(lockPath: string, databasePath: string): void {
-  const record = JSON.stringify({ pid: process.pid, databasePath, acquiredAt: nowIso() }, null, 2);
-  for (;;) {
-    if (tryLinkOwnerLock(lockPath, record)) return;
-    const ownerPid = readOwnerLockPid(lockPath);
-    if (ownerPid !== undefined && isProcessAlive(ownerPid)) {
-      throw new Error(`local-store-writer-owned: ${databasePath} is owned by live process ${ownerPid}; lock=${lockPath}`);
-    }
-    if (ownerPid === undefined && !ownerLockOlderThan(lockPath, LOCAL_STORE_OWNER_LOCK_UNREADABLE_GRACE_MS)) {
-      // Unreadable but fresh: another process may still be publishing its record (only possible on
-      // the non-link fallback path). Never take over a lock that could belong to a live writer.
-      throw new Error(`local-store-writer-owned: ${databasePath} has an unreadable owner lock that is not yet stale; lock=${lockPath}`);
-    }
-    rmSync(lockPath, { force: true });
+function isSqliteBusyError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; errno?: unknown; errcode?: unknown; message?: unknown } | undefined;
+  // bun:sqlite reports code "SQLITE_BUSY" / errno 5; node:sqlite reports errcode 5.
+  if (candidate?.code === "SQLITE_BUSY") return true;
+  for (const value of [candidate?.errno, candidate?.errcode]) {
+    if (typeof value === "number" && (value & 0xff) === 5) return true;
   }
+  return typeof candidate?.message === "string" && candidate.message.includes("database is locked");
 }
 
-/** Returns false when a lock already exists; true once this process's record is in place. */
-function tryLinkOwnerLock(lockPath: string, record: string): boolean {
-  const tempPath = `${lockPath}.${process.pid}-${randomUUID()}.tmp`;
-  writeFileSync(tempPath, record, { encoding: "utf8", mode: 0o600, flag: "wx" });
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+interface LocalStoreOwnerRecord {
+  pid: number;
+  databasePath: string;
+  acquiredAt: string;
+  token: string;
+}
+
+function writeOwnerRecord(recordPath: string, record: LocalStoreOwnerRecord): void {
+  const tempPath = `${recordPath}.${process.pid}-${randomUUID()}.tmp`;
   try {
-    linkSync(tempPath, lockPath);
-    return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") return false;
-    if (code !== "EPERM" && code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "ENOSYS") throw error;
-  } finally {
+    writeFileSync(tempPath, JSON.stringify(record, null, 2), { encoding: "utf8", mode: 0o600, flag: "wx" });
+    renameSync(tempPath, recordPath);
+  } catch {
+    // Diagnostics only: ownership is the held lock, not this record.
     rmSync(tempPath, { force: true });
   }
-  // Filesystems without hard links: exclusive create, then write. The window in which the lock is
-  // empty is covered by the unreadable-lock grace period in `publishLocalStoreOwnerLock`.
-  try {
-    writeFileSync(lockPath, record, { encoding: "utf8", mode: 0o600, flag: "wx" });
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-    throw error;
-  }
 }
 
-function ownerLockOlderThan(lockPath: string, ageMs: number): boolean {
+function readOwnerRecord(recordPath: string): Partial<LocalStoreOwnerRecord> | undefined {
   try {
-    return Date.now() - statSync(lockPath).mtimeMs >= ageMs;
+    const parsed = JSON.parse(readFileSync(recordPath, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as Partial<LocalStoreOwnerRecord> : undefined;
   } catch {
-    return true;
+    return undefined;
   }
 }
 
-function readOwnerLockPid(lockPath: string): number | undefined {
+function readLegacyOwnerLockPid(legacyPath: string): number | undefined {
   try {
-    const pid = (JSON.parse(readFileSync(lockPath, "utf8")) as { pid?: unknown }).pid;
+    const pid = (JSON.parse(readFileSync(legacyPath, "utf8")) as { pid?: unknown } | null)?.pid;
     return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
   } catch {
     return undefined;
   }
+}
+
+function describeOwnerRecord(recordPath: string): string {
+  const record = readOwnerRecord(recordPath);
+  if (typeof record?.pid !== "number") return "owner record unavailable";
+  const since = typeof record.acquiredAt === "string" ? ` since ${record.acquiredAt}` : "";
+  return `owner record: pid ${record.pid}${since}`;
 }
 
 function changeSetJournalRecoveryErrorMessage(metadataJson: string): string {

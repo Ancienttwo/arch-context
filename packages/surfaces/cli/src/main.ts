@@ -9,7 +9,7 @@ import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint }
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
-import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
+import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import {
@@ -65,6 +65,16 @@ const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
 const DAEMON_START_TIMEOUT_ENV = "ARCHCONTEXT_DAEMON_START_TIMEOUT_MS";
 const DAEMON_START_TIMEOUT_MS = process.platform === "win32" ? 150_000 : 15_000;
+/**
+ * Exit code of a foreground `archctxd` that lost a concurrent cold start: another live process
+ * already owns the local store (#160) or the daemon lock. Its starter keeps waiting for the winner's
+ * connection file instead of reporting a failed start.
+ */
+const DAEMON_OWNED_ELSEWHERE_EXIT_CODE = 75;
+
+function isDaemonOwnedElsewhereError(message: string): boolean {
+  return message.startsWith(`${LOCAL_STORE_WRITER_OWNED_ERROR}:`) || message.startsWith("archctxd already running for ");
+}
 const RELEASE_PACKAGE_NAME = "archctx";
 const UPDATE_CHECK_ENV = "ARCHCONTEXT_CHECK_UPDATES";
 const LATEST_VERSION_ENV = "ARCHCONTEXT_LATEST_VERSION";
@@ -123,8 +133,9 @@ if (import.meta.main) {
     );
   } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground")) {
     await runForegroundDaemon(process.cwd(), args).catch((error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      process.exitCode = 1;
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`${message}\n`);
+      process.exitCode = isDaemonOwnedElsewhereError(message) ? DAEMON_OWNED_ELSEWHERE_EXIT_CODE : 1;
     });
   } else {
     const result = await runCli(command, args, process.cwd()).catch((error) =>
@@ -3577,6 +3588,7 @@ async function doctorReport(cwd: string, args: string[] = []) {
     egress: hardening.egress,
     hardening,
     ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable && hardening.egress.ok
+      && (daemon as { writable?: boolean }).writable !== false
   };
 }
 
@@ -3729,7 +3741,11 @@ async function doctorDaemon(cwd: string) {
     health: (health as any)?.ok === true ? {
       composition: (health as any).composition,
       product: (health as any).product
-    } : undefined
+    } : undefined,
+    // A live daemon whose startup recovery left ChangeSet journals unresolved refuses writes (#172).
+    ...((health as any)?.ok === true && (health as any).changeSetRecovery
+      ? { writable: false, changeSetRecovery: (health as any).changeSetRecovery }
+      : {})
   };
 }
 
@@ -4058,7 +4074,13 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
       childError = error;
     });
     child.unref();
-    const ready = await waitForDaemonReady(cwd, daemonStartTimeoutMs(args), () => childExit !== undefined || childError !== undefined);
+    // A child that exits because another live process owns the store is the losing side of a
+    // concurrent cold start, not a failure: keep polling for the winner until the start deadline.
+    const ready = await waitForDaemonReady(
+      cwd,
+      daemonStartTimeoutMs(args),
+      () => childError !== undefined || (childExit !== undefined && childExit.code !== DAEMON_OWNED_ELSEWHERE_EXIT_CODE)
+    );
     if (!ready) {
       return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", daemonStartFailureMessage(logPath, childExit, childError));
     }
