@@ -6348,8 +6348,16 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
    * *and* body, so a daemon that starts a response and stalls still fails. A timed-out call is
    * never replayed here: the daemon may have already committed a mutation whose response was lost,
    * so reconciliation is the caller's decision, not a silent retry.
+   *
+   * Every request also opts out of HTTP keep-alive (`Connection: close`, #178). The daemon closes an
+   * idle kept-alive socket on its own keep-alive timer; when a synchronous RPC such as `planUpdate`
+   * blocks the daemon's event loop past that deadline, the close fires right after the response,
+   * while the client (whose keep-alive clock also stalls during synchronous CLI work) is reusing the
+   * same pooled socket for the next call. That next call, e.g. `applyUpdate`, then dies with
+   * `fetch failed` before the daemon reads it. A fresh loopback connection per call costs far less
+   * than any retry, and a retry is not an option here for the same reason as above.
    */
-  private async request(method: string, timeoutMs: number, url: string, init: RequestInit): Promise<unknown> {
+  private async request(method: string, timeoutMs: number, url: string, init: { method?: string; headers: Record<string, string>; body?: string }): Promise<unknown> {
     const controller = new AbortController();
     const startedAt = Date.now();
     let timedOut = false;
@@ -6362,7 +6370,7 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     if (callerSignal?.aborted) controller.abort();
     else callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
     try {
-      const response = await fetch(url, { ...init, signal: controller.signal });
+      const response = await fetch(url, { ...init, headers: { ...init.headers, "Connection": "close" }, signal: controller.signal });
       return await response.json();
     } catch (error) {
       const elapsedMs = Date.now() - startedAt;
