@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, type KeyObject } from "node:crypto";
 import {
   createReviewChallengeV2,
-  assertAttestationV2,
+  evaluateAttestationForReviewChallenge,
   publicKeyFingerprint,
   verifyLocalAttestation,
   verifyAttestationV2ForReviewChallenge,
@@ -577,7 +577,7 @@ export const CHALLENGE_API_REQUEST_SCHEMA_VERSIONS = {
   get: "archcontext.challenge-get-request/v1",
   list: "archcontext.challenge-list-request/v1",
   lease: "archcontext.challenge-lease-request/v1",
-  submit: "archcontext.challenge-submit-request/v1",
+  submit: "archcontext.challenge-submit-request/v2",
   cancel: "archcontext.challenge-cancel-request/v1"
 } as const;
 
@@ -1685,7 +1685,8 @@ export class ControlPlane {
   }
 
   submitReviewChallengeApi(request: SubmitReviewChallengeApiRequest): SubmitReviewChallengeAttestationResult {
-    assertChallengeApiRequestSchema(request, CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.submit);
+    const { attestation: _attestation, ...requestMetadata } = request;
+    assertChallengeApiRequestSchema(requestMetadata, CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.submit);
     const challenge = this.getReviewChallengeApi({
       schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.get,
       challengeId: request.challengeId
@@ -1707,14 +1708,20 @@ export class ControlPlane {
       runnerIdentity: runner
     });
     const keyStatus = runner ? runnerIdentityKeyStatus(runner) : deviceIdentityKeyStatus(device!);
-    assertAttestationV2(request.attestation);
-    if (request.attestation.execution.principalId !== keyStatus.ownerId
-      || request.attestation.execution.publicKeyId !== keyStatus.publicKeyId
+    const evaluated = evaluateAttestationForReviewChallenge({ challenge, attestation: request.attestation });
+    const bindingMismatch = evaluated.accepted && (
+      evaluated.attestation.execution.principalId !== keyStatus.ownerId
+      || evaluated.attestation.execution.publicKeyId !== keyStatus.publicKeyId
       || request.publicKey.type !== "public"
-      || publicKeyFingerprint(request.publicKey) !== keyStatus.fingerprint) {
-      throw new Error("review-challenge-signing-key-binding-mismatch");
-    }
-    const result = this.submitReviewChallengeAttestation({
+      || publicKeyFingerprint(request.publicKey) !== keyStatus.fingerprint
+    );
+    const result: SubmitReviewChallengeAttestationResult = bindingMismatch ? {
+      accepted: false,
+      reasonCode: "SIGNATURE_INVALID",
+      challenge,
+      nonceHash: reviewChallengeNonceHash(challenge),
+      consumedNonceHashes: new Set(this.consumedReviewChallengeNonceHashes)
+    } : this.submitReviewChallengeAttestation({
       challenge,
       attestation: request.attestation,
       currentPullHead: request.currentPullHead,

@@ -19,3 +19,7 @@ The API lookup and fingerprint check add bounded work per submission and no netw
 ## Validation
 
 Tests cover forged authority with an empty registry, missing registry entries without authority fields, replacement public keys, principal/key-ID substitution, active registered success and revocation for both trust levels. Existing challenge replay/metrics behavior remains covered. The complete control-plane and attestation suites pass 51 tests with zero failures; typecheck passes. The sole existing submit API test now uses a registered identity whose IDs match its signed attestation; no production caller needed migration.
+
+## Submit v2 migration and rejection evidence
+
+The authority change uses `archcontext.challenge-submit-request/v2`; submit v1 is rejected. Migration notes and an E1 (repository-level) evidence entry are in the API compatibility policy and acceptance ledger. Historical deployment recordings are not rewritten. After the review fixes, 53 control-plane/attestation/rollback-fixture tests and typecheck pass. Tests verify malformed, legacy and privacy-violating attestations return classified rejections with metrics and no consumed nonce; key-binding failures use the same typed rejection path.

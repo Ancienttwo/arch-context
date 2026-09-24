@@ -2707,14 +2707,24 @@ describe("control plane", () => {
     const execution = request.attestation.execution;
     const attacker = generateKeyPairSync("ed25519");
     const forgedKey = signedAttestationForChallenge(cp.reviewChallenges.get(request.challengeId)!, attacker.privateKey);
-    expect(() => cp.submitReviewChallengeApi({ ...request, attestation: forgedKey, publicKey: attacker.publicKey })).toThrow("signing-key-binding-mismatch");
+    expect(cp.submitReviewChallengeApi({ ...request, attestation: forgedKey, publicKey: attacker.publicKey })).toMatchObject({ accepted: false, reasonCode: "SIGNATURE_INVALID" });
     const wrongPrincipal = trust === "developer"
       ? { ...execution, principalId: "device_other" }
       : { ...execution, principalId: "runner_other", runnerId: "runner_other" };
     const wrongSubject = signedAttestationForChallenge(cp.reviewChallenges.get(request.challengeId)!, CONTROL_PLANE_ATTESTATION_KEYPAIR.privateKey, { execution: wrongPrincipal });
-    expect(() => cp.submitReviewChallengeApi({ ...request, attestation: wrongSubject })).toThrow("signing-key-binding-mismatch");
+    expect(cp.submitReviewChallengeApi({ ...request, attestation: wrongSubject })).toMatchObject({ accepted: false, reasonCode: "SIGNATURE_INVALID" });
     const wrongKeyId = signedAttestationForChallenge(cp.reviewChallenges.get(request.challengeId)!, CONTROL_PLANE_ATTESTATION_KEYPAIR.privateKey, { execution: { ...execution, publicKeyId: "key_other" } });
-    expect(() => cp.submitReviewChallengeApi({ ...request, attestation: wrongKeyId })).toThrow("signing-key-binding-mismatch");
+    expect(cp.submitReviewChallengeApi({ ...request, attestation: wrongKeyId })).toMatchObject({ accepted: false, reasonCode: "SIGNATURE_INVALID" });
+    expect(() => cp.submitReviewChallengeApi({ ...request, schemaVersion: "archcontext.challenge-submit-request/v1" } as any)).toThrow("challenge-api-schemaVersion-invalid");
+    const rejectedBefore = cp.metricSamples.filter((sample) => sample.name === "reject_reason_total").length;
+    for (const [attestation, reasonCode] of [
+      [{}, "ATTESTATION_SCHEMA_UNSUPPORTED"],
+      [{ schemaVersion: "archcontext.attestation/v1" }, "ATTESTATION_SCHEMA_UNSUPPORTED"],
+      [{ ...request.attestation, sourceCode: "private-content-fixture" }, "PAYLOAD_PRIVACY_VIOLATION"]
+    ] as const) {
+      expect(cp.submitReviewChallengeApi({ ...request, attestation })).toMatchObject({ accepted: false, reasonCode });
+    }
+    expect(cp.metricSamples.filter((sample) => sample.name === "reject_reason_total").length).toBe(rejectedBefore + 3);
     expect(cp.consumedReviewChallengeNonceHashes.size).toBe(0);
     expect(cp.submitReviewChallengeApi(request).accepted).toBe(true);
 
