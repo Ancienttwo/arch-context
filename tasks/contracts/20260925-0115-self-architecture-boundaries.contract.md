@@ -114,6 +114,8 @@ allowed_paths:
   - packages/local-runtime/runtime-daemon/
   - packages/local-runtime/codegraph-adapter/
   - packages/surfaces/cli/
+  # PR-3 validates review.yaml; a journal-recovery test used it as a throwaway policy body.
+  - packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts
 ```
 
 ## Evidence Requirements

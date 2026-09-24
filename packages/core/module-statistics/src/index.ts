@@ -5,6 +5,10 @@ import {
   moduleStatisticsSnapshotDigest,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
+  type DependencyConstraintEvaluationV1,
+  type DependencyConstraintReasonCode,
+  type DependencyConstraintV1,
+  type DependencyConstraintViolationV1,
   type EvidenceCoverageLevelV2,
   type Json,
   type ModuleStatisticsSnapshotV1,
@@ -13,7 +17,7 @@ import {
 } from "@archcontext/contracts";
 import { nativeNodeSource, type NativeModel, type NativeNode } from "../../projection-engine/src/index";
 import { buildModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
-import { resolveOwnership, type OwnershipIndex } from "./ownership";
+import { ancestorChain, resolveOwnership, type OwnershipIndex } from "./ownership";
 
 export { resolveOwnership, type OwnershipIndex, type OwnershipResolution } from "./ownership";
 export { buildModuleGraph, type ModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
@@ -76,8 +80,151 @@ export interface ModuleStatisticsInputV1 {
   truncated: boolean;
   edgeLimit: number | null;
   codeFacts: ModuleStatisticsCodeFactsInputV1;
+  /**
+   * Declared `forbid-dependency` constraints. When non-empty they fill each measured module's
+   * `directionViolationCount` and join `modelDigest`; absent or empty leaves the snapshot exactly
+   * as it was before constraints were evaluated.
+   */
+  constraints?: DependencyConstraintV1[];
   /** Caller-supplied; excluded from every digest, so it never perturbs snapshot identity. */
   createdAt: string;
+}
+
+export interface DependencyConstraintInputV1 {
+  nodes: NativeNode[];
+  constraints: DependencyConstraintV1[];
+  /** The tree under evaluation: import facts count only when the index attested to exactly it. */
+  worktreeDigest: string;
+  /**
+   * Repo-relative paths ownership is resolved over. A review passes tracked plus untracked,
+   * non-ignored files, because a new file is in the index before it is in `HEAD`; every import
+   * endpoint is added on top so no observed edge is left without an owner lookup.
+   */
+  files: string[];
+  importEdges: ModuleStatisticsImportEdgeV1[];
+  workspacePackages: ModuleStatisticsWorkspacePackageV1[];
+  /**
+   * `false` when the producer could not read the workspace package map. `workspacePackages` is
+   * then incomplete, so no answer can be `pass`. Defaults to `true`.
+   */
+  workspacePackagesResolved?: boolean;
+  truncated: boolean;
+  codeFacts: Pick<ModuleStatisticsCodeFactsInputV1, "availability" | "indexedWorktreeDigest">;
+}
+
+/**
+ * Evaluates `forbid-dependency` constraints over observed import edges. Pure: the caller hands
+ * over the index answer and the ownership universe, exactly like `buildModuleStatisticsSnapshot`.
+ *
+ * An edge violates a constraint when its source file's owner chain meets `scope.nodes`, its target
+ * file's owner chain meets `rule.targets`, and the source is not itself inside a target. A found
+ * violation is always reported as `violated`, even over incomplete evidence. Without one, any gap
+ * in the evidence (no attested index, a truncated dump, an unresolved repository-local import in a
+ * constrained file) is `undetermined`, never `pass`.
+ */
+export function evaluateDependencyConstraints(input: DependencyConstraintInputV1): DependencyConstraintEvaluationV1 {
+  const constraints = [...input.constraints].sort((left, right) => compare(left.id, right.id));
+  const certification = certifyCodeFacts(input.codeFacts, input.worktreeDigest, input.truncated);
+  if (constraints.length === 0) {
+    // Nothing is declared, so nothing was asked of the evidence: no gap can make this undetermined.
+    return {
+      schemaVersion: "archcontext.dependency-constraint-evaluation/v1",
+      status: "not-applicable",
+      coverage: certification.coverage,
+      reasonCodes: [],
+      constraintIds: [],
+      importEdgeCount: 0,
+      unresolvedImports: [],
+      violations: []
+    };
+  }
+  const files = new Set(input.files);
+  const edges = certification.measurable ? resolveEdges(input.importEdges, input.workspacePackages, files) : [];
+  const paths = new Set(files);
+  for (const edge of edges) {
+    paths.add(edge.from);
+    if (edge.to !== null) paths.add(edge.to);
+  }
+  const ownership = resolveOwnership(input.nodes, [...paths].sort());
+  const parents = new Map<string, string | undefined>(input.nodes.map((node) => [node.id, node.parent]));
+  const ownerChains = (path: string): { owner: string; chain: Set<string> }[] =>
+    (ownership.byPath.get(path)?.owners ?? []).map((owner) => ({ owner, chain: ancestorChain(owner, parents) }));
+  const meets = (chain: Set<string>, ids: string[]): boolean => ids.some((id) => chain.has(id));
+
+  const violations = new Map<string, DependencyConstraintViolationV1>();
+  for (const edge of edges) {
+    if (edge.to === null) continue;
+    const fromOwners = ownerChains(edge.from);
+    const toOwners = ownerChains(edge.to);
+    for (const constraint of constraints) {
+      const key = JSON.stringify([constraint.id, edge.from, edge.to]);
+      if (violations.has(key)) continue;
+      const from = fromOwners.find((owner) => meets(owner.chain, constraint.scope.nodes) && !meets(owner.chain, constraint.rule.targets));
+      const to = toOwners.find((owner) => meets(owner.chain, constraint.rule.targets));
+      if (!from || !to) continue;
+      violations.set(key, {
+        constraintId: constraint.id,
+        fromPath: edge.from,
+        toPath: edge.to,
+        fromNode: from.owner,
+        toNode: to.owner,
+        severity: constraint.severity
+      });
+    }
+  }
+
+  const scopeIds = constraints.flatMap((constraint) => constraint.scope.nodes);
+  const unresolvedImports = edges
+    .filter((edge) => edge.to === null
+      && isRepositoryLocalSpecifier(edge.specifier, input.workspacePackages)
+      && ownerChains(edge.from).some((owner) => meets(owner.chain, scopeIds)))
+    .map((edge) => ({ from: edge.from, specifier: edge.specifier }));
+
+  const reasonCodes = new Set<DependencyConstraintReasonCode>(certification.reasonCodes);
+  if (unresolvedImports.length > 0) reasonCodes.add("unresolved-import");
+  if (input.workspacePackagesResolved === false) reasonCodes.add("workspace-resolution-failed");
+  const sortedViolations = [...violations.values()].sort((left, right) => compare(left.constraintId, right.constraintId)
+    || compare(left.fromPath, right.fromPath)
+    || compare(left.toPath, right.toPath));
+  return {
+    schemaVersion: "archcontext.dependency-constraint-evaluation/v1",
+    status: sortedViolations.length > 0 ? "violated" : reasonCodes.size > 0 ? "undetermined" : "pass",
+    coverage: certification.coverage,
+    reasonCodes: [...reasonCodes].sort(),
+    constraintIds: constraints.map((constraint) => constraint.id),
+    importEdgeCount: edges.length,
+    unresolvedImports,
+    violations: sortedViolations
+  };
+}
+
+/**
+ * The single coverage certification both the snapshot and the dependency gate use: edges count
+ * only when the index answered and attested to the measured tree, and a dump that hit its limit
+ * is a prefix, never the population.
+ */
+function certifyCodeFacts(
+  codeFacts: Pick<ModuleStatisticsCodeFactsInputV1, "availability" | "indexedWorktreeDigest">,
+  worktreeDigest: string,
+  truncated: boolean
+): { measurable: boolean; coverage: EvidenceCoverageLevelV2; reasonCodes: DependencyConstraintReasonCode[] } {
+  const attested = codeFacts.indexedWorktreeDigest !== null && codeFacts.indexedWorktreeDigest === worktreeDigest;
+  const measurable = codeFacts.availability === "ready" && attested;
+  const reasonCodes: DependencyConstraintReasonCode[] = [];
+  if (codeFacts.availability !== "ready") reasonCodes.push("code-facts-unavailable");
+  else if (!attested) reasonCodes.push("code-facts-stale");
+  if (measurable && truncated) reasonCodes.push("code-facts-truncated");
+  return { measurable, coverage: !measurable ? "unknown" : truncated ? "partial" : "complete", reasonCodes };
+}
+
+/** A relative specifier, or one naming a workspace package: both must resolve to a repository file. */
+function isRepositoryLocalSpecifier(specifier: string, workspacePackages: ModuleStatisticsWorkspacePackageV1[]): boolean {
+  if (specifier === "." || specifier === ".." || specifier.startsWith("./") || specifier.startsWith("../")) return true;
+  return workspacePackages.some((workspacePackage) => specifier === workspacePackage.name || specifier.startsWith(`${workspacePackage.name}/`));
+}
+
+function compare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 /**
@@ -93,13 +240,23 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
   const linesByPath = new Map(trackedFiles.map((file) => [file.path, file.lineCount]));
   const ownership = resolveOwnership(nodes, trackedFiles.map((file) => file.path));
 
-  const measurable = input.codeFacts.availability === "ready"
-    && input.codeFacts.indexedWorktreeDigest !== null
-    && input.codeFacts.indexedWorktreeDigest === input.worktree.worktreeDigest;
-  const coverage: EvidenceCoverageLevelV2 = !measurable ? "unknown" : input.truncated ? "partial" : "complete";
+  const { measurable, coverage } = certifyCodeFacts(input.codeFacts, input.worktree.worktreeDigest, input.truncated);
   // An index that did not attest to this tree is not weaker evidence, it is no evidence: the edges
   // it produced describe some other tree, so they are dropped rather than reported as observations.
-  const edges = measurable ? resolveEdges(input.importEdges, input.workspacePackages, trackedFiles) : [];
+  const edges = measurable ? resolveEdges(input.importEdges, input.workspacePackages, new Set(linesByPath.keys())) : [];
+  const constraints = input.constraints ?? [];
+  const directionViolations = constraints.length === 0
+    ? undefined
+    : countViolationsByNode(evaluateDependencyConstraints({
+      nodes,
+      constraints,
+      worktreeDigest: input.worktree.worktreeDigest,
+      files: trackedFiles.map((file) => file.path),
+      importEdges: input.importEdges,
+      workspacePackages: input.workspacePackages,
+      truncated: input.truncated,
+      codeFacts: input.codeFacts
+    }));
 
   const ownersByPath = new Map([...ownership.byPath].map(([path, resolution]) => [path, resolution.owners]));
   const graph = buildModuleGraph(
@@ -114,7 +271,8 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
     linesByPath,
     counts: graph.countsByNode.get(node.id)!,
     unresolvedImports: countUnresolvedImports(edges, ownership, node.id),
-    graphMeasured: coverage !== "unknown"
+    graphMeasured: coverage !== "unknown",
+    directionViolationCount: directionViolations === undefined ? null : directionViolations.get(node.id) ?? 0
   }));
 
   const codeFacts = {
@@ -135,7 +293,7 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
     schemaVersion: MODULE_STATISTICS_SCHEMA_VERSION,
     repository: input.repository,
     worktree: input.worktree,
-    modelDigest: modelDigest(input.model),
+    modelDigest: modelDigest(input.model, constraints),
     codeFacts,
     modules,
     repositorySummary: {
@@ -158,13 +316,24 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
   return { ...draft, snapshotDigest: moduleStatisticsSnapshotDigest(draft) };
 }
 
-/** The whole model, sorted: a relation or flow change is a model change and must move the digest. */
-function modelDigest(model: NativeModel): string {
+/**
+ * The whole model, sorted: a relation or flow change is a model change and must move the digest.
+ * Constraints join only when declared, so a model without any keeps its pre-constraint digest.
+ */
+function modelDigest(model: NativeModel, constraints: DependencyConstraintV1[]): string {
   return digestJson({
     nodes: [...model.nodes].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
     relations: [...model.relations].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
-    flows: [...(model.flows ?? [])].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+    flows: [...(model.flows ?? [])].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
+    ...(constraints.length === 0 ? {} : { constraints: [...constraints].sort((left, right) => compare(left.id, right.id)) })
   } as unknown as Json);
+}
+
+/** Violations per source-file owner: a module's direction count is the edges its own files break. */
+function countViolationsByNode(evaluation: DependencyConstraintEvaluationV1): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const violation of evaluation.violations) counts.set(violation.fromNode, (counts.get(violation.fromNode) ?? 0) + 1);
+  return counts;
 }
 
 /**
@@ -176,9 +345,8 @@ function modelDigest(model: NativeModel): string {
 function resolveEdges(
   importEdges: ModuleStatisticsImportEdgeV1[],
   workspacePackages: ModuleStatisticsWorkspacePackageV1[],
-  trackedFiles: ModuleStatisticsTrackedFileV1[]
+  tracked: Set<string>
 ): ModuleStatisticsImportEdgeV1[] {
-  const tracked = new Set(trackedFiles.map((file) => file.path));
   return importEdges
     .map((edge) => (edge.to !== null ? edge : { ...edge, to: resolveWorkspaceSpecifier(edge.specifier, workspacePackages, tracked) }))
     .sort((left, right) => (left.from < right.from ? -1 : left.from > right.from ? 1 : 0)
@@ -210,6 +378,8 @@ function buildModule(context: {
   counts: ModuleGraphEdgeCounts;
   unresolvedImports: number;
   graphMeasured: boolean;
+  /** `null` while no constraint is declared: without a declared direction nothing was measured. */
+  directionViolationCount: number | null;
 }): ModuleStatisticsV1 {
   const { node, ownership, linesByPath, counts, graphMeasured } = context;
   const source = nativeNodeSource(node);
@@ -242,7 +412,7 @@ function buildModule(context: {
     // A node that declared no footprint owns no files, so its graph was never measured; reporting
     // a zero-filled graph would claim an observation that did not happen.
     dependencyGraph: graphMeasured && footprintDeclared
-      ? { ...counts, instability: null, directionViolationCount: null }
+      ? { ...counts, instability: null, directionViolationCount: context.directionViolationCount }
       : null,
     // v1 observes no test evidence at all: the node schema has no `source.tests`, so there is no
     // declared test footprint to measure, and `callerCoverage` stays null because import edges

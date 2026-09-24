@@ -2308,7 +2308,8 @@ store.close();
   test("sqlite changeset journal recovers pending temp writes after reopen", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-changeset-journal-"));
     const dbPath = join(root, "runtime.sqlite");
-    const relativePath = ".archcontext/policies/review.yaml";
+    // Not review.yaml: that file is the validated review policy, and these bodies are not one.
+    const relativePath = ".archcontext/policies/recovery.yaml";
     const absolutePath = join(root, relativePath);
     const backupPath = `${absolutePath}.archctx-backup`;
     const tempPath = `${absolutePath}.archctx-tmp-test`;

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   REFACTOR_REQUEST_SCHEMA_VERSION,
@@ -9,6 +9,8 @@ import {
   type ArchContextErrorCode,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
+  type DependencyConstraintEvaluationV1,
+  type DependencyConstraintV1,
   type Json,
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
@@ -16,9 +18,14 @@ import {
   type RefactorProposalV1,
   type RefactorRequestV1
 } from "@archcontext/contracts";
+import { parseJsonOrStableYaml, readDependencyConstraints } from "@archcontext/core/architecture-domain";
 import type { RecommendationLedgerRecordV1 } from "@archcontext/core/architecture-ledger";
-import { buildModuleStatisticsSnapshot, type ModuleStatisticsIndexAvailability } from "@archcontext/core/module-statistics";
-import { loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import {
+  buildModuleStatisticsSnapshot,
+  evaluateDependencyConstraints,
+  type ModuleStatisticsIndexAvailability
+} from "@archcontext/core/module-statistics";
+import { loadNativeModelFromArchContext, type NativeNode } from "@archcontext/core/projection-engine";
 import {
   planRefactorRecommendationRun,
   type RecommendationSuppression
@@ -31,6 +38,7 @@ import {
   repositoryImportPairs
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadCommitterDate, readTrackedSourceFiles, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
+import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 
 /** The CodeGraph CLI name the adapter resolves package-locally when PATH has no answer. */
 const CODEGRAPH_BINARY = "codegraph";
@@ -103,6 +111,8 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
   assertRequestedStateIsCurrent(input.request, input.worktree);
 
   const model = loadModel(input.root);
+  // Malformed constraints are `validate`'s to report; the scan measures the well-formed ones.
+  const constraints = readDependencyConstraints(listModelFiles(input.root)).constraints;
   const createdAt = readHeadCommitterDate(input.root);
   const requestId = refactorRequestId(input.request);
   const edgeLimit = input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_QUERY_LIMIT;
@@ -128,6 +138,7 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
       availability: codeFacts.availability,
       indexedWorktreeDigest: codeFacts.indexedWorktreeDigest
     },
+    constraints,
     createdAt
   });
 
@@ -136,6 +147,7 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
     assessed = assessRefactor({
       snapshot,
       model,
+      constraints,
       trackedFiles: trackedFiles.map((file) => file.path),
       request: input.request,
       requestId,
@@ -175,6 +187,126 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
     suppressed: plan.suppressed,
     trackedFileCount: trackedFiles.length
   };
+}
+
+export interface ReviewDependencyConstraintInputV1 {
+  root: string;
+  /** The digest the review attests to; import facts count only when the index attested to it too. */
+  worktreeDigest: string;
+  /** Model files as the model store port returned them, so ledger read mode is honored. */
+  modelFiles: readonly { path: string; body: string }[];
+  edgeLimit?: number;
+}
+
+/**
+ * Evaluates the declared `forbid-dependency` constraints against the current worktree for review.
+ *
+ * Ownership is worktree-aware: a new file carrying a violating import is in the index before it
+ * is in `HEAD`, so tracked plus untracked, non-ignored files are owned (the evaluator also owns
+ * every observed edge endpoint). With nothing declared the index is not consulted at all. An index
+ * that is missing or fails to answer is not an error here: it is the `undetermined` answer.
+ */
+export function evaluateReviewDependencyConstraints(input: ReviewDependencyConstraintInputV1): DependencyConstraintEvaluationV1 {
+  const constraints: DependencyConstraintV1[] = readDependencyConstraints(input.modelFiles).constraints;
+  const base = { nodes: modelNodes(input.modelFiles), constraints, worktreeDigest: input.worktreeDigest };
+  if (constraints.length === 0) {
+    return evaluateDependencyConstraints({
+      ...base,
+      files: [],
+      importEdges: [],
+      workspacePackages: [],
+      truncated: false,
+      codeFacts: { availability: "unavailable", indexedWorktreeDigest: null }
+    });
+  }
+  let imports: ReturnType<typeof repositoryImportPairs>;
+  try {
+    imports = repositoryImportPairs(input.root, CODEGRAPH_BINARY, input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_QUERY_LIMIT, input.worktreeDigest);
+  } catch {
+    imports = { pairs: [], truncated: true, availability: "unavailable", indexedWorktreeDigest: null };
+  }
+  const workspaces = reviewWorkspacePackages(input.root);
+  return evaluateDependencyConstraints({
+    ...base,
+    files: readWorktreeFiles(input.root),
+    importEdges: imports.pairs,
+    workspacePackages: workspaces.packages,
+    workspacePackagesResolved: workspaces.resolved,
+    truncated: imports.truncated,
+    codeFacts: { availability: imports.availability, indexedWorktreeDigest: imports.indexedWorktreeDigest }
+  });
+}
+
+type WorkspacePackage = ReturnType<typeof readWorkspacePackages>[number];
+
+/**
+ * The workspace package map for review. Unlike `readWorkspacePackages` it expands the common
+ * `dir/*` workspace form, and it never throws: any other pattern, or any unreadable manifest, is
+ * `resolved: false`, which the evaluator reports as `undetermined` rather than failing the review.
+ */
+function reviewWorkspacePackages(root: string): { packages: WorkspacePackage[]; resolved: boolean } {
+  if (!existsSync(join(root, "package.json"))) return { packages: [], resolved: true };
+  try {
+    const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { workspaces?: unknown };
+    const declared = Array.isArray(manifest.workspaces)
+      ? manifest.workspaces
+      : (manifest.workspaces as { packages?: unknown } | undefined)?.packages ?? [];
+    if (!Array.isArray(declared)) throw new Error("workspaces must be a list");
+    const directories = declared.flatMap((entry) => {
+      if (typeof entry !== "string") throw new Error("workspace entry must be a string");
+      const pattern = entry.replace(/^\.\//, "").replace(/\/+$/, "");
+      if (!/[*?[\]{}!]/.test(pattern)) return [pattern];
+      const parent = /^([^*?[\]{}!]+)\/\*$/.exec(pattern)?.[1];
+      if (parent === undefined) throw new Error(`unsupported workspace pattern: ${entry}`);
+      return readdirSync(join(root, parent), { withFileTypes: true })
+        .filter((child) => child.isDirectory() && existsSync(join(root, parent, child.name, "package.json")))
+        .map((child) => `${parent}/${child.name}`);
+    });
+    const packages = directories.flatMap((directory): WorkspacePackage[] => {
+      const packageManifest = JSON.parse(readFileSync(join(root, ...directory.split("/"), "package.json"), "utf8")) as { name?: unknown; exports?: unknown };
+      if (typeof packageManifest.name !== "string") return [];
+      const exports = typeof packageManifest.exports === "string"
+        ? { ".": packageManifest.exports }
+        : Object.fromEntries(Object.entries((packageManifest.exports ?? {}) as Record<string, unknown>)
+          .filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+      return [{ name: packageManifest.name, root: directory, exports }];
+    });
+    return { packages: packages.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)), resolved: true };
+  } catch {
+    return { packages: [], resolved: false };
+  }
+}
+
+/** Node declarations from model files; a malformed node is `validate`'s to report. */
+function modelNodes(files: readonly { path: string; body: string }[]): NativeNode[] {
+  return files.flatMap((file) => {
+    if (!file.path.startsWith(".archcontext/model/nodes/")) return [];
+    try {
+      const value = parseJsonOrStableYaml(file.body, file.path);
+      return value && typeof value === "object" && !Array.isArray(value) && typeof value.id === "string" ? [value as unknown as NativeNode] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/**
+ * Tracked plus untracked, non-ignored files: the set a review's ownership has to cover. Outside a
+ * Git worktree there is no such set; the evaluator still owns every observed edge endpoint.
+ */
+function readWorktreeFiles(root: string): string[] {
+  let output: string;
+  try {
+    output = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 64 * 1024 * 1024
+    });
+  } catch {
+    return [];
+  }
+  return [...new Set(output.split("\0").filter(Boolean))].sort();
 }
 
 /**
