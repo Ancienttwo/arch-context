@@ -63,3 +63,9 @@ Compatibility evidence must include:
 - state-machine regression tests for Challenge, Check Delivery, Device Key, Runner Key, or Attestation changes;
 - privacy-route audit and package-boundary verification;
 - acceptance-ledger entry for the completed sprint task.
+
+## Submit key authority
+
+The submit API resolves device/runner identity and revocation state from the control plane's registered key records. Submit requests must not include `deviceIdentity`, `runnerIdentity` or `signingKeyStatus`; these former internal authority fields are rejected. The verification public key must match the registered fingerprint, and the signed principal and key ID must match the authorized registered identity. Registry absence and revoked keys fail closed before nonce consumption.
+
+This boundary belongs to `ControlPlane.submitReviewChallengeApi`. Lower-level signature-verification and trusted composition helpers do not authenticate an external caller. A future Worker submit route must use the API boundary and hydrate its authoritative key registry; the current Worker has no submit route.

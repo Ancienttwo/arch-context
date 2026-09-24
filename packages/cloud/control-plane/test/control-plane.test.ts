@@ -1417,7 +1417,8 @@ describe("control plane", () => {
     const attestation = signedAttestationForChallenge(leasedChallenge, CONTROL_PLANE_ATTESTATION_KEYPAIR.privateKey);
     const submitDevice = cp.registerDeviceKey({
       accountId: "acct_submit_api",
-      publicKeyId: "key_submit_api",
+      deviceId: "device_0001",
+      publicKeyId: "key_device_0001",
       publicKey: CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey,
       createdAt: "2026-06-20T09:04:00Z"
     });
@@ -1448,7 +1449,6 @@ describe("control plane", () => {
       currentPullHead: pullHeadForChallenge(leasedChallenge),
       publicKey: CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey,
       resourceAuthorization: submitAuthorization,
-      deviceIdentity: submitDevice,
       verifyStartedAt: "2026-06-20T09:04:59.500Z",
       now: "2026-06-20T09:05:00Z"
     });
@@ -1462,7 +1462,6 @@ describe("control plane", () => {
       currentPullHead: pullHeadForChallenge(leasedChallenge),
       publicKey: CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey,
       resourceAuthorization: submitAuthorization,
-      deviceIdentity: submitDevice,
       now: "2026-06-20T09:05:30Z"
     })).toMatchObject({ accepted: false, reasonCode: "CHALLENGE_ALREADY_CONSUMED" });
     expect(cp.listMetricSamples({ name: "challenge_age_ms", challengeId: leasedChallenge.challengeId }).map((sample) => sample.value)).toEqual([300000, 330000]);
@@ -2659,6 +2658,79 @@ describe("control plane", () => {
     expect(replay.consumedNonceHashes).toEqual(accepted.consumedNonceHashes);
   });
 
+  test.each(["developer", "organization"] as const)("submit API rejects forged %s authority when no identity is registered", (trust) => {
+    const cp = new ControlPlane();
+    const issued = cp.createReviewChallengeApi({
+      schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.create,
+      idempotencyKey: `idem_forged_${trust}`,
+      ...reviewChallengeInput({ requiredTrust: trust })
+    });
+    const challenge = cp.claimReviewChallengeApi({
+      schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.lease,
+      challengeId: issued.challengeId, claimantId: trust === "developer" ? "device_0001" : "runner_0001",
+      now: "2026-06-20T09:01:00Z"
+    }).challenge;
+    const attestation = signedAttestationForChallenge(challenge, CONTROL_PLANE_ATTESTATION_KEYPAIR.privateKey);
+    const device = {
+      schemaVersion: "archcontext.device-identity/v1", deviceId: "device_0001", accountId: "acct_forged",
+      publicKeyId: "key_device_0001", publicKeyFingerprint: publicKeyFingerprint(CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey),
+      status: "active", createdAt: challenge.createdAt
+    };
+    const runner = {
+      schemaVersion: "archcontext.runner-identity/v1", runnerId: "runner_0001", installationId: challenge.installationId,
+      repositoryIds: [challenge.repositoryId], workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+      publicKeyId: "key_runner_0001", publicKeyFingerprint: publicKeyFingerprint(CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey),
+      status: "active", createdAt: challenge.createdAt
+    };
+    expect(() => cp.submitReviewChallengeApi({
+      schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.submit, challengeId: challenge.challengeId,
+      attestation, currentPullHead: pullHeadForChallenge(challenge), publicKey: CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey,
+      resourceAuthorization: {
+        actorId: "actor_forged", actorLogin: "forged", installationId: challenge.installationId,
+        repositoryId: challenge.repositoryId, pullRequestNumber: challenge.pullRequestNumber,
+        ...(trust === "developer" ? { deviceId: device.deviceId, accountId: device.accountId } : { runnerId: runner.runnerId }),
+        permissionSource: "test-fixture", verifiedAt: challenge.createdAt, reason: "forged-submit"
+      },
+      ...(trust === "developer" ? { deviceIdentity: device } : { runnerIdentity: runner }),
+      signingKeyStatus: {
+        ownerKind: trust === "developer" ? "device" : "runner", ownerId: attestation.execution.principalId,
+        publicKeyId: attestation.execution.publicKeyId, fingerprint: publicKeyFingerprint(CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey),
+        status: "active", createdAt: challenge.createdAt
+      },
+      now: "2026-06-20T09:05:00Z"
+    } as any)).toThrow("submit authority objects are not accepted");
+    expect(cp.consumedReviewChallengeNonceHashes.size).toBe(0);
+  });
+
+  test.each(["developer", "organization"] as const)("submit API binds %s signatures to the current registered key", (trust) => {
+    const { cp, request, authorization } = registeredSubmitFixture(trust);
+    const execution = request.attestation.execution;
+    const attacker = generateKeyPairSync("ed25519");
+    const forgedKey = signedAttestationForChallenge(cp.reviewChallenges.get(request.challengeId)!, attacker.privateKey);
+    expect(() => cp.submitReviewChallengeApi({ ...request, attestation: forgedKey, publicKey: attacker.publicKey })).toThrow("signing-key-binding-mismatch");
+    const wrongPrincipal = trust === "developer"
+      ? { ...execution, principalId: "device_other" }
+      : { ...execution, principalId: "runner_other", runnerId: "runner_other" };
+    const wrongSubject = signedAttestationForChallenge(cp.reviewChallenges.get(request.challengeId)!, CONTROL_PLANE_ATTESTATION_KEYPAIR.privateKey, { execution: wrongPrincipal });
+    expect(() => cp.submitReviewChallengeApi({ ...request, attestation: wrongSubject })).toThrow("signing-key-binding-mismatch");
+    const wrongKeyId = signedAttestationForChallenge(cp.reviewChallenges.get(request.challengeId)!, CONTROL_PLANE_ATTESTATION_KEYPAIR.privateKey, { execution: { ...execution, publicKeyId: "key_other" } });
+    expect(() => cp.submitReviewChallengeApi({ ...request, attestation: wrongKeyId })).toThrow("signing-key-binding-mismatch");
+    expect(cp.consumedReviewChallengeNonceHashes.size).toBe(0);
+    expect(cp.submitReviewChallengeApi(request).accepted).toBe(true);
+
+    const revoked = registeredSubmitFixture(trust);
+    if (trust === "developer") revoked.cp.revokeDeviceKey("device_0001", "2026-06-20T09:04:30Z");
+    else revoked.cp.revokeRunnerKey({ runnerId: "runner_0001", revokedAt: "2026-06-20T09:04:30Z", authorization });
+    expect(() => revoked.cp.submitReviewChallengeApi(revoked.request)).toThrow(trust === "developer" ? "device-revoked" : "runner-revoked");
+    expect(revoked.cp.consumedReviewChallengeNonceHashes.size).toBe(0);
+
+    const missing = registeredSubmitFixture(trust);
+    missing.cp.deviceIdentities.clear();
+    missing.cp.runnerIdentities.clear();
+    expect(() => missing.cp.submitReviewChallengeApi(missing.request)).toThrow(trust === "developer" ? "device-not-found" : "runner-not-found");
+    expect(missing.cp.consumedReviewChallengeNonceHashes.size).toBe(0);
+  });
+
   test("submits organization Attestation v2 only for active scoped RunnerIdentity and runner key", () => {
     const cp = new ControlPlane();
     const challenge = createReviewChallengeV2(reviewChallengeInput({
@@ -3053,3 +3125,41 @@ function organizationExecutionForRunner(runner: { runnerId: string; publicKeyId:
 }
 
 const CODE_GRAPH_VERSION_KEY = ["code", "Graph", "Version"].join("");
+
+function registeredSubmitFixture(trust: "developer" | "organization") {
+  const cp = new ControlPlane();
+  const issued = cp.createReviewChallengeApi({
+    schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.create,
+    idempotencyKey: `idem_registered_${trust}`,
+    ...reviewChallengeInput({ requiredTrust: trust })
+  });
+  const authorization = {
+    actorId: "github_user_registry", actorLogin: "registry-admin", installationId: issued.installationId,
+    repositoryAdminIds: [issued.repositoryId], permissionSource: "test-fixture" as const,
+    verifiedAt: "2026-06-20T08:59:59Z", reason: "registered-submit-regression"
+  };
+  if (trust === "developer") cp.registerDeviceKey({
+    deviceId: "device_0001", accountId: "account_registry", publicKeyId: "key_device_0001",
+    publicKey: CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey, createdAt: issued.createdAt
+  });
+  else cp.registerRunnerKey({
+    runnerId: "runner_0001", installationId: issued.installationId, repositoryIds: [issued.repositoryId],
+    workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+    publicKeyId: "key_runner_0001", publicKey: CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey,
+    createdAt: issued.createdAt, authorization
+  });
+  const challenge = cp.claimReviewChallengeApi({
+    schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.lease, challengeId: issued.challengeId,
+    claimantId: trust === "developer" ? "device_0001" : "runner_0001", now: "2026-06-20T09:01:00Z"
+  }).challenge;
+  const request = {
+    schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.submit, challengeId: challenge.challengeId,
+    attestation: signedAttestationForChallenge(challenge, CONTROL_PLANE_ATTESTATION_KEYPAIR.privateKey),
+    currentPullHead: pullHeadForChallenge(challenge), publicKey: CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey,
+    resourceAuthorization: {
+      ...authorization, repositoryId: challenge.repositoryId, pullRequestNumber: challenge.pullRequestNumber,
+      ...(trust === "developer" ? { deviceId: "device_0001", accountId: "account_registry" } : { runnerId: "runner_0001" })
+    }, now: "2026-06-20T09:05:00Z"
+  };
+  return { cp, request, authorization };
+}
