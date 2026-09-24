@@ -8,6 +8,24 @@
 > Audit PR: https://github.com/Ancienttwo/arch-context/pull/158
 > Audit report: [`docs/researches/20260924-architecture-audit.md`](https://github.com/Ancienttwo/arch-context/blob/claude/admiring-franklin-wfxfro/docs/researches/20260924-architecture-audit.md)
 
+## 已开 issue（逐条评审可直接在 issue 下回复）
+
+| Finding | Issue |
+|---|---|
+| F1 git 选项注入 | [#159](https://github.com/Ancienttwo/arch-context/issues/159) |
+| F2 恢复先于单写者锁 | [#160](https://github.com/Ancienttwo/arch-context/issues/160) |
+| F5 audit runner env / 同意闸 | [#161](https://github.com/Ancienttwo/arch-context/issues/161) |
+| F3 ADR-0017/0016 未兑现 | [#162](https://github.com/Ancienttwo/arch-context/issues/162) |
+| F4 自模型缺依赖声明 | [#163](https://github.com/Ancienttwo/arch-context/issues/163) |
+| F6 daemon 拆分 / RPC 方法表 | [#164](https://github.com/Ancienttwo/arch-context/issues/164) |
+| F7 CLI projection 管线迁出 | [#165](https://github.com/Ancienttwo/arch-context/issues/165) |
+| F8 cloud→local-runtime / core I/O | [#166](https://github.com/Ancienttwo/arch-context/issues/166) |
+| F9 `init` 覆盖模型 | [#167](https://github.com/Ancienttwo/arch-context/issues/167) |
+| F10 MCP 审批自证 | [#168](https://github.com/Ancienttwo/arch-context/issues/168) |
+| F11 持久化守卫缺口 | [#169](https://github.com/Ancienttwo/arch-context/issues/169) |
+| F12 contracts 公开发布配置 | [#170](https://github.com/Ancienttwo/arch-context/issues/170) |
+| P3 汇总 | [#171](https://github.com/Ancienttwo/arch-context/issues/171) |
+
 ## 你要做什么
 
 1. **逐条证伪审计结论**：对每个 P1（以及你认为重要的 P2），打开下方源码链接，判断结论是否成立、严重度是否合适、修复建议是否正确且最小。重点找误报、夸大、遗漏的前置守卫，以及审计没发现的同类问题。
@@ -112,4 +130,4 @@ daemon 拆分 PR 序列：
 - 每个 finding：`成立 / 部分成立 / 不成立` + 建议严重度 + 一句理由 + 源码链接。
 - 新发现：同样格式，标注 `NEW`。
 - 重构方案：`同意 / 修改（给出替代）/ 反对` 逐项回答，并给出你建议的 PR 顺序。
-- 请不要直接提交修改；以评审意见形式返回。
+- 请不要直接提交修改；以评审意见形式返回（可汇总回复，或在对应 issue 下逐条评论）。
