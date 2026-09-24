@@ -3108,8 +3108,8 @@ describe("archctx CLI", () => {
       const paths = testRuntimePaths(root);
       expect(existsSync(paths.daemonConnectionPath)).toBe(true);
       expect(existsSync(paths.daemonLockPath)).toBe(true);
-      const health = await fetch(`${started.data.url}health`);
-      expect((await health.json() as any).composition).toMatchObject({
+      const health = await new RuntimeRpcClient(JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8"))).health();
+      expect((health as any).composition).toMatchObject({
         mode: "production",
         productionSafe: true,
         adapters: {

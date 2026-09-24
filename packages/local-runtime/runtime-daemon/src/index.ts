@@ -1,3 +1,4 @@
+import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, type Stats } from "node:fs";
@@ -6026,16 +6027,20 @@ export class ArchctxDaemon {
   private async handleExplorerRequest(request: IncomingMessage, response: ServerResponse, session: ExplorerServerSession): Promise<void> {
     const url = new URL(request.url ?? "/", `http://${session.host}:${session.port}`);
     response.setHeader("Cache-Control", "no-store");
+    if (!isLoopbackRemote(request.socket.remoteAddress) || !matchesLoopbackAuthority(request, `http://${session.host}:${session.port}`)) {
+      writeJson(response, 403, { ok: false, error: "explorer request authority rejected" });
+      return;
+    }
     if (request.method !== "GET") {
       writeJson(response, 405, { ok: false, error: "explorer is read-only" });
       return;
     }
-    if (url.pathname === "/health") {
-      writeJson(response, 200, { ok: true, running: true, readOnly: true, host: session.host });
-      return;
-    }
     if (!this.isExplorerAuthorized(request, url, session)) {
       writeJson(response, 401, { ok: false, error: "explorer token required" });
+      return;
+    }
+    if (url.pathname === "/health") {
+      writeJson(response, 200, { ok: true, running: true, readOnly: true, host: session.host });
       return;
     }
     if (url.pathname === "/events") {
@@ -6107,7 +6112,7 @@ export class ArchctxDaemon {
     if (session.revoked || Date.parse(this.clock()) >= session.expiresAt) return false;
     const authorization = request.headers.authorization ?? "";
     const bearer = Array.isArray(authorization) ? authorization[0] : authorization;
-    return bearer === `Bearer ${session.token}` || url.searchParams.get("token") === session.token;
+    return matchesSecret(bearer, `Bearer ${session.token}`) || matchesSecret(url.searchParams.get("token"), session.token);
   }
 
   private explorerStatusData(): ExplorerServerStatus {
@@ -6234,7 +6239,7 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
   async health(options: { includeEgress?: boolean } = {}): Promise<Json> {
     const suffix = options.includeEgress ? "?egress=1" : "";
     return await this.request("health", options.includeEgress ? this.timeouts.normal : this.timeouts.health, `${this.connection.url}health${suffix}`, {
-      headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION }
+      headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION, Authorization: `Bearer ${this.connection.token}` }
     }) as Json;
   }
 
@@ -6712,6 +6717,10 @@ export class ArchctxRuntimeRpcServer {
       writeJson(response, 403, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC only accepts loopback clients" });
       return;
     }
+    if (!this.connection || !matchesLoopbackAuthority(request, this.connection.url)) {
+      writeJson(response, 403, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC request authority rejected" });
+      return;
+    }
     if (!isRpcVersionHeaderCompatible(request)) {
       writeJson(response, 426, {
         schemaVersion: RUNTIME_RPC_VERSION,
@@ -6724,6 +6733,10 @@ export class ArchctxRuntimeRpcServer {
     }
     const url = new URL(request.url ?? "/", this.connection?.url ?? "http://127.0.0.1/");
     if (request.method === "GET" && url.pathname === "/health") {
+      if (!this.isAuthorized(request)) {
+        writeJson(response, 401, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC token required" });
+        return;
+      }
       const changeSetRecovery = this.daemon.status().changeSetRecovery;
       writeJson(response, 200, {
         schemaVersion: RUNTIME_RPC_VERSION,
@@ -6788,7 +6801,7 @@ export class ArchctxRuntimeRpcServer {
   private isAuthorized(request: IncomingMessage): boolean {
     const authorization = request.headers.authorization ?? "";
     const bearer = Array.isArray(authorization) ? authorization[0] : authorization;
-    return bearer === `Bearer ${this.connection?.token}`;
+    return !!this.connection && matchesSecret(bearer, `Bearer ${this.connection.token}`);
   }
 
   private async dispatch(method: string, params: unknown[]): Promise<JsonEnvelope> {
