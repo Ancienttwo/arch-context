@@ -4247,6 +4247,7 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
+  }, CLI_DOCS_TEST_TIMEOUT_MS);
 
   /**
    * Drives the shared adoption fixture and asserts its invariants: docs adopt is
