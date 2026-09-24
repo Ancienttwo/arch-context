@@ -92,7 +92,7 @@
   },
   "receiptDigest": "sha256:8a7dd1befbcb7afb556337c5d4cc989467bcbe98b1d752fdef70ddf76943b8c6",
   "refreshSignalIds": [
-    "sha256:5a5891774b2f186413caef9e7a0ac2b7aa5c37f7a09c554dc2a7ab0d0ab2ce03"
+    "sha256:eb304f8d513f4c49f74695a79cde2302e603d1309a8dcaa7f2c2326abc4ef4ad"
   ],
   "targetCount": 37,
   "fileCount": 37,
@@ -126,8 +126,8 @@
       "outputDigest": "sha256:d831f2441413d4613a8dc56919849dfbfa9ad1b162898e9979e14e7782edf046",
       "verifiedAgainst": {
         "branch": "claude/adr-applies-to-163",
-        "commit": "e60fee64df1957b55e83ec5bb6ab8639cfc1cf55",
-        "committedAt": "2026-09-25T02:06:19+08:00"
+        "commit": "b7444fe815e818d5eeab93634a9649fb79f677f5",
+        "committedAt": "2026-09-25T02:17:08+08:00"
       }
     },
     {
@@ -265,9 +265,9 @@
       "sourceDigest": "sha256:2c70504acf1dfb05eeda5715b7660e56a9c16f08db88318e57e11f0fa2710437",
       "outputDigest": "sha256:2b5d37f0181dac637189e191768b590f6e6c1a1f4ffb3c64debdc5f04958fe40",
       "verifiedAgainst": {
-        "branch": "claude/self-arch-ownership-163",
-        "commit": "f3201a26161856583fcdd990ea4549b86fad0462",
-        "committedAt": "2026-09-25T00:11:40+08:00"
+        "branch": "claude/adr-applies-to-163",
+        "commit": "b7444fe815e818d5eeab93634a9649fb79f677f5",
+        "committedAt": "2026-09-25T02:17:08+08:00"
       }
     },
     {
@@ -546,8 +546,8 @@
       "outputDigest": "sha256:dbac72fa4c35612ac640edcdeb12b836039b3e880ed51efd4fd4c0df21e7b7d3",
       "verifiedAgainst": {
         "branch": "claude/adr-applies-to-163",
-        "commit": "e60fee64df1957b55e83ec5bb6ab8639cfc1cf55",
-        "committedAt": "2026-09-25T02:06:19+08:00"
+        "commit": "b7444fe815e818d5eeab93634a9649fb79f677f5",
+        "committedAt": "2026-09-25T02:17:08+08:00"
       }
     },
     {
@@ -645,9 +645,9 @@
       "sourceDigest": "sha256:d2cc35fea729082f3882db56701b1603a448af1c465467b154040bc72574ec49",
       "outputDigest": "sha256:e7295d47025ba1a538a2ead7cb5abbee7afc2d6a6fe9399189ebee8a1213bcd8",
       "verifiedAgainst": {
-        "branch": "claude/self-arch-ownership-163",
-        "commit": "f3201a26161856583fcdd990ea4549b86fad0462",
-        "committedAt": "2026-09-25T00:11:40+08:00"
+        "branch": "claude/adr-applies-to-163",
+        "commit": "b7444fe815e818d5eeab93634a9649fb79f677f5",
+        "committedAt": "2026-09-25T02:17:08+08:00"
       }
     },
     {
@@ -666,8 +666,8 @@
       "outputDigest": "sha256:f0733bf1ca5340ca7424409029f509d657d1bc2f54e1861e2a8fabc03aac670d",
       "verifiedAgainst": {
         "branch": "claude/adr-applies-to-163",
-        "commit": "e60fee64df1957b55e83ec5bb6ab8639cfc1cf55",
-        "committedAt": "2026-09-25T02:06:19+08:00"
+        "commit": "b7444fe815e818d5eeab93634a9649fb79f677f5",
+        "committedAt": "2026-09-25T02:17:08+08:00"
       }
     },
     {
@@ -686,8 +686,8 @@
       "outputDigest": "sha256:8d043d28e04d746a71d5b14bb2927415e55908ae66d2c81c0e80261bd5a4de13",
       "verifiedAgainst": {
         "branch": "claude/adr-applies-to-163",
-        "commit": "e60fee64df1957b55e83ec5bb6ab8639cfc1cf55",
-        "committedAt": "2026-09-25T02:06:19+08:00"
+        "commit": "b7444fe815e818d5eeab93634a9649fb79f677f5",
+        "committedAt": "2026-09-25T02:17:08+08:00"
       }
     },
     {
