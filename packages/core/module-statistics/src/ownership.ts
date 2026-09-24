@@ -89,7 +89,7 @@ function resolveCandidates(
 }
 
 /** The node plus every ancestor reachable through `parent`. A cycle or dangling parent ends the walk. */
-function ancestorChain(id: string, parents: Map<string, string | undefined>): Set<string> {
+export function ancestorChain(id: string, parents: Map<string, string | undefined>): Set<string> {
   const chain = new Set<string>();
   let current: string | undefined = id;
   while (current !== undefined && parents.has(current) && !chain.has(current)) {

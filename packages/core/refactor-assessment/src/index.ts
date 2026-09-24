@@ -5,6 +5,7 @@ import {
   refactorAssessmentDigest,
   refactorRequestInvariantIssues,
   type ArchitectureMajorChangeReasonCode,
+  type DependencyConstraintV1,
   type EvidenceCoverageLevelV2,
   type Json,
   type ModuleStatisticsSnapshotV1,
@@ -59,6 +60,8 @@ export interface RefactorAssessmentInputV1 {
   snapshot: ModuleStatisticsSnapshotV1;
   /** The declared model the snapshot measured; bound to it through `snapshot.modelDigest`. */
   model: NativeModel;
+  /** The constraints the snapshot evaluated; part of the same `snapshot.modelDigest` binding. */
+  constraints?: DependencyConstraintV1[];
   /**
    * Repo-relative POSIX paths of the Git-tracked files the snapshot was measured over. A
    * `scopePath` outside this set names no file the instrument observed, so it cannot be owned.
@@ -94,7 +97,7 @@ export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssess
   if (requestIssues.length > 0) throw new Error(`AC_SCHEMA_INVALID: ${requestIssues.join("; ")}`);
   // Without this binding the classifier would resolve ownership against a model the snapshot never
   // measured, and every derived node id would describe a different repository state.
-  if (modelDigest(input.model) !== input.snapshot.modelDigest) {
+  if (modelDigest(input.model, input.constraints ?? []) !== input.snapshot.modelDigest) {
     throw new Error("AC_SCHEMA_INVALID: model does not bind snapshot.modelDigest");
   }
   const declaredNodeIds = new Set(input.model.nodes.map((node) => node.id));
@@ -446,11 +449,12 @@ function signalIdFor(draft: ObservationDraft): string {
 }
 
 /** Mirrors the snapshot builder's model digest; it is the only way to bind a model to a snapshot. */
-function modelDigest(model: NativeModel): string {
+function modelDigest(model: NativeModel, constraints: DependencyConstraintV1[]): string {
   return digestJson({
     nodes: [...model.nodes].sort((left, right) => compare(left.id, right.id)),
     relations: [...model.relations].sort((left, right) => compare(left.id, right.id)),
-    flows: [...(model.flows ?? [])].sort((left, right) => compare(left.id, right.id))
+    flows: [...(model.flows ?? [])].sort((left, right) => compare(left.id, right.id)),
+    ...(constraints.length === 0 ? {} : { constraints: [...constraints].sort((left, right) => compare(left.id, right.id)) })
   } as unknown as Json);
 }
 
