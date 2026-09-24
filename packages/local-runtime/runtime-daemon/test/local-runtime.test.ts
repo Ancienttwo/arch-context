@@ -3134,6 +3134,29 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
+  test("init on an already-initialized repository is a precondition failure that changes nothing (#167)", async () => {
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
+      expect((await daemon.init(root, "First App")).ok).toBe(true);
+      const manifestPath = join(root, ".archcontext/manifest.yaml");
+      const productPath = join(root, ".archcontext/product.yaml");
+      const manifestBefore = readText(manifestPath);
+      const productBefore = readText(productPath);
+
+      const again = await daemon.init(root, "Second App");
+      expect(again.ok).toBe(false);
+      expect(again.error?.code).toBe("AC_PRECONDITION_FAILED");
+      expect(again.error?.message).toContain("archcontext-init-refused");
+      expect(readText(manifestPath)).toBe(manifestBefore);
+      expect(readText(productPath)).toBe(productBefore);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("agent-context projection applies through its own ChangeSet operation kind and is idempotent", async () => {
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
