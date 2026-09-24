@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { digestJson, stableYaml, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
+import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
 
 export interface ModelFile {
   path: string;
@@ -146,10 +147,26 @@ export function createDefaultProjectionTargetManifest(): Json {
   };
 }
 
+/** Raised instead of writing when `init` would replace or complete an existing model (#167). */
+export class ArchContextInitRefusedError extends Error {
+  constructor(readonly existingPaths: string[]) {
+    super(`archcontext-init-refused: .archcontext is already initialized or partially initialized (${existingPaths.join(", ")}); init never overwrites an existing model — change it through a ChangeSet, or remove these files deliberately before re-initializing`);
+    this.name = "ArchContextInitRefusedError";
+  }
+}
+
+/**
+ * Creates the initial model. The files it writes are authoritative, so it is create-only: if any
+ * of them already exists — even as a dangling symlink — nothing is written; each file is created
+ * atomically without following symlinks in any path segment; and a failure part-way removes the
+ * files this call created, so a failed init never leaves a silently half-initialized model.
+ */
 export function initializeArchContextModel(root: string, productName = "ArchContext Project"): void {
   const productId = `product.${productName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "app"}`;
-  writeYaml(root, ".archcontext/manifest.yaml", createDefaultManifest(productId, productName));
-  writeYaml(root, ".archcontext/product.yaml", {
+  const files: Array<{ path: string; body: string }> = [];
+  const addYaml = (path: string, value: Json) => files.push({ path, body: stableYaml(value) });
+  addYaml(".archcontext/manifest.yaml", createDefaultManifest(productId, productName));
+  addYaml(".archcontext/product.yaml", {
     schemaVersion: "archcontext.product/v1",
     id: productId,
     name: productName,
@@ -160,7 +177,7 @@ export function initializeArchContextModel(root: string, productName = "ArchCont
     nonGoals: [],
     riskDomains: []
   });
-  writeYaml(root, ".archcontext/model/nodes/capability.architecture-context.yaml", {
+  addYaml(".archcontext/model/nodes/capability.architecture-context.yaml", {
     schemaVersion: "archcontext.node/v2",
     id: "capability.architecture-context",
     kind: "capability",
@@ -168,21 +185,42 @@ export function initializeArchContextModel(root: string, productName = "ArchCont
     status: "active",
     summary: "Keeps product and architecture intent available to coding agents."
   });
-  writeYaml(root, ".archcontext/policies/review.yaml", {
+  addYaml(".archcontext/policies/review.yaml", {
     schemaVersion: "archcontext.policy/v1",
     id: "policy.review",
     failOn: ["invalid-schema", "stale-context", "unjustified-compatibility"]
   });
-  writeFile(root, ".archcontext/projections/targets.json", `${JSON.stringify(createDefaultProjectionTargetManifest(), null, 2)}\n`);
+  files.push({ path: ".archcontext/projections/targets.json", body: `${JSON.stringify(createDefaultProjectionTargetManifest(), null, 2)}\n` });
+
+  const existing = files.filter((file) => {
+    assertPathHasNoSymlinkSegments(root, file.path);
+    return lstatIfExists(resolve(root, file.path)) !== undefined;
+  }).map((file) => file.path);
+  if (existing.length > 0) throw new ArchContextInitRefusedError(existing);
+
+  const created: string[] = [];
+  try {
+    for (const file of files) {
+      writeFileWithoutFollowingSymlinks({ root, path: file.path, body: withTrailingNewline(file.body), expectedHash: "missing" });
+      created.push(file.path);
+    }
+  } catch (error) {
+    for (const path of created.reverse()) rmSync(resolve(root, path), { force: true });
+    throw error;
+  }
   rebuildGeneratedProjection(root);
 }
 
 export function rebuildGeneratedProjection(root: string): void {
   for (const operation of planGeneratedProjection(root)) {
+    // Generated files live in the repository too, so neither the delete nor the write may be
+    // redirected through a committed symlink. `rm` does not follow a final symlink (a stale link is
+    // simply removed), so a delete only needs link-free parent directories.
     if (operation.operation === "delete_entity") {
+      assertPathHasNoSymlinkSegments(root, dirname(operation.path));
       rmSync(resolve(root, operation.path), { force: true });
     } else {
-      writeFile(root, operation.path, operation.body);
+      writeFileWithoutFollowingSymlinks({ root, path: operation.path, body: withTrailingNewline(operation.body), expectedHash: operation.expectedHash });
     }
   }
 }
@@ -337,12 +375,14 @@ function extractSchemaVersion(body: string): string {
   return "";
 }
 
-function writeYaml(root: string, path: string, value: Json): void {
-  writeFile(root, path, stableYaml(value));
+function withTrailingNewline(body: string): string {
+  return body.endsWith("\n") ? body : `${body}\n`;
 }
 
-function writeFile(root: string, path: string, body: string): void {
-  const absolute = resolve(root, path);
-  mkdirSync(dirname(absolute), { recursive: true });
-  writeFileSync(absolute, body.endsWith("\n") ? body : `${body}\n`, "utf8");
+function lstatIfExists(path: string) {
+  try {
+    return lstatSync(path);
+  } catch {
+    return undefined;
+  }
 }
