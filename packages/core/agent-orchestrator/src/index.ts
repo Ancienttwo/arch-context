@@ -1,3 +1,4 @@
+import { ARCHITECTURE_LEDGER_FORBIDDEN_RAW_KEYS } from "@archcontext/core/architecture-ledger";
 import {
   AGENT_JOB_SCHEMA_VERSION,
   INVESTIGATION_REPORT_SCHEMA_VERSION,
@@ -1789,7 +1790,7 @@ function assertNoRawRepositoryPayload(value: unknown, path = "$"): void {
   }
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     const normalizedKey = normalizePayloadKey(key);
-    if (RAW_REPOSITORY_PAYLOAD_KEYS.has(key) || RAW_REPOSITORY_PAYLOAD_KEYS.has(normalizedKey)) {
+    if (ARCHITECTURE_LEDGER_FORBIDDEN_RAW_KEYS.has(normalizedKey)) {
       throw new Error(`investigation-context-raw-field-forbidden: ${path}.${key}`);
     }
     if (UNTRUSTED_TOOL_ESCAPE_KEYS.has(normalizedKey)) {
@@ -1807,22 +1808,6 @@ function untrustedPayloadReasonCode(error: unknown): InvestigationReportValidati
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("tool-escape") ? "tool-escape-forbidden" : "raw-report-payload-forbidden";
 }
-
-const RAW_REPOSITORY_PAYLOAD_KEYS = new Set([
-  "body",
-  "sourceBody",
-  "sourcebody",
-  "sourceCode",
-  "sourcecode",
-  "rawSource",
-  "rawsource",
-  "diff",
-  "diffBody",
-  "diffbody",
-  "patch",
-  "prompt",
-  "completion"
-]);
 
 const UNTRUSTED_TOOL_ESCAPE_KEYS = new Set([
   "toolcall",

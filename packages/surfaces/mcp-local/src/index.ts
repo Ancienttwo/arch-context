@@ -1,5 +1,6 @@
+import { MCP_TOOL_INPUT_SCHEMAS } from "./tool-schemas";
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
-import { assertNoCallerProvidedAttestationFields, errorEnvelope, productVersionManifest, type Json } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, errorEnvelope, productVersionManifest, validateJsonSchema, type Json } from "@archcontext/contracts";
 import { createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 
 export type ToolSafety = "read-only" | "idempotent" | "destructive";
@@ -7,6 +8,7 @@ export type ToolSafety = "read-only" | "idempotent" | "destructive";
 export interface McpToolDefinition {
   name: string;
   description: string;
+  inputSchema: Parameters<typeof validateJsonSchema>[0] & { type: "object" };
   annotations: {
     safety: ToolSafety;
     requiresConfirmation: boolean;
@@ -37,35 +39,42 @@ export interface McpLocalServerOptions {
 }
 
 const MCP_PROTOCOL_VERSION = "2025-03-26";
+const SUPPORTED_MCP_PROTOCOL_VERSIONS: readonly string[] = [MCP_PROTOCOL_VERSION];
 
 export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "archcontext_prepare_task",
+    inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_prepare_task,
     description: "Call before coding starts. Compiles bounded architecture context and posture for the current task.",
     annotations: { safety: "read-only", requiresConfirmation: false }
   },
   {
     name: "archcontext_practices",
+    inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_practices,
     description: "List, show, validate, or inspect source records for the effective static Practice Catalog.",
     annotations: { safety: "read-only", requiresConfirmation: false }
   },
   {
     name: "archcontext_checkpoint",
+    inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_checkpoint,
     description: "Call after meaningful code or model changes. Returns practice guidance deltas from the daemon checkpoint.",
     annotations: { safety: "read-only", requiresConfirmation: false }
   },
   {
     name: "archcontext_plan_update",
+    inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_plan_update,
     description: "Create a ChangeSet draft and preview for architecture model updates. Does not write files.",
     annotations: { safety: "idempotent", requiresConfirmation: false }
   },
   {
     name: "archcontext_apply_update",
+    inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_apply_update,
     description: "Apply an approved ChangeSet. Requires explicit local approval and fresh worktree digest.",
     annotations: { safety: "destructive", requiresConfirmation: true }
   },
   {
     name: "archcontext_complete_task",
+    inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_complete_task,
     description: "Call before final response. Runs completion gate and returns ReviewResult.",
     annotations: { safety: "read-only", requiresConfirmation: false }
   }
@@ -453,41 +462,93 @@ export async function runStdioMcpLoop(
   const server = new McpLocalServer(options);
   log("[archctx-mcp] started");
   for await (const line of input) {
-    const message = JSON.parse(line);
-    if (message.id === undefined) continue;
-    let result;
-    if (message.method === "initialize") {
-      result = mcpInitializeResult(message.params?.protocolVersion);
-    } else if (message.method === "ping") {
-      result = {};
-    } else if (message.method === "tools/list") {
-      result = { tools: server.listTools() };
-    } else if (message.method === "tools/call") {
-      result = await server.callTool(message.params?.name, message.params?.arguments ?? {});
-    } else if (message.method === "resources/list") {
-      result = { resources: await server.listResources(message.params?.root) };
-    } else if (message.method === "resources/read") {
-      const uri = message.params?.uri;
-      const content = typeof uri === "string" ? await server.readResource(uri, message.params?.root) : undefined;
-      result = {
-        contents: content === undefined
-          ? []
-          : [{ uri, mimeType: "application/json", text: JSON.stringify(content) }]
-      };
-    } else {
-      result = {
-        content: errorEnvelope("mcp", "AC_SCHEMA_INVALID", `Unknown MCP method: ${message.method}`) as unknown as Json,
-        dataClassification: "local-metadata"
-      };
+    let message: any;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      output(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }));
+      continue;
     }
-    output(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+    const validId = typeof message?.id === "string" || (typeof message?.id === "number" && Number.isInteger(message.id));
+    const fail = (code: number, text: string) => output(JSON.stringify({ jsonrpc: "2.0", id: validId ? message.id : null, error: { code, message: text } }));
+    if (!isRecord(message) || message.jsonrpc !== "2.0" || typeof message.method !== "string" || ("id" in message && !validId)) {
+      fail(-32600, "Invalid Request");
+      continue;
+    }
+    // Notifications have no response, including notifications for unsupported methods.
+    if (!("id" in message)) continue;
+    if (message.params !== undefined && !isRecord(message.params)) {
+      fail(-32602, "Invalid params: expected an object");
+      continue;
+    }
+    const params = message.params ?? {};
+    try {
+      let result;
+      if (message.method === "initialize") {
+        if (typeof params.protocolVersion !== "string" || !isRecord(params.capabilities) || !isRecord(params.clientInfo)
+          || typeof params.clientInfo.name !== "string" || typeof params.clientInfo.version !== "string") {
+          fail(-32602, "Invalid initialize params");
+          continue;
+        }
+        result = mcpInitializeResult(params.protocolVersion);
+      } else if (message.method === "ping") {
+        result = {};
+      } else if (message.method === "tools/list") {
+        result = { tools: server.listTools() };
+      } else if (message.method === "tools/call") {
+        const tool = server.listTools().find((candidate) => candidate.name === params.name);
+        if (!tool) {
+          fail(-32602, "Unknown tool");
+          continue;
+        }
+        const args = params.arguments === undefined ? {} : params.arguments;
+        const validation = validateJsonSchema(tool.inputSchema, args);
+        if (!validation.valid) {
+          fail(-32602, "Invalid tool arguments");
+          continue;
+        }
+        const value = await server.callTool(tool.name, args);
+        result = {
+          content: [{ type: "text", text: JSON.stringify(value.content) }],
+          isError: isRecord(value.content) && "ok" in value.content && value.content.ok === false,
+          _meta: { dataClassification: value.dataClassification, ...(value.resourceUri ? { resourceUri: value.resourceUri } : {}) }
+        };
+      } else if (message.method === "resources/list") {
+        if (params.root !== undefined && typeof params.root !== "string") {
+          fail(-32602, "Invalid resource root");
+          continue;
+        }
+        result = { resources: await server.listResources(params.root) };
+      } else if (message.method === "resources/read") {
+        if (typeof params.uri !== "string" || (params.root !== undefined && typeof params.root !== "string")) {
+          fail(-32602, "Invalid resource params");
+          continue;
+        }
+        const content = await server.readResource(params.uri, params.root);
+        if (content === undefined) {
+          fail(-32002, "Resource not found");
+          continue;
+        }
+        result = { contents: [{ uri: params.uri, mimeType: "application/json", text: JSON.stringify(content) }] };
+      } else {
+        fail(-32601, "Method not found");
+        continue;
+      }
+      output(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+    } catch {
+      fail(-32603, "Internal error");
+    }
   }
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function mcpInitializeResult(clientProtocolVersion: unknown) {
   const product = productVersionManifest().product;
   return {
-    protocolVersion: typeof clientProtocolVersion === "string" ? clientProtocolVersion : MCP_PROTOCOL_VERSION,
+    protocolVersion: SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(clientProtocolVersion as string) ? clientProtocolVersion : MCP_PROTOCOL_VERSION,
     capabilities: {
       tools: { listChanged: false },
       resources: { subscribe: false, listChanged: false }

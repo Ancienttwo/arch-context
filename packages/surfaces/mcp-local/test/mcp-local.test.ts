@@ -434,8 +434,8 @@ describe("local MCP server", () => {
     expect(JSON.parse(output[0]).result.tools.length).toBe(6);
     expect(resolvedRoots).toEqual([root]);
     expect(practiceRoots).toEqual([root, root]);
-    expect((JSON.parse(output[1]).result.content as any).ok).toBe(true);
-    expect((JSON.parse(output[2]).result.content as any).data.action).toBe("source-records");
+    expect(JSON.parse(JSON.parse(output[1]).result.content[0].text).ok).toBe(true);
+    expect(JSON.parse(JSON.parse(output[2]).result.content[0].text).data.action).toBe("source-records");
     expect(logs).toEqual(["[archctx-mcp] started"]);
   });
 

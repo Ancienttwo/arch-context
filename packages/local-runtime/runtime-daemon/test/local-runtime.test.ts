@@ -1036,6 +1036,42 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("issue #169: runtime jobs reject unsafe completion metadata without changing the running job", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store });
+      writeFileSync(join(root, "changed.ts"), "export const changed = true;\n");
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree", event: "post-edit", analysisKind: "architecture-delta",
+        risk: "high", uncertainty: "high", coalesceKey: "privacy-regression"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      await daemon.jobsClaim(root, { workerId: "privacy-test" });
+      const before = await daemon.jobsList(root);
+      const forbidden = [
+        "-----BEGIN PRIVATE KEY-----",
+        "ghp_" + "x".repeat(24),
+        "github_pat_" + "x".repeat(24),
+        "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after",
+        "x".repeat(8193)
+      ];
+      for (const value of forbidden) {
+        for (const field of ["runMetadata", "error"]) {
+          const result = await daemon.jobsComplete(root, {
+            jobId, workerId: "privacy-test", status: "failed",
+            [field]: field === "runMetadata" ? { summary: value } : value
+          } as any);
+          expect(result.ok).toBe(false);
+          expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
+          expect(await daemon.jobsList(root)).toEqual(before);
+        }
+      }
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("runtime jobs persist provider run metadata on completion", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();

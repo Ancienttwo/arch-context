@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,6 +82,33 @@ describe("@archcontext/core/architecture-domain", () => {
       writeFileSync(join(root, ".claude", ".trace.jsonl"), "trace-two\n");
       expect(computeWorktreeDigest(root)).toBe(first);
       writeFileSync(join(root, ".claude", "settings.json"), "{\"hooks\":{}}\n");
+      expect(computeWorktreeDigest(root)).not.toBe(first);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("worktree digest ignores harness runtime writes but binds tracked policy and source", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-domain-harness-"));
+    try {
+      execFileSync("git", ["init", "--quiet"], { cwd: root });
+      for (const dir of ["checks", "evidence/events", "runs"]) {
+        mkdirSync(join(root, ".ai/harness", dir), { recursive: true });
+      }
+      writeFileSync(join(root, "source.ts"), "export const value = 1;\n");
+      writeFileSync(join(root, ".ai/harness/policy.json"), "{}\n");
+      execFileSync("git", ["add", "source.ts", ".ai/harness/policy.json"], { cwd: root });
+      const first = computeWorktreeDigest(root);
+      for (const file of ["checks/post-bash-latest.json", "evidence/events/log.jsonl", "runs/hook-events.jsonl"]) {
+        for (const value of ["first\n", "rewritten\n"]) {
+          writeFileSync(join(root, ".ai/harness", file), value);
+          expect(computeWorktreeDigest(root)).toBe(first);
+        }
+      }
+      writeFileSync(join(root, "source.ts"), "export const value = 2;\n");
+      expect(computeWorktreeDigest(root)).not.toBe(first);
+      writeFileSync(join(root, "source.ts"), "export const value = 1;\n");
+      writeFileSync(join(root, ".ai/harness/policy.json"), '{"version": 2}\n');
       expect(computeWorktreeDigest(root)).not.toBe(first);
     } finally {
       rmSync(root, { recursive: true, force: true });
