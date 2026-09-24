@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import {
   ARCHITECTURE_DOCS_RENDERER_VERSION,
@@ -126,6 +126,9 @@ describe("@archcontext/surfaces/renderer", () => {
     });
 
     expect(first.projectionDigest).toBe(second.projectionDigest);
+    const index = first.files.find((file) => file.target.type === "decision-index")!;
+    const adrLink = index.body.match(/\[Use Local Runtime\]\(([^)]+)\)/)![1]!;
+    expect(posix.normalize(posix.join(dirname(index.path), adrLink))).toBe("docs/adr/ADR-0001-test.md");
     expect(first.rendererVersion).toBe(ARCHITECTURE_DOCS_RENDERER_VERSION);
     expect(first.targets.map((target) => target.type).sort()).toEqual([
       "architecture-changelog",
@@ -276,10 +279,10 @@ describe("@archcontext/surfaces/renderer", () => {
       writeFileSync(join(root, "README.md"), "# tmp\n");
       initializeArchContextModel(root, "Docs Projection App");
       mkdirSync(join(root, "docs/adr"), { recursive: true });
-      writeFileSync(join(root, "docs/adr/ADR-0001-test.md"), "# ADR 0001: Test Decision\n\nStatus: Accepted\n", "utf8");
+      writeFileSync(join(root, "docs/adr/ADR-0001-test.md"), "---\ntitle: ADR 0001 Test Decision\nstatus: accepted\n---\n\n# Context\n\nStatus: Ignored\n", "utf8");
       const loaded = loadArchitectureDocumentationInputs(root);
       expect(loaded.model.nodes.map((node) => node.id)).toContain("capability.architecture-context");
-      expect(loaded.decisions).toContainEqual(expect.objectContaining({ id: "ADR-0001-test", title: "ADR 0001: Test Decision", status: "Accepted" }));
+      expect(loaded.decisions).toContainEqual(expect.objectContaining({ id: "ADR-0001-test", title: "ADR 0001 Test Decision", status: "accepted" }));
       expect(loaded.existingFiles.some((file) => file.path === "docs/architecture/index.md")).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
