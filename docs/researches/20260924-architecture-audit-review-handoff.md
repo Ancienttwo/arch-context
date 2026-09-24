@@ -3,7 +3,7 @@
 > Date: 2026-09-24
 > From: Claude Code 架构审计会话
 > To: 外部 reviewer（可读 GitHub 的模型或人）
-> Status: 待复核；复核结论决定修复与重构排程
+> Status: 已复核（2026-09-24）。结论：重构方向成立，按修订严重度与顺序推进；本 handoff 原文作为执行依据为 request-changes。处置与修订顺序见审计报告“复核处置”一节；以下原文保留供追溯
 > Reviewed base SHA: `6e85b35fee113f21334bd5ba36c5d7d2bb2c3d2b`（main，0.5.11）
 > Audit PR: https://github.com/Ancienttwo/arch-context/pull/158
 > Audit report: [`docs/researches/20260924-architecture-audit.md`](https://github.com/Ancienttwo/arch-context/blob/claude/admiring-franklin-wfxfro/docs/researches/20260924-architecture-audit.md)
@@ -15,16 +15,19 @@
 | F1 git 选项注入 | [#159](https://github.com/Ancienttwo/arch-context/issues/159) |
 | F2 恢复先于单写者锁 | [#160](https://github.com/Ancienttwo/arch-context/issues/160) |
 | F5 audit runner env / 同意闸 | [#161](https://github.com/Ancienttwo/arch-context/issues/161) |
-| F3 ADR-0017/0016 未兑现 | [#162](https://github.com/Ancienttwo/arch-context/issues/162) |
-| F4 自模型缺依赖声明 | [#163](https://github.com/Ancienttwo/arch-context/issues/163) |
+| F3 ADR-0017/0016 未兑现（→P2，已收窄） | [#162](https://github.com/Ancienttwo/arch-context/issues/162) |
+| F4 自模型缺依赖声明（→P2） | [#163](https://github.com/Ancienttwo/arch-context/issues/163) |
 | F6 daemon 拆分 / RPC 方法表 | [#164](https://github.com/Ancienttwo/arch-context/issues/164) |
 | F7 CLI projection 管线迁出 | [#165](https://github.com/Ancienttwo/arch-context/issues/165) |
 | F8 cloud→local-runtime / core I/O | [#166](https://github.com/Ancienttwo/arch-context/issues/166) |
-| F9 `init` 覆盖模型 | [#167](https://github.com/Ancienttwo/arch-context/issues/167) |
+| F9 `init` 覆盖模型（→P1） | [#167](https://github.com/Ancienttwo/arch-context/issues/167) |
 | F10 MCP 审批自证 | [#168](https://github.com/Ancienttwo/arch-context/issues/168) |
 | F11 持久化守卫缺口 | [#169](https://github.com/Ancienttwo/arch-context/issues/169) |
-| F12 contracts 公开发布配置 | [#170](https://github.com/Ancienttwo/arch-context/issues/170) |
+| F12 contracts 发行契约（→P3，已重述） | [#170](https://github.com/Ancienttwo/arch-context/issues/170) |
 | P3 汇总 | [#171](https://github.com/Ancienttwo/arch-context/issues/171) |
+| NEW-1 恢复失败仍进入运行态（P1） | [#172](https://github.com/Ancienttwo/arch-context/issues/172) |
+| NEW-3 changed-path 解析损坏文件名（P2） | [#173](https://github.com/Ancienttwo/arch-context/issues/173) |
+| NEW-2 MCP stdio 协议形状（P2） | [#174](https://github.com/Ancienttwo/arch-context/issues/174) |
 
 ## 你要做什么
 

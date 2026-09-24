@@ -2,6 +2,48 @@
 
 日期：2026-09-24。性质：只读源码/契约审计 + 仓库自带确定性检查 + 针对性复现。基准：`main@6e85b35`（0.5.11）。本轮未修改产品代码、`.archcontext/`、SQLite 或任何运行时状态；本文件是唯一产物。
 
+> **2026-09-24 外部复核后修订**：下节“复核处置”优先于正文中的原始严重度与建议；正文仅就事实错误做了行内更正（删除线 + “复核更正”）。
+
+## 复核处置（外部 reviewer，主线程逐条回到源码复核）
+
+外部复核裁决：重构方向成立，按修订后的严重度与顺序推进；原 handoff 直接作为执行依据为 request-changes。下表中的更正均已由本会话回到 `6e85b35` 源码或 scratch repo 复核确认。
+
+| Finding | Issue | 原 → 修订 | 复核要点 |
+|---|---|---|---|
+| F1 git 选项注入 | [#159](https://github.com/Ancienttwo/arch-context/issues/159) | P1 → P1 | 影响扩大：提交的符号链接 `output..HEAD` 可让 git 截断仓库外文件（已复现）；须在任何 git 调用前校验 |
+| F2 恢复先于锁 | [#160](https://github.com/Ancienttwo/arch-context/issues/160) | P1 → P1 | 撤回“恢复期 `BEGIN EXCLUSIVE` 等价”建议；所有权须覆盖整个 writer 生命周期；双进程同步屏障验收 |
+| F3 ADR-0017/0016 | [#162](https://github.com/Ancienttwo/arch-context/issues/162) | P1 → P2 | Worker L120 属故障注入读回；ADR-0016 自述 scaffold。保留：合成 token + 报告 connected；拆为本地状态真实性 / 云交付两条线 |
+| F4 自模型 | [#163](https://github.com/Ancienttwo/arch-context/issues/163) | P1 → P2 | observed ≠ approved，不自动登记全部 import；拆分前只补最小有效边界 |
+| F5 audit env / 同意 | [#161](https://github.com/Ancienttwo/arch-context/issues/161) | P1 → P1 | 收窄：继承凭证而非已外泄；默认关闭与显式调用是真实防护；三类边界分离 |
+| F6 daemon 拆分 | [#164](https://github.com/Ancienttwo/arch-context/issues/164) | P2 → P2 | 拆为 A 保行为提取 / B 显式方法表 + decoder（不用 codegen）/ C 按用例提取；保留 developer-review 严格 decoder；不建全能 `DaemonContext` |
+| F7 CLI projection | [#165](https://github.com/Ancienttwo/arch-context/issues/165) | P2 → P2 | 新增 daemon 高层用例 + 复用 plan/apply/receipt，不另建写入通道 |
+| F8 分层 / core I/O | [#166](https://github.com/Ancienttwo/arch-context/issues/166) | P2 → P2 | `applyArchitectureUpdate` 无 engine 时拒绝执行，属未用 API 而非旁路 |
+| F9 `init` 覆盖 | [#167](https://github.com/Ancienttwo/arch-context/issues/167) | P2 → **P1** | 数据破坏：无条件重写权威文件，底层写入跟随符号链接 |
+| F10 MCP 审批 | [#168](https://github.com/Ancienttwo/arch-context/issues/168) | P2 → P2 | 补：truthy 判断使 `approved: "false"` 也通过 |
+| F11 持久化守卫 | [#169](https://github.com/Ancienttwo/arch-context/issues/169) | P2 → P2 | 守卫已存在，缺口是键集与路径覆盖；倾向按存储用途 allowlist + 预算 |
+| F12 contracts 发布 | [#170](https://github.com/Ancienttwo/arch-context/issues/170) | P2 → P3 | 公开 `archctx-contracts` 是显式设计，问题是与 ADR-0034 文字不一致 |
+| P3 汇总 | [#171](https://github.com/Ancienttwo/arch-context/issues/171) | P3 | 安全子项需逐项独立验证，统计数字不作验收门槛 |
+| **NEW-1** 恢复失败仍进入运行态 | [#172](https://github.com/Ancienttwo/arch-context/issues/172) | 新 **P1** | `recoverPendingChangeSets` 吞掉恢复异常仅记 metadata，`start()` 不检查即 `running = true` |
+| **NEW-3** changed-path 解析损坏文件名 | [#173](https://github.com/Ancienttwo/arch-context/issues/173) | 新 P2 | `--name-only` 默认引用非 ASCII 路径，`trim()` 删尾随空格（已复现）；改 `-z` |
+| **NEW-2** MCP stdio 协议形状 | [#174](https://github.com/Ancienttwo/arch-context/issues/174) | 新 P2 | 工具无 `inputSchema`，`tools/call` 的 `content` 非内容项数组，未知方法不返回 JSON-RPC error |
+
+### 修订后的执行顺序
+
+安全修复先于拆分；拆分 PR 不夹带安全、授权、恢复语义修改。
+
+| 顺序 | 范围 | 关键验收 |
+|---|---|---|
+| 1 | #159 + #173：Git 输入与路径测量 | 非法 commit 无文件副作用；符号链接截断回归；非 ASCII/换行/尾随空格路径精确恢复 |
+| 2 | #160 + #172：启动所有权与恢复门禁 | 双进程同步屏障测试；所有真实 store 入口同一所有权；恢复失败不进入 write-ready |
+| 3 | #167：安全初始化 | 重复 init 字节不变；部分初始化明确拒绝；文件与父目录符号链接防护 |
+| 4 | #161、#168（分别提交） | runner env allowlist；capability 与用户授权分离；非布尔 `approved` 被拒 |
+| 5 | #169、#174（分别提交） | 按用途定义字段与预算；真实 MCP SDK 驱动 stdio 契约测试 |
+| 6 | #163：最小有效自模型 | 人工注入违规依赖被检测；缺 CodeFacts 报“无法判断” |
+| 7 | #164-A：保行为提取 RPC 文件 | 合法请求/结果/错误/默认值/导出兼容 |
+| 8 | #164-B：显式方法表 + 严格 decoder | 非法参数拒绝；developer-review decoder 不退化 |
+| 9 | #164-C、#165：按用例提取与 projection 迁移 | 幂等、receipt、恢复交付与 repo-harness 协议一致 |
+| 10 | #166、#162、#170、#171 剩余 | 分别按实际范围推进；#162 的错误 connected 状态可提前小修 |
+
 ## 方法与基线结果
 
 | 检查 | 结果 |
@@ -26,7 +68,7 @@
 - `packages/core/projection-engine/src/index.ts:1266-1294` 读取仓库内提交的 `docs/architecture/.projection-manifest.json`，`verifiedAgainst` 原样透传，未校验 `commit` 形状。
 - `packages/local-runtime/runtime-daemon/src/index.ts:8674-8678` 取出 `commit`，`:8295` 执行 `execFileSync("git", ["diff", "--name-only", `${commit}..HEAD`])`，无 `--end-of-options`。
 - 触发路径：`completeTaskProjectionFreshness`（`:8652`），即每次 `archcontext_complete_task`。
-- 复现（scratch repo）：`git diff --name-only "--output=<dir>/pwned..HEAD"` 会在任意可写目录创建/截断名为 `*..HEAD` 的文件。影响受文件名后缀约束，但它是“仓库内容 → daemon 以用户身份写文件”的通道，违反 ADR-0003 将仓库视为不可信输入的边界。
+- 复现（scratch repo）：`git diff --name-only "--output=<dir>/pwned..HEAD"` 会在任意可写目录创建/截断名为 `*..HEAD` 的文件。~~影响受文件名后缀约束~~（复核更正：仓库可提交名为 `output..HEAD` 的符号链接指向仓库外文件，git 会跟随并截断目标；`--end-of-options` 对照组可阻断）。这是“仓库内容 → daemon 以用户身份截断任意可写文件”的通道，违反 ADR-0003 将仓库视为不可信输入的边界。
 - 修复：loader 中 `commit` 必须匹配 `^[0-9a-f]{40}([0-9a-f]{24})?$`；git 调用在 revision 前加 `--end-of-options`；为其它以外部值拼接 git argv 的调用补同样防护并加回归测试。
 
 ### F2 / P1（不变量）：daemon 在获得单写者锁之前执行崩溃恢复
@@ -35,16 +77,16 @@
 - 锁在之后才获取：`ArchctxRuntimeRpcServer.start()` 先 `daemon.start()`（`:6336`），再 `acquireDaemonLock`（`:6342`）。`withWriter` 只是进程内布尔。
 - 无锁入口：`scripts/apply-model-proposal.ts:115`（`bun run apply:model-proposal`，打开真实 `defaultLocalStorePath`，并继续 plan/apply），CLI 测试注入的 embedded runtime（`cli/src/main.ts:3773-3778`），以及 `runForegroundDaemon`（`:4241`）在拿锁前已完成恢复。
 - 后果：在 archctxd 运行期间启动第二个进程，可在任何锁拦截之前回滚正在进行的 ChangeSet、删除其 pending snapshot。违反 ADR-0005 与 authority matrix 的 single-writer 行。竞态窗口为代码顺序推导，未做并发复现。
-- 修复：把锁（或 SQLite `BEGIN EXCLUSIVE` 恢复守卫）移入 `ArchctxDaemon.start()`，先锁后恢复；`apply-model-proposal` 与 embedded 模式在检测到活跃 connection/lock 时拒绝启动，改走 RPC。
+- 修复：把覆盖整个 writer 生命周期的独占所有权移入 `ArchctxDaemon.start()`，先取得所有权再 migrate/恢复（复核更正：恢复期 SQLite `BEGIN EXCLUSIVE` **不是**等价替代——pending journal 在文件操作前已提交，且 WAL 下 EXCLUSIVE 等同 IMMEDIATE）；`apply-model-proposal` 与 embedded 模式在检测到活跃 connection/lock 时拒绝启动，改走 RPC。
 
-### F3 / P1（ADR 未兑现）：Cloud control plane 与签名边界停留在内存实现
+### F3 / P1→P2（ADR 未兑现）：Cloud control plane 与签名边界停留在内存实现
 
-- `ControlPlane`（`packages/cloud/control-plane/src/index.ts:862-876`）全部状态为内存 `Map/Set`；唯一 Worker `deploy/cloudflare/fg2-staging-worker.ts:120` 每请求 `new ControlPlane()`，不读 `CONTROL_PLANE_DB` D1 binding；`wrangler.jsonc` 无 Queue binding。`cloud-db` 有 D1 migration，但其 `TransactionalSqlDatabase` 为同步接口且未接线。与 ADR-0017（Workers + D1 + Queue）不符。
+- `ControlPlane`（`packages/cloud/control-plane/src/index.ts:862-876`）全部状态为内存 `Map/Set`；Worker 未接入持久化（复核更正：`fg2-staging-worker.ts:120` 的 `new ControlPlane()` 位于故障注入读回函数 `buildFg5CheckFailureInjectionReadback()`，不是通用请求入口），不读 `CONTROL_PLANE_DB` D1 binding；`wrangler.jsonc` 无 Queue binding。`cloud-db` 有 D1 migration，但其 `TransactionalSqlDatabase` 为同步接口且未接线。与 ADR-0017（Workers + D1 + Queue）不符。
 - CLI 进程内静态依赖 cloud 服务端代码：`cli/src/main.ts:2782/2966` `new ControlPlane()` 后 `claimReviewChallengeLease`——lease 只存在于 CLI 进程内，不协调任何东西。
 - `github connect` 向 token store 保存合成 refresh token：`main.ts:2722` `refresh_${accountId}_${Date.parse(connectedAt)}`；`KeychainTokenStore` / `CredentialSecretStore` 实际为内存 Map（`control-plane-client/src/index.ts:89-127`），设备私钥进程退出即丢失。ADR-0016 的本地签名边界未真正交付，但状态文件会报告 “connected”。
 - 建议：二选一并落 ADR——(a) 实现 D1/Queue 持久化与真实 OS keychain，并在无 keychain 时拒绝 connect；(b) 将 ADR-0017/0016 标为 “partially implemented / staging-only”，CLI 的 developer review 相关命令明确标注为非生产能力。无论哪条路，都应去掉合成 refresh token。
 
-### F4 / P1（治理自洽）：ArchContext 无法用自身模型治理自身
+### F4 / P1→P2（治理自洽）：ArchContext 无法用自身模型治理自身
 
 - `.archcontext/model/relations/` 仅 1 条 relation（capability → projection-renderer），实际子包级 import 边约 95 条、跨层边 11 类；`flows/` 仅 1 条。
 - `manifest.yaml` 的 `review.failOn` 包含 `prohibited-dependency`，pressure-engine 以 boundary-crossing import 为信号，但在没有 relation/约束的情况下二者对本仓库永远不会触发。`policies/review.yaml` 的 failOn 只有 3 项，与 manifest 的 5 项不一致。
@@ -96,7 +138,7 @@
 - `local-store-sqlite/src/index.ts:52` 以 `../../../../schemas/*.json` 跨出包边界；`deploy/cloudflare/fg2-staging-worker.ts`（真实 cloud composition root，723 行）以相对路径 import 各包源码，绕过 package exports。
 - 修复：runner/hardening 通过 contracts 中的 port 注入 git/codegraph 能力；core 的文件 I/O 收敛到 port，由 local-runtime 实现（或修改模型 summary 如实描述）；删除 `applyArchitectureUpdate` 或设为 internal；把以上方向规则写进 F4 的 relation/约束和 `package-boundary-audit.mjs`。
 
-### F9 / P2：ChangeSet 之外的 `.archcontext/` 写入
+### F9 / P2→P1：ChangeSet 之外的 `.archcontext/` 写入
 
 - `archctx init`：`runtime-daemon/src/index.ts:1388-1391` → `model-store-yaml/src/index.ts:149-188`，无存在性/expected-hash 检查地覆盖 `manifest.yaml`、`product.yaml`、`policies/review.yaml`、`projections/targets.json`、根 capability 节点，并清理 generated 目录。对已初始化仓库重跑 `init` 会静默替换声明架构（CLI `case "init"`，`main.ts:271-282` 亦无守卫）。违反 ADR-0012。
 - `.archcontext/integrations/context7.lock.yaml` 由 daemon 直接写（`index.ts:7906-7914`），有 expected-hash 但无 journal/回滚，且对 Git 跟踪文件使用 `0o600`。
@@ -115,9 +157,9 @@
 - `ARCHITECTURE_LEDGER_FORBIDDEN_RAW_KEYS`（`core/architecture-ledger/src/index.ts:2565-2587`）缺 `body`/`diff`/`patch`（orchestrator 的键集包含），字符串检查只匹配 `diff --git `，8KB 内的裸 `---/+++/@@` hunk 可通过。
 - 修复：对 `runMetadata`/`error`/`bodyMarkdown` 执行统一守卫；对齐两套键集并增加 unified-hunk 模式。
 
-### F12 / P2：`@archcontext/contracts` 被配置为可公开发布
+### F12 / P2→P3：`@archcontext/contracts` 被配置为可公开发布
 
-`packages/contracts/package.json`：`"private": false` + `publishConfig.access: "public"`，与 ADR-0034（所有 workspace 保持 `private: true`）及 `docs/spec.md:112`（“never the public contracts artifact”）矛盾，存在误发布内部 scoped 包的风险。修复：改回 `private: true`，或以新 ADR 明确 contracts 公开发布策略（`README` 中 repo-harness 依赖 `archctx-contracts` 的现状需一并说明）。
+`packages/contracts/package.json`：`"private": false` + `publishConfig.access: "public"`，与 ADR-0034（所有 workspace 保持 `private: true`）及 `docs/spec.md:112`（“never the public contracts artifact”）矛盾，~~存在误发布内部 scoped 包的风险~~（复核更正：公开发布是显式设计——`scripts/contracts-release-stage.mjs` 另行 staging 公开包 `archctx-contracts`，`scripts/publish-archcontext-contracts.mjs:165` 要求源 manifest `private === false`；单改布尔值会破坏发布校验）。修复：连同发布 validator、测试与 ADR 一起统一发行契约。
 
 ---
 
@@ -149,7 +191,7 @@
 - ADR-0045（authority-separated data engine）的 contracts/存储/编译器分层已落地，explorer 编译器不 import store。
 - 各 workspace `package.json` 依赖声明与实际 import 一致；子包级与层级均无依赖环。
 
-## 建议路线
+## 建议路线（原始版本，已被“修订后的执行顺序”取代）
 
 | 批次 | 内容 | 规模 |
 |---|---|---|
