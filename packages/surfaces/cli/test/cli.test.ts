@@ -4233,6 +4233,21 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("docs apply and complete agree on projection digest for default", async () => {
+    const profile = "default";
+    const root = createInitializedGitRepo();
+    try {
+      const applied = await runTestCli("docs", ["apply", "--profile", profile, "--approved"], root);
+      expect(applied.ok).toBe(true);
+      const drift = await runTestCli("docs", ["drift", "--profile", profile], root);
+      expect((drift.data as any).ok).toBe(true);
+      const completed = await runTestCli("complete", ["--task", "verify freshly applied documentation"], root);
+      expect(completed.ok).toBe(true);
+      expect((completed.data as any).findings.some((finding: any) => finding.id === "projection-drift")).toBe(false);
+    } finally {
+      removeTempRoot(root);
+    }
+
   /**
    * Drives the shared adoption fixture and asserts its invariants: docs adopt is
    * preview-bound, human sections survive, the next profile apply is a noop, and an
@@ -4363,6 +4378,9 @@ describe("archctx CLI", () => {
       expect((second.data as any).provenance.projectionInputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
       const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
       expect(manifest.provenance).toEqual((second.data as any).provenance);
+      const completed = await runTestCli("complete", ["--task", "verify adopted documentation"], root);
+      expect(completed.ok).toBe(true);
+      expect((completed.data as any).findings.some((finding: any) => finding.id === "projection-drift")).toBe(false);
 
       const nodePath = join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml");
       writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("Routes runtime hook events.", "Routes and validates runtime hook events."), "utf8");
