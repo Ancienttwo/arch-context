@@ -869,14 +869,15 @@ export function loadArchitectureDecisionRecords(root: string): ArchitectureDecis
       }
       const { title, status } = metadata as Record<string, unknown>;
       if (typeof title !== "string" || !title.trim()) throw new Error(`${path}: ADR frontmatter title is required`);
-      if (status !== undefined && (typeof status !== "string" || !status.trim())) {
-        throw new Error(`${path}: ADR frontmatter status must be a non-empty string`);
+      if (/[\r\n]/.test(title)) throw new Error(`${path}: ADR frontmatter title must be a single line`);
+      if (status !== undefined && (typeof status !== "string" || !status.trim() || /[\r\n]/.test(status))) {
+        throw new Error(`${path}: ADR frontmatter status must be a non-empty single-line string`);
       }
       return {
         id: basename(file, ".md"),
-        title,
+        title: title.trim(),
         path,
-        ...(status ? { status } : {})
+        ...(status ? { status: status.trim() } : {})
       };
     });
 }

@@ -32,6 +32,8 @@ describe("ADR index source metadata", () => {
       "---\nstatus: accepted\n---\n# Context\n",
       "---\ntitle: 42\n---\n# Context\n",
       "---\ntitle: A\nstatus: []\n---\n# Context\n",
+      "---\ntitle: |\n  First line\n  Second line\n---\n# Context\n",
+      "---\ntitle: A\nstatus: |\n  accepted\n  extra\n---\n# Context\n",
       "---\ntitle: A\ntitle: B\n---\n# Context\n"
     ]) {
       withAdr(body, (root) => expect(() => loadArchitectureDecisionRecords(root)).toThrow());
