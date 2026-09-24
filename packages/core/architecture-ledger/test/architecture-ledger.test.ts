@@ -5,6 +5,7 @@ import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import { architectureEventHash, digestJson, validateJsonSchema, type ArchitectureEventV1, type EvidenceBindingV1, type EvidenceItemV2, type Json } from "@archcontext/contracts";
 import {
   ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
+  assertArchitectureLedgerPersistenceSafe,
   architectureLedgerGitCursorFromPlan,
   architectureLedgerPayload,
   evidenceLifecycleValueDigest,
@@ -46,6 +47,12 @@ const scope: ArchitectureLedgerScope & { previousEvidenceState: ReturnType<typeo
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
 describe("@archcontext/core/architecture-ledger YAML bridge", () => {
+  test("issue #169: persistence rejects raw keys and bare unified hunks", () => {
+    for (const value of [{ body: "source" }, { diff: "source" }, { patch: "source" }, { summary: "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after" }] as Json[]) {
+      expect(() => assertArchitectureLedgerPersistenceSafe(value)).toThrow("architecture-ledger-privacy-denied");
+    }
+    expect(() => assertArchitectureLedgerPersistenceSafe({ bodyDigest: "sha256:abc", summary: "Update the parser" })).not.toThrow();
+  });
   test("rejects raw diff fields and secret-shaped values at the event persistence boundary", () => {
     const plan = planYamlToArchitectureLedgerImport({
       ...scope,

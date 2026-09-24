@@ -24,6 +24,7 @@ import {
 import { assertPathHasNoSymlinkSegments, ChangeSetEngine, writeFileWithoutFollowingSymlinks, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
+  assertArchitectureLedgerPersistenceSafe,
   architectureLedgerGitCursorFromPlan,
   architectureLedgerBookSubjects,
   architectureLedgerPayload,
@@ -141,6 +142,7 @@ import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePat
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
+import { localEgressStatus } from "./egress";
 import {
   createNodeGithubIssueExecutor,
   findExistingGithubIssueByMarker,
@@ -1417,6 +1419,24 @@ export class ArchctxDaemon {
     return this.composition;
   }
 
+  async egressReport(root: string) {
+    const repositoryRoot = runtimeStatePaths(root).repositoryRoot;
+    const workspace = { root: repositoryRoot, repositoryId: repositoryFingerprint(repositoryRoot), headSha: readHeadSha(repositoryRoot) };
+    const documentation = await this.externalDocumentation.health();
+    return {
+      ...localEgressStatus({
+        ...process.env,
+        [CONTEXT7_ENABLED_ENV]: documentation.enabled ? "1" : "0",
+        [CONTEXT7_MODE_ENV]: documentation.mode
+      }, {
+        auditEnabled: await this.auditGithubIssuesEnabled(workspace),
+        auditUserConsent: readAuditConsent(repositoryRoot).granted,
+        githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV
+      }),
+      source: "daemon" as const
+    };
+  }
+
   /**
    * Whether the daemon currently has real background work that must not be interrupted: a
    * queued or running `runtime_job_queue` entry in any currently open repository session's
@@ -1782,6 +1802,15 @@ export class ArchctxDaemon {
 
   async jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
     this.assertRunning();
+    try {
+      assertArchitectureLedgerPersistenceSafe({
+        ...(input.runMetadata === undefined ? {} : { runMetadata: input.runMetadata }),
+        ...(input.error === undefined ? {} : { error: input.error }),
+        ...(input.proposalPlan === undefined ? {} : { proposalPlan: input.proposalPlan })
+      } as unknown as Json, "jobs.complete");
+    } catch (error) {
+      return errorEnvelope("jobs.complete", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : "Unsafe job completion payload");
+    }
     const repositoryRoot = findRepositoryRoot(root);
     const scope = await this.architectureLedgerScope(repositoryRoot);
     const jobs = await this.localStore.listRuntimeAgentJobs(scope);
@@ -2045,6 +2074,21 @@ export class ArchctxDaemon {
    * by the normal branch below), so the try/catch here is a backstop for the bookkeeping calls
    * around it (ledger append conflicts, the store closing mid-flight during `stop()`, etc.).
    */
+  private async completeAuditJob(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
+    const completed = await this.jobsComplete(root, input);
+    if (completed.ok) return completed;
+    // Daemon-owned runs cannot leave a claimed job running when their payload is rejected.
+    // Persist only a fixed reason; the rejected metadata/proposal never crosses the guard.
+    const failed = await this.jobsComplete(root, {
+      jobId: input.jobId,
+      workerId: "daemon-audit",
+      status: "failed",
+      error: "agent-audit-completion-rejected",
+      now: this.clock()
+    });
+    return failed.ok ? completed : failed;
+  }
+
   private async runAndCompleteAuditJob(input: {
     repositoryRoot: string;
     session: RepositorySession;
@@ -2077,7 +2121,7 @@ export class ArchctxDaemon {
       });
 
       if (result.report.status !== "succeeded") {
-        const failedComplete = await this.jobsComplete(repositoryRoot, {
+        const failedComplete = await this.completeAuditJob(repositoryRoot, {
           jobId,
           workerId: "daemon-audit",
           status: "failed",
@@ -2112,7 +2156,7 @@ export class ArchctxDaemon {
         now: this.clock()
       });
 
-      const completed = await this.jobsComplete(repositoryRoot, {
+      const completed = await this.completeAuditJob(repositoryRoot, {
         jobId,
         workerId: "daemon-audit",
         status: "succeeded",
@@ -2161,7 +2205,7 @@ export class ArchctxDaemon {
         jobId,
         workerId: "daemon-audit",
         status: "failed",
-        error: `agent-audit-investigation-exception: ${message}`,
+        error: "agent-audit-investigation-exception",
         now: this.clock()
       });
       if (!failedComplete.ok) return failedComplete;
@@ -6109,8 +6153,9 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     this.timeouts = { ...RUNTIME_RPC_CLIENT_TIMEOUT_POLICY, ...options.timeouts };
   }
 
-  async health(): Promise<Json> {
-    return await this.request("health", this.timeouts.health, `${this.connection.url}health`, {
+  async health(options: { includeEgress?: boolean } = {}): Promise<Json> {
+    const suffix = options.includeEgress ? "?egress=1" : "";
+    return await this.request("health", options.includeEgress ? this.timeouts.normal : this.timeouts.health, `${this.connection.url}health${suffix}`, {
       headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION }
     }) as Json;
   }
@@ -6602,6 +6647,10 @@ export class ArchctxRuntimeRpcServer {
         version: 1,
         product: this.options.productManifest?.() ?? productVersionManifest(),
         composition: this.daemon.compositionReport(),
+        // Startup and idle liveness probes must not spawn Git processes to inspect egress policy.
+        ...(url.searchParams.get("egress") === "1"
+          ? { egress: await this.daemon.egressReport(this.options.root ?? process.cwd()) }
+          : {}),
         // Alive but write-gated (#172): readers still work, so `ok` stays true, but callers must see it.
         ...(changeSetRecovery ? { changeSetRecovery } : {})
       });

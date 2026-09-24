@@ -2562,7 +2562,10 @@ export function validateArchitectureLedgerEvent(event: ArchitectureEventV1): voi
 const ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES = 262_144;
 const ARCHITECTURE_LEDGER_MAX_PERSISTED_STRING_BYTES = 8_192;
 const ARCHITECTURE_LEDGER_MAX_PERSISTED_DEPTH = 32;
-const ARCHITECTURE_LEDGER_FORBIDDEN_RAW_KEYS = new Set([
+export const ARCHITECTURE_LEDGER_FORBIDDEN_RAW_KEYS: ReadonlySet<string> = new Set([
+  "body",
+  "diff",
+  "patch",
   "rawsource",
   "sourcebody",
   "sourcecode",
@@ -2589,8 +2592,10 @@ const ARCHITECTURE_LEDGER_FORBIDDEN_RAW_KEYS = new Set([
 const ARCHITECTURE_LEDGER_SAFE_SENSITIVE_KEY_SUFFIX = /(?:digest|id|ids|count|counts|ref|refs|path|paths|persisted)$/;
 const ARCHITECTURE_LEDGER_FORBIDDEN_STRING_PATTERNS = [
   /diff --git /,
+  /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
   /\bAKIA[A-Z0-9]{16}\b/,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/i,

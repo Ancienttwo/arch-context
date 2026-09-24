@@ -120,8 +120,8 @@ try {
       }
     }
   });
-  assert(mcpAutoStarted.result?.content?.ok === true, "mcp runtime tool call must auto-start daemon RPC when no daemon is running");
-  assert(mcpAutoStarted.result?.content?.data?.valid === true, "mcp auto-start practices validate must return a valid catalog");
+  assert(mcpEnvelope(mcpAutoStarted)?.ok === true, "mcp runtime tool call must auto-start daemon RPC when no daemon is running");
+  assert(mcpEnvelope(mcpAutoStarted)?.data?.valid === true, "mcp auto-start practices validate must return a valid catalog");
   const daemonAfterMcpStart = await runArchctx("daemon", "status");
   assert(daemonAfterMcpStart.ok === true, "daemon status after MCP auto-start must succeed");
   assert(daemonAfterMcpStart.data?.running === true, "MCP auto-start must leave the daemon running");
@@ -166,7 +166,7 @@ try {
       }
     }
   });
-  assert(planned.result?.content?.ok === true, "mcp plan_update must succeed through daemon RPC");
+  assert(mcpEnvelope(planned)?.ok === true, "mcp plan_update must succeed through daemon RPC");
 
   const applied = await runArchctx(
     "apply",
@@ -238,8 +238,8 @@ try {
       }
     }
   });
-  assert(plannedAfterRestart.result?.content?.ok === true, "mcp plan_update after restart must succeed through restored daemon RPC");
-  const restartDraftDigest = plannedAfterRestart.result?.content?.data?.draft?.base?.worktreeDigest;
+  assert(mcpEnvelope(plannedAfterRestart)?.ok === true, "mcp plan_update after restart must succeed through restored daemon RPC");
+  const restartDraftDigest = mcpEnvelope(plannedAfterRestart)?.data?.draft?.base?.worktreeDigest;
   assert(/^sha256:/.test(String(restartDraftDigest)), "mcp plan_update after restart must return a draft worktree digest");
 
   const appliedAfterRestart = await runArchctx(
@@ -290,8 +290,8 @@ try {
       }
     }
   });
-  assert(plannedOwner.result?.content?.ok === true, "mcp plan_update must declare the kill-list owner node");
-  const ownerDraftDigest = plannedOwner.result?.content?.data?.draft?.base?.worktreeDigest;
+  assert(mcpEnvelope(plannedOwner)?.ok === true, "mcp plan_update must declare the kill-list owner node");
+  const ownerDraftDigest = mcpEnvelope(plannedOwner)?.data?.draft?.base?.worktreeDigest;
   assert(/^sha256:/.test(String(ownerDraftDigest)), "mcp plan_update must return a draft worktree digest for the owner node");
 
   const appliedOwner = await runArchctx(
@@ -711,4 +711,9 @@ function cleanupRoot(path) {
     }
     throw error;
   }
+}
+
+function mcpEnvelope(response) {
+  assert(response.result?.content?.[0]?.type === "text", "MCP tool result must contain text content");
+  return JSON.parse(response.result.content[0].text);
 }

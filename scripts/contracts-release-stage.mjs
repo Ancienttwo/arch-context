@@ -17,12 +17,14 @@ export const CONTRACTS_PUBLIC_EXPORTS = {
  * manifest by accident.
  */
 export function preparePublicContractsReleaseStage({ root, sourceManifest, packageName = CONTRACTS_PUBLIC_PACKAGE_NAME }) {
+  const packageJson = buildPublicContractsReleaseManifest(sourceManifest, packageName);
+  const issues = publicContractsReleaseManifestIssues(sourceManifest, packageJson, packageName);
+  if (issues.length > 0) throw new Error(`Invalid contracts release manifest: ${issues.join("; ")}`);
   const packageRoot = join(root, "packages", "contracts");
   const workspace = mkdtempSync(join(tmpdir(), "archctx-contracts-publish."));
   cpSync(join(packageRoot, "src"), join(workspace, "src"), { recursive: true });
   cpSync(join(packageRoot, "fixtures"), join(workspace, "fixtures"), { recursive: true });
   cpSync(join(root, "schemas"), join(workspace, "schemas"), { recursive: true });
-  const packageJson = buildPublicContractsReleaseManifest(sourceManifest, packageName);
   writeFileSync(join(workspace, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
   return { workspace, packageJson };
 }
@@ -47,7 +49,8 @@ export function buildPublicContractsReleaseManifest(sourceManifest, packageName 
 export function publicContractsReleaseManifestIssues(sourceManifest, packageJson, packageName = CONTRACTS_PUBLIC_PACKAGE_NAME) {
   const issues = [];
   if (sourceManifest.name !== CONTRACTS_SOURCE_PACKAGE_NAME) issues.push("source package name must remain @archcontext/contracts");
-  if (sourceManifest.private !== false) issues.push("source contracts manifest must be publishable");
+  if (sourceManifest.private !== true) issues.push("source contracts manifest must remain private");
+  if ("publishConfig" in sourceManifest) issues.push("source contracts manifest must not declare publishConfig");
   if (sourceManifest.license !== "Apache-2.0") issues.push("source contracts license must be Apache-2.0");
   if (JSON.stringify(sourceManifest.files ?? []) !== JSON.stringify(CONTRACTS_SOURCE_FILES)) {
     issues.push("source contracts files must remain src and fixtures");

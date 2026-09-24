@@ -1,16 +1,13 @@
 {
   "name": "@archcontext/contracts",
   "version": "0.5.11",
-  "private": false,
+  "private": true,
   "type": "module",
   "license": "Apache-2.0",
   "files": [
     "src",
     "fixtures"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "exports": {
     ".": "./src/index.ts"
   }

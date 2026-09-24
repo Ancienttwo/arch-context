@@ -11,6 +11,7 @@
     "./git-adapter": "./git-adapter/src/index.ts",
     "./local-store-sqlite": "./local-store-sqlite/src/index.ts",
     "./model-store-yaml": "./model-store-yaml/src/index.ts",
+    "./egress": "./runtime-daemon/src/egress.ts",
     "./runtime-daemon": "./runtime-daemon/src/index.ts"
   },
   "dependencies": {

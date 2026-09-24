@@ -118,11 +118,10 @@ describe("fg6 npm release dry-run", () => {
     const sourceManifest = {
       name: "@archcontext/contracts",
       version: "0.1.5",
-      private: false,
+      private: true,
       type: "module",
       license: "Apache-2.0",
       files: ["src", "fixtures"],
-      publishConfig: { access: "public" },
       exports: { ".": "./src/index.ts" }
     };
     const contracts = buildPublicContractsReleaseDryRunReadback({
@@ -150,6 +149,15 @@ describe("fg6 npm release dry-run", () => {
     expect(contracts.assertions.publicExportsMatchPublishedContract).toBe(false);
     expect(contracts.assertions.packageContentsIncludeRecoverySchema).toBe(false);
     expect(contracts.failures).toContain("public contracts package must be unscoped archctx-contracts");
+  });
+
+  test("requires private source contracts without source publish settings", () => {
+    expect(createPublicContractsDryRunFixture().ok).toBe(true);
+    for (const drift of [{ private: false }, { private: undefined }, { publishConfig: { access: "public" } }]) {
+      const recording = createPublicContractsDryRunFixture(drift);
+      expect(recording.ok).toBe(false);
+      expect(recording.assertions.sourceWorkspaceIsInternal).toBe(false);
+    }
   });
 
   test("rejects repository source publication and wrong package name", () => {
@@ -365,17 +373,17 @@ function createReleaseStageFixture() {
   return stageDir;
 }
 
-function createPublicContractsDryRunFixture() {
+function createPublicContractsDryRunFixture(sourceOverrides: Record<string, unknown> = {}) {
   return buildPublicContractsReleaseDryRunReadback({
     sourceManifest: {
       name: "@archcontext/contracts",
       version: "0.1.5",
-      private: false,
+      private: true,
       type: "module",
       license: "Apache-2.0",
       files: ["src", "fixtures"],
-      publishConfig: { access: "public" },
-      exports: { ".": "./src/index.ts" }
+      exports: { ".": "./src/index.ts" },
+      ...sourceOverrides
     },
     packageJson: {
       name: "archctx-contracts",

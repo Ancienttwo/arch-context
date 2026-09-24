@@ -395,7 +395,14 @@ export function assertAdapterDoesNotOverwriteNativeCore(before: Record<string, J
 }
 
 export function computeWorktreeDigest(root: string, options: WorktreeDigestOptions = {}): string {
-  const ignore = new Set([...DEFAULT_IGNORES, ...(options.ignore ?? [])]);
+  // Hook output changes between preview and apply; harness policy remains part of the binding.
+  const ignore = new Set([
+    ...DEFAULT_IGNORES,
+    ".ai/harness/checks",
+    ".ai/harness/evidence",
+    ".ai/harness/runs",
+    ...(options.ignore ?? [])
+  ]);
   const files = listRepoFiles(root, ignore);
   const payload: Json = files.map((path) => {
     const absolute = resolve(root, path);

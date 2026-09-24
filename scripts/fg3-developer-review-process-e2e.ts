@@ -5,10 +5,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
+import { DevicePrivateKeyStore, InMemoryCredentialSecretStore } from "@archcontext/cloud/control-plane-client";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
+import { createFixtureGithubConnectionReader } from "../packages/surfaces/cli/test/github-connection-fixture";
 import { runCli } from "../packages/surfaces/cli/src/main";
 
 const DEFAULT_OUTPUT = "docs/verification/fg3-developer-review-process-e2e.json";
@@ -42,7 +43,6 @@ export async function runFg3DeveloperReviewProcessE2E(config: ReturnType<typeof 
   const provider = new MockCodeGraphProvider();
   const credentials = new InMemoryCredentialSecretStore();
   const devicePrivateKeyStore = new DevicePrivateKeyStore(credentials);
-  const tokenStore = new KeychainTokenStore();
   const submissions: unknown[] = [];
   try {
     mkdirSync(repo, { recursive: true });
@@ -74,7 +74,9 @@ export async function runFg3DeveloperReviewProcessE2E(config: ReturnType<typeof 
       codeFacts: new CodeGraphAdapter(provider),
       codeGraphProviderFactory: () => new MockCodeGraphProvider(),
       devicePrivateKeyStore,
-      tokenStore,
+      githubConnectionReader: createFixtureGithubConnectionReader(devicePrivateKeyStore, {
+        accountId: "acct_process", githubUserId: "process-user", publicKeyId: "key_process"
+      }),
       githubGovernancePort: {
         async getPullHeadMetadata(input: { installationId: number; repositoryId: number; pullRequestNumber: number }) {
           return { ...input, headSha, baseSha: headSha };
@@ -93,15 +95,6 @@ export async function runFg3DeveloperReviewProcessE2E(config: ReturnType<typeof 
       }
     };
 
-    const connect = await runCli("github", [
-      "connect",
-      "--account-id", "acct_process",
-      "--github-user-id", "process-user",
-      "--public-key-id", "key_process",
-      "--verifier", "fixed-process-verifier",
-      "--now", "2026-06-20T08:59:00Z"
-    ], repo, deps);
-    if (!connect.ok) failures.push("github connect failed");
 
     const review = await runCli("github", [
       "review",
