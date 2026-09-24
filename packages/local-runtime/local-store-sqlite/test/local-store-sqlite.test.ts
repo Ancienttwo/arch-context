@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, utimesSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, computeWorktreeDigest, createLandscape, landscapeYaml } from "@archcontext/core/architecture-domain";
@@ -2144,6 +2144,19 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       third.acquireWriterOwnership();
       expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
       third.close();
+
+      // A created-but-still-empty lock is what a concurrent starter sees mid-publication; it must not
+      // be treated as stale until it is old enough to be crash residue.
+      writeFileSync(lockPath, "", "utf8");
+      const racing = new SqliteLocalStore(dbPath);
+      expect(() => racing.acquireWriterOwnership()).toThrow("unreadable owner lock that is not yet stale");
+      expect(readFileSync(lockPath, "utf8")).toBe("");
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(lockPath, old, old);
+      racing.acquireWriterOwnership();
+      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
+      racing.close();
+      expect(existsSync(lockPath)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

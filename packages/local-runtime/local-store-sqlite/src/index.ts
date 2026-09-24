@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
@@ -7249,31 +7249,73 @@ export function localStoreWriterOwnershipPath(databasePath: string): string {
 function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWriterOwnership {
   const lockPath = localStoreWriterOwnershipPath(databasePath);
   ensurePrivateDir(dirname(lockPath));
-  const fd = openLocalStoreOwnerLock(lockPath, databasePath);
+  publishLocalStoreOwnerLock(lockPath, databasePath);
   let released = false;
   return {
     release() {
       if (released) return;
       released = true;
-      closeSync(fd);
       if (readOwnerLockPid(lockPath) === process.pid) rmSync(lockPath, { force: true });
     }
   };
 }
 
-function openLocalStoreOwnerLock(lockPath: string, databasePath: string): number {
-  try {
-    const fd = openSync(lockPath, "wx", 0o600);
-    writeFileSync(fd, JSON.stringify({ pid: process.pid, databasePath, acquiredAt: nowIso() }, null, 2), "utf8");
-    return fd;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+/** A lock whose record cannot be read is only crash residue once it is this old (see below). */
+const LOCAL_STORE_OWNER_LOCK_UNREADABLE_GRACE_MS = 10_000;
+
+/**
+ * Publishes the complete owner record atomically: it is written to a private temp file and then
+ * hard-linked into place, and `link` fails with EEXIST instead of replacing an existing lock. A
+ * reader therefore never sees a created-but-empty lock, which it would otherwise mistake for a stale
+ * one, delete, and take over while the creator still believes it owns the store.
+ */
+function publishLocalStoreOwnerLock(lockPath: string, databasePath: string): void {
+  const record = JSON.stringify({ pid: process.pid, databasePath, acquiredAt: nowIso() }, null, 2);
+  for (;;) {
+    if (tryLinkOwnerLock(lockPath, record)) return;
     const ownerPid = readOwnerLockPid(lockPath);
-    if (ownerPid === undefined || !isProcessAlive(ownerPid)) {
-      rmSync(lockPath, { force: true });
-      return openLocalStoreOwnerLock(lockPath, databasePath);
+    if (ownerPid !== undefined && isProcessAlive(ownerPid)) {
+      throw new Error(`local-store-writer-owned: ${databasePath} is owned by live process ${ownerPid}; lock=${lockPath}`);
     }
-    throw new Error(`local-store-writer-owned: ${databasePath} is owned by live process ${ownerPid}; lock=${lockPath}`);
+    if (ownerPid === undefined && !ownerLockOlderThan(lockPath, LOCAL_STORE_OWNER_LOCK_UNREADABLE_GRACE_MS)) {
+      // Unreadable but fresh: another process may still be publishing its record (only possible on
+      // the non-link fallback path). Never take over a lock that could belong to a live writer.
+      throw new Error(`local-store-writer-owned: ${databasePath} has an unreadable owner lock that is not yet stale; lock=${lockPath}`);
+    }
+    rmSync(lockPath, { force: true });
+  }
+}
+
+/** Returns false when a lock already exists; true once this process's record is in place. */
+function tryLinkOwnerLock(lockPath: string, record: string): boolean {
+  const tempPath = `${lockPath}.${process.pid}-${randomUUID()}.tmp`;
+  writeFileSync(tempPath, record, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  try {
+    linkSync(tempPath, lockPath);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") return false;
+    if (code !== "EPERM" && code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "ENOSYS") throw error;
+  } finally {
+    rmSync(tempPath, { force: true });
+  }
+  // Filesystems without hard links: exclusive create, then write. The window in which the lock is
+  // empty is covered by the unreadable-lock grace period in `publishLocalStoreOwnerLock`.
+  try {
+    writeFileSync(lockPath, record, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  }
+}
+
+function ownerLockOlderThan(lockPath: string, ageMs: number): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs >= ageMs;
+  } catch {
+    return true;
   }
 }
 
