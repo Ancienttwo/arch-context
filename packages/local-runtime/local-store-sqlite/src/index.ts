@@ -7261,6 +7261,16 @@ export const LOCAL_STORE_WRITER_OWNED_ERROR = "local-store-writer-owned";
  * process's fcntl locks on it.
  */
 export function localStoreWriterOwnershipPath(databasePath: string): string {
+  return `${databasePath}.writer.lock`;
+}
+
+/**
+ * Where builds before the SQLite lock (PR #176 as merged at 29114d3) kept a JSON pid record. Such a
+ * build never takes the SQLite lock, so while its recorded pid is alive it is still a live writer and
+ * this build refuses; a record whose pid is gone, or that cannot be read, is crash residue and is
+ * removed once the new lock is held. It is never opened as SQLite: that fails with SQLITE_NOTADB.
+ */
+export function localStoreLegacyOwnerLockPath(databasePath: string): string {
   return `${databasePath}.owner.lock`;
 }
 
@@ -7295,6 +7305,17 @@ function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWrite
         }
         sleepSync(LOCAL_STORE_OWNER_LOCK_RETRY_MS + Math.floor(Math.random() * LOCAL_STORE_OWNER_LOCK_RETRY_MS));
       }
+    }
+    const legacyPath = localStoreLegacyOwnerLockPath(databasePath);
+    const legacyOwnerPid = readLegacyOwnerLockPid(legacyPath);
+    if (legacyOwnerPid !== undefined && legacyOwnerPid !== process.pid && isProcessAlive(legacyOwnerPid)) {
+      throw new Error(`${LOCAL_STORE_WRITER_OWNED_ERROR}: ${databasePath} is owned by live process ${legacyOwnerPid} of an older archctx build; lock=${legacyPath}`);
+    }
+    // Dead, unreadable, or ours: crash residue of an older build. Best effort; it never blocks a start.
+    try {
+      rmSync(legacyPath, { force: true });
+    } catch {
+      // Leaving it behind only costs the same check on the next start.
     }
   } catch (error) {
     lock.close();
@@ -7359,6 +7380,15 @@ function readOwnerRecord(recordPath: string): Partial<LocalStoreOwnerRecord> | u
   try {
     const parsed = JSON.parse(readFileSync(recordPath, "utf8")) as unknown;
     return parsed && typeof parsed === "object" ? parsed as Partial<LocalStoreOwnerRecord> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readLegacyOwnerLockPid(legacyPath: string): number | undefined {
+  try {
+    const pid = (JSON.parse(readFileSync(legacyPath, "utf8")) as { pid?: unknown } | null)?.pid;
+    return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
   } catch {
     return undefined;
   }

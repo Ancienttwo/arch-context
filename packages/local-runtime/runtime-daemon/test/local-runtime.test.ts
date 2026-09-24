@@ -2992,7 +2992,7 @@ setInterval(() => undefined, 1 << 30);
       await recovered.stop();
       // The lock file itself stays (it is only ever locked, never deleted); the diagnostic owner
       // record leaves with its owner.
-      expect(existsSync(`${dbPath}.owner.lock`)).toBe(true);
+      expect(existsSync(`${dbPath}.writer.lock`)).toBe(true);
       expect(existsSync(`${dbPath}.owner.json`)).toBe(false);
     } finally {
       if (writer) {

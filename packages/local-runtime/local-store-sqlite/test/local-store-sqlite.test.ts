@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -30,6 +31,7 @@ import {
   completeRuntimeStateRecovery,
   inspectLegacyLocalStoreMigration,
   inspectRuntimeStateRecovery,
+  localStoreLegacyOwnerLockPath,
   localStoreWriterOwnerRecordPath,
   localStoreWriterOwnershipPath,
   migrateLegacyLocalStoreIfNeeded,
@@ -2152,6 +2154,54 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       second.acquireWriterOwnership();
       second.close();
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a legacy JSON owner record from an older build blocks only while its pid is alive (#160)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-store-legacy-owner-"));
+    const dbPath = join(root, "state", "runtime.sqlite");
+    const legacyPath = localStoreLegacyOwnerLockPath(dbPath);
+    const writeLegacy = (content: string) => {
+      mkdirSync(dirname(legacyPath), { recursive: true });
+      writeFileSync(legacyPath, content, { encoding: "utf8", mode: 0o600 });
+    };
+    const liveOlderBuild = spawn(process.execPath, ["-e", "setInterval(() => undefined, 1 << 30)"], { stdio: "ignore" });
+    try {
+      expect(legacyPath).not.toBe(localStoreWriterOwnershipPath(dbPath));
+
+      // Crash residue of an older build: a dead pid never blocks, and the record is cleaned up.
+      const deadPid = Number(execFileSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"], { encoding: "utf8" }));
+      writeLegacy(JSON.stringify({ pid: deadPid, databasePath: dbPath, acquiredAt: "2026-09-24T00:00:00.000Z" }));
+      const afterCrash = new SqliteLocalStore(dbPath);
+      afterCrash.acquireWriterOwnership();
+      expect(existsSync(legacyPath)).toBe(false);
+      afterCrash.close();
+
+      // Unreadable or non-JSON content is residue too, never SQLITE_NOTADB.
+      for (const garbage of ["", "not json at all", "{\"pid\":\"nope\"}", "SQLite format 3\u0000garbage"]) {
+        writeLegacy(garbage);
+        const store = new SqliteLocalStore(dbPath);
+        store.acquireWriterOwnership();
+        expect(existsSync(legacyPath)).toBe(false);
+        store.close();
+      }
+
+      // A live older-build writer holds only the JSON record, not the SQLite lock: refuse, keep it.
+      const record = JSON.stringify({ pid: liveOlderBuild.pid, databasePath: dbPath, acquiredAt: "2026-09-24T00:00:00.000Z" });
+      writeLegacy(record);
+      const blocked = new SqliteLocalStore(dbPath);
+      expect(() => blocked.acquireWriterOwnership()).toThrow(`local-store-writer-owned: ${dbPath} is owned by live process ${liveOlderBuild.pid} of an older archctx build`);
+      expect(readFileSync(legacyPath, "utf8")).toBe(record);
+      // The refusal released the new lock, so it does not strand the store once the old writer exits.
+      expect(tryWriterOwnershipInChild(dbPath)).toContain("of an older archctx build");
+      liveOlderBuild.kill("SIGKILL");
+      await once(liveOlderBuild, "exit");
+      blocked.acquireWriterOwnership();
+      expect(existsSync(legacyPath)).toBe(false);
+      blocked.close();
+    } finally {
+      liveOlderBuild.kill("SIGKILL");
       rmSync(root, { recursive: true, force: true });
     }
   });

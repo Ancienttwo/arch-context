@@ -9,7 +9,7 @@
 > **Artifact Level**: work-package
 > **Promotion Reason**: human_decision_boundary
 > **Verification Boundary**: store+daemon tests, CLI concurrent cold-start test, stress scripts
-> **Rollback Surface**: revert PR #176 branch commits; unreleased lock format
+> **Rollback Surface**: revert the follow-up PR commits; the SQLite lock lives at `<store>.writer.lock` and legacy `<store>.owner.lock` JSON records from main (34519a7, untagged) are honored while their pid is alive and removed otherwise
 > **Spec**: `docs/spec.md`
 > **Research**: See `docs/researches/`
 > **Task Contract**: `tasks/contracts/20260924-2000-store-writer-ownership-hardening.contract.md`
@@ -81,7 +81,7 @@ See captured planning output.
 ## Promotion Gate
 
 - **Merge/PR unit**: Captured plan `plans/plan-20260924-2000-store-writer-ownership-hardening.md` is the proposed mergeable execution unit; revise before execute if this is only a checklist step.
-- **Rollback surface**: revert PR #176 branch commits; unreleased lock format
+- **Rollback surface**: revert the follow-up PR commits; the SQLite lock lives at `<store>.writer.lock` and legacy `<store>.owner.lock` JSON records from main (34519a7, untagged) are honored while their pid is alive and removed otherwise
 - **Verification boundary**: store+daemon tests, CLI concurrent cold-start test, stress scripts
 - **Review/acceptance boundary**: `tasks/reviews/20260924-2000-store-writer-ownership-hardening.review.md` must record pass against the captured acceptance criteria.
 - **High-risk surface**: Risks named in captured planning output; keep the plan Draft if risk ownership is not concrete.
@@ -93,7 +93,7 @@ See captured planning output.
 - **Verification evidence**: `.ai/harness/checks/latest.json`, `.ai/harness/runs/`, and the commands named in the captured planning output
 - **Evaluator rubric**: `tasks/reviews/20260924-2000-store-writer-ownership-hardening.review.md` must record a passing Waza /check style recommendation
 - **Stop condition**: all task breakdown items are complete, sprint verification passes, and the review recommends pass
-- **Rollback surface**: revert PR #176 branch commits; unreleased lock format
+- **Rollback surface**: revert the follow-up PR commits; the SQLite lock lives at `<store>.writer.lock` and legacy `<store>.owner.lock` JSON records from main (34519a7, untagged) are honored while their pid is alive and removed otherwise
 
 ## Captured Planning Output
 
@@ -124,7 +124,7 @@ PR #176 claims store writer ownership before ChangeSet recovery (#160) and gates
 
 ## Rollback
 
-Revert the PR branch commits; the lock format is unreleased, so no migration is needed.
+Revert the follow-up PR commits. The JSON pid lock at `<store>.owner.lock` is already on main (34519a7, merged from PR #176 at 29114d3; no release tag contains it), so the new build never opens that path as SQLite. The SQLite writer lock uses a new path, `<store>.writer.lock`, which is never deleted; `<store>.owner.json` is diagnostics only. A readable legacy record whose pid is alive and not this process refuses the start with `local-store-writer-owned` (starter exit 75 path); a dead pid, unreadable, or non-JSON record is ignored and best-effort removed after the new lock is held. After a revert to main, `<store>.writer.lock` and `<store>.owner.json` are inert files that main ignores, and main's pid lock resumes from `<store>.owner.lock`.
 
 ## Annotations
 <!-- [NOTE]: prefixed inline. Claude processes all and revises. -->
