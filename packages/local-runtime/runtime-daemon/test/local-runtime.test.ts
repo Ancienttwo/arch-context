@@ -1,10 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { once } from "node:events";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
-import { connect as netConnect } from "node:net";
+import { connect as netConnect, createServer as createNetServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint, validateLandscape, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
@@ -15,7 +15,7 @@ import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRA
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
-import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
@@ -85,6 +85,24 @@ function tempRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-"));
   writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
   return root;
+}
+
+async function waitForStdoutLine(child: ChildProcess, line: string, timeoutMs = 30_000): Promise<void> {
+  await new Promise<void>((resolveLine, rejectLine) => {
+    let buffered = "";
+    const timer = setTimeout(() => rejectLine(new Error(`child did not print ${line} within ${timeoutMs}ms`)), timeoutMs);
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      rejectLine(new Error(`child exited with ${code} before printing ${line}`));
+    });
+    child.stdout!.on("data", (chunk: Buffer) => {
+      buffered += chunk.toString("utf8");
+      if (buffered.split("\n").includes(line)) {
+        clearTimeout(timer);
+        resolveLine();
+      }
+    });
+  });
 }
 
 function removeTempRepo(root: string): void {
@@ -3044,6 +3062,124 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("a second process cannot start on a store whose live writer is mid-ChangeSet; cold start still recovers (#160)", async () => {
+    // Process A holds writer ownership with a pending journal: original moved to backup, temp file
+    // half written. Before #160, process B's startup recovery treated that live transaction as crash
+    // residue and rolled it back before any lock was checked.
+    const dir = mkdtempSync(join(tmpdir(), "archctx-writer-barrier-"));
+    const root = join(dir, "repo");
+    const dbPath = join(dir, "state", "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = `${absolutePath}.archctx-backup`;
+    const tempPath = `${absolutePath}.archctx-tmp-barrier`;
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    const writerScript = join(dir, "writer.ts");
+    const storeModule = resolve(import.meta.dir, "../../local-store-sqlite/src/index.ts");
+    let writer: ChildProcess | undefined;
+    try {
+      initializeArchContextModel(root, "Writer Barrier App");
+      writeFileSync(absolutePath, original, "utf8");
+      writeFileSync(writerScript, `
+import { renameSync, writeFileSync } from "node:fs";
+import { SqliteLocalStore } from ${JSON.stringify(storeModule)};
+const [dbPath, root, relativePath, absolutePath, backupPath, tempPath] = process.argv.slice(2);
+const store = new SqliteLocalStore(dbPath);
+store.acquireWriterOwnership();
+await store.migrate();
+const journalId = await store.beginChangeSet(root, {
+  schemaVersion: "archcontext.changeset/v1", id: "changeset.barrier", status: "approved",
+  base: { headSha: "abc123", worktreeDigest: "sha256:${"0".repeat(64)}", modelDigest: "sha256:${"1".repeat(64)}" },
+  reason: { taskSessionId: "task.barrier" },
+  operations: [{ op: "update_entity_fields", path: relativePath, expectedHash: "sha256:${"2".repeat(64)}", body: "x" }],
+  preconditions: [], postconditions: []
+});
+await store.recordChangeSetFile(journalId, { path: relativePath, tempPath, backupPath, existed: true, operation: "update_entity_fields", bodyHash: "sha256:${"3".repeat(64)}" });
+renameSync(absolutePath, backupPath);
+writeFileSync(tempPath, "partial write", "utf8");
+process.stdout.write("READY\\n");
+setInterval(() => undefined, 1 << 30);
+`, "utf8");
+      writer = spawn(process.execPath, [writerScript, dbPath, root, relativePath, absolutePath, backupPath, tempPath], { stdio: ["ignore", "pipe", "inherit"] });
+      await waitForStdoutLine(writer, "READY");
+
+      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toThrow("local-store-writer-owned");
+      expect(existsSync(absolutePath)).toBe(false);
+      expect(readText(backupPath)).toBe(original);
+      expect(readText(tempPath)).toBe("partial write");
+
+      writer.kill("SIGKILL");
+      await once(writer, "exit");
+      writer = undefined;
+
+      const recovered = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      expect(readText(absolutePath)).toBe(original);
+      expect(existsSync(backupPath)).toBe(false);
+      expect(existsSync(tempPath)).toBe(false);
+      expect(recovered.status().changeSetRecovery).toBeUndefined();
+      await recovered.stop();
+      expect(existsSync(`${dbPath}.owner.lock`)).toBe(false);
+    } finally {
+      if (writer) {
+        writer.kill("SIGKILL");
+        await once(writer, "exit").catch(() => undefined);
+      }
+      removeTempRepo(dir);
+    }
+  });
+
+  test("startup that leaves a ChangeSet journal unresolved refuses writes until a later start recovers it (#172)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "archctx-recovery-gate-"));
+    const root = join(dir, "repo");
+    const dbPath = join(dir, "state", "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = join(root, "review.yaml.archctx-backup");
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      initializeArchContextModel(root, "Recovery Gate App");
+      writeFileSync(absolutePath, original, "utf8");
+      const store = new SqliteLocalStore(dbPath);
+      await store.migrate();
+      const journalId = await store.beginChangeSet(root, {
+        schemaVersion: "archcontext.changeset/v1",
+        id: "changeset.recovery-gate",
+        status: "approved",
+        base: { headSha: "abc123", worktreeDigest: `sha256:${"0".repeat(64)}`, modelDigest: `sha256:${"1".repeat(64)}` },
+        reason: { taskSessionId: "task.recovery-gate" },
+        operations: [{ op: "update_entity_fields", path: relativePath, expectedHash: `sha256:${"2".repeat(64)}`, body: "x" }],
+        preconditions: [],
+        postconditions: []
+      } as any);
+      await store.recordChangeSetFile(journalId, { path: relativePath, backupPath, existed: true, operation: "update_entity_fields", bodyHash: `sha256:${"3".repeat(64)}` });
+      renameSync(absolutePath, backupPath);
+      store.close();
+      // Restoring the backup fails: its target directory has become a regular file.
+      nodeRmSync(dirname(absolutePath), { recursive: true, force: true });
+      writeFileSync(dirname(absolutePath), "not a directory", "utf8");
+
+      daemon = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      const status = daemon.status();
+      expect(status.running).toBe(true);
+      expect(status.changeSetRecovery?.writable).toBe(false);
+      expect(status.changeSetRecovery?.unresolvedJournals.map((journal) => journal.journalId)).toEqual([journalId]);
+      await expect(daemon.init(join(dir, "other-repo"), "Blocked App")).rejects.toThrow("changeset-recovery-unresolved");
+      expect(readText(backupPath)).toBe(original);
+      await daemon.stop();
+      daemon = undefined;
+
+      nodeRmSync(dirname(absolutePath), { force: true });
+      mkdirSync(dirname(absolutePath), { recursive: true });
+      daemon = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      expect(daemon.status().changeSetRecovery).toBeUndefined();
+      expect(readText(absolutePath)).toBe(original);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(dir);
+    }
+  });
+
   test("a manifest stamp commit that is not a hex SHA never reaches git as an option (#159)", async () => {
     // The projection manifest is committed repository content, i.e. untrusted input. A stamp commit
     // of `--output=output` turns `git diff <commit>..HEAD` into `git diff --output=output..HEAD`,
@@ -3121,6 +3257,29 @@ describe("local runtime foundation", () => {
         status: "changed",
         changedPathCount: 1
       }]);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("init on an already-initialized repository is a precondition failure that changes nothing (#167)", async () => {
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
+      expect((await daemon.init(root, "First App")).ok).toBe(true);
+      const manifestPath = join(root, ".archcontext/manifest.yaml");
+      const productPath = join(root, ".archcontext/product.yaml");
+      const manifestBefore = readText(manifestPath);
+      const productBefore = readText(productPath);
+
+      const again = await daemon.init(root, "Second App");
+      expect(again.ok).toBe(false);
+      expect(again.error?.code).toBe("AC_PRECONDITION_FAILED");
+      expect(again.error?.message).toContain("archcontext-init-refused");
+      expect(readText(manifestPath)).toBe(manifestBefore);
+      expect(readText(productPath)).toBe(productBefore);
     } finally {
       await daemon?.stop();
       removeTempRepo(root);
@@ -5688,6 +5847,76 @@ describe("local runtime foundation", () => {
       expect((await relaxed.runtimeStatus(tmpdir())).ok).toBe(true);
     } finally {
       await closeLoopback(server);
+    }
+  }, 15_000);
+
+  test("runtime RPC client never reuses a kept-alive socket the daemon may already be closing (#178)", async () => {
+    // Worst-case model of the daemon's keep-alive race: an HTTP/1.1 server that keeps idle
+    // connections alive unless the client asks to close, but whose idle-socket close fires the
+    // moment a second request arrives on a reused connection (what node:http does when a
+    // synchronous planUpdate held its event loop past the keep-alive deadline). A client that reuses
+    // pooled sockets loses the follow-up applyUpdate as `fetch failed` before the server reads it.
+    const received: Array<{ method: string; connection: number; connectionHeader: string | undefined }> = [];
+    const sockets = new Set<Socket>();
+    let connections = 0;
+    const server = createNetServer((socket) => {
+      const connection = ++connections;
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      let buffered = Buffer.alloc(0);
+      let answered = false;
+      socket.on("data", (chunk: Buffer) => {
+        if (answered) {
+          socket.destroy();
+          return;
+        }
+        buffered = Buffer.concat([buffered, chunk]);
+        const headerEnd = buffered.indexOf("\r\n\r\n");
+        if (headerEnd < 0) return;
+        const head = buffered.subarray(0, headerEnd).toString("latin1").split("\r\n");
+        const headers = new Map(head.slice(1).map((line) => {
+          const colon = line.indexOf(":");
+          return [line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim()] as const;
+        }));
+        const bodyLength = Number(headers.get("content-length") ?? 0);
+        if (buffered.length < headerEnd + 4 + bodyLength) return;
+        const body = buffered.subarray(headerEnd + 4, headerEnd + 4 + bodyLength).toString("utf8");
+        const method = head[0]!.startsWith("GET /health") ? "health" : (JSON.parse(body) as { method: string }).method;
+        const connectionHeader = headers.get("connection");
+        received.push({ method, connection, connectionHeader });
+        answered = true;
+        const close = connectionHeader?.toLowerCase() === "close";
+        const payload = JSON.stringify(method === "health"
+          ? { schemaVersion: RUNTIME_RPC_VERSION, ok: true }
+          : { schemaVersion: "archcontext.envelope/v1", ok: true, kind: `test.${method}`, data: {} });
+        socket.write([
+          "HTTP/1.1 200 OK",
+          "Content-Type: application/json",
+          `Content-Length: ${Buffer.byteLength(payload)}`,
+          close ? "Connection: close" : "Connection: keep-alive",
+          ...(close ? [] : ["Keep-Alive: timeout=5"]),
+          "",
+          payload
+        ].join("\r\n"));
+        if (close) socket.end();
+      });
+    });
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    try {
+      const client = new RuntimeRpcClient(loopbackRpcConnection((server.address() as { port: number }).port));
+      expect((await client.health() as { ok?: boolean }).ok).toBe(true);
+      const root = tmpdir();
+      const planned = await client.planUpdate(root, { id: "changeset.keepalive", operations: [] });
+      expect(planned.ok).toBe(true);
+      const applied = await client.applyUpdate(root, { id: "changeset.keepalive", approved: true, expectedWorktreeDigest: `sha256:${"0".repeat(64)}` });
+      expect(applied.ok).toBe(true);
+
+      expect(received.map((entry) => entry.method)).toEqual(["health", "planUpdate", "applyUpdate"]);
+      expect(new Set(received.map((entry) => entry.connection)).size).toBe(received.length);
+      expect(received.every((entry) => entry.connectionHeader?.toLowerCase() === "close")).toBe(true);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     }
   }, 15_000);
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, utimesSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, computeWorktreeDigest, createLandscape, landscapeYaml } from "@archcontext/core/architecture-domain";
@@ -30,6 +30,7 @@ import {
   completeRuntimeStateRecovery,
   inspectLegacyLocalStoreMigration,
   inspectRuntimeStateRecovery,
+  localStoreWriterOwnershipPath,
   migrateLegacyLocalStoreIfNeeded,
   migrationSql,
   recoverRuntimeStateTarget,
@@ -2115,6 +2116,100 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         refreshSignalsDelivered: false
       });
       store.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("writer ownership excludes a second live owner, is released on close, and takes over a dead owner's lock (#160)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-store-ownership-"));
+    const dbPath = join(root, "state", "runtime.sqlite");
+    const lockPath = localStoreWriterOwnershipPath(dbPath);
+    try {
+      const first = new SqliteLocalStore(dbPath);
+      first.acquireWriterOwnership();
+      expect(existsSync(lockPath)).toBe(true);
+      const second = new SqliteLocalStore(dbPath);
+      expect(() => second.acquireWriterOwnership()).toThrow("local-store-writer-owned");
+      first.close();
+      expect(existsSync(lockPath)).toBe(false);
+
+      second.acquireWriterOwnership();
+      second.close();
+
+      // A lock left behind by a process that no longer exists is crash residue, not an owner.
+      const deadPid = Number(execFileSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"], { encoding: "utf8" }));
+      writeFileSync(lockPath, JSON.stringify({ pid: deadPid, databasePath: dbPath }), "utf8");
+      const third = new SqliteLocalStore(dbPath);
+      third.acquireWriterOwnership();
+      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
+      third.close();
+
+      // A created-but-still-empty lock is what a concurrent starter sees mid-publication; it must not
+      // be treated as stale until it is old enough to be crash residue.
+      writeFileSync(lockPath, "", "utf8");
+      const racing = new SqliteLocalStore(dbPath);
+      expect(() => racing.acquireWriterOwnership()).toThrow("unreadable owner lock that is not yet stale");
+      expect(readFileSync(lockPath, "utf8")).toBe("");
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(lockPath, old, old);
+      racing.acquireWriterOwnership();
+      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
+      racing.close();
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a journal startup recovery cannot restore stays listed as unresolved, and recovers on a later retry (#172)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-unresolved-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = join(root, "review.yaml.archctx-backup");
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    try {
+      initializeArchContextModel(root, "Unresolved Recovery App");
+      writeRepoFile(root, relativePath, original);
+      const first = new SqliteLocalStore(dbPath);
+      await first.migrate();
+      const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.unresolved", relativePath));
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        backupPath,
+        existed: true,
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: original })
+      });
+      renameSync(absolutePath, backupPath);
+      first.close();
+      // The restore target's directory is now a regular file, so moving the backup back fails.
+      rmSync(dirname(absolutePath), { recursive: true, force: true });
+      writeFileSync(dirname(absolutePath), "not a directory", "utf8");
+
+      const second = new SqliteLocalStore(dbPath);
+      await second.migrate();
+      expect(second.recoverPendingChangeSets()).toBe(0);
+      const unresolved = second.listUnresolvedChangeSetJournals();
+      expect(unresolved).toEqual([{
+        journalId,
+        changeSetId: "changeset.unresolved",
+        root,
+        reason: expect.any(String)
+      }]);
+      expect(unresolved[0]!.reason).not.toContain("without a recorded recovery error");
+      expect(readFileSync(backupPath, "utf8")).toBe(original);
+      second.close();
+
+      rmSync(dirname(absolutePath), { force: true });
+      mkdirSync(dirname(absolutePath), { recursive: true });
+      const third = new SqliteLocalStore(dbPath);
+      await third.migrate();
+      expect(third.recoverPendingChangeSets()).toBe(1);
+      expect(third.listUnresolvedChangeSetJournals()).toEqual([]);
+      expect(readFileSync(absolutePath, "utf8")).toBe(original);
+      third.close();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
