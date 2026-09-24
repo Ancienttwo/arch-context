@@ -88,7 +88,7 @@ Add a daemon-owned `archctx audit approve` flow with five parts.
    audit, since a cloned repository controls it — plus the user-level audit consent stored outside
    the repository (ADR-0041 §5, `archctx audit consent`) plus this narrow PAT; not a new RBAC layer,
    matching this codebase's existing single-operator local trust model.
-4. **A second, explicit gate for non-private repositories.** Beyond the opt-in manifest flag,
+4. **A second, explicit gate for non-private repositories.** Beyond the manifest flag and user-level consent,
    publishing to a repository whose authoritatively-probed visibility is not `private` requires a
    caller-supplied `--confirm-public-repo <token>` matching
    `public:<host>/<owner>/<repo>:<baseSha>:<runId>` exactly; the canonical host is part of the

@@ -101,7 +101,7 @@ See captured planning output.
 
 ## Context
 
-Issue #161: the audit investigation child inherits the daemon environment (including the GitHub PAT); audit consent is decided by the repository-committed manifest; doctor and ADR-0041 misreport egress; issue-draft secret detectors are narrow. Commit 80a54ff implements the four acceptance criteria. The acceptance gate then failed it on:
+Issue #161: the audit investigation child inherits the daemon environment (including the GitHub PAT); audit consent is decided by the repository-committed manifest; doctor and ADR-0041 misreport egress; issue-draft secret detectors are narrow. The first commit on this branch implements the four acceptance criteria. The acceptance gate then failed it on:
 
 1. `archctx audit consent` grants consent for any args without `--revoke` (e.g. `--help`, `revoke`).
 2. The child-env allowlist drops Claude Code privacy opt-outs (DISABLE_TELEMETRY, DISABLE_ERROR_REPORTING, ...), which adds telemetry egress.
