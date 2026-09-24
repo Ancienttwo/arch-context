@@ -189,37 +189,6 @@ export function planArchitectureUpdate(input: {
   });
 }
 
-export interface ApplyArchitectureUpdateDeps {
-  changeSetEngine: ChangeSetEngine;
-}
-
-export async function applyArchitectureUpdate(root: string, input: {
-  id: string;
-  operations: ChangeOperation[];
-  approved: boolean;
-  expectedWorktreeDigest: string;
-  headSha: string;
-  modelDigest: string;
-  reason?: ChangeSetReason;
-}, deps?: ApplyArchitectureUpdateDeps) {
-  const freshness = checkpoint({ root, expectedWorktreeDigest: input.expectedWorktreeDigest });
-  if (!freshness.fresh) throw new Error("Snapshot freshness check failed before ChangeSet apply");
-  const engine = deps?.changeSetEngine;
-  if (!engine) throw new Error("applyArchitectureUpdate requires a ChangeSetEngine dependency");
-  const draft = engine.plan({
-    id: input.id,
-    base: {
-      headSha: input.headSha,
-      worktreeDigest: input.expectedWorktreeDigest,
-      modelDigest: input.modelDigest
-    },
-    reason: input.reason ?? DEFAULT_REASON,
-    operations: input.operations
-  });
-  const approved = input.approved ? engine.approve(draft) : draft;
-  return engine.apply(root, approved, { approved: input.approved });
-}
-
 const ENFORCEMENT_RANK = { advisory: 0, checkpoint: 1, complete: 2 } as const;
 
 function practiceDelta(previous: PracticeMatchV1[], current: PracticeMatchV1[]): PracticeCheckpointResultV1["delta"] {

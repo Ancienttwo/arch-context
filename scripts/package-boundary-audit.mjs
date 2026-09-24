@@ -15,6 +15,18 @@ const workspaces = discoverWorkspaces();
 const workspaceByName = new Map(workspaces.map((workspace) => [workspace.name, workspace]));
 const findings = [];
 
+for (const workspace of workspaces) {
+  if (workspace.name !== "@archcontext/cloud") continue;
+  for (const section of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    for (const forbidden of ["@archcontext/local-runtime", "@archcontext/surfaces"]) {
+      if (workspace.manifest[section]?.[forbidden] !== undefined) {
+        findings.push(`${display(join(workspace.dir, "package.json"))} declares ${forbidden}; cloud must receive local capabilities through contracts ports`);
+      }
+    }
+  }
+}
+
+
 for (const file of listFiles(root)) {
   if (!isWorkspaceSource(file)) continue;
   const owner = findWorkspace(file);
@@ -122,8 +134,8 @@ function checkWorkspaceImport(owner, file, specifier) {
   if (!testImport && owner.name === "@archcontext/local-runtime" && ["@archcontext/surfaces", "@archcontext/cloud"].includes(imported.name)) {
     findings.push(`${display(file)} is local-runtime importing ${imported.name}; runtime must not depend on surfaces/cloud`);
   }
-  if (!testImport && owner.name === "@archcontext/cloud" && imported.name === "@archcontext/surfaces") {
-    findings.push(`${display(file)} is cloud importing surfaces; cloud must stay transport/UI independent`);
+  if (!testImport && owner.name === "@archcontext/cloud" && ["@archcontext/surfaces", "@archcontext/local-runtime"].includes(imported.name)) {
+    findings.push(`${display(file)} is cloud importing ${imported.name}; inject contracts ports instead`);
   }
 }
 

@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { createPrivateKey, type KeyObject } from "node:crypto";
 import {
   attestationV2Digest,
@@ -15,11 +14,7 @@ import {
   type RunnerIdentity
 } from "@archcontext/contracts";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
-import {
-  findRepositoryRoot,
-  verifyDetachedReviewWorktree,
-  type DetachedReviewWorktreeReason
-} from "@archcontext/local-runtime/git-adapter";
+import type { ReviewCheckoutGitPort, DetachedReviewWorktreeReason } from "@archcontext/contracts";
 
 export const REVIEW_ACTION_NAME = "archcontext/review-action" as const;
 export const REVIEW_ACTION_METADATA_PATH = "actions/review-action/action.yml" as const;
@@ -330,7 +325,7 @@ export function createReviewActionPreflightPlan(input: ReviewActionRuntimePinInp
   };
 }
 
-export function verifyReviewActionCheckout(input: ReviewActionCheckoutInput): ReviewActionCheckoutVerification {
+export function verifyReviewActionCheckout(input: ReviewActionCheckoutInput, git: ReviewCheckoutGitPort): ReviewActionCheckoutVerification {
   const expected = {
     repository: input.expectedRepository,
     headSha: input.expectedHeadSha,
@@ -338,7 +333,7 @@ export function verifyReviewActionCheckout(input: ReviewActionCheckoutInput): Re
   };
   let sourceRoot: string;
   try {
-    sourceRoot = findRepositoryRoot(input.checkoutRoot);
+    sourceRoot = git.findRepositoryRoot(input.checkoutRoot);
   } catch {
     return {
       ok: false,
@@ -351,7 +346,7 @@ export function verifyReviewActionCheckout(input: ReviewActionCheckoutInput): Re
     };
   }
 
-  const observedRepository = readGitHubOriginRepository(sourceRoot);
+  const observedRepository = readGitHubOriginRepository(sourceRoot, git);
   const observedGitHubRepository = input.githubRepository ?? null;
   if (
     (observedGitHubRepository && observedGitHubRepository !== input.expectedRepository)
@@ -369,7 +364,7 @@ export function verifyReviewActionCheckout(input: ReviewActionCheckoutInput): Re
     };
   }
 
-  const verification = verifyDetachedReviewWorktree({
+  const verification = git.verifyDetachedWorktree({
     worktreeRoot: sourceRoot,
     expectedHeadSha: input.expectedHeadSha,
     expectedHeadTreeOid: input.expectedHeadTreeOid
@@ -768,17 +763,9 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function readGitHubOriginRepository(root: string): string | null {
-  try {
-    const remote = execFileSync("git", ["config", "--get", "remote.origin.url"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
-    return parseGitHubRepository(remote);
-  } catch {
-    return null;
-  }
+function readGitHubOriginRepository(root: string, git: ReviewCheckoutGitPort): string | null {
+  const remote = git.readOriginUrl(root);
+  return remote === null ? null : parseGitHubRepository(remote);
 }
 
 function parseGitHubRepository(remote: string): string | null {

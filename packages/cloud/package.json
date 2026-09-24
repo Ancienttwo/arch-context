@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@archcontext/contracts": "workspace:*",
-    "@archcontext/core": "workspace:*",
-    "@archcontext/local-runtime": "workspace:*"
+    "@archcontext/core": "workspace:*"
   }
 }

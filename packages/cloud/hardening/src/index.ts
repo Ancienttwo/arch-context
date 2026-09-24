@@ -2,9 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { crossRepoImpact, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { attestationLabel, deviceIntegritySignals } from "@archcontext/cloud/attestation";
-import { REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
-import { localEgressStatus, type LiveEgressConfig } from "@archcontext/local-runtime/egress";
-import { ARCHCONTEXT_NODE_RANGE, controlPlaneRouteDigest } from "@archcontext/contracts";
+import { ARCHCONTEXT_NODE_RANGE, controlPlaneRouteDigest, productVersionManifest, type LocalEgressReport } from "@archcontext/contracts";
 import { describeEntitlementScope, isOfflineEntitlementActive, type OfflineEntitlement } from "@archcontext/cloud/control-plane-client";
 
 export const NODE_SUPPORT_MATRIX = [
@@ -19,12 +17,11 @@ export const PLATFORM_STATE_PATHS = {
   win32: "%LOCALAPPDATA%/ArchContext/repositories/<storage-repository-id>/worktrees/<storage-workspace-id>"
 } as const;
 
-export function diagnostics(live: LiveEgressConfig = {}) {
-  const egress = localEgressStatus(process.env, live);
+export function diagnostics(egress: LocalEgressReport) {
   return {
     node: process.version,
     supportedNode: isSupportedNodeVersion(process.version),
-    codeGraphVersion: REQUIRED_CODEGRAPH_VERSION,
+    codeGraphVersion: productVersionManifest().runtime.codeGraph.requiredVersion,
     privacyRouteDigest: controlPlaneRouteDigest(),
     secureDefaults: secureDefaults(),
     egress
@@ -91,7 +88,7 @@ export function launchGateReport() {
     sourceExfiltration: "privacy-route-audit",
     changesetPathSafety: "changeset-engine tests",
     reviewBinding: "review-engine stale tests",
-    codeGraphCompatibility: REQUIRED_CODEGRAPH_VERSION,
+    codeGraphCompatibility: productVersionManifest().runtime.codeGraph.requiredVersion,
     chatgptDisclosure: "chatgpt-ui tests",
     securityFindings: {
       scope: "deterministic-mvp-surface",

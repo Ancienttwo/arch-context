@@ -20,10 +20,10 @@ import {
   type ArchitectureDocumentationProjectionProvenanceV1,
   type NativeModel
 } from "@archcontext/core/projection-engine";
-import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, productVersionManifest, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
-export const REQUIRED_CODEGRAPH_VERSION = "1.5.0";
+export const REQUIRED_CODEGRAPH_VERSION: string = productVersionManifest().runtime.codeGraph.requiredVersion;
 export const CODEGRAPH_TELEMETRY_ENV = "DO_NOT_TRACK";
 export const CODEGRAPH_TELEMETRY_DISABLED_VALUE = "1";
 const DEFAULT_CODEGRAPH_BINARY = "codegraph";
@@ -48,7 +48,7 @@ export interface CodeGraphProvider {
 }
 
 export class CodeGraphCliProvider implements CodeGraphProvider {
-  version = REQUIRED_CODEGRAPH_VERSION;
+  version: string = REQUIRED_CODEGRAPH_VERSION;
   capabilities = ["index", "context", "impact"];
   private workspaceRoot: string;
 
