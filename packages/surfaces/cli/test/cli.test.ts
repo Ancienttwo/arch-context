@@ -1608,6 +1608,18 @@ describe("archctx CLI", () => {
       expect(approveUnknown.ok).toBe(false);
       expect((approveUnknown as any).error.code).toBe("AC_SCHEMA_INVALID");
 
+      // Short flags must be rejected too, not just long ones: `-n`/`-y` (plausible typo'd
+      // abbreviations of --no-wait/--yes-style flags this CLI doesn't have) and a typo'd `-help`
+      // must never fall through as a harmless positional and reach the daemon.
+      for (const shortFlag of ["-n", "-help"]) {
+        const runShort = await runCli("audit", ["run", shortFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(runShort.ok).toBe(false);
+        expect((runShort as any).error.code).toBe("AC_SCHEMA_INVALID");
+      }
+      const approveShort = await runCli("audit", ["approve", "audit_run.cli_test", "-y"], root, { runtimeClient: throwingRuntime as any });
+      expect(approveShort.ok).toBe(false);
+      expect((approveShort as any).error.code).toBe("AC_SCHEMA_INVALID");
+
       // The known per-subcommand flags plus the global --format/--json flags this fix must not
       // break still reach the daemon untouched.
       const calls: any[] = [];
@@ -1631,6 +1643,46 @@ describe("archctx CLI", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // Only a spawned process exercises the real `case "audit":` dispatch (in-process `runCli` tests
+  // inject `deps.runtimeClient`, which sidesteps `createCliRuntime`'s real archctxd startup). This
+  // is what actually catches issue #182's HIGH finding: `await runtime()` at the dispatch site ran
+  // before `runAuditCommand` got a chance to short-circuit `--help`, so a real `archctx audit run
+  // --help` spawned a detached archctxd and wrote runtime.sqlite/locks/archctxd.json — and with a
+  // stale daemon already running, `--help` itself could fail with AC_RUNTIME_VERSION_UNSUPPORTED.
+  test("spawned CLI: audit run/approve --help and bare audit --help never start the daemon (issue #182)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-help-spawn-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const paths = testRuntimePaths(root);
+      const assertNoDaemonFootprint = () => {
+        expect(existsSync(paths.daemonConnectionPath)).toBe(false);
+        expect(existsSync(paths.localStorePath)).toBe(false);
+      };
+
+      const bareHelp = await runCliProcessRaw(root, "audit", "--help");
+      const bareEnvelope = JSON.parse(bareHelp.stdout);
+      expect(bareEnvelope.ok).toBe(true);
+      expect(bareEnvelope.data?.schemaVersion).toBe("archcontext.audit-help/v1");
+      assertNoDaemonFootprint();
+
+      const runHelp = await runCliProcessRaw(root, "audit", "run", "--help");
+      const runEnvelope = JSON.parse(runHelp.stdout);
+      expect(runEnvelope.ok).toBe(true);
+      expect(runEnvelope.data?.schemaVersion).toBe("archcontext.audit-run-help/v1");
+      assertNoDaemonFootprint();
+
+      const approveHelp = await runCliProcessRaw(root, "audit", "approve", "audit_run.does_not_exist", "--help");
+      const approveEnvelope = JSON.parse(approveHelp.stdout);
+      expect(approveEnvelope.ok).toBe(true);
+      expect(approveEnvelope.data?.schemaVersion).toBe("archcontext.audit-approve-help/v1");
+      assertNoDaemonFootprint();
+    } finally {
+      // Defensive: if the fix regressed and a daemon did start, don't leak it into later tests.
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("issue #161: doctor reports effective non-local egress from live Context7, audit, and gh publishing config", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-doctor-egress-"));

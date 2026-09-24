@@ -423,7 +423,10 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "audit":
       // User-level consent is written by the CLI only (never MCP/RPC) and needs no daemon.
       if (args[0] === "consent") return runAuditConsentCommand(args, cwd);
-      return runAuditCommand(args, cwd, await runtime());
+      // Lazy runtime (like "hook" below): eagerly `await runtime()` here would start/connect to
+      // archctxd — writing runtime.sqlite, locks, and archctxd.json — before runAuditCommand gets a
+      // chance to short-circuit `--help` or an unknown flag with zero side effects (issue #182).
+      return runAuditCommand(args, cwd, runtime);
     case "review":
     case "complete": {
       const forbidden = readForbiddenAttestationFlags(args);
@@ -2522,17 +2525,20 @@ const AUDIT_APPROVE_VALUE_FLAGS = ["--run-id", "--confirm-public-repo", ...AUDIT
 const AUDIT_APPROVE_BOOLEAN_FLAGS = ["--resume", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
 
 /**
- * First token in `args` (skipping index 0, the subcommand) that looks like a long flag but isn't
- * in `valueFlags`/`booleanFlags` — issue #182: `audit run`/`audit approve` must reject an unknown
- * flag with `AC_SCHEMA_INVALID` instead of silently ignoring it, the same way an unrecognized
- * `--status` already fails `audit list`. A recognized value flag's own value is skipped unread:
- * this only needs to catch flags the caller didn't mean to pass, not validate every value's shape
- * (that happens where each flag is actually read below).
+ * First token in `args` (skipping index 0, the subcommand) that looks like a flag — long (`--foo`)
+ * or short (`-f`) — but isn't in `valueFlags`/`booleanFlags`. Issue #182: `audit run`/`audit
+ * approve` must reject an unknown flag with `AC_SCHEMA_INVALID` instead of silently ignoring it,
+ * the same way an unrecognized `--status` already fails `audit list`; a short unrecognized flag
+ * (`-n`, `-y`, a typoed `-help`) must fail the same way, not fall through and start a real run.
+ * `-h` never reaches this scan: the caller checks `--help`/`-h` first and returns before calling
+ * this. A recognized value flag's own value is skipped unread: this only needs to catch flags the
+ * caller didn't mean to pass, not validate every value's shape (that happens where each flag is
+ * actually read below).
  */
 function findUnknownAuditFlag(args: string[], valueFlags: readonly string[], booleanFlags: readonly string[]): string | undefined {
   for (let index = 1; index < args.length; index += 1) {
     const token = args[index];
-    if (!token || !token.startsWith("--")) continue;
+    if (!token || !token.startsWith("-")) continue;
     if (booleanFlags.includes(token)) continue;
     if (valueFlags.includes(token)) {
       index += 1;
@@ -2543,7 +2549,7 @@ function findUnknownAuditFlag(args: string[], valueFlags: readonly string[], boo
   return undefined;
 }
 
-async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+async function runAuditCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
   const subcommand = args[0] ?? "run";
   if (subcommand === "--help" || subcommand === "-h") {
     return okEnvelope("audit", {
@@ -2572,7 +2578,7 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     }
     const statusResult = readAuditRunStatuses(args, "audit.list");
     if (!statusResult.ok) return statusResult.envelope;
-    return daemon.auditList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
+    return (await runtime()).auditList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
   }
   if (subcommand === "show") {
     if (args.includes("--help") || args.includes("-h")) {
@@ -2588,7 +2594,7 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     }
     const runId = readFlag(args, "--run-id") ?? args[1];
     if (!runId) return errorEnvelope("audit.show", "AC_SCHEMA_INVALID", "audit show requires <run-id> or --run-id");
-    const result = await daemon.auditShow(cwd, runId);
+    const result = await (await runtime()).auditShow(cwd, runId);
     if (!result.ok) return result;
     return { ...result, data: auditShowDataWithFiledSummary(result.data) };
   }
@@ -2620,6 +2626,7 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     const approveConsent = readAuditConsent(auditManifestGateRoot(cwd));
     if (!approveConsent.granted) return auditConsentRequiredEnvelope("audit.approve", approveConsent.reason);
     const confirmPublicToken = readFlag(args, "--confirm-public-repo");
+    const daemon = await runtime();
     const result = await daemon.auditApprove(cwd, {
       runId,
       ...(confirmPublicToken === undefined ? {} : { confirmPublicToken }),
@@ -2678,6 +2685,7 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     ...(readFlag(args, "--model-id") === undefined ? {} : { modelId: readFlag(args, "--model-id")! }),
     ...(timeoutMsResult.value === undefined ? {} : { timeoutMs: timeoutMsResult.value })
   };
+  const daemon = await runtime();
   const started = await daemon.auditRun(cwd, input);
   if (!started.ok) return { ...started, requestId: "audit.run" };
   const startedData = started.data as { status?: string; jobId?: string } | undefined;
