@@ -106,6 +106,25 @@ describe("observation kinds", () => {
     expect(assessment.observations.some((observation) => observation.kind === "direction-violation")).toBe(false);
   });
 
+  test("emits direction-violation for a declared forbid-dependency constraint the edges break", () => {
+    const constraints = [{
+      id: "constraint.a-not-c",
+      severity: "error" as const,
+      scope: { nodes: ["component.a"] },
+      rule: { type: "forbid-dependency" as const, targets: ["module.c"] },
+      rationale: "fixture"
+    }];
+    const snapshot = makeSnapshot({ importEdges: CYCLE_EDGES, constraints });
+
+    const assessment = assessObservationOnly({ snapshot, constraints });
+    const direction = assessment.observations.filter((observation) => observation.kind === "direction-violation");
+    expect(direction.map((observation) => [observation.subjectSelectorId, observation.metrics])).toEqual([
+      ["component.a", { directionViolationCount: 1 }]
+    ]);
+    // The constraints are part of the model the snapshot measured: omitting them unbinds it.
+    expect(() => assessRefactor(makeAssessmentInput({ snapshot }))).toThrow(/does not bind snapshot\.modelDigest/);
+  });
+
   test("sorts observations by kind then subject and gives each exactly one signal id", () => {
     const snapshot = makeSnapshot({ model: CONTESTED_MODEL, importEdges: CYCLE_EDGES, truncated: true });
     const assessment = assessObservationOnly({ snapshot, model: CONTESTED_MODEL });

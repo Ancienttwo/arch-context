@@ -3,9 +3,12 @@ import {
   digestJson,
   findCallerProvidedAttestationFields,
   type CallerProvidedAttestationField,
+  type DependencyConstraintEvaluationV1,
   type Json,
   type PracticeEnforcementEvaluationV1,
-  type RecommendationV2
+  type RecommendationV2,
+  type ReviewFailOnCategory,
+  type ReviewPolicyV1
 } from "@archcontext/contracts";
 import { validateLandscape, type CrossRepoRelation, type Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeOperation, ChangeSetDraft } from "@archcontext/core/changeset-engine";
@@ -29,7 +32,33 @@ export interface CompleteTaskInput {
   recommendations?: RecommendationV2[];
   projectionDrift?: CompleteTaskProjectionDriftInput;
   projectionFreshness?: CompleteTaskProjectionFreshnessInput;
+  /** Model validation errors measured by the caller; any error is an `invalid-schema` finding. */
+  modelValidationErrors?: string[];
+  /** The evaluated `forbid-dependency` constraints; skipped while the task snapshot is stale. */
+  dependencyConstraints?: DependencyConstraintEvaluationV1;
+  /**
+   * The effective review policy. When present, an error in a failOn category the policy does not
+   * list is downgraded to a warning, except the HEAD-mismatch `stale-context` finding, which always
+   * blocks. Absent keeps every finding at its producer's severity.
+   */
+  reviewPolicy?: ReviewPolicyV1;
 }
+
+/**
+ * Finding types that belong to a review policy `failOn` category. Types outside this map (practice,
+ * projection-drift and recommendation findings) are never affected by the policy. One exception
+ * inside it: the HEAD-mismatch `stale-context` finding is never downgraded, whatever `failOn`
+ * says, because a stale task snapshot skips every other gate. The projection-freshness
+ * `stale-context` finding follows the policy like any other.
+ */
+const FAIL_ON_CATEGORY_BY_FINDING_TYPE: Readonly<Record<string, ReviewFailOnCategory>> = {
+  "incomplete-intervention": "incomplete-intervention",
+  "invalid-compatibility-contract": "unjustified-compatibility",
+  "invalid-schema": "invalid-schema",
+  "prohibited-dependency": "prohibited-dependency",
+  "stale-context": "stale-context",
+  "unjustified-compatibility-path": "unjustified-compatibility"
+};
 
 export interface CompleteTaskProjectionDriftInput {
   schemaVersion: "archcontext.complete-task-projection-drift/v1";
@@ -115,8 +144,14 @@ export function completeTaskGate(input: CompleteTaskInput) {
   assertNoCallerProvidedReviewConclusionFields(input);
   const findings: PolicyFinding[] = [];
   const staleContext = input.headSha !== input.currentHeadSha;
-  if (staleContext) {
-    findings.push({ id: "stale-context", type: "stale-context", severity: "error", message: "Task snapshot HEAD does not match current HEAD." });
+  // A stale task snapshot skips every downstream gate, so the policy must never be able to soften
+  // it: otherwise passing an old headSha would turn every check into a warning-free pass.
+  const headMismatch: PolicyFinding | undefined = staleContext
+    ? { id: "stale-context", type: "stale-context", severity: "error", message: "Task snapshot HEAD does not match current HEAD." }
+    : undefined;
+  if (headMismatch) findings.push(headMismatch);
+  if ((input.modelValidationErrors ?? []).length > 0) {
+    findings.push({ id: "invalid-schema", type: "invalid-schema", severity: "error", message: `Architecture model is invalid: ${input.modelValidationErrors!.join("; ")}` });
   }
   if (input.compatibilityPathIntroduced) {
     findings.push(...validateCompatibilityContract(input.compatibilityContract));
@@ -149,9 +184,18 @@ export function completeTaskGate(input: CompleteTaskInput) {
   const recommendationGateFindings = staleContext ? [] : reviewRecommendationCompleteGateEligibility(input.recommendations ?? []);
   const projectionDriftFindings = staleContext ? [] : reviewProjectionDrift(input.projectionDrift);
   const projectionFreshnessFindings = staleContext ? [] : reviewProjectionFreshness(input.projectionFreshness);
-  findings.push(...practiceFindings, ...advisoryPracticeFindings, ...recommendationGateFindings, ...projectionDriftFindings, ...projectionFreshnessFindings);
-  const errors = findings.filter((finding) => finding.severity === "error").length;
-  const warnings = findings.filter((finding) => finding.severity === "warning").length;
+  const dependencyConstraintFindings = staleContext ? [] : reviewDependencyConstraints(input.dependencyConstraints);
+  findings.push(
+    ...practiceFindings,
+    ...advisoryPracticeFindings,
+    ...recommendationGateFindings,
+    ...projectionDriftFindings,
+    ...projectionFreshnessFindings,
+    ...dependencyConstraintFindings
+  );
+  const policy = applyReviewPolicy(findings, input.reviewPolicy, new Set(headMismatch ? [headMismatch] : []));
+  const errors = policy.findings.filter((finding) => finding.severity === "error").length;
+  const warnings = policy.findings.filter((finding) => finding.severity === "warning").length;
   const outcome = errors > 0 ? ("fail_action_required" as const) : warnings > 0 ? ("pass_with_warnings" as const) : ("pass" as const);
   const result = {
     schemaVersion: "archcontext.review/v1",
@@ -176,7 +220,7 @@ export function completeTaskGate(input: CompleteTaskInput) {
     posture: input.posture,
     result: outcome,
     summary: { errors, warnings, notices: waiversApplied.length },
-    findings,
+    findings: policy.findings,
     practiceViolations,
     waiversApplied,
     actionsRequired,
@@ -195,9 +239,64 @@ export function completeTaskGate(input: CompleteTaskInput) {
       ...(suppressedPracticeFindings.length === 0 ? {} : { suppressedPracticeFindings }),
       ...(recommendationGateFindings.length === 0 ? {} : { recommendationGateFindings }),
       ...(projectionDriftFindings.length === 0 ? {} : { projectionDriftGate: input.projectionDrift }),
-      ...(projectionFreshnessFindings.length === 0 ? {} : { projectionFreshnessGate: input.projectionFreshness })
+      ...(projectionFreshnessFindings.length === 0 ? {} : { projectionFreshnessGate: input.projectionFreshness }),
+      ...(input.dependencyConstraints === undefined ? {} : staleContext
+        ? { dependencyConstraintChecksSkipped: "stale-context" }
+        : { dependencyConstraintGate: input.dependencyConstraints as unknown as Json }),
+      ...(input.reviewPolicy === undefined ? {} : {
+        reviewPolicy: { ...input.reviewPolicy, downgradedFindingIds: policy.downgradedFindingIds }
+      })
     }
   };
+}
+
+/**
+ * One `prohibited-dependency` finding per violating edge, at its constraint's severity. Any gap in
+ * the evidence (`reasonCodes` non-empty) is additionally reported as a blocking error, even next
+ * to found violations: a truncated or partly unresolved answer that happens to contain only
+ * warning-level violations must not pass. The policy step below is what downgrades that error
+ * when `prohibited-dependency` is not in the effective `failOn`.
+ */
+function reviewDependencyConstraints(evaluation: DependencyConstraintEvaluationV1 | undefined): PolicyFinding[] {
+  if (!evaluation) return [];
+  const findings: PolicyFinding[] = evaluation.status !== "violated" ? [] : evaluation.violations.map((violation) => ({
+    id: `prohibited-dependency:${violation.constraintId}:${violation.fromPath}->${violation.toPath}`,
+    type: "prohibited-dependency",
+    severity: violation.severity,
+    message: `${violation.fromPath} (${violation.fromNode}) must not depend on ${violation.toPath} (${violation.toNode}): constraint ${violation.constraintId}.`
+  }));
+  if (evaluation.status === "not-applicable") return findings;
+  if (evaluation.status !== "undetermined" && evaluation.reasonCodes.length === 0) return findings;
+  const unresolved = evaluation.unresolvedImports.slice(0, 5).map((edge) => `${edge.from} -> ${edge.specifier}`);
+  findings.push({
+    id: "prohibited-dependency:undetermined",
+    type: "prohibited-dependency",
+    severity: "error",
+    message: `Cannot determine whether dependency constraints hold (${evaluation.reasonCodes.join(",")}; coverage ${evaluation.coverage})`
+      + `${unresolved.length === 0 ? "" : `; unresolved: ${unresolved.join(", ")}${evaluation.unresolvedImports.length > unresolved.length ? ", ..." : ""}`}.`
+  });
+  return findings;
+}
+
+function applyReviewPolicy(
+  findings: PolicyFinding[],
+  policy: ReviewPolicyV1 | undefined,
+  neverDowngraded: ReadonlySet<PolicyFinding>
+): { findings: PolicyFinding[]; downgradedFindingIds: string[] } {
+  if (!policy) return { findings, downgradedFindingIds: [] };
+  const failOn = new Set<ReviewFailOnCategory>(policy.failOn);
+  const downgradedFindingIds: string[] = [];
+  const governed = findings.map((finding) => {
+    const category = FAIL_ON_CATEGORY_BY_FINDING_TYPE[finding.type];
+    if (category === undefined || finding.severity !== "error" || failOn.has(category) || neverDowngraded.has(finding)) return finding;
+    downgradedFindingIds.push(finding.id);
+    return {
+      ...finding,
+      severity: "warning" as const,
+      message: `${finding.message} (Downgraded to warning: review policy failOn does not include ${category}.)`
+    };
+  });
+  return { findings: governed, downgradedFindingIds };
 }
 
 function reviewProjectionDrift(projectionDrift: CompleteTaskProjectionDriftInput | undefined): PolicyFinding[] {

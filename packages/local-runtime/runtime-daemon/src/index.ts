@@ -13,6 +13,8 @@ import {
   computeWorktreeDigest,
   createLandscape,
   landscapeDigest,
+  readDependencyConstraints,
+  readReviewPolicy,
   repositoryFingerprint,
   validateAdrAppliesTo,
   validateLandscape,
@@ -76,6 +78,7 @@ import {
 import {
   REPOSITORY_REFACTOR_REQUEST,
   RefactorScanError,
+  evaluateReviewDependencyConstraints,
   runRefactorScan,
   type RefactorScanResultV1
 } from "./refactor-scan";
@@ -1173,11 +1176,12 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
     const readback = await this.loadLedgerModel(workspace);
-    const { errors, referenceErrors } = validateModelFiles(readback.files);
+    const { errors, referenceErrors, warnings } = validateModelFiles(readback.files);
     const result: ArchitectureLedgerReadModelValidation = {
       valid: errors.length === 0,
       errors,
       ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
       modelDigest: modelDigestForFiles(readback.files),
       architectureLedger: {
         ...this.architectureLedger,
@@ -2866,14 +2870,22 @@ export class ArchctxDaemon {
       : undefined;
     const projectionDrift = completeTaskProjectionDrift(session.workspace.root);
     const projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
+    const worktreeDigest = computeWorktreeDigest(session.workspace.root);
+    // Constraints and the review policy are read through the model store port, so the ledger read
+    // mode sees the same model `validate` does.
+    const modelFiles = (await this.readModelStore.loadModel(session.workspace)).filter(isModelFile);
+    const dependencyConstraints = evaluateReviewDependencyConstraints({ root: session.workspace.root, worktreeDigest, modelFiles });
     const reviewInput: CompleteTaskInput = {
       taskSessionId,
       posture: input.posture ?? "normal",
       headSha: input.headSha ?? currentHeadSha!,
       currentHeadSha: currentHeadSha!,
-      worktreeDigest: computeWorktreeDigest(session.workspace.root),
+      worktreeDigest,
       modelDigest: model.modelDigest,
       codeFactsDigest: codeFactsDigest(codeFacts),
+      ...(model.valid ? {} : { modelValidationErrors: model.errors }),
+      dependencyConstraints,
+      reviewPolicy: readReviewPolicy(modelFiles).policy,
       ...(projectionDrift === undefined ? {} : { projectionDrift }),
       ...(projectionFreshness === undefined ? {} : { projectionFreshness }),
       ...(input.compatibilityContract === undefined ? {} : { compatibilityContract: input.compatibilityContract }),
@@ -7456,7 +7468,7 @@ function isEmptyArchitectureLedgerState(state: ArchitectureLedgerGraphState): bo
   return state.entities.length === 0 && state.relations.length === 0 && state.constraints.length === 0;
 }
 
-function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[] } {
+function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const paths = new Set(files.map((file) => file.path));
   for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
@@ -7466,8 +7478,14 @@ function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceEr
     if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
   }
   const adr = validateAdrAppliesTo(files);
-  errors.push(...adr.errors);
-  return { errors, referenceErrors: adr.referenceErrors };
+  const constraints = readDependencyConstraints(files);
+  const reviewPolicy = readReviewPolicy(files);
+  errors.push(...adr.errors, ...constraints.errors, ...reviewPolicy.errors);
+  return {
+    errors,
+    referenceErrors: [...adr.referenceErrors, ...constraints.referenceErrors],
+    warnings: [...constraints.warnings, ...reviewPolicy.warnings]
+  };
 }
 
 function modelDigestForFiles(files: ModelFile[]): string {

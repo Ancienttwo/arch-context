@@ -148,6 +148,8 @@ export interface ModelValidationResult {
    * `appliesTo` id with no node. Omitted when empty.
    */
   referenceErrors?: string[];
+  /** Problems that do not invalidate the model, such as an ignored legacy setting. Omitted when empty. */
+  warnings?: string[];
   modelDigest: string;
 }
 

@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { digestJson, stableYaml, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
-import { validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
+import { REVIEW_FAIL_ON_CATEGORIES, digestJson, stableYaml, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
+import { readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
 
 export interface ModelFile {
@@ -47,9 +47,6 @@ export function createDefaultManifest(productId: string, productName: string): J
       localTunnel: { includeSourceByDefault: false, maxResultBytes: 8192 }
     },
     product: { governanceLevel: "auto", id: productId, name: productName },
-    review: {
-      failOn: ["invalid-schema", "prohibited-dependency", "unjustified-compatibility", "stale-context", "incomplete-intervention"]
-    },
     runtime: { checkpoint: { changedFileThreshold: 20, requiredBeforeComplete: true }, contextBudgetBytes: 12288 }
   };
 }
@@ -189,7 +186,7 @@ export function initializeArchContextModel(root: string, productName = "ArchCont
   addYaml(".archcontext/policies/review.yaml", {
     schemaVersion: "archcontext.policy/v1",
     id: "policy.review",
-    failOn: ["invalid-schema", "stale-context", "unjustified-compatibility"]
+    failOn: [...REVIEW_FAIL_ON_CATEGORIES]
   });
   files.push({ path: ".archcontext/projections/targets.json", body: `${JSON.stringify(createDefaultProjectionTargetManifest(), null, 2)}\n` });
 
@@ -297,10 +294,19 @@ export class YamlModelStore implements ModelStorePort {
       }
     }
     const adr = validateAdrAppliesTo(files);
-    errors.push(...adr.errors);
-    const referenceErrors = adr.referenceErrors;
+    const constraints = readDependencyConstraints(files);
+    const reviewPolicy = readReviewPolicy(files);
+    errors.push(...adr.errors, ...constraints.errors, ...reviewPolicy.errors);
+    const referenceErrors = [...adr.referenceErrors, ...constraints.referenceErrors];
+    const warnings = [...constraints.warnings, ...reviewPolicy.warnings];
     const modelDigest = digestJson(files.map((file) => ({ path: file.path, digest: file.digest })));
-    return { valid: errors.length === 0, errors, ...(referenceErrors.length > 0 ? { referenceErrors } : {}), modelDigest };
+    return {
+      valid: errors.length === 0,
+      errors,
+      ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
+      modelDigest
+    };
   }
 
   async writeChangeSetPreview(changeSet: unknown): Promise<{ digest: string; summary: string }> {
