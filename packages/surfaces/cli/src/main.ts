@@ -268,7 +268,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     runtimeHandle ??= createCliRuntime(cwd, deps);
     return (await runtimeHandle).client;
   };
-  try {
+  // Commands may return an unsettled promise; it must settle before the runtime closes below.
+  const execute = async () => {
     switch (command) {
     case "init":
       if (args.includes("--help") || args.includes("-h")) {
@@ -555,6 +556,9 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         }
       };
     }
+  };
+  try {
+    return await execute();
   } finally {
     const handle = await runtimeHandle?.catch(() => undefined);
     await handle?.close();
