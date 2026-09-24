@@ -119,3 +119,9 @@ node scripts/packaged-cli-smoke.mjs
 bun run verify:acceptance-ledger
 bun run check:sprint
 ```
+
+## Local health authentication
+
+Use `archctx daemon status`, `archctx doctor`, or `RuntimeRpcClient.health()` to probe daemon health. The HTTP health route requires the bearer token from the private daemon connection file. The CLI's sanitized daemon-ready output does not contain that token.
+
+Daemon and Explorer requests must use the Host from their issued loopback URL. Browser requests must have the same Origin; native clients may omit Origin. Explorer health also requires its unexpired session token. Cross-origin and mismatched-Host requests return 403, and unauthenticated health requests return 401.

@@ -3249,7 +3249,7 @@ setInterval(() => undefined, 1 << 30);
       });
       const connection = await rpc.start();
       try {
-        const health = await (await fetch(`${connection.url}health`, { headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION } })).json() as any;
+        const health = await (await fetch(`${connection.url}health`, { headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION, Authorization: `Bearer ${connection.token}` } })).json() as any;
         expect(health.ok).toBe(true);
         expect(health.changeSetRecovery.writable).toBe(false);
         expect(health.changeSetRecovery.unresolvedJournals.map((journal: { journalId: string }) => journal.journalId)).toEqual([journalId]);
@@ -5812,8 +5812,20 @@ setInterval(() => undefined, 1 << 30);
         expect(statSync(connection.lockPath).mode & 0o777).toBe(0o600);
       }
 
+      const deniedHealth = await fetch(`${connection.url}health`);
+      expect(deniedHealth.status).toBe(401);
+      for (const headers of [
+        { Host: "attacker.example" },
+        { Origin: "https://attacker.example" },
+        { Origin: "null" }
+      ] as Record<string, string>[]) {
+        const rejectedHealth = await fetch(`${connection.url}health?egress=1`, {
+          headers: { ...headers, Authorization: `Bearer ${connection.token}` }
+        });
+        expect(rejectedHealth.status).toBe(403);
+      }
       const health = await fetch(`${connection.url}health`, {
-        headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION }
+        headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION, Authorization: `Bearer ${connection.token}` }
       });
       expect(health.status).toBe(200);
       const healthBody = await health.json() as any;
@@ -6711,6 +6723,12 @@ setInterval(() => undefined, 1 << 30);
       const data = started.data as any;
       expect(data.host).toBe("127.0.0.1");
       expect(data.readOnly).toBe(true);
+
+      expect((await fetch(`${data.url}health`)).status).toBe(401);
+      for (const headers of [{ Host: "attacker.example" }, { Origin: "https://attacker.example" }, { Origin: "null" }] as Record<string, string>[]) {
+        expect((await fetch(`${data.url}health`, { headers: { ...headers, Authorization: `Bearer ${data.token}` } })).status).toBe(403);
+      }
+      expect((await fetch(`${data.url}health`, { headers: { Authorization: `Bearer ${data.token}`, Origin: new URL(data.url).origin } })).status).toBe(200);
 
       const projectionDenied = await fetch(`${data.url}projection`);
       expect(projectionDenied.status).toBe(401);
