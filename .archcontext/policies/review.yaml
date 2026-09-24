@@ -1,6 +1,8 @@
 failOn:
   - "invalid-schema"
-  - "stale-context"
+  - "prohibited-dependency"
   - "unjustified-compatibility"
+  - "stale-context"
+  - "incomplete-intervention"
 id: "policy.review"
 schemaVersion: "archcontext.policy/v1"
