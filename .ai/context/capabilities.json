@@ -44,7 +44,8 @@
       "domain": "architecture-context",
       "name": "contracts",
       "prefixes": [
-        "packages/contracts"
+        "packages/contracts",
+        "schemas"
       ],
       "contract_files": {
         "agents": "AGENTS.md",
@@ -291,7 +292,8 @@
       "domain": "architecture-context",
       "name": "practice-catalog",
       "prefixes": [
-        "packages/core/practice-catalog/src"
+        "packages/core/practice-catalog/src",
+        "packages/core/practice-catalog/assets"
       ],
       "contract_files": {
         "agents": "AGENTS.md",
@@ -519,7 +521,8 @@
       "domain": "architecture-context",
       "name": "cli",
       "prefixes": [
-        "packages/surfaces/cli/src"
+        "packages/surfaces/cli/src",
+        "packages/surfaces/cli/bin"
       ],
       "contract_files": {
         "agents": "AGENTS.md",

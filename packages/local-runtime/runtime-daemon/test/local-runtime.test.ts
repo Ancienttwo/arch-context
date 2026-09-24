@@ -3239,6 +3239,49 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
+  test("startup leaves a ChangeSet journal unresolved when a recovered file's backup and destination are both missing (#179)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "archctx-recovery-lost-backup-"));
+    const root = join(dir, "repo");
+    const dbPath = join(dir, "state", "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = join(root, "review.yaml.archctx-backup");
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      initializeArchContextModel(root, "Recovery Lost Backup App");
+      writeFileSync(absolutePath, original, "utf8");
+      const store = new SqliteLocalStore(dbPath);
+      await store.migrate();
+      const journalId = await store.beginChangeSet(root, {
+        schemaVersion: "archcontext.changeset/v1",
+        id: "changeset.recovery-lost-backup",
+        status: "approved",
+        base: { headSha: "abc123", worktreeDigest: `sha256:${"0".repeat(64)}`, modelDigest: `sha256:${"1".repeat(64)}` },
+        reason: { taskSessionId: "task.recovery-lost-backup" },
+        operations: [{ op: "update_entity_fields", path: relativePath, expectedHash: `sha256:${"2".repeat(64)}`, body: "x" }],
+        preconditions: [],
+        postconditions: []
+      } as any);
+      await store.recordChangeSetFile(journalId, { path: relativePath, backupPath, existed: true, operation: "update_entity_fields", bodyHash: `sha256:${"3".repeat(64)}` });
+      // The crash happened after the rename to backup, and the backup itself was then lost too.
+      renameSync(absolutePath, backupPath);
+      nodeRmSync(backupPath, { force: true });
+      store.close();
+
+      daemon = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      const status = daemon.status();
+      expect(status.running).toBe(true);
+      expect(status.changeSetRecovery?.writable).toBe(false);
+      expect(status.changeSetRecovery?.unresolvedJournals.map((journal) => journal.journalId)).toEqual([journalId]);
+      expect(status.changeSetRecovery?.unresolvedJournals[0]?.reason).toContain(relativePath);
+      await expect(daemon.init(join(dir, "other-repo"), "Blocked App")).rejects.toThrow("changeset-recovery-unresolved");
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(dir);
+    }
+  });
+
   test("a manifest stamp commit that is not a hex SHA never reaches git as an option (#159)", async () => {
     // The projection manifest is committed repository content, i.e. untrusted input. A stamp commit
     // of `--output=output` turns `git diff <commit>..HEAD` into `git diff --output=output..HEAD`,

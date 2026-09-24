@@ -1525,6 +1525,214 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("issue #182: audit run/approve --help and bare audit --help print usage without reaching the daemon", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-help-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const restoreAuditConsent = grantTestAuditConsent(root);
+    try {
+      // Manifest enabled and consent granted, so nothing but the --help guard itself stands between
+      // these calls and the daemon; a throwing client proves it is never reached. Unlike the #181
+      // `audit consent --help` test, `run`/`list`/`show`/`approve` all pass through `await runtime()`
+      // even on the help path (only `consent` skips the runtime entirely), and `await` probes any
+      // resolved value for a `.then` method — so a catch-all `Proxy` (whose trap answers every
+      // property, including `then`, with a function) gets misread as a thenable and self-invokes
+      // before the CLI's own `--help` check ever runs. A plain object with only the real RPC method
+      // names avoids that trap.
+      const throwingRuntime = {
+        auditRun() { throw new Error("must not reach the daemon: auditRun"); },
+        auditApprove() { throw new Error("must not reach the daemon: auditApprove"); },
+        auditList() { throw new Error("must not reach the daemon: auditList"); },
+        auditShow() { throw new Error("must not reach the daemon: auditShow"); }
+      };
+
+      for (const helpFlag of ["--help", "-h"]) {
+        const bareHelp = await runCli("audit", [helpFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(bareHelp.ok).toBe(true);
+        expect((bareHelp.data as any).schemaVersion).toBe("archcontext.audit-help/v1");
+
+        const runHelp = await runCli("audit", ["run", helpFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(runHelp.ok).toBe(true);
+        expect((runHelp.data as any).schemaVersion).toBe("archcontext.audit-run-help/v1");
+
+        // --help must win even mixed with other run flags.
+        const runHelpMixed = await runCli("audit", ["run", "--reason", "quarterly", helpFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(runHelpMixed.ok).toBe(true);
+        expect((runHelpMixed.data as any).schemaVersion).toBe("archcontext.audit-run-help/v1");
+
+        const approveHelp = await runCli("audit", ["approve", "audit_run.cli_test", helpFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(approveHelp.ok).toBe(true);
+        expect((approveHelp.data as any).schemaVersion).toBe("archcontext.audit-approve-help/v1");
+
+        // --help must win even with no run-id at all.
+        const approveHelpBare = await runCli("audit", ["approve", helpFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(approveHelpBare.ok).toBe(true);
+        expect((approveHelpBare.data as any).schemaVersion).toBe("archcontext.audit-approve-help/v1");
+
+        const listHelp = await runCli("audit", ["list", helpFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(listHelp.ok).toBe(true);
+        expect((listHelp.data as any).schemaVersion).toBe("archcontext.audit-list-help/v1");
+
+        const showHelp = await runCli("audit", ["show", helpFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(showHelp.ok).toBe(true);
+        expect((showHelp.data as any).schemaVersion).toBe("archcontext.audit-show-help/v1");
+      }
+    } finally {
+      restoreAuditConsent();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("issue #182: an unknown flag on audit run/approve is rejected with AC_SCHEMA_INVALID before reaching the daemon", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-unknown-flag-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const restoreAuditConsent = grantTestAuditConsent(root);
+    try {
+      // Manifest enabled and consent granted (and a valid-looking run-id for approve), so an
+      // unpatched CLI would sail through to the daemon; a throwing client proves it never gets
+      // there. A plain object, not a catch-all Proxy: see the sibling --help test above for why a
+      // Proxy answering every property (including `then`) self-invokes under `await runtime()`.
+      const throwingRuntime = {
+        auditRun() { throw new Error("must not reach the daemon: auditRun"); },
+        auditApprove() { throw new Error("must not reach the daemon: auditApprove"); }
+      };
+
+      const runUnknown = await runCli("audit", ["run", "--bogus-flag"], root, { runtimeClient: throwingRuntime as any });
+      expect(runUnknown.ok).toBe(false);
+      expect((runUnknown as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const approveUnknown = await runCli("audit", ["approve", "audit_run.cli_test", "--bogus-flag"], root, { runtimeClient: throwingRuntime as any });
+      expect(approveUnknown.ok).toBe(false);
+      expect((approveUnknown as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      // Short flags must be rejected too, not just long ones: `-n`/`-y` (plausible typo'd
+      // abbreviations of --no-wait/--yes-style flags this CLI doesn't have) and a typo'd `-help`
+      // must never fall through as a harmless positional and reach the daemon.
+      for (const shortFlag of ["-n", "-help"]) {
+        const runShort = await runCli("audit", ["run", shortFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(runShort.ok).toBe(false);
+        expect((runShort as any).error.code).toBe("AC_SCHEMA_INVALID");
+      }
+      const approveShort = await runCli("audit", ["approve", "audit_run.cli_test", "-y"], root, { runtimeClient: throwingRuntime as any });
+      expect(approveShort.ok).toBe(false);
+      expect((approveShort as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      // An unknown flag cannot hide as a recognized value flag's value, and a value flag at the
+      // end of the argument list is missing its value.
+      for (const args of [["run", "--reason", "--bogus"], ["run", "--reason"], ["approve", "audit_run.cli_test", "--confirm-public-repo", "--bogus"]]) {
+        const smuggled = await runCli("audit", args, root, { runtimeClient: throwingRuntime as any });
+        expect(smuggled.ok).toBe(false);
+        expect((smuggled as any).error.code).toBe("AC_SCHEMA_INVALID");
+        expect((smuggled as any).error.message).toContain("requires a value for");
+      }
+
+      // The known per-subcommand flags plus the global --format/--json flags this fix must not
+      // break still reach the daemon untouched.
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "audit.run", data: { schemaVersion: "archcontext.audit-run-result/v1", status: "started", jobId: "agent_job.help_test" } };
+        },
+        auditApprove(_root: string, input: any) {
+          calls.push({ method: "approve", input });
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "audit.approve", data: {} };
+        }
+      };
+      const runOk = await runCli("audit", ["run", "--no-wait", "--reason", "x", "--format", "json"], root, { runtimeClient: runtimeClient as any });
+      expect(runOk.ok).toBe(true);
+      const approveOk = await runCli("audit", ["approve", "audit_run.cli_test", "--resume", "--json"], root, { runtimeClient: runtimeClient as any });
+      expect(approveOk.ok).toBe(true);
+      expect(calls.map((call) => call.method)).toEqual(["run", "approve"]);
+    } finally {
+      restoreAuditConsent();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Only a spawned process exercises the real `case "audit":` dispatch (in-process `runCli` tests
+  // inject `deps.runtimeClient`, which sidesteps `createCliRuntime`'s real archctxd startup). This
+  // is what actually catches issue #182's HIGH finding: `await runtime()` at the dispatch site ran
+  // before `runAuditCommand` got a chance to short-circuit `--help`, so a real `archctx audit run
+  // --help` spawned a detached archctxd and wrote runtime.sqlite/locks/archctxd.json — and with a
+  // stale daemon already running, `--help` itself could fail with AC_RUNTIME_VERSION_UNSUPPORTED.
+  test("spawned CLI: audit run/approve --help and bare audit --help never start the daemon (issue #182)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-help-spawn-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const paths = testRuntimePaths(root);
+      const assertNoDaemonFootprint = () => {
+        expect(existsSync(paths.daemonConnectionPath)).toBe(false);
+        expect(existsSync(paths.localStorePath)).toBe(false);
+      };
+
+      const bareHelp = await runCliProcessRaw(root, "audit", "--help");
+      const bareEnvelope = JSON.parse(bareHelp.stdout);
+      expect(bareEnvelope.ok).toBe(true);
+      expect(bareEnvelope.data?.schemaVersion).toBe("archcontext.audit-help/v1");
+      assertNoDaemonFootprint();
+
+      const runHelp = await runCliProcessRaw(root, "audit", "run", "--help");
+      const runEnvelope = JSON.parse(runHelp.stdout);
+      expect(runEnvelope.ok).toBe(true);
+      expect(runEnvelope.data?.schemaVersion).toBe("archcontext.audit-run-help/v1");
+      assertNoDaemonFootprint();
+
+      const approveHelp = await runCliProcessRaw(root, "audit", "approve", "audit_run.does_not_exist", "--help");
+      const approveEnvelope = JSON.parse(approveHelp.stdout);
+      expect(approveEnvelope.ok).toBe(true);
+      expect(approveEnvelope.data?.schemaVersion).toBe("archcontext.audit-approve-help/v1");
+      assertNoDaemonFootprint();
+    } finally {
+      // Defensive: if the fix regressed and a daemon did start, don't leak it into later tests.
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  // Regression test for a crash the --help fix itself introduced: AUDIT_RUN_VALUE_FLAGS and its five
+  // sibling constants were originally declared far below in the file, next to runAuditCommand — but
+  // still textually *after* the `if (import.meta.main)` entry block (~:141). That block's top-level
+  // `await runCli(...)` pauses this module's own evaluation partway through, so any top-level `const`
+  // after it is still an uninitialized binding (TDZ) while `runCli` runs. A real, non-help `audit run`,
+  // `audit approve`, or bare `audit` reached `findUnknownAuditFlag` — referencing those constants —
+  // while the module was still paused there, and crashed with "Cannot access '...' before
+  // initialization", surfaced to the caller as AC_RUNTIME_UNAVAILABLE instead of the real error. Every
+  // in-process `runCli` test (including the --help ones above) is blind to this: importing the module
+  // sets `import.meta.main` to false, so the entry block's body never runs and the module finishes
+  // evaluating top to bottom, past those constants, before any test calls `runCli`. Only a spawned
+  // process reproduces it — and only on a non-help path, since --help returns before ever touching
+  // these constants. Confirmed by hand too: `bun packages/surfaces/cli/src/main.ts audit run -n` in a
+  // scratch repo, before this fix, printed exactly that AC_RUNTIME_UNAVAILABLE message.
+  test("spawned CLI: audit run/approve non-help paths return their real error code, not AC_RUNTIME_UNAVAILABLE", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-tdz-regress-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const runUnknown = await runCliProcessRaw(root, "audit", "run", "-n");
+      const runEnvelope = JSON.parse(runUnknown.stdout);
+      expect(runEnvelope.ok).toBe(false);
+      expect(runEnvelope.error?.code).toBe("AC_SCHEMA_INVALID");
+
+      const approveUnknown = await runCliProcessRaw(root, "audit", "approve", "audit_run.x", "--bogus");
+      const approveEnvelope = JSON.parse(approveUnknown.stdout);
+      expect(approveEnvelope.ok).toBe(false);
+      expect(approveEnvelope.error?.code).toBe("AC_SCHEMA_INVALID");
+
+      mkdirSync(join(root, ".archcontext"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: false\n", "utf8");
+      const disabledRun = await runCliProcessRaw(root, "audit", "run");
+      const disabledEnvelope = JSON.parse(disabledRun.stdout);
+      expect(disabledEnvelope.ok).toBe(false);
+      expect(disabledEnvelope.error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("issue #161: doctor reports effective non-local egress from live Context7, audit, and gh publishing config", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-doctor-egress-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
