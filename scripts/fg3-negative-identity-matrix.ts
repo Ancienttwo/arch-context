@@ -6,11 +6,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
+import { DevicePrivateKeyStore, InMemoryCredentialSecretStore } from "@archcontext/cloud/control-plane-client";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { ArchctxDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
+import { createFixtureGithubConnectionReader } from "../packages/surfaces/cli/test/github-connection-fixture";
 import { runCli } from "../packages/surfaces/cli/src/main";
 
 const DEFAULT_OUTPUT = "docs/verification/fg3-negative-identity-matrix.json";
@@ -52,7 +53,6 @@ export async function runFg3NegativeIdentityMatrix(config: ReturnType<typeof bui
   const runtimeProvider = new MockCodeGraphProvider();
   const credentials = new InMemoryCredentialSecretStore();
   const devicePrivateKeyStore = new DevicePrivateKeyStore(credentials);
-  const tokenStore = new KeychainTokenStore();
   const keyPair = generateKeyPairSync("ed25519");
   let daemon: ArchctxDaemon | undefined;
   try {
@@ -86,22 +86,15 @@ export async function runFg3NegativeIdentityMatrix(config: ReturnType<typeof bui
       codeFacts: new CodeGraphAdapter(cliProvider),
       codeGraphProviderFactory: () => new MockCodeGraphProvider(),
       devicePrivateKeyStore,
-      tokenStore,
+      githubConnectionReader: createFixtureGithubConnectionReader(devicePrivateKeyStore, {
+        accountId: "acct_negative_identity", githubUserId: "negative-identity-user", publicKeyId: "key_negative_identity"
+      }),
       githubGovernancePort: {
         async getPullHeadMetadata(input: { installationId: number; repositoryId: number; pullRequestNumber: number }) {
           return { ...input, headSha, baseSha: headSha };
         }
       }
     };
-    const connect = await runCli("github", [
-      "connect",
-      "--account-id", "acct_negative_identity",
-      "--github-user-id", "negative-identity-user",
-      "--public-key-id", "key_negative_identity",
-      "--verifier", "fixed-negative-identity-verifier",
-      "--now", "2026-06-20T08:59:00Z"
-    ], repo, deps);
-    if (!connect.ok) failures.push("github connect failed");
 
     const cliClaimCases: CliClaimCase[] = [];
     const rawCliOutputs: string[] = [];

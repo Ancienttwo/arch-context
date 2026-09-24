@@ -194,9 +194,10 @@ export interface CliRuntimeDeps extends RuntimeDeps {
     signWithDevicePrivateKey(input: { keyRef: string; payload: string | Uint8Array }): string;
     removeDevicePrivateKey(keyRef: string): void;
   };
-  tokenStore?: {
-    saveRefreshToken(accountId: string, refreshToken: string): string;
-    clear(ref: string): void;
+  // The adapter must verify authorization, device registration and durable credential access.
+  // A cached local JSON record is never connection authority.
+  githubConnectionReader?: {
+    readVerifiedConnection(input: { repositoryRoot: string }): Promise<GitHubConnectionRecord | undefined>;
   };
   githubGovernancePort?: Pick<GitHubGovernancePort, "getPullHeadMetadata">;
   githubReviewChallengePort?: {
@@ -223,17 +224,12 @@ interface DeviceKeyCredentialReference {
   createdAt: string;
 }
 
-interface GitHubConnectionRecord {
+export interface GitHubConnectionRecord {
   schemaVersion: "archcontext.github-connection/v1";
   status: "connected";
   accountId: string;
   githubUserId: string;
   issuer: string;
-  clientId: string;
-  scopes: string[];
-  authorizationUrl: string;
-  codeVerifierRef: string;
-  refreshTokenRef: string;
   deviceKey: DeviceKeyCredentialReference;
   connectedAt: string;
 }
@@ -2874,86 +2870,29 @@ async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDep
   const subcommand = args[0] ?? "status";
   const connectionPath = defaultGithubConnectionPath(cwd);
   if (subcommand === "status") {
-    const record = readGithubConnection(connectionPath);
+    const record = await deps.githubConnectionReader?.readVerifiedConnection({ repositoryRoot: cwd });
     return okEnvelope("github.status", record ? sanitizeGithubConnection(record, connectionPath) : {
       connected: false,
+      status: "unavailable",
+      reason: "Verified GitHub authorization, device registration and durable credential storage are not configured",
       connectionPath,
       ghCli: "not-used"
     } as any);
   }
   if (subcommand === "connect") {
-    const accountId = readFlag(args, "--account-id") ?? "acct_local";
-    const githubUserId = readFlag(args, "--github-user-id") ?? "local";
-    const publicKeyId = readFlag(args, "--public-key-id") ?? `key_device_${githubUserId}`;
-    const issuer = readFlag(args, "--issuer") ?? "https://archcontext.repoharness.com";
-    const clientId = readFlag(args, "--client-id") ?? "archctx";
-    const redirectUri = readFlag(args, "--redirect-uri") ?? "http://127.0.0.1:8787/oauth/callback";
-    const scopes = readRepeatedFlag(args, "--scope");
-    const requestedScopes = scopes.length > 0 ? scopes : ["account:read", "device:write", "entitlement:read"];
-    const connectedAt = readFlag(args, "--now") ?? new Date().toISOString();
-    const {
-      DevicePrivateKeyStore,
-      KeychainTokenStore,
-      createPkceAuthorizationRequest
-    } = await import("@archcontext/cloud/control-plane-client");
-    const tokenStore = deps.tokenStore ?? new KeychainTokenStore();
-    const keyStore = deps.devicePrivateKeyStore ?? new DevicePrivateKeyStore();
-    const pkce = createPkceAuthorizationRequest({
-      issuer,
-      clientId,
-      redirectUri,
-      scopes: requestedScopes,
-      state: readFlag(args, "--state") ?? `archctx-${accountId}`,
-      verifier: readFlag(args, "--verifier")
-    });
-    const codeVerifierRef = tokenStore.saveRefreshToken(`${accountId}/github-pkce`, pkce.codeVerifier);
-    const refreshTokenRef = tokenStore.saveRefreshToken(`${accountId}/github-refresh`, `refresh_${accountId}_${Date.parse(connectedAt)}`);
-    const deviceKey = keyStore.provisionDevicePrivateKey({
-      accountId,
-      publicKeyId,
-      createdAt: connectedAt
-    });
-    const record: GitHubConnectionRecord = {
-      schemaVersion: "archcontext.github-connection/v1",
-      status: "connected",
-      accountId,
-      githubUserId,
-      issuer,
-      clientId,
-      scopes: requestedScopes,
-      authorizationUrl: pkce.authorizationUrl,
-      codeVerifierRef,
-      refreshTokenRef,
-      deviceKey: deviceKey.reference,
-      connectedAt
-    };
-    assertNoCliSecretMaterial(record);
-    writeGithubConnection(connectionPath, record);
-    return okEnvelope("github.connect", sanitizeGithubConnection(record, connectionPath) as any);
+    return errorEnvelope(
+      "github.connect", "AC_CAPABILITY_UNSUPPORTED",
+      "GitHub connection is unavailable: authorization exchange, device registration and durable credential storage are not implemented"
+    );
   }
   if (subcommand === "disconnect") {
-    const record = readGithubConnection(connectionPath);
-    if (!record) {
-      return okEnvelope("github.disconnect", {
-        disconnected: false,
-        connected: false,
-        connectionPath,
-        ghCli: "not-used"
-      } as any);
-    }
-    const { DevicePrivateKeyStore, KeychainTokenStore } = await import("@archcontext/cloud/control-plane-client");
-    const tokenStore = deps.tokenStore ?? new KeychainTokenStore();
-    const keyStore = deps.devicePrivateKeyStore ?? new DevicePrivateKeyStore();
-    tokenStore.clear(record.codeVerifierRef);
-    tokenStore.clear(record.refreshTokenRef);
-    keyStore.removeDevicePrivateKey(record.deviceKey.keyRef);
+    const connection = await deps.githubConnectionReader?.readVerifiedConnection({ repositoryRoot: cwd });
+    const localRecordRemoved = existsSync(connectionPath);
     rmSync(connectionPath, { force: true });
     return okEnvelope("github.disconnect", {
-      disconnected: true,
-      connected: false,
-      accountId: record.accountId,
-      githubUserId: record.githubUserId,
-      revokedDeviceKeyRef: record.deviceKey.keyRef,
+      connected: connection !== undefined,
+      localRecordRemoved,
+      remoteRevoked: false,
       connectionPath,
       ghCli: "not-used"
     } as any);
@@ -3005,9 +2944,9 @@ async function runGithubReviewCommand(args: string[], cwd: string, deps: CliRunt
     return okEnvelope("github.review.cancel", { ...sanitizeGithubDeveloperReviewState(cancelled.state, cancelled.path), cancelled: true } as any);
   }
 
-  const connection = readGithubConnection(connectionPath);
+  const connection = await deps.githubConnectionReader?.readVerifiedConnection({ repositoryRoot: cwd });
   if (!connection) {
-    return errorEnvelope("github.review", "AC_RUNTIME_UNAVAILABLE", "github review requires archctx github connect first");
+    return errorEnvelope("github.review", "AC_RUNTIME_UNAVAILABLE", "github review requires verified authorization, device registration and durable credential access from a configured connection adapter");
   }
   const sanitizedConnection = sanitizeGithubConnection(connection, connectionPath);
   const existing = readGithubDeveloperReviewState(statePath);
@@ -3327,25 +3266,6 @@ function defaultGithubConnectionPath(cwd: string): string {
   return join(dirname(defaultDaemonConnectionPath(cwd)), "github-connection.json");
 }
 
-function readGithubConnection(path: string): GitHubConnectionRecord | undefined {
-  if (!existsSync(path)) return undefined;
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as GitHubConnectionRecord;
-    if (parsed.schemaVersion !== "archcontext.github-connection/v1" || parsed.status !== "connected") return undefined;
-    return parsed;
-  } catch {
-    return undefined;
-  }
-}
-
-function writeGithubConnection(path: string, record: GitHubConnectionRecord): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const serialized = `${JSON.stringify(record, null, 2)}\n`;
-  assertNoCliSecretMaterial(serialized);
-  writeFileSync(path, serialized, { mode: 0o600 });
-  if (process.platform !== "win32") chmodSync(path, 0o600);
-}
-
 function sanitizeGithubConnection(record: GitHubConnectionRecord, connectionPath: string) {
   return {
     schemaVersion: record.schemaVersion,
@@ -3354,11 +3274,6 @@ function sanitizeGithubConnection(record: GitHubConnectionRecord, connectionPath
     accountId: record.accountId,
     githubUserId: record.githubUserId,
     issuer: record.issuer,
-    clientId: record.clientId,
-    scopes: record.scopes,
-    authorizationUrl: record.authorizationUrl,
-    codeVerifierRef: record.codeVerifierRef,
-    refreshTokenRef: record.refreshTokenRef,
     deviceKey: record.deviceKey,
     connectedAt: record.connectedAt,
     connectionPath,
@@ -3970,7 +3885,7 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliR
     runtimeClient: _runtimeClient,
     disableRpcDiscovery: _disableRpcDiscovery,
     devicePrivateKeyStore,
-    tokenStore: _tokenStore,
+    githubConnectionReader: _githubConnectionReader,
     githubGovernancePort: _githubGovernancePort,
     githubReviewChallengePort: _githubReviewChallengePort,
     githubReviewSubmissionPort: _githubReviewSubmissionPort,
