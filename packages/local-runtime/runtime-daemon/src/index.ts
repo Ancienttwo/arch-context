@@ -7435,7 +7435,7 @@ function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceEr
   return {
     errors,
     referenceErrors: [...adr.referenceErrors, ...constraints.referenceErrors],
-    warnings: reviewPolicy.warnings
+    warnings: [...constraints.warnings, ...reviewPolicy.warnings]
   };
 }
 

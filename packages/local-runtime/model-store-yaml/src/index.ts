@@ -298,7 +298,7 @@ export class YamlModelStore implements ModelStorePort {
     const reviewPolicy = readReviewPolicy(files);
     errors.push(...adr.errors, ...constraints.errors, ...reviewPolicy.errors);
     const referenceErrors = [...adr.referenceErrors, ...constraints.referenceErrors];
-    const warnings = reviewPolicy.warnings;
+    const warnings = [...constraints.warnings, ...reviewPolicy.warnings];
     const modelDigest = digestJson(files.map((file) => ({ path: file.path, digest: file.digest })));
     return {
       valid: errors.length === 0,

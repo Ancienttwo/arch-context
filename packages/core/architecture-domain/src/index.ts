@@ -561,27 +561,49 @@ const CONSTRAINT_GATE_SEVERITY: Readonly<Record<string, DependencyConstraintV1["
   warning: "warning"
 };
 
+/**
+ * `rule.type` values `schemas/repo/constraint.schema.json` allows, mirrored exactly (a test
+ * asserts both lists match). Only `forbid-dependency` is evaluated by the dependency gate; the
+ * other known types are ignored by it, and anything else is a validate error.
+ */
+export const CONSTRAINT_RULE_TYPES = [
+  "forbid-dependency",
+  "require-interface",
+  "forbid-data-access",
+  "require-owner",
+  "require-adr",
+  "require-compatibility-contract",
+  "forbid-cycle",
+  "require-cleanup-by",
+  "require-review"
+] as const;
+
 export interface DependencyConstraintRead {
   /** Well-formed `forbid-dependency` constraints; other rule types are not evaluated here. */
   constraints: DependencyConstraintV1[];
   errors: string[];
   /** The subset of `errors` that are node ids resolving to no node. */
   referenceErrors: string[];
+  /** Declarations the gate accepts but does not fully enforce, such as `allowedVia`. */
+  warnings: string[];
 }
 
 /**
  * Reads `forbid-dependency` constraints from `.archcontext/model/constraints/*` model files and
- * checks their integrity: constraint ids are unique across every constraint file, scope and
- * targets are non-empty and resolve to nodes, severity is one of the schema's four levels, and v1
- * has no `allowedVia` escape. The gate has two levels: `critical` blocks like `error` and `notice`
- * reports like `warning`. A constraint with a structural error is not returned; one whose ids
- * merely dangle still is, and simply never matches those ids.
+ * checks their integrity: constraint ids are unique across every constraint file, `rule.type` is
+ * one the schema allows, scope and targets are non-empty and resolve to nodes, and severity is one
+ * of the schema's four levels. The gate has two levels: `critical` blocks like `error` and `notice`
+ * reports like `warning`. `allowedVia` is not enforced yet: the constraint is evaluated as if it
+ * were absent, which can only report more violations, and a warning says so. A constraint with a
+ * structural error is not returned; one whose ids merely dangle still is, and simply never matches
+ * those ids.
  */
 export function readDependencyConstraints(files: readonly { path: string; body: string }[]): DependencyConstraintRead {
   const nodeIds = modelNodeIds(files);
   const constraints: DependencyConstraintV1[] = [];
   const errors: string[] = [];
   const referenceErrors: string[] = [];
+  const warnings: string[] = [];
   const declaredIn = new Map<string, string>();
   for (const file of [...files].sort((left, right) => left.path.localeCompare(right.path))) {
     if (!file.path.startsWith(MODEL_CONSTRAINT_PATH_PREFIX)) continue;
@@ -604,7 +626,11 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
     }
     if (typeof value.id === "string" && value.id) declaredIn.set(value.id, file.path);
     const rule = isJsonRecord(value.rule) ? value.rule : undefined;
-    if (rule?.type !== "forbid-dependency") continue;
+    if (typeof rule?.type !== "string" || !(CONSTRAINT_RULE_TYPES as readonly string[]).includes(rule.type)) {
+      errors.push(`${file.path}: rule.type must be one of ${CONSTRAINT_RULE_TYPES.join(", ")}${rule?.type === undefined ? "" : ` (got ${JSON.stringify(rule.type)})`}`);
+      continue;
+    }
+    if (rule.type !== "forbid-dependency") continue;
     const scope = isJsonRecord(value.scope) ? value.scope : undefined;
     const fileErrors: string[] = [];
     if (typeof value.id !== "string" || !value.id) fileErrors.push("id is required");
@@ -616,7 +642,9 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
     if (!scopeNodes) fileErrors.push("scope.nodes must be a non-empty list of node ids");
     const targets = nonEmptyStrings(rule.targets);
     if (!targets) fileErrors.push("rule.targets must be a non-empty list of node ids");
-    if (value.allowedVia !== undefined) fileErrors.push("allowedVia is not supported by forbid-dependency v1");
+    if (value.allowedVia !== undefined) {
+      warnings.push(`${file.path}: constraint ${String(value.id)} allowedVia is not enforced yet; the constraint is evaluated as if it were absent`);
+    }
     errors.push(...fileErrors.map((error) => `${file.path}: ${error}`));
     for (const [field, ids] of [["scope.nodes", scopeNodes ?? []], ["rule.targets", targets ?? []]] as const) {
       for (const id of ids) {
@@ -635,7 +663,7 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
       rationale: typeof value.rationale === "string" ? value.rationale : ""
     });
   }
-  return { constraints: constraints.sort((left, right) => left.id.localeCompare(right.id)), errors, referenceErrors };
+  return { constraints: constraints.sort((left, right) => left.id.localeCompare(right.id)), errors, referenceErrors, warnings };
 }
 
 export interface ReviewPolicyRead {
@@ -646,10 +674,13 @@ export interface ReviewPolicyRead {
 }
 
 /**
- * Reads the review policy from `.archcontext/policies/review.yaml`, the single `failOn` source. A
- * `failOn` entry outside the closed vocabulary is an error. The manifest's legacy `review.failOn`
- * is never read as policy; while it is still present it is reported as a warning naming any entry
- * the effective policy does not enforce.
+ * Reads the review policy from `.archcontext/policies/review.yaml`, the single `failOn` source.
+ * The file must identify itself (`schemaVersion: archcontext.policy/v1`, `id: policy.review`) and
+ * carry a non-empty `failOn` of known categories. Any error means the file is not the policy: the
+ * effective policy falls back to every category and the error is reported, so a malformed policy
+ * can never downgrade the `invalid-schema` finding it causes. The manifest's legacy
+ * `review.failOn` is never read as policy; while it is still present it is reported as a warning
+ * naming any entry the effective policy does not enforce.
  */
 export function readReviewPolicy(files: readonly { path: string; body: string }[]): ReviewPolicyRead {
   const errors: string[] = [];
@@ -657,22 +688,15 @@ export function readReviewPolicy(files: readonly { path: string; body: string }[
   let policy: ReviewPolicyV1 = { failOn: [...REVIEW_FAIL_ON_CATEGORIES], source: "default" };
   const policyFile = files.find((file) => file.path === REVIEW_POLICY_PATH);
   if (policyFile) {
+    let value: Json | undefined;
     try {
-      const value = parseJsonOrStableYaml(policyFile.body, policyFile.path);
-      const failOn = isJsonRecord(value) ? value.failOn : undefined;
-      if (failOn !== undefined) {
-        if (!Array.isArray(failOn) || !failOn.every((entry) => typeof entry === "string")) {
-          errors.push(`${REVIEW_POLICY_PATH}: failOn must be a list of categories`);
-        } else {
-          const unknown = (failOn as string[]).filter((entry) => !(REVIEW_FAIL_ON_CATEGORIES as readonly string[]).includes(entry));
-          for (const entry of unknown) {
-            errors.push(`${REVIEW_POLICY_PATH}: unknown failOn category ${entry} (expected one of ${REVIEW_FAIL_ON_CATEGORIES.join(", ")})`);
-          }
-          if (unknown.length === 0) policy = { failOn: [...new Set(failOn as ReviewFailOnCategory[])], source: "policy-file" };
-        }
-      }
+      value = parseJsonOrStableYaml(policyFile.body, policyFile.path);
     } catch (error) {
       errors.push(`${REVIEW_POLICY_PATH}: review policy is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (value !== undefined) {
+      const failOn = reviewPolicyFailOn(value, errors);
+      if (failOn !== undefined) policy = { failOn, source: "policy-file" };
     }
   }
   const manifestFailOn = readManifestFailOn(files);
@@ -684,6 +708,31 @@ export function readReviewPolicy(files: readonly { path: string; body: string }[
     );
   }
   return { policy, errors, warnings };
+}
+
+/** The declared `failOn` when the policy's identity and shape are valid; otherwise errors and `undefined`. */
+function reviewPolicyFailOn(value: Json, errors: string[]): ReviewFailOnCategory[] | undefined {
+  const before = errors.length;
+  if (!isJsonRecord(value)) {
+    errors.push(`${REVIEW_POLICY_PATH}: review policy must be a mapping`);
+    return undefined;
+  }
+  if (value.schemaVersion !== "archcontext.policy/v1") {
+    errors.push(`${REVIEW_POLICY_PATH}: schemaVersion must be archcontext.policy/v1${value.schemaVersion === undefined ? "" : ` (got ${JSON.stringify(value.schemaVersion)})`}`);
+  }
+  if (value.id !== "policy.review") {
+    errors.push(`${REVIEW_POLICY_PATH}: id must be policy.review${value.id === undefined ? "" : ` (got ${JSON.stringify(value.id)})`}`);
+  }
+  const failOn = value.failOn;
+  if (!Array.isArray(failOn) || failOn.length === 0 || !failOn.every((entry) => typeof entry === "string")) {
+    errors.push(`${REVIEW_POLICY_PATH}: failOn must be a non-empty list of categories (${REVIEW_FAIL_ON_CATEGORIES.join(", ")})`);
+  } else {
+    for (const entry of failOn as string[]) {
+      if ((REVIEW_FAIL_ON_CATEGORIES as readonly string[]).includes(entry)) continue;
+      errors.push(`${REVIEW_POLICY_PATH}: unknown failOn category ${entry} (expected one of ${REVIEW_FAIL_ON_CATEGORIES.join(", ")})`);
+    }
+  }
+  return errors.length === before ? [...new Set(failOn as ReviewFailOnCategory[])] : undefined;
 }
 
 /** The legacy manifest `review.failOn`, or `undefined` when absent or unreadable. */

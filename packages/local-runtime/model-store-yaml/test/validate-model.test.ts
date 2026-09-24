@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestJson } from "@archcontext/contracts";
+import { REVIEW_FAIL_ON_CATEGORIES, digestJson } from "@archcontext/contracts";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { readDependencyConstraints } from "@archcontext/core/architecture-domain";
+import { CONSTRAINT_RULE_TYPES, readDependencyConstraints, readReviewPolicy } from "@archcontext/core/architecture-domain";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "../src/index";
 
 const NODE_PATH = ".archcontext/model/nodes/module.api.yaml";
@@ -230,17 +230,79 @@ describe("YamlModelStore dependency constraint and review policy integrity (#163
     }
   });
 
-  test("empty targets and allowedVia are errors", async () => {
+  test("empty targets are an error", async () => {
     const root = modelRoot();
     try {
-      writeConstraint(root, { rule: { type: "forbid-dependency", targets: [] }, allowedVia: ["module.api"] });
+      writeConstraint(root, { rule: { type: "forbid-dependency", targets: [] } });
       const result = await validate(root);
       expect(result.valid).toBe(false);
-      expect(result.errors).toEqual([
-        `${CONSTRAINT_PATH}: rule.targets must be a non-empty list of node ids`,
-        `${CONSTRAINT_PATH}: allowedVia is not supported by forbid-dependency v1`
-      ]);
+      expect(result.errors).toEqual([`${CONSTRAINT_PATH}: rule.targets must be a non-empty list of node ids`]);
       expect(result.referenceErrors).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("allowedVia is schema-valid: it validates with a not-enforced warning and the constraint is still evaluated", async () => {
+    const root = modelRoot();
+    try {
+      writeConstraint(root, { allowedVia: ["module.api"] });
+      const result = await validate(root);
+      expect(result).toMatchObject({ valid: true, errors: [] });
+      expect(result.warnings).toEqual([
+        `${CONSTRAINT_PATH}: constraint constraint.api-not-capability allowedVia is not enforced yet; the constraint is evaluated as if it were absent`
+      ]);
+      expect(readDependencyConstraints(listModelFiles(root)).constraints.map((constraint) => constraint.id)).toEqual(["constraint.api-not-capability"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a misspelled or missing rule.type is an error, and a known non-dependency type is not gated", async () => {
+    const root = modelRoot();
+    try {
+      writeConstraint(root, { rule: { type: "forbid-dependecy", targets: ["module.api"] } });
+      expect((await validate(root)).errors).toEqual([
+        `${CONSTRAINT_PATH}: rule.type must be one of ${CONSTRAINT_RULE_TYPES.join(", ")} (got "forbid-dependecy")`
+      ]);
+
+      writeConstraint(root, { rule: { targets: ["module.api"] } });
+      expect((await validate(root)).errors).toEqual([`${CONSTRAINT_PATH}: rule.type must be one of ${CONSTRAINT_RULE_TYPES.join(", ")}`]);
+
+      writeConstraint(root, { rule: { type: "require-owner" } });
+      expect(await validate(root)).toMatchObject({ valid: true, errors: [] });
+      expect(readDependencyConstraints(listModelFiles(root)).constraints).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the rule.type list mirrors constraint.schema.json exactly", () => {
+    const schema = JSON.parse(readFileSync(join(import.meta.dir, "../../../../schemas/repo/constraint.schema.json"), "utf8"));
+    expect([...CONSTRAINT_RULE_TYPES]).toEqual(schema.properties.rule.properties.type.enum);
+  });
+
+  test("a policy with the wrong identity or an empty failOn is rejected and falls back to every category", async () => {
+    const root = modelRoot();
+    try {
+      const policyPath = join(root, ".archcontext/policies/review.yaml");
+      for (const [body, expected] of [
+        ["schemaVersion: archcontext.policy/v0\nid: policy.review\nfailOn: []\n", [
+          ".archcontext/policies/review.yaml: schemaVersion must be archcontext.policy/v1 (got \"archcontext.policy/v0\")",
+          ".archcontext/policies/review.yaml: failOn must be a non-empty list of categories (incomplete-intervention, invalid-schema, prohibited-dependency, stale-context, unjustified-compatibility)"
+        ]],
+        ["id: policy.review\nfailOn: [\"invalid-schema\"]\n", [
+          ".archcontext/policies/review.yaml: missing schemaVersion",
+          ".archcontext/policies/review.yaml: schemaVersion must be archcontext.policy/v1"
+        ]],
+        ["schemaVersion: archcontext.policy/v1\nid: policy.other\nfailOn: [\"stale-context\"]\n", [".archcontext/policies/review.yaml: id must be policy.review (got \"policy.other\")"]]
+      ] as const) {
+        writeFileSync(policyPath, body, "utf8");
+        const result = await validate(root);
+        expect(result.valid).toBe(false);
+        expect(result.errors).toEqual([...expected]);
+        expect(readReviewPolicy(listModelFiles(root)).policy).toEqual({ failOn: [...REVIEW_FAIL_ON_CATEGORIES], source: "default" });
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
