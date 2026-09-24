@@ -2831,6 +2831,23 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("github disconnect preserves a verified connection when it cannot revoke it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-disconnect-"));
+    const store = new DevicePrivateKeyStore(new InMemoryCredentialSecretStore());
+    const deps = { githubConnectionReader: createFixtureGithubConnectionReader(store, {
+      accountId: "acct_active", githubUserId: "42", publicKeyId: "key_active"
+    }) };
+    try {
+      const disconnected = await runCli("github", ["disconnect"], root, deps);
+      expect(disconnected.ok).toBe(true);
+      expect(disconnected.data).toMatchObject({ connected: true, remoteRevoked: false });
+      const status = await runCli("github", ["status"], root, deps);
+      expect(status.data).toMatchObject({ connected: true });
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
   test("github verify-head fetches typed pull head metadata and rejects mismatched Challenge identity without gh", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-head-"));
     const challenge = createReviewChallengeV2({

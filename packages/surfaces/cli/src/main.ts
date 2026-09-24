@@ -2886,10 +2886,11 @@ async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDep
     );
   }
   if (subcommand === "disconnect") {
+    const connection = await deps.githubConnectionReader?.readVerifiedConnection({ repositoryRoot: cwd });
     const localRecordRemoved = existsSync(connectionPath);
     rmSync(connectionPath, { force: true });
     return okEnvelope("github.disconnect", {
-      connected: false,
+      connected: connection !== undefined,
       localRecordRemoved,
       remoteRevoked: false,
       connectionPath,
