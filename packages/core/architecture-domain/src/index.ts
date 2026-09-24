@@ -553,6 +553,14 @@ const MODEL_CONSTRAINT_PATH_PREFIX = ".archcontext/model/constraints/";
 export const REVIEW_POLICY_PATH = ".archcontext/policies/review.yaml";
 const MANIFEST_PATH = ".archcontext/manifest.yaml";
 
+/** `constraint.schema.json` severity -> the dependency gate's two finding levels. */
+const CONSTRAINT_GATE_SEVERITY: Readonly<Record<string, DependencyConstraintV1["severity"]>> = {
+  critical: "error",
+  error: "error",
+  notice: "warning",
+  warning: "warning"
+};
+
 export interface DependencyConstraintRead {
   /** Well-formed `forbid-dependency` constraints; other rule types are not evaluated here. */
   constraints: DependencyConstraintV1[];
@@ -563,16 +571,19 @@ export interface DependencyConstraintRead {
 
 /**
  * Reads `forbid-dependency` constraints from `.archcontext/model/constraints/*` model files and
- * checks their integrity: scope and targets are non-empty and resolve to nodes, severity is
- * `error` or `warning`, and v1 has no `allowedVia` escape. A constraint with a structural error
- * is not returned; one whose ids merely dangle still is, and simply never matches those ids.
+ * checks their integrity: constraint ids are unique across every constraint file, scope and
+ * targets are non-empty and resolve to nodes, severity is one of the schema's four levels, and v1
+ * has no `allowedVia` escape. The gate has two levels: `critical` blocks like `error` and `notice`
+ * reports like `warning`. A constraint with a structural error is not returned; one whose ids
+ * merely dangle still is, and simply never matches those ids.
  */
 export function readDependencyConstraints(files: readonly { path: string; body: string }[]): DependencyConstraintRead {
   const nodeIds = modelNodeIds(files);
   const constraints: DependencyConstraintV1[] = [];
   const errors: string[] = [];
   const referenceErrors: string[] = [];
-  for (const file of files) {
+  const declaredIn = new Map<string, string>();
+  for (const file of [...files].sort((left, right) => left.path.localeCompare(right.path))) {
     if (!file.path.startsWith(MODEL_CONSTRAINT_PATH_PREFIX)) continue;
     let value: Json;
     try {
@@ -585,12 +596,22 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
       errors.push(`${file.path}: expected archcontext.constraint/v1`);
       continue;
     }
+    // The ledger keys constraints by id, so a repeated id silently replaces the earlier declaration.
+    const duplicateOf = typeof value.id === "string" ? declaredIn.get(value.id) : undefined;
+    if (duplicateOf !== undefined) {
+      errors.push(`${file.path}: duplicate constraint id ${String(value.id)} (also declared in ${duplicateOf})`);
+      continue;
+    }
+    if (typeof value.id === "string" && value.id) declaredIn.set(value.id, file.path);
     const rule = isJsonRecord(value.rule) ? value.rule : undefined;
     if (rule?.type !== "forbid-dependency") continue;
     const scope = isJsonRecord(value.scope) ? value.scope : undefined;
     const fileErrors: string[] = [];
     if (typeof value.id !== "string" || !value.id) fileErrors.push("id is required");
-    if (value.severity !== "error" && value.severity !== "warning") fileErrors.push("forbid-dependency severity must be error or warning");
+    const severity = typeof value.severity === "string" && Object.hasOwn(CONSTRAINT_GATE_SEVERITY, value.severity)
+      ? CONSTRAINT_GATE_SEVERITY[value.severity]
+      : undefined;
+    if (severity === undefined) fileErrors.push("severity must be one of notice, warning, error, critical");
     const scopeNodes = nonEmptyStrings(scope?.nodes);
     if (!scopeNodes) fileErrors.push("scope.nodes must be a non-empty list of node ids");
     const targets = nonEmptyStrings(rule.targets);
@@ -608,7 +629,7 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
     if (fileErrors.length > 0) continue;
     constraints.push({
       id: value.id as string,
-      severity: value.severity as DependencyConstraintV1["severity"],
+      severity: severity!,
       scope: { nodes: scopeNodes! },
       rule: { type: "forbid-dependency", targets: targets! },
       rationale: typeof value.rationale === "string" ? value.rationale : ""

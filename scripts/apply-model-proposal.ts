@@ -11,7 +11,7 @@ import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 export const MODEL_PROPOSAL_SCHEMA_VERSION = "archcontext.model-proposal/v1" as const;
 export const MODEL_PROPOSAL_RECEIPT_SCHEMA_VERSION = "archcontext.model-proposal-receipt/v1" as const;
 
-const MODEL_PATH = /^\.archcontext\/model\/(?:nodes|relations|flows|constraints)\/[a-z0-9][a-z0-9._-]*\.ya?ml$/;
+const MODEL_PATH = /^(?:\.archcontext\/model\/(?:nodes|relations|flows|constraints)\/[a-z0-9][a-z0-9._-]*\.ya?ml|\.archcontext\/policies\/review\.yaml)$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const FORBIDDEN_BODY = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,

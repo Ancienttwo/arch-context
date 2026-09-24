@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson } from "@archcontext/contracts";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "../src/index";
+import { readDependencyConstraints } from "@archcontext/core/architecture-domain";
+import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "../src/index";
 
 const NODE_PATH = ".archcontext/model/nodes/module.api.yaml";
 const NODE_BODY = "schemaVersion: archcontext.node/v2\nid: module.api\nkind: module\nname: API\nstatus: active\nparent: capability.architecture-context\nsummary: Serves API requests.\n";
@@ -240,6 +241,36 @@ describe("YamlModelStore dependency constraint and review policy integrity (#163
         `${CONSTRAINT_PATH}: allowedVia is not supported by forbid-dependency v1`
       ]);
       expect(result.referenceErrors).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a repeated constraint id is an error naming both files", async () => {
+    const root = modelRoot();
+    try {
+      writeConstraint(root);
+      const copy = ".archcontext/model/constraints/constraint.copy.yaml";
+      writeFileSync(join(root, copy), readFileSync(join(root, CONSTRAINT_PATH), "utf8"), "utf8");
+      const result = await validate(root);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual([`${copy}: duplicate constraint id constraint.api-not-capability (also declared in ${CONSTRAINT_PATH})`]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("schema severities map onto the gate's two levels; anything else is an error", async () => {
+    const root = modelRoot();
+    try {
+      for (const [declared, gate] of [["critical", "error"], ["error", "error"], ["warning", "warning"], ["notice", "warning"]] as const) {
+        writeConstraint(root, { severity: declared });
+        expect(await validate(root)).toMatchObject({ valid: true, errors: [] });
+        const read = readDependencyConstraints(listModelFiles(root));
+        expect(read.constraints.map((constraint) => constraint.severity)).toEqual([gate]);
+      }
+      writeConstraint(root, { severity: "fatal" });
+      expect((await validate(root)).errors).toEqual([`${CONSTRAINT_PATH}: severity must be one of notice, warning, error, critical`]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
