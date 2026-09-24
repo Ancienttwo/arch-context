@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
@@ -12,6 +13,8 @@ import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { digestJson, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { runCli } from "../packages/surfaces/cli/src/main";
+
+const codegraphCli = join(dirname(createRequire(import.meta.url).resolve("@colbymchenry/codegraph/package.json")), "npm-shim.js");
 
 const timeout = process.platform === "win32" ? 240_000 : 30_000;
 
@@ -104,7 +107,7 @@ async function prepareAcceptedMajorChange(root: string, options: { codeGraphRead
   mkdirSync(dirname(modulePath), { recursive: true });
   writeFileSync(modulePath, "# runtime-harness/hook-adapters\n\n## 1. Old P1\nlegacy\n\n## 2. Old P2\nlegacy flow\n\n## 3. P3 Decisions\nhuman decision  \n\n## 4. History\nhuman history\n", "utf8");
   if (options.codeGraphReady) {
-    execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync("node", [codegraphCli, "init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   }
 
   const preview = await runTestCli("docs", ["adopt", "--profile", "repo-harness/v1"], root);
