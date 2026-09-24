@@ -98,6 +98,29 @@ class RefactorFlagError extends Error {}
 const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
 
 /**
+ * Flags `audit run` and `audit approve` accept beyond `--help`/`-h` (checked separately) and
+ * approve's own positional `<run-id>`. `--format` and `--json` are global rendering flags every
+ * command's `args` may carry (`--format` is read once at the very top of this file; `--json` is
+ * accepted CLI-wide as a JSON-output hint), so they're allowed here too even though neither
+ * subcommand's own input builder reads them.
+ *
+ * Declared here (not down next to `runAuditCommand`, where they're used) and, critically, before
+ * the `if (import.meta.main)` entry block below: that block's top-level `await runCli(...)` pauses
+ * this module's own evaluation partway through, so any top-level `const` textually *after* it is
+ * still uninitialized (TDZ) for however long that first `await` takes to settle — long enough for
+ * a real `archctx audit run`/`audit approve` invocation to reach `findUnknownAuditFlag` and throw
+ * "Cannot access '...' before initialization", surfaced to the caller as AC_RUNTIME_UNAVAILABLE.
+ * `AUDIT_RUN_STATUSES` right above already follows this rule; keep any new audit-command constant
+ * here too, not near its point of use further down the file.
+ */
+const AUDIT_GLOBAL_VALUE_FLAGS = ["--format"] as const;
+const AUDIT_GLOBAL_BOOLEAN_FLAGS = ["--json"] as const;
+const AUDIT_RUN_VALUE_FLAGS = ["--task-session-id", "--reason", "--risk", "--uncertainty", "--context-max-items", "--model-id", "--timeout-ms", ...AUDIT_GLOBAL_VALUE_FLAGS];
+const AUDIT_RUN_BOOLEAN_FLAGS = ["--no-wait", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
+const AUDIT_APPROVE_VALUE_FLAGS = ["--run-id", "--confirm-public-repo", ...AUDIT_GLOBAL_VALUE_FLAGS];
+const AUDIT_APPROVE_BOOLEAN_FLAGS = ["--resume", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
+
+/**
  * `readFlag` reads the next token whatever it is, so a bare trailing `--request-json` looks
  * exactly like an absent flag and a `--assessment-digest --json` swallows the next flag as its
  * value. On `refactor` both are a caller that meant to pass something, and running the default
@@ -423,7 +446,10 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "audit":
       // User-level consent is written by the CLI only (never MCP/RPC) and needs no daemon.
       if (args[0] === "consent") return runAuditConsentCommand(args, cwd);
-      return runAuditCommand(args, cwd, await runtime());
+      // Lazy runtime (like "hook" below): eagerly `await runtime()` here would start/connect to
+      // archctxd — writing runtime.sqlite, locks, and archctxd.json — before runAuditCommand gets a
+      // chance to short-circuit `--help` or an unknown flag with zero side effects (issue #182).
+      return runAuditCommand(args, cwd, runtime);
     case "review":
     case "complete": {
       const forbidden = readForbiddenAttestationFlags(args);
@@ -2507,21 +2533,98 @@ function runAuditConsentCommand(args: string[], cwd: string) {
   } as unknown as Json);
 }
 
-async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+/**
+ * First token in `args` (skipping index 0, the subcommand) that looks like a flag — long (`--foo`)
+ * or short (`-f`) — but isn't in `valueFlags`/`booleanFlags`. Issue #182: `audit run`/`audit
+ * approve` must reject an unknown flag with `AC_SCHEMA_INVALID` instead of silently ignoring it,
+ * the same way an unrecognized `--status` already fails `audit list`; a short unrecognized flag
+ * (`-n`, `-y`, a typoed `-help`) must fail the same way, not fall through and start a real run.
+ * `-h` never reaches this scan: the caller checks `--help`/`-h` first and returns before calling
+ * this. A recognized value flag must be followed by a value that is not itself flag-shaped, so
+ * `--reason --bogus` cannot smuggle an unknown flag past the scan as the reason's value. Returns
+ * the rejection reason, or undefined when every flag is recognized.
+ */
+function findUnknownAuditFlag(args: string[], valueFlags: readonly string[], booleanFlags: readonly string[]): string | undefined {
+  for (let index = 1; index < args.length; index += 1) {
+    const token = args[index];
+    if (!token || !token.startsWith("-")) continue;
+    if (booleanFlags.includes(token)) continue;
+    if (valueFlags.includes(token)) {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("-")) return `requires a value for ${token}`;
+      index += 1;
+      continue;
+    }
+    return `does not recognize the flag ${token}`;
+  }
+  return undefined;
+}
+
+async function runAuditCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
   const subcommand = args[0] ?? "run";
+  if (subcommand === "--help" || subcommand === "-h") {
+    return okEnvelope("audit", {
+      schemaVersion: "archcontext.audit-help/v1",
+      usage: [
+        "archctx audit run [options]",
+        "archctx audit approve <run-id> [options]",
+        "archctx audit list [--status <status>[,<status>...]]",
+        "archctx audit show <run-id>",
+        "archctx audit consent [--revoke]"
+      ],
+      description: "Manage architecture audit runs. Run `archctx audit <subcommand> --help` for a subcommand's own options."
+    } as unknown as Json);
+  }
   if (subcommand === "list") {
+    if (args.includes("--help") || args.includes("-h")) {
+      return okEnvelope("audit.list", {
+        schemaVersion: "archcontext.audit-list-help/v1",
+        usage: "archctx audit list [--status <status>[,<status>...]]",
+        description: "List architecture audit runs, most recent first.",
+        options: {
+          "--status <status>": `Filter by run status; repeatable or comma-separated (${AUDIT_RUN_STATUSES.join("|")}).`,
+          "--help, -h": "Show help without listing anything."
+        }
+      } as unknown as Json);
+    }
     const statusResult = readAuditRunStatuses(args, "audit.list");
     if (!statusResult.ok) return statusResult.envelope;
-    return daemon.auditList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
+    return (await runtime()).auditList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
   }
   if (subcommand === "show") {
+    if (args.includes("--help") || args.includes("-h")) {
+      return okEnvelope("audit.show", {
+        schemaVersion: "archcontext.audit-show-help/v1",
+        usage: "archctx audit show <run-id>",
+        description: "Show one audit run's detail, including its drafted GitHub issues.",
+        options: {
+          "<run-id>": "The audit run to show; may also be passed as --run-id <id>.",
+          "--help, -h": "Show help without reading anything."
+        }
+      } as unknown as Json);
+    }
     const runId = readFlag(args, "--run-id") ?? args[1];
     if (!runId) return errorEnvelope("audit.show", "AC_SCHEMA_INVALID", "audit show requires <run-id> or --run-id");
-    const result = await daemon.auditShow(cwd, runId);
+    const result = await (await runtime()).auditShow(cwd, runId);
     if (!result.ok) return result;
     return { ...result, data: auditShowDataWithFiledSummary(result.data) };
   }
   if (subcommand === "approve") {
+    if (args.includes("--help") || args.includes("-h")) {
+      return okEnvelope("audit.approve", {
+        schemaVersion: "archcontext.audit-approve-help/v1",
+        usage: "archctx audit approve <run-id> [--confirm-public-repo <token>] [--resume]",
+        description: "Approve a pending audit run and publish its drafted GitHub issues. Requires audit.githubIssues.enabled in .archcontext/manifest.yaml and archctx audit consent.",
+        options: {
+          "<run-id>": "The audit run to approve; may also be passed as --run-id <id>.",
+          "--confirm-public-repo <token>": "Required once, verbatim, when the run's repository resolves to non-private visibility.",
+          "--resume": "Continue a run left in \"issuing\" status by a prior crashed/partial approve call.",
+          "--help, -h": "Show help without approving or publishing anything."
+        }
+      } as unknown as Json);
+    }
+    const flagProblem = findUnknownAuditFlag(args, AUDIT_APPROVE_VALUE_FLAGS, AUDIT_APPROVE_BOOLEAN_FLAGS);
+    if (flagProblem) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", `audit approve ${flagProblem}`);
     const runId = readFlag(args, "--run-id") ?? args[1];
     if (!runId) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", "audit approve requires <run-id> or --run-id");
     if (!auditGithubIssuesEnabled(cwd)) {
@@ -2534,6 +2637,7 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     const approveConsent = readAuditConsent(auditManifestGateRoot(cwd));
     if (!approveConsent.granted) return auditConsentRequiredEnvelope("audit.approve", approveConsent.reason);
     const confirmPublicToken = readFlag(args, "--confirm-public-repo");
+    const daemon = await runtime();
     const result = await daemon.auditApprove(cwd, {
       runId,
       ...(confirmPublicToken === undefined ? {} : { confirmPublicToken }),
@@ -2550,6 +2654,26 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
   if (subcommand !== "run") {
     return errorEnvelope("audit", "AC_SCHEMA_INVALID", "audit requires run|list|show|approve|consent");
   }
+  if (args.includes("--help") || args.includes("-h")) {
+    return okEnvelope("audit.run", {
+      schemaVersion: "archcontext.audit-run-help/v1",
+      usage: "archctx audit run [--reason <text>] [--task-session-id <id>] [--risk <level>] [--uncertainty <level>] [--context-max-items <n>] [--model-id <id>] [--timeout-ms <ms>] [--no-wait]",
+      description: "Start an architecture audit run. Requires audit.githubIssues.enabled in .archcontext/manifest.yaml and archctx audit consent.",
+      options: {
+        "--reason <text>": "Human-readable reason recorded with the run.",
+        "--task-session-id <id>": "Correlate this run with an existing task session.",
+        "--risk <level>": "Investigation risk hint passed to the daemon.",
+        "--uncertainty <level>": "Investigation uncertainty hint passed to the daemon.",
+        "--context-max-items <n>": "Cap on context items gathered for the run.",
+        "--model-id <id>": "Override the model used for the run.",
+        "--timeout-ms <ms>": `How long the CLI polls \`archctx audit list\` before returning (default: ${AUDIT_RUN_DEFAULT_TIMEOUT_MS}ms); ignored with --no-wait.`,
+        "--no-wait": "Return immediately after the daemon accepts the run instead of polling audit list.",
+        "--help, -h": "Show help without starting an audit run."
+      }
+    } as unknown as Json);
+  }
+  const flagProblem = findUnknownAuditFlag(args, AUDIT_RUN_VALUE_FLAGS, AUDIT_RUN_BOOLEAN_FLAGS);
+  if (flagProblem) return errorEnvelope("audit.run", "AC_SCHEMA_INVALID", `audit run ${flagProblem}`);
   if (!auditGithubIssuesEnabled(cwd)) {
     return errorEnvelope(
       "audit.run",
@@ -2572,6 +2696,7 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     ...(readFlag(args, "--model-id") === undefined ? {} : { modelId: readFlag(args, "--model-id")! }),
     ...(timeoutMsResult.value === undefined ? {} : { timeoutMs: timeoutMsResult.value })
   };
+  const daemon = await runtime();
   const started = await daemon.auditRun(cwd, input);
   if (!started.ok) return { ...started, requestId: "audit.run" };
   const startedData = started.data as { status?: string; jobId?: string } | undefined;
