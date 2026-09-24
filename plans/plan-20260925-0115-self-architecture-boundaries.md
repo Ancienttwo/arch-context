@@ -1,6 +1,6 @@
 # Plan: Self-architecture ownership and enforced layer boundaries (#163)
 
-> **Status**: Approved
+> **Status**: Executing
 > **Created**: 20260925-0115
 > **Slug**: self-architecture-boundaries
 > **Planning Source**: codex-plan-or-waza-think
