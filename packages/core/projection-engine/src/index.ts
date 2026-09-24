@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, posix, resolve } from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
   AGENT_CONTEXT_RENDERER_VERSION as CONTRACT_AGENT_CONTEXT_RENDERER_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION as CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION,
@@ -859,9 +860,18 @@ export function loadArchitectureDecisionRecords(root: string): ArchitectureDecis
     .sort()
     .map((file) => {
       const path = `docs/adr/${file}`;
-      const body = readFileSync(resolve(root, path), "utf8");
-      const title = body.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? basename(file, ".md");
-      const status = body.match(/^Status:\s*(.+)$/mi)?.[1]?.trim();
+      const body = readFileSync(resolve(root, path), "utf8").replace(/^\uFEFF/, "");
+      const frontmatter = body.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
+      if (!frontmatter) throw new Error(`${path}: ADR frontmatter is required`);
+      const metadata = parseYaml(frontmatter[1]!) as unknown;
+      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+        throw new Error(`${path}: ADR frontmatter must be an object`);
+      }
+      const { title, status } = metadata as Record<string, unknown>;
+      if (typeof title !== "string" || !title.trim()) throw new Error(`${path}: ADR frontmatter title is required`);
+      if (status !== undefined && (typeof status !== "string" || !status.trim())) {
+        throw new Error(`${path}: ADR frontmatter status must be a non-empty string`);
+      }
       return {
         id: basename(file, ".md"),
         title,
@@ -1591,7 +1601,7 @@ function renderTargetGeneratedBody(
     });
   }
   if (target.type === "relation-summary") return renderRelationSummary(model.relations.find((relation) => relation.id === target.scope.id)!, model);
-  if (target.type === "decision-index") return renderDecisionIndex(input.decisions);
+  if (target.type === "decision-index") return renderDecisionIndex(input.decisions, target.path);
   if (target.type === "architecture-changelog") return renderArchitectureChangelog(input.timeline);
   if (target.type === "diagram-mermaid") return exportMermaidModel(model).files[0].content;
   if (target.type === "diagram-structurizr") return exportDocumentationStructurizrWorkspace(model).files[0].content;
@@ -1796,13 +1806,13 @@ function renderRelationSummary(relation: NativeRelation, model: NativeModel): st
   return `${lines.join("\n")}\n`;
 }
 
-function renderDecisionIndex(decisions: ArchitectureDecisionRecord[]): string {
+function renderDecisionIndex(decisions: ArchitectureDecisionRecord[], indexPath: string): string {
   const lines = [
     "# Architecture Decision Index",
     "",
     ...(decisions.length === 0
       ? ["- No ADRs selected for this projection."]
-      : decisions.map((decision) => `- [${decision.title}](../../${decision.path})${decision.status ? ` — ${decision.status}` : ""}`))
+      : decisions.map((decision) => `- [${decision.title}](${posix.relative(posix.dirname(indexPath), decision.path)})${decision.status ? ` — ${decision.status}` : ""}`))
   ];
   return `${lines.join("\n")}\n`;
 }
