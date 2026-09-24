@@ -5,7 +5,7 @@ title: ChangeSet-only Architecture Writes
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.changeset-engine
+  - component.architecture-context.core.changeset-engine
 supersedes: []
 ---
 

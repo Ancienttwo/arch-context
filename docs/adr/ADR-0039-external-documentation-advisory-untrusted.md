@@ -5,10 +5,10 @@ title: External Documentation Is Advisory and Untrusted
 status: accepted
 decidedAt: 2026-06-24
 appliesTo:
-  - package.contracts
-  - package.runtime-daemon
-  - package.local-runtime
-  - package.surfaces-cli
+  - module.architecture-context.contracts
+  - component.architecture-context.local-runtime.runtime-daemon
+  - module.architecture-context.local-runtime
+  - component.architecture-context.surfaces.cli
 supersedes: []
 ---
 

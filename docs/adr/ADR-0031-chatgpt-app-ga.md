@@ -5,10 +5,10 @@ title: ChatGPT App GA
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.mcp-cloud-metadata
-  - package.mcp-local
-  - app.chatgpt-ui
-  - app.control-plane
+  - module.architecture-context.cloud
+  - component.architecture-context.surfaces.mcp-local
+  - module.architecture-context.surfaces
+  - component.architecture-context.cloud.control-plane
 supersedes: []
 ---
 

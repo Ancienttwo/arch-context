@@ -5,8 +5,8 @@ title: Declared / Observed / Verified
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.review-engine
-  - package.reconcile-engine
+  - component.architecture-context.core.review-engine
+  - component.architecture-context.core.reconcile-engine
 supersedes: []
 ---
 

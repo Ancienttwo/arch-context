@@ -5,8 +5,8 @@ title: Local-first Trust Boundary
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.control-plane
-  - package.attestation
+  - component.architecture-context.cloud.control-plane
+  - module.architecture-context.cloud
 supersedes: []
 ---
 

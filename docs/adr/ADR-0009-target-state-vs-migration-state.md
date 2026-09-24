@@ -5,7 +5,7 @@ title: Target State vs Migration State
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.architecture-domain
+  - component.architecture-context.core.architecture-domain
 supersedes: []
 ---
 

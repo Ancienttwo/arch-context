@@ -5,12 +5,12 @@ title: Daemon-Driven Local Architecture Audit with Advisory GitHub Issue Drafts
 status: accepted
 decidedAt: 2026-07-05
 appliesTo:
-  - package.contracts
-  - package.agent-orchestrator
-  - package.architecture-ledger
-  - package.local-store-sqlite
-  - package.runtime-daemon
-  - package.surfaces-cli
+  - module.architecture-context.contracts
+  - component.architecture-context.core.agent-orchestrator
+  - component.architecture-context.core.architecture-ledger
+  - component.architecture-context.local-runtime.local-store-sqlite
+  - component.architecture-context.local-runtime.runtime-daemon
+  - component.architecture-context.surfaces.cli
 supersedes: []
 ---
 

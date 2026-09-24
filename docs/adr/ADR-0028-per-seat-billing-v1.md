@@ -5,8 +5,8 @@ title: Per-seat Billing v1
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.control-plane
-  - package.control-plane-client
+  - component.architecture-context.cloud.control-plane
+  - module.architecture-context.cloud
 supersedes: []
 ---
 

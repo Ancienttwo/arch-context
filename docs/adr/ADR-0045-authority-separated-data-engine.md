@@ -5,11 +5,11 @@ title: Authority-Separated Data Engine
 status: accepted
 decidedAt: 2026-07-11
 appliesTo:
-  - packages/contracts
-  - packages/core/architecture-delta
-  - packages/core/architecture-ledger
-  - packages/local-runtime/local-store-sqlite
-  - packages/local-runtime/runtime-daemon
+  - module.architecture-context.contracts
+  - component.architecture-context.core.architecture-delta
+  - component.architecture-context.core.architecture-ledger
+  - component.architecture-context.local-runtime.local-store-sqlite
+  - component.architecture-context.local-runtime.runtime-daemon
 supersedes: []
 ---
 

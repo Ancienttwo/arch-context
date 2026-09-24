@@ -485,6 +485,130 @@ export function parseJsonOrStableYaml(body: string, path: string): Json {
   return new StableYamlParser(body, path).parse();
 }
 
+const ADR_FILE_PATH = /^docs\/adr\/ADR-\d{4}-.+\.md$/;
+const MODEL_NODE_PATH_PREFIX = ".archcontext/model/nodes/";
+
+export interface AdrAppliesToValidation {
+  /** Every problem found: malformed `appliesTo` values and unknown node ids. */
+  errors: string[];
+  /** The subset of `errors` that are well-formed ids resolving to no node. */
+  referenceErrors: string[];
+}
+
+/**
+ * ADR frontmatter `appliesTo` holds architecture node ids. Checks every `docs/adr/ADR-NNNN-*.md`
+ * in `files` against the ids of `.archcontext/model/nodes/*`; files are repo-relative model files
+ * as loaded by a ModelStore. Only the top-level `appliesTo` key is read, so other frontmatter
+ * never fails this check. No ADR files, or ADRs without `appliesTo`, produce no errors.
+ */
+export function validateAdrAppliesTo(files: readonly { path: string; body: string }[]): AdrAppliesToValidation {
+  const nodeIds = new Set<string>();
+  for (const file of files) {
+    if (!file.path.startsWith(MODEL_NODE_PATH_PREFIX)) continue;
+    try {
+      const value = parseJsonOrStableYaml(file.body, file.path);
+      if (value && typeof value === "object" && !Array.isArray(value) && typeof value.id === "string") nodeIds.add(value.id);
+    } catch {
+      // Malformed node files are reported by schema validation, not by this reference check.
+    }
+  }
+  const errors: string[] = [];
+  const referenceErrors: string[] = [];
+  for (const file of files) {
+    if (!ADR_FILE_PATH.test(file.path)) continue;
+    const body = file.body.replace(/^\uFEFF/, "");
+    const frontmatter = body.match(/^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/);
+    if (!frontmatter) {
+      // An opening delimiter without a closing one would otherwise hide `appliesTo` from this check.
+      if (/^---[ \t]*\r?\n/.test(body)) errors.push(`${file.path}: ADR frontmatter has no closing --- delimiter`);
+      continue;
+    }
+    const appliesTo = extractAdrAppliesTo(frontmatter[1] ?? "");
+    if (appliesTo.kind === "absent") continue;
+    if (appliesTo.kind === "malformed") {
+      errors.push(`${file.path}: ADR appliesTo ${appliesTo.reason}`);
+      continue;
+    }
+    for (const id of appliesTo.ids) {
+      if (nodeIds.has(id)) continue;
+      const error = `${file.path}: ADR appliesTo references unknown node ${id}`;
+      errors.push(error);
+      referenceErrors.push(error);
+    }
+  }
+  return { errors, referenceErrors };
+}
+
+type AdrAppliesToExtraction =
+  | { kind: "absent" }
+  | { kind: "ids"; ids: string[] }
+  | { kind: "malformed"; reason: string };
+
+/**
+ * Reads the top-level `appliesTo` of ADR frontmatter without parsing the rest of it, which is
+ * hand-written YAML. Accepts an inline list (`appliesTo: [a, 'b']`) or a block list at any indent,
+ * with `#` comments and single or double quotes around ids.
+ */
+function extractAdrAppliesTo(frontmatter: string): AdrAppliesToExtraction {
+  const lines = frontmatter.split(/\r?\n/);
+  const keyIndexes = lines.flatMap((line, index) => /^(["']?)appliesTo\1[ \t]*:(?:[ \t]|$)/.test(line) ? [index] : []);
+  if (keyIndexes.length === 0) return { kind: "absent" };
+  if (keyIndexes.length > 1) return { kind: "malformed", reason: "is declared more than once" };
+  const keyIndex = keyIndexes[0]!;
+  const inline = stripYamlComment(lines[keyIndex]!.slice(lines[keyIndex]!.indexOf(":") + 1)).trim();
+  if (inline) {
+    if (!inline.startsWith("[") || !inline.endsWith("]")) return { kind: "malformed", reason: "must be a list of node ids" };
+    const body = inline.slice(1, -1).trim();
+    if (!body) return { kind: "ids", ids: [] };
+    const ids: string[] = [];
+    for (const item of body.split(",")) {
+      const id = yamlBareId(item);
+      if (id === undefined) return { kind: "malformed", reason: `entry ${JSON.stringify(item.trim())} is not a node id` };
+      ids.push(id);
+    }
+    return { kind: "ids", ids };
+  }
+  const ids: string[] = [];
+  let itemIndent: number | undefined;
+  for (const line of lines.slice(keyIndex + 1)) {
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    const item = line.match(/^( *)-(?:[ \t]+(.*))?$/);
+    const indent = line.match(/^ */)![0].length;
+    if (!item) {
+      if (indent === 0) break;
+      return { kind: "malformed", reason: "must be a list of node ids" };
+    }
+    if (itemIndent === undefined) itemIndent = indent;
+    if (indent !== itemIndent) return { kind: "malformed", reason: "list items must share one indent" };
+    const id = yamlBareId(item[2] ?? "");
+    if (id === undefined) return { kind: "malformed", reason: `entry ${JSON.stringify((item[2] ?? "").trim())} is not a node id` };
+    ids.push(id);
+  }
+  return { kind: "ids", ids };
+}
+
+function stripYamlComment(value: string): string {
+  let quote: string | undefined;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    if (quote) {
+      if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === "'" || char === "\"") quote = char;
+    else if (char === "#" && (index === 0 || /\s/.test(value[index - 1]!))) return value.slice(0, index);
+  }
+  return value;
+}
+
+function yamlBareId(raw: string): string | undefined {
+  let value = stripYamlComment(raw).trim();
+  const quote = value[0];
+  if ((quote === "'" || quote === "\"") && value.length >= 2 && value.endsWith(quote)) value = value.slice(1, -1).trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/.test(value)) return undefined;
+  return value;
+}
+
 function assertObject(value: Json, path: string): asserts value is { [key: string]: Json } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${path}: expected object`);

@@ -5,9 +5,8 @@ title: Deterministic Gate, LLM Advisory
 status: accepted
 decidedAt: 2026-06-20
 appliesTo:
-  - package.review-engine
-  - package.runner
-  - package.github-app
+  - component.architecture-context.core.review-engine
+  - module.architecture-context.cloud
 supersedes: []
 ---
 

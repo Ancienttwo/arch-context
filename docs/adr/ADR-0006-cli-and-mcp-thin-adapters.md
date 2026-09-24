@@ -5,8 +5,8 @@ title: CLI and MCP as Thin Adapters
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.cli
-  - package.mcp-local
+  - component.architecture-context.surfaces.cli
+  - component.architecture-context.surfaces.mcp-local
 supersedes: []
 ---
 

@@ -5,7 +5,7 @@ title: User-level Private Entitlement
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.control-plane
+  - component.architecture-context.cloud.control-plane
 supersedes: []
 ---
 

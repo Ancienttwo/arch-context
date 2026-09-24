@@ -5,11 +5,11 @@ title: Versioned Architecture Practice Assets
 status: accepted
 decidedAt: 2026-06-23
 appliesTo:
-  - package.contracts
-  - package.core
-  - package.runtime-daemon
-  - package.surfaces-cli
-  - package.surfaces-mcp-local
+  - module.architecture-context.contracts
+  - module.architecture-context.core
+  - component.architecture-context.local-runtime.runtime-daemon
+  - component.architecture-context.surfaces.cli
+  - component.architecture-context.surfaces.mcp-local
 supersedes: []
 ---
 

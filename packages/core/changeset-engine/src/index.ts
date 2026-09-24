@@ -3,6 +3,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   ARCHITECTURE_EVENT_SCHEMA_VERSION,
   architectureEventHash,
+  baseModelBlockingErrors,
   digestJson,
   type ArchitectureCandidateChangeV1,
   type ArchitectureCandidateDeltaPolicyAction,
@@ -324,8 +325,12 @@ export class ChangeSetEngine {
 
   private async validateModel(root: string, draft: ChangeSetDraft, deps: ChangeSetEngineDeps, phase: "before" | "after"): Promise<void> {
     const result = await deps.modelStore.validateModel({ root, repositoryId: draft.reason.taskSessionId, headSha: draft.base.headSha });
-    if (!result.valid) {
-      throw new Error(`ChangeSet model validation failed ${phase} apply: ${result.errors.join("; ") || "unknown validation error"}`);
+    // The before-apply model may carry dangling references that this ChangeSet repairs; the
+    // after-apply model must be fully valid.
+    const blocked = phase === "before" ? baseModelBlockingErrors(result).length > 0 : !result.valid;
+    if (blocked) {
+      const errors = phase === "before" ? baseModelBlockingErrors(result) : result.errors;
+      throw new Error(`ChangeSet model validation failed ${phase} apply: ${errors.join("; ") || "unknown validation error"}`);
     }
   }
 

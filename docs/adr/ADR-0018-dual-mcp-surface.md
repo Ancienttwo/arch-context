@@ -5,8 +5,8 @@ title: Dual MCP Surface
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.mcp-local
-  - package.mcp-cloud-metadata
+  - component.architecture-context.surfaces.mcp-local
+  - module.architecture-context.cloud
 supersedes: []
 ---
 

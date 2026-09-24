@@ -5,7 +5,7 @@ title: Context Compiler with Budget
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.context-compiler
+  - component.architecture-context.core.context-compiler
 supersedes: []
 ---
 

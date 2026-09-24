@@ -5,7 +5,7 @@ title: Developer vs Organization Attestation
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.attestation
+  - module.architecture-context.cloud
 supersedes: []
 ---
 

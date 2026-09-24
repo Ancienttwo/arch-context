@@ -5,7 +5,7 @@ title: Architecture Intervention
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.refactor-decision
+  - component.architecture-context.core.refactor-decision
 supersedes: []
 ---
 
