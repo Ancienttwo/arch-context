@@ -1586,7 +1586,26 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   clearExplorerDerivedState(input?: ArchitectureLedgerScope): Promise<number>;
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
+  /**
+   * Pending ChangeSet journals that startup recovery could not resolve. Read after
+   * `recoverPendingChangeSets()` while holding writer ownership, every row is a failed recovery —
+   * never another process's in-flight transaction.
+   */
+  listUnresolvedChangeSetJournals(): UnresolvedChangeSetJournal[];
+  /**
+   * Claims exclusive writer ownership of a file-backed store for the lifetime of this handle, before
+   * any migration or crash recovery touches it; released by `close()`. Stores without a backing
+   * file (test doubles, `:memory:`) have no cross-process writer to exclude.
+   */
+  acquireWriterOwnership?(): void;
   close(): void;
+}
+
+export interface UnresolvedChangeSetJournal {
+  journalId: string;
+  changeSetId: string;
+  root: string;
+  reason: string;
 }
 
 export interface CommittedChangeSetForTaskSessionFile {
@@ -1729,6 +1748,7 @@ type SqliteDatabase = {
 
 export class SqliteLocalStore implements RuntimeLocalStore {
   private db?: SqliteDatabase;
+  private writerOwnership?: LocalStoreWriterOwnership;
   private readonly explorerCachePolicy: ExplorerProjectionCachePolicyV1;
 
   constructor(
@@ -2380,6 +2400,23 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const metadata = JSON.parse(String(row.metadata_json)) as Record<string, unknown>;
     db.prepare("UPDATE changeset_journal SET status = ?, metadata_json = ?, updated_at = ?, completed_at = ? WHERE journal_id = ?")
       .run("aborted", stableJson({ ...metadata, abortReason: reason }), nowIso(), nowIso(), journalId);
+  }
+
+  listUnresolvedChangeSetJournals(): UnresolvedChangeSetJournal[] {
+    const db = this.requireOpenDatabase();
+    return db.prepare(
+      "SELECT journal_id, changeset_id, root, metadata_json FROM changeset_journal WHERE status = ? ORDER BY created_at, journal_id"
+    ).all("pending").map((row) => ({
+      journalId: String(row.journal_id),
+      changeSetId: String(row.changeset_id),
+      root: String(row.root),
+      reason: changeSetJournalRecoveryErrorMessage(String(row.metadata_json))
+    }));
+  }
+
+  acquireWriterOwnership(): void {
+    if (this.writerOwnership || this.databasePath === ":memory:") return;
+    this.writerOwnership = acquireLocalStoreWriterOwnership(this.databasePath);
   }
 
   recoverPendingChangeSets(): number {
@@ -3356,6 +3393,8 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   close(): void {
     this.db?.close();
     this.db = undefined;
+    this.writerOwnership?.release();
+    this.writerOwnership = undefined;
   }
 
   private async database(): Promise<SqliteDatabase> {
@@ -7191,6 +7230,70 @@ function isStaleMigrationLock(lockPath: string): boolean {
   } catch {
     return true;
   }
+}
+
+interface LocalStoreWriterOwnership {
+  release(): void;
+}
+
+/**
+ * Pid lock beside the store file (#160). Every runtime entrypoint — RPC server, foreground daemon,
+ * embedded CLI runtime, maintenance scripts — opens the store through `ArchctxDaemon.start()`, which
+ * claims this before migrations or crash recovery, so a second process can never roll back a live
+ * writer's pending journal as if it were crash residue. A lock whose pid is gone is taken over.
+ */
+export function localStoreWriterOwnershipPath(databasePath: string): string {
+  return `${databasePath}.owner.lock`;
+}
+
+function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWriterOwnership {
+  const lockPath = localStoreWriterOwnershipPath(databasePath);
+  ensurePrivateDir(dirname(lockPath));
+  const fd = openLocalStoreOwnerLock(lockPath, databasePath);
+  let released = false;
+  return {
+    release() {
+      if (released) return;
+      released = true;
+      closeSync(fd);
+      if (readOwnerLockPid(lockPath) === process.pid) rmSync(lockPath, { force: true });
+    }
+  };
+}
+
+function openLocalStoreOwnerLock(lockPath: string, databasePath: string): number {
+  try {
+    const fd = openSync(lockPath, "wx", 0o600);
+    writeFileSync(fd, JSON.stringify({ pid: process.pid, databasePath, acquiredAt: nowIso() }, null, 2), "utf8");
+    return fd;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const ownerPid = readOwnerLockPid(lockPath);
+    if (ownerPid === undefined || !isProcessAlive(ownerPid)) {
+      rmSync(lockPath, { force: true });
+      return openLocalStoreOwnerLock(lockPath, databasePath);
+    }
+    throw new Error(`local-store-writer-owned: ${databasePath} is owned by live process ${ownerPid}; lock=${lockPath}`);
+  }
+}
+
+function readOwnerLockPid(lockPath: string): number | undefined {
+  try {
+    const pid = (JSON.parse(readFileSync(lockPath, "utf8")) as { pid?: unknown }).pid;
+    return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function changeSetJournalRecoveryErrorMessage(metadataJson: string): string {
+  try {
+    const recoveryError = (JSON.parse(metadataJson) as { recoveryError?: { message?: unknown } }).recoveryError;
+    if (typeof recoveryError?.message === "string" && recoveryError.message.length > 0) return recoveryError.message;
+  } catch {
+    // Fall through: unreadable metadata is itself a reason the journal stayed unresolved.
+  }
+  return "pending after startup recovery without a recorded recovery error";
 }
 
 function isProcessAlive(pid: number): boolean {

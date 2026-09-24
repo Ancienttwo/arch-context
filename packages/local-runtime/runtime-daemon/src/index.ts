@@ -132,7 +132,7 @@ import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProv
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import {
@@ -262,6 +262,11 @@ export interface RuntimeStatus {
   architectureChangeFeed: {
     deferredScopeCount: number;
     failureDigests: string[];
+  };
+  /** Present only when startup recovery left ChangeSet journals unresolved; writes are refused. */
+  changeSetRecovery?: {
+    writable: false;
+    unresolvedJournals: UnresolvedChangeSetJournal[];
   };
 }
 
@@ -1276,6 +1281,7 @@ export class ArchctxDaemon {
   private explorer?: ExplorerServerSession;
   private running = false;
   private writerLocked = false;
+  private unresolvedChangeSetJournals: UnresolvedChangeSetJournal[] = [];
 
   constructor(deps: RuntimeDeps = {}, options: RuntimeConstructionOptions = {}) {
     if (options.compositionMode === "production") assertProductionRuntimeDeps(deps);
@@ -1314,11 +1320,22 @@ export class ArchctxDaemon {
   }
 
   async start(): Promise<void> {
-    await this.localStore.migrate();
-    this.localStore.recoverPendingSnapshots();
-    this.localStore.recoverPendingChangeSets();
-    await this.restoreLandscape();
-    await this.restoreRepositorySessions();
+    // Ownership first (#160): migrations and crash recovery rewrite state, and recovery cannot tell a
+    // crashed writer's pending journal from a live one's, so no other process may be writing.
+    this.localStore.acquireWriterOwnership?.();
+    try {
+      await this.localStore.migrate();
+      this.localStore.recoverPendingSnapshots();
+      this.localStore.recoverPendingChangeSets();
+      // Recovery gate (#172): a journal still pending here failed to recover. Its backups are kept
+      // for the next start's retry, and nothing may write over them in the meantime.
+      this.unresolvedChangeSetJournals = this.localStore.listUnresolvedChangeSetJournals();
+      await this.restoreLandscape();
+      await this.restoreRepositorySessions();
+    } catch (error) {
+      this.localStore.close();
+      throw error;
+    }
     this.running = true;
   }
 
@@ -1353,7 +1370,10 @@ export class ArchctxDaemon {
       architectureChangeFeed: {
         deferredScopeCount: this.deferredArchitectureChangeFeedFailures.size,
         failureDigests: [...this.deferredArchitectureChangeFeedFailures.values()].sort()
-      }
+      },
+      ...(this.unresolvedChangeSetJournals.length === 0
+        ? {}
+        : { changeSetRecovery: { writable: false, unresolvedJournals: this.unresolvedChangeSetJournals.map((journal) => ({ ...journal })) } })
     };
   }
 
@@ -5720,6 +5740,9 @@ export class ArchctxDaemon {
   }
 
   private async withWriter<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.unresolvedChangeSetJournals.length > 0) {
+      throw new Error(`changeset-recovery-unresolved: ${unresolvedChangeSetJournalSummary(this.unresolvedChangeSetJournals)}; fix the cause and restart archctxd to retry recovery`);
+    }
     if (this.writerLocked) throw new Error("runtime writer is locked");
     this.writerLocked = true;
     try {
@@ -8498,6 +8521,12 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
     "investigationTransport",
     "githubIssueExecutor"
   ].filter((key) => key in deps);
+}
+
+function unresolvedChangeSetJournalSummary(journals: UnresolvedChangeSetJournal[]): string {
+  return `${journals.length} ChangeSet journal(s) left pending by startup recovery (${journals
+    .map((journal) => `${journal.journalId} [${journal.changeSetId}] at ${journal.root}: ${journal.reason}`)
+    .join("; ")})`;
 }
 
 function acquireDaemonLock(lockPath: string, root: string): number {
