@@ -174,3 +174,104 @@ describe("YamlModelStore ADR appliesTo integrity (#163)", () => {
     }
   });
 });
+
+const CONSTRAINT_PATH = ".archcontext/model/constraints/constraint.api-not-capability.yaml";
+
+function writeConstraint(root: string, overrides: Record<string, unknown> = {}): void {
+  mkdirSync(join(root, ".archcontext/model/constraints"), { recursive: true });
+  writeFileSync(join(root, CONSTRAINT_PATH), `${JSON.stringify({
+    schemaVersion: "archcontext.constraint/v1",
+    id: "constraint.api-not-capability",
+    name: "API does not reach up",
+    severity: "error",
+    scope: { nodes: ["module.api"] },
+    rule: { type: "forbid-dependency", targets: ["capability.architecture-context"] },
+    rationale: "fixture",
+    ...overrides
+  }, null, 2)}\n`, "utf8");
+}
+
+describe("YamlModelStore dependency constraint and review policy integrity (#163)", () => {
+  test("a fresh init writes the full review policy and no manifest failOn, and validates without warnings", async () => {
+    const root = modelRoot();
+    try {
+      expect(readFileSync(join(root, ".archcontext/manifest.yaml"), "utf8")).not.toContain("failOn");
+      expect(readFileSync(join(root, ".archcontext/policies/review.yaml"), "utf8")).toContain("prohibited-dependency");
+      const result = await validate(root);
+      expect(result).toMatchObject({ valid: true, errors: [] });
+      expect(result.warnings).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a forbid-dependency constraint over known nodes validates", async () => {
+    const root = modelRoot();
+    try {
+      writeConstraint(root);
+      expect(await validate(root)).toMatchObject({ valid: true, errors: [] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("unknown scope or target nodes are reference errors", async () => {
+    const root = modelRoot();
+    try {
+      writeConstraint(root, { scope: { nodes: ["module.ghost"] }, rule: { type: "forbid-dependency", targets: ["module.api"] } });
+      const result = await validate(root);
+      const error = `${CONSTRAINT_PATH}: constraint scope.nodes references unknown node module.ghost`;
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual([error]);
+      expect(result.referenceErrors).toEqual([error]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("empty targets and allowedVia are errors", async () => {
+    const root = modelRoot();
+    try {
+      writeConstraint(root, { rule: { type: "forbid-dependency", targets: [] }, allowedVia: ["module.api"] });
+      const result = await validate(root);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual([
+        `${CONSTRAINT_PATH}: rule.targets must be a non-empty list of node ids`,
+        `${CONSTRAINT_PATH}: allowedVia is not supported by forbid-dependency v1`
+      ]);
+      expect(result.referenceErrors).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an unknown failOn category is an error", async () => {
+    const root = modelRoot();
+    try {
+      writeFileSync(join(root, ".archcontext/policies/review.yaml"), "schemaVersion: archcontext.policy/v1\nid: policy.review\nfailOn: [\"invalid-schema\", \"boundary-health\"]\n", "utf8");
+      const result = await validate(root);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual([
+        ".archcontext/policies/review.yaml: unknown failOn category boundary-health (expected one of incomplete-intervention, invalid-schema, prohibited-dependency, stale-context, unjustified-compatibility)"
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a legacy manifest review.failOn is a warning naming what the policy does not enforce", async () => {
+    const root = modelRoot();
+    try {
+      const manifestPath = join(root, ".archcontext/manifest.yaml");
+      writeFileSync(manifestPath, `${readFileSync(manifestPath, "utf8")}review:\n  failOn:\n    - "prohibited-dependency"\n    - "stale-context"\n`, "utf8");
+      writeFileSync(join(root, ".archcontext/policies/review.yaml"), "schemaVersion: archcontext.policy/v1\nid: policy.review\nfailOn: [\"stale-context\"]\n", "utf8");
+      const result = await validate(root);
+      expect(result).toMatchObject({ valid: true, errors: [] });
+      expect(result.warnings).toEqual([
+        ".archcontext/manifest.yaml: review.failOn is ignored; .archcontext/policies/review.yaml failOn is the single review policy source; not enforced by the policy: prohibited-dependency"
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

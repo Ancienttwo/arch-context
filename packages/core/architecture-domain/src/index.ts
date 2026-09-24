@@ -1,7 +1,18 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
-import { canonicalize, digestJson, isRepoRelativePosixPath, stableId, stableYaml, type Json } from "@archcontext/contracts";
+import {
+  REVIEW_FAIL_ON_CATEGORIES,
+  canonicalize,
+  digestJson,
+  isRepoRelativePosixPath,
+  stableId,
+  stableYaml,
+  type DependencyConstraintV1,
+  type Json,
+  type ReviewFailOnCategory,
+  type ReviewPolicyV1
+} from "@archcontext/contracts";
 
 export interface RepositoryBinding {
   repositoryId: string;
@@ -495,16 +506,7 @@ export interface AdrAppliesToValidation {
  * never fails this check. No ADR files, or ADRs without `appliesTo`, produce no errors.
  */
 export function validateAdrAppliesTo(files: readonly { path: string; body: string }[]): AdrAppliesToValidation {
-  const nodeIds = new Set<string>();
-  for (const file of files) {
-    if (!file.path.startsWith(MODEL_NODE_PATH_PREFIX)) continue;
-    try {
-      const value = parseJsonOrStableYaml(file.body, file.path);
-      if (value && typeof value === "object" && !Array.isArray(value) && typeof value.id === "string") nodeIds.add(value.id);
-    } catch {
-      // Malformed node files are reported by schema validation, not by this reference check.
-    }
-  }
+  const nodeIds = modelNodeIds(files);
   const errors: string[] = [];
   const referenceErrors: string[] = [];
   for (const file of files) {
@@ -525,6 +527,161 @@ export function validateAdrAppliesTo(files: readonly { path: string; body: strin
     }
   }
   return { errors, referenceErrors };
+}
+
+/** Ids of `.archcontext/model/nodes/*`. Malformed node files are schema validation's to report. */
+function modelNodeIds(files: readonly { path: string; body: string }[]): Set<string> {
+  const nodeIds = new Set<string>();
+  for (const file of files) {
+    if (!file.path.startsWith(MODEL_NODE_PATH_PREFIX)) continue;
+    try {
+      const value = parseJsonOrStableYaml(file.body, file.path);
+      if (value && typeof value === "object" && !Array.isArray(value) && typeof value.id === "string") nodeIds.add(value.id);
+    } catch {
+      // Malformed node files are reported by schema validation, not by this reference check.
+    }
+  }
+  return nodeIds;
+}
+
+const MODEL_CONSTRAINT_PATH_PREFIX = ".archcontext/model/constraints/";
+export const REVIEW_POLICY_PATH = ".archcontext/policies/review.yaml";
+const MANIFEST_PATH = ".archcontext/manifest.yaml";
+
+export interface DependencyConstraintRead {
+  /** Well-formed `forbid-dependency` constraints; other rule types are not evaluated here. */
+  constraints: DependencyConstraintV1[];
+  errors: string[];
+  /** The subset of `errors` that are node ids resolving to no node. */
+  referenceErrors: string[];
+}
+
+/**
+ * Reads `forbid-dependency` constraints from `.archcontext/model/constraints/*` model files and
+ * checks their integrity: scope and targets are non-empty and resolve to nodes, severity is
+ * `error` or `warning`, and v1 has no `allowedVia` escape. A constraint with a structural error
+ * is not returned; one whose ids merely dangle still is, and simply never matches those ids.
+ */
+export function readDependencyConstraints(files: readonly { path: string; body: string }[]): DependencyConstraintRead {
+  const nodeIds = modelNodeIds(files);
+  const constraints: DependencyConstraintV1[] = [];
+  const errors: string[] = [];
+  const referenceErrors: string[] = [];
+  for (const file of files) {
+    if (!file.path.startsWith(MODEL_CONSTRAINT_PATH_PREFIX)) continue;
+    let value: Json;
+    try {
+      value = parseJsonOrStableYaml(file.body, file.path);
+    } catch (error) {
+      errors.push(`${file.path}: constraint is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    if (!isJsonRecord(value) || value.schemaVersion !== "archcontext.constraint/v1") {
+      errors.push(`${file.path}: expected archcontext.constraint/v1`);
+      continue;
+    }
+    const rule = isJsonRecord(value.rule) ? value.rule : undefined;
+    if (rule?.type !== "forbid-dependency") continue;
+    const scope = isJsonRecord(value.scope) ? value.scope : undefined;
+    const fileErrors: string[] = [];
+    if (typeof value.id !== "string" || !value.id) fileErrors.push("id is required");
+    if (value.severity !== "error" && value.severity !== "warning") fileErrors.push("forbid-dependency severity must be error or warning");
+    const scopeNodes = nonEmptyStrings(scope?.nodes);
+    if (!scopeNodes) fileErrors.push("scope.nodes must be a non-empty list of node ids");
+    const targets = nonEmptyStrings(rule.targets);
+    if (!targets) fileErrors.push("rule.targets must be a non-empty list of node ids");
+    if (value.allowedVia !== undefined) fileErrors.push("allowedVia is not supported by forbid-dependency v1");
+    errors.push(...fileErrors.map((error) => `${file.path}: ${error}`));
+    for (const [field, ids] of [["scope.nodes", scopeNodes ?? []], ["rule.targets", targets ?? []]] as const) {
+      for (const id of ids) {
+        if (nodeIds.has(id)) continue;
+        const error = `${file.path}: constraint ${field} references unknown node ${id}`;
+        errors.push(error);
+        referenceErrors.push(error);
+      }
+    }
+    if (fileErrors.length > 0) continue;
+    constraints.push({
+      id: value.id as string,
+      severity: value.severity as DependencyConstraintV1["severity"],
+      scope: { nodes: scopeNodes! },
+      rule: { type: "forbid-dependency", targets: targets! },
+      rationale: typeof value.rationale === "string" ? value.rationale : ""
+    });
+  }
+  return { constraints: constraints.sort((left, right) => left.id.localeCompare(right.id)), errors, referenceErrors };
+}
+
+export interface ReviewPolicyRead {
+  /** The effective policy. Missing, unreadable or invalid policy files fail closed: every category. */
+  policy: ReviewPolicyV1;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Reads the review policy from `.archcontext/policies/review.yaml`, the single `failOn` source. A
+ * `failOn` entry outside the closed vocabulary is an error. The manifest's legacy `review.failOn`
+ * is never read as policy; while it is still present it is reported as a warning naming any entry
+ * the effective policy does not enforce.
+ */
+export function readReviewPolicy(files: readonly { path: string; body: string }[]): ReviewPolicyRead {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  let policy: ReviewPolicyV1 = { failOn: [...REVIEW_FAIL_ON_CATEGORIES], source: "default" };
+  const policyFile = files.find((file) => file.path === REVIEW_POLICY_PATH);
+  if (policyFile) {
+    try {
+      const value = parseJsonOrStableYaml(policyFile.body, policyFile.path);
+      const failOn = isJsonRecord(value) ? value.failOn : undefined;
+      if (failOn !== undefined) {
+        if (!Array.isArray(failOn) || !failOn.every((entry) => typeof entry === "string")) {
+          errors.push(`${REVIEW_POLICY_PATH}: failOn must be a list of categories`);
+        } else {
+          const unknown = (failOn as string[]).filter((entry) => !(REVIEW_FAIL_ON_CATEGORIES as readonly string[]).includes(entry));
+          for (const entry of unknown) {
+            errors.push(`${REVIEW_POLICY_PATH}: unknown failOn category ${entry} (expected one of ${REVIEW_FAIL_ON_CATEGORIES.join(", ")})`);
+          }
+          if (unknown.length === 0) policy = { failOn: [...new Set(failOn as ReviewFailOnCategory[])], source: "policy-file" };
+        }
+      }
+    } catch (error) {
+      errors.push(`${REVIEW_POLICY_PATH}: review policy is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const manifestFailOn = readManifestFailOn(files);
+  if (manifestFailOn !== undefined) {
+    const missing = manifestFailOn.filter((entry) => !(policy.failOn as string[]).includes(entry));
+    warnings.push(
+      `${MANIFEST_PATH}: review.failOn is ignored; ${REVIEW_POLICY_PATH} failOn is the single review policy source`
+      + (missing.length === 0 ? "" : `; not enforced by the policy: ${missing.join(", ")}`)
+    );
+  }
+  return { policy, errors, warnings };
+}
+
+/** The legacy manifest `review.failOn`, or `undefined` when absent or unreadable. */
+function readManifestFailOn(files: readonly { path: string; body: string }[]): string[] | undefined {
+  const manifest = files.find((file) => file.path === MANIFEST_PATH);
+  if (!manifest) return undefined;
+  try {
+    const value = parseJsonOrStableYaml(manifest.body, manifest.path);
+    const review = isJsonRecord(value) && isJsonRecord(value.review) ? value.review : undefined;
+    const failOn = review?.failOn;
+    return Array.isArray(failOn) ? failOn.filter((entry): entry is string => typeof entry === "string") : undefined;
+  } catch {
+    // Manifest shape is validated elsewhere; this check only looks for the legacy key.
+    return undefined;
+  }
+}
+
+function isJsonRecord(value: Json | undefined): value is { [key: string]: Json } {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function nonEmptyStrings(value: Json | undefined): string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  return value.every((entry) => typeof entry === "string" && entry.length > 0) ? value as string[] : undefined;
 }
 
 type AdrAppliesToExtraction =

@@ -13,6 +13,8 @@ import {
   computeWorktreeDigest,
   createLandscape,
   landscapeDigest,
+  readDependencyConstraints,
+  readReviewPolicy,
   repositoryFingerprint,
   validateAdrAppliesTo,
   validateLandscape,
@@ -1171,11 +1173,12 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
     const readback = await this.loadLedgerModel(workspace);
-    const { errors, referenceErrors } = validateModelFiles(readback.files);
+    const { errors, referenceErrors, warnings } = validateModelFiles(readback.files);
     const result: ArchitectureLedgerReadModelValidation = {
       valid: errors.length === 0,
       errors,
       ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
       modelDigest: modelDigestForFiles(readback.files),
       architectureLedger: {
         ...this.architectureLedger,
@@ -7407,7 +7410,7 @@ function isEmptyArchitectureLedgerState(state: ArchitectureLedgerGraphState): bo
   return state.entities.length === 0 && state.relations.length === 0 && state.constraints.length === 0;
 }
 
-function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[] } {
+function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const paths = new Set(files.map((file) => file.path));
   for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
@@ -7417,8 +7420,14 @@ function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceEr
     if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
   }
   const adr = validateAdrAppliesTo(files);
-  errors.push(...adr.errors);
-  return { errors, referenceErrors: adr.referenceErrors };
+  const constraints = readDependencyConstraints(files);
+  const reviewPolicy = readReviewPolicy(files);
+  errors.push(...adr.errors, ...constraints.errors, ...reviewPolicy.errors);
+  return {
+    errors,
+    referenceErrors: [...adr.referenceErrors, ...constraints.referenceErrors],
+    warnings: reviewPolicy.warnings
+  };
 }
 
 function modelDigestForFiles(files: ModelFile[]): string {
