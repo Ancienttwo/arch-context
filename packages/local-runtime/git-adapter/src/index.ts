@@ -93,6 +93,7 @@ export interface GitChangeFingerprintInput {
 }
 
 export function readCommitChangeMetadata(root: string, ref = "HEAD"): GitChangeMetadata {
+  assertGitRevisionArgument(ref);
   const headSha = runGit(root, ["rev-parse", ref]).trim();
   const parentLine = runGit(root, ["rev-list", "--parents", "-n", "1", ref]).trim();
   const baseSha = parentLine.split(/\s+/)[1] ?? "root";
@@ -101,6 +102,7 @@ export function readCommitChangeMetadata(root: string, ref = "HEAD"): GitChangeM
 }
 
 export function readStagedChangeMetadata(root: string, baseRef = "HEAD"): GitChangeMetadata {
+  assertGitRevisionArgument(baseRef);
   const headSha = readHeadSha(root);
   const baseSha = gitSucceeds(root, ["rev-parse", "--verify", baseRef])
     ? runGit(root, ["rev-parse", baseRef]).trim()
@@ -174,10 +176,12 @@ export interface DetachedReviewWorktreePreparation extends DetachedReviewWorktre
 }
 
 export function readHeadTreeOid(root: string, ref = "HEAD"): string {
+  assertGitRevisionArgument(ref);
   return runGit(root, ["rev-parse", `${ref}^{tree}`]).trim();
 }
 
 export function readTrackedTreeEntries(root: string, ref = "HEAD"): GitTrackedTreeEntry[] {
+  assertGitRevisionArgument(ref);
   const output = runGit(root, ["ls-tree", "-rz", "-r", ref]);
   if (output.length === 0) return [];
   return output.split("\0")
@@ -300,7 +304,11 @@ export function prepareDetachedReviewWorktree(input: {
   tempRoot?: string;
 }): DetachedReviewWorktreePreparation {
   const sourceRoot = findRepositoryRoot(input.sourceRoot);
-  const expectedHeadTreeOid = input.expectedHeadTreeOid ?? readCommitTreeOid(sourceRoot, input.headSha);
+  // `headSha` is later handed to `git worktree add` even when the caller supplies the tree OID, so
+  // an option-shaped value must be refused here rather than only by `readCommitTreeOid`.
+  const expectedHeadTreeOid = isGitRevisionArgument(input.headSha)
+    ? input.expectedHeadTreeOid ?? readCommitTreeOid(sourceRoot, input.headSha)
+    : undefined;
   if (!expectedHeadTreeOid) {
     return {
       schemaVersion: "archcontext.detached-review-worktree-verification/v1",
@@ -380,6 +388,7 @@ function countLines(content: Buffer): number {
 }
 
 function readCommitTreeOid(root: string, headSha: string): string | undefined {
+  if (!isGitRevisionArgument(headSha)) return undefined;
   if (!gitSucceeds(root, ["cat-file", "-e", `${headSha}^{commit}`])) return undefined;
   try {
     return readHeadTreeOid(root, headSha);
@@ -472,6 +481,20 @@ function readDetachedWorktreeObserved(worktreeRoot: string): DetachedReviewWorkt
   } catch {
     return {};
   }
+}
+
+/**
+ * Revisions reach these helpers from hook flags, RPC input, and review challenges. Git reads a
+ * leading `-` as an option wherever a revision is expected (`--output=<path>` writes a file), and
+ * Git ref names can never start with `-` or contain whitespace or NUL, so such a value is refused
+ * before any Git process starts.
+ */
+function isGitRevisionArgument(ref: string): boolean {
+  return ref.length > 0 && !ref.startsWith("-") && !/[\s\0]/.test(ref);
+}
+
+function assertGitRevisionArgument(ref: string): void {
+  if (!isGitRevisionArgument(ref)) throw new Error(`invalid git revision argument: ${JSON.stringify(ref)}`);
 }
 
 function runGit(root: string, args: string[]): string {
