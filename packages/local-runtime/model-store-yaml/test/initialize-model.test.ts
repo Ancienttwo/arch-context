@@ -47,6 +47,17 @@ describe("initializeArchContextModel is create-only (#167)", () => {
     }
   });
 
+  test("creates a repository root that does not exist yet", () => {
+    const { base } = tempRoots();
+    try {
+      const root = join(base, "not-yet", "repo");
+      initializeArchContextModel(root, "New Root App");
+      for (const path of INIT_FILES) expect(existsSync(join(root, path))).toBe(true);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   test("a second init refuses and leaves the existing model byte-identical", () => {
     const { base, root } = tempRoots();
     try {

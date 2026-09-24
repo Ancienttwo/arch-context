@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { digestJson, stableYaml, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
@@ -192,6 +192,9 @@ export function initializeArchContextModel(root: string, productName = "ArchCont
   });
   files.push({ path: ".archcontext/projections/targets.json", body: `${JSON.stringify(createDefaultProjectionTargetManifest(), null, 2)}\n` });
 
+  // The repository root is the trusted containment boundary (it may itself be reached through a
+  // symlink); only paths below it are checked. Creating it keeps init usable on a fresh directory.
+  mkdirSync(root, { recursive: true });
   const existing = files.filter((file) => {
     assertPathHasNoSymlinkSegments(root, file.path);
     return lstatIfExists(resolve(root, file.path)) !== undefined;
