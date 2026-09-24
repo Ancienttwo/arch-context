@@ -4515,6 +4515,110 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
+  test("ledger-authoritative validate resolves ADR appliesTo against ledger nodes (#163)", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-09-25T04:03:00.000Z"
+      });
+      await daemon.init(root, "Ledger ADR Integrity App");
+      const path = ".archcontext/model/nodes/module.ledger-adr.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-adr-node",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-adr\nkind: module\nname: Ledger ADR\nstatus: active\nsummary: ADR target held by the ledger\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-adr-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      rmSync(join(root, path), { force: true });
+      const adrPath = "docs/adr/ADR-0001-ledger-adr.md";
+      const writeAdr = (appliesTo: string) => {
+        mkdirSync(join(root, "docs/adr"), { recursive: true });
+        writeFileSync(join(root, adrPath), [
+          "---",
+          "schemaVersion: archcontext.adr/v1",
+          "id: adr.0001.ledger-adr",
+          "title: Ledger ADR",
+          "status: accepted",
+          "decidedAt: 2026-09-25",
+          "appliesTo:",
+          `  - ${appliesTo}`,
+          "supersedes: []",
+          "---",
+          ""
+        ].join("\n"), "utf8");
+      };
+
+      writeAdr("module.ledger-adr");
+      const resolved = (await daemon.validate(root)).data as any;
+      expect(resolved.architectureLedger.readAuthority).toBe("ledger");
+      expect(resolved).toMatchObject({ valid: true, errors: [] });
+
+      writeAdr("package.bogus");
+      const unresolved = (await daemon.validate(root)).data as any;
+      expect(unresolved.architectureLedger.readAuthority).toBe("ledger");
+      expect(unresolved.valid).toBe(false);
+      expect(unresolved.errors).toEqual([`${adrPath}: ADR appliesTo references unknown node package.bogus`]);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("apply_update restores a hand-deleted node that an ADR references (#163)", async () => {
+    const root = tempRepo();
+    try {
+      const daemon = await createStartedTestDaemon({ clock: () => "2026-09-25T04:10:00.000Z" });
+      await daemon.init(root, "ADR Repair App");
+      const path = ".archcontext/model/nodes/module.adr-repair.yaml";
+      const body = "schemaVersion: archcontext.node/v2\nid: module.adr-repair\nkind: module\nname: ADR Repair\nstatus: active\nsummary: Node referenced by an ADR\n";
+      const adrPath = "docs/adr/ADR-0001-adr-repair.md";
+      mkdirSync(join(root, "docs/adr"), { recursive: true });
+      writeFileSync(join(root, adrPath), [
+        "---",
+        "schemaVersion: archcontext.adr/v1",
+        "id: adr.0001.adr-repair",
+        "title: ADR Repair",
+        "status: accepted",
+        "decidedAt: 2026-09-25",
+        "appliesTo:",
+        "  - module.adr-repair",
+        "supersedes: []",
+        "---",
+        ""
+      ].join("\n"), "utf8");
+
+      const dangling = (await daemon.validate(root)).data as any;
+      expect(dangling.valid).toBe(false);
+      expect(dangling.errors).toEqual([`${adrPath}: ADR appliesTo references unknown node module.adr-repair`]);
+
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.adr-repair-node",
+        operations: [{ op: "create_entity", path, expectedHash: "missing", body }]
+      });
+      expect(plan.ok).toBe(true);
+      const apply = await daemon.applyUpdate(root, {
+        id: "changeset.adr-repair-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      expect(apply.ok).toBe(true);
+      expect(readText(join(root, path))).toBe(body);
+      expect(((await daemon.validate(root)).data as any)).toMatchObject({ valid: true, errors: [] });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("ledger project restores missing Git projection from SQLite current state", async () => {
     const root = tempRepo();
     const store = new TestLocalStore();

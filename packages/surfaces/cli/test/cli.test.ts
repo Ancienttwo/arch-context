@@ -3954,7 +3954,7 @@ describe("archctx CLI", () => {
         "status: accepted",
         "decidedAt: 2026-06-25",
         "appliesTo:",
-        "  - package.surfaces-cli",
+        "  - capability.architecture-context",
         "supersedes: []",
         "---",
         "",

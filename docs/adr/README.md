@@ -12,6 +12,16 @@ appliesTo: []
 supersedes: []
 ```
 
+`appliesTo` lists architecture node ids from `.archcontext/model/nodes/`; `archctx validate` fails, and a ChangeSet rolls back, when any listed id resolves to no node.
+
+Only the top-level `appliesTo` key is read, so the rest of the frontmatter can be any YAML. It accepts:
+
+- an inline list, `appliesTo: [module.a, 'module.b']`, or `appliesTo: []`;
+- a block list of `- id` items, indented or at column zero, with every item at the same indent;
+- single or double quotes around an id, and `#` comments on their own line or after a value.
+
+Anything else, such as a scalar, a block scalar (`|`, `>`), a nested list or mapping, an empty `-` item or a repeated `appliesTo` key, is reported as a malformed `appliesTo`. An `appliesTo:` with no items lists nothing.
+
 The set below mirrors PRD §28 and is intentionally complete before package work begins, so implementation packages do not invent their own semantics.
 
 | ADR | Title |

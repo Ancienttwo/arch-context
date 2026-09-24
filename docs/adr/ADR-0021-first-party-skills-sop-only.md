@@ -5,7 +5,7 @@ title: First-party Skills as SOP Only
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - skills.archcontext-develop
+  - capability.architecture-context
 supersedes: []
 ---
 

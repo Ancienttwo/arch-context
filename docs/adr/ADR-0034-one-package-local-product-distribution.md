@@ -5,9 +5,9 @@ title: One-package Local Product Distribution
 status: accepted
 decidedAt: 2026-06-20
 appliesTo:
-  - package.cli
-  - package.runtime-daemon
-  - package.mcp-local
+  - component.architecture-context.surfaces.cli
+  - component.architecture-context.local-runtime.runtime-daemon
+  - component.architecture-context.surfaces.mcp-local
 supersedes: []
 ---
 

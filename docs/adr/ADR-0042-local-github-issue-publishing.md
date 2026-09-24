@@ -5,9 +5,9 @@ title: Local Approve-and-Publish for Advisory GitHub Issue Drafts
 status: accepted
 decidedAt: 2026-07-05
 appliesTo:
-  - package.core-architecture-ledger
-  - package.local-runtime-runtime-daemon
-  - package.surfaces-cli
+  - component.architecture-context.core.architecture-ledger
+  - component.architecture-context.local-runtime.runtime-daemon
+  - component.architecture-context.surfaces.cli
 supersedes: []
 ---
 

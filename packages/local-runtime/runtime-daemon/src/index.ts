@@ -14,6 +14,7 @@ import {
   createLandscape,
   landscapeDigest,
   repositoryFingerprint,
+  validateAdrAppliesTo,
   validateLandscape,
   type Landscape,
   type RepositoryRegistration
@@ -129,7 +130,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, baseModelBlockingErrors, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
@@ -1136,10 +1137,7 @@ interface ExplorerServerSession {
   lastProjectionDigest?: string;
 }
 
-interface ArchitectureLedgerReadModelValidation {
-  valid: boolean;
-  errors: string[];
-  modelDigest: string;
+interface ArchitectureLedgerReadModelValidation extends ModelValidationResult {
   architectureLedger: RuntimeArchitectureLedgerModes & {
     graphDigest: string;
     entityCount: number;
@@ -1170,13 +1168,14 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
     return (await this.loadLedgerModel(workspace)).files;
   }
 
-  async validateModel(workspace: WorkspaceRef): Promise<{ valid: boolean; errors: string[]; modelDigest: string }> {
+  async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
     const readback = await this.loadLedgerModel(workspace);
-    const errors = validateModelFiles(readback.files);
+    const { errors, referenceErrors } = validateModelFiles(readback.files);
     const result: ArchitectureLedgerReadModelValidation = {
       valid: errors.length === 0,
       errors,
+      ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
       modelDigest: modelDigestForFiles(readback.files),
       architectureLedger: {
         ...this.architectureLedger,
@@ -2939,8 +2938,9 @@ export class ArchctxDaemon {
       if (draft.base.headSha !== session.workspace.headSha) throw new Error("ChangeSet HEAD changed before apply");
       if (draft.base.worktreeDigest !== current) throw new Error("ChangeSet worktree digest changed before apply");
       const currentModel = await this.readModelStore.validateModel(session.workspace);
-      if (!currentModel.valid) {
-        throw new Error(`ChangeSet base model is invalid: ${currentModel.errors.join("; ") || "unknown validation error"}`);
+      const baseErrors = baseModelBlockingErrors(currentModel);
+      if (baseErrors.length > 0) {
+        throw new Error(`ChangeSet base model is invalid: ${baseErrors.join("; ")}`);
       }
       if (draft.base.modelDigest !== currentModel.modelDigest) throw new Error("ChangeSet model digest changed before apply");
       if (input.projectionApplyReceipt && await this.localStore.inspectProjectionApplyReceipt(input.projectionApplyReceipt.identity.lookupKey)) {
@@ -3193,7 +3193,8 @@ export class ArchctxDaemon {
   }): Promise<void> {
     const session = await this.openSession(root);
     const model = await this.modelStore.validateModel(session.workspace);
-    if (!model.valid) throw new Error(`Architecture projection ChangeSet base model is invalid: ${model.errors.join("; ")}`);
+    const baseErrors = baseModelBlockingErrors(model);
+    if (baseErrors.length > 0) throw new Error(`Architecture projection ChangeSet base model is invalid: ${baseErrors.join("; ")}`);
     const projectionFiles = input.files.map((file) => ({
       path: file.path,
       body: file.body.endsWith("\n") ? file.body : `${file.body}\n`,
@@ -7406,7 +7407,7 @@ function isEmptyArchitectureLedgerState(state: ArchitectureLedgerGraphState): bo
   return state.entities.length === 0 && state.relations.length === 0 && state.constraints.length === 0;
 }
 
-function validateModelFiles(files: ModelFile[]): string[] {
+function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[] } {
   const errors: string[] = [];
   const paths = new Set(files.map((file) => file.path));
   for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
@@ -7415,7 +7416,9 @@ function validateModelFiles(files: ModelFile[]): string[] {
   for (const file of files) {
     if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
   }
-  return errors;
+  const adr = validateAdrAppliesTo(files);
+  errors.push(...adr.errors);
+  return { errors, referenceErrors: adr.referenceErrors };
 }
 
 function modelDigestForFiles(files: ModelFile[]): string {

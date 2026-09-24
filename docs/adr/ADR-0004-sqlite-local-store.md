@@ -5,7 +5,7 @@ title: SQLite Local Store
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.local-store-sqlite
+  - component.architecture-context.local-runtime.local-store-sqlite
 supersedes: []
 ---
 

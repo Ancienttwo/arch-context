@@ -5,9 +5,9 @@ title: Runtime State Placement and Identity
 status: accepted
 decidedAt: 2026-06-23
 appliesTo:
-  - package.local-store-sqlite
-  - package.runtime-daemon
-  - package.surfaces-cli
+  - component.architecture-context.local-runtime.local-store-sqlite
+  - component.architecture-context.local-runtime.runtime-daemon
+  - component.architecture-context.surfaces.cli
 supersedes: []
 ---
 

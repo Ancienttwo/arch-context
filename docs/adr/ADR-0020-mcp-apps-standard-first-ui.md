@@ -5,7 +5,7 @@ title: MCP Apps Standard-first UI
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - app.chatgpt-ui
+  - module.architecture-context.surfaces
 supersedes: []
 ---
 

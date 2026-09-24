@@ -5,11 +5,11 @@ title: Authority-Aware Explorer View Compiler
 status: accepted
 decidedAt: 2026-07-11
 appliesTo:
-  - package.contracts
-  - package.architecture-ledger
-  - package.runtime-daemon
-  - package.explorer-html
-  - package.surfaces-cli
+  - module.architecture-context.contracts
+  - component.architecture-context.core.architecture-ledger
+  - component.architecture-context.local-runtime.runtime-daemon
+  - module.architecture-context.local-runtime
+  - component.architecture-context.surfaces.cli
 supersedes: []
 ---
 

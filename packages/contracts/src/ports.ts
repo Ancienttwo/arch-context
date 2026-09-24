@@ -140,11 +140,34 @@ export interface LocalStorePort {
   saveReviewResult(reviewId: string, result: unknown): Promise<void>;
 }
 
+export interface ModelValidationResult {
+  valid: boolean;
+  errors: string[];
+  /**
+   * The subset of `errors` that are cross-file references resolving to nothing, such as an ADR
+   * `appliesTo` id with no node. Omitted when empty.
+   */
+  referenceErrors?: string[];
+  modelDigest: string;
+}
+
 export interface ModelStorePort {
   loadManifest(workspace: WorkspaceRef): Promise<unknown>;
   loadModel(workspace: WorkspaceRef): Promise<unknown[]>;
-  validateModel(workspace: WorkspaceRef): Promise<{ valid: boolean; errors: string[]; modelDigest: string }>;
+  validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult>;
   writeChangeSetPreview(changeSet: unknown): Promise<{ digest: string; summary: string }>;
+}
+
+/**
+ * Errors that make a model unusable as the base of a write. Dangling references are excluded so
+ * that a change repairing them (for example restoring a deleted node) is not blocked; the
+ * after-apply model is still validated in full.
+ */
+export function baseModelBlockingErrors(result: ModelValidationResult): string[] {
+  if (result.valid) return [];
+  if (result.errors.length === 0) return ["unknown validation error"];
+  const references = new Set(result.referenceErrors ?? []);
+  return result.errors.filter((error) => !references.has(error));
 }
 
 export interface PolicyPort {

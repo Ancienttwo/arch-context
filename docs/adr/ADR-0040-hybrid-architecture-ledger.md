@@ -5,12 +5,12 @@ title: Hybrid Architecture Ledger
 status: accepted
 decidedAt: 2026-06-25
 appliesTo:
-  - package.contracts
-  - package.local-store-sqlite
-  - package.runtime-daemon
-  - package.changeset-engine
-  - package.surfaces-cli
-  - package.surfaces-mcp-local
+  - module.architecture-context.contracts
+  - component.architecture-context.local-runtime.local-store-sqlite
+  - component.architecture-context.local-runtime.runtime-daemon
+  - component.architecture-context.core.changeset-engine
+  - component.architecture-context.surfaces.cli
+  - component.architecture-context.surfaces.mcp-local
 supersedes: []
 ---
 

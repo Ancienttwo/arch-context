@@ -5,7 +5,7 @@ title: Compatibility Code Requires Contract
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.policy-engine
+  - component.architecture-context.core.policy-engine
 supersedes: []
 ---
 

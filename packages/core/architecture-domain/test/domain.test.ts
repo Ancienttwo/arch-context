@@ -30,7 +30,8 @@ import {
   isArchitectureDirectionViolationSubject,
   isArchitectureDirectionalEdgeViolationSubject,
   parseJsonOrStableYaml,
-  stripAdapterProtectedNativeFields
+  stripAdapterProtectedNativeFields,
+  validateAdrAppliesTo
 } from "../src/index";
 
 describe("@archcontext/core/architecture-domain", () => {
@@ -268,5 +269,134 @@ describe("@archcontext/core/architecture-domain", () => {
     expect((stripped.clean as any).evidence).toBeUndefined();
     expect(() => assertAdapterDoesNotOverwriteNativeCore(native, { ...native, evidence: ["changed"] })).toThrow("source-of-truth");
     expect(() => assertAdapterDoesNotOverwriteNativeCore(native, native)).not.toThrow();
+  });
+
+  describe("validateAdrAppliesTo", () => {
+    const node = (id: string) => ({
+      path: `.archcontext/model/nodes/${id}.yaml`,
+      body: `schemaVersion: "archcontext.node/v2"\nid: "${id}"\nkind: "module"\nname: "N"\nstatus: "active"\nsummary: "S"\n`
+    });
+    const adr = (path: string, appliesTo: string[] | string) => ({
+      path,
+      body: [
+        "---",
+        "schemaVersion: archcontext.adr/v1",
+        "id: adr.0001.example",
+        "title: Example: with colon",
+        "status: accepted",
+        "decidedAt: 2026-06-19",
+        ...(typeof appliesTo === "string" ? [`appliesTo: ${appliesTo}`] : ["appliesTo:", ...appliesTo.map((id) => `  - ${id}`)]),
+        "supersedes: []",
+        "---",
+        "",
+        "# Example",
+        ""
+      ].join("\n")
+    });
+
+    const clean = { errors: [], referenceErrors: [] };
+    const raw = (name: string, frontmatter: string[]) => ({
+      path: `docs/adr/${name}`,
+      body: ["---", ...frontmatter, "---", "", "# Body", ""].join("\n")
+    });
+
+    test("accepts ADR appliesTo ids that resolve to model nodes", () => {
+      expect(validateAdrAppliesTo([
+        node("module.api"),
+        node("capability.checkout"),
+        adr("docs/adr/ADR-0001-example.md", ["module.api", "capability.checkout"]),
+        adr("docs/adr/ADR-0002-empty.md", "[]")
+      ])).toEqual(clean);
+    });
+
+    test("names the ADR file for every unknown appliesTo id and marks them as reference errors", () => {
+      const unknown = [
+        "docs/adr/ADR-0001-example.md: ADR appliesTo references unknown node package.bogus",
+        "docs/adr/ADR-0002-other.md: ADR appliesTo references unknown node module.gone"
+      ];
+      expect(validateAdrAppliesTo([
+        node("module.api"),
+        adr("docs/adr/ADR-0001-example.md", ["module.api", "package.bogus"]),
+        adr("docs/adr/ADR-0002-other.md", ["module.gone"])
+      ])).toEqual({ errors: unknown, referenceErrors: unknown });
+    });
+
+    test("reports unterminated ADR frontmatter instead of skipping its appliesTo", () => {
+      const unterminated = {
+        path: "docs/adr/ADR-0003-open.md",
+        body: ["---", "id: adr.0003.open", "appliesTo:", "  - package.bogus", "", "# Body", ""].join("\n")
+      };
+      const bom = { path: "docs/adr/ADR-0004-bom.md", body: `\uFEFF${adr("x", ["package.bogus"]).body}` };
+      const result = validateAdrAppliesTo([node("module.api"), unterminated, bom]);
+      expect(result.errors).toEqual([
+        "docs/adr/ADR-0003-open.md: ADR frontmatter has no closing --- delimiter",
+        "docs/adr/ADR-0004-bom.md: ADR appliesTo references unknown node package.bogus"
+      ]);
+      expect(result.referenceErrors).toEqual(["docs/adr/ADR-0004-bom.md: ADR appliesTo references unknown node package.bogus"]);
+      expect(validateAdrAppliesTo([{ path: "docs/adr/ADR-0005-plain.md", body: "# No frontmatter\n" }])).toEqual(clean);
+    });
+
+    test("accepts hand-written YAML forms of appliesTo", () => {
+      const files = [
+        node("module.api"),
+        node("module.web"),
+        raw("ADR-0001-comments.md", [
+          "# full-line comment",
+          "id: adr.0001.comments",
+          "appliesTo:",
+          "  # comment inside the list",
+          "  - module.api # trailing note",
+          "",
+          "  - 'module.web'",
+          "supersedes: []"
+        ]),
+        raw("ADR-0002-inline.md", ["appliesTo: [module.api, \"module.web\"] # inline list"]),
+        raw("ADR-0003-zero-indent.md", ["appliesTo:", "- module.api", "- \"module.web\"", "status: accepted"]),
+        raw("ADR-0004-block-scalar.md", ["summary: |", "  appliesTo: [not.a.key]", "  text", "appliesTo:", "    - module.api"]),
+        raw("ADR-0005-blank.md", []),
+        raw("ADR-0006-blank-lines.md", ["", "   ", ""]),
+        raw("ADR-0007-other-keys.md", ["deciders: [alice, bob]", "notes: >", "  folded {text", "tags:", "- one"]),
+        raw("ADR-0008-null.md", ["appliesTo:", "supersedes: []"]),
+        raw("ADR-0009-quoted-key.md", ["\"appliesTo\": ['module.api']"])
+      ];
+      expect(validateAdrAppliesTo(files)).toEqual(clean);
+    });
+
+    test("reports malformed appliesTo values as non-reference errors", () => {
+      expect(validateAdrAppliesTo([
+        node("module.api"),
+        adr("docs/adr/ADR-0001-scalar.md", "module.api"),
+        raw("ADR-0002-block-scalar.md", ["appliesTo: |", "  module.api"]),
+        raw("ADR-0003-nested.md", ["appliesTo:", "  - id: module.api"]),
+        raw("ADR-0004-empty-item.md", ["appliesTo:", "  -", "  - module.api"]),
+        raw("ADR-0005-ragged.md", ["appliesTo:", "  - module.api", "    - module.web"]),
+        raw("ADR-0006-duplicate.md", ["appliesTo: []", "appliesTo: [module.api]"]),
+        raw("ADR-0007-nested-flow.md", ["appliesTo: [module.api, [module.web]]"])
+      ])).toEqual({
+        errors: [
+          "docs/adr/ADR-0001-scalar.md: ADR appliesTo must be a list of node ids",
+          "docs/adr/ADR-0002-block-scalar.md: ADR appliesTo must be a list of node ids",
+          "docs/adr/ADR-0003-nested.md: ADR appliesTo entry \"id: module.api\" is not a node id",
+          "docs/adr/ADR-0004-empty-item.md: ADR appliesTo entry \"\" is not a node id",
+          "docs/adr/ADR-0005-ragged.md: ADR appliesTo list items must share one indent",
+          "docs/adr/ADR-0006-duplicate.md: ADR appliesTo is declared more than once",
+          "docs/adr/ADR-0007-nested-flow.md: ADR appliesTo entry \"[module.web]\" is not a node id"
+        ],
+        referenceErrors: []
+      });
+    });
+
+    test("ignores files outside the ADR and node paths", () => {
+      expect(validateAdrAppliesTo([
+        adr("docs/adr/README.md", ["package.bogus"]),
+        adr(".archcontext/policies/review.md", ["package.bogus"]),
+        { path: "docs/adr/ADR-0001-no-frontmatter.md", body: "# No frontmatter\n\nappliesTo: [package.bogus]\n" }
+      ])).toEqual(clean);
+    });
+
+    test("has nothing to check without ADR files", () => {
+      expect(validateAdrAppliesTo([node("module.api")])).toEqual(clean);
+      expect(validateAdrAppliesTo([])).toEqual(clean);
+    });
   });
 });

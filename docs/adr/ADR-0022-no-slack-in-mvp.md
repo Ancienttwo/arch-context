@@ -5,7 +5,7 @@ title: No Slack in MVP
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.application
+  - component.architecture-context.core.application
 supersedes: []
 ---
 

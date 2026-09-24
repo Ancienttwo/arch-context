@@ -5,9 +5,8 @@ title: GitHub Governance Privacy Contract
 status: accepted
 decidedAt: 2026-06-20
 appliesTo:
-  - package.github-app
-  - package.control-plane
-  - package.cloud-db
+  - module.architecture-context.cloud
+  - component.architecture-context.cloud.control-plane
 supersedes: []
 ---
 
