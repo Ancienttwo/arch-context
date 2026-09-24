@@ -96,4 +96,57 @@ describe("YamlModelStore ADR appliesTo integrity (#163)", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("a ChangeSet restoring a hand-deleted referenced node is not blocked by the dangling reference", async () => {
+    const root = modelRoot();
+    try {
+      writeAdr(root, ["module.api"]);
+      rmSync(join(root, NODE_PATH));
+      const broken = await validate(root);
+      const dangling = `${ADR_PATH}: ADR appliesTo references unknown node module.api`;
+      expect(broken).toMatchObject({ valid: false, errors: [dangling], referenceErrors: [dangling] });
+
+      const engine = new ChangeSetEngine({ modelStore: new YamlModelStore(), projection: { planGeneratedProjection } });
+      const unrelated = engine.approve(engine.plan({
+        id: "changeset.unrelated-write",
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.test" },
+        operations: [{ op: "write_policy", path: ".archcontext/policies/extra.yaml", expectedHash: "missing", body: "schemaVersion: archcontext.policy/v1\nid: policy.extra\n" }]
+      }));
+      // A change that leaves the reference dangling is still rejected on the after-apply model.
+      await expect(engine.apply(root, unrelated)).rejects.toThrow(`ChangeSet model validation failed after apply: ${dangling}`);
+      expect(existsSync(join(root, ".archcontext/policies/extra.yaml"))).toBe(false);
+
+      const restore = engine.approve(engine.plan({
+        id: "changeset.restore-referenced-node",
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.test" },
+        operations: [{ op: "create_entity", path: NODE_PATH, expectedHash: "missing", body: NODE_BODY }]
+      }));
+      expect((await engine.apply(root, restore)).status).toBe("applied");
+      expect(readFileSync(join(root, NODE_PATH), "utf8")).toBe(NODE_BODY);
+      expect(await validate(root)).toMatchObject({ valid: true, errors: [] });
+      expect((await validate(root)).referenceErrors).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a ChangeSet on a base model with non-reference errors is still rejected before apply", async () => {
+    const root = modelRoot();
+    try {
+      writeFileSync(join(root, ".archcontext/model/nodes/broken.yaml"), "id: broken\n", "utf8");
+      const engine = new ChangeSetEngine({ modelStore: new YamlModelStore(), projection: { planGeneratedProjection } });
+      const draft = engine.approve(engine.plan({
+        id: "changeset.on-broken-base",
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.test" },
+        operations: [{ op: "write_policy", path: ".archcontext/policies/extra.yaml", expectedHash: "missing", body: "schemaVersion: archcontext.policy/v1\nid: policy.extra\n" }]
+      }));
+      await expect(engine.apply(root, draft)).rejects.toThrow("ChangeSet model validation failed before apply: .archcontext/model/nodes/broken.yaml");
+      expect(existsSync(join(root, ".archcontext/policies/extra.yaml"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

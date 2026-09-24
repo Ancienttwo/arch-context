@@ -3745,9 +3745,8 @@ describe("archctx CLI", () => {
         "title: CLI Ledger Import",
         "status: accepted",
         "decidedAt: 2026-06-25",
-        // This test deletes the only model node and restores it through `ledger project`, whose
-        // base-model validation would reject an ADR that references the deleted node.
-        "appliesTo: []",
+        "appliesTo:",
+        "  - capability.architecture-context",
         "supersedes: []",
         "---",
         "",

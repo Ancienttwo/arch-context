@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { digestJson, stableYaml, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, stableYaml, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
 import { validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
 
@@ -277,7 +277,7 @@ export class YamlModelStore implements ModelStorePort {
     return listModelFiles(workspace.root);
   }
 
-  async validateModel(workspace: WorkspaceRef): Promise<{ valid: boolean; errors: string[]; modelDigest: string }> {
+  async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     const errors: string[] = [];
     for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
       try {
@@ -296,9 +296,10 @@ export class YamlModelStore implements ModelStorePort {
         errors.push(`${file.path}: expected archcontext.flow/v1, got ${file.schemaVersion || "missing"}`);
       }
     }
-    errors.push(...validateAdrAppliesTo(files));
+    const referenceErrors = validateAdrAppliesTo(files);
+    errors.push(...referenceErrors);
     const modelDigest = digestJson(files.map((file) => ({ path: file.path, digest: file.digest })));
-    return { valid: errors.length === 0, errors, modelDigest };
+    return { valid: errors.length === 0, errors, ...(referenceErrors.length > 0 ? { referenceErrors } : {}), modelDigest };
   }
 
   async writeChangeSetPreview(changeSet: unknown): Promise<{ digest: string; summary: string }> {
