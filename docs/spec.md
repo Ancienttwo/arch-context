@@ -1,7 +1,7 @@
 # Product Spec: ArchContext
 
 > **Status**: Active
-> **Last Updated**: 2026-09-05
+> **Last Updated**: 2026-09-24
 > **Owner**: Planner
 > **Full PRD**: `plans/prds/20260619-2039-archcontext.prd.md`
 > **Follow-up PRD**: `plans/prds/20260620-0236-archcontext-local-github-governance.prd.md`
@@ -96,8 +96,8 @@ their ledger readback identity.
 
 ## Release State
 
-`archctx@0.5.10` and `archctx-contracts@0.5.10` are the current published release on `latest`,
-verified by registry readback on 2026-09-10. Historical committed-apply lookups read the journal directly without initializing a session or hashing workspace content. Projection results carry the optional
+`archctx@0.5.11` and `archctx-contracts@0.5.11` are the current published release on `latest`,
+verified by registry readback on 2026-09-24. The public `projection readback` operation returns the exact committed result and original refresh signals with fresh fixed-point validation; typed exact-request absence permits retry before any provider commit. It does not consume recovery delivery state. Historical committed-apply lookups read the journal directly without initializing a session or hashing workspace content. Projection results carry the optional
 `priorCommittedApplies` field on `archcontext.projection-result/v2`, so a retry under an
 interrupted request's `requestId` can name the projection-owned files an earlier committed
 attempt already wrote. `init --help` and `init -h` return help without

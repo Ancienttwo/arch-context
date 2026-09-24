@@ -1,6 +1,6 @@
 # Projection receipt readback
 
-User-approved source repair, 2026-09-24. Publication and shared runtime replacement remain separate approval boundaries.
+User-approved source repair and npm publication, 2026-09-24. Shared runtime replacement remains a separate operation.
 
 ## Boundary and decision
 
@@ -27,3 +27,7 @@ The user approved publishing the two npm packages, pinning repo-harness to the r
 The source gate from the previous slice is reused; only version and release evidence change. The main branch already includes the first-adoption fixed-point correction after v0.5.10; release notes must include it. Registry 0.5.10 remains the verified install guide until 0.5.11 publication/readback succeeds. Shared daemon and original 03c recovery remain separate operations.
 
 Version binding also covers the generated practice catalog digest, Review Action metadata and workflow examples, and the no-provider model digest used by the FG4 process fixture and its FG6 aggregate. The catalog is regenerated through `loadPracticeCatalog`; FG4 and FG6 records are regenerated with their existing `run` commands. These remain process-fixture and aggregate evidence, not a new hosted runner observation. Published-install claims remain on the last verified registry release until actual publication.
+
+## Published artifact readback
+
+Both 0.5.11 packages were published with npm Web Auth on 2026-09-24. Registry latest and downloaded archives match the tested tarballs; a fresh registry installation passes the Node capabilities handshake and contracts readback export checks without creating runtime state. The durable record is `docs/verification/archctx-0.5.11-release.json`. Candidate `4a7e6b6de256c4107233ef57c988e87a100f690f` passed all ten hosted CI jobs, local full verification (1778 tests) and 23 governance inspectors. The release guide now pins the verified published version.

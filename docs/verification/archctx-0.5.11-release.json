@@ -1,0 +1,128 @@
+{
+  "version": "0.5.11",
+  "status": "published",
+  "verifiedAt": "2026-09-24",
+  "baseCommit": "c946ea530d49c2d84c5af45aa94ad4f616d8e796",
+  "candidateCommit": "4a7e6b6de256c4107233ef57c988e87a100f690f",
+  "pullRequest": "https://github.com/Ancienttwo/arch-context/pull/157",
+  "scope": "Public repeatable projection receipt readback with fresh fixed-point proof and exact-request absence; first-adoption committed output can be recovered without semantic replay.",
+  "checks": {
+    "sourceRegression": {
+      "status": "pass",
+      "contractsTests": 182,
+      "rpcTests": 2
+    },
+    "fullVerification": {
+      "status": "pass",
+      "testsPassed": 1778,
+      "testsFailed": 0
+    },
+    "governanceInspections": {
+      "status": "pass",
+      "inspectorsPassed": 23
+    },
+    "requiredCI": {
+      "status": "pass",
+      "runId": 35922783591,
+      "commit": "4a7e6b6de256c4107233ef57c988e87a100f690f",
+      "jobsPassed": 10
+    },
+    "registryInstall": {
+      "status": "pass",
+      "registry": "https://registry.npmjs.org/",
+      "packages": [
+        "archctx@0.5.11",
+        "archctx-contracts@0.5.11"
+      ],
+      "node": "v24.18.0",
+      "capabilities": {
+        "schemaVersion": "archcontext.capabilities/v1",
+        "package": {
+          "name": "archctx",
+          "version": "0.5.11"
+        },
+        "protocols": {
+          "projectionRequest": "archcontext.projection-request/v1",
+          "projectionResult": "archcontext.projection-result/v2",
+          "architectureRefreshSignal": "archcontext.architecture-refresh-signal/v1"
+        },
+        "renderers": {
+          "architectureDocs": "archcontext.docs-renderer/v4",
+          "agentContext": "archcontext.agent-context-renderer/v1"
+        },
+        "features": [
+          "architecture-docs-renderer-v2",
+          "architecture-refresh-signal-v1",
+          "module-statistics-v1",
+          "projection-apply-readback-v1",
+          "projection-apply-receipt-v1",
+          "projection-apply-recovery-v1",
+          "projection-prior-committed-applies-v1",
+          "projection-protocol-v2",
+          "recommendation-v3",
+          "refactor-assessment-v1",
+          "refactor-resolution-v1"
+        ]
+      },
+      "contractsReadbackExports": "pass",
+      "runtimeStateCreated": false
+    }
+  },
+  "publication": {
+    "auth": "npm Web Auth",
+    "registry": "https://registry.npmjs.org/",
+    "packages": {
+      "archctx-contracts": {
+        "version": "0.5.11",
+        "latest": "0.5.11",
+        "dist": {
+          "shasum": "de2ab84a2610c9844429d5a3f8e3da7222315701",
+          "tarball": "https://registry.npmjs.org/archctx-contracts/-/archctx-contracts-0.5.11.tgz",
+          "fileCount": 180,
+          "integrity": "sha512-hhubkGVsPThfJDRBOhsH+EO2guRom8VUGvEOg4CHamWPv9soRzyzbQlbW8BseelRupL1eyzXXsr1sEVMJ1I/lA==",
+          "signatures": [
+            {
+              "sig": "MEYCIQC1CUt714v6SzP+FpKA1WO8CvRFzrUAl8+0oFedddTAMQIhANGVMHwLCXtIV7TdHrQP2l/h112JjV0vIoka+PE/omfi",
+              "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+            },
+            {
+              "sig": "MEYCIQDuBj222wgeezXHZZ7O1IlMQo2T/wZaAiubdLjVuNp2AgIhANdYkdjY6PrUlikPdgunLr/pkt8Qy61DsnX99Ootxqzw",
+              "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+            }
+          ],
+          "unpackedSize": 553647
+        },
+        "tarballSha256": "735881942d80ca62ccef81027037df828c60834318d42b1a4e873b23051870f2",
+        "matchesTestedArtifact": true
+      },
+      "archctx": {
+        "version": "0.5.11",
+        "latest": "0.5.11",
+        "dist": {
+          "shasum": "2c2481011bfcbb232794f4fef1b3bcec93896035",
+          "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.5.11.tgz",
+          "fileCount": 88,
+          "integrity": "sha512-APi0nZXtekLeyx9GrWIzaaJCNQ1IV/CShygSNZPregtJ5uFgXeosYboNgIgSfuHVxuqlLSqsQLM2W241pisDMQ==",
+          "signatures": [
+            {
+              "sig": "MEQCIF/9m0ySmIeL6gehpXGbOPrQZTW3edcP1OC0L5Y+3UrPAiBwX8SW6gOPAbkkqGRwxk0Zek+99+jWWRJG+hXBo43UTw==",
+              "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+            },
+            {
+              "sig": "MEQCIFFwJ2cWaK5YgyRm1V7i5PjIXcaz7gB9C/JaZjHM5KnJAiAg4kqmDn06w8myFw/Xz6ACTiDh1d7bqZUsqJO6Z7RGSw==",
+              "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+            }
+          ],
+          "unpackedSize": 2364569
+        },
+        "tarballSha256": "2b5cd68e359e1d6285e637344d502a0271d6a695dbf0bf4270cbde455c6edfca",
+        "matchesTestedArtifact": true
+      }
+    }
+  },
+  "notes": [
+    "Both downloaded registry tarballs are byte-identical to the locally tested artifacts.",
+    "This record proves published package contents and isolated installation; shared daemon replacement and global installation were not performed.",
+    "The source candidate passed the existing source review; downstream canonical acceptance is a separate release boundary."
+  ]
+}
