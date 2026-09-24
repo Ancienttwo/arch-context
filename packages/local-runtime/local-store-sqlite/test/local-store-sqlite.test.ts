@@ -2368,6 +2368,89 @@ store.close();
     }
   });
 
+  test("sqlite changeset journal recovers when the backup was never created and the destination still exists (#179)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-nobackup-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = `${absolutePath}.archctx-backup`;
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    try {
+      initializeArchContextModel(root, "No Backup Yet App");
+      writeRepoFile(root, relativePath, original);
+      const first = new SqliteLocalStore(dbPath);
+      await first.migrate();
+      const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.no-backup-yet", relativePath));
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        backupPath,
+        existed: true,
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: original })
+      });
+      // The crash happened before the rename to backup: the destination is untouched, and the
+      // planned backup was never created. This stays recoverable.
+      first.close();
+      expect(journalId).toEqual(expect.any(String));
+
+      const second = new SqliteLocalStore(dbPath);
+      await second.migrate();
+      expect(second.recoverPendingChangeSets()).toBe(1);
+      expect(second.listUnresolvedChangeSetJournals()).toEqual([]);
+      expect(readFileSync(absolutePath, "utf8")).toBe(original);
+      expect(existsSync(backupPath)).toBe(false);
+      second.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("sqlite changeset journal fails recovery when both the backup and destination are missing (#179)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-lostbackup-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = `${absolutePath}.archctx-backup`;
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    try {
+      initializeArchContextModel(root, "Lost Backup App");
+      writeRepoFile(root, relativePath, original);
+      const first = new SqliteLocalStore(dbPath);
+      await first.migrate();
+      const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.lost-backup", relativePath));
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        backupPath,
+        existed: true,
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: original })
+      });
+      // The crash happened after the rename to backup, and the backup itself was then lost too:
+      // neither the destination nor the backup survives, so the original is unrecoverable.
+      renameSync(absolutePath, backupPath);
+      rmSync(backupPath, { force: true });
+      first.close();
+
+      const second = new SqliteLocalStore(dbPath);
+      await second.migrate();
+      expect(second.recoverPendingChangeSets()).toBe(0);
+      const unresolved = second.listUnresolvedChangeSetJournals();
+      expect(unresolved).toEqual([{
+        journalId,
+        changeSetId: "changeset.lost-backup",
+        root,
+        reason: expect.any(String)
+      }]);
+      expect(unresolved[0]!.reason).not.toContain("without a recorded recovery error");
+      expect(unresolved[0]!.reason).toContain(relativePath);
+      expect(existsSync(absolutePath)).toBe(false);
+      expect(existsSync(backupPath)).toBe(false);
+      second.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("sqlite changeset recovery preserves the original when intent is durable but mutation never starts", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-changeset-intent-only-"));
     const dbPath = join(root, "runtime.sqlite");

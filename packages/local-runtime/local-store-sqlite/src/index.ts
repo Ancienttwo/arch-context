@@ -7925,7 +7925,20 @@ function recoverJournalFiles(root: string, files: ChangeSetJournalFile[]): void 
       if (file.backupPath && existsSync(file.backupPath)) {
         rmSync(absolute, { recursive: true, force: true });
         renameSync(file.backupPath, absolute);
+      } else if (!existsSync(absolute)) {
+        // The destination is also gone: either the backup was lost after the rename, or no
+        // backup was ever recorded. Either way the pre-ChangeSet content of this file cannot be
+        // recovered, so throw instead of silently reporting `recovered` over data loss. The
+        // caller leaves the journal `pending` with a `recoveryError`, and the #172 gate then
+        // refuses writes until an operator resolves it.
+        throw new Error(
+          `changeset-recovery-missing-backup: ${file.path} existed before this ChangeSet, but ` +
+          `${file.backupPath ? `its backup at ${file.backupPath}` : "no backup path was recorded for it"} ` +
+          "and the destination are both missing"
+        );
       }
+      // else: the destination still exists, so the crash happened before the rename to backup —
+      // already recoverable, nothing to do here.
     } else {
       rmSync(absolute, { recursive: true, force: true });
     }
