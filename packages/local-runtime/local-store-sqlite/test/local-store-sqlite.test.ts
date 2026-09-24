@@ -2405,19 +2405,35 @@ store.close();
     }
   });
 
-  test("sqlite changeset journal fails recovery when both the backup and destination are missing (#179)", async () => {
+  test("sqlite changeset journal fails recovery when both the backup and destination are missing, but still restores an earlier recoverable entry (#179)", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-changeset-lostbackup-"));
     const dbPath = join(root, "runtime.sqlite");
     const relativePath = ".archcontext/policies/review.yaml";
     const absolutePath = join(root, relativePath);
     const backupPath = `${absolutePath}.archctx-backup`;
     const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    // A second, unrelated file in the same ChangeSet whose backup is intact. It is recorded
+    // *before* the lost-backup entry, so recovery (which walks files[] in reverse) hits the lost
+    // entry first — proving an earlier files[] entry still gets rolled back instead of being
+    // abandoned when a later entry turns out unrecoverable.
+    const otherRelativePath = ".archcontext/policies/sibling.yaml";
+    const otherAbsolutePath = join(root, otherRelativePath);
+    const otherBackupPath = `${otherAbsolutePath}.archctx-backup`;
+    const otherOriginal = "schemaVersion: archcontext.policy/v1\nid: policy.sibling\n";
     try {
       initializeArchContextModel(root, "Lost Backup App");
       writeRepoFile(root, relativePath, original);
+      writeRepoFile(root, otherRelativePath, otherOriginal);
       const first = new SqliteLocalStore(dbPath);
       await first.migrate();
       const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.lost-backup", relativePath));
+      await first.recordChangeSetFile(journalId, {
+        path: otherRelativePath,
+        backupPath: otherBackupPath,
+        existed: true,
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: otherOriginal })
+      });
       await first.recordChangeSetFile(journalId, {
         path: relativePath,
         backupPath,
@@ -2425,6 +2441,8 @@ store.close();
         operation: "update_entity_fields",
         bodyHash: digestJson({ body: original })
       });
+      // The sibling file crashed mid-rename and stays cleanly recoverable.
+      renameSync(otherAbsolutePath, otherBackupPath);
       // The crash happened after the rename to backup, and the backup itself was then lost too:
       // neither the destination nor the backup survives, so the original is unrecoverable.
       renameSync(absolutePath, backupPath);
@@ -2443,9 +2461,115 @@ store.close();
       }]);
       expect(unresolved[0]!.reason).not.toContain("without a recorded recovery error");
       expect(unresolved[0]!.reason).toContain(relativePath);
+      expect(unresolved[0]!.reason).not.toContain(otherRelativePath);
+      expect(existsSync(absolutePath)).toBe(false);
+      expect(existsSync(backupPath)).toBe(false);
+      // The sibling entry, recorded earlier in files[], is still fully restored even though the
+      // journal as a whole stays pending on the unrecoverable file.
+      expect(readFileSync(otherAbsolutePath, "utf8")).toBe(otherOriginal);
+      expect(existsSync(otherBackupPath)).toBe(false);
+      second.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("sqlite changeset journal recovers a duplicate-path pair once the path and its backup are already gone (#179)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-duppath-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const relativePath = ".archcontext/generated/notes.md";
+    const absolutePath = join(root, relativePath);
+    const backupPath = `${absolutePath}.archctx-backup`;
+    try {
+      initializeArchContextModel(root, "Duplicate Path App");
+      // The path's pre-ChangeSet ground truth is "did not exist" — the FIRST journal entry below
+      // records that. A second, later op in the same ChangeSet then touched the same path (e.g. an
+      // explicit create immediately undone by a generated-projection delete for the same file) and
+      // recorded `existed: true`, because at that point the first op had already created it.
+      const first = new SqliteLocalStore(dbPath);
+      await first.migrate();
+      const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.dup-path", relativePath));
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        tempPath: `${absolutePath}.archctx-tmp-1`,
+        backupPath,
+        existed: false,
+        operation: "create_entity",
+        bodyHash: digestJson({ body: "created" })
+      });
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        backupPath,
+        existed: true,
+        operation: "delete_entity",
+        bodyHash: "missing"
+      });
+      // Disk already fully unwound before the crash that left this journal row `pending` (e.g. an
+      // in-process rollback ran, then the abort-status write itself never landed): neither the
+      // destination nor the backup exists. A naive per-entry check cannot tell this apart from real
+      // data loss on the second entry alone.
+      first.close();
+
+      const second = new SqliteLocalStore(dbPath);
+      await second.migrate();
+      expect(second.recoverPendingChangeSets()).toBe(1);
+      expect(second.listUnresolvedChangeSetJournals()).toEqual([]);
       expect(existsSync(absolutePath)).toBe(false);
       expect(existsSync(backupPath)).toBe(false);
       second.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("sqlite changeset journal recovers a duplicate-path pair again on a rerun after an already-successful pass (#179)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-duppath-rerun-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const relativePath = ".archcontext/generated/notes.md";
+    const absolutePath = join(root, relativePath);
+    const backupPath = `${absolutePath}.archctx-backup`;
+    try {
+      initializeArchContextModel(root, "Duplicate Path Rerun App");
+      const first = new SqliteLocalStore(dbPath);
+      await first.migrate();
+      const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.dup-path-rerun", relativePath));
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        tempPath: `${absolutePath}.archctx-tmp-1`,
+        backupPath,
+        existed: false,
+        operation: "create_entity",
+        bodyHash: digestJson({ body: "created" })
+      });
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        backupPath,
+        existed: true,
+        operation: "delete_entity",
+        bodyHash: "missing"
+      });
+      writeRepoFile(root, relativePath, "created\n");
+      renameSync(absolutePath, backupPath);
+      first.close();
+
+      const second = new SqliteLocalStore(dbPath);
+      await second.migrate();
+      expect(second.recoverPendingChangeSets()).toBe(1);
+      expect(existsSync(absolutePath)).toBe(false);
+      expect(existsSync(backupPath)).toBe(false);
+      second.close();
+
+      // Simulate a rerun: the recovery pass above finished, but its `recovered` status write never
+      // landed (e.g. the process crashed right after), so the journal is found `pending` again.
+      const db = new Database(dbPath);
+      db.run("UPDATE changeset_journal SET status = 'pending', completed_at = NULL, cleanup_completed_at = NULL WHERE journal_id = ?", [journalId]);
+      db.close();
+
+      const third = new SqliteLocalStore(dbPath);
+      await third.migrate();
+      expect(third.recoverPendingChangeSets()).toBe(1);
+      expect(third.listUnresolvedChangeSetJournals()).toEqual([]);
+      third.close();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

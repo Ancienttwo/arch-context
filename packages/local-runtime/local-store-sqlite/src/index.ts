@@ -7918,6 +7918,17 @@ function isJsonRecord(value: unknown): value is Record<string, Json> {
 }
 
 function recoverJournalFiles(root: string, files: ChangeSetJournalFile[]): void {
+  // A single ChangeSet can touch the same path twice — e.g. an explicit op creates a file that
+  // `planGeneratedProjection` then deletes in the same apply(). The second entry's `existed: true`
+  // only reflects that the first entry created it earlier in this same ChangeSet; the path's real
+  // pre-ChangeSet state is its *first* journal entry's `existed`. Without this, a fully-unwound
+  // duplicate-path pair (both gone, correctly) reads as indistinguishable from real data loss.
+  const firstExistedByPath = new Map<string, boolean>();
+  for (const file of files) {
+    const absolute = resolve(root, file.path);
+    if (!firstExistedByPath.has(absolute)) firstExistedByPath.set(absolute, file.existed);
+  }
+  const missing: string[] = [];
   for (const file of [...files].reverse()) {
     const absolute = resolve(root, file.path);
     if (file.tempPath) rmSync(file.tempPath, { recursive: true, force: true });
@@ -7925,24 +7936,30 @@ function recoverJournalFiles(root: string, files: ChangeSetJournalFile[]): void 
       if (file.backupPath && existsSync(file.backupPath)) {
         rmSync(absolute, { recursive: true, force: true });
         renameSync(file.backupPath, absolute);
-      } else if (!existsSync(absolute)) {
-        // The destination is also gone: either the backup was lost after the rename, or no
-        // backup was ever recorded. Either way the pre-ChangeSet content of this file cannot be
-        // recovered, so throw instead of silently reporting `recovered` over data loss. The
-        // caller leaves the journal `pending` with a `recoveryError`, and the #172 gate then
-        // refuses writes until an operator resolves it.
-        throw new Error(
-          `changeset-recovery-missing-backup: ${file.path} existed before this ChangeSet, but ` +
-          `${file.backupPath ? `its backup at ${file.backupPath}` : "no backup path was recorded for it"} ` +
-          "and the destination are both missing"
-        );
+      } else if (!existsSync(absolute) && firstExistedByPath.get(absolute) === true) {
+        // The destination is also gone, and this path genuinely existed before the ChangeSet
+        // began (not just earlier in the same ChangeSet): either the backup was lost after the
+        // rename, or no backup was ever recorded. The pre-ChangeSet content is unrecoverable.
+        // Keep going so every other entry still gets its own chance to recover, and report every
+        // lost path in one error after the loop instead of abandoning whatever is left.
+        missing.push(file.path);
       }
-      // else: the destination still exists, so the crash happened before the rename to backup —
-      // already recoverable, nothing to do here.
+      // else: either the destination still exists (the crash happened before the rename to
+      // backup), or this path's first journal entry recorded `existed: false` — a duplicate-path
+      // ChangeSet whose earlier entry created it, so both being gone now is the correct fully
+      // rolled-back state, not data loss. Nothing to do here either way.
     } else {
       rmSync(absolute, { recursive: true, force: true });
     }
     fsyncDirectory(dirname(absolute));
+  }
+  if (missing.length > 0) {
+    // The caller leaves the journal `pending` with this message as its `recoveryError`, and the
+    // #172 gate then refuses writes until an operator resolves it.
+    throw new Error(
+      `changeset-recovery-missing-backup: ${missing.length} path${missing.length === 1 ? "" : "s"} existed ` +
+      `before this ChangeSet, but its backup and the destination are both missing: ${missing.join(", ")}`
+    );
   }
 }
 
