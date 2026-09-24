@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.surfaces.mcp-local
+kind: component
+name: "Local MCP Server"
+status: active
+parent: module.architecture-context.surfaces
+summary: "Serves the local ArchContext MCP tools over stdio and loopback HTTP through the runtime daemon client, manages the secure tunnel, and renders the tool-loop transcript."
+source:
+  include:
+    - "packages/surfaces/mcp-local/src/**"

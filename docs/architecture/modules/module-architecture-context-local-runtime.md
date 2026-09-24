@@ -1,9 +1,9 @@
 # module/architecture-context/local-runtime 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-local-runtime" sourceDigest="sha256:9fb648669714ca08f1b1947930facdb27246ab200666936901d349e5e8f8677d" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:f3a08cf91ea76df805473c027efe9eb7a4f90ea52f1fccb79a00323de2358b99" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-local-runtime" sourceDigest="sha256:c4c891e5c1d9d4a6319e1543f69dfc5926c7aaa483af365b2673af8df6b7a0f3" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:8d043d28e04d746a71d5b14bb2927415e55908ae66d2c81c0e80261bd5a4de13" -->
 > **狀態**:`active`
 > **Capability ID**:`module.architecture-context.local-runtime`(kind `module`)
-> **Matched Prefixes**:`packages/local-runtime/**/src/**`
+> **Matched Prefixes**:`packages/local-runtime/**/src/**`、`packages/local-runtime/package.json`
 > **Local Contracts**:未宣告(`extensions.localContracts` 缺失)
 > **事實優先級**:倉庫當前狀態 > 本文檔機器區 > 本文檔人工區。機器區(引言、§1、§2)由 ArchContext 從架構模型與源碼度量投影生成,手改會在下次投影被覆蓋。本文檔不記錄出處;本次投影所驗證的 commit 見 `docs/architecture/.projection-manifest.json`。
 
@@ -23,7 +23,7 @@ Provides the local daemon and its adapters for SQLite storage, YAML model files,
 ### 1.3 規模信號
 
 - 規模量級:`10–20` 個文件 / `20k–50k` 行
-- 匹配前綴:`packages/local-runtime/**/src/**`
+- 匹配前綴:`packages/local-runtime/**/src/**`、`packages/local-runtime/package.json`
 - 排除前綴:`packages/local-runtime/**/test/**`
 - 推導:掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`,再按 1–2–5 階梯分桶。精確計數不入本文檔:量級足以回答「這個能力有多大」,而逐行計數會讓覆蓋範圍內任何一次源碼改動都改寫本文檔。
 

@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.module-statistics
+kind: component
+name: "Module Statistics"
+status: active
+parent: module.architecture-context.core
+summary: "Builds the module statistics snapshot: resolves tracked-file ownership by parent chain and derives the module import graph, cross-module edges, and cycles."
+source:
+  include:
+    - "packages/core/module-statistics/src/**"

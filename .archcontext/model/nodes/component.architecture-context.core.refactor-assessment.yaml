@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.refactor-assessment
+kind: component
+name: "Refactor Assessment"
+status: active
+parent: module.architecture-context.core
+summary: "Assesses refactor requests against a module statistics snapshot, derives observations and target deltas, and evaluates whether a recorded recommendation was resolved."
+source:
+  include:
+    - "packages/core/refactor-assessment/src/**"

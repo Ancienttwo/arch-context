@@ -10,3 +10,4 @@ source:
     - "packages/local-runtime/**/test/**"
   include:
     - "packages/local-runtime/**/src/**"
+    - "packages/local-runtime/package.json"

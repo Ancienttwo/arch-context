@@ -1,20 +1,20 @@
-# module/architecture-context/surfaces 架構文檔
+# component/architecture-context/cloud/control-plane 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-surfaces" sourceDigest="sha256:cc03cae533deb66b019cd26193f2afd7996f1eebdce8cb1f902373521efdab2e" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:a55877779e977c8e4e40c0e39ede093912ead0127c0140814788cb23ac9490a1" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.component-architecture-context-cloud-control-plane" sourceDigest="sha256:91a4b0c0aec8fef8507e99456875fb0192e3b7160e9763da80cc0f038d12c671" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:4a0d3bbfd9f90a53ecaf99e6120327f977fc0aebca80290d31dfbdd115727ffc" -->
 > **狀態**:`active`
-> **Capability ID**:`module.architecture-context.surfaces`(kind `module`)
-> **Matched Prefixes**:`packages/surfaces/**/src/**`、`packages/surfaces/package.json`
+> **Capability ID**:`component.architecture-context.cloud.control-plane`(kind `component`)
+> **Matched Prefixes**:`packages/cloud/control-plane/src/**`
 > **Local Contracts**:未宣告(`extensions.localContracts` 缺失)
 > **事實優先級**:倉庫當前狀態 > 本文檔機器區 > 本文檔人工區。機器區(引言、§1、§2)由 ArchContext 從架構模型與源碼度量投影生成,手改會在下次投影被覆蓋。本文檔不記錄出處;本次投影所驗證的 commit 見 `docs/architecture/.projection-manifest.json`。
 
-Provides the user-facing entrypoints: the CLI, the local MCP server, the explorer and ChatGPT UIs, the renderer, and the LikeC4 and Structurizr adapters.
+Implements the hosted control plane: GitHub OAuth and device authorization, review challenges and attestations, device and runner keys, billing webhooks, notifications, and the settings console.
 
 ## 1. P1:能力架構地圖
 
 ### 1.1 架構圖
 
 > **human-action-required**: P1 semantic authority is unprovable; no diagram was generated.
-- `semantic-edge-missing`: module.architecture-context.surfaces has no declared in-scope relation
+- `semantic-edge-missing`: component.architecture-context.cloud.control-plane has no declared in-scope relation
 
 ### 1.2 模組職責表
 
@@ -22,9 +22,8 @@ Provides the user-facing entrypoints: the CLI, the local MCP server, the explore
 
 ### 1.3 規模信號
 
-- 規模量級:`10–20` 個文件 / `5000–10000` 行
-- 匹配前綴:`packages/surfaces/**/src/**`、`packages/surfaces/package.json`
-- 排除前綴:`packages/surfaces/**/test/**`
+- 規模量級:`2–5` 個文件 / `2000–5000` 行
+- 匹配前綴:`packages/cloud/control-plane/src/**`
 - 推導:掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`,再按 1–2–5 階梯分桶。精確計數不入本文檔:量級足以回答「這個能力有多大」,而逐行計數會讓覆蓋範圍內任何一次源碼改動都改寫本文檔。
 
 ### 1.4 依賴邊界
@@ -40,8 +39,8 @@ Provides the user-facing entrypoints: the CLI, the local MCP server, the explore
 ## 2. P2:端到端數據流
 
 > **human-action-required**: P2 flow evidence is unprovable; no sequence diagram was generated.
-- `flow-missing`: no ArchitectureFlowV1 declares module.architecture-context.surfaces
-<!-- END ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-surfaces" -->
+- `flow-missing`: no ArchitectureFlowV1 declares component.architecture-context.cloud.control-plane
+<!-- END ARCHCONTEXT:generated target="projection_target.entity.component-architecture-context-cloud-control-plane" -->
 
 ## 3. P3:設計決策與不變量
 

@@ -10,3 +10,4 @@ source:
     - "packages/cloud/**/test/**"
   include:
     - "packages/cloud/**/src/**"
+    - "packages/cloud/package.json"

@@ -10,3 +10,4 @@ source:
     - "packages/core/**/test/**"
   include:
     - "packages/core/**/src/**"
+    - "packages/core/package.json"

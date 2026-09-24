@@ -44,7 +44,8 @@
       "domain": "architecture-context",
       "name": "contracts",
       "prefixes": [
-        "packages/contracts"
+        "packages/contracts",
+        "schemas"
       ],
       "contract_files": {
         "agents": "AGENTS.md",
@@ -291,7 +292,8 @@
       "domain": "architecture-context",
       "name": "practice-catalog",
       "prefixes": [
-        "packages/core/practice-catalog/src"
+        "packages/core/practice-catalog/src",
+        "packages/core/practice-catalog/assets"
       ],
       "contract_files": {
         "agents": "AGENTS.md",
@@ -432,6 +434,140 @@
       },
       "architecture_module": "docs/architecture/modules/component-architecture-context-core-review-engine.md",
       "workstream_dir": "tasks/workstreams/architecture-context/core/review-engine",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-module-statistics",
+      "domain": "architecture-context",
+      "name": "module-statistics",
+      "prefixes": [
+        "packages/core/module-statistics/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-module-statistics.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/module-statistics",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-refactor-assessment",
+      "domain": "architecture-context",
+      "name": "refactor-assessment",
+      "prefixes": [
+        "packages/core/refactor-assessment/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-refactor-assessment.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/refactor-assessment",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-local-runtime-runtime-daemon",
+      "domain": "architecture-context",
+      "name": "runtime-daemon",
+      "prefixes": [
+        "packages/local-runtime/runtime-daemon/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-local-runtime-runtime-daemon.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/local-runtime/runtime-daemon",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-local-runtime-local-store-sqlite",
+      "domain": "architecture-context",
+      "name": "local-store-sqlite",
+      "prefixes": [
+        "packages/local-runtime/local-store-sqlite/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-local-runtime-local-store-sqlite.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/local-runtime/local-store-sqlite",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-surfaces-cli",
+      "domain": "architecture-context",
+      "name": "cli",
+      "prefixes": [
+        "packages/surfaces/cli/src",
+        "packages/surfaces/cli/bin"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-surfaces-cli.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/surfaces/cli",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-surfaces-mcp-local",
+      "domain": "architecture-context",
+      "name": "mcp-local",
+      "prefixes": [
+        "packages/surfaces/mcp-local/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-surfaces-mcp-local.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/surfaces/mcp-local",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-cloud-control-plane",
+      "domain": "architecture-context",
+      "name": "control-plane",
+      "prefixes": [
+        "packages/cloud/control-plane/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-cloud-control-plane.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/cloud/control-plane",
       "lsp_profile": "typescript-lsp",
       "verification_hints": [
         "bun run verify",
