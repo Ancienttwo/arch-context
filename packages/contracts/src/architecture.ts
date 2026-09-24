@@ -138,6 +138,11 @@ export const REVIEW_FAIL_ON_CATEGORIES = [
 ] as const;
 export type ReviewFailOnCategory = (typeof REVIEW_FAIL_ON_CATEGORIES)[number];
 
+/**
+ * The effective review policy. An error in a category missing from `failOn` is downgraded to a
+ * warning, with one exception: the task-snapshot HEAD-mismatch `stale-context` finding always stays
+ * an error, because a stale snapshot skips every other review gate.
+ */
 export interface ReviewPolicyV1 {
   failOn: ReviewFailOnCategory[];
   /** `default` when no policy file declares `failOn`, or it is unreadable: every category blocks. */

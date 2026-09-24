@@ -78,6 +78,28 @@ describe("dependency constraint gate", () => {
     expect(review.findings.map((finding) => finding.severity)).toEqual(["warning"]);
   });
 
+  test("warning-only violations over incomplete evidence still fail with a Cannot determine finding", () => {
+    const warning = { ...violation, severity: "warning" as const };
+    const cases: Partial<DependencyConstraintEvaluationV1>[] = [
+      { coverage: "partial", reasonCodes: ["code-facts-truncated"] },
+      { reasonCodes: ["unresolved-import"], unresolvedImports: [{ from: "packages/core/src/index.ts", specifier: "@archcontext/core/missing" }] }
+    ];
+    for (const gap of cases) {
+      const review = completeTaskGate({
+        ...base,
+        dependencyConstraints: evaluation({ status: "violated", violations: [warning], ...gap }),
+        reviewPolicy: ALL_CATEGORIES
+      });
+
+      expect(review.result).toBe("fail_action_required");
+      expect(review.findings.map((finding) => [finding.id, finding.severity])).toEqual([
+        ["prohibited-dependency:constraint.core-not-runtime:packages/core/review/src/index.ts->packages/runtime/src/index.ts", "warning"],
+        ["prohibited-dependency:undetermined", "error"]
+      ]);
+      expect(review.findings[1]!.message).toContain(`Cannot determine whether dependency constraints hold (${gap.reasonCodes![0]}`);
+    }
+  });
+
   test("an undetermined answer is never a pass", () => {
     const undetermined = evaluation({ status: "undetermined", coverage: "unknown", reasonCodes: ["code-facts-unavailable"], importEdgeCount: 0 });
 
@@ -152,6 +174,48 @@ describe("review policy failOn", () => {
         "prohibited-dependency:constraint.core-not-runtime:packages/core/review/src/index.ts->packages/runtime/src/index.ts"
       ]
     });
+  });
+
+  test("a stale task snapshot always blocks, even when the policy leaves out stale-context", () => {
+    const review = completeTaskGate({
+      ...base,
+      currentHeadSha: "def",
+      dependencyConstraints: evaluation({ status: "violated", violations: [violation] }),
+      projectionFreshness: {
+        schemaVersion: "archcontext.projection-freshness/v1",
+        ok: false,
+        reasonCodes: ["projection-source-changed-since-verified-commit"],
+        detail: "fixture",
+        changedPathCount: 1,
+        staleNodes: []
+      },
+      reviewPolicy: { failOn: ["invalid-schema"], source: "policy-file" }
+    });
+
+    expect(review.result).toBe("fail_action_required");
+    expect(review.findings).toEqual([expect.objectContaining({ id: "stale-context", severity: "error", message: "Task snapshot HEAD does not match current HEAD." })]);
+    expect((review.extensions as any).reviewPolicy.downgradedFindingIds).toEqual([]);
+    // Everything the stale snapshot skipped is still recorded as skipped.
+    expect((review.extensions as any).dependencyConstraintChecksSkipped).toBe("stale-context");
+    expect((review.extensions as any).projectionFreshnessChecksSkipped).toBe("stale-context");
+  });
+
+  test("the projection-freshness stale-context finding still follows the policy", () => {
+    const review = completeTaskGate({
+      ...base,
+      projectionFreshness: {
+        schemaVersion: "archcontext.projection-freshness/v1",
+        ok: false,
+        reasonCodes: ["projection-source-changed-since-verified-commit"],
+        detail: "fixture",
+        changedPathCount: 1,
+        staleNodes: []
+      },
+      reviewPolicy: { failOn: ["invalid-schema"], source: "policy-file" }
+    });
+
+    expect(review.result).toBe("pass_with_warnings");
+    expect((review.extensions as any).reviewPolicy.downgradedFindingIds).toEqual(["stale-context"]);
   });
 
   test("compatibility finding types map onto unjustified-compatibility", () => {
