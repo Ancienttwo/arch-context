@@ -5,9 +5,7 @@ title: Trusted Runner Attestation
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.attestation
-  - package.runner
-  - package.github-app
+  - module.architecture-context.cloud
 supersedes: []
 ---
 

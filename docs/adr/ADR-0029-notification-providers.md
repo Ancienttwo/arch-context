@@ -5,9 +5,9 @@ title: Notification Providers
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.contracts
-  - package.notifications
-  - package.control-plane
+  - module.architecture-context.contracts
+  - module.architecture-context.cloud
+  - component.architecture-context.cloud.control-plane
 supersedes:
   - adr.0022.no-slack-in-mvp
 ---

@@ -5,10 +5,10 @@ title: Agent Context Provider
 status: accepted
 decidedAt: 2026-07-05
 appliesTo:
-  - package.contracts
-  - package.projection-engine
-  - package.model-store-yaml
-  - package.surfaces-cli
+  - module.architecture-context.contracts
+  - component.architecture-context.projection-renderer
+  - module.architecture-context.local-runtime
+  - component.architecture-context.surfaces.cli
 supersedes: []
 ---
 

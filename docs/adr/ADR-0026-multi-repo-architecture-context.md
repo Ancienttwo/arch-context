@@ -5,9 +5,9 @@ title: Multi-repo Architecture Context
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.architecture-domain
-  - package.context-compiler
-  - package.runtime-daemon
+  - component.architecture-context.core.architecture-domain
+  - component.architecture-context.core.context-compiler
+  - component.architecture-context.local-runtime.runtime-daemon
 supersedes: []
 ---
 

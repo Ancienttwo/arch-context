@@ -5,9 +5,7 @@ title: Model Interop Adapters
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.adapter-likec4
-  - package.adapter-structurizr
-  - package.renderer
+  - module.architecture-context.surfaces
 supersedes: []
 ---
 

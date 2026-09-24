@@ -5,7 +5,7 @@ title: Single-writer Runtime Daemon
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.runtime-daemon
+  - component.architecture-context.local-runtime.runtime-daemon
 supersedes: []
 ---
 

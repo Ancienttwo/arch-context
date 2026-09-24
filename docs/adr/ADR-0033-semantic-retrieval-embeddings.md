@@ -5,9 +5,9 @@ title: Semantic Retrieval and Embeddings
 status: accepted
 decidedAt: 2026-06-20
 appliesTo:
-  - package.retrieval
-  - package.local-store-sqlite
-  - package.context-compiler
+  - component.architecture-context.core.retrieval
+  - component.architecture-context.local-runtime.local-store-sqlite
+  - component.architecture-context.core.context-compiler
 supersedes: []
 ---
 

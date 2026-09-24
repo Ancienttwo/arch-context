@@ -5,7 +5,7 @@ title: Cloudflare Control Plane
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - app.control-plane
+  - component.architecture-context.cloud.control-plane
 supersedes: []
 ---
 

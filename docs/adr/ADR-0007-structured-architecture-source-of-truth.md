@@ -5,7 +5,7 @@ title: Structured Architecture Source of Truth
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.model-store-yaml
+  - module.architecture-context.local-runtime
 supersedes: []
 ---
 

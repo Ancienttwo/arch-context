@@ -5,7 +5,7 @@ title: CodeGraph as Required Code Facts Engine
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.codegraph-adapter
+  - module.architecture-context.local-runtime
 supersedes: []
 ---
 

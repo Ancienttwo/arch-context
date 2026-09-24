@@ -5,8 +5,8 @@ title: ChatGPT via Secure MCP Tunnel
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.mcp-local
-  - app.chatgpt-ui
+  - component.architecture-context.surfaces.mcp-local
+  - module.architecture-context.surfaces
 supersedes: []
 ---
 

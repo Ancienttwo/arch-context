@@ -5,8 +5,8 @@ title: GitHub Governance API Allowlist without Contents Permission
 status: accepted
 decidedAt: 2026-06-19
 appliesTo:
-  - package.github-app
-  - package.control-plane
+  - module.architecture-context.cloud
+  - component.architecture-context.cloud.control-plane
 supersedes: []
 ---
 

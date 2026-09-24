@@ -5,9 +5,9 @@ title: Browser Architecture Explorer
 status: accepted
 decidedAt: 2026-06-20
 appliesTo:
-  - package.runtime-daemon
-  - package.explorer-ui
-  - package.cli
+  - component.architecture-context.local-runtime.runtime-daemon
+  - module.architecture-context.surfaces
+  - component.architecture-context.surfaces.cli
 supersedes: []
 ---
 
