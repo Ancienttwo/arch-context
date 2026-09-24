@@ -26,8 +26,12 @@ deterministic architecture deltas.
 
 This ADR closes both gaps for the local, single-repository MVP: the daemon gains a
 real, synchronous audit entrypoint, and investigation output gains a typed,
-advisory-only GitHub issue draft shape. It does this with zero external side
-effects — no network calls, no `gh` invocations, nothing leaves the local machine.
+advisory-only GitHub issue draft shape. ArchContext itself makes no `gh`
+invocations and publishes nothing here, but the audit is not local-only: the
+headless `claude` runner sends the repository content it reads, plus the ledger
+context bundle, to its configured model provider. That egress is why the flow
+needs user-level consent (below) and why `archctx doctor` reports it as
+effective non-local egress (issue #161).
 
 Two invariants from ADR-0001/ADR-0012/ADR-0040 constrain the design and must not
 move:
@@ -43,7 +47,7 @@ move:
 
 # Decision
 
-Adopt a daemon-driven, opt-in local audit flow with four parts.
+Adopt a daemon-driven, opt-in local audit flow with five parts.
 
 1. **Daemon-owned `auditRun` RPC.** `archctxd` builds its own investigation job
    in-process (trigger source `agent_audit`, distinct from the git-hook trigger
@@ -84,6 +88,20 @@ Adopt a daemon-driven, opt-in local audit flow with four parts.
    repository root and checks the same manifest again before doing any work.
    Neither side treats the other as the sole policy owner, matching the
    existing CLI/MCP-are-triggers split from ADR-0006.
+5. **Three authorization boundaries (issue #161).** The repository-committed
+   manifest flag only declares that the repository supports audit; a cloned
+   third-party repository controls it, so it cannot also be the user's consent.
+   `audit run` and `audit approve` additionally require a user-level consent
+   record that lives in the user state directory (`ARCHCONTEXT_STATE_DIR` or the
+   OS default), never in the repository. It is bound to the repository identity
+   (canonical git common dir and `origin` URL) and to a digest of the audit
+   egress policy, is granted only by `archctx audit consent` (revoked with
+   `--revoke`), and both the CLI and the daemon fail closed with
+   `AC_USER_CONFIRMATION_REQUIRED` / `audit-user-consent-required` without it.
+   Publishing a specific issue keeps its own PAT and confirmation gates
+   (ADR-0042). The `claude` child process gets an explicit env allowlist
+   (process basics plus model-provider auth), so the daemon's GitHub PAT and
+   other unrelated credentials are not inherited by the investigator.
 
 # Consequences
 

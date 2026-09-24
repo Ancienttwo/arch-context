@@ -14,7 +14,12 @@ import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-
 import { prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import {
   ArchctxRuntimeRpcServer,
+  AUDIT_APPROVE_GH_TOKEN_ENV,
   AUDIT_RUN_DEFAULT_TIMEOUT_MS,
+  auditConsentRequiredEnvelope,
+  grantAuditConsent,
+  readAuditConsent,
+  revokeAuditConsent,
   RUNTIME_RPC_VERSION,
   createRuntimeRpcClientFromConnectionFile,
   createStartedDaemon,
@@ -402,6 +407,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "jobs":
       return runJobsCommand(args, cwd, await runtime());
     case "audit":
+      // User-level consent is written by the CLI only (never MCP/RPC) and needs no daemon.
+      if (args[0] === "consent") return runAuditConsentCommand(args, cwd);
       return runAuditCommand(args, cwd, await runtime());
     case "review":
     case "complete": {
@@ -549,7 +556,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
         }
       };
     }
@@ -2448,6 +2455,28 @@ function auditGithubIssuesEnabled(cwd: string): boolean {
   return false;
 }
 
+/**
+ * `archctx audit consent [--revoke]`: records (or removes) the user-level consent, outside the
+ * repository, that `audit run` / `audit approve` require in addition to the repository manifest's
+ * `audit.githubIssues.enabled` capability flag (issue #161).
+ */
+function runAuditConsentCommand(args: string[], cwd: string) {
+  const root = auditManifestGateRoot(cwd);
+  if (args.includes("--revoke")) {
+    const revoked = revokeAuditConsent(root);
+    return okEnvelope("audit.consent", { schemaVersion: "archcontext.audit-consent-result/v1", status: "revoked", ...revoked } as unknown as Json);
+  }
+  const granted = grantAuditConsent(root);
+  return okEnvelope("audit.consent", {
+    schemaVersion: "archcontext.audit-consent-result/v1",
+    status: "granted",
+    path: granted.path,
+    record: granted.record,
+    egress: "archctx audit run in this repository may send repository content read by the `claude` runner to its configured model provider; archctx audit approve additionally requires its own GitHub PAT and confirmation gates",
+    revokeCommand: "archctx audit consent --revoke"
+  } as unknown as Json);
+}
+
 async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "run";
   if (subcommand === "list") {
@@ -2472,6 +2501,8 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
         "archctx audit approve is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
       );
     }
+    const approveConsent = readAuditConsent(auditManifestGateRoot(cwd));
+    if (!approveConsent.granted) return auditConsentRequiredEnvelope("audit.approve", approveConsent.reason);
     const confirmPublicToken = readFlag(args, "--confirm-public-repo");
     const result = await daemon.auditApprove(cwd, {
       runId,
@@ -2487,7 +2518,7 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     return { ...result, requestId: "audit.approve" };
   }
   if (subcommand !== "run") {
-    return errorEnvelope("audit", "AC_SCHEMA_INVALID", "audit requires run|list|show|approve");
+    return errorEnvelope("audit", "AC_SCHEMA_INVALID", "audit requires run|list|show|approve|consent");
   }
   if (!auditGithubIssuesEnabled(cwd)) {
     return errorEnvelope(
@@ -2496,6 +2527,8 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
       "archctx audit run is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
     );
   }
+  const runConsent = readAuditConsent(auditManifestGateRoot(cwd));
+  if (!runConsent.granted) return auditConsentRequiredEnvelope("audit.run", runConsent.reason);
   const contextMaxItemsResult = readOptionalPositiveIntegerFlag(args, "--context-max-items", "audit.run");
   if (!contextMaxItemsResult.ok) return contextMaxItemsResult.envelope;
   const timeoutMsResult = readOptionalPositiveIntegerFlag(args, "--timeout-ms", "audit.run");
@@ -3482,6 +3515,14 @@ function agentHostRemoveConfig(host: AgentHost) {
   return { mcpServers: { archcontext: null } };
 }
 
+function auditConsentGrantedForDoctor(root: string): boolean {
+  try {
+    return readAuditConsent(root).granted;
+  } catch {
+    return false;
+  }
+}
+
 async function doctorReport(cwd: string, args: string[] = []) {
   const product = productVersionManifest();
   const paths = runtimePathsReport(cwd);
@@ -3489,7 +3530,12 @@ async function doctorReport(cwd: string, args: string[] = []) {
   const git = doctorGit(cwd);
   const sqlite = doctorSqlite(cwd);
   const permissions = doctorPermissions(cwd);
-  const hardening = diagnostics();
+  const auditRoot = auditManifestGateRoot(cwd);
+  const hardening = diagnostics({
+    auditEnabled: auditGithubIssuesEnabled(cwd),
+    auditUserConsent: auditConsentGrantedForDoctor(auditRoot),
+    githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV
+  });
   return {
     product,
     version: {

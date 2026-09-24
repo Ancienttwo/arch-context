@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CommandInvestigationRunnerTransportInput } from "@archcontext/core/agent-orchestrator";
-import { createNodeInvestigationTransport } from "../src/investigation-transport";
+import { createNodeInvestigationTransport, investigationChildEnv } from "../src/investigation-transport";
 
 /**
  * `createNodeInvestigationTransport` spawns a real child process (no shell), so these tests spawn
@@ -139,5 +139,76 @@ describe("createNodeInvestigationTransport / unwrapClaudeCodeEnvelope classifica
     expect(result.reasonCode).toBeUndefined();
     expect(result.shape).toBeUndefined();
     expect(JSON.parse(result.stdout)).toEqual({ report });
+  });
+});
+
+/**
+ * Issue #161: the investigation child is the process an audited repository can prompt-inject, so
+ * it must not inherit the daemon's GitHub publish PAT or any other unrelated credential.
+ */
+describe("createNodeInvestigationTransport child environment allowlist", () => {
+  const injected: Record<string, string> = {
+    ARCHCONTEXT_GH_ISSUES_TOKEN: "github_pat_should_never_reach_the_investigator",
+    GH_TOKEN: "ghp_should_never_reach_the_investigator",
+    GITHUB_TOKEN: "ghs_should_never_reach_the_investigator",
+    ARCHCONTEXT_DAEMON_CONTROL_TOKEN: "daemon-control-token",
+    SOME_SERVICE_SECRET: "unrelated-secret",
+    AWS_SECRET_ACCESS_KEY: "aws-secret-without-bedrock",
+    ANTHROPIC_API_KEY: "sk-ant-model-provider-auth",
+    CLAUDE_CODE_OAUTH_TOKEN: "claude-oauth-model-provider-auth",
+    CLAUDE_CONFIG_DIR: "/tmp/claude-config"
+  };
+
+  async function withEnv<T>(values: Record<string, string>, fn: () => Promise<T>): Promise<T> {
+    const previous = new Map(Object.keys(values).map((key) => [key, process.env[key]] as const));
+    Object.assign(process.env, values);
+    try {
+      return await fn();
+    } finally {
+      for (const [key, value] of previous) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  test("the spawned investigation process does not see ARCHCONTEXT_GH_ISSUES_TOKEN or GH_TOKEN", async () => {
+    // The child reports its own environment through the normal envelope path.
+    const script =
+      "process.stdout.write(JSON.stringify({ type: 'result', is_error: false, result: JSON.stringify({ env: process.env }) })); process.exit(0);";
+    const result = await withEnv(injected, () => createNodeInvestigationTransport()(baseInput({ args: ["-e", script] })));
+    expect(result.exitCode).toBe(0);
+    const childEnv = JSON.parse(result.stdout).report.env as Record<string, string>;
+    expect(childEnv.ARCHCONTEXT_GH_ISSUES_TOKEN).toBeUndefined();
+    expect(childEnv.GH_TOKEN).toBeUndefined();
+    expect(childEnv.GITHUB_TOKEN).toBeUndefined();
+    expect(childEnv.ARCHCONTEXT_DAEMON_CONTROL_TOKEN).toBeUndefined();
+    expect(childEnv.SOME_SERVICE_SECRET).toBeUndefined();
+    expect(childEnv.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    // Model-provider auth for the `claude` runner is still forwarded.
+    expect(childEnv.ANTHROPIC_API_KEY).toBe(injected.ANTHROPIC_API_KEY);
+    expect(childEnv.CLAUDE_CODE_OAUTH_TOKEN).toBe(injected.CLAUDE_CODE_OAUTH_TOKEN);
+    expect(childEnv.CLAUDE_CONFIG_DIR).toBe(injected.CLAUDE_CONFIG_DIR);
+    expect(childEnv.PATH).toBe(process.env.PATH ?? "");
+  });
+
+  test("forwards no *TOKEN*/*SECRET* variable except model-provider auth", () => {
+    const env = investigationChildEnv({ ...injected, PATH: "/usr/bin", HOME: "/home/u", NPM_TOKEN: "npm", DATABASE_URL: "postgres://x" });
+    const credentialShaped = Object.keys(env).filter((key) => /TOKEN|SECRET|KEY/.test(key)).sort();
+    expect(credentialShaped).toEqual(["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]);
+    expect(env.DATABASE_URL).toBeUndefined();
+    expect(env.PATH).toBe("/usr/bin");
+    expect(env.HOME).toBe("/home/u");
+  });
+
+  test("forwards cloud credentials only when the runner is configured for that model provider", () => {
+    const aws = { AWS_ACCESS_KEY_ID: "AKIA", AWS_SECRET_ACCESS_KEY: "secret", AWS_REGION: "us-east-1" };
+    expect(investigationChildEnv(aws).AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    const bedrock = investigationChildEnv({ ...aws, CLAUDE_CODE_USE_BEDROCK: "1" });
+    expect(bedrock).toMatchObject({ ...aws, CLAUDE_CODE_USE_BEDROCK: "1" });
+    expect(investigationChildEnv({ ...aws, CLAUDE_CODE_USE_BEDROCK: "0" }).AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    const vertex = investigationChildEnv({ GOOGLE_APPLICATION_CREDENTIALS: "/k.json", CLAUDE_CODE_USE_VERTEX: "1" });
+    expect(vertex.GOOGLE_APPLICATION_CREDENTIALS).toBe("/k.json");
+    expect(investigationChildEnv({ GOOGLE_APPLICATION_CREDENTIALS: "/k.json" }).GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
   });
 });

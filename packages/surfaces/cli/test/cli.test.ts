@@ -8,7 +8,7 @@ import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromA
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, grantAuditConsent, readAuditConsent, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
@@ -44,6 +44,23 @@ function runTestCli(command: string, args: string[], root: string, stateRoot = t
     if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
     else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
   });
+}
+
+/**
+ * Issue #161: `audit run` / `audit approve` need user-level consent (in the user state dir) on top
+ * of the manifest flag. Points ARCHCONTEXT_STATE_DIR at a per-test state root so the consent never
+ * touches the real user state directory; the returned function restores the env and cleans up.
+ */
+function grantTestAuditConsent(root: string): () => void {
+  const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+  const stateRoot = testStateRoot(root);
+  process.env.ARCHCONTEXT_STATE_DIR = stateRoot;
+  grantAuditConsent(root);
+  return () => {
+    if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+    else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+    rmSync(stateRoot, { recursive: true, force: true });
+  };
 }
 
 function testStateRoot(root: string): string {
@@ -1088,6 +1105,7 @@ describe("archctx CLI", () => {
     writeFileSync(join(enabledRoot, "README.md"), "# tmp\n", "utf8");
     mkdirSync(join(enabledRoot, ".archcontext"), { recursive: true });
     writeFileSync(join(enabledRoot, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const restoreAuditConsent = grantTestAuditConsent(enabledRoot);
     try {
       const calls: any[] = [];
       const auditRunRecord = {
@@ -1153,6 +1171,7 @@ describe("archctx CLI", () => {
       expect(invalidStatus.ok).toBe(false);
       expect((invalidStatus as any).error?.code).toBe("AC_SCHEMA_INVALID");
     } finally {
+      restoreAuditConsent();
       rmSync(enabledRoot, { recursive: true, force: true });
     }
   });
@@ -1162,6 +1181,7 @@ describe("archctx CLI", () => {
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     mkdirSync(join(root, ".archcontext"), { recursive: true });
     writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const restoreAuditConsent = grantTestAuditConsent(root);
     try {
       const calls: any[] = [];
       const runtimeClient = {
@@ -1207,6 +1227,7 @@ describe("archctx CLI", () => {
       expect(calls.filter((call) => call.method === "run")).toHaveLength(1);
       expect(calls.filter((call) => call.method === "list").length).toBeGreaterThanOrEqual(1);
     } finally {
+      restoreAuditConsent();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -1216,6 +1237,7 @@ describe("archctx CLI", () => {
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     mkdirSync(join(root, ".archcontext"), { recursive: true });
     writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const restoreAuditConsent = grantTestAuditConsent(root);
     try {
       let listCalls = 0;
       const runtimeClient = {
@@ -1243,6 +1265,7 @@ describe("archctx CLI", () => {
       expect((run.data as any)).toMatchObject({ status: "started", jobId: "agent_job.no_wait_test" });
       expect(listCalls).toBe(0);
     } finally {
+      restoreAuditConsent();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -1252,6 +1275,7 @@ describe("archctx CLI", () => {
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     mkdirSync(join(root, ".archcontext"), { recursive: true });
     writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const restoreAuditConsent = grantTestAuditConsent(root);
     try {
       const runtimeClient = {
         auditRun() {
@@ -1283,6 +1307,7 @@ describe("archctx CLI", () => {
       // A poll timeout must read as "come back later", not as a run failure.
       expect((run as any).error?.message).toContain("not a failure");
     } finally {
+      restoreAuditConsent();
       rmSync(root, { recursive: true, force: true });
     }
   }, 10_000);
@@ -1296,6 +1321,7 @@ describe("archctx CLI", () => {
     execFileSync("git", ["init"], { cwd: enabledRoot, stdio: ["ignore", "pipe", "pipe"] });
     mkdirSync(join(enabledRoot, ".archcontext"), { recursive: true });
     writeFileSync(join(enabledRoot, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const restoreAuditConsent = grantTestAuditConsent(enabledRoot);
     const enabledSubdir = join(enabledRoot, "src", "nested");
     mkdirSync(enabledSubdir, { recursive: true });
     try {
@@ -1316,6 +1342,7 @@ describe("archctx CLI", () => {
       expect(allowed.ok).toBe(true);
       expect(calls.length).toBe(1);
     } finally {
+      restoreAuditConsent();
       rmSync(enabledRoot, { recursive: true, force: true });
     }
 
@@ -1354,6 +1381,7 @@ describe("archctx CLI", () => {
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     mkdirSync(join(root, ".archcontext"), { recursive: true });
     writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const restoreAuditConsent = grantTestAuditConsent(root);
     try {
       const calls: any[] = [];
       const runtimeClient = {
@@ -1395,6 +1423,7 @@ describe("archctx CLI", () => {
       expect(list.ok).toBe(true);
       expect(calls[2]).toEqual({ method: "list", input: { statuses: ["issuing"] } });
     } finally {
+      restoreAuditConsent();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -1415,6 +1444,120 @@ describe("archctx CLI", () => {
       removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("issue #161: CLI audit run/approve fail closed without user consent even when the manifest enables audit", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-consent-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    // A freshly cloned repository whose committed manifest opts in to audit.
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    const stateRoot = testStateRoot(root);
+    process.env.ARCHCONTEXT_STATE_DIR = stateRoot;
+    try {
+      const calls: string[] = [];
+      const runtimeClient = {
+        auditRun() {
+          calls.push("run");
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "audit.run", data: { schemaVersion: "archcontext.audit-run-result/v1", status: "started", jobId: "agent_job.consent" } };
+        },
+        auditApprove() {
+          calls.push("approve");
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "audit.approve", data: {} };
+        }
+      };
+
+      for (const args of [["run", "--no-wait"], ["approve", "audit_run.x"]]) {
+        const denied = await runCli("audit", args, root, { runtimeClient: runtimeClient as any });
+        expect(denied.ok).toBe(false);
+        expect((denied as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+        expect((denied as any).error.reasonCode).toBe("audit-user-consent-required");
+        expect((denied as any).error.message).toContain("archctx audit consent");
+      }
+      expect(calls).toEqual([]);
+
+      // `audit consent` needs no daemon (a runtime client that throws proves it is never used).
+      const throwingRuntime = new Proxy({}, { get: () => () => { throw new Error("audit consent must not reach the daemon"); } });
+      const granted = await runCli("audit", ["consent"], root, { runtimeClient: throwingRuntime as any });
+      expect(granted.ok).toBe(true);
+      expect((granted.data as any).status).toBe("granted");
+      expect((granted.data as any).path.startsWith(resolve(stateRoot))).toBe(true);
+      expect(existsSync(join(root, ".archcontext", "audit-consent.json"))).toBe(false);
+      expect(readAuditConsent(root).granted).toBe(true);
+
+      const run = await runCli("audit", ["run", "--no-wait"], root, { runtimeClient: runtimeClient as any });
+      expect(run.ok).toBe(true);
+      const approve = await runCli("audit", ["approve", "audit_run.x"], root, { runtimeClient: runtimeClient as any });
+      expect(approve.ok).toBe(true);
+      expect(calls).toEqual(["run", "approve"]);
+
+      const revoked = await runCli("audit", ["consent", "--revoke"], root, { runtimeClient: throwingRuntime as any });
+      expect(revoked.ok).toBe(true);
+      expect((revoked.data as any)).toMatchObject({ status: "revoked", revoked: true });
+      const deniedAgain = await runCli("audit", ["run", "--no-wait"], root, { runtimeClient: runtimeClient as any });
+      expect((deniedAgain as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+      expect(calls).toEqual(["run", "approve"]);
+    } finally {
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+      rmSync(stateRoot, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("issue #161: doctor reports effective non-local egress from live Context7, audit, and gh publishing config", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-doctor-egress-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    const envKeys = ["ARCHCONTEXT_CONTEXT7_ENABLED", "ARCHCONTEXT_CONTEXT7_MODE", "ARCHCONTEXT_GH_ISSUES_TOKEN"] as const;
+    const previousEnv = new Map(envKeys.map((key) => [key, process.env[key]] as const));
+    for (const key of envKeys) delete process.env[key];
+    const egressOf = async () => ((await runTestCli("doctor", [], root)).data as any).egress;
+    try {
+      const baseline = await egressOf();
+      expect(baseline).toMatchObject({ defaultOutbound: "local-only", effectiveOutbound: "local-only", nonLocalEgress: [] });
+
+      process.env.ARCHCONTEXT_CONTEXT7_ENABLED = "1";
+      const context7 = await egressOf();
+      expect(context7.defaultOutbound).toBe("local-only");
+      expect(context7.effectiveOutbound).toBe("non-local");
+      expect(context7.nonLocalEgress.map((channel: any) => channel.channel)).toEqual(["context7"]);
+      delete process.env.ARCHCONTEXT_CONTEXT7_ENABLED;
+
+      // The manifest alone declares audit egress; it only becomes effective with user consent.
+      mkdirSync(join(root, ".archcontext"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+      process.env.ARCHCONTEXT_GH_ISSUES_TOKEN = "gh_pat_doctor_test";
+      const declared = await egressOf();
+      expect(declared.effectiveOutbound).toBe("local-only");
+      expect(declared.nonLocalEgress).toEqual([
+        expect.objectContaining({ channel: "agent-audit", status: "declared-awaiting-user-consent" }),
+        expect.objectContaining({ channel: "github-issue-publishing", status: "declared-awaiting-user-consent" })
+      ]);
+      expect(JSON.stringify(declared)).not.toContain("gh_pat_doctor_test");
+
+      const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+      process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
+      grantAuditConsent(root);
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+      const consented = await egressOf();
+      expect(consented.effectiveOutbound).toBe("non-local");
+      expect(consented.nonLocalEgress.map((channel: any) => [channel.channel, channel.status])).toEqual([
+        ["agent-audit", "enabled"],
+        ["github-issue-publishing", "enabled"]
+      ]);
+      expect(consented.ok).toBe(true);
+    } finally {
+      for (const [key, value] of previousEnv) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      rmSync(testStateRoot(root), { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   test("CLI requires a run-id for audit approve", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-missing-runid-"));
@@ -1460,6 +1603,7 @@ describe("archctx CLI", () => {
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     mkdirSync(join(root, ".archcontext"), { recursive: true });
     writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const restoreAuditConsent = grantTestAuditConsent(root);
     try {
       const rerunCommand = "archctx audit approve audit_run.cli_test --confirm-public-repo public:acme/widgets:abc:audit_run.cli_test";
       const runtimeClient = {
@@ -1491,6 +1635,7 @@ describe("archctx CLI", () => {
         expect((result as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
         expect(stderrOutput).toContain(rerunCommand);
       } finally {
+        restoreAuditConsent();
         (process.stderr as { write: unknown }).write = originalWrite;
       }
     } finally {
