@@ -20,6 +20,8 @@ describe("fg5 Check failure readback evidence", () => {
           ARCHCONTEXT_ENV: "staging", GITHUB_WEBHOOK_SECRET: webhook, ARCHCONTEXT_READBACK_SECRET: secret
         });
       }) as typeof fetch;
+      await expect(buildFg5CheckFailureReadbackConfig({}, ["--root", root, "--env-file", "fixture.env", "--webhook-secret", webhook])).rejects.toThrow("unsupported readback argument");
+      await expect(buildFg5CheckFailureReadbackConfig({}, ["--root", root, "--env-file", "fixture.env", `--webhook-secret=${webhook}`])).rejects.toThrow("unsupported readback argument");
       const config = await buildFg5CheckFailureReadbackConfig({}, ["--root", root, "--env-file", "fixture.env", "--out", "result.json", "--staging-url", "https://worker.example"]);
       expect((await runFg5CheckFailureReadback(config)).ok).toBe(true);
       expect(requests).toBe(1);

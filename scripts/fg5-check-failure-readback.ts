@@ -56,6 +56,14 @@ if (import.meta.main) {
 }
 
 export async function buildFg5CheckFailureReadbackConfig(env: NodeJS.ProcessEnv = process.env, args: string[] = []) {
+  const valueFlags = new Set(["--root", "--env-file", "--out", "--staging-url"]);
+  for (let index = 0; index < args.length; index++) {
+    const flag = args[index]!;
+    if (flag === "--json") continue;
+    if (!valueFlags.has(flag)) throw new Error("unsupported readback argument; configure the signing key in the environment file");
+    const value = args[++index];
+    if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+  }
   const root = readFlag(args, "--root") ?? env.ARCHCONTEXT_READBACK_ROOT ?? process.cwd();
   const envFile = readFlag(args, "--env-file") ?? env.ARCHCONTEXT_FG5_STAGING_ENV_FILE ?? DEFAULT_ENV_FILE;
   const outputPath = readFlag(args, "--out") ?? env.ARCHCONTEXT_FG5_CHECK_FAILURE_OUTPUT ?? DEFAULT_OUTPUT;
