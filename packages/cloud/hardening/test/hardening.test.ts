@@ -1,3 +1,4 @@
+import { localEgressStatus } from "@archcontext/local-runtime/egress";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +11,6 @@ import {
   installMarker,
   largeRepoPerfEstimate,
   launchGateReport,
-  localEgressStatus,
   PLATFORM_STATE_PATHS,
   secretScan,
   secureDefaults,

@@ -1734,6 +1734,29 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("issue #183: doctor reports the running daemon's Context7 configuration across process environments", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-daemon-egress-"));
+    const previous = process.env.ARCHCONTEXT_CONTEXT7_ENABLED;
+    writeFileSync(join(root, "README.md"), "# tmp\n");
+    try {
+      process.env.ARCHCONTEXT_CONTEXT7_ENABLED = "1";
+      await runCliProcess(root, "daemon", "start");
+      delete process.env.ARCHCONTEXT_CONTEXT7_ENABLED;
+      const doctor = await runCliProcess(root, "doctor");
+      expect(doctor.data.egress).toMatchObject({ source: "daemon", effectiveOutbound: "non-local" });
+      expect(doctor.data.egress.nonLocalEgress).toContainEqual(expect.objectContaining({ channel: "context7", status: "enabled" }));
+      expect(doctor.data.hardening.egress).toEqual(doctor.data.egress);
+      await stopDaemonAndWait(root);
+      const offline = await runCliProcess(root, "doctor");
+      expect(offline.data.egress).toMatchObject({ source: "cli-environment", effectiveOutbound: "local-only" });
+    } finally {
+      await stopDaemonAndWait(root);
+      if (previous === undefined) delete process.env.ARCHCONTEXT_CONTEXT7_ENABLED;
+      else process.env.ARCHCONTEXT_CONTEXT7_ENABLED = previous;
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("issue #161: doctor reports effective non-local egress from live Context7, audit, and gh publishing config", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-doctor-egress-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
@@ -3213,8 +3236,8 @@ describe("archctx CLI", () => {
       });
       expect(mcp.jsonrpc).toBe("2.0");
       expect(mcp.id).toBe(1);
-      expect(mcp.result.content.ok).toBe(true);
-      expect(mcp.result.content.data.valid).toBe(true);
+      expect(JSON.parse(mcp.result.content[0].text).ok).toBe(true);
+      expect(JSON.parse(mcp.result.content[0].text).data.valid).toBe(true);
 
       const daemonStatus = await runCliProcess(root, "daemon", "status");
       expect(daemonStatus.ok).toBe(true);

@@ -3606,6 +3606,10 @@ async function doctorReport(cwd: string, args: string[] = []) {
     auditUserConsent: auditConsentGrantedForDoctor(auditRoot),
     githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV
   });
+  const daemonEgress = "health" in daemon ? daemon.health?.egress : undefined;
+  const egress = daemon.running
+    ? daemonEgress ?? { ok: false, source: "daemon", effectiveOutbound: "unknown", warnings: ["Running daemon did not provide an egress report"] }
+    : { ...hardening.egress, source: "cli-environment" };
   return {
     product,
     version: {
@@ -3625,9 +3629,9 @@ async function doctorReport(cwd: string, args: string[] = []) {
     codeGraph: product.runtime.codeGraph,
     git,
     permissions,
-    egress: hardening.egress,
-    hardening,
-    ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable && hardening.egress.ok
+    egress,
+    hardening: { ...hardening, egress },
+    ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable && egress.ok
       && (daemon as { writable?: boolean }).writable !== false
   };
 }
@@ -3762,7 +3766,7 @@ async function doctorDaemon(cwd: string) {
       lockPath: defaultDaemonLockPath(cwd)
     };
   }
-  const health = await client.health().catch(() => undefined);
+  const health = await client.health({ includeEgress: true }).catch(() => undefined);
   const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
   if (healthIssue) return incompatibleDaemonStatus(healthIssue);
   if ((health as any)?.ok === true) {
@@ -3780,7 +3784,8 @@ async function doctorDaemon(cwd: string) {
     connection: client.connectionInfo(),
     health: (health as any)?.ok === true ? {
       composition: (health as any).composition,
-      product: (health as any).product
+      product: (health as any).product,
+      egress: (health as any).egress
     } : undefined,
     // A live daemon whose startup recovery left ChangeSet journals unresolved refuses writes (#172).
     ...((health as any)?.ok === true && (health as any).changeSetRecovery

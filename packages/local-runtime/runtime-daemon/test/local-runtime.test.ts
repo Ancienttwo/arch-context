@@ -1036,6 +1036,42 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("issue #169: runtime jobs reject unsafe completion metadata without changing the running job", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store });
+      writeFileSync(join(root, "changed.ts"), "export const changed = true;\n");
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree", event: "post-edit", analysisKind: "architecture-delta",
+        risk: "high", uncertainty: "high", coalesceKey: "privacy-regression"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      await daemon.jobsClaim(root, { workerId: "privacy-test" });
+      const before = await daemon.jobsList(root);
+      const forbidden = [
+        "-----BEGIN PRIVATE KEY-----",
+        "ghp_" + "x".repeat(24),
+        "github_pat_" + "x".repeat(24),
+        "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after",
+        "x".repeat(8193)
+      ];
+      for (const value of forbidden) {
+        for (const field of ["runMetadata", "error"]) {
+          const result = await daemon.jobsComplete(root, {
+            jobId, workerId: "privacy-test", status: "failed",
+            [field]: field === "runMetadata" ? { summary: value } : value
+          } as any);
+          expect(result.ok).toBe(false);
+          expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
+          expect(await daemon.jobsList(root)).toEqual(before);
+        }
+      }
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("runtime jobs persist provider run metadata on completion", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();
@@ -2242,25 +2278,40 @@ describe("local runtime foundation", () => {
     }
   });
 
-  test("audit approve aborts the entire batch when any draft matches a secret-shaped pattern", async () => {
-    const { executor, calls } = fakeGithubIssueExecutor();
-    const draftRecords = [
-      auditDraftRecord({ title: "Draft One" }),
-      auditDraftRecord({ title: "Draft Two", bodyMarkdown: "Rotate the leaked token ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
-    ];
-    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
-    try {
-      await withAuditApproveToken("gh_pat_test_token", async () => {
-        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
-        expect(result.ok).toBe(false);
-        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((result as any).error.message).toContain("secret-shaped");
-      });
-      expect(calls.createIssue).toHaveLength(0);
-    } finally {
-      removeTempRepo(fixture.root);
-    }
-  });
+  for (const [label, bodyMarkdown, expectedMessage] of [
+    ["secret", "Rotate ghp_" + "x".repeat(24), "secret-shaped"],
+    ["oversized body", "x".repeat(70_000), "size limit"],
+    ["unified diff", "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after", "forbidden raw"]
+  ]) {
+    test(`issue #169: audit run rejects ${label} drafts before persistence or publishing`, async () => {
+      const { executor, calls } = fakeGithubIssueExecutor();
+      const root = createGitRepo();
+      enableAuditWithConsent(root);
+      const store = new TestLocalStore();
+      try {
+        const now = "2026-07-05T00:00:00.000Z";
+        const daemon = await createStartedTestDaemon({
+          localStore: store, clock: () => now, githubIssueExecutor: executor,
+          investigationTransport: auditInvestigationTransportWithDrafts([
+            auditDraftRecord({ title: "Draft One" }), auditDraftRecord({ title: "Rejected draft", bodyMarkdown })
+          ], now)
+        });
+        const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+        expect(run.ok).toBe(false);
+        expect(run.error?.code).toBe("AC_SCHEMA_INVALID");
+        expect(run.error?.message).toContain(expectedMessage);
+        expect(JSON.stringify(await daemon.jobsList(root))).not.toContain(JSON.stringify(bodyMarkdown).slice(1, -1));
+        const jobs = (await daemon.jobsList(root)).data as any;
+        expect(jobs.jobs).toHaveLength(1);
+        expect(jobs.jobs[0].job.status).toBe("failed");
+        expect(store.architectureEvents.some((event) => event.eventType === "architecture.agent_audit.run_pending")).toBe(false);
+        expect(calls.createIssue).toHaveLength(0);
+        expect(calls.repoView).toHaveLength(0);
+      } finally {
+        removeTempRepo(root);
+      }
+    });
+  }
 
   // Issue #117 end-to-end: a benign JWT/installation-token architecture finding is publishable.
   test("audit approve publishes benign JWT and installation-token findings instead of aborting the batch", async () => {
@@ -2333,23 +2384,6 @@ describe("local runtime foundation", () => {
       }
     });
   }
-
-  test("audit approve rejects a draft whose body exceeds the GitHub issue length limit before any gh call", async () => {
-    const { executor, calls } = fakeGithubIssueExecutor();
-    const draftRecords = [auditDraftRecord({ title: "Oversized draft", bodyMarkdown: "x".repeat(70_000) })];
-    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
-    try {
-      await withAuditApproveToken("gh_pat_test_token", async () => {
-        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
-        expect(result.ok).toBe(false);
-        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((result as any).error.message).toContain("exceeding");
-      });
-      expect(calls.createIssue).toHaveLength(0);
-    } finally {
-      removeTempRepo(fixture.root);
-    }
-  });
 
   test("audit approve rejects a run whose investigation failed, zero gh calls", async () => {
     const { executor, calls } = fakeGithubIssueExecutor();
@@ -5825,6 +5859,25 @@ setInterval(() => undefined, 1 << 30);
       expect(existsSync(connection.lockPath)).toBe(false);
     } finally {
       if (!stopped) await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime health does not compute egress unless explicitly requested", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0 });
+    let egressCalls = 0;
+    daemon.egressReport = async () => { egressCalls += 1; return { source: "daemon", ok: true } as any; };
+    try {
+      const connection = await rpc.start();
+      const client = new RuntimeRpcClient(connection);
+      expect((await client.health() as any).ok).toBe(true);
+      expect(egressCalls).toBe(0);
+      expect((await client.health({ includeEgress: true }) as any).egress.source).toBe("daemon");
+      expect(egressCalls).toBe(1);
+    } finally {
+      await rpc.stop();
       removeTempRepo(root);
     }
   });
