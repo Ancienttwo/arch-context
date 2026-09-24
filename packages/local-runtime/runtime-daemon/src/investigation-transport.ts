@@ -112,22 +112,30 @@ export const INVESTIGATION_ENV_PROVIDER_CONDITIONAL: readonly { switchVar: strin
  * env from exactly PATH/HOME/GH_TOKEN: the investigator is the process an audited repository can
  * prompt-inject, so it must never hold the publish credential (ADR-0042).
  */
-export function investigationChildEnv(source: Record<string, string | undefined> = process.env): Record<string, string> {
+export function investigationChildEnv(
+  source: Record<string, string | undefined> = process.env,
+  platform: NodeJS.Platform = process.platform
+): Record<string, string> {
+  // Windows environment names are case-insensitive and commonly surface as `Path`, `SystemRoot`,
+  // etc., so match on an upper-cased key there while keeping the original spelling in the child env.
+  const key = platform === "win32" ? (name: string) => name.toUpperCase() : (name: string) => name;
+  const lookup = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(source)) lookup.set(key(name), value);
   const env: Record<string, string> = {};
-  const allowed = new Set<string>(INVESTIGATION_ENV_ALLOWLIST);
-  const prefixes: string[] = [...INVESTIGATION_ENV_ALLOWED_PREFIXES];
+  const allowed = new Set<string>(INVESTIGATION_ENV_ALLOWLIST.map(key));
+  const prefixes: string[] = INVESTIGATION_ENV_ALLOWED_PREFIXES.map(key);
   for (const conditional of INVESTIGATION_ENV_PROVIDER_CONDITIONAL) {
-    if (!isTruthyEnv(source[conditional.switchVar])) continue;
-    for (const name of conditional.names) allowed.add(name);
-    prefixes.push(...conditional.prefixes);
+    if (!isTruthyEnv(lookup.get(key(conditional.switchVar)))) continue;
+    for (const name of conditional.names) allowed.add(key(name));
+    prefixes.push(...conditional.prefixes.map(key));
   }
   for (const [name, value] of Object.entries(source)) {
     if (value === undefined) continue;
-    if (allowed.has(name)) {
+    if (allowed.has(key(name))) {
       env[name] = value;
       continue;
     }
-    const prefixMatch = prefixes.some((prefix) => name.startsWith(prefix));
+    const prefixMatch = prefixes.some((prefix) => key(name).startsWith(prefix));
     const excluded = INVESTIGATION_ENV_EXCLUDED_SUBSTRINGS.some((substring) => name.toUpperCase().includes(substring));
     if (prefixMatch && !excluded) env[name] = value;
   }

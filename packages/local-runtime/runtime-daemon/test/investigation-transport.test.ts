@@ -246,4 +246,21 @@ describe("createNodeInvestigationTransport child environment allowlist", () => {
     expect(Object.keys(investigationChildEnv(vertexEnv))).toEqual([]);
     expect(investigationChildEnv({ SSL_CERT_FILE: "/certs.pem" }).SSL_CERT_FILE).toBe("/certs.pem");
   });
+
+  test("matches Windows env names case-insensitively and keeps their original spelling", () => {
+    const windowsEnv = {
+      Path: "C:\\Windows\\system32",
+      SystemRoot: "C:\\Windows",
+      Anthropic_Api_Key: "sk-ant-test",
+      Gh_Token: "ghp_windows",
+      Anthropic_Admin_Key: "admin"
+    };
+    const win = investigationChildEnv(windowsEnv, "win32");
+    expect(win).toEqual({ Path: windowsEnv.Path, SystemRoot: windowsEnv.SystemRoot, Anthropic_Api_Key: "sk-ant-test" });
+    expect(investigationChildEnv({ Aws_Region: "us-east-1", Claude_Code_Use_Bedrock: "1" }, "win32")).toEqual({
+      Aws_Region: "us-east-1",
+      Claude_Code_Use_Bedrock: "1"
+    });
+    expect(investigationChildEnv({ Path: "/usr/bin" }, "linux")).toEqual({});
+  });
 });
