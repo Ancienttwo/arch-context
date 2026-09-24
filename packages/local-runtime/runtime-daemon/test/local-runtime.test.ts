@@ -2915,6 +2915,89 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("a manifest stamp commit that is not a hex SHA never reaches git as an option (#159)", async () => {
+    // The projection manifest is committed repository content, i.e. untrusted input. A stamp commit
+    // of `--output=output` turns `git diff <commit>..HEAD` into `git diff --output=output..HEAD`,
+    // which truncates `output..HEAD` — and follows it when the repository commits it as a symlink.
+    const root = createGitRepo();
+    const sentinelDir = mkdtempSync(join(tmpdir(), "archctx-stamp-sentinel-"));
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
+      await daemon.init(root, "Projection Stamp Injection App");
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        "utf8"
+      );
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src/app.ts"), "export const app = 1;\n", "utf8");
+      gitCommitAll(root, "declare capability source");
+      await applyArchitectureDocsProjection(root, daemon, "changeset.docs-stamp-injection");
+      gitCommitAll(root, "project architecture documentation");
+
+      const appliedCommit = gitOut(root, "rev-parse", "HEAD~1");
+      const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+      writeFileSync(manifestPath, readText(manifestPath).replaceAll(appliedCommit, "--output=output"), "utf8");
+      const sentinel = join(sentinelDir, "sentinel.txt");
+      writeFileSync(sentinel, "preserve me\n", "utf8");
+      const trap = join(root, "output..HEAD");
+      if (process.platform !== "win32") symlinkSync(sentinel, trap);
+
+      const loaded = loadArchitectureDocumentationInputs(root);
+      // An unusable stamp is never measured, and never reported as `unchanged`.
+      expect(loadCapabilitySourceChangesSinceStamps(root, loaded.model)).toEqual([]);
+      await daemon.completeTask(root, {
+        taskSessionId: "task_stamp_injection",
+        task: "complete with a hostile projection manifest"
+      });
+
+      expect(readText(sentinel)).toBe("preserve me\n");
+      if (process.platform === "win32") expect(existsSync(trap)).toBe(false);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+      nodeRmSync(sentinelDir, { recursive: true, force: true });
+    }
+  });
+
+  test("changed paths since a stamp are read NUL-framed, so non-ASCII paths still count as changes (#173)", async () => {
+    // `git diff --name-only` C-quotes non-ASCII paths by default ("src/\350\263\207\346\226\231.ts"),
+    // and that quoted string never matches `src/**`, so a covered edit read as `unchanged`.
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
+      await daemon.init(root, "Projection Path Framing App");
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        "utf8"
+      );
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src/app.ts"), "export const app = 1;\n", "utf8");
+      gitCommitAll(root, "declare capability source");
+      await applyArchitectureDocsProjection(root, daemon, "changeset.docs-path-framing");
+      gitCommitAll(root, "project architecture documentation");
+      const stampCommit = gitOut(root, "rev-parse", "HEAD~1");
+      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(stampCommit);
+
+      writeFileSync(join(root, "src/資料.ts"), "export const data = 1;\n", "utf8");
+      gitCommitAll(root, "add a non-ASCII source path");
+
+      const loaded = loadArchitectureDocumentationInputs(root);
+      expect(loadCapabilitySourceChangesSinceStamps(root, loaded.model)).toEqual([{
+        nodeId: "capability.architecture-context",
+        commit: stampCommit,
+        status: "changed",
+        changedPathCount: 1
+      }]);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("agent-context projection applies through its own ChangeSet operation kind and is idempotent", async () => {
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
