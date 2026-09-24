@@ -128,7 +128,10 @@ export class Context7ProviderError extends Error {
   }
 }
 
-const DEFAULT_CONTEXT7_API_BASE = "https://context7.com/api";
+export const DEFAULT_CONTEXT7_API_BASE = "https://context7.com/api";
+/** Runtime switches the daemon reads to enable Context7 egress; also read by `doctor`. */
+export const CONTEXT7_ENABLED_ENV = "ARCHCONTEXT_CONTEXT7_ENABLED";
+export const CONTEXT7_MODE_ENV = "ARCHCONTEXT_CONTEXT7_MODE";
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_BYTES = 24_576;
 const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -139,7 +142,21 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const LIBRARY_ID_PATTERN = /^\/[A-Za-z0-9._-]+\/[A-Za-z0-9._/@-]+$/;
 const VERSION_PATTERN = /^[A-Za-z0-9._@:+-]+$/;
 const INTENT_PATTERN = /^[a-z0-9][a-z0-9 .:_/-]{2,120}$/i;
+/**
+ * Provider credential *values* (not vocabulary) that must never leave the machine. Shared with the
+ * GitHub issue-draft pre-flight in runtime-daemon's github-issue-executor.ts (issue #161), which
+ * cannot reuse the rest of `FORBIDDEN_OUTBOUND_PATTERNS`: code fences, `owner/repo` slugs and
+ * `token_` identifiers are normal content in an architecture issue, but not in a Context7 query.
+ */
+export const CREDENTIAL_VALUE_DETECTORS = [
+  { id: "anthropic-api-key", pattern: /\bsk-ant-[A-Za-z0-9_-]{16,}/ },
+  { id: "openai-style-api-key", pattern: /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}/ },
+  { id: "aws-access-key-id", pattern: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/ },
+  { id: "slack-token", pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/ }
+] as const;
+
 const FORBIDDEN_OUTBOUND_PATTERNS = [
+  ...CREDENTIAL_VALUE_DETECTORS.map((detector) => detector.pattern),
   /\/Users\/[^/\s]+\/Projects\//,
   /file:\/\//i,
   /```/,

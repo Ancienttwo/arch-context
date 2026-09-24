@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { connect as netConnect, createServer as createNetServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -19,6 +19,7 @@ import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, migrationSql, assertNoSourceS
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
+import { AUDIT_CONSENT_REQUIRED_REASON_CODE, AUDIT_EGRESS_POLICY, grantAuditConsent, readAuditConsent, revokeAuditConsent } from "../src/audit-consent";
 import {
   createNodeGithubIssueExecutor,
   githubIssueFooterMarker,
@@ -1453,7 +1454,7 @@ describe("local runtime foundation", () => {
 
   test("audit run records pending drafts without external side-effect", async () => {
     const root = createGitRepo();
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     const draftRecords = [
       {
@@ -1543,7 +1544,7 @@ describe("local runtime foundation", () => {
 
   test("audit run records a failed run without pending drafts when the investigation fails", async () => {
     const root = createGitRepo();
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     try {
       const daemon = await createStartedTestDaemon({
@@ -1595,8 +1596,19 @@ describe("local runtime foundation", () => {
       const listWhileDisabled = await daemon.auditList(root);
       expect((listWhileDisabled.data as any).count).toBe(0);
 
-      // Enabling it allows the run to reach the (fake) transport.
+      // Issue #161: a manifest that enables audit (as in a freshly cloned third-party repository)
+      // is only a capability declaration; without user-level consent the run still fails closed.
       writeAuditManifest(root, true);
+      const withoutConsent = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(withoutConsent.ok).toBe(false);
+      expect((withoutConsent as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+      expect((withoutConsent as any).error.reasonCode).toBe(AUDIT_CONSENT_REQUIRED_REASON_CODE);
+      expect((withoutConsent as any).error.message).toContain("archctx audit consent");
+      expect(transportCalls).toBe(0);
+      expect(((await daemon.auditList(root)).data as any).count).toBe(0);
+
+      // Manifest capability plus user-level consent allows the run to reach the (fake) transport.
+      grantAuditConsent(root);
       const enabled = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect(enabled.ok).toBe(true);
       expect(transportCalls).toBe(1);
@@ -1607,7 +1619,7 @@ describe("local runtime foundation", () => {
 
   test("audit run claims only its own enqueued job and never steals an unrelated queued job's lease", async () => {
     const root = createGitRepo();
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     try {
       const daemon = await createStartedTestDaemon({
@@ -1673,7 +1685,7 @@ describe("local runtime foundation", () => {
 
   test("audit run binds the investigation transport's cwd to the audited repository root", async () => {
     const root = createGitRepo();
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     let capturedCwd: string | undefined;
     try {
@@ -1711,7 +1723,7 @@ describe("local runtime foundation", () => {
 
   test("audit run defaults to async: returns started immediately and the run reaches pending in the background, observable via audit list", async () => {
     const root = createGitRepo();
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     try {
       const daemon = await createStartedTestDaemon({
@@ -1767,7 +1779,7 @@ describe("local runtime foundation", () => {
 
   test("audit run with wait: true keeps the original fully-synchronous contract", async () => {
     const root = createGitRepo();
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     try {
       const daemon = await createStartedTestDaemon({
@@ -1789,7 +1801,7 @@ describe("local runtime foundation", () => {
 
   test("daemon stop aborts an in-flight audit run's investigation transport signal", async () => {
     const root = createGitRepo();
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     let capturedSignal: AbortSignal | undefined;
     let notifyTransportStarted: (() => void) | undefined;
@@ -1834,7 +1846,7 @@ describe("local runtime foundation", () => {
 
   test("audit run job survives a concurrent stale-cancel sweep via advisory-only-on-stale, while a default-policy hook job in the same sweep still gets cancelled", async () => {
     const root = createGitRepo();
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     let sweepExpiredJobIds: string[] = [];
     try {
@@ -1922,7 +1934,7 @@ describe("local runtime foundation", () => {
     const transportCalls: CommandInvestigationRunnerTransportInput[] = [];
     const root = createGitRepo();
     addGitRemote(root, "https://github.com/acme/widgets.git");
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     const draftRecords = [auditDraftRecord()];
     const now = "2026-07-05T01:00:00.000Z";
@@ -1986,6 +1998,123 @@ describe("local runtime foundation", () => {
       expect(calls.createIssue).toHaveLength(0);
     } finally {
       removeTempRepo(root);
+    }
+  });
+
+  test("audit approve fails closed without user-level consent even when the manifest enables audit, zero gh calls", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      // Revoking after the run landed models a user withdrawing consent before publishing.
+      expect(revokeAuditConsent(fixture.root).revoked).toBe(true);
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+        expect((result as any).error.reasonCode).toBe(AUDIT_CONSENT_REQUIRED_REASON_CODE);
+      });
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+      expect(((await fixture.daemon.auditShow(fixture.root, fixture.runId)).data as any).run.status).toBe("pending");
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit consent lives in the user state dir and is bound to the repository identity and origin", () => {
+    const first = createGitRepo();
+    const second = createGitRepo();
+    try {
+      expect(readAuditConsent(first)).toMatchObject({ granted: false, reason: "not-granted" });
+      const granted = grantAuditConsent(first);
+      expect(granted.path.startsWith(resolve(RUNTIME_TEST_STATE_ROOT))).toBe(true);
+      expect(granted.path.startsWith(realpathSync.native(first))).toBe(false);
+      expect(existsSync(join(first, ".archcontext"))).toBe(false);
+      expect(readAuditConsent(first).granted).toBe(true);
+      // Another repository never inherits it.
+      expect(readAuditConsent(second)).toMatchObject({ granted: false, reason: "not-granted" });
+      // Re-pointing origin (e.g. a different repository cloned into the same path) invalidates it.
+      addGitRemote(first, "https://github.com/attacker/other.git");
+      expect(readAuditConsent(first)).toMatchObject({ granted: false, reason: "origin-mismatch" });
+      grantAuditConsent(first);
+      expect(readAuditConsent(first).granted).toBe(true);
+      // A record copied from another repository is rejected.
+      const secondPath = readAuditConsent(second).path;
+      mkdirSync(dirname(secondPath), { recursive: true });
+      writeFileSync(secondPath, readFileSync(granted.path, "utf8"), "utf8");
+      expect(readAuditConsent(second)).toMatchObject({ granted: false, reason: "repository-mismatch" });
+      // A record granted under a different egress policy is rejected.
+      const record = JSON.parse(readFileSync(granted.path, "utf8"));
+      writeFileSync(granted.path, JSON.stringify({ ...record, egressPolicyDigest: `sha256:${"0".repeat(64)}` }), "utf8");
+      expect(readAuditConsent(first)).toMatchObject({ granted: false, reason: "egress-policy-changed" });
+      expect(revokeAuditConsent(first).revoked).toBe(true);
+      expect(readAuditConsent(first)).toMatchObject({ granted: false, reason: "not-granted" });
+    } finally {
+      revokeAuditConsent(second);
+      removeTempRepo(first);
+      removeTempRepo(second);
+    }
+  });
+
+  test("audit consent never stores or returns credentials embedded in the origin URL", () => {
+    const root = createGitRepo();
+    const secret = "ghp_FAKE0123456789abcdefghijklmnopqrstuv";
+    addGitRemote(root, `https://x-access-token:${secret}@github.com/acme/widgets.git`);
+    try {
+      const granted = grantAuditConsent(root);
+      expect(granted.record.origin).toBe("https://github.com/acme/widgets.git");
+      expect(JSON.stringify(granted)).not.toContain(secret);
+      expect(readFileSync(granted.path, "utf8")).not.toContain(secret);
+      expect(readFileSync(granted.path, "utf8")).not.toContain("x-access-token");
+      const status = readAuditConsent(root);
+      expect(status.granted).toBe(true);
+      expect(JSON.stringify(status)).not.toContain(secret);
+      // Rotating only the embedded credential keeps the same repository binding.
+      execFileSync("git", ["remote", "set-url", "origin", "https://x-access-token:ghp_ROTATED@github.com/acme/widgets.git"], { cwd: root, stdio: "ignore" });
+      expect(readAuditConsent(root).granted).toBe(true);
+      // scp-style remotes keep host:path only.
+      execFileSync("git", ["remote", "set-url", "origin", "git@github.com:acme/widgets.git"], { cwd: root, stdio: "ignore" });
+      expect(grantAuditConsent(root).record.origin).toBe("github.com:acme/widgets.git");
+    } finally {
+      revokeAuditConsent(root);
+      removeTempRepo(root);
+    }
+  });
+
+  test("the audit egress policy digest covers every forwarded env name, including Bedrock/Vertex conditionals", () => {
+    const policyText = JSON.stringify(AUDIT_EGRESS_POLICY);
+    for (const name of ["PATH", "ANTHROPIC_", "ADMIN", "AWS_SECRET_ACCESS_KEY", "AWS_CONTAINER_AUTHORIZATION_TOKEN", "CLOUDSDK_CONFIG", "VERTEX_REGION_CLAUDE_", "DISABLE_TELEMETRY"]) {
+      expect(policyText).toContain(name);
+    }
+  });
+
+  test("audit consent is written atomically with 0600 and replaces a symlink instead of following it", () => {
+    const root = createGitRepo();
+    const decoyDir = mkdtempSync(join(tmpdir(), "archctx-consent-decoy-"));
+    const decoy = join(decoyDir, "decoy.json");
+    writeFileSync(decoy, "decoy\n", "utf8");
+    try {
+      const target = readAuditConsent(root).path;
+      mkdirSync(dirname(target), { recursive: true });
+      symlinkSync(decoy, target);
+      // A symlinked record is not trusted as consent.
+      expect(readAuditConsent(root)).toMatchObject({ granted: false, reason: "unreadable" });
+      grantAuditConsent(root);
+      expect(readFileSync(decoy, "utf8")).toBe("decoy\n");
+      expect(lstatSync(target).isSymbolicLink()).toBe(false);
+      expect(readAuditConsent(root).granted).toBe(true);
+      if (process.platform !== "win32") {
+        expect(statSync(target).mode & 0o777).toBe(0o600);
+        chmodSync(target, 0o644);
+        grantAuditConsent(root);
+        expect(statSync(target).mode & 0o777).toBe(0o600);
+      }
+      // No temp files are left behind next to the record.
+      expect(readdirSync(dirname(target)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    } finally {
+      revokeAuditConsent(root);
+      removeTempRepo(root);
+      rmSync(decoyDir, { recursive: true, force: true });
     }
   });
 
@@ -2225,7 +2354,7 @@ describe("local runtime foundation", () => {
     const { executor, calls } = fakeGithubIssueExecutor();
     const root = createGitRepo();
     addGitRemote(root, "https://github.com/acme/widgets.git");
-    writeAuditManifest(root, true);
+    enableAuditWithConsent(root);
     const store = new TestLocalStore();
     try {
       const daemon = await createStartedTestDaemon({
@@ -6911,6 +7040,10 @@ describe("github issue executor", () => {
     {
       name: "Bearer authentication terminology",
       draft: preflightDraft({ bodyMarkdown: "Use Bearer authentication for this request.\n" })
+    },
+    {
+      name: "provider key vocabulary without a value",
+      draft: preflightDraft({ bodyMarkdown: "Keys start with sk-ant- or AKIA; the risk-free task-runner uses sk-learn and xoxb- tokens in docs only.\n" })
     }
   ];
 
@@ -6983,6 +7116,27 @@ describe("github issue executor", () => {
       name: "installation-token assignment in mixed case",
       field: "body",
       draft: preflightDraft({ bodyMarkdown: "Installation-Token: NOT-A-REAL-INSTALLATION-TOKEN-0000\n" })
+    },
+    // Issue #161: model-provider, cloud and chat credential values shared with the Context7 guard.
+    {
+      name: "anthropic api key",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "Found ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123 in config.\n" })
+    },
+    {
+      name: "openai-style api key",
+      field: "title",
+      draft: preflightDraft({ title: "Remove sk-proj-abcdefghijklmnopqrstuvwxyz0123 from fixtures" })
+    },
+    {
+      name: "aws access key id",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n" })
+    },
+    {
+      name: "slack bot token",
+      field: "label",
+      draft: preflightDraft({ labels: ["xoxb-123456789012-abcdefghijkl"] })
     }
   ];
 
@@ -7042,6 +7196,12 @@ function writeAuditManifest(root: string, enabled: boolean): void {
     `schemaVersion: archcontext.manifest/v1\naudit:\n  githubIssues:\n    enabled: ${enabled}\n`,
     "utf8"
   );
+}
+
+/** Manifest capability plus user-level consent: what a user who opted in to audit has (#161). */
+function enableAuditWithConsent(root: string): void {
+  writeAuditManifest(root, true);
+  grantAuditConsent(root);
 }
 
 function addGitRemote(root: string, url: string): void {
@@ -7157,7 +7317,7 @@ async function createPendingApproveFixture(options: {
 } ): Promise<{ root: string; store: TestLocalStore; daemon: Awaited<ReturnType<typeof createStartedTestDaemon>>; runId: string; draftRecords: unknown[] }> {
   const root = createGitRepo();
   if (options.remoteUrl) addGitRemote(root, options.remoteUrl);
-  writeAuditManifest(root, true);
+  enableAuditWithConsent(root);
   const store = new TestLocalStore();
   const draftRecords = options.draftRecords ?? [auditDraftRecord({ title: "Draft One" }), auditDraftRecord({ title: "Draft Two" })];
   const now = "2026-07-05T00:00:00.000Z";

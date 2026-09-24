@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GithubIssueDraftV1 } from "@archcontext/core/agent-orchestrator";
+import { CREDENTIAL_VALUE_DETECTORS } from "@archcontext/local-runtime/context7-adapter";
 
 /**
  * The GitHub PAT is threaded through explicitly (never read from `process.env` inside this
@@ -212,7 +213,10 @@ const SECRET_DETECTORS = [
   { id: "installation-token-value", pattern: /installation[_-]?token["']?\s*[:=]\s*["']?[A-Za-z0-9._-]{16,}/i },
   // Compact JSON web token: a `{"`-prefixed base64url header (always `eyJ`) plus two more
   // base64url segments. Structure-based, so the word "JWT" alone never matches.
-  { id: "compact-jwt-value", pattern: /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/ }
+  { id: "compact-jwt-value", pattern: /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/ },
+  // Model-provider / cloud / chat credential values (`sk-ant-`, `sk-`, `AKIA`, Slack `xox?-`),
+  // shared with the Context7 outbound guard rather than duplicated (issue #161).
+  ...CREDENTIAL_VALUE_DETECTORS
 ] as const;
 
 const GITHUB_ISSUE_BODY_MAX_LENGTH = 65_536;

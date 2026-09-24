@@ -127,7 +127,7 @@ import {
 import { renderExplorerHtml } from "@archcontext/local-runtime/explorer-html";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
-import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
+import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1 } from "@archcontext/contracts";
@@ -136,6 +136,7 @@ import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewW
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
+import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
 import {
   createNodeGithubIssueExecutor,
   findExistingGithubIssueByMarker,
@@ -164,7 +165,7 @@ const RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS = 1;
 // timeout and the CLI-side poll-until-terminal loop) without duplicating the literal and risking
 // drift between the two.
 export const AUDIT_RUN_DEFAULT_TIMEOUT_MS = 600_000;
-const AUDIT_APPROVE_GH_TOKEN_ENV = "ARCHCONTEXT_GH_ISSUES_TOKEN";
+export const AUDIT_APPROVE_GH_TOKEN_ENV = "ARCHCONTEXT_GH_ISSUES_TOKEN";
 // `archctxd` is spawned `detached`+`unref()`'d (see `startBackgroundDaemon` in the CLI) with no
 // other exit signal, so left alone it runs forever, accumulating cross-day zombie processes (see
 // F5 in tasks/reviews/audit-approve-gh-publishing.review.md). This is the default idle window
@@ -479,6 +480,17 @@ export interface RuntimeRefactorRecordInput {
 }
 
 export type { RuntimeRefactorVerifyInput } from "./refactor-verify";
+export {
+  AUDIT_CONSENT_GRANT_COMMAND,
+  AUDIT_CONSENT_REQUIRED_REASON_CODE,
+  AUDIT_EGRESS_POLICY,
+  auditConsentRequiredEnvelope,
+  grantAuditConsent,
+  readAuditConsent,
+  revokeAuditConsent,
+  type AuditConsentRecordV1,
+  type AuditConsentStatus
+} from "./audit-consent";
 
 export interface RuntimeLedgerRollbackInput {
   toYaml?: boolean;
@@ -1311,8 +1323,8 @@ export class ArchctxDaemon {
     this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
     this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
-      enabled: process.env.ARCHCONTEXT_CONTEXT7_ENABLED === "1",
-      mode: process.env.ARCHCONTEXT_CONTEXT7_MODE === "prepare-unknowns" ? "prepare-unknowns" : "manual",
+      enabled: process.env[CONTEXT7_ENABLED_ENV] === "1",
+      mode: process.env[CONTEXT7_MODE_ENV] === "prepare-unknowns" ? "prepare-unknowns" : "manual",
       clock: this.clock
     });
     this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
@@ -1863,6 +1875,10 @@ export class ArchctxDaemon {
         "archctx audit run is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
       );
     }
+    // The manifest above is repository-controlled; user-level consent (outside the repository) is
+    // the separate boundary that lets this repository's content reach a model provider (#161).
+    const consent = readAuditConsent(repositoryRoot);
+    if (!consent.granted) return auditConsentRequiredEnvelope("audit.run", consent.reason);
     const scope = await this.architectureLedgerScope(repositoryRoot);
     const now = this.clock();
     const taskSessionId = input.taskSessionId ?? "task_agent_audit";
@@ -2239,7 +2255,7 @@ export class ArchctxDaemon {
    * approves it. State machine: pending -> (this method, pre-flight all-or-nothing) -> issuing ->
    * (one ledger event per successfully filed/deduped draft) -> issuing -> (last draft) -> issued.
    * This method never writes "failed": that status is reserved for `auditRun`'s
-   * investigation-failed case. A pre-flight failure here (manifest gate, stale drafts, missing
+   * investigation-failed case. A pre-flight failure here (manifest gate, user consent, stale drafts, missing
    * PAT, unverified visibility, unconfirmed public repo, secret-shaped content, oversized body)
    * returns an error envelope with the run's status untouched; a mid-flight failure (a `gh` call
    * itself failing) leaves the run in "issuing" with whatever drafts already succeeded recorded,
@@ -2257,6 +2273,8 @@ export class ArchctxDaemon {
           "archctx audit approve is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
         );
       }
+      const consent = readAuditConsent(repositoryRoot);
+      if (!consent.granted) return auditConsentRequiredEnvelope("audit.approve", consent.reason);
       const scope = await this.architectureLedgerScope(repositoryRoot);
       const run = await this.localStore.getAuditRun({ ...scope, runId: input.runId });
       if (!run) return errorEnvelope("audit.approve", "AC_REPO_NOT_FOUND", `audit run not found: ${input.runId}`);
