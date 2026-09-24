@@ -40,10 +40,22 @@ function git(root: string, ...args: string[]): void {
  * A two-workspace repository whose model forbids core -> runtime. `packages/core/src/leak.ts` is
  * left untracked on purpose: the violating file exists in the index and the worktree, not in HEAD.
  */
-async function fixture(options: { leak: boolean; index: boolean }) {
+async function fixture(options: {
+  leak: boolean;
+  index: boolean;
+  /** Root `package.json` workspaces; literal directories by default. */
+  workspaces?: string[];
+  /** The leak's import specifier; a relative path by default. */
+  leakSpecifier?: string;
+  /** Replaces the init review policy before the fixture commit. */
+  policyBody?: string;
+  /** Extra top-level constraint fields. */
+  constraintExtra?: Record<string, Json>;
+}) {
   const root = mkdtempSync(join(tmpdir(), "archctx-dependency-gate-"));
   roots.push(root);
-  write(root, "package.json", `${JSON.stringify({ name: "fixture", private: true, workspaces: ["packages/core", "packages/runtime"] }, null, 2)}\n`);
+  const workspaces = options.workspaces ?? ["packages/core", "packages/runtime"];
+  write(root, "package.json", `${JSON.stringify({ name: "fixture", private: true, workspaces }, null, 2)}\n`);
   write(root, "packages/core/package.json", `${JSON.stringify({ name: "@fixture/core", exports: { ".": "./src/index.ts" } }, null, 2)}\n`);
   write(root, "packages/core/src/index.ts", "export const core = 1;\n");
   write(root, "packages/runtime/package.json", `${JSON.stringify({ name: "@fixture/runtime", exports: { ".": "./src/index.ts" } }, null, 2)}\n`);
@@ -75,11 +87,15 @@ async function fixture(options: { leak: boolean; index: boolean }) {
     severity: "error",
     scope: { nodes: ["module.fixture.core"] },
     rule: { type: "forbid-dependency", targets: ["module.fixture.runtime"] },
-    rationale: "The runtime depends on core, never the reverse."
+    rationale: "The runtime depends on core, never the reverse.",
+    ...options.constraintExtra
   } as Json));
+  if (options.policyBody !== undefined) write(root, ".archcontext/policies/review.yaml", options.policyBody);
   git(root, "add", "-A");
   git(root, "commit", "-q", "-m", "fixture");
-  if (options.leak) write(root, LEAK_FILE, "import { runtime } from \"../../runtime/src/index\";\nexport const leak = runtime;\n");
+  if (options.leak) {
+    write(root, LEAK_FILE, `import { runtime } from ${JSON.stringify(options.leakSpecifier ?? "../../runtime/src/index")};\nexport const leak = runtime;\n`);
+  }
   if (options.index) {
     const invocation = codeGraphCliInvocation("codegraph", root);
     execFileSync(invocation.command, [...invocation.argsPrefix, "init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
@@ -141,6 +157,78 @@ describe("complete_task dependency constraint gate (#163)", () => {
       expect(data.result).toBe("fail_action_required");
     } finally {
       await daemon.stop();
+    }
+  }, 120_000);
+
+  test("a packages/* workspace resolves a bare workspace specifier to the violation", async () => {
+    const { root, daemon } = await fixture({ leak: true, index: true, workspaces: ["packages/*"], leakSpecifier: "@fixture/runtime" });
+    try {
+      const review = await daemon.completeTask(root, { taskSessionId: "task_dependency_gate" });
+
+      expect(review.ok, JSON.stringify(review)).toBe(true);
+      const data = review.data as any;
+      expect(data.extensions.dependencyConstraintGate).toMatchObject({ status: "violated", reasonCodes: [], unresolvedImports: [] });
+      expect(data.findings).toContainEqual(expect.objectContaining({
+        id: `prohibited-dependency:${CONSTRAINT_ID}:${LEAK_FILE}->packages/runtime/src/index.ts`,
+        severity: "error"
+      }));
+    } finally {
+      await daemon.stop();
+    }
+  }, 120_000);
+
+  test("allowedVia validates with a not-enforced warning and the violation is still reported", async () => {
+    const { root, daemon } = await fixture({ leak: true, index: true, constraintExtra: { allowedVia: ["module.fixture.runtime"] } });
+    try {
+      const validation = await daemon.validate(root);
+      expect(validation.data).toMatchObject({ valid: true, errors: [] });
+      expect((validation.data as any).warnings).toEqual([
+        `.archcontext/model/constraints/${CONSTRAINT_ID}.yaml: constraint ${CONSTRAINT_ID} allowedVia is not enforced yet; the constraint is evaluated as if it were absent`
+      ]);
+
+      const review = await daemon.completeTask(root, { taskSessionId: "task_dependency_gate" });
+      const data = review.data as any;
+      expect(data.extensions.dependencyConstraintGate.status).toBe("violated");
+      expect(data.result).toBe("fail_action_required");
+    } finally {
+      await daemon.stop();
+    }
+  }, 120_000);
+
+  test("an unsupported workspace pattern is undetermined and blocks instead of throwing", async () => {
+    const { root, daemon } = await fixture({ leak: false, index: true, workspaces: ["packages/**"] });
+    try {
+      const review = await daemon.completeTask(root, { taskSessionId: "task_dependency_gate" });
+
+      expect(review.ok, JSON.stringify(review)).toBe(true);
+      const data = review.data as any;
+      expect(data.extensions.dependencyConstraintGate).toMatchObject({ status: "undetermined", reasonCodes: ["workspace-resolution-failed"] });
+      expect(data.findings).toContainEqual(expect.objectContaining({ id: "prohibited-dependency:undetermined", severity: "error" }));
+      expect(data.result).toBe("fail_action_required");
+    } finally {
+      await daemon.stop();
+    }
+  }, 120_000);
+
+  test("a malformed review policy cannot downgrade the invalid-schema finding it causes", async () => {
+    const policies = [
+      "failOn: []\nid: \"policy.review\"\nschemaVersion: \"archcontext.policy/v0\"\n",
+      "failOn:\n  - \"stale-context\"\nid: \"policy.review\"\n"
+    ];
+    for (const policyBody of policies) {
+      const { root, daemon } = await fixture({ leak: false, index: true, policyBody });
+      try {
+        const review = await daemon.completeTask(root, { taskSessionId: "task_dependency_gate" });
+
+        expect(review.ok, JSON.stringify(review)).toBe(true);
+        const data = review.data as any;
+        expect(data.findings).toContainEqual(expect.objectContaining({ id: "invalid-schema", type: "invalid-schema", severity: "error" }));
+        expect(data.findings.find((finding: any) => finding.id === "invalid-schema").message).toContain(".archcontext/policies/review.yaml");
+        expect(data.extensions.reviewPolicy).toMatchObject({ source: "default", downgradedFindingIds: [] });
+        expect(data.result).toBe("fail_action_required");
+      } finally {
+        await daemon.stop();
+      }
     }
   }, 120_000);
 });

@@ -103,6 +103,11 @@ export interface DependencyConstraintInputV1 {
   files: string[];
   importEdges: ModuleStatisticsImportEdgeV1[];
   workspacePackages: ModuleStatisticsWorkspacePackageV1[];
+  /**
+   * `false` when the producer could not read the workspace package map. `workspacePackages` is
+   * then incomplete, so no answer can be `pass`. Defaults to `true`.
+   */
+  workspacePackagesResolved?: boolean;
   truncated: boolean;
   codeFacts: Pick<ModuleStatisticsCodeFactsInputV1, "availability" | "indexedWorktreeDigest">;
 }
@@ -177,6 +182,7 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
 
   const reasonCodes = new Set<DependencyConstraintReasonCode>(certification.reasonCodes);
   if (unresolvedImports.length > 0) reasonCodes.add("unresolved-import");
+  if (input.workspacePackagesResolved === false) reasonCodes.add("workspace-resolution-failed");
   const sortedViolations = [...violations.values()].sort((left, right) => compare(left.constraintId, right.constraintId)
     || compare(left.fromPath, right.fromPath)
     || compare(left.toPath, right.toPath));

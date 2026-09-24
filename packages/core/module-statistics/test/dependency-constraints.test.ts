@@ -116,6 +116,13 @@ describe("evaluateDependencyConstraints", () => {
     expect(evaluation.reasonCodes).toEqual(["code-facts-truncated"]);
   });
 
+  test("an unreadable workspace package map is undetermined", () => {
+    const evaluation = evaluateDependencyConstraints(input({ workspacePackages: [], workspacePackagesResolved: false }));
+
+    expect(evaluation.status).toBe("undetermined");
+    expect(evaluation.reasonCodes).toContain("workspace-resolution-failed");
+  });
+
   test("a found violation stays violated over truncated evidence, with the reason attached", () => {
     const evaluation = evaluateDependencyConstraints(input({ importEdges: [CORE_TO_RUNTIME], truncated: true }));
 

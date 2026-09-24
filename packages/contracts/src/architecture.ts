@@ -90,14 +90,16 @@ export type DependencyConstraintStatus = (typeof DEPENDENCY_CONSTRAINT_STATUSES)
 
 /**
  * Why a dependency result is not a complete observation: no index answered, the index attested
- * to a different worktree, the import dump hit its limit, or a constrained file carries a
- * repository-local import that resolved to no file.
+ * to a different worktree, the import dump hit its limit, a constrained file carries a
+ * repository-local import that resolved to no file, or the workspace package map could not be
+ * read, so no bare workspace specifier could be resolved.
  */
 export const DEPENDENCY_CONSTRAINT_REASON_CODES = [
   "code-facts-stale",
   "code-facts-truncated",
   "code-facts-unavailable",
-  "unresolved-import"
+  "unresolved-import",
+  "workspace-resolution-failed"
 ] as const;
 export type DependencyConstraintReasonCode = (typeof DEPENDENCY_CONSTRAINT_REASON_CODES)[number];
 
@@ -145,6 +147,6 @@ export type ReviewFailOnCategory = (typeof REVIEW_FAIL_ON_CATEGORIES)[number];
  */
 export interface ReviewPolicyV1 {
   failOn: ReviewFailOnCategory[];
-  /** `default` when no policy file declares `failOn`, or it is unreadable: every category blocks. */
+  /** `default` when the policy file is missing or invalid in any way: every category blocks. */
   source: "policy-file" | "default";
 }
