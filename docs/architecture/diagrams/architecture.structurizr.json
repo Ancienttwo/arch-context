@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:dc532ee496688b9cfeb93948e1729ef89759971657a56b8b15ed2f732647960d" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:f0122631908fe80dab14babccd5911ba36206ff2189426fd1948d33417056310" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:220d571916fd6aa3187fd2e64dd213172761e9ce0da58eee6ce7ffa350e8dcb6" -->
 {
   "schemaVersion": "archcontext.structurizr-export/v1",
   "name": "ArchContext Architecture",
@@ -10,6 +10,14 @@
         "type": "Software System",
         "tags": [
           "capability"
+        ]
+      },
+      {
+        "id": "component.architecture-context.cloud.control-plane",
+        "name": "Control Plane",
+        "type": "Component",
+        "tags": [
+          "component"
         ]
       },
       {
@@ -69,6 +77,14 @@
         ]
       },
       {
+        "id": "component.architecture-context.core.module-statistics",
+        "name": "Module Statistics",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
         "id": "component.architecture-context.core.policy-engine",
         "name": "Policy Engine",
         "type": "Component",
@@ -117,6 +133,14 @@
         ]
       },
       {
+        "id": "component.architecture-context.core.refactor-assessment",
+        "name": "Refactor Assessment",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
         "id": "component.architecture-context.core.refactor-decision",
         "name": "Refactor Decision",
         "type": "Component",
@@ -141,8 +165,40 @@
         ]
       },
       {
+        "id": "component.architecture-context.local-runtime.local-store-sqlite",
+        "name": "SQLite Local Store",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.runtime-daemon",
+        "name": "Runtime Daemon",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
         "id": "component.architecture-context.projection-renderer",
         "name": "Architecture Documentation Renderer",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.surfaces.cli",
+        "name": "CLI",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.surfaces.mcp-local",
+        "name": "Local MCP Server",
         "type": "Component",
         "tags": [
           "component"
@@ -203,6 +259,7 @@
       "key": "archcontext-landscape",
       "include": [
         "capability.architecture-context",
+        "component.architecture-context.cloud.control-plane",
         "component.architecture-context.core.agent-orchestrator",
         "component.architecture-context.core.application",
         "component.architecture-context.core.architecture-delta",
@@ -210,16 +267,22 @@
         "component.architecture-context.core.architecture-ledger",
         "component.architecture-context.core.changeset-engine",
         "component.architecture-context.core.context-compiler",
+        "component.architecture-context.core.module-statistics",
         "component.architecture-context.core.policy-engine",
         "component.architecture-context.core.practice-catalog",
         "component.architecture-context.core.practice-engine",
         "component.architecture-context.core.pressure-engine",
         "component.architecture-context.core.recommendation-engine",
         "component.architecture-context.core.reconcile-engine",
+        "component.architecture-context.core.refactor-assessment",
         "component.architecture-context.core.refactor-decision",
         "component.architecture-context.core.retrieval",
         "component.architecture-context.core.review-engine",
+        "component.architecture-context.local-runtime.local-store-sqlite",
+        "component.architecture-context.local-runtime.runtime-daemon",
         "component.architecture-context.projection-renderer",
+        "component.architecture-context.surfaces.cli",
+        "component.architecture-context.surfaces.mcp-local",
         "module.architecture-context.cloud",
         "module.architecture-context.contracts",
         "module.architecture-context.core",

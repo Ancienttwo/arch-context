@@ -10,3 +10,4 @@ source:
     - "packages/surfaces/**/test/**"
   include:
     - "packages/surfaces/**/src/**"
+    - "packages/surfaces/package.json"

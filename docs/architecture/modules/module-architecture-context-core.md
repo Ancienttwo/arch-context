@@ -1,9 +1,9 @@
 # module/architecture-context/core 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-core" sourceDigest="sha256:7a9a05c4a988de13ae2c75995453a8bc731015fd58961c1dbd7368e87ed60625" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:2be28a8839ac92a2ccaff35934a0085b3a72db665691d0435741db59b66e73bb" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-core" sourceDigest="sha256:bd585b0919e7ff24f5125b48e78188f6b22063462f4e3df5c0f2f33ada51cb4f" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:f0733bf1ca5340ca7424409029f509d657d1bc2f54e1861e2a8fabc03aac670d" -->
 > **狀態**:`active`
 > **Capability ID**:`module.architecture-context.core`(kind `module`)
-> **Matched Prefixes**:`packages/core/**/src/**`
+> **Matched Prefixes**:`packages/core/**/src/**`、`packages/core/package.json`
 > **Local Contracts**:未宣告(`extensions.localContracts` 缺失)
 > **事實優先級**:倉庫當前狀態 > 本文檔機器區 > 本文檔人工區。機器區(引言、§1、§2)由 ArchContext 從架構模型與源碼度量投影生成,手改會在下次投影被覆蓋。本文檔不記錄出處;本次投影所驗證的 commit 見 `docs/architecture/.projection-manifest.json`。
 
@@ -23,7 +23,7 @@ Holds the runtime-independent domain engines that compute architecture context, 
 ### 1.3 規模信號
 
 - 規模量級:`20–50` 個文件 / `10k–20k` 行
-- 匹配前綴:`packages/core/**/src/**`
+- 匹配前綴:`packages/core/**/src/**`、`packages/core/package.json`
 - 排除前綴:`packages/core/**/test/**`
 - 推導:掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`,再按 1–2–5 階梯分桶。精確計數不入本文檔:量級足以回答「這個能力有多大」,而逐行計數會讓覆蓋範圍內任何一次源碼改動都改寫本文檔。
 

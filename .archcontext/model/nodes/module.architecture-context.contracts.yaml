@@ -10,3 +10,5 @@ source:
     - "packages/contracts/test/**"
   include:
     - "packages/contracts/src/**"
+    - "packages/contracts/package.json"
+    - "schemas/**"

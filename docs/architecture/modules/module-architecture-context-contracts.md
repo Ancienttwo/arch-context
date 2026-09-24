@@ -1,9 +1,9 @@
 # module/architecture-context/contracts 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-contracts" sourceDigest="sha256:b9f101608266a2c79ce82f5616bc662d4029e1cf6645f89d7accc2b2fc9e271e" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:43b354d88ecfd4090c056429967c2075d5a2cba73f21810581ad1e869b0aecdb" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-contracts" sourceDigest="sha256:d2cc35fea729082f3882db56701b1603a448af1c465467b154040bc72574ec49" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:e7295d47025ba1a538a2ead7cb5abbee7afc2d6a6fe9399189ebee8a1213bcd8" -->
 > **狀態**:`active`
 > **Capability ID**:`module.architecture-context.contracts`(kind `module`)
-> **Matched Prefixes**:`packages/contracts/src/**`
+> **Matched Prefixes**:`packages/contracts/src/**`、`packages/contracts/package.json`、`schemas/**`
 > **Local Contracts**:未宣告(`extensions.localContracts` 缺失)
 > **事實優先級**:倉庫當前狀態 > 本文檔機器區 > 本文檔人工區。機器區(引言、§1、§2)由 ArchContext 從架構模型與源碼度量投影生成,手改會在下次投影被覆蓋。本文檔不記錄出處;本次投影所驗證的 commit 見 `docs/architecture/.projection-manifest.json`。
 
@@ -22,8 +22,8 @@ Declares the shared schema versions, envelope types, digest helpers, and runtime
 
 ### 1.3 規模信號
 
-- 規模量級:`10–20` 個文件 / `5000–10000` 行
-- 匹配前綴:`packages/contracts/src/**`
+- 規模量級:`50–100` 個文件 / `10k–20k` 行
+- 匹配前綴:`packages/contracts/src/**`、`packages/contracts/package.json`、`schemas/**`
 - 排除前綴:`packages/contracts/test/**`
 - 推導:掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`,再按 1–2–5 階梯分桶。精確計數不入本文檔:量級足以回答「這個能力有多大」,而逐行計數會讓覆蓋範圍內任何一次源碼改動都改寫本文檔。
 

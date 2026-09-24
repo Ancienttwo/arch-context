@@ -8,3 +8,4 @@ summary: "Loads and validates practice assets, sources, and profiles into an eff
 source:
   include:
     - "packages/core/practice-catalog/src/**"
+    - "packages/core/practice-catalog/assets/**"
