@@ -110,7 +110,7 @@ tarball omitted that dependency, so a fresh install failed at startup; it must n
 and `0.5.2` supersedes it. `0.5.0` was prepared but never published. `archctx@0.4.8` and
 `archctx-contracts@0.4.8` were the last pre-0.5.x published pair (verified with
 `npm view archctx version` on 2026-09-03). The scoped `@archcontext/contracts`
-workspace remains internal source authority; it is never the public contracts artifact. `0.4.7`
+workspace remains private internal source authority with no `publishConfig`; it is never the public contracts artifact. The release staging boundary generates public `archctx-contracts` at the same version with `src`, `fixtures`, and `schemas`; publisher and dry-run checks reject divergence from this contract (ADR-0034). `0.4.7`
 and earlier do not carry recovery semantics. Installation and organization-runner rollout still
 fail closed on an unavailable or version-mismatched artifact.
 

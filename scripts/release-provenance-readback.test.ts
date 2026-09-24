@@ -22,6 +22,16 @@ describe("release provenance readback", () => {
     expect(inspectReleaseProvenanceReadback(recording)).toEqual({ ok: true, failures: [] });
   });
 
+  test("rejects a publishable source workspace including contracts", () => {
+    for (const workspaceIndex of [0, 1, 2, 3, 4]) {
+      const input = validInput();
+      input.workspacePackages[workspaceIndex]!.manifest.private = false;
+      const recording = buildReleaseProvenanceReadback(input);
+      expect(recording.assertions.sourceRuntimePackagesRemainPrivate).toBe(false);
+      expect(recording.ok).toBe(false);
+    }
+  });
+
   test("fails when published help is behind source help", () => {
     const input = validInput();
     input.publishedHelp = {
@@ -55,7 +65,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
       private: true
     },
     workspacePackages: [
-      sourcePackage("packages/contracts/package.json", "@archcontext/contracts", undefined, false),
+      sourcePackage("packages/contracts/package.json", "@archcontext/contracts"),
       sourcePackage("packages/core/package.json", "@archcontext/core"),
       sourcePackage("packages/local-runtime/package.json", "@archcontext/local-runtime"),
       sourcePackage("packages/surfaces/package.json", "@archcontext/surfaces", { archctx: "./cli/bin/archctx" }),

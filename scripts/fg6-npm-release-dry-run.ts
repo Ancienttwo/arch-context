@@ -126,7 +126,9 @@ export function buildPublicContractsReleaseDryRunReadback(input: {
   const packageFiles = readArray(publish.files).map(readRecord).map((file) => String(file.path ?? ""));
   const manifestIssues = publicContractsReleaseManifestIssues(input.sourceManifest, input.packageJson);
   const assertions = {
-    sourceWorkspaceIsInternal: input.sourceManifest.name === "@archcontext/contracts",
+    sourceWorkspaceIsInternal: input.sourceManifest.name === "@archcontext/contracts"
+      && input.sourceManifest.private === true
+      && !("publishConfig" in input.sourceManifest),
     publicNameUnscoped: input.packageJson.name === CONTRACTS_PUBLIC_PACKAGE_NAME,
     publicVersionMatchesSource: input.packageJson.version === input.sourceManifest.version,
     publicFilesMatchPublishedContract: JSON.stringify(input.packageJson.files ?? []) === JSON.stringify(CONTRACTS_PUBLIC_FILES),

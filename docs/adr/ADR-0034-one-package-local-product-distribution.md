@@ -27,7 +27,9 @@ Only `archctxd` is the production composition root. CLI and MCP call the daemon 
 - Private source packages: `packages/contracts`, `packages/core`, `packages/local-runtime`, `packages/surfaces`, and `packages/cloud` stay `private: true` and version-aligned with the root source manifest.
 - Generated npm package: the public release artifact is generated as `archctx` by the release dry-run stage. Its package metadata, bins, bounded file list, registry readback, and install smoke are verified by release readback evidence rather than inferred from a workspace `package.json`.
 
-The source manifests and generated npm package intentionally have different names. A release is consistent only when `bun run readback:release` proves the root/workspace source versions, generated `archctx` package, npm registry metadata, and CLI help surface all agree.
+- Public contracts artifact: `scripts/contracts-release-stage.mjs` generates the separately published `archctx-contracts` package from private `@archcontext/contracts` source. It preserves the source version, exports the root TypeScript contracts and `./schemas/*`, and includes only `src`, `fixtures`, and `schemas`. Only this staged manifest declares `private: false` and public access; the source manifest has no `publishConfig`. Both the contracts publisher and npm release dry-run use the same validator and reject source/public manifest drift before packing. Release provenance requires every source workspace to remain private.
+
+The source manifests and generated npm packages intentionally have different names. A release is consistent only when `bun run readback:release` proves the root/workspace source versions, generated `archctx` package, npm registry metadata, and CLI help surface all agree.
 
 # Consequences
 
