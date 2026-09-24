@@ -26,7 +26,7 @@ import {
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
 import { canonicalProjectionReadPlanV1, digestJson, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
-import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, committedChangeSetFileOperation, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type CommittedChangeSetForTaskSession, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
+import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, committedChangeSetFileOperation, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type CommittedChangeSetForTaskSession, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
@@ -517,6 +517,17 @@ export class TestLocalStore implements RuntimeLocalStore {
       }
     }
     return recovered;
+  }
+
+  listUnresolvedChangeSetJournals(): UnresolvedChangeSetJournal[] {
+    return [...this.changeSetJournals.entries()]
+      .filter(([, record]) => record.status === "pending")
+      .map(([journalId, record]) => ({
+        journalId,
+        changeSetId: record.draft.id,
+        root: record.root,
+        reason: "pending after startup recovery"
+      }));
   }
 
   async saveTaskState(taskSessionId: string, state: unknown): Promise<void> {
