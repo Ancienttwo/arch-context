@@ -29,7 +29,7 @@ export const MCP_TOOL_INPUT_SCHEMAS = {
     id: text, taskSessionId: text, operations: { type: "array", items: operation },
     reason: { type: "object", required: ["taskSessionId"], additionalProperties: false, properties: { taskSessionId: text, interventionId: text } }
   }, ["id", "operations"]),
-  archcontext_apply_update: argumentsSchema({ id: text, approved: flag, expectedWorktreeDigest: text }, ["id", "expectedWorktreeDigest", "approved"]),
+  archcontext_apply_update: argumentsSchema({ id: text, approvalToken: text, expectedWorktreeDigest: text }, ["id", "expectedWorktreeDigest", "approvalToken"]),
   archcontext_complete_task: argumentsSchema({
     taskSessionId: text, task: text, posture: text, headSha: text,
     compatibilityPathIntroduced: flag, cleanupRequired: { type: "integer", minimum: 0 }, cleanupCompleted: { type: "integer", minimum: 0 },

@@ -9,6 +9,14 @@ describe("ChatGPT local MCP surface", () => {
     expect((await http.handle({ method: "GET", path: "/mcp/tools", host: "0.0.0.0" })).status).toBe(403);
   });
 
+  test("ChatGPT HTTP rejects a hidden apply tool at the call boundary", async () => {
+    const http = new LocalHttpMcpServer();
+    const listed = await http.handle({ method: "GET", path: "/mcp/tools" });
+    expect((listed.body as any).tools.map((tool: any) => tool.name)).not.toContain("archcontext_apply_update");
+    const called = await http.handle({ method: "POST", path: "/mcp/call", body: { name: "archcontext_apply_update", arguments: { approved: true } } });
+    expect((called.body as any).content.error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+  });
+
   test("ChatGPT tool list is read-only unless write mode is enabled", () => {
     const server = new McpLocalServer();
     expect(server.listChatGptTools().map((tool) => tool.name)).not.toContain("archcontext_apply_update");

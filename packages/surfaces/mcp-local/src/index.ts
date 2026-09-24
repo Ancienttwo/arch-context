@@ -69,7 +69,7 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "archcontext_apply_update",
     inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_apply_update,
-    description: "Apply an approved ChangeSet. Requires explicit local approval and fresh worktree digest.",
+    description: "Apply an approved ChangeSet. Requires a one-time token from archctx approve and a fresh worktree digest.",
     annotations: { safety: "destructive", requiresConfirmation: true }
   },
   {
@@ -146,7 +146,12 @@ export class McpLocalServer {
     return writeEnabled ? LOCAL_MCP_TOOLS : readOnly;
   }
 
-  async callTool(name: string, args: Record<string, any>): Promise<ToolCallResult> {
+  async callTool(name: string, args: Record<string, any>, surface: "local" | "chatgpt" = "local", writeEnabled = false): Promise<ToolCallResult> {
+    const tools = surface === "chatgpt" ? this.listChatGptTools(writeEnabled) : this.listTools();
+    if (!tools.some((tool) => tool.name === name)) return {
+      content: errorEnvelope("mcp", "AC_CAPABILITY_UNSUPPORTED", "Tool is unavailable on this surface") as unknown as Json,
+      dataClassification: "local-metadata"
+    };
     switch (name) {
       case "archcontext_prepare_task": {
         const root = requiredArg(args, "root");
@@ -196,6 +201,7 @@ export class McpLocalServer {
         const root = requiredArg(args, "root");
         try {
           const result = await (await this.runtime(root)).planUpdate(root, {
+            approvalChannel: "mcp",
             id: requiredArg(args, "id"),
             reason: args.reason ?? { taskSessionId: args.taskSessionId ?? "task_mcp" },
             operations: args.operations as ChangeOperation[]
@@ -206,12 +212,11 @@ export class McpLocalServer {
         }
       }
       case "archcontext_apply_update": {
-        if (!args.approved) return { content: errorEnvelope("apply_update", "AC_USER_CONFIRMATION_REQUIRED", "ChangeSet apply requires explicit local approval") as unknown as Json, dataClassification: "local-metadata" };
         try {
           const root = requiredArg(args, "root");
-          const result = await (await this.runtime(root)).applyUpdate(root, {
+          const result = await (await this.runtime(root)).applyMcpUpdate(root, {
             id: requiredArg(args, "id"),
-            approved: true,
+            approvalToken: args.approvalToken,
             expectedWorktreeDigest: requiredArg(args, "expectedWorktreeDigest")
           });
           return { content: result as unknown as Json, dataClassification: "local-architecture" };
@@ -374,21 +379,21 @@ export interface LocalHttpMcpRequest {
 export class LocalHttpMcpServer {
   readonly bindHost = "127.0.0.1";
 
-  constructor(private readonly localMcp = new McpLocalServer()) {}
+  constructor(private readonly localMcp = new McpLocalServer(), private readonly writeEnabled = false) {}
 
   async handle(request: LocalHttpMcpRequest) {
     if (request.host && !["127.0.0.1", "localhost", this.bindHost].includes(request.host)) {
       return { status: 403, body: errorEnvelope("http-mcp", "AC_TUNNEL_SCOPE_DENIED", "Local HTTP MCP only binds loopback") };
     }
     if (request.method === "GET" && request.path === "/mcp/tools") {
-      return { status: 200, body: { tools: this.localMcp.listTools() } };
+      return { status: 200, body: { tools: this.localMcp.listChatGptTools(this.writeEnabled) } };
     }
     if (request.method === "GET" && request.path === "/mcp/resources") {
       return { status: 200, body: { resources: await this.localMcp.listResources(request.body?.root) } };
     }
     if (request.method === "POST" && request.path === "/mcp/call") {
       const body = request.body ?? {};
-      return { status: 200, body: await this.localMcp.callTool(body.name, body.arguments ?? {}) };
+      return { status: 200, body: await this.localMcp.callTool(body.name, body.arguments ?? {}, "chatgpt", this.writeEnabled) };
     }
     if (request.method === "POST" && request.path === "/mcp/resources/read") {
       const body = request.body ?? {};
