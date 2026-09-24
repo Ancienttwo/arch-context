@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-22T16:26:55Z",
+  "updatedAt": "2026-09-24T22:58:44Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -1944,7 +1944,9 @@
         "docs/api/control-plane-openapi.yaml",
         "docs/api/control-plane-compatibility-policy.md",
         "packages/cloud/control-plane/test/control-plane.test.ts",
-        "docs/verification/fg5-control-plane-gate.md"
+        "docs/verification/fg5-control-plane-gate.md",
+        "docs/researches/20260925-cloud-submit-key-authority.md",
+        "docs/api/control-plane-compatibility-policy.md#submit-key-authority"
       ]
     },
     {

@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, type KeyObject } from "node:crypto";
 import {
   createReviewChallengeV2,
+  evaluateAttestationForReviewChallenge,
   publicKeyFingerprint,
   verifyLocalAttestation,
   verifyAttestationV2ForReviewChallenge,
@@ -576,7 +577,7 @@ export const CHALLENGE_API_REQUEST_SCHEMA_VERSIONS = {
   get: "archcontext.challenge-get-request/v1",
   list: "archcontext.challenge-list-request/v1",
   lease: "archcontext.challenge-lease-request/v1",
-  submit: "archcontext.challenge-submit-request/v1",
+  submit: "archcontext.challenge-submit-request/v2",
   cancel: "archcontext.challenge-cancel-request/v1"
 } as const;
 
@@ -615,9 +616,6 @@ export interface SubmitReviewChallengeApiRequest {
   currentPullHead: PullHeadMetadata;
   publicKey: KeyObject;
   resourceAuthorization: ReviewChallengeResourceBindingAuthorization;
-  deviceIdentity?: DeviceIdentity;
-  runnerIdentity?: RunnerIdentity;
-  signingKeyStatus?: GovernanceKeyStatus;
   now: string;
   verifyStartedAt?: string;
   expectedHeadTreeOid?: string;
@@ -1687,24 +1685,49 @@ export class ControlPlane {
   }
 
   submitReviewChallengeApi(request: SubmitReviewChallengeApiRequest): SubmitReviewChallengeAttestationResult {
-    assertChallengeApiRequestSchema(request, CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.submit);
+    const { attestation: _attestation, ...requestMetadata } = request;
+    assertChallengeApiRequestSchema(requestMetadata, CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.submit);
     const challenge = this.getReviewChallengeApi({
       schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.get,
       challengeId: request.challengeId
     });
+    const authorization = requireReviewChallengeResourceBindingAuthorization(request.resourceAuthorization);
+    if (["deviceIdentity", "runnerIdentity", "signingKeyStatus"].some((field) => field in request)) {
+      throw new Error("submit authority objects are not accepted; use registered keys");
+    }
+    const runner = challenge.requiredTrust === "organization"
+      ? this.requireRunnerIdentity(requireNonEmptyString(authorization.runnerId ?? "", "authorization.runnerId"))
+      : undefined;
+    const device = challenge.requiredTrust === "developer"
+      ? this.requireDeviceIdentity(requireNonEmptyString(authorization.deviceId ?? "", "authorization.deviceId"))
+      : undefined;
     this.authorizeReviewChallengeResourceBinding({
       challenge,
-      authorization: request.resourceAuthorization,
-      deviceIdentity: request.deviceIdentity,
-      runnerIdentity: request.runnerIdentity
+      authorization,
+      deviceIdentity: device,
+      runnerIdentity: runner
     });
-    const result = this.submitReviewChallengeAttestation({
+    const keyStatus = runner ? runnerIdentityKeyStatus(runner) : deviceIdentityKeyStatus(device!);
+    const evaluated = evaluateAttestationForReviewChallenge({ challenge, attestation: request.attestation });
+    const bindingMismatch = evaluated.accepted && (
+      evaluated.attestation.execution.principalId !== keyStatus.ownerId
+      || evaluated.attestation.execution.publicKeyId !== keyStatus.publicKeyId
+      || request.publicKey.type !== "public"
+      || publicKeyFingerprint(request.publicKey) !== keyStatus.fingerprint
+    );
+    const result: SubmitReviewChallengeAttestationResult = bindingMismatch ? {
+      accepted: false,
+      reasonCode: "SIGNATURE_INVALID",
+      challenge,
+      nonceHash: reviewChallengeNonceHash(challenge),
+      consumedNonceHashes: new Set(this.consumedReviewChallengeNonceHashes)
+    } : this.submitReviewChallengeAttestation({
       challenge,
       attestation: request.attestation,
       currentPullHead: request.currentPullHead,
       publicKey: request.publicKey,
-      runnerIdentity: request.runnerIdentity,
-      signingKeyStatus: request.signingKeyStatus,
+      runnerIdentity: runner,
+      signingKeyStatus: keyStatus,
       now: request.now,
       consumedNonceHashes: this.consumedReviewChallengeNonceHashes,
       expectedHeadTreeOid: request.expectedHeadTreeOid
