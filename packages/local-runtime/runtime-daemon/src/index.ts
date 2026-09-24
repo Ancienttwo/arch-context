@@ -118,6 +118,7 @@ import {
   capabilitySourceChangesSinceStamps,
   evaluateArchitectureProjectionSnapshotFreshness,
   loadArchitectureDocumentationInputs,
+  loadArchitectureDocumentationProfile,
   loadArchitectureProjectionManifestVerifiedAgainst,
   loadCapabilitySourceScaleSignals,
   loadNativeModelFromArchContext,
@@ -7238,11 +7239,11 @@ type RuntimeProjectionRecoveryFixedPoint = {
 /** Rebuilds recovery semantics from repository authority while the daemon owns the writer. */
 function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjectionRecoveryFixedPoint {
   const loaded = loadArchitectureDocumentationInputs(root, REPO_HARNESS_PROJECTION_PROFILE);
-  const sourceDigest = digestJson({
+  const sourceDigest = architectureDocumentationSourceDigest({
     model: loaded.model,
     profile: REPO_HARNESS_PROJECTION_PROFILE,
-    decisions: loaded.decisions.map((decision) => ({ id: decision.id, path: decision.path, title: decision.title, status: decision.status }))
-  } as unknown as Json);
+    decisions: loaded.decisions
+  });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   const provenance = codeGraphInputs.provenance;
   const projection = renderArchitectureDocumentationProjection({
@@ -8928,15 +8929,18 @@ function parsePracticeCheckpointBaselineState(
 
 function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
   if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return undefined;
-  const loaded = loadArchitectureDocumentationInputs(root);
+  const profile = loadArchitectureDocumentationProfile(root);
+  const loaded = loadArchitectureDocumentationInputs(root, profile);
   const sourceDigest = architectureDocumentationSourceDigest({
     model: loaded.model,
+    profile,
     decisions: loaded.decisions
   });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
+    profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     verifiedAgainst: assertArchitectureProjectionVerifiedAgainst({

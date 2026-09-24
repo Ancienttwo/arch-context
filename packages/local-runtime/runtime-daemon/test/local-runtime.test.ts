@@ -2805,7 +2805,13 @@ describe("local runtime foundation", () => {
       expect((beforeActivation.data as any).snapshot.projectionDigest).toBeUndefined();
 
       mkdirSync(join(root, "docs/architecture"), { recursive: true });
-      writeFileSync(join(root, "docs/architecture/.projection-manifest.json"), "{}\n", "utf8");
+      const profileManifest = join(root, "docs/architecture/.projection-manifest.json");
+      for (const profile of [undefined, "unknown/v1", null]) {
+        writeFileSync(profileManifest, JSON.stringify({ profile }), "utf8");
+        await expect(daemon.completeTask(root, { taskSessionId: "task_invalid_profile" }))
+          .rejects.toThrow("projection-manifest-profile-invalid");
+      }
+      writeFileSync(profileManifest, JSON.stringify({ profile: "default" }), "utf8");
       const drifted = await daemon.completeTask(root, {
         taskSessionId: "task_projection_gate",
         task: "finish architecture projection update"
