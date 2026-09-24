@@ -134,7 +134,7 @@ import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, projectionApplyLookupK
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
-import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
+import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import {
   createNodeGithubIssueExecutor,
@@ -1428,7 +1428,14 @@ export class ArchctxDaemon {
   async init(root: string, productName?: string): Promise<JsonEnvelope> {
     this.assertRunning();
     return this.withWriter(async () => {
-      initializeArchContextModel(root, productName);
+      try {
+        initializeArchContextModel(root, productName);
+      } catch (error) {
+        if (error instanceof ArchContextInitRefusedError) {
+          return errorEnvelope("init", "AC_PRECONDITION_FAILED", error.message, "init-would-overwrite-existing-model");
+        }
+        throw error;
+      }
       rebuildGeneratedProjection(root);
       const session = await this.openSession(root);
       return okEnvelope("init", {

@@ -825,6 +825,26 @@ describe("writeFileWithoutFollowingSymlinks", () => {
     }
   });
 
+  test("a create-only write never replaces a file that appears after the missing-check", () => {
+    const { root } = tempWriteRoot();
+    const destination = join(root, RELATIVE);
+    setDescriptorRelativeWriteTestHook(() => {
+      writeFileSync(destination, "concurrent writer\n", "utf8");
+    });
+    try {
+      expect(() => writeFileWithoutFollowingSymlinks({
+        root,
+        path: RELATIVE,
+        body: "late create\n",
+        expectedHash: "missing"
+      })).toThrow("Expected hash mismatch");
+      expect(readFileSync(destination, "utf8")).toBe("concurrent writer\n");
+    } finally {
+      setDescriptorRelativeWriteTestHook(undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("refuses a path that escapes the repository root", () => {
     const { root, outside } = tempWriteRoot();
     try {
