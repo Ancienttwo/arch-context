@@ -98,6 +98,29 @@ class RefactorFlagError extends Error {}
 const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
 
 /**
+ * Flags `audit run` and `audit approve` accept beyond `--help`/`-h` (checked separately) and
+ * approve's own positional `<run-id>`. `--format` and `--json` are global rendering flags every
+ * command's `args` may carry (`--format` is read once at the very top of this file; `--json` is
+ * accepted CLI-wide as a JSON-output hint), so they're allowed here too even though neither
+ * subcommand's own input builder reads them.
+ *
+ * Declared here (not down next to `runAuditCommand`, where they're used) and, critically, before
+ * the `if (import.meta.main)` entry block below: that block's top-level `await runCli(...)` pauses
+ * this module's own evaluation partway through, so any top-level `const` textually *after* it is
+ * still uninitialized (TDZ) for however long that first `await` takes to settle — long enough for
+ * a real `archctx audit run`/`audit approve` invocation to reach `findUnknownAuditFlag` and throw
+ * "Cannot access '...' before initialization", surfaced to the caller as AC_RUNTIME_UNAVAILABLE.
+ * `AUDIT_RUN_STATUSES` right above already follows this rule; keep any new audit-command constant
+ * here too, not near its point of use further down the file.
+ */
+const AUDIT_GLOBAL_VALUE_FLAGS = ["--format"] as const;
+const AUDIT_GLOBAL_BOOLEAN_FLAGS = ["--json"] as const;
+const AUDIT_RUN_VALUE_FLAGS = ["--task-session-id", "--reason", "--risk", "--uncertainty", "--context-max-items", "--model-id", "--timeout-ms", ...AUDIT_GLOBAL_VALUE_FLAGS];
+const AUDIT_RUN_BOOLEAN_FLAGS = ["--no-wait", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
+const AUDIT_APPROVE_VALUE_FLAGS = ["--run-id", "--confirm-public-repo", ...AUDIT_GLOBAL_VALUE_FLAGS];
+const AUDIT_APPROVE_BOOLEAN_FLAGS = ["--resume", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
+
+/**
  * `readFlag` reads the next token whatever it is, so a bare trailing `--request-json` looks
  * exactly like an absent flag and a `--assessment-digest --json` swallows the next flag as its
  * value. On `refactor` both are a caller that meant to pass something, and running the default
@@ -2509,20 +2532,6 @@ function runAuditConsentCommand(args: string[], cwd: string) {
     revokeCommand: "archctx audit consent --revoke"
   } as unknown as Json);
 }
-
-/**
- * Flags `audit run` and `audit approve` accept beyond `--help`/`-h` (checked separately) and
- * approve's own positional `<run-id>`. `--format` and `--json` are global rendering flags every
- * command's `args` may carry (`--format` is read once at the very top of this file; `--json` is
- * accepted CLI-wide as a JSON-output hint), so they're allowed here too even though neither
- * subcommand's own input builder reads them.
- */
-const AUDIT_GLOBAL_VALUE_FLAGS = ["--format"] as const;
-const AUDIT_GLOBAL_BOOLEAN_FLAGS = ["--json"] as const;
-const AUDIT_RUN_VALUE_FLAGS = ["--task-session-id", "--reason", "--risk", "--uncertainty", "--context-max-items", "--model-id", "--timeout-ms", ...AUDIT_GLOBAL_VALUE_FLAGS];
-const AUDIT_RUN_BOOLEAN_FLAGS = ["--no-wait", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
-const AUDIT_APPROVE_VALUE_FLAGS = ["--run-id", "--confirm-public-repo", ...AUDIT_GLOBAL_VALUE_FLAGS];
-const AUDIT_APPROVE_BOOLEAN_FLAGS = ["--resume", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
 
 /**
  * First token in `args` (skipping index 0, the subcommand) that looks like a flag — long (`--foo`)

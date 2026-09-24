@@ -1684,6 +1684,46 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  // Regression test for a crash the --help fix itself introduced: AUDIT_RUN_VALUE_FLAGS and its five
+  // sibling constants were originally declared far below in the file, next to runAuditCommand — but
+  // still textually *after* the `if (import.meta.main)` entry block (~:141). That block's top-level
+  // `await runCli(...)` pauses this module's own evaluation partway through, so any top-level `const`
+  // after it is still an uninitialized binding (TDZ) while `runCli` runs. A real, non-help `audit run`,
+  // `audit approve`, or bare `audit` reached `findUnknownAuditFlag` — referencing those constants —
+  // while the module was still paused there, and crashed with "Cannot access '...' before
+  // initialization", surfaced to the caller as AC_RUNTIME_UNAVAILABLE instead of the real error. Every
+  // in-process `runCli` test (including the --help ones above) is blind to this: importing the module
+  // sets `import.meta.main` to false, so the entry block's body never runs and the module finishes
+  // evaluating top to bottom, past those constants, before any test calls `runCli`. Only a spawned
+  // process reproduces it — and only on a non-help path, since --help returns before ever touching
+  // these constants. Confirmed by hand too: `bun packages/surfaces/cli/src/main.ts audit run -n` in a
+  // scratch repo, before this fix, printed exactly that AC_RUNTIME_UNAVAILABLE message.
+  test("spawned CLI: audit run/approve non-help paths return their real error code, not AC_RUNTIME_UNAVAILABLE", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-tdz-regress-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const runUnknown = await runCliProcessRaw(root, "audit", "run", "-n");
+      const runEnvelope = JSON.parse(runUnknown.stdout);
+      expect(runEnvelope.ok).toBe(false);
+      expect(runEnvelope.error?.code).toBe("AC_SCHEMA_INVALID");
+
+      const approveUnknown = await runCliProcessRaw(root, "audit", "approve", "audit_run.x", "--bogus");
+      const approveEnvelope = JSON.parse(approveUnknown.stdout);
+      expect(approveEnvelope.ok).toBe(false);
+      expect(approveEnvelope.error?.code).toBe("AC_SCHEMA_INVALID");
+
+      mkdirSync(join(root, ".archcontext"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: false\n", "utf8");
+      const disabledRun = await runCliProcessRaw(root, "audit", "run");
+      const disabledEnvelope = JSON.parse(disabledRun.stdout);
+      expect(disabledEnvelope.ok).toBe(false);
+      expect(disabledEnvelope.error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("issue #161: doctor reports effective non-local egress from live Context7, audit, and gh publishing config", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-doctor-egress-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
