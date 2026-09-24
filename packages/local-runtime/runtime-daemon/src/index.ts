@@ -678,6 +678,12 @@ export interface RuntimeCompositionReport {
 
 interface RuntimeConstructionOptions {
   compositionMode?: RuntimeCompositionMode;
+  /**
+   * Repository root whose legacy local store `start()` migrates into the default store path. It runs
+   * after writer ownership is claimed: the migration can upgrade an existing target in place, which
+   * must never race the live owner's own migrations (#160).
+   */
+  legacyLocalStoreMigrationRoot?: string;
 }
 
 export interface ExplorerServerOptions {
@@ -1283,9 +1289,11 @@ export class ArchctxDaemon {
   private running = false;
   private writerLocked = false;
   private unresolvedChangeSetJournals: UnresolvedChangeSetJournal[] = [];
+  private readonly legacyLocalStoreMigrationRoot?: string;
 
   constructor(deps: RuntimeDeps = {}, options: RuntimeConstructionOptions = {}) {
     if (options.compositionMode === "production") assertProductionRuntimeDeps(deps);
+    this.legacyLocalStoreMigrationRoot = options.legacyLocalStoreMigrationRoot;
     this.codeFacts = deps.codeFacts ?? new CodeGraphAdapter(new CodeGraphCliProvider());
     this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? ((repository) => new CodeGraphCliProvider(repository.root ?? repository.repositoryId));
     this.modelStore = deps.modelStore ?? new YamlModelStore();
@@ -1325,6 +1333,7 @@ export class ArchctxDaemon {
     // crashed writer's pending journal from a live one's, so no other process may be writing.
     this.localStore.acquireWriterOwnership?.();
     try {
+      if (this.legacyLocalStoreMigrationRoot !== undefined) migrateLegacyLocalStoreIfNeeded(this.legacyLocalStoreMigrationRoot);
       await this.localStore.migrate();
       this.localStore.recoverPendingSnapshots();
       this.localStore.recoverPendingChangeSets();
@@ -1341,7 +1350,15 @@ export class ArchctxDaemon {
   }
 
   async stop(): Promise<void> {
-    await this.closeExplorer();
+    try {
+      await this.closeExplorer();
+    } finally {
+      // Store writer ownership (#160) must be released even if the explorer fails to close.
+      this.stopAfterExplorerClosed();
+    }
+  }
+
+  private stopAfterExplorerClosed(): void {
     // Abort every in-flight audit investigation: this reliably kills its real `claude` subprocess
     // via the transport's signal handling (child.kill("SIGKILL") on the 'abort' event), so nothing
     // is ever left running orphaned past this daemon's lifetime — that guarantee holds
@@ -1353,13 +1370,16 @@ export class ArchctxDaemon {
     // race, the job simply stays "running" in the queue with a lease that will expire on its own
     // (recoverable via the existing claim/dead-letter path) rather than a clean "failed" run
     // record — never a crash or a silently corrupted state, just a missed observability record.
-    for (const controller of this.auditRunAbortControllers.values()) controller.abort();
-    this.sessions.clear();
-    this.checkpointBaselines.clear();
-    this.checkpointCoalesced.clear();
-    this.deferredArchitectureChangeFeedFailures.clear();
-    this.localStore.close();
-    this.running = false;
+    try {
+      for (const controller of this.auditRunAbortControllers.values()) controller.abort();
+      this.sessions.clear();
+      this.checkpointBaselines.clear();
+      this.checkpointCoalesced.clear();
+      this.deferredArchitectureChangeFeedFailures.clear();
+    } finally {
+      this.running = false;
+      this.localStore.close();
+    }
   }
 
   status(): RuntimeStatus {
@@ -2573,28 +2593,33 @@ export class ArchctxDaemon {
         if (!input.libraryId || !input.version) return errorEnvelope("docs.pin", "AC_SCHEMA_INVALID", "docs pin requires --library-id and --version");
         assertContext7LibraryId(input.libraryId);
         assertContext7Version(input.version);
-        const current = readContext7LockfileState(session.workspace.root);
-        const lock = upsertContext7Pin(current.lock, {
+        const pin = {
           libraryId: input.libraryId,
           version: input.version,
           pinnedAt: this.clock(),
-          source: "manual"
-        });
+          source: "manual" as const
+        };
         if (!input.approved) {
           return okEnvelope("docs.pin", {
             schemaVersion: "archcontext.context7-pin-preview/v1",
             approved: false,
             path: CONTEXT7_LOCKFILE,
-            lock
+            lock: upsertContext7Pin(readContext7LockfileState(session.workspace.root).lock, pin)
           } as unknown as Json);
         }
-        writeContext7Lockfile(session.workspace.root, lock, current.expectedHash);
-        return okEnvelope("docs.pin", {
-          schemaVersion: "archcontext.context7-pin/v1",
-          approved: true,
-          path: CONTEXT7_LOCKFILE,
-          lock
-        } as unknown as Json);
+        // The approved pin writes a tracked `.archcontext/` file, so it is a writer like any other
+        // (#172: refused while ChangeSet recovery is unresolved).
+        return await this.withWriter(async () => {
+          const current = readContext7LockfileState(session.workspace.root);
+          const lock = upsertContext7Pin(current.lock, pin);
+          writeContext7Lockfile(session.workspace.root, lock, current.expectedHash);
+          return okEnvelope("docs.pin", {
+            schemaVersion: "archcontext.context7-pin/v1",
+            approved: true,
+            path: CONTEXT7_LOCKFILE,
+            lock
+          } as unknown as Json);
+        });
       }
       if (input.command === "resolve") {
         if (!input.allowNetwork) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --allow-network");
@@ -2669,7 +2694,8 @@ export class ArchctxDaemon {
       }
       return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
     } catch (error) {
-      return errorEnvelope(`docs.${input.command}`, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      const code = error instanceof ChangeSetRecoveryUnresolvedError ? "AC_PRECONDITION_FAILED" : "AC_SCHEMA_INVALID";
+      return errorEnvelope(`docs.${input.command}`, code, error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -5741,9 +5767,7 @@ export class ArchctxDaemon {
   }
 
   private async withWriter<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.unresolvedChangeSetJournals.length > 0) {
-      throw new Error(`changeset-recovery-unresolved: ${unresolvedChangeSetJournalSummary(this.unresolvedChangeSetJournals)}; fix the cause and restart archctxd to retry recovery`);
-    }
+    if (this.unresolvedChangeSetJournals.length > 0) throw new ChangeSetRecoveryUnresolvedError(this.unresolvedChangeSetJournals);
     if (this.writerLocked) throw new Error("runtime writer is locked");
     this.writerLocked = true;
     try {
@@ -5978,6 +6002,14 @@ export type RuntimeRpcTransportErrorCode = "RPC_TIMEOUT" | "RPC_ABORTED";
  * and its deadline so a caller can decide on retry/backoff, and deliberately carries neither the
  * bearer token nor the request body.
  */
+/** Thrown by `withWriter` while startup recovery left ChangeSet journals unresolved (#172). */
+export class ChangeSetRecoveryUnresolvedError extends Error {
+  constructor(readonly unresolvedJournals: UnresolvedChangeSetJournal[]) {
+    super(`changeset-recovery-unresolved: ${unresolvedChangeSetJournalSummary(unresolvedJournals)}; fix the cause and restart archctxd to retry recovery`);
+    this.name = "ChangeSetRecoveryUnresolvedError";
+  }
+}
+
 export class RuntimeRpcTransportError extends Error {
   constructor(
     readonly code: RuntimeRpcTransportErrorCode,
@@ -6358,7 +6390,34 @@ export class ArchctxRuntimeRpcServer {
 
   async start(): Promise<RuntimeRpcConnection> {
     if (this.server) return this.connection!;
-    if (!this.daemon.status().running) await this.daemon.start();
+    const startedDaemon = !this.daemon.status().running;
+    if (startedDaemon) await this.daemon.start();
+    try {
+      return await this.listenAndPublish();
+    } catch (error) {
+      // Undo everything this call acquired, so a retry is not refused by our own leaked store
+      // ownership (#160) or daemon lock.
+      await this.releaseFailedStart(startedDaemon);
+      throw error;
+    }
+  }
+
+  private async releaseFailedStart(startedDaemon: boolean): Promise<void> {
+    const server = this.server;
+    const connection = this.connection;
+    this.server = undefined;
+    this.connection = undefined;
+    if (server) await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    if (connection) rmSync(connection.connectionPath, { force: true });
+    if (this.lockFd !== undefined) {
+      closeSync(this.lockFd);
+      this.lockFd = undefined;
+      rmSync(this.options.lockPath ?? defaultDaemonLockPath(this.options.root ?? process.cwd()), { force: true });
+    }
+    if (startedDaemon) await this.daemon.stop().catch(() => undefined);
+  }
+
+  private async listenAndPublish(): Promise<RuntimeRpcConnection> {
     const root = this.options.root ?? process.cwd();
     const connectionPath = this.options.connectionPath ?? defaultDaemonConnectionPath(root);
     const lockPath = this.options.lockPath ?? defaultDaemonLockPath(root);
@@ -6371,7 +6430,13 @@ export class ArchctxRuntimeRpcServer {
         writeJson(response, 500, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: error instanceof Error ? error.message : String(error) });
       });
     });
-    await new Promise<void>((resolveListen) => server.listen(this.options.port ?? 0, "127.0.0.1", resolveListen));
+    await new Promise<void>((resolveListen, rejectListen) => {
+      server.once("error", rejectListen);
+      server.listen(this.options.port ?? 0, "127.0.0.1", () => {
+        server.off("error", rejectListen);
+        resolveListen();
+      });
+    });
     this.server = server;
     const port = (server.address() as AddressInfo).port;
     this.connection = {
@@ -6482,6 +6547,7 @@ export class ArchctxRuntimeRpcServer {
     }
     const url = new URL(request.url ?? "/", this.connection?.url ?? "http://127.0.0.1/");
     if (request.method === "GET" && url.pathname === "/health") {
+      const changeSetRecovery = this.daemon.status().changeSetRecovery;
       writeJson(response, 200, {
         schemaVersion: RUNTIME_RPC_VERSION,
         ok: true,
@@ -6489,7 +6555,9 @@ export class ArchctxRuntimeRpcServer {
         protocol: "http-loopback",
         version: 1,
         product: this.options.productManifest?.() ?? productVersionManifest(),
-        composition: this.daemon.compositionReport()
+        composition: this.daemon.compositionReport(),
+        // Alive but write-gated (#172): readers still work, so `ok` stays true, but callers must see it.
+        ...(changeSetRecovery ? { changeSetRecovery } : {})
       });
       return;
     }
@@ -6523,7 +6591,11 @@ export class ArchctxRuntimeRpcServer {
         writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC version mismatch" });
         return;
       }
-      const result = await this.dispatch(body.method ?? "", body.params ?? []);
+      const result = await this.dispatch(body.method ?? "", body.params ?? []).catch((error: unknown) => {
+        // A write refused by the #172 recovery gate is a typed precondition failure, not a 500.
+        if (error instanceof ChangeSetRecoveryUnresolvedError) return errorEnvelope(body.method ?? "rpc", "AC_PRECONDITION_FAILED", error.message);
+        throw error;
+      });
       writeJson(response, 200, result);
       if (body.method === "shutdown") setTimeout(() => void this.stop(), 0);
     } finally {
@@ -8148,13 +8220,16 @@ export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<Archc
 }
 
 export function createProductionDaemon(options: ProductionRuntimeOptions = {}): ArchctxDaemon {
-  if (!options.localStorePath) migrateLegacyLocalStoreIfNeeded(options.root);
   const deps: RuntimeDeps = {
     localStorePath: options.localStorePath ?? defaultLocalStorePath(options.root),
     maxRepoSessions: options.maxRepoSessions
   };
   assertProductionRuntimeDeps(deps);
-  return new ArchctxDaemon(deps, { compositionMode: "production" });
+  return new ArchctxDaemon(deps, {
+    compositionMode: "production",
+    // Deferred into `start()`, behind store writer ownership (#160).
+    ...(options.localStorePath ? {} : { legacyLocalStoreMigrationRoot: options.root ?? process.cwd() })
+  });
 }
 
 export async function createStartedProductionDaemon(options: ProductionRuntimeOptions = {}): Promise<ArchctxDaemon> {
