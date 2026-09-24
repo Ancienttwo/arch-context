@@ -1,10 +1,13 @@
-schemaVersion: archcontext.node/v2
-id: component.architecture-context.local-runtime.runtime-daemon
-kind: component
+id: "component.architecture-context.local-runtime.runtime-daemon"
+kind: "component"
 name: "Runtime Daemon"
-status: active
-parent: module.architecture-context.local-runtime
-summary: "Runs the local archctx daemon with its RPC server and client, owning task gates, ChangeSet plan and apply, refactor scan and verify, audit consent, and explorer projections."
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
 source:
+  exclude:
+    - "packages/local-runtime/runtime-daemon/src/rpc-client.ts"
+    - "packages/local-runtime/runtime-daemon/src/rpc-protocol.ts"
   include:
     - "packages/local-runtime/runtime-daemon/src/**"
+status: "active"
+summary: "Runs the local archctx daemon with its RPC server and composes the RPC client, owning task gates, ChangeSet plan and apply, refactor scan and verify, audit consent, and explorer projections."
