@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, utimesSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, computeWorktreeDigest, createLandscape, landscapeYaml } from "@archcontext/core/architecture-domain";
@@ -30,6 +30,7 @@ import {
   completeRuntimeStateRecovery,
   inspectLegacyLocalStoreMigration,
   inspectRuntimeStateRecovery,
+  localStoreWriterOwnerRecordPath,
   localStoreWriterOwnershipPath,
   migrateLegacyLocalStoreIfNeeded,
   migrationSql,
@@ -2121,46 +2122,85 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
-  test("writer ownership excludes a second live owner, is released on close, and takes over a dead owner's lock (#160)", async () => {
+  test("writer ownership excludes a second owner in this process and another, and is released on close (#160)", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-store-ownership-"));
     const dbPath = join(root, "state", "runtime.sqlite");
     const lockPath = localStoreWriterOwnershipPath(dbPath);
+    const recordPath = localStoreWriterOwnerRecordPath(dbPath);
     try {
       const first = new SqliteLocalStore(dbPath);
       first.acquireWriterOwnership();
       expect(existsSync(lockPath)).toBe(true);
+      expect(JSON.parse(readFileSync(recordPath, "utf8")).pid).toBe(process.pid);
+
       const second = new SqliteLocalStore(dbPath);
-      expect(() => second.acquireWriterOwnership()).toThrow("local-store-writer-owned");
+      const startedAt = Date.now();
+      expect(() => second.acquireWriterOwnership()).toThrow(`local-store-writer-owned: ${dbPath} is owned by another live process (owner record: pid ${process.pid}`);
+      // Fails fast: a few short retries, never SQLite's busy wait.
+      expect(Date.now() - startedAt).toBeLessThan(2_000);
+      // The refused same-process contender closing its connection must not drop the owner's lock.
+      second.close();
+      expect(tryWriterOwnershipInChild(dbPath)).toContain("local-store-writer-owned");
+
       first.close();
-      expect(existsSync(lockPath)).toBe(false);
+      // The lock file stays (deleting it would let two starters lock different inodes); the
+      // diagnostic record goes with its owner.
+      expect(existsSync(lockPath)).toBe(true);
+      expect(existsSync(recordPath)).toBe(false);
+      expect(tryWriterOwnershipInChild(dbPath)).toBe("OWNER");
 
       second.acquireWriterOwnership();
       second.close();
-
-      // A lock left behind by a process that no longer exists is crash residue, not an owner.
-      const deadPid = Number(execFileSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"], { encoding: "utf8" }));
-      writeFileSync(lockPath, JSON.stringify({ pid: deadPid, databasePath: dbPath }), "utf8");
-      const third = new SqliteLocalStore(dbPath);
-      third.acquireWriterOwnership();
-      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
-      third.close();
-
-      // A created-but-still-empty lock is what a concurrent starter sees mid-publication; it must not
-      // be treated as stale until it is old enough to be crash residue.
-      writeFileSync(lockPath, "", "utf8");
-      const racing = new SqliteLocalStore(dbPath);
-      expect(() => racing.acquireWriterOwnership()).toThrow("unreadable owner lock that is not yet stale");
-      expect(readFileSync(lockPath, "utf8")).toBe("");
-      const old = new Date(Date.now() - 60_000);
-      utimesSync(lockPath, old, old);
-      racing.acquireWriterOwnership();
-      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
-      racing.close();
-      expect(existsSync(lockPath)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("writer ownership dies with its process: a SIGKILLed owner's lock is free, and racing starters get exactly one owner (#160)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-store-ownership-race-"));
+    const dbPath = join(root, "state", "runtime.sqlite");
+    const storeModule = join(import.meta.dir, "../src/index.ts");
+    const starter = join(root, "starter.ts");
+    writeFileSync(starter, `
+import { SqliteLocalStore } from ${JSON.stringify(storeModule)};
+const [dbPath, mode, startAt] = process.argv.slice(2);
+while (Date.now() < Number(startAt ?? 0)) {}
+const store = new SqliteLocalStore(dbPath);
+try {
+  store.acquireWriterOwnership();
+} catch (error) {
+  process.stdout.write("REFUSED " + (error instanceof Error ? error.message : String(error)) + "\\n");
+  process.exit(0);
+}
+process.stdout.write("OWNER\\n");
+if (mode === "die") process.kill(process.pid, "SIGKILL");
+// Hold well past every racing starter's attempt, so a late starter cannot see a released lock.
+await new Promise((resolveHold) => setTimeout(resolveHold, 4_000));
+store.close();
+`, "utf8");
+    const runStarter = (mode: string, startAt = 0) => new Promise<string>((resolveRun) => {
+      const child = spawn(process.execPath, [starter, dbPath, mode, String(startAt)], { stdio: ["ignore", "pipe", "inherit"] });
+      let output = "";
+      child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
+      child.on("exit", () => resolveRun(output.trim()));
+    });
+    try {
+      for (let trial = 0; trial < 3; trial += 1) {
+        // The owner is SIGKILLed while holding the lock: no release ran, the files stay behind.
+        expect(await runStarter("die")).toBe("OWNER");
+        expect(existsSync(localStoreWriterOwnershipPath(dbPath))).toBe(true);
+        expect(existsSync(localStoreWriterOwnerRecordPath(dbPath))).toBe(true);
+
+        // Every starter spins until the same instant, after all of them have loaded the module.
+        const startAt = Date.now() + 2_000;
+        const outputs = await Promise.all(Array.from({ length: 6 }, () => runStarter("hold", startAt)));
+        expect(outputs.filter((output) => output === "OWNER")).toHaveLength(1);
+        expect(outputs.filter((output) => output.startsWith("REFUSED local-store-writer-owned:"))).toHaveLength(5);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   test("a journal startup recovery cannot restore stays listed as unresolved, and recovers on a later retry (#172)", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-changeset-unresolved-"));
@@ -4211,6 +4251,18 @@ async function sqliteRun(databasePath: string, sql: string, params: unknown[] = 
   } finally {
     db.close();
   }
+}
+
+/** Tries writer ownership from another process; returns "OWNER" or the refusal message. */
+function tryWriterOwnershipInChild(dbPath: string): string {
+  const storeModule = join(import.meta.dir, "../src/index.ts");
+  const script = `
+import { SqliteLocalStore } from ${JSON.stringify(storeModule)};
+const store = new SqliteLocalStore(${JSON.stringify(dbPath)});
+try { store.acquireWriterOwnership(); store.close(); process.stdout.write("OWNER"); }
+catch (error) { process.stdout.write(error instanceof Error ? error.message : String(error)); }
+`;
+  return spawnSync(process.execPath, ["-e", script], { encoding: "utf8" }).stdout.trim();
 }
 
 function removeTempRoot(root: string): void {
