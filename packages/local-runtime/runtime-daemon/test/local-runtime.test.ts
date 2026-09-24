@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
@@ -15,7 +15,7 @@ import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRA
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
-import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
@@ -84,6 +84,24 @@ function tempRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-"));
   writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
   return root;
+}
+
+async function waitForStdoutLine(child: ChildProcess, line: string, timeoutMs = 30_000): Promise<void> {
+  await new Promise<void>((resolveLine, rejectLine) => {
+    let buffered = "";
+    const timer = setTimeout(() => rejectLine(new Error(`child did not print ${line} within ${timeoutMs}ms`)), timeoutMs);
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      rejectLine(new Error(`child exited with ${code} before printing ${line}`));
+    });
+    child.stdout!.on("data", (chunk: Buffer) => {
+      buffered += chunk.toString("utf8");
+      if (buffered.split("\n").includes(line)) {
+        clearTimeout(timer);
+        resolveLine();
+      }
+    });
+  });
 }
 
 function removeTempRepo(root: string): void {
@@ -2909,6 +2927,207 @@ describe("local runtime foundation", () => {
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-rebase-reverify");
       expect(projectionStampCommit(root, "capability.architecture-context")).toBe(gitOut(root, "rev-parse", "HEAD"));
       expect(readText(manifestPath)).not.toContain(orphanedCommit);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("a second process cannot start on a store whose live writer is mid-ChangeSet; cold start still recovers (#160)", async () => {
+    // Process A holds writer ownership with a pending journal: original moved to backup, temp file
+    // half written. Before #160, process B's startup recovery treated that live transaction as crash
+    // residue and rolled it back before any lock was checked.
+    const dir = mkdtempSync(join(tmpdir(), "archctx-writer-barrier-"));
+    const root = join(dir, "repo");
+    const dbPath = join(dir, "state", "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = `${absolutePath}.archctx-backup`;
+    const tempPath = `${absolutePath}.archctx-tmp-barrier`;
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    const writerScript = join(dir, "writer.ts");
+    const storeModule = resolve(import.meta.dir, "../../local-store-sqlite/src/index.ts");
+    let writer: ChildProcess | undefined;
+    try {
+      initializeArchContextModel(root, "Writer Barrier App");
+      writeFileSync(absolutePath, original, "utf8");
+      writeFileSync(writerScript, `
+import { renameSync, writeFileSync } from "node:fs";
+import { SqliteLocalStore } from ${JSON.stringify(storeModule)};
+const [dbPath, root, relativePath, absolutePath, backupPath, tempPath] = process.argv.slice(2);
+const store = new SqliteLocalStore(dbPath);
+store.acquireWriterOwnership();
+await store.migrate();
+const journalId = await store.beginChangeSet(root, {
+  schemaVersion: "archcontext.changeset/v1", id: "changeset.barrier", status: "approved",
+  base: { headSha: "abc123", worktreeDigest: "sha256:${"0".repeat(64)}", modelDigest: "sha256:${"1".repeat(64)}" },
+  reason: { taskSessionId: "task.barrier" },
+  operations: [{ op: "update_entity_fields", path: relativePath, expectedHash: "sha256:${"2".repeat(64)}", body: "x" }],
+  preconditions: [], postconditions: []
+});
+await store.recordChangeSetFile(journalId, { path: relativePath, tempPath, backupPath, existed: true, operation: "update_entity_fields", bodyHash: "sha256:${"3".repeat(64)}" });
+renameSync(absolutePath, backupPath);
+writeFileSync(tempPath, "partial write", "utf8");
+process.stdout.write("READY\\n");
+setInterval(() => undefined, 1 << 30);
+`, "utf8");
+      writer = spawn(process.execPath, [writerScript, dbPath, root, relativePath, absolutePath, backupPath, tempPath], { stdio: ["ignore", "pipe", "inherit"] });
+      await waitForStdoutLine(writer, "READY");
+
+      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toThrow("local-store-writer-owned");
+      expect(existsSync(absolutePath)).toBe(false);
+      expect(readText(backupPath)).toBe(original);
+      expect(readText(tempPath)).toBe("partial write");
+
+      writer.kill("SIGKILL");
+      await once(writer, "exit");
+      writer = undefined;
+
+      const recovered = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      expect(readText(absolutePath)).toBe(original);
+      expect(existsSync(backupPath)).toBe(false);
+      expect(existsSync(tempPath)).toBe(false);
+      expect(recovered.status().changeSetRecovery).toBeUndefined();
+      await recovered.stop();
+      expect(existsSync(`${dbPath}.owner.lock`)).toBe(false);
+    } finally {
+      if (writer) {
+        writer.kill("SIGKILL");
+        await once(writer, "exit").catch(() => undefined);
+      }
+      removeTempRepo(dir);
+    }
+  });
+
+  test("startup that leaves a ChangeSet journal unresolved refuses writes until a later start recovers it (#172)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "archctx-recovery-gate-"));
+    const root = join(dir, "repo");
+    const dbPath = join(dir, "state", "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = join(root, "review.yaml.archctx-backup");
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      initializeArchContextModel(root, "Recovery Gate App");
+      writeFileSync(absolutePath, original, "utf8");
+      const store = new SqliteLocalStore(dbPath);
+      await store.migrate();
+      const journalId = await store.beginChangeSet(root, {
+        schemaVersion: "archcontext.changeset/v1",
+        id: "changeset.recovery-gate",
+        status: "approved",
+        base: { headSha: "abc123", worktreeDigest: `sha256:${"0".repeat(64)}`, modelDigest: `sha256:${"1".repeat(64)}` },
+        reason: { taskSessionId: "task.recovery-gate" },
+        operations: [{ op: "update_entity_fields", path: relativePath, expectedHash: `sha256:${"2".repeat(64)}`, body: "x" }],
+        preconditions: [],
+        postconditions: []
+      } as any);
+      await store.recordChangeSetFile(journalId, { path: relativePath, backupPath, existed: true, operation: "update_entity_fields", bodyHash: `sha256:${"3".repeat(64)}` });
+      renameSync(absolutePath, backupPath);
+      store.close();
+      // Restoring the backup fails: its target directory has become a regular file.
+      nodeRmSync(dirname(absolutePath), { recursive: true, force: true });
+      writeFileSync(dirname(absolutePath), "not a directory", "utf8");
+
+      daemon = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      const status = daemon.status();
+      expect(status.running).toBe(true);
+      expect(status.changeSetRecovery?.writable).toBe(false);
+      expect(status.changeSetRecovery?.unresolvedJournals.map((journal) => journal.journalId)).toEqual([journalId]);
+      await expect(daemon.init(join(dir, "other-repo"), "Blocked App")).rejects.toThrow("changeset-recovery-unresolved");
+      expect(readText(backupPath)).toBe(original);
+      await daemon.stop();
+      daemon = undefined;
+
+      nodeRmSync(dirname(absolutePath), { force: true });
+      mkdirSync(dirname(absolutePath), { recursive: true });
+      daemon = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      expect(daemon.status().changeSetRecovery).toBeUndefined();
+      expect(readText(absolutePath)).toBe(original);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(dir);
+    }
+  });
+
+  test("a manifest stamp commit that is not a hex SHA never reaches git as an option (#159)", async () => {
+    // The projection manifest is committed repository content, i.e. untrusted input. A stamp commit
+    // of `--output=output` turns `git diff <commit>..HEAD` into `git diff --output=output..HEAD`,
+    // which truncates `output..HEAD` — and follows it when the repository commits it as a symlink.
+    const root = createGitRepo();
+    const sentinelDir = mkdtempSync(join(tmpdir(), "archctx-stamp-sentinel-"));
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
+      await daemon.init(root, "Projection Stamp Injection App");
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        "utf8"
+      );
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src/app.ts"), "export const app = 1;\n", "utf8");
+      gitCommitAll(root, "declare capability source");
+      await applyArchitectureDocsProjection(root, daemon, "changeset.docs-stamp-injection");
+      gitCommitAll(root, "project architecture documentation");
+
+      const appliedCommit = gitOut(root, "rev-parse", "HEAD~1");
+      const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+      writeFileSync(manifestPath, readText(manifestPath).replaceAll(appliedCommit, "--output=output"), "utf8");
+      const sentinel = join(sentinelDir, "sentinel.txt");
+      writeFileSync(sentinel, "preserve me\n", "utf8");
+      const trap = join(root, "output..HEAD");
+      if (process.platform !== "win32") symlinkSync(sentinel, trap);
+
+      const loaded = loadArchitectureDocumentationInputs(root);
+      // An unusable stamp is never measured, and never reported as `unchanged`.
+      expect(loadCapabilitySourceChangesSinceStamps(root, loaded.model)).toEqual([]);
+      await daemon.completeTask(root, {
+        taskSessionId: "task_stamp_injection",
+        task: "complete with a hostile projection manifest"
+      });
+
+      expect(readText(sentinel)).toBe("preserve me\n");
+      if (process.platform === "win32") expect(existsSync(trap)).toBe(false);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+      nodeRmSync(sentinelDir, { recursive: true, force: true });
+    }
+  });
+
+  test("changed paths since a stamp are read NUL-framed, so non-ASCII paths still count as changes (#173)", async () => {
+    // `git diff --name-only` C-quotes non-ASCII paths by default ("src/\350\263\207\346\226\231.ts"),
+    // and that quoted string never matches `src/**`, so a covered edit read as `unchanged`.
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
+      await daemon.init(root, "Projection Path Framing App");
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        "utf8"
+      );
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src/app.ts"), "export const app = 1;\n", "utf8");
+      gitCommitAll(root, "declare capability source");
+      await applyArchitectureDocsProjection(root, daemon, "changeset.docs-path-framing");
+      gitCommitAll(root, "project architecture documentation");
+      const stampCommit = gitOut(root, "rev-parse", "HEAD~1");
+      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(stampCommit);
+
+      writeFileSync(join(root, "src/資料.ts"), "export const data = 1;\n", "utf8");
+      gitCommitAll(root, "add a non-ASCII source path");
+
+      const loaded = loadArchitectureDocumentationInputs(root);
+      expect(loadCapabilitySourceChangesSinceStamps(root, loaded.model)).toEqual([{
+        nodeId: "capability.architecture-context",
+        commit: stampCommit,
+        status: "changed",
+        changedPathCount: 1
+      }]);
     } finally {
       await daemon?.stop();
       removeTempRepo(root);

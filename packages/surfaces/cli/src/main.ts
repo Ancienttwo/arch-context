@@ -260,13 +260,16 @@ export function runCapabilitiesCommand() {
 async function runCliUnchecked(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
   if (command === "daemon") return runDaemonCommand(args, cwd);
   if (command === "github") return runGithubCommand(args, cwd, deps);
-  const runtimeHandles: CliRuntimeHandle[] = [];
+  // One runtime per command: over RPC every call reaches the same archctxd anyway, and an embedded
+  // runtime owns the local store exclusively (#160), so a second one in the same command would be a
+  // second writer on the same store.
+  let runtimeHandle: Promise<CliRuntimeHandle> | undefined;
   const runtime = async () => {
-    const handle = await createCliRuntime(cwd, deps);
-    runtimeHandles.push(handle);
-    return handle.client;
+    runtimeHandle ??= createCliRuntime(cwd, deps);
+    return (await runtimeHandle).client;
   };
-  try {
+  // Commands may return an unsettled promise; it must settle before the runtime closes below.
+  const execute = async () => {
     switch (command) {
     case "init":
       if (args.includes("--help") || args.includes("-h")) {
@@ -553,8 +556,12 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         }
       };
     }
+  };
+  try {
+    return await execute();
   } finally {
-    for (const handle of runtimeHandles.reverse()) await handle.close();
+    const handle = await runtimeHandle?.catch(() => undefined);
+    await handle?.close();
   }
 }
 
