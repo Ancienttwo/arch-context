@@ -2301,6 +2301,9 @@ describe("local runtime foundation", () => {
         expect(run.error?.code).toBe("AC_SCHEMA_INVALID");
         expect(run.error?.message).toContain(expectedMessage);
         expect(JSON.stringify(await daemon.jobsList(root))).not.toContain(JSON.stringify(bodyMarkdown).slice(1, -1));
+        const jobs = (await daemon.jobsList(root)).data as any;
+        expect(jobs.jobs).toHaveLength(1);
+        expect(jobs.jobs[0].job.status).toBe("failed");
         expect(store.architectureEvents.some((event) => event.eventType === "architecture.agent_audit.run_pending")).toBe(false);
         expect(calls.createIssue).toHaveLength(0);
         expect(calls.repoView).toHaveLength(0);

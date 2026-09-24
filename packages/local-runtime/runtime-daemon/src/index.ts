@@ -2070,6 +2070,21 @@ export class ArchctxDaemon {
    * by the normal branch below), so the try/catch here is a backstop for the bookkeeping calls
    * around it (ledger append conflicts, the store closing mid-flight during `stop()`, etc.).
    */
+  private async completeAuditJob(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
+    const completed = await this.jobsComplete(root, input);
+    if (completed.ok) return completed;
+    // Daemon-owned runs cannot leave a claimed job running when their payload is rejected.
+    // Persist only a fixed reason; the rejected metadata/proposal never crosses the guard.
+    const failed = await this.jobsComplete(root, {
+      jobId: input.jobId,
+      workerId: "daemon-audit",
+      status: "failed",
+      error: "agent-audit-completion-rejected",
+      now: this.clock()
+    });
+    return failed.ok ? completed : failed;
+  }
+
   private async runAndCompleteAuditJob(input: {
     repositoryRoot: string;
     session: RepositorySession;
@@ -2102,7 +2117,7 @@ export class ArchctxDaemon {
       });
 
       if (result.report.status !== "succeeded") {
-        const failedComplete = await this.jobsComplete(repositoryRoot, {
+        const failedComplete = await this.completeAuditJob(repositoryRoot, {
           jobId,
           workerId: "daemon-audit",
           status: "failed",
@@ -2137,7 +2152,7 @@ export class ArchctxDaemon {
         now: this.clock()
       });
 
-      const completed = await this.jobsComplete(repositoryRoot, {
+      const completed = await this.completeAuditJob(repositoryRoot, {
         jobId,
         workerId: "daemon-audit",
         status: "succeeded",
@@ -2186,7 +2201,7 @@ export class ArchctxDaemon {
         jobId,
         workerId: "daemon-audit",
         status: "failed",
-        error: `agent-audit-investigation-exception: ${message}`,
+        error: "agent-audit-investigation-exception",
         now: this.clock()
       });
       if (!failedComplete.ok) return failedComplete;
