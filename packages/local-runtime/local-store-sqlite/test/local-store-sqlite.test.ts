@@ -2522,6 +2522,46 @@ store.close();
     }
   });
 
+  test.if(process.platform === "win32" || process.platform === "darwin")(
+    "sqlite changeset journal treats case-variant duplicate paths as one file on case-insensitive filesystems (#179)",
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), "archctx-changeset-duppath-case-"));
+      const dbPath = join(root, "runtime.sqlite");
+      const createdPath = ".archcontext/generated/Notes.md";
+      const variantPath = ".archcontext/generated/notes.md";
+      try {
+        initializeArchContextModel(root, "Case Variant App");
+        const first = new SqliteLocalStore(dbPath);
+        await first.migrate();
+        const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.dup-path-case", createdPath));
+        await first.recordChangeSetFile(journalId, {
+          path: createdPath,
+          tempPath: `${join(root, createdPath)}.archctx-tmp-1`,
+          backupPath: `${join(root, createdPath)}.archctx-backup`,
+          existed: false,
+          operation: "create_entity",
+          bodyHash: digestJson({ body: "created" })
+        });
+        await first.recordChangeSetFile(journalId, {
+          path: variantPath,
+          backupPath: `${join(root, variantPath)}.archctx-backup`,
+          existed: true,
+          operation: "delete_entity",
+          bodyHash: "missing"
+        });
+        first.close();
+
+        const second = new SqliteLocalStore(dbPath);
+        await second.migrate();
+        expect(second.recoverPendingChangeSets()).toBe(1);
+        expect(second.listUnresolvedChangeSetJournals()).toEqual([]);
+        second.close();
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
   test("sqlite changeset journal recovers a duplicate-path pair again on a rerun after an already-successful pass (#179)", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-changeset-duppath-rerun-"));
     const dbPath = join(root, "runtime.sqlite");
