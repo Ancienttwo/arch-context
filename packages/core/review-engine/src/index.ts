@@ -265,7 +265,8 @@ function reviewDependencyConstraints(evaluation: DependencyConstraintEvaluationV
     severity: violation.severity,
     message: `${violation.fromPath} (${violation.fromNode}) must not depend on ${violation.toPath} (${violation.toNode}): constraint ${violation.constraintId}.`
   }));
-  if (evaluation.status === "not-applicable" || evaluation.reasonCodes.length === 0) return findings;
+  if (evaluation.status === "not-applicable") return findings;
+  if (evaluation.status !== "undetermined" && evaluation.reasonCodes.length === 0) return findings;
   const unresolved = evaluation.unresolvedImports.slice(0, 5).map((edge) => `${edge.from} -> ${edge.specifier}`);
   findings.push({
     id: "prohibited-dependency:undetermined",
