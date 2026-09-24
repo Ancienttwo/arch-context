@@ -1,0 +1,13 @@
+id: "constraint.architecture-context.local-runtime-not-surfaces-or-cloud"
+name: "Local runtime does not depend on surfaces or cloud"
+rationale: "Surfaces build on the local runtime, so the runtime must not depend back on them, and it must not depend on cloud. Allowed: local-runtime -> contracts, local-runtime -> core. Mirrors scripts/package-boundary-audit.mjs: a non-test local-runtime file must not import @archcontext/surfaces or @archcontext/cloud, because \"runtime must not depend on surfaces/cloud\"."
+rule:
+  targets:
+    - "module.architecture-context.surfaces"
+    - "module.architecture-context.cloud"
+  type: "forbid-dependency"
+schemaVersion: "archcontext.constraint/v1"
+scope:
+  nodes:
+    - "module.architecture-context.local-runtime"
+severity: "error"

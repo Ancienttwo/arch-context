@@ -1,0 +1,12 @@
+id: "constraint.architecture-context.cloud-not-surfaces"
+name: "Cloud does not depend on surfaces"
+rationale: "Cloud must not depend on the CLI or MCP surfaces. Allowed: cloud -> contracts, cloud -> core (cloud -> local-runtime is covered by constraint.architecture-context.cloud-not-local-runtime). Mirrors scripts/package-boundary-audit.mjs: a non-test cloud file must not import @archcontext/surfaces, because \"cloud must stay transport/UI independent\"."
+rule:
+  targets:
+    - "module.architecture-context.surfaces"
+  type: "forbid-dependency"
+schemaVersion: "archcontext.constraint/v1"
+scope:
+  nodes:
+    - "module.architecture-context.cloud"
+severity: "error"
