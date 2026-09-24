@@ -296,8 +296,9 @@ export class YamlModelStore implements ModelStorePort {
         errors.push(`${file.path}: expected archcontext.flow/v1, got ${file.schemaVersion || "missing"}`);
       }
     }
-    const referenceErrors = validateAdrAppliesTo(files);
-    errors.push(...referenceErrors);
+    const adr = validateAdrAppliesTo(files);
+    errors.push(...adr.errors);
+    const referenceErrors = adr.referenceErrors;
     const modelDigest = digestJson(files.map((file) => ({ path: file.path, digest: file.digest })));
     return { valid: errors.length === 0, errors, ...(referenceErrors.length > 0 ? { referenceErrors } : {}), modelDigest };
   }

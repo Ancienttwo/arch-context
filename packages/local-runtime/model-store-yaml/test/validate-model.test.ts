@@ -132,6 +132,30 @@ describe("YamlModelStore ADR appliesTo integrity (#163)", () => {
     }
   });
 
+  test("a ChangeSet on a base model with a malformed ADR appliesTo is rejected before apply", async () => {
+    const root = modelRoot();
+    try {
+      mkdirSync(join(root, "docs/adr"), { recursive: true });
+      writeFileSync(join(root, ADR_PATH), "---\nschemaVersion: archcontext.adr/v1\nid: adr.0001.api-boundary\nappliesTo: |\n  module.api\n---\n", "utf8");
+      const malformed = `${ADR_PATH}: ADR appliesTo must be a list of node ids`;
+      const result = await validate(root);
+      expect(result).toMatchObject({ valid: false, errors: [malformed] });
+      expect(result.referenceErrors).toBeUndefined();
+
+      const engine = new ChangeSetEngine({ modelStore: new YamlModelStore(), projection: { planGeneratedProjection } });
+      const draft = engine.approve(engine.plan({
+        id: "changeset.on-malformed-adr",
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.test" },
+        operations: [{ op: "write_policy", path: ".archcontext/policies/extra.yaml", expectedHash: "missing", body: "schemaVersion: archcontext.policy/v1\nid: policy.extra\n" }]
+      }));
+      await expect(engine.apply(root, draft)).rejects.toThrow(`ChangeSet model validation failed before apply: ${malformed}`);
+      expect(existsSync(join(root, ".archcontext/policies/extra.yaml"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a ChangeSet on a base model with non-reference errors is still rejected before apply", async () => {
     const root = modelRoot();
     try {
