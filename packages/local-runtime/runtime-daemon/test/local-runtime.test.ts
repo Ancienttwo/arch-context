@@ -4,7 +4,7 @@ import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { once } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
-import { connect as netConnect } from "node:net";
+import { connect as netConnect, createServer as createNetServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint, validateLandscape, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
@@ -5695,6 +5695,76 @@ setInterval(() => undefined, 1 << 30);
       expect((await relaxed.runtimeStatus(tmpdir())).ok).toBe(true);
     } finally {
       await closeLoopback(server);
+    }
+  }, 15_000);
+
+  test("runtime RPC client never reuses a kept-alive socket the daemon may already be closing (#178)", async () => {
+    // Worst-case model of the daemon's keep-alive race: an HTTP/1.1 server that keeps idle
+    // connections alive unless the client asks to close, but whose idle-socket close fires the
+    // moment a second request arrives on a reused connection (what node:http does when a
+    // synchronous planUpdate held its event loop past the keep-alive deadline). A client that reuses
+    // pooled sockets loses the follow-up applyUpdate as `fetch failed` before the server reads it.
+    const received: Array<{ method: string; connection: number; connectionHeader: string | undefined }> = [];
+    const sockets = new Set<Socket>();
+    let connections = 0;
+    const server = createNetServer((socket) => {
+      const connection = ++connections;
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      let buffered = Buffer.alloc(0);
+      let answered = false;
+      socket.on("data", (chunk: Buffer) => {
+        if (answered) {
+          socket.destroy();
+          return;
+        }
+        buffered = Buffer.concat([buffered, chunk]);
+        const headerEnd = buffered.indexOf("\r\n\r\n");
+        if (headerEnd < 0) return;
+        const head = buffered.subarray(0, headerEnd).toString("latin1").split("\r\n");
+        const headers = new Map(head.slice(1).map((line) => {
+          const colon = line.indexOf(":");
+          return [line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim()] as const;
+        }));
+        const bodyLength = Number(headers.get("content-length") ?? 0);
+        if (buffered.length < headerEnd + 4 + bodyLength) return;
+        const body = buffered.subarray(headerEnd + 4, headerEnd + 4 + bodyLength).toString("utf8");
+        const method = head[0]!.startsWith("GET /health") ? "health" : (JSON.parse(body) as { method: string }).method;
+        const connectionHeader = headers.get("connection");
+        received.push({ method, connection, connectionHeader });
+        answered = true;
+        const close = connectionHeader?.toLowerCase() === "close";
+        const payload = JSON.stringify(method === "health"
+          ? { schemaVersion: RUNTIME_RPC_VERSION, ok: true }
+          : { schemaVersion: "archcontext.envelope/v1", ok: true, kind: `test.${method}`, data: {} });
+        socket.write([
+          "HTTP/1.1 200 OK",
+          "Content-Type: application/json",
+          `Content-Length: ${Buffer.byteLength(payload)}`,
+          close ? "Connection: close" : "Connection: keep-alive",
+          ...(close ? [] : ["Keep-Alive: timeout=5"]),
+          "",
+          payload
+        ].join("\r\n"));
+        if (close) socket.end();
+      });
+    });
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    try {
+      const client = new RuntimeRpcClient(loopbackRpcConnection((server.address() as { port: number }).port));
+      expect((await client.health() as { ok?: boolean }).ok).toBe(true);
+      const root = tmpdir();
+      const planned = await client.planUpdate(root, { id: "changeset.keepalive", operations: [] });
+      expect(planned.ok).toBe(true);
+      const applied = await client.applyUpdate(root, { id: "changeset.keepalive", approved: true, expectedWorktreeDigest: `sha256:${"0".repeat(64)}` });
+      expect(applied.ok).toBe(true);
+
+      expect(received.map((entry) => entry.method)).toEqual(["health", "planUpdate", "applyUpdate"]);
+      expect(new Set(received.map((entry) => entry.connection)).size).toBe(received.length);
+      expect(received.every((entry) => entry.connectionHeader?.toLowerCase() === "close")).toBe(true);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     }
   }, 15_000);
 
