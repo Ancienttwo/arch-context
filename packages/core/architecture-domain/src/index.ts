@@ -478,6 +478,52 @@ export function parseJsonOrStableYaml(body: string, path: string): Json {
   return new StableYamlParser(body, path).parse();
 }
 
+const ADR_FILE_PATH = /^docs\/adr\/ADR-\d{4}-.+\.md$/;
+const MODEL_NODE_PATH_PREFIX = ".archcontext/model/nodes/";
+
+/**
+ * ADR frontmatter `appliesTo` holds architecture node ids. Returns one error per ADR reference
+ * that resolves to no node in `files`; files are repo-relative model files as loaded by a
+ * ModelStore (`docs/adr/ADR-NNNN-*.md` plus `.archcontext/model/nodes/*`). No ADR files, or ADRs
+ * without `appliesTo`, produce no errors.
+ */
+export function validateAdrAppliesTo(files: readonly { path: string; body: string }[]): string[] {
+  const nodeIds = new Set<string>();
+  for (const file of files) {
+    if (!file.path.startsWith(MODEL_NODE_PATH_PREFIX)) continue;
+    try {
+      const value = parseJsonOrStableYaml(file.body, file.path);
+      if (value && typeof value === "object" && !Array.isArray(value) && typeof value.id === "string") nodeIds.add(value.id);
+    } catch {
+      // Malformed node files are reported by schema validation, not by this reference check.
+    }
+  }
+  const errors: string[] = [];
+  for (const file of files) {
+    if (!ADR_FILE_PATH.test(file.path)) continue;
+    const frontmatter = file.body.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+    if (frontmatter === undefined) continue;
+    let value: Json;
+    try {
+      value = parseJsonOrStableYaml(frontmatter, file.path);
+    } catch (error) {
+      errors.push(`${file.path}: invalid ADR frontmatter: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value) || value.appliesTo === undefined) continue;
+    const appliesTo = value.appliesTo;
+    if (!Array.isArray(appliesTo)) {
+      errors.push(`${file.path}: ADR appliesTo must be a list of node ids`);
+      continue;
+    }
+    for (const id of appliesTo) {
+      if (typeof id !== "string") errors.push(`${file.path}: ADR appliesTo entries must be node id strings`);
+      else if (!nodeIds.has(id)) errors.push(`${file.path}: ADR appliesTo references unknown node ${id}`);
+    }
+  }
+  return errors;
+}
+
 function assertObject(value: Json, path: string): asserts value is { [key: string]: Json } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${path}: expected object`);

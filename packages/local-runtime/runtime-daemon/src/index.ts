@@ -14,6 +14,7 @@ import {
   createLandscape,
   landscapeDigest,
   repositoryFingerprint,
+  validateAdrAppliesTo,
   validateLandscape,
   type Landscape,
   type RepositoryRegistration
@@ -7415,6 +7416,7 @@ function validateModelFiles(files: ModelFile[]): string[] {
   for (const file of files) {
     if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
   }
+  errors.push(...validateAdrAppliesTo(files));
   return errors;
 }
 

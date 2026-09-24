@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { digestJson, stableYaml, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
+import { validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
 
 export interface ModelFile {
@@ -295,6 +296,7 @@ export class YamlModelStore implements ModelStorePort {
         errors.push(`${file.path}: expected archcontext.flow/v1, got ${file.schemaVersion || "missing"}`);
       }
     }
+    errors.push(...validateAdrAppliesTo(files));
     const modelDigest = digestJson(files.map((file) => ({ path: file.path, digest: file.digest })));
     return { valid: errors.length === 0, errors, modelDigest };
   }

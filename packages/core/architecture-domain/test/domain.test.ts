@@ -30,7 +30,8 @@ import {
   isArchitectureDirectionViolationSubject,
   isArchitectureDirectionalEdgeViolationSubject,
   parseJsonOrStableYaml,
-  stripAdapterProtectedNativeFields
+  stripAdapterProtectedNativeFields,
+  validateAdrAppliesTo
 } from "../src/index";
 
 describe("@archcontext/core/architecture-domain", () => {
@@ -268,5 +269,62 @@ describe("@archcontext/core/architecture-domain", () => {
     expect((stripped.clean as any).evidence).toBeUndefined();
     expect(() => assertAdapterDoesNotOverwriteNativeCore(native, { ...native, evidence: ["changed"] })).toThrow("source-of-truth");
     expect(() => assertAdapterDoesNotOverwriteNativeCore(native, native)).not.toThrow();
+  });
+
+  describe("validateAdrAppliesTo", () => {
+    const node = (id: string) => ({
+      path: `.archcontext/model/nodes/${id}.yaml`,
+      body: `schemaVersion: "archcontext.node/v2"\nid: "${id}"\nkind: "module"\nname: "N"\nstatus: "active"\nsummary: "S"\n`
+    });
+    const adr = (path: string, appliesTo: string[] | string) => ({
+      path,
+      body: [
+        "---",
+        "schemaVersion: archcontext.adr/v1",
+        "id: adr.0001.example",
+        "title: Example: with colon",
+        "status: accepted",
+        "decidedAt: 2026-06-19",
+        ...(typeof appliesTo === "string" ? [`appliesTo: ${appliesTo}`] : ["appliesTo:", ...appliesTo.map((id) => `  - ${id}`)]),
+        "supersedes: []",
+        "---",
+        "",
+        "# Example",
+        ""
+      ].join("\n")
+    });
+
+    test("accepts ADR appliesTo ids that resolve to model nodes", () => {
+      expect(validateAdrAppliesTo([
+        node("module.api"),
+        node("capability.checkout"),
+        adr("docs/adr/ADR-0001-example.md", ["module.api", "capability.checkout"]),
+        adr("docs/adr/ADR-0002-empty.md", "[]")
+      ])).toEqual([]);
+    });
+
+    test("names the ADR file for every unknown appliesTo id", () => {
+      expect(validateAdrAppliesTo([
+        node("module.api"),
+        adr("docs/adr/ADR-0001-example.md", ["module.api", "package.bogus"]),
+        adr("docs/adr/ADR-0002-other.md", ["module.gone"])
+      ])).toEqual([
+        "docs/adr/ADR-0001-example.md: ADR appliesTo references unknown node package.bogus",
+        "docs/adr/ADR-0002-other.md: ADR appliesTo references unknown node module.gone"
+      ]);
+    });
+
+    test("reports malformed appliesTo and ignores files outside the ADR and node paths", () => {
+      expect(validateAdrAppliesTo([
+        adr("docs/adr/ADR-0001-example.md", "module.api"),
+        adr("docs/adr/README.md", ["package.bogus"]),
+        adr(".archcontext/policies/review.md", ["package.bogus"])
+      ])).toEqual(["docs/adr/ADR-0001-example.md: ADR appliesTo must be a list of node ids"]);
+    });
+
+    test("has nothing to check without ADR files", () => {
+      expect(validateAdrAppliesTo([node("module.api")])).toEqual([]);
+      expect(validateAdrAppliesTo([])).toEqual([]);
+    });
   });
 });

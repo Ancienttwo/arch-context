@@ -12,6 +12,8 @@ appliesTo: []
 supersedes: []
 ```
 
+`appliesTo` lists architecture node ids from `.archcontext/model/nodes/`; `archctx validate` fails, and a ChangeSet rolls back, when any listed id resolves to no node.
+
 The set below mirrors PRD §28 and is intentionally complete before package work begins, so implementation packages do not invent their own semantics.
 
 | ADR | Title |
