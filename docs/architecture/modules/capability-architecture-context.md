@@ -1,6 +1,6 @@
 # Architecture Context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:90d15719f0bb6ab5db50e4fb1bacd903b754b085c20dae49da36d080945c6fb5" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:d831f2441413d4613a8dc56919849dfbfa9ad1b162898e9979e14e7782edf046" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:846e6e5ccca47b86c4e21396be5f06f824a155cbf93901cf52323fe69780e049" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:c91327ff4d4de3177e5aba2941800a09445ecb3ead70e0131bc727d0e5495237" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture-context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -52,7 +52,7 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:7a0229995b2146a2313a93cd9ac0e5ffc8c0d1564a177285a32feaac30d8563f`).
+- Proof: `proven` (`sha256:15f64c00c73903487ac412b86e4ab522b45121bb2bf8249cf5dcc0bd64171a52`).
 - Semantic nodes: `30`; declared relations: `1`.
 
 ### 1.2 模組職責表
@@ -81,9 +81,22 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **human-action-required**: P2 flow evidence is unprovable; no sequence diagram was generated.
-- `selector-evidence-missing`: entrypoint.architecture-context.cli :: buildArchitectureDocsProjection :: sink.architecture-context.render
-- `selector-evidence-missing`: entrypoint.architecture-context.daemon :: completeTaskProjectionDrift :: sink.architecture-context.render-daemon
-- `selector-evidence-missing`: entrypoint.architecture-context.cli :: buildArchitectureDocsProjection :: sink.architecture-context.render
-- `selector-evidence-missing`: entrypoint.architecture-context.cli :: buildArchitectureDocsProjection :: sink.architecture-context.render
+> **Proof**: `proven` (`sha256:15f64c00c73903487ac412b86e4ab522b45121bb2bf8249cf5dcc0bd64171a52`); selectors `2/2`.
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%
+sequenceDiagram
+  autonumber
+  participant p2_trigger_9140ba4a as Architecture Context
+  participant p2_renderer_178bc931 as Architecture Documentation Renderer
+  p2_trigger_9140ba4a->>p2_renderer_178bc931: Render the projection for an operator-run docs command
+  p2_trigger_9140ba4a->>p2_renderer_178bc931: Render the projection for a daemon-measured stamp lifecycle
+  alt The projection plan is renderable
+  p2_trigger_9140ba4a->>p2_renderer_178bc931: Emit the projection plan and its per-target stamps
+    Note over p2_trigger_9140ba4a: Return the projection plan
+  else A declared footprint has no measured scale signal
+  p2_trigger_9140ba4a->>p2_renderer_178bc931: Refuse to project rather than print an unmeasured guess
+    Note over p2_trigger_9140ba4a: Return a typed projection failure
+  end
+```
 <!-- END ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" -->
