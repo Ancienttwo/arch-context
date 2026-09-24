@@ -94,8 +94,10 @@ Adopt a daemon-driven, opt-in local audit flow with five parts.
    `audit run` and `audit approve` additionally require a user-level consent
    record that lives in the user state directory (`ARCHCONTEXT_STATE_DIR` or the
    OS default), never in the repository. It is bound to the repository identity
-   (canonical git common dir and `origin` URL) and to a digest of the audit
-   egress policy, is granted only by `archctx audit consent` (revoked with
+   (canonical git common dir and the `origin` URL with any embedded credentials
+   stripped) and to a digest of the audit egress policy, including every env
+   name the runner may inherit; the record is written atomically with 0600
+   permissions, is granted only by `archctx audit consent` (revoked with
    `--revoke`), and both the CLI and the daemon fail closed with
    `AC_USER_CONFIRMATION_REQUIRED` / `audit-user-consent-required` without it.
    Publishing a specific issue keeps its own PAT and confirmation gates

@@ -49,7 +49,16 @@ export const INVESTIGATION_ENV_ALLOWLIST = [
   "http_proxy",
   "no_proxy",
   "NODE_EXTRA_CA_CERTS",
+  "SSL_CERT_FILE",
   "DO_NOT_TRACK",
+  // Claude Code privacy/behavior opt-outs: not credentials, and dropping them would silently
+  // re-enable telemetry, error reporting, and non-essential model calls in the investigator.
+  "DISABLE_TELEMETRY",
+  "DISABLE_ERROR_REPORTING",
+  "DISABLE_AUTOUPDATER",
+  "DISABLE_BUG_COMMAND",
+  "DISABLE_COST_WARNINGS",
+  "DISABLE_NON_ESSENTIAL_MODEL_CALLS",
   "CLAUDE_CONFIG_DIR"
 ] as const;
 
@@ -58,21 +67,43 @@ export const INVESTIGATION_ENV_ALLOWLIST = [
  * `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`;
  * `CLAUDE_CODE_*` covers `CLAUDE_CODE_OAUTH_TOKEN` and the Bedrock/Vertex switches. These are the
  * only credential-bearing variables forwarded by default, because they are the runner's own
- * model-provider auth.
+ * model-provider auth. Names containing `ADMIN` (e.g. `ANTHROPIC_ADMIN_KEY`, an organization admin
+ * credential, not inference auth) are excluded even under these prefixes.
  */
 export const INVESTIGATION_ENV_ALLOWED_PREFIXES = ["ANTHROPIC_", "CLAUDE_CODE_"] as const;
+export const INVESTIGATION_ENV_EXCLUDED_SUBSTRINGS = ["ADMIN"] as const;
 
 /**
- * Cloud credentials forwarded only when the runner is explicitly configured to reach the model
- * through that cloud (`CLAUDE_CODE_USE_BEDROCK` / `CLAUDE_CODE_USE_VERTEX`); otherwise they are
- * unrelated secrets and stay in the daemon.
+ * Cloud credentials and config forwarded only when the runner is explicitly configured to reach
+ * the model through that cloud (`CLAUDE_CODE_USE_BEDROCK` / `CLAUDE_CODE_USE_VERTEX`); otherwise
+ * they are unrelated secrets and stay in the daemon.
  */
-const INVESTIGATION_ENV_PROVIDER_CONDITIONAL: { switchVar: string; names: readonly string[] }[] = [
+export const INVESTIGATION_ENV_PROVIDER_CONDITIONAL: readonly { switchVar: string; names: readonly string[]; prefixes: readonly string[] }[] = [
   {
     switchVar: "CLAUDE_CODE_USE_BEDROCK",
-    names: ["AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK"]
+    names: [
+      "AWS_REGION",
+      "AWS_DEFAULT_REGION",
+      "AWS_PROFILE",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+      "AWS_BEARER_TOKEN_BEDROCK",
+      "AWS_CONFIG_FILE",
+      "AWS_SHARED_CREDENTIALS_FILE",
+      "AWS_WEB_IDENTITY_TOKEN_FILE",
+      "AWS_ROLE_ARN",
+      "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+      "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+      "AWS_CONTAINER_AUTHORIZATION_TOKEN"
+    ],
+    prefixes: []
   },
-  { switchVar: "CLAUDE_CODE_USE_VERTEX", names: ["CLOUD_ML_REGION", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT"] }
+  {
+    switchVar: "CLAUDE_CODE_USE_VERTEX",
+    names: ["CLOUD_ML_REGION", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CONFIG"],
+    prefixes: ["VERTEX_REGION_CLAUDE_"]
+  }
 ];
 
 /**
@@ -84,14 +115,21 @@ const INVESTIGATION_ENV_PROVIDER_CONDITIONAL: { switchVar: string; names: readon
 export function investigationChildEnv(source: Record<string, string | undefined> = process.env): Record<string, string> {
   const env: Record<string, string> = {};
   const allowed = new Set<string>(INVESTIGATION_ENV_ALLOWLIST);
-  for (const { switchVar, names } of INVESTIGATION_ENV_PROVIDER_CONDITIONAL) {
-    if (isTruthyEnv(source[switchVar])) for (const name of names) allowed.add(name);
+  const prefixes: string[] = [...INVESTIGATION_ENV_ALLOWED_PREFIXES];
+  for (const conditional of INVESTIGATION_ENV_PROVIDER_CONDITIONAL) {
+    if (!isTruthyEnv(source[conditional.switchVar])) continue;
+    for (const name of conditional.names) allowed.add(name);
+    prefixes.push(...conditional.prefixes);
   }
   for (const [name, value] of Object.entries(source)) {
     if (value === undefined) continue;
-    if (allowed.has(name) || INVESTIGATION_ENV_ALLOWED_PREFIXES.some((prefix) => name.startsWith(prefix))) {
+    if (allowed.has(name)) {
       env[name] = value;
+      continue;
     }
+    const prefixMatch = prefixes.some((prefix) => name.startsWith(prefix));
+    const excluded = INVESTIGATION_ENV_EXCLUDED_SUBSTRINGS.some((substring) => name.toUpperCase().includes(substring));
+    if (prefixMatch && !excluded) env[name] = value;
   }
   return env;
 }

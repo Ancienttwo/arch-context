@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
@@ -19,7 +19,7 @@ import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, migrationSql, assertNoSourceS
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
-import { AUDIT_CONSENT_REQUIRED_REASON_CODE, grantAuditConsent, readAuditConsent, revokeAuditConsent } from "../src/audit-consent";
+import { AUDIT_CONSENT_REQUIRED_REASON_CODE, AUDIT_EGRESS_POLICY, grantAuditConsent, readAuditConsent, revokeAuditConsent } from "../src/audit-consent";
 import {
   createNodeGithubIssueExecutor,
   githubIssueFooterMarker,
@@ -2035,6 +2035,68 @@ describe("local runtime foundation", () => {
       revokeAuditConsent(second);
       removeTempRepo(first);
       removeTempRepo(second);
+    }
+  });
+
+  test("audit consent never stores or returns credentials embedded in the origin URL", () => {
+    const root = createGitRepo();
+    const secret = "ghp_FAKE0123456789abcdefghijklmnopqrstuv";
+    addGitRemote(root, `https://x-access-token:${secret}@github.com/acme/widgets.git`);
+    try {
+      const granted = grantAuditConsent(root);
+      expect(granted.record.origin).toBe("https://github.com/acme/widgets.git");
+      expect(JSON.stringify(granted)).not.toContain(secret);
+      expect(readFileSync(granted.path, "utf8")).not.toContain(secret);
+      expect(readFileSync(granted.path, "utf8")).not.toContain("x-access-token");
+      const status = readAuditConsent(root);
+      expect(status.granted).toBe(true);
+      expect(JSON.stringify(status)).not.toContain(secret);
+      // Rotating only the embedded credential keeps the same repository binding.
+      execFileSync("git", ["remote", "set-url", "origin", "https://x-access-token:ghp_ROTATED@github.com/acme/widgets.git"], { cwd: root, stdio: "ignore" });
+      expect(readAuditConsent(root).granted).toBe(true);
+      // scp-style remotes keep host:path only.
+      execFileSync("git", ["remote", "set-url", "origin", "git@github.com:acme/widgets.git"], { cwd: root, stdio: "ignore" });
+      expect(grantAuditConsent(root).record.origin).toBe("github.com:acme/widgets.git");
+    } finally {
+      revokeAuditConsent(root);
+      removeTempRepo(root);
+    }
+  });
+
+  test("the audit egress policy digest covers every forwarded env name, including Bedrock/Vertex conditionals", () => {
+    const policyText = JSON.stringify(AUDIT_EGRESS_POLICY);
+    for (const name of ["PATH", "ANTHROPIC_", "ADMIN", "AWS_SECRET_ACCESS_KEY", "AWS_CONTAINER_AUTHORIZATION_TOKEN", "CLOUDSDK_CONFIG", "VERTEX_REGION_CLAUDE_", "DISABLE_TELEMETRY"]) {
+      expect(policyText).toContain(name);
+    }
+  });
+
+  test("audit consent is written atomically with 0600 and replaces a symlink instead of following it", () => {
+    const root = createGitRepo();
+    const decoyDir = mkdtempSync(join(tmpdir(), "archctx-consent-decoy-"));
+    const decoy = join(decoyDir, "decoy.json");
+    writeFileSync(decoy, "decoy\n", "utf8");
+    try {
+      const target = readAuditConsent(root).path;
+      mkdirSync(dirname(target), { recursive: true });
+      symlinkSync(decoy, target);
+      // A symlinked record is not trusted as consent.
+      expect(readAuditConsent(root)).toMatchObject({ granted: false, reason: "unreadable" });
+      grantAuditConsent(root);
+      expect(readFileSync(decoy, "utf8")).toBe("decoy\n");
+      expect(lstatSync(target).isSymbolicLink()).toBe(false);
+      expect(readAuditConsent(root).granted).toBe(true);
+      if (process.platform !== "win32") {
+        expect(statSync(target).mode & 0o777).toBe(0o600);
+        chmodSync(target, 0o644);
+        grantAuditConsent(root);
+        expect(statSync(target).mode & 0o777).toBe(0o600);
+      }
+      // No temp files are left behind next to the record.
+      expect(readdirSync(dirname(target)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    } finally {
+      revokeAuditConsent(root);
+      removeTempRepo(root);
+      rmSync(decoyDir, { recursive: true, force: true });
     }
   });
 

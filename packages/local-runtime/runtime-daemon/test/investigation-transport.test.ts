@@ -155,9 +155,24 @@ describe("createNodeInvestigationTransport child environment allowlist", () => {
     SOME_SERVICE_SECRET: "unrelated-secret",
     AWS_SECRET_ACCESS_KEY: "aws-secret-without-bedrock",
     ANTHROPIC_API_KEY: "sk-ant-model-provider-auth",
+    ANTHROPIC_ADMIN_KEY: "sk-ant-admin-organization-credential",
     CLAUDE_CODE_OAUTH_TOKEN: "claude-oauth-model-provider-auth",
-    CLAUDE_CONFIG_DIR: "/tmp/claude-config"
+    CLAUDE_CONFIG_DIR: "/tmp/claude-config",
+    DISABLE_TELEMETRY: "1",
+    DISABLE_ERROR_REPORTING: "1",
+    DISABLE_AUTOUPDATER: "1",
+    DISABLE_BUG_COMMAND: "1",
+    DISABLE_COST_WARNINGS: "1",
+    DISABLE_NON_ESSENTIAL_MODEL_CALLS: "1"
   };
+  const privacyOptOuts = [
+    "DISABLE_TELEMETRY",
+    "DISABLE_ERROR_REPORTING",
+    "DISABLE_AUTOUPDATER",
+    "DISABLE_BUG_COMMAND",
+    "DISABLE_COST_WARNINGS",
+    "DISABLE_NON_ESSENTIAL_MODEL_CALLS"
+  ] as const;
 
   async function withEnv<T>(values: Record<string, string>, fn: () => Promise<T>): Promise<T> {
     const previous = new Map(Object.keys(values).map((key) => [key, process.env[key]] as const));
@@ -185,6 +200,10 @@ describe("createNodeInvestigationTransport child environment allowlist", () => {
     expect(childEnv.ARCHCONTEXT_DAEMON_CONTROL_TOKEN).toBeUndefined();
     expect(childEnv.SOME_SERVICE_SECRET).toBeUndefined();
     expect(childEnv.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    // Admin credentials are excluded even under the ANTHROPIC_ prefix.
+    expect(childEnv.ANTHROPIC_ADMIN_KEY).toBeUndefined();
+    // Claude Code privacy opt-outs reach the runner.
+    for (const name of privacyOptOuts) expect(childEnv[name]).toBe("1");
     // Model-provider auth for the `claude` runner is still forwarded.
     expect(childEnv.ANTHROPIC_API_KEY).toBe(injected.ANTHROPIC_API_KEY);
     expect(childEnv.CLAUDE_CODE_OAUTH_TOKEN).toBe(injected.CLAUDE_CODE_OAUTH_TOKEN);
@@ -207,8 +226,24 @@ describe("createNodeInvestigationTransport child environment allowlist", () => {
     const bedrock = investigationChildEnv({ ...aws, CLAUDE_CODE_USE_BEDROCK: "1" });
     expect(bedrock).toMatchObject({ ...aws, CLAUDE_CODE_USE_BEDROCK: "1" });
     expect(investigationChildEnv({ ...aws, CLAUDE_CODE_USE_BEDROCK: "0" }).AWS_SECRET_ACCESS_KEY).toBeUndefined();
-    const vertex = investigationChildEnv({ GOOGLE_APPLICATION_CREDENTIALS: "/k.json", CLAUDE_CODE_USE_VERTEX: "1" });
-    expect(vertex.GOOGLE_APPLICATION_CREDENTIALS).toBe("/k.json");
-    expect(investigationChildEnv({ GOOGLE_APPLICATION_CREDENTIALS: "/k.json" }).GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+    const awsConfig = {
+      AWS_CONFIG_FILE: "/aws/config",
+      AWS_SHARED_CREDENTIALS_FILE: "/aws/credentials",
+      AWS_WEB_IDENTITY_TOKEN_FILE: "/aws/token",
+      AWS_ROLE_ARN: "arn:aws:iam::123456789012:role/r",
+      AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: "/v2/credentials",
+      AWS_CONTAINER_CREDENTIALS_FULL_URI: "http://169.254.170.23/v1/credentials",
+      AWS_CONTAINER_AUTHORIZATION_TOKEN: "container-auth"
+    };
+    expect(investigationChildEnv({ ...awsConfig, CLAUDE_CODE_USE_BEDROCK: "1" })).toMatchObject(awsConfig);
+    expect(Object.keys(investigationChildEnv(awsConfig))).toEqual([]);
+    const vertexEnv = {
+      GOOGLE_APPLICATION_CREDENTIALS: "/k.json",
+      CLOUDSDK_CONFIG: "/gcloud",
+      VERTEX_REGION_CLAUDE_3_5_SONNET: "us-east5"
+    };
+    expect(investigationChildEnv({ ...vertexEnv, CLAUDE_CODE_USE_VERTEX: "1" })).toMatchObject(vertexEnv);
+    expect(Object.keys(investigationChildEnv(vertexEnv))).toEqual([]);
+    expect(investigationChildEnv({ SSL_CERT_FILE: "/certs.pem" }).SSL_CERT_FILE).toBe("/certs.pem");
   });
 });

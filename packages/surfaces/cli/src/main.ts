@@ -2461,8 +2461,20 @@ function auditGithubIssuesEnabled(cwd: string): boolean {
  * `audit.githubIssues.enabled` capability flag (issue #161).
  */
 function runAuditConsentCommand(args: string[], cwd: string) {
+  // args[0] is "consent". Parse strictly: anything unrecognized must never be read as a grant.
+  const rest = args.slice(1);
+  if (rest.length === 1 && (rest[0] === "--help" || rest[0] === "-h")) {
+    return okEnvelope("audit.consent", {
+      schemaVersion: "archcontext.audit-consent-help/v1",
+      usage: ["archctx audit consent", "archctx audit consent --revoke"],
+      description: "Grant (or revoke) user-level consent, stored in the user state directory, for archctx audit run/approve in this repository. The repository manifest only declares the capability."
+    } as unknown as Json);
+  }
+  if (rest.length > 1 || (rest.length === 1 && rest[0] !== "--revoke")) {
+    return errorEnvelope("audit.consent", "AC_SCHEMA_INVALID", `audit consent accepts no arguments (grant), --revoke, or --help; got: ${rest.join(" ")}`);
+  }
   const root = auditManifestGateRoot(cwd);
-  if (args.includes("--revoke")) {
+  if (rest[0] === "--revoke") {
     const revoked = revokeAuditConsent(root);
     return okEnvelope("audit.consent", { schemaVersion: "archcontext.audit-consent-result/v1", status: "revoked", ...revoked } as unknown as Json);
   }

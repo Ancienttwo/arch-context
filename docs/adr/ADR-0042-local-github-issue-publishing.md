@@ -77,12 +77,17 @@ Add a daemon-owned `archctx audit approve` flow with five parts.
    any ledger event is appended or any `gh` call is made; either check failing aborts the whole run,
    not just the offending draft. Those detectors match credential *values* (a real token prefix, a
    bearer credential, a private-key header, a webhook secret, a compact-token structure, or an
-   installation token in assignment context) rather than security vocabulary, so an architecture
-   finding that discusses JWT or installation-token handling is publishable. They are deliberately
-   not shared with `scripts/fg5-retention-staging-readback.ts`, whose own list scans
-   machine-generated retention output instead of human-authored advisory prose. Authorization is
-   local-process trust plus the manifest's `audit.githubIssues.enabled` opt-in plus this narrow
-   PAT — not a new RBAC layer, matching this codebase's existing single-operator local trust model.
+   installation token in assignment context, plus model-provider/cloud/chat keys — `sk-ant-`, `sk-`,
+   AWS `AKIA`/`ASIA` access key IDs, Slack `xox?-` tokens — via `CREDENTIAL_VALUE_DETECTORS`, which
+   is shared with the Context7 outbound guard rather than duplicated, issue #161) rather than
+   security vocabulary, so an architecture finding that discusses JWT or installation-token
+   handling is publishable. They are deliberately not shared with
+   `scripts/fg5-retention-staging-readback.ts`, whose own list scans machine-generated retention
+   output instead of human-authored advisory prose. Authorization is local-process trust plus the
+   manifest's `audit.githubIssues.enabled` flag — which only declares that the repository supports
+   audit, since a cloned repository controls it — plus the user-level audit consent stored outside
+   the repository (ADR-0041 §5, `archctx audit consent`) plus this narrow PAT; not a new RBAC layer,
+   matching this codebase's existing single-operator local trust model.
 4. **A second, explicit gate for non-private repositories.** Beyond the opt-in manifest flag,
    publishing to a repository whose authoritatively-probed visibility is not `private` requires a
    caller-supplied `--confirm-public-repo <token>` matching

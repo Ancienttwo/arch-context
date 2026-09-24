@@ -1479,7 +1479,26 @@ describe("archctx CLI", () => {
 
       // `audit consent` needs no daemon (a runtime client that throws proves it is never used).
       const throwingRuntime = new Proxy({}, { get: () => () => { throw new Error("audit consent must not reach the daemon"); } });
+      // Strict parsing: help and unknown arguments never write consent.
+      for (const helpFlag of ["--help", "-h"]) {
+        const help = await runCli("audit", ["consent", helpFlag], root, { runtimeClient: throwingRuntime as any });
+        expect(help.ok).toBe(true);
+        expect((help.data as any).schemaVersion).toBe("archcontext.audit-consent-help/v1");
+      }
+      for (const badArgs of [["revoke"], ["--revoke", "extra"], ["--yes"]]) {
+        const bad = await runCli("audit", ["consent", ...badArgs], root, { runtimeClient: throwingRuntime as any });
+        expect(bad.ok).toBe(false);
+        expect((bad as any).error.code).toBe("AC_SCHEMA_INVALID");
+      }
+      expect(readAuditConsent(root)).toMatchObject({ granted: false, reason: "not-granted" });
+      expect(existsSync(readAuditConsent(root).path)).toBe(false);
+
+      // A credential embedded in origin is never stored or printed.
+      const secret = "ghp_FAKE0123456789abcdefghijklmnopqrstuv";
+      execFileSync("git", ["remote", "add", "origin", `https://x-access-token:${secret}@github.com/acme/widgets.git`], { cwd: root, stdio: "ignore" });
       const granted = await runCli("audit", ["consent"], root, { runtimeClient: throwingRuntime as any });
+      expect(JSON.stringify(granted)).not.toContain(secret);
+      expect((granted.data as any).record.origin).toBe("https://github.com/acme/widgets.git");
       expect(granted.ok).toBe(true);
       expect((granted.data as any).status).toBe("granted");
       expect((granted.data as any).path.startsWith(resolve(stateRoot))).toBe(true);
