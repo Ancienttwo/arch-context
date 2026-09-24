@@ -208,7 +208,10 @@ describe("createNodeInvestigationTransport child environment allowlist", () => {
     expect(childEnv.ANTHROPIC_API_KEY).toBe(injected.ANTHROPIC_API_KEY);
     expect(childEnv.CLAUDE_CODE_OAUTH_TOKEN).toBe(injected.CLAUDE_CODE_OAUTH_TOKEN);
     expect(childEnv.CLAUDE_CONFIG_DIR).toBe(injected.CLAUDE_CONFIG_DIR);
-    expect(childEnv.PATH).toBe(process.env.PATH ?? "");
+    // Windows env names are case-insensitive; the child may report the search path as `Path`.
+    const pathKeys = Object.keys(childEnv).filter((name) => name.toUpperCase() === "PATH");
+    expect(pathKeys).toHaveLength(1);
+    expect(childEnv[pathKeys[0]!]).toBe(process.env.PATH ?? "");
   });
 
   test("forwards no *TOKEN*/*SECRET* variable except model-provider auth", () => {
@@ -262,5 +265,6 @@ describe("createNodeInvestigationTransport child environment allowlist", () => {
       Claude_Code_Use_Bedrock: "1"
     });
     expect(investigationChildEnv({ Path: "/usr/bin" }, "linux")).toEqual({});
+    expect(investigationChildEnv({ PATH: "C:\\a", Path: "C:\\b" }, "win32")).toEqual({ PATH: "C:\\a" });
   });
 });

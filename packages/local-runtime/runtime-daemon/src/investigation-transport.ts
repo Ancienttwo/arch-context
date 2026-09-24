@@ -129,15 +129,17 @@ export function investigationChildEnv(
     for (const name of conditional.names) allowed.add(key(name));
     prefixes.push(...conditional.prefixes.map(key));
   }
+  // A runtime may expose one Windows variable under several spellings (`PATH` and `Path`); forward
+  // only the first so the child never receives case-colliding duplicates.
+  const forwarded = new Set<string>();
   for (const [name, value] of Object.entries(source)) {
-    if (value === undefined) continue;
-    if (allowed.has(key(name))) {
-      env[name] = value;
-      continue;
-    }
+    if (value === undefined || forwarded.has(key(name))) continue;
     const prefixMatch = prefixes.some((prefix) => key(name).startsWith(prefix));
     const excluded = INVESTIGATION_ENV_EXCLUDED_SUBSTRINGS.some((substring) => name.toUpperCase().includes(substring));
-    if (prefixMatch && !excluded) env[name] = value;
+    if (allowed.has(key(name)) || (prefixMatch && !excluded)) {
+      env[name] = value;
+      forwarded.add(key(name));
+    }
   }
   return env;
 }
