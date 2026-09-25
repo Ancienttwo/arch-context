@@ -398,7 +398,7 @@ Owner approved capability contract alignment and controlled migration. ArchConte
 ### Task Breakdown: #225
 - [x] Prove producer identity and projection-consumer contract failures with focused regression coverage.
 - [x] Correct fresh initialization and the isolated harness projection consumer; retain invalid identity/path rejection.
-- [ ] Apply a reviewed exact-digest model ChangeSet updating all root references; regenerate through daemon-owned projections and validate graph semantics.
+- [x] Apply a reviewed exact-digest model ChangeSet updating all root references; regenerate through daemon-owned projections and validate graph semantics.
 - [ ] Verify the paired candidates using isolated TMPDIR, record source versus installed-runtime boundaries, and attempt normal acceptance only when its actual prerequisites are satisfied.
 - [ ] Update Draft #223, #225 and canonical project memory with verified outcome and any release/adoption prerequisite.
 
@@ -424,7 +424,7 @@ Owner approved the bounded ADR-reference and root-contract writer slice after th
 - [x] Add failing ADR transaction and root marker-only write regressions.
 - [x] Implement closed operation/schema/surface/readback support and exact renderer validation.
 - [x] Verify rejection, rollback/recovery, current-model/hash checks and human-byte preservation.
-- [ ] Rebuild the complete migration proposal, apply through daemon with exact digests, regenerate projections through their owner and inspect current readback.
+- [x] Rebuild the complete migration proposal, apply through daemon with exact digests, regenerate projections through their owner and inspect current readback.
 - [ ] Record verified source/candidate/installed-runtime boundaries and complete the available acceptance/disposition steps without bypassing guards.
 
 ### Current boundary after restricted writers
@@ -442,5 +442,5 @@ Owner approved the next #225 slice. YAML remains the Git-visible declared author
 ### Task Breakdown: accepted event
 - [x] Prove the event and protocol boundaries in source, then run scoped store and cross-repository projection regressions. `acceptedChange` is an opaque reference in the existing cross-repository v1 protocol; a universal local-SQLite resolver would break valid external acceptances, so the local issuance command independently reads back its event and its exact returned tuple is passed unchanged into projection. The live accepted-event append will be the positive integration proof after source freeze.
 - [x] Implement the operator-invoked daemon event append and readback for a committed YAML node rename; reject missing journal, stale snapshot/file hashes, other major-change shapes and repeated inputs without promoting ledger graph authority. Typecheck and package boundaries pass; the live append remains pending until source freeze.
-- [ ] Produce and read back the real event for the committed migration, then use its exact identity in the projection owner's accepted-change apply; verify the no-accepted-change fixed point.
+- [x] Produce and read back the real event for the committed migration, then use its exact identity in the projection owner's accepted-change apply; verify the no-accepted-change fixed point.
 - [ ] Run required bounded checks and update evidence, #225, Draft #223 and canonical project memory. Keep formal installed-harness/whole-plan gates distinct.
