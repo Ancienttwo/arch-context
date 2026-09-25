@@ -1,3 +1,4 @@
+import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { decodeDeveloperReviewRunManifest } from "./developer-review-codec";
 import { defaultDeveloperReviewRunStateDir, isProcessAlive } from "./daemon-control";
@@ -1109,7 +1110,7 @@ function parseExternalDocumentationResourceUri(uri: string): {
   return { provider: "context7", contentDigest: match[1] };
 }
 
-export class ArchctxDaemon {
+export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
   private readonly modelStore: ModelStorePort;
