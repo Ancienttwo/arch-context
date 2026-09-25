@@ -51,7 +51,7 @@ Observed result:
 
 ## Boundary Notes
 
-- The M3 baseline exposed five workflow tools. The current local surface exposes six, including `archcontext_practices`; the authoritative list is `LOCAL_MCP_TOOLS`.
-- `archcontext_apply_update` is annotated destructive and requires confirmation.
+- The M3 baseline exposed five workflow tools. The current local surface exposes seven, including `archcontext_practices` and `archcontext_projection`; the authoritative list is `LOCAL_MCP_TOOLS`.
+- `archcontext_apply_update` and `archcontext_projection` are annotated destructive and require confirmation. Projection apply/adopt/recover requires a request-bound one-time daemon token issued by `archctx projection approve --action <run|recover> --request-json <request> --approved`.
 - stdio MCP writes protocol output to stdout and logs to stderr.
 - Skills are SOP-only and do not carry runtime business logic.

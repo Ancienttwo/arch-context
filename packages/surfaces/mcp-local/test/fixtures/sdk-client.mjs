@@ -13,7 +13,7 @@ const client = new Client({ name: "archctx-contract-test", version: "1" });
 try {
   await client.connect(transport, { timeout: 10_000 });
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 6);
+  assert.equal(tools.length, 7);
   for (const tool of tools) assert.equal(tool.inputSchema.type, "object");
   const result = await client.callTool({ name: "archcontext_practices", arguments: { root: "/fixture" } });
   assert.equal(result.isError, false);

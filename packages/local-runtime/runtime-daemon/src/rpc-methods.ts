@@ -1,3 +1,4 @@
+import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 import type { AgentJobV1, ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, Json, JsonEnvelope, ProjectionApplyRecoveryIntentV1, ProjectionRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import type { DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
@@ -74,6 +75,11 @@ export const RUNTIME_RPC_METHODS = {
   auditList: envelopeMethod("normal", (root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}) => [root, input] as const),
   auditShow: envelopeMethod("normal", (root: string, runId: string) => [root, runId] as const),
   auditApprove: envelopeMethod("long", (root: string, input: RuntimeAuditApproveInput) => [root, input] as const),
+  docsProjection: envelopeMethod("long", (root: string, input: RuntimeDocsProjectionInput) => [root, input] as const),
+  agentContextProjection: envelopeMethod("long", (root: string, input: RuntimeAgentContextProjectionInput) => [root, input] as const),
+  projection: envelopeMethod("long", (root: string, input: RuntimeProjectionInvocation) => [root, input] as const),
+  approveMcpProjection: envelopeMethod("normal", (root: string, input: RuntimeProjectionInvocation) => [root, input] as const),
+  mcpProjection: envelopeMethod("long", (root: string, input: RuntimeProjectionInvocation, approvalToken?: string) => [root, input, approvalToken] as const),
   docs: envelopeMethod("normal", (root: string, input: RuntimeDocsInput) => [root, input] as const),
   readResource: envelopeMethod("normal", (root: string, uri: string) => [root, uri] as const),
   practices: envelopeMethod("normal", (root: string, input: PracticeCatalogCommandInput) => [root, input] as const),

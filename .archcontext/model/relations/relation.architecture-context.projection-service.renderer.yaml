@@ -1,0 +1,6 @@
+id: "relation.architecture-context.projection-service.renderer"
+intent: "Render deterministic documentation and agent context using daemon-owned inputs"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.projection-service"
+target: "component.architecture-context.projection-renderer"
