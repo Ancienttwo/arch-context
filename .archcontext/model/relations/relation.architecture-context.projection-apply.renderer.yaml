@@ -1,0 +1,6 @@
+id: "relation.architecture-context.projection-apply.renderer"
+intent: "Rebuild fixed-point proof from repository, model and CodeGraph authority before receipt delivery"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.projection-apply"
+target: "component.architecture-context.projection-renderer"

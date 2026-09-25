@@ -11,7 +11,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { digestJson, projectionResultInvariantIssues, stableYaml, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
-import { runCli } from "../packages/surfaces/cli/src/main";
+import { runCli } from "@archcontext/surfaces/cli";
 
 const timeout = process.platform === "win32" ? 240_000 : 60_000;
 const MANIFEST_PATH = "docs/architecture/.projection-manifest.json";
@@ -71,7 +71,7 @@ function projectionRequest(root: string, requestId: string): ProjectionRequestV1
       repositoryId: repositoryFingerprint(root),
       workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as never).replace(/^sha256:/, "").slice(0, 16)}`,
       headSha: gitOut(root, "rev-parse", "HEAD"),
-      worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
+      worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as ProjectionRequestV1["expected"]["worktreeDigest"]
     }
   };
 }

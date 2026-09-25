@@ -1,5 +1,6 @@
+import { ProjectionApplyService } from "./projection-apply";
 import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, projectionInvocationWrites, assertProjectionInvocationSnapshot, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
-import { projectionWorkspaceId as runtimeProjectionWorkspaceId, readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
+import { readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type DeveloperReviewRunManifest, type DeveloperReviewRun, type DeveloperReviewRunPreparation, type DeveloperReviewRunCleanup, type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunRecovery } from "./developer-review-run";
 export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
@@ -109,35 +110,14 @@ import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogComma
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
-import {
-  agentContextProjectionTargetPaths,
-  architectureDocumentationProjectionWorktreeDigest,
-  architectureDocumentationSourceDigest,
-  architectureDocumentationSourceTreeDigest,
-  assertArchitectureProjectionVerifiedAgainst,
-  capabilitySourceChangesSinceStamps,
-  evaluateArchitectureProjectionSnapshotFreshness,
-  loadArchitectureDocumentationInputs,
-  loadArchitectureDocumentationProfile,
-  loadArchitectureProjectionManifestVerifiedAgainst,
-  loadCapabilitySourceScaleSignals,
-  loadNativeModelFromArchContext,
-  renderArchitectureDocumentationProjection,
-  REPO_HARNESS_PROJECTION_PROFILE,
-  type ArchitectureProjectionManifestVerifiedAgainstReadback,
-  type ArchitectureProjectionVerifiedAgainst,
-  type CapabilitySourceChangeSet,
-  type CapabilitySourceChangeSetForCommit,
-  type CapabilitySourceChangeSinceStamp,
-  type NativeModel
-} from "@archcontext/core/projection-engine";
+import { agentContextProjectionTargetPaths, architectureDocumentationProjectionWorktreeDigest, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, assertArchitectureProjectionVerifiedAgainst, capabilitySourceChangesSinceStamps, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestVerifiedAgainst, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection, type ArchitectureProjectionManifestVerifiedAgainstReadback, type ArchitectureProjectionVerifiedAgainst, type CapabilitySourceChangeSet, type CapabilitySourceChangeSetForCommit, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
 import { renderExplorerHtml } from "@archcontext/local-runtime/explorer-html";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, baseModelBlockingErrors, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
-import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1 } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, baseModelBlockingErrors, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
@@ -1068,6 +1048,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly investigationTransport: CommandInvestigationRunnerTransport;
   private readonly githubIssueExecutor: GithubIssueExecutorPort;
   private readonly clock: () => string;
+  private readonly projectionApplies: ProjectionApplyService;
   private readonly developerReviewRuns: DeveloperReviewRunService;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
@@ -1119,6 +1100,14 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
     this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
     this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
+    this.projectionApplies = new ProjectionApplyService({
+      assertRunning: () => this.assertRunning(),
+      openSession: (root) => this.openSession(root),
+      withWriter: (run) => this.withWriter(run),
+      localStore: this.localStore,
+      worktreeDigest: runtimeWorktreeDigest,
+      loadSourceChanges: loadCapabilitySourceChangesSinceStamps
+    });
     this.developerReviewRuns = new DeveloperReviewRunService(() => this.assertRunning(), this.clock);
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
       enabled: process.env[CONTEXT7_ENABLED_ENV] === "1",
@@ -2947,176 +2936,19 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async inspectProjectionApplyReceipt(root: string, lookupKey: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    await this.openSession(root);
-    const inspection = await this.localStore.inspectProjectionApplyReceipt(lookupKey);
-    return okEnvelope("projection.inspect-receipt", {
-      found: inspection !== undefined,
-      ...(inspection ?? {})
-    } as unknown as Json);
+    return this.projectionApplies.inspectProjectionApplyReceipt(root, lookupKey);
   }
 
-  /**
-   * Names the ChangeSets an earlier attempt of `requestId` already committed for this root. The CLI
-   * is a short-lived RPC client, so a caller killed after this daemon committed cannot otherwise
-   * learn that projection-owned files were written under its own request.
-   */
   async listProjectionPriorCommittedApplies(root: string, requestId: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    // The journal owns historical commits; opening a current source session
-    // would hash unrelated workspace/runtime bytes before this read.
-    let committed: Awaited<ReturnType<RuntimeLocalStore["listCommittedChangeSetsForTaskSession"]>>;
-    try {
-      committed = await this.localStore.listCommittedChangeSetsForTaskSession(root, requestId);
-    } catch (error) {
-      return errorEnvelope(
-        "projection.prior-committed-applies",
-        "AC_PRECONDITION_FAILED",
-        error instanceof Error ? error.message : String(error)
-      );
-    }
-    // changeset_journal is keyed by journal_id, not changeset_id, and the projection protocol derives
-    // its changeSetId from the projection digest. Two killed-then-retried attempts of the same
-    // request therefore commit two journal rows carrying one changeSetId, which the wire contract's
-    // sorted-unique changeSetId invariant would reject — permanently failing every later run for
-    // that requestId. Collapsing them is lossless: an equal changeSetId means an equal projection
-    // digest, so both rows declare the same output file set; only the commit instant differs. The
-    // store hands rows back ordered by committedAt then journal id, so upserting into an
-    // insertion-ordered map keeps the latest commit of each changeSetId with that same tie-break.
-    const byChangeSetId = new Map<string, ProjectionPriorCommittedApplyV1>();
-    for (const entry of committed) {
-      if (entry.files.length === 0) continue;
-      byChangeSetId.set(entry.changeSetId, {
-        ...(entry.applyId === undefined || entry.lookupKey === undefined
-          ? {}
-          : { applyId: entry.applyId as ProjectionPriorCommittedApplyV1["applyId"], lookupKey: entry.lookupKey as ProjectionPriorCommittedApplyV1["lookupKey"] }),
-        requestId,
-        changeSetId: entry.changeSetId,
-        committedAt: entry.committedAt,
-        files: entry.files
-      });
-    }
-    const applies: ProjectionPriorCommittedApplyV1[] = [...byChangeSetId.values()]
-      .sort((left, right) => left.changeSetId < right.changeSetId ? -1 : left.changeSetId > right.changeSetId ? 1 : 0);
-    const issues = applies.length === 0 ? [] : projectionPriorCommittedAppliesIssues(applies, requestId);
-    if (issues.length > 0) {
-      return errorEnvelope(
-        "projection.prior-committed-applies",
-        "AC_SCHEMA_INVALID",
-        `projection prior committed applies invariant failed: ${issues.join("; ")}`
-      );
-    }
-    return okEnvelope("projection.prior-committed-applies", { applies } as unknown as Json);
+    return this.projectionApplies.listProjectionPriorCommittedApplies(root, requestId);
   }
 
   async readbackProjectionApply(root: string, request: ProjectionRequestV1): Promise<JsonEnvelope> {
-    this.assertRunning();
-    try {
-      const issues = projectionApplyReadbackRequestInvariantIssues(request);
-      if (issues.length > 0) return errorEnvelope("projection.readback", "AC_SCHEMA_INVALID", issues.join("; "));
-    } catch (error) {
-      return errorEnvelope("projection.readback", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
-    }
-    return this.withWriter(async () => {
-      try {
-        const session = await this.openSession(root);
-        const inspection = await this.localStore.inspectProjectionApplyReceipt(projectionApplyLookupKey({
-          repositoryId: request.expected.repositoryId,
-          workspaceId: request.expected.workspaceId,
-          acceptedChange: request.acceptedChange!
-        }));
-        if (!inspection) {
-          const body = {
-            schemaVersion: "archcontext.projection-apply-absence/v1" as const,
-            requestId: request.requestId,
-            requestDigest: digestJson(request as unknown as Json) as ProjectionApplyAbsenceV1["requestDigest"],
-            lookupKey: projectionApplyLookupKey({ repositoryId: request.expected.repositoryId, workspaceId: request.expected.workspaceId, acceptedChange: request.acceptedChange! }),
-            current: {
-              repositoryId: session.workspace.repositoryId,
-              workspaceId: runtimeProjectionWorkspaceId(root),
-              headSha: readHeadSha(root),
-              worktreeDigest: runtimeWorktreeDigest(root, "architecture-documentation-projection") as ProjectionApplyAbsenceV1["current"]["worktreeDigest"]
-            }
-          };
-          const absence: ProjectionApplyAbsenceV1 = { ...body, absenceDigest: digestJson(body as unknown as Json) as ProjectionApplyAbsenceV1["absenceDigest"] };
-          const issues = projectionApplyAbsenceInvariantIssues(absence, request);
-          return issues.length === 0
-            ? okEnvelope("projection.readback", absence as unknown as Json)
-            : errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", issues.join("; "));
-        }
-        const receipt = inspection.receipt;
-        const fixedPoint = buildRuntimeProjectionRecoveryFixedPoint(root);
-        const issues = runtimeProjectionRecoveryFixedPointIssues(receipt, fixedPoint);
-        if (issues.length > 0) return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", `projection readback proof failed: ${issues.join("; ")}`);
-        const body = {
-          schemaVersion: PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION,
-          requestId: request.requestId,
-          requestDigest: digestJson(request as unknown as Json) as ProjectionApplyReadbackResultV1["requestDigest"],
-          receipt,
-          current: runtimeProjectionRecoveryCurrent(fixedPoint)
-        };
-        const result: ProjectionApplyReadbackResultV1 = { ...body, readbackDigest: projectionApplyReadbackResultDigest(body) };
-        const resultIssues = projectionApplyReadbackResultInvariantIssues(result, request);
-        if (session.workspace.repositoryId !== result.current.snapshot.repositoryId
-          || session.workspace.headSha !== result.current.snapshot.headSha
-          || runtimeWorktreeDigest(root, "architecture-documentation-projection") !== result.current.snapshot.worktreeDigest) {
-          resultIssues.push("projection readback authority changed before response");
-        }
-        if (resultIssues.length > 0) return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", resultIssues.join("; "));
-        // Reading original evidence never consumes or rewrites its delivery checkpoint.
-        return okEnvelope("projection.readback", result as unknown as Json);
-      } catch (error) {
-        return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
-      }
-    });
+    return this.projectionApplies.readbackProjectionApply(root, request);
   }
 
   async recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const intentIssues = projectionApplyRecoveryIntentInvariantIssues(intent);
-    if (intentIssues.length > 0) {
-      return errorEnvelope("projection.recover", "AC_SCHEMA_INVALID", `projection recovery intent invariant failed: ${intentIssues.join("; ")}`);
-    }
-    return this.withWriter(async () => {
-      const session = await this.openSession(root);
-      const inspection = await this.localStore.inspectProjectionApplyReceipt(intent.receipt.lookupKey);
-      if (!inspection || inspection.receipt.identity.applyId !== intent.receipt.applyId) {
-        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "committed projection apply receipt was not found");
-      }
-      if (inspection.deliveryStatus === "delivered") {
-        if (!inspection.recoveryProof) {
-          return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "committed projection receipt was delivered without a recovery proof");
-        }
-        return okEnvelope("projection.recover", {
-          found: true,
-          receipt: inspection.receipt,
-          proof: { ...inspection.recoveryProof, deliveryStatus: "already-delivered" },
-          refreshSignalsDelivered: false
-        } as unknown as Json);
-      }
-      let fixedPoint: RuntimeProjectionRecoveryFixedPoint;
-      try {
-        fixedPoint = buildRuntimeProjectionRecoveryFixedPoint(root);
-      } catch (error) {
-        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
-      }
-      const issues = runtimeProjectionRecoveryFixedPointIssues(inspection.receipt, fixedPoint);
-      if (issues.length > 0) {
-        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", `projection recovery proof failed: ${issues.join("; ")}`);
-      }
-      const proof = createRuntimeProjectionRecoveryProof(intent, inspection.receipt, fixedPoint);
-      const currentWorktreeDigest = runtimeWorktreeDigest(root, "architecture-documentation-projection");
-      if (session.workspace.repositoryId !== proof.current.snapshot.repositoryId
-        || session.workspace.headSha !== proof.current.snapshot.headSha
-        || currentWorktreeDigest !== proof.current.snapshot.worktreeDigest) {
-        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "projection recovery authority changed before delivery");
-      }
-      const consumption = await this.localStore.consumeProjectionApplyReceiptRecovery(proof);
-      return okEnvelope("projection.recover", {
-        found: consumption !== undefined,
-        ...(consumption ?? {})
-      } as unknown as Json);
-    });
+    return this.projectionApplies.recoverProjectionApply(root, intent);
   }
 
   private async appendAppliedChangeSetToArchitectureLedger(root: string, session: RepositorySession, draft: ChangeSetDraft, journalId?: string) {
@@ -5981,155 +5813,6 @@ function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfi
       throw new RuntimeUpdateInputError(`unsupported worktree digest profile: ${String(profile)}`);
   }
 }
-
-type RuntimeProjectionRecoveryFixedPoint = {
-  projection: ReturnType<typeof renderArchitectureDocumentationProjection>;
-  snapshot: ProjectionApplyRecoveryProofV1["current"]["snapshot"];
-  ownedOutputDigest: ProjectionApplyRecoveryProofV1["current"]["ownedOutputDigest"];
-};
-
-/** Rebuilds recovery semantics from repository authority while the daemon owns the writer. */
-function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjectionRecoveryFixedPoint {
-  const loaded = loadArchitectureDocumentationInputs(root, REPO_HARNESS_PROJECTION_PROFILE);
-  const sourceDigest = architectureDocumentationSourceDigest({
-    model: loaded.model,
-    profile: REPO_HARNESS_PROJECTION_PROFILE,
-    decisions: loaded.decisions
-  });
-  const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
-  const provenance = codeGraphInputs.provenance;
-  const projection = renderArchitectureDocumentationProjection({
-    model: loaded.model,
-    profile: REPO_HARNESS_PROJECTION_PROFILE,
-    decisions: loaded.decisions,
-    existingFiles: loaded.existingFiles,
-    verifiedAgainst: assertArchitectureProjectionVerifiedAgainst({
-      branch: readCurrentBranch(root),
-      commit: readHeadSha(root),
-      committedAt: readHeadCommittedAt(root)
-    }),
-    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
-    importGraphs: codeGraphInputs.importGraphs,
-    selectorEvidence: codeGraphInputs.selectorEvidence,
-    provenance,
-    sourceDigest,
-    generatedAt: new Date(0).toISOString(),
-    refreshContext: {
-      repositoryId: repositoryFingerprint(root),
-      workspaceId: runtimeProjectionWorkspaceId(root),
-      headSha: provenance.baseHeadSha,
-      worktreeDigest: provenance.worktreeDigest
-    }
-  });
-  const snapshot = {
-    repositoryId: repositoryFingerprint(root),
-    workspaceId: runtimeProjectionWorkspaceId(root),
-    headSha: readHeadSha(root),
-    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loaded.model),
-    baseHeadSha: projection.provenance.baseHeadSha,
-    sourceTreeDigest: projection.provenance.sourceTreeDigest,
-    modelDigest: projection.provenance.modelDigest,
-    codeGraphDigest: projection.provenance.codeGraphDigest,
-    indexedWorktreeDigest: projection.provenance.indexedWorktreeDigest,
-    projectionInputDigest: projection.provenance.projectionInputDigest,
-    rendererVersion: projection.provenance.rendererVersion,
-    layoutVersion: projection.provenance.layoutVersion,
-    generatedFrom: projection.provenance.generatedFrom
-  } as ProjectionApplyRecoveryProofV1["current"]["snapshot"];
-  return {
-    projection,
-    snapshot,
-    ownedOutputDigest: runtimeProjectionOwnedOutputDigest({ files: [...projection.files, projection.manifest] })
-  };
-}
-
-function runtimeProjectionRecoveryFixedPointIssues(
-  receipt: ProjectionApplyReceiptV1,
-  fixedPoint: RuntimeProjectionRecoveryFixedPoint
-): string[] {
-  const binding = receipt.recovery;
-  if (!binding) return ["committed projection receipt does not support semantic recovery"];
-  const issues: string[] = [];
-  const projection = fixedPoint.projection;
-  if (!projection.drift.ok || projection.rejected.length > 0) issues.push("projection owned outputs are not a clean fixed point");
-  if (projection.majorChange.mode !== "none" || projection.majorChange.reasonCodes.length > 0 || projection.majorChange.affectedNodeIds.length > 0) {
-    issues.push("current architecture state contains an unresolved major change");
-  }
-  if (projection.refreshSignals.length > 0) issues.push("current architecture state has unresolved refresh signals");
-  for (const field of ["repositoryId", "workspaceId", "headSha", "worktreeDigest"] as const) {
-    if (fixedPoint.snapshot[field] !== binding.originalExpectedSnapshot[field]) {
-      issues.push(`current projection snapshot differs from the approved snapshot: ${field}`);
-    }
-  }
-  if (binding.generatedFrom.codeGraphStatus !== "ready") issues.push("approved CodeGraph snapshot is unavailable");
-  if (projection.provenance.generatedFrom.codeGraphStatus !== "ready") issues.push("current CodeGraph snapshot is unavailable");
-  if (digestJson(projection.architectureDigests as unknown as Json) !== digestJson(binding.expectedResultingDigests as unknown as Json)) {
-    issues.push("current model, source, flow-proof, or projection digest differs from the approved result");
-  }
-  if (projection.provenance.projectionInputDigest !== receipt.result.outputSnapshot.projectionInputDigest
-    || projection.provenance.codeGraphDigest !== receipt.result.outputSnapshot.codeGraphDigest
-    || projection.provenance.rendererVersion !== binding.rendererVersion
-    || projection.provenance.layoutVersion !== binding.layoutVersion
-    || digestJson(projection.provenance.generatedFrom as unknown as Json) !== digestJson(binding.generatedFrom as unknown as Json)) {
-    issues.push("current renderer, layout, or CodeGraph provenance differs from the approved result");
-  }
-  if (fixedPoint.ownedOutputDigest !== binding.ownedOutputDigest) issues.push("current projection-owned output bytes differ from the approved result");
-  if (fixedPoint.snapshot.generatedFrom.codeGraphStatus !== "ready") issues.push("current proof snapshot requires CodeGraph ready");
-  return issues;
-}
-
-function runtimeProjectionRecoveryCurrent(fixedPoint: RuntimeProjectionRecoveryFixedPoint): ProjectionApplyRecoveryProofV1["current"] {
-  return {
-    snapshot: fixedPoint.snapshot,
-    resultingDigests: fixedPoint.projection.architectureDigests,
-    ownedOutputDigest: fixedPoint.ownedOutputDigest,
-    fixedPointDigest: digestJson({
-      schemaVersion: "archcontext.projection-apply-recovery-fixed-point/v1",
-      snapshot: fixedPoint.snapshot,
-      resultingDigests: fixedPoint.projection.architectureDigests,
-      ownedOutputDigest: fixedPoint.ownedOutputDigest,
-      drift: fixedPoint.projection.drift,
-      majorChange: fixedPoint.projection.majorChange,
-      refreshSignalIds: fixedPoint.projection.refreshSignals.map((signal) => signal.signalId)
-    } as unknown as Json)
-  } as ProjectionApplyRecoveryProofV1["current"];
-}
-
-function createRuntimeProjectionRecoveryProof(
-  intent: ProjectionApplyRecoveryIntentV1,
-  receipt: ProjectionApplyReceiptV1,
-  fixedPoint: RuntimeProjectionRecoveryFixedPoint
-): ProjectionApplyRecoveryProofV1 {
-  const current = runtimeProjectionRecoveryCurrent(fixedPoint);
-  const payload = {
-    schemaVersion: "archcontext.projection-apply-recovery-proof/v1" as const,
-    requestId: intent.requestId,
-    requestDigest: digestJson(intent as unknown as Json) as ProjectionApplyRecoveryProofV1["requestDigest"],
-    receipt: {
-      lookupKey: receipt.identity.lookupKey,
-      applyId: receipt.identity.applyId,
-      receiptDigest: receipt.result.receiptDigest
-    },
-    acceptedChange: receipt.identity.acceptedChange,
-    expectedResultingDigests: receipt.recovery!.expectedResultingDigests,
-    current
-  };
-  return {
-    ...payload,
-    proofDigest: projectionApplyRecoveryProofDigest(payload),
-    deliveryStatus: "delivered"
-  };
-}
-
-function runtimeProjectionOwnedOutputDigest(projection: { files: Array<{ path: string; body: string }> }): `sha256:${string}` {
-  return digestJson({
-    schemaVersion: "archcontext.projection-owned-output/v1",
-    files: projection.files.map((file) => ({ path: file.path, body: file.body }))
-      .sort((left, right) => left.path.localeCompare(right.path))
-  } as unknown as Json) as `sha256:${string}`;
-}
-
 
 function isArchContextGeneratedProjectionPath(path: string): boolean {
   return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");

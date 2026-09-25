@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.projection-apply"
+intent: "Delegate projection receipt operations through the composed service with the daemon running guard and writer gate"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.projection-apply"
