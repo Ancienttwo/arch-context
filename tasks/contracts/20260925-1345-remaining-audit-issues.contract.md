@@ -88,18 +88,27 @@ allowed_paths:
   - tests/
   - tsconfig.json
   - package.json
+  - bun.lock
+  - packages/cloud/package.json
+  - actions/review-action/action.yml
+  - docs/examples/github-hosted-runner-workflow.yml
+  - docs/examples/reusable-organization-runner-caller.yml
   - docs/researches/
   - docs/runbooks/
   - docs/adr/
   - docs/verification/
   - .github/workflows/verify.yml
   - .github/workflows/windows-acl-diagnostics.yml
-  - .archcontext/manifest.yaml # only through approved daemon ChangeSet mutation
+  # only through approved daemon ChangeSet mutation
+  - .archcontext/manifest.yaml
   - schemas/runtime/changeset.schema.json
   - .archcontext/model/
-  - docs/architecture/ # daemon-owned projection only
-  - AGENTS.md # daemon-owned agent-context marker only
-  - CLAUDE.md # daemon-owned agent-context marker only
+  # daemon-owned projection only
+  - docs/architecture/
+  # daemon-owned agent-context marker only
+  - AGENTS.md
+  # daemon-owned agent-context marker only
+  - CLAUDE.md
   - plans/
   - tasks/
 ```
