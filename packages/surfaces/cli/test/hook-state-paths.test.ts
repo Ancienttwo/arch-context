@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
@@ -39,7 +39,10 @@ test("fast hook finds daemon connections written with store state paths for repo
       }), { mode: 0o600 });
       const result = await runFastHookEnqueue(["hook", "enqueue", "--event", "post-edit", "--path", "src/中文.ts"], cwd);
       expect((result.envelope as any).data).toMatchObject({ enqueued: true, hookLog: { reasonCode: "enqueued", failOpen: false } });
-      expect(calls.at(-1)).toMatchObject({ method: "jobsEnqueueGitHook", params: [paths.repositoryRoot, { source: "worktree", event: "post-edit" }] });
+      const call = calls.at(-1);
+      expect(call.method).toBe("jobsEnqueueGitHook");
+      expect(realpathSync.native(call.params[0])).toBe(paths.repositoryRoot);
+      expect(call.params[1]).toMatchObject({ source: "worktree", event: "post-edit" });
     }
     expect(calls.length).toBe(3);
   } finally {
