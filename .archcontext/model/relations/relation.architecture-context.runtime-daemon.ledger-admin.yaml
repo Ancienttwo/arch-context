@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.ledger-admin"
+intent: "Delegate explicit ledger administration using the existing writer gate, stores and transactional append callback"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.ledger-admin"
