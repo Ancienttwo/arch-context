@@ -48,7 +48,7 @@ test("review state persists submission digest and returns only transient respons
 
 test("review state rejects secret-bearing adapter payloads before replacing a valid file", async () => {
   const { root, state, cleanup } = fixture();
-  const nonce = 'nonce-"\\-fixture';
+  const nonce = 'nonce-"\\-fixture-long-material';
   const signature = "signed-fixture-material";
   try {
     const written = await writeGithubDeveloperReviewState(root, state);
@@ -64,6 +64,19 @@ test("review state rejects secret-bearing adapter payloads before replacing a va
     }
     await expect(writeGithubDeveloperReviewState(root, { ...state, reasonCode: `adapter error: ${nonce}` }, [nonce])).rejects.toThrow("github-review-secret-material-forbidden");
     expect(readFileSync(written.path, "utf8")).toBe(original);
+  } finally { cleanup(); }
+});
+
+test("short challenge nonces do not collide with fixed metadata keys or substrings", async () => {
+  const { root, state, cleanup } = fixture();
+  try {
+    for (const nonce of ["a", "status"]) {
+      const written = await writeGithubDeveloperReviewState(root, state, [nonce]);
+      expect(readGithubDeveloperReviewState(written.path)?.status).toBe("submitted");
+      const original = readFileSync(written.path, "utf8");
+      await expect(writeGithubDeveloperReviewState(root, { ...state, submission: { echo: nonce } }, [nonce])).rejects.toThrow("github-review-secret-material-forbidden");
+      expect(readFileSync(written.path, "utf8")).toBe(original);
+    }
   } finally { cleanup(); }
 });
 

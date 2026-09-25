@@ -87,13 +87,15 @@ function assertMetadata(value: unknown): asserts value is StateMetadata {
   assertNoCliSecretMaterial(value);
 }
 
-function assertNoReviewSecrets(value: unknown, secrets: readonly string[]): void {
+function assertNoReviewSecrets(value: unknown, secrets: readonly string[], isKey = false): void {
   if (typeof value === "string") {
-    if (secrets.some(secret => secret.length > 0 && value.includes(secret))) throw new Error("github-review-secret-material-forbidden");
+    // The challenge contract permits short nonces. They cannot identify arbitrary
+    // substrings or field names reliably; still reject an exact echoed value.
+    if (secrets.some(secret => secret.length >= 16 ? value.includes(secret) : !isKey && secret.length > 0 && value === secret)) throw new Error("github-review-secret-material-forbidden");
   } else if (value && typeof value === "object") {
     for (const [key, child] of Object.entries(value)) {
       if (["nonce", "signature", "attestation"].includes(key)) throw new Error("github-review-secret-material-forbidden");
-      assertNoReviewSecrets(key, secrets);
+      assertNoReviewSecrets(key, secrets, true);
       assertNoReviewSecrets(child, secrets);
     }
   }
