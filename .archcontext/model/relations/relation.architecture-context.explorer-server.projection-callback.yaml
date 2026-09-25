@@ -1,0 +1,6 @@
+id: "relation.architecture-context.explorer-server.projection-callback"
+intent: "Request authoritative projection and delta through daemon callbacks without moving cache or ledger ownership"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.explorer-server"
+target: "component.architecture-context.local-runtime.runtime-daemon"
