@@ -1665,8 +1665,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
             throw new Error(`accepted ChangeSet journal does not bind affected node: ${nodeId}`);
           }
         }
-        const existing = await this.localStore.readAcceptedCommittedChangeByJournal(journal.journalId);
-        if (existing) throw new Error(`committed ChangeSet already has an acceptance event: ${existing.eventId}`);
         const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest);
         const modelDigest = digestJson(model as unknown as Json);
         const acceptedChange: AcceptedArchitectureChangeReferenceV1 = {
@@ -1675,6 +1673,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
           reasonCodes: major.reasonCodes,
           affectedNodeIds: major.affectedNodeIds
         };
+        const existing = await this.localStore.readArchitectureEvent({ ...scope, eventId: acceptedChange.eventId });
+        if (existing) throw new Error(`committed ChangeSet already has an acceptance event at this snapshot: ${existing.eventId}`);
         const ledgerGraphDigest = architectureLedgerStateDigest(await this.localStore.readArchitectureLedgerState(scope));
         const inputDigest = digestJson({
           journalId: journal.journalId, changeSetId: journal.changeSetId, fileSetDigest: binding.fileSetDigest,

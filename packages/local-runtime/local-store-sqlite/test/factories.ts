@@ -503,13 +503,6 @@ export class TestLocalStore implements RuntimeLocalStore {
     return this.eventsForScope(input).find((event) => event.eventId === input.eventId);
   }
 
-  async readAcceptedCommittedChangeByJournal(journalId: string): Promise<ArchitectureEventV1 | undefined> {
-    const matches = this.architectureEvents.filter((event) =>
-      event.eventType === "architecture.changeset.accepted"
-      && (event.payload as Record<string, any>).acceptedCommittedChange?.journalId === journalId);
-    if (matches.length > 1) throw new Error(`accepted-committed-change-duplicate-journal: ${journalId}`);
-    return matches[0];
-  }
 
   async completeChangeSetCleanup(): Promise<void> {}
 
