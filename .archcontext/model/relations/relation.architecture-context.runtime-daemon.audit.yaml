@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.audit"
+intent: "Delegate audit orchestration with existing lifecycle cancellation, writer gate, stores and job completion"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.audit"

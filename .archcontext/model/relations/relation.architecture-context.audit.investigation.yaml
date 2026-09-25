@@ -1,0 +1,6 @@
+id: "relation.architecture-context.audit.investigation"
+intent: "Run read-only investigation and compile advisory proposals before daemon-owned ledger recording"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.audit"
+target: "component.architecture-context.core.agent-orchestrator"

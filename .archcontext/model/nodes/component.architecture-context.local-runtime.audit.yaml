@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.audit"
+kind: "component"
+name: "Architecture Audit Service"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/runtime-daemon/src/audit.ts"
+status: "active"
+summary: "Owns audit investigation, advisory run reads, explicitly approved issue publishing and resumable per-draft ledger progress."
