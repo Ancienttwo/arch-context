@@ -3901,6 +3901,9 @@ store.close();
         { path: "docs/architecture/.projection-manifest.json", operation: "write", hash: digestJson({ body: "manifest" }) },
         { path: "docs/architecture/index.md", operation: "delete", hash: "missing" }
       ]);
+      expect(await store.readCommittedChangeSet(root, matching)).toEqual(found[0]);
+      expect(await store.readCommittedChangeSet(otherRoot, matching)).toBeUndefined();
+      expect(await store.readCommittedChangeSet(root, pending)).toBeUndefined();
       expect(await store.listCommittedChangeSetsForTaskSession(root, "repo-harness.projection.job-3")).toEqual([]);
       expect((await store.listCommittedChangeSetsForTaskSession(otherRoot, "repo-harness.projection.job-1")).map((entry) => entry.changeSetId))
         .toEqual(["changeset.other-root"]);

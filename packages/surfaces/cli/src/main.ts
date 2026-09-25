@@ -661,6 +661,16 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
     const daemon = await requiredLedgerRuntime(runtime);
     return daemon.ledgerDrift(cwd);
   }
+  if (subcommand === "accept-committed") {
+    const journalId = readFlag(args, "--journal-id");
+    const changeSetId = readFlag(args, "--changeset-id");
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (!journalId || !changeSetId || !expectedWorktreeDigest || !args.includes("--approved")) {
+      return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", "ledger accept-committed requires --journal-id, --changeset-id, --expected-worktree-digest and --approved");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.acceptCommittedChange(cwd, { journalId, changeSetId, approved: true, expectedWorktreeDigest });
+  }
   if (subcommand === "promote") {
     if (args.includes("--write") || args.includes("--enable") || args.includes("--apply")) {
       return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote is preflight-only; it does not write runtime config or enable authority");
@@ -750,7 +760,7 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
       expectedWorktreeDigest
     });
   }
-  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, promote --mode authoritative --preflight --rollback-plan, migrate --from-yaml, migrate --recommendation-v3, rebuild --from-git, rollback --to-yaml, or project --to-git");
+  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, accept-committed, promote --mode authoritative --preflight --rollback-plan, migrate --from-yaml, migrate --recommendation-v3, rebuild --from-git, rollback --to-yaml, or project --to-git");
 }
 
 async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {

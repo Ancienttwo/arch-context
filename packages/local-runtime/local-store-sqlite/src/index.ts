@@ -1471,6 +1471,9 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recordProjectionApplyReceipt(journalId: string, receipt: ProjectionApplyReceiptV1): Promise<void>;
   inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined>;
   listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]>;
+  readCommittedChangeSet(root: string, journalId: string): Promise<CommittedChangeSetForTaskSession | undefined>;
+  readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined>;
+  readAcceptedCommittedChangeByJournal(journalId: string): Promise<ArchitectureEventV1 | undefined>;
   consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
   appendArchitectureEventsAndCommitChangeSet(
@@ -2251,6 +2254,48 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       });
     }
     return matched;
+  }
+
+  async readCommittedChangeSet(root: string, journalId: string): Promise<CommittedChangeSetForTaskSession | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT journal_id, changeset_id, root, files_json, completed_at, updated_at
+        FROM changeset_journal WHERE journal_id = ? AND status = 'committed'`
+    ).get(journalId);
+    if (!row || canonicalRepositoryRoot(String(row.root)) !== canonicalRepositoryRoot(root)) return undefined;
+    return {
+      journalId: String(row.journal_id),
+      changeSetId: String(row.changeset_id),
+      committedAt: String(row.completed_at ?? row.updated_at),
+      files: committedChangeSetJournalFiles(String(row.files_json), journalId)
+    };
+  }
+
+  async readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT * FROM architecture_events WHERE event_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
+    ).get(
+      architectureLedgerStorageId(input.worktree, input.eventId),
+      input.repository.storageRepositoryId,
+      architectureLedgerWorkspaceKey(input.worktree)
+    );
+    return row ? architectureLedgerEventFromAuthorityRow(input, row) : undefined;
+  }
+
+  async readAcceptedCommittedChangeByJournal(journalId: string): Promise<ArchitectureEventV1 | undefined> {
+    const db = await this.database();
+    const rows = db.prepare(
+      `SELECT * FROM architecture_events WHERE event_type = 'architecture.changeset.accepted'`
+    ).all();
+    const matches = rows.map((row) => architectureLedgerEventFromStoredRow(row))
+      .filter((event) => {
+        const payload = event.payload as Record<string, unknown>;
+        const accepted = payload.acceptedCommittedChange as Record<string, unknown> | undefined;
+        return accepted?.journalId === journalId;
+      });
+    if (matches.length > 1) throw new Error(`accepted-committed-change-duplicate-journal: ${journalId}`);
+    return matches[0];
   }
 
   async consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined> {

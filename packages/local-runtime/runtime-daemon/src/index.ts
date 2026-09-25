@@ -10,8 +10,8 @@ import { LedgerAdminService } from "./ledger-admin";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
-import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, projectionInvocationWrites, assertProjectionInvocationSnapshot, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
-import { readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
+import { buildArchitectureDocsProjection, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, projectionInvocationWrites, assertProjectionInvocationSnapshot, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
+import { projectionWorkspaceId, readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type DeveloperReviewRunManifest, type DeveloperReviewRun, type DeveloperReviewRunPreparation, type DeveloperReviewRunCleanup, type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunRecovery } from "./developer-review-run";
 export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
@@ -24,7 +24,7 @@ export * from "./rpc-client";
 export * from "./rpc-protocol";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   addRepositoryToLandscape,
@@ -41,7 +41,7 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
-import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { ChangeSetEngine, assertPathHasNoSymlinkSegments, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   architectureLedgerBookSubjects,
   architectureLedgerPayload,
@@ -112,11 +112,11 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AcceptedArchitectureChangeReferenceV1, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { findRepositoryRoot, readHeadSha, readTrackedSourceFiles, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type CommittedChangeSetForTaskSession, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
@@ -226,6 +226,13 @@ export interface RuntimePracticeWaiverInput {
 export interface RuntimeLedgerProjectInput {
   dryRun?: boolean;
   expectedWorktreeDigest?: string;
+}
+
+export interface RuntimeAcceptCommittedChangeInput {
+  journalId: string;
+  changeSetId: string;
+  approved: true;
+  expectedWorktreeDigest: string;
 }
 
 export interface RuntimeLedgerRebuildInput {
@@ -1621,6 +1628,98 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const result = await this.appendArchitectureEventsWithFeed(root, appendInput, journalId);
     return result;
   }
+
+  /** Records an operator's acceptance of an already committed YAML ChangeSet, without promoting ledger graph authority. */
+  async acceptCommittedChange(root: string, input: RuntimeAcceptCommittedChangeInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (!input || Object.keys(input).sort().join(",") !== "approved,changeSetId,expectedWorktreeDigest,journalId"
+      || input.approved !== true || typeof input.journalId !== "string" || !input.journalId
+      || typeof input.changeSetId !== "string" || !input.changeSetId
+      || typeof input.expectedWorktreeDigest !== "string") {
+      return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", "journalId, changeSetId, approved: true and expectedWorktreeDigest are required");
+    }
+    if (this.architectureLedger.readMode !== "yaml" || this.architectureLedger.writeMode !== "yaml") {
+      return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", "committed YAML acceptance requires YAML read and write authority");
+    }
+    return this.withWriter(async () => {
+      try {
+        const canonicalRoot = canonicalRepositoryRoot(root);
+        const journal = await this.localStore.readCommittedChangeSet(canonicalRoot, input.journalId);
+        if (!journal || journal.changeSetId !== input.changeSetId) throw new Error("committed ChangeSet journal missing or mismatched");
+        const binding = acceptedCommittedChangeBinding(canonicalRoot, journal);
+        const model = loadNativeModelFromArchContext(canonicalRoot);
+        const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(canonicalRoot, model);
+        if (input.expectedWorktreeDigest !== worktreeDigest) throw new Error("accepted ChangeSet expected worktree digest mismatch");
+        const projection = buildArchitectureDocsProjection(this.projectionHost(), canonicalRoot, new Date(0).toISOString(), "repo-harness/v1");
+        const major = projection.plan.majorChange;
+        if (major.mode !== "human-action-required"
+          || major.reasonCodes.join(",") !== "node-added,node-removed"
+          || major.affectedNodeIds.length !== 2
+          || projection.plan.rejected.length > 0) {
+          throw new Error("accepted ChangeSet requires one unresolved node rename without projection conflicts");
+        }
+        for (const nodeId of major.affectedNodeIds) {
+          const path = `.archcontext/model/nodes/${nodeId}.yaml`;
+          const file = journal.files.find((entry) => entry.path === path);
+          if (!file || file.operation !== (model.nodes.some((node) => node.id === nodeId) ? "write" : "delete")) {
+            throw new Error(`accepted ChangeSet journal does not bind affected node: ${nodeId}`);
+          }
+        }
+        const existing = await this.localStore.readAcceptedCommittedChangeByJournal(journal.journalId);
+        if (existing) throw new Error(`committed ChangeSet already has an acceptance event: ${existing.eventId}`);
+        const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest);
+        const modelDigest = digestJson(model as unknown as Json);
+        const acceptedChange: AcceptedArchitectureChangeReferenceV1 = {
+          changeSetId: journal.changeSetId,
+          eventId: `architecture_event.changeset_accepted.${digestJson({ journalId: journal.journalId } as unknown as Json).slice(7, 31)}`,
+          reasonCodes: major.reasonCodes,
+          affectedNodeIds: major.affectedNodeIds
+        };
+        const ledgerGraphDigest = architectureLedgerStateDigest(await this.localStore.readArchitectureLedgerState(scope));
+        const inputDigest = digestJson({
+          journalId: journal.journalId, changeSetId: journal.changeSetId, fileSetDigest: binding.fileSetDigest,
+          modelDigest, acceptedChange, repository: scope.repository, worktree: scope.worktree
+        } as unknown as Json);
+        const event: ArchitectureEventV1 = {
+          schemaVersion: "archcontext.architecture-event/v1",
+          eventId: acceptedChange.eventId,
+          eventType: "architecture.changeset.accepted",
+          payloadVersion: "archcontext.accepted-committed-change/v1",
+          repository: scope.repository,
+          worktree: scope.worktree,
+          baseDigest: ledgerGraphDigest,
+          resultingDigest: ledgerGraphDigest,
+          headSha: scope.worktree.headSha,
+          actor: { kind: "daemon", id: "archctxd" },
+          source: "manual",
+          timestamp: this.clock(),
+          idempotencyKey: `architecture-ledger-accepted-committed:${journal.journalId}`,
+          provenance: { producer: "runtime-daemon", command: "archctx ledger accept-committed", inputDigest },
+          payload: {
+            operations: [],
+            acceptedCommittedChange: {
+              schemaVersion: "archcontext.accepted-committed-change/v1",
+              journalId: journal.journalId,
+              changeSetId: journal.changeSetId,
+              fileSetDigest: binding.fileSetDigest,
+              modelDigest,
+              reasonCodes: acceptedChange.reasonCodes,
+              affectedNodeIds: acceptedChange.affectedNodeIds,
+              authority: "yaml"
+            }
+          } as unknown as Json
+        };
+        const appended = await this.appendArchitectureEventsWithFeed(canonicalRoot, { writer: "runtime-daemon", events: [event] });
+        if (appended.appendedEvents.length !== 1) throw new Error("committed ChangeSet acceptance event was not appended");
+        const readback = await this.localStore.readArchitectureEvent({ ...scope, eventId: event.eventId });
+        if (!readback?.eventHash || readback.eventType !== event.eventType) throw new Error("committed ChangeSet acceptance readback failed");
+        return okEnvelope("ledger.accept-committed", { acceptedChange, journalId: journal.journalId, eventHash: readback.eventHash, fileSetDigest: binding.fileSetDigest } as unknown as Json);
+      } catch (error) {
+        return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+      }
+    });
+  }
+
 
   async ledgerState(root: string): Promise<JsonEnvelope> {
     this.assertRunning();
@@ -3607,6 +3706,37 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
       worktreeDigest: computeWorktreeDigest(workspace.root)
     }
   };
+}
+
+function acceptedCommittedChangeScope(root: string, worktreeDigest: string): ArchitectureLedgerScope {
+  const paths = runtimeStatePaths(root);
+  const headSha = readHeadSha(root);
+  return {
+    repository: { repositoryId: repositoryFingerprint(root), storageRepositoryId: paths.storageRepositoryId },
+    worktree: {
+      workspaceId: projectionWorkspaceId(root),
+      storageWorkspaceId: paths.storageWorkspaceId,
+      branch: readCurrentBranch(root),
+      headSha,
+      worktreeDigest
+    }
+  };
+}
+
+function acceptedCommittedChangeBinding(root: string, journal: CommittedChangeSetForTaskSession): { fileSetDigest: string } {
+  if (journal.files.length === 0) throw new Error("accepted ChangeSet journal has no files");
+  for (const file of journal.files) {
+    const absolute = assertPathHasNoSymlinkSegments(root, file.path);
+    if (file.operation === "delete") {
+      if (existsSync(absolute) || file.hash !== "missing") throw new Error(`accepted ChangeSet deletion mismatch: ${file.path}`);
+    } else {
+      if (!existsSync(absolute) || !lstatSync(absolute).isFile()
+        || digestJson({ body: readFileSync(absolute, "utf8") } as unknown as Json) !== file.hash) {
+        throw new Error(`accepted ChangeSet file hash mismatch: ${file.path}`);
+      }
+    }
+  }
+  return { fileSetDigest: digestJson(journal.files as unknown as Json) };
 }
 
 interface ArchitectureBookResolvedRef {
