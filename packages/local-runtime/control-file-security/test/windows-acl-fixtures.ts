@@ -4,6 +4,8 @@ import { join } from "node:path";
 export function grantEveryoneRead(path: string): void {
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
+# A pwsh -> Node/Bun -> powershell.exe launch inherits incompatible PS7 module paths.
+$env:PSModulePath = "$PSHOME\Modules"
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 $path = [Console]::In.ReadToEnd() | ConvertFrom-Json
 $acl = Get-Acl -LiteralPath $path

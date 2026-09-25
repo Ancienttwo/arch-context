@@ -63,3 +63,9 @@ Final bounded result: 3 tests passed, 0 failed, 68 assertions under Bun 1.4.0; e
 ## Windows ACL continuation
 
 Owner approved implementing the Windows control-file ACL boundary. Source, P1/P2/P3, regression and remaining native gate: `docs/researches/20260925-windows-control-file-acl.md`. Local results: 25 tests pass, 1 Windows-only skip, 168 assertions; typecheck, boundaries, packaged smoke and macOS installed-bin IPC readback pass. Native Windows acceptance remains blocked. Historical FG6 evidence is correctly rejected by the strengthened gate (four missing-evidence findings), so Governance must not be reported green. Model owner/relations were applied through the recorded ChangeSet. The broad original issues remain incomplete.
+
+## Candidate publication and Windows hosted attempt 1
+
+Draft PR: https://github.com/Ancienttwo/arch-context/pull/223 . Published head `7136c6a`; upstream extraction ancestry retained with a tree-identical merge. Hosted run `36105876838` has six passing Linux/macOS jobs, Governance blocked by historical FG6 evidence, and all Windows jobs cancelled at the 20-minute limit. Windows negative fixtures failed native module autoload; stale/idle CLI fixtures also failed. No native acceptance, whole-CI pass, merge, issue closure or release is claimed.
+
+The first bounded correction and its P1/P2/P3 are recorded in the plan and Windows research note. Local focused tests and typecheck pass; corrected Windows verification remains pending. No historical evidence was rewritten as passing.

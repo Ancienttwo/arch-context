@@ -1,11 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { closeSync, constants, fstatSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Windows PowerShell 5.1 supplies the .NET Framework FileStream(FileSecurity) constructor.
 // Paths and file contents travel over stdin, never in executable command text or arguments.
 const WINDOWS_CONTROL_FILE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
+# A pwsh -> Node/Bun -> powershell.exe launch inherits incompatible PS7 module paths.
+$env:PSModulePath = "$PSHOME\Modules"
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $stream = $null
@@ -110,7 +112,11 @@ export function createPrivateControlFile(path: string, body: string): void {
 /** A missing, unreadable or non-private file supplies no usable credential. */
 export function readPrivateControlFile(path: string): string | undefined {
   try {
-    if (process.platform === "win32") return windowsControlFile("read", path);
+    if (process.platform === "win32") {
+      // Absence can only deny a read; existing files still require same-handle native ACL proof.
+      if (!existsSync(path)) return undefined;
+      return windowsControlFile("read", path);
+    }
     const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const stat = fstatSync(fd);

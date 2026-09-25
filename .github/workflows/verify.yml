@@ -73,8 +73,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Verify
-        run: bun run verify
+      - name: Windows control-file ACL regression
+        if: runner.os == 'Windows'
+        run: bun test packages/local-runtime/control-file-security/test/control-file-security.test.ts packages/local-runtime/runtime-daemon/test/daemon-control-acl.test.ts packages/local-runtime/runtime-daemon/test/rpc-server.test.ts packages/surfaces/cli/test/hook-state-paths.test.ts
 
       - name: Platform IPC permission readback
         run: node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json
@@ -84,3 +85,6 @@ jobs:
         with:
           name: platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}
           path: platform-ipc-permission-readback.json
+
+      - name: Verify
+        run: bun run verify

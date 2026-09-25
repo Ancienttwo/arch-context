@@ -171,6 +171,14 @@ Windows ACL code/local validation are complete; actual Windows execution and rep
 
 Owner approved committing and pushing the current candidate, creating a Draft PR, and running Windows CI. Existing stack #220 -> #221 -> #222 is unchanged remotely; the candidate integrates it. The current main and stack refs were rechecked before publication. Preserve Draft status, do not merge, publish packages, deploy, close the three umbrella issues, or fabricate acceptance receipts. Update actual platform evidence only from verified downloaded CI artifacts.
 
-- [ ] Commit candidate, preserve integrated stack ancestry, push and create Draft PR.
+- [x] Commit candidate, preserve integrated stack ancestry, push and create Draft PR.
 - [ ] Inspect Windows test and installed-bin ACL readback results; repair only concrete in-scope failures within the three-round cap.
 - [ ] Bind actual artifacts to the tested source and update truthful verification records.
+
+### Hosted verification attempt 1 and bounded repair
+
+Draft PR #223 published candidate `7136c6a81b21b4ceb247a5999bb530de27aa4242`; Verify run `36105876838` finished with failure. Six Linux/macOS jobs and their v2 readbacks passed. Governance rejected only the four historical FG6 Windows-evidence findings. All Windows jobs reached the 20-minute limit; Node 24 logged a complete suite with 2024 pass / 5 fail just before cancellation. No Windows artifact was produced.
+
+P1/P2: pwsh launches Bun, which inherits PS7 module paths into Windows PowerShell 5.1; the broad-read fixture cannot autoload Get-Acl. The stale-file CLI fixture is also newly invalid because ordinary writeFileSync has inherited ACLs. The one-second idle test checks publication after waiting for CLI process exit, while native ACL discovery can outlast the idle window. All are within the approved ACL verification scope.
+
+P3: pin each fixed PowerShell script's module path to its own PSHOME Modules; create the stale fixture with the shared private writer; observe actual publication concurrently with startup, retaining the one-second idle behavior and cleanup/PID checks. Reject absent files before spawning the native reader, with same-handle ACL validation unchanged for every existing file. Execute targeted Windows ACL tests and upload installed-bin readback before the full suite so later failures do not erase boundary evidence. No check or timeout is weakened. This is repair round 1, within the three-round cap.

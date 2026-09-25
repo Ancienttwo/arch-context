@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -3332,7 +3333,7 @@ describe("archctx CLI", () => {
       const connectionPath = testRuntimePaths(root).daemonConnectionPath;
       const lockPath = testRuntimePaths(root).daemonLockPath;
       mkdirSync(testRuntimePaths(root).workspaceStateDir, { recursive: true });
-      writeFileSync(connectionPath, JSON.stringify({
+      createPrivateControlFile(connectionPath, JSON.stringify({
         schemaVersion: RUNTIME_RPC_VERSION,
         protocol: "http-loopback",
         version: 1,
@@ -3343,8 +3344,7 @@ describe("archctx CLI", () => {
         lockPath,
         connectionPath,
         startedAt: "2026-06-20T00:00:00.000Z"
-      }, null, 2), { mode: 0o600 });
-      if (process.platform !== "win32") chmodSync(connectionPath, 0o600);
+      }, null, 2));
 
       const daemonStatus = await runCli("daemon", ["status"], root);
       expect((daemonStatus.data as any).running).toBe(false);
@@ -3439,13 +3439,16 @@ describe("archctx CLI", () => {
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const connectionPath = testRuntimePaths(root).daemonConnectionPath;
     const lockPath = testRuntimePaths(root).daemonLockPath;
+    // Observe publication during startup: native ACL discovery may outlast the 1 s idle window.
+    let sawConnection = false;
+    const observer = setInterval(() => { sawConnection ||= existsSync(connectionPath); }, 10);
     try {
       const started = await runCliProcess(root, "daemon", "start", "--idle-timeout-ms", "1000");
       expect(started.ok).toBe(true);
       expect(started.data.background).toBe(true);
       const childPid: number = started.data.childPid;
       expect(typeof childPid).toBe("number");
-      expect(existsSync(connectionPath)).toBe(true);
+      expect(sawConnection).toBe(true);
 
       await expectFileRemoved(connectionPath);
       await expectFileRemoved(lockPath);
@@ -3455,6 +3458,7 @@ describe("archctx CLI", () => {
       expect(status.ok).toBe(true);
       expect(status.data.running).toBe(false);
     } finally {
+      clearInterval(observer);
       await stopDaemonAndWait(root);
       removeTempRoot(root);
     }

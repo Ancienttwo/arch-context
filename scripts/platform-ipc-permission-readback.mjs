@@ -180,6 +180,8 @@ function assert(condition, message) {
 function windowsAclEvidence(path, grantBroadRead = false) {
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
+# A pwsh -> Node/Bun -> powershell.exe launch inherits incompatible PS7 module paths.
+$env:PSModulePath = "$PSHOME\Modules"
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $request = [Console]::In.ReadToEnd() | ConvertFrom-Json

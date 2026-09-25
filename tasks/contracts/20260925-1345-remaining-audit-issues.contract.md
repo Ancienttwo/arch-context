@@ -83,6 +83,7 @@ allowed_paths:
   - docs/runbooks/
   - docs/adr/
   - docs/verification/
+  - .github/workflows/verify.yml
   - .archcontext/model/
   - plans/
   - tasks/
