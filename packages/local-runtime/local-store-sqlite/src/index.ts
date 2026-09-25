@@ -1,3 +1,4 @@
+import { isProcessAlive } from "../../process-liveness/src/index";
 import { ARCHCONTEXT_LOCAL_STORE_PATH_ENV, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
 export { ARCHCONTEXT_STATE_DIR_ENV, ARCHCONTEXT_LOCAL_STORE_PATH_ENV, defaultArchContextStateRoot, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
 import { createHash, randomUUID } from "node:crypto";
@@ -7335,14 +7336,6 @@ function changeSetJournalRecoveryErrorMessage(metadataJson: string): string {
   return "pending after startup recovery without a recorded recovery error";
 }
 
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
-  }
-}
 
 function quarantineExistingLocalStore(paths: RuntimeStatePaths): string[] {
   const quarantineDir = join(paths.workspaceStateDir, "quarantine", `runtime.sqlite-${Date.now()}-${randomUUID()}`);

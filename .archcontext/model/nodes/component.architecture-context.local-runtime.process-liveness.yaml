@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.process-liveness"
+kind: "component"
+name: "Process Liveness"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/process-liveness/src/**"
+status: "active"
+summary: "Provides the shared signal-zero process liveness check used by daemon control and local store recovery."
