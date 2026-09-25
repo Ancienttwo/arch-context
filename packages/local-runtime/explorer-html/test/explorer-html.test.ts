@@ -131,7 +131,7 @@ const projection: ExplorerProjectionV2 = {
   capabilities: { readOnly: true, mutationMode: "forbidden", egress: "none", tokenRequired: true }
 };
 
-describe("@archcontext/surfaces/explorer-ui V2", () => {
+describe("@archcontext/local-runtime/explorer-html V2", () => {
   test("renders a self-contained authority-aware view without external assets", () => {
     const html = renderExplorerHtml(projection);
     expect(html).toContain("ArchContext Explorer V2");

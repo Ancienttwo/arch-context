@@ -11,7 +11,7 @@ const out = resolve(root, process.argv.includes("--out") ? process.argv[process.
 const verificationCommands = [
   ["bun", "run", "typecheck"],
   ["bun", "run", "check:package-boundaries"],
-  ["bun", "test", "packages/contracts/test/contracts.test.ts", "packages/core/architecture-delta", "packages/core/architecture-ledger", "packages/local-runtime/local-store-sqlite", "packages/local-runtime/runtime-daemon", "packages/surfaces/cli", "packages/surfaces/explorer-ui"],
+  ["bun", "test", "packages/contracts/test/contracts.test.ts", "packages/core/architecture-delta", "packages/core/architecture-ledger", "packages/local-runtime/local-store-sqlite", "packages/local-runtime/runtime-daemon", "packages/surfaces/cli", "packages/local-runtime/explorer-html"],
   ["bun", "run", "verify:explorer"]
 ] as const;
 
