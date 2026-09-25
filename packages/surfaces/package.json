@@ -15,7 +15,6 @@
     "./adapter-structurizr": "./adapter-structurizr/src/index.ts",
     "./chatgpt-ui": "./chatgpt-ui/src/index.ts",
     "./cli": "./cli/src/main.ts",
-    "./explorer-ui": "./explorer-ui/src/index.ts",
     "./mcp-local": "./mcp-local/src/index.ts",
     "./renderer": "./renderer/src/index.ts"
   },

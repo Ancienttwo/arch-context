@@ -47,7 +47,6 @@
       "@archcontext/surfaces/adapter-structurizr": ["./packages/surfaces/adapter-structurizr/src/index.ts"],
       "@archcontext/surfaces/chatgpt-ui": ["./packages/surfaces/chatgpt-ui/src/index.ts"],
       "@archcontext/surfaces/cli": ["./packages/surfaces/cli/src/main.ts"],
-      "@archcontext/surfaces/explorer-ui": ["./packages/surfaces/explorer-ui/src/index.ts"],
       "@archcontext/surfaces/mcp-local": ["./packages/surfaces/mcp-local/src/index.ts"],
       "@archcontext/surfaces/renderer": ["./packages/surfaces/renderer/src/index.ts"],
       "@archcontext/cloud": ["./packages/cloud/src/index.ts"],
