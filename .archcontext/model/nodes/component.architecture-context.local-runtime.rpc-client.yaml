@@ -1,11 +1,13 @@
 id: "component.architecture-context.local-runtime.rpc-client"
 kind: "component"
-name: "Runtime RPC Client and Protocol"
+name: "Runtime RPC Client and Contract"
 parent: "module.architecture-context.local-runtime"
 schemaVersion: "archcontext.node/v2"
 source:
   include:
     - "packages/local-runtime/runtime-daemon/src/rpc-client.ts"
     - "packages/local-runtime/runtime-daemon/src/rpc-protocol.ts"
+    - "packages/local-runtime/runtime-daemon/src/rpc-methods.ts"
+    - "packages/local-runtime/runtime-daemon/src/developer-review-codec.ts"
 status: "active"
-summary: "Owns the loopback RPC client, deadlines and cancellation, connection protocol and public RuntimeDaemonClient contract."
+summary: "Owns loopback RPC client deadlines and cancellation, connection protocol, typed method table and strict review-boundary codecs shared by client and server."

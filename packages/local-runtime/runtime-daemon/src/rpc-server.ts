@@ -1,15 +1,12 @@
+import { runtimeRpcMethod, type RuntimeRpcMethodName } from "./rpc-methods";
 import { type AddressInfo } from "node:net";
-import { type AgentJobV1, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type Json, type JsonEnvelope, type ProductVersionManifest, type ProjectionApplyRecoveryIntentV1, type ProjectionRequestV1, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
-import { type ArchctxDaemon, type ExplorerServerOptions, type RuntimeAgentJobCancelRpcInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobRetryRpcInput, type RuntimeApplyUpdateInput, type RuntimeAuditApproveInput, type RuntimeAuditRunInput, type RuntimeBookInput, type RuntimeCheckpointInput, type RuntimeCompleteTaskInput, type RuntimeDocsInput, type RuntimeLedgerMigrateInput, type RuntimeLedgerProjectInput, type RuntimeLedgerRebuildInput, type RuntimeLedgerRollbackInput, type RuntimeMcpApplyInput, type RuntimeMcpApprovalInput, type RuntimePlanUpdateInput, type RuntimePracticeWaiverInput, type RuntimeRecommendationInput, type RuntimeRefactorRecordInput, type RuntimeRefactorScanInput } from "./index";
-import { type ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
+import { type Json, type JsonEnvelope, type ProductVersionManifest, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
+import { type ArchctxDaemon } from "./index";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
-import { type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcConnection } from "./rpc-protocol";
-import { type RuntimeRefactorVerifyInput } from "./refactor-verify";
 import { acquireDaemonLock, defaultDaemonConnectionPath, defaultDaemonLockPath } from "./daemon-control";
 import { chmodSync, closeSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { decodeDeveloperReviewRunCleanupRequest, decodeRecoverDeveloperReviewRunsParams, decodeSignedDeveloperReviewAttestationParams, decodeStartDeveloperReviewRunParams } from "./developer-review-codec";
 import { dirname } from "node:path";
 import { isLoopbackRemote, writeJson } from "./loopback-http";
 import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
@@ -17,7 +14,7 @@ import { randomBytes } from "node:crypto";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 
 // Only the daemon operations used by this transport; no runtime import of the facade.
-type RuntimeRpcServerTarget = Pick<ArchctxDaemon, keyof RuntimeDaemonClient | "start" | "stop" | "status" | "hasActiveBackgroundWork" | "compositionReport" | "egressReport">;
+type RuntimeRpcServerTarget = RuntimeDaemonClient & Pick<ArchctxDaemon, "start" | "stop" | "status" | "hasActiveBackgroundWork" | "compositionReport" | "egressReport">;
 
 // `archctxd` is spawned `detached`+`unref()`'d (see `startBackgroundDaemon` in the CLI) with no
 // other exit signal, so left alone it runs forever, accumulating cross-day zombie processes (see
@@ -322,144 +319,25 @@ export class ArchctxRuntimeRpcServer {
   }
 
   private async dispatch(method: string, params: unknown[]): Promise<JsonEnvelope> {
-    switch (method) {
-      case "init":
-        return this.daemon.init(params[0] as string, params[1] as string | undefined);
-      case "sync":
-        return this.daemon.sync(params[0] as string, params[1] as string[] | undefined);
-      case "validate":
-        return this.daemon.validate(params[0] as string);
-      case "context":
-        return this.daemon.context(params[0] as string, params[1] as string, params[2] as number | undefined);
-      case "prepare":
-        return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined, params[4] as string | undefined);
-      case "checkpoint":
-        return this.daemon.checkpoint(params[0] as string, params[1] as RuntimeCheckpointInput);
-      case "jobsEnqueueGitHook":
-        return this.daemon.jobsEnqueueGitHook(params[0] as string, params[1] as RuntimeAgentJobEnqueueGitInput | undefined);
-      case "jobsList":
-        return this.daemon.jobsList(params[0] as string, params[1] as { statuses?: AgentJobV1["status"][] } | undefined);
-      case "jobsStats":
-        return this.daemon.jobsStats(params[0] as string, params[1] as { now?: string } | undefined);
-      case "jobsClaim":
-        return this.daemon.jobsClaim(params[0] as string, params[1] as RuntimeAgentJobClaimRpcInput);
-      case "jobsComplete":
-        return this.daemon.jobsComplete(params[0] as string, params[1] as RuntimeAgentJobCompleteRpcInput);
-      case "jobsRetry":
-        return this.daemon.jobsRetry(params[0] as string, params[1] as RuntimeAgentJobRetryRpcInput);
-      case "jobsCancel":
-        return this.daemon.jobsCancel(params[0] as string, params[1] as RuntimeAgentJobCancelRpcInput);
-      case "auditRun":
-        return this.daemon.auditRun(params[0] as string, params[1] as RuntimeAuditRunInput | undefined);
-      case "auditList":
-        return this.daemon.auditList(params[0] as string, params[1] as { statuses?: ArchitectureAuditRunV1["status"][] } | undefined);
-      case "auditShow":
-        return this.daemon.auditShow(params[0] as string, params[1] as string);
-      case "auditApprove":
-        return this.daemon.auditApprove(params[0] as string, params[1] as RuntimeAuditApproveInput);
-      case "docs":
-        return this.daemon.docs(params[0] as string, params[1] as RuntimeDocsInput);
-      case "readResource":
-        return this.daemon.readResource(params[0] as string, params[1] as string);
-      case "practices":
-        return this.daemon.practices(params[0] as string, params[1] as PracticeCatalogCommandInput);
-      case "practiceWaivers":
-        return this.daemon.practiceWaivers(params[0] as string);
-      case "planPracticeWaiver":
-        return this.daemon.planPracticeWaiver(params[0] as string, params[1] as RuntimePracticeWaiverInput);
-      case "planUpdate":
-        return this.daemon.planUpdate(params[0] as string, params[1] as RuntimePlanUpdateInput);
-      case "completeTask":
-        return this.daemon.completeTask(params[0] as string, params[1] as RuntimeCompleteTaskInput | undefined);
-      case "applyUpdate":
-        return this.daemon.applyUpdate(params[0] as string, params[1] as RuntimeApplyUpdateInput);
-      case "approveMcpUpdate":
-        return this.daemon.approveMcpUpdate(params[0] as string, params[1] as RuntimeMcpApprovalInput);
-      case "applyMcpUpdate":
-        return this.daemon.applyMcpUpdate(params[0] as string, params[1] as RuntimeMcpApplyInput);
-      case "inspectProjectionApplyReceipt":
-        return this.daemon.inspectProjectionApplyReceipt(params[0] as string, params[1] as string);
-      case "listProjectionPriorCommittedApplies":
-        return this.daemon.listProjectionPriorCommittedApplies(params[0] as string, params[1] as string);
-      case "readbackProjectionApply":
-        return this.daemon.readbackProjectionApply(params[0] as string, params[1] as ProjectionRequestV1);
-      case "recoverProjectionApply":
-        return this.daemon.recoverProjectionApply(params[0] as string, params[1] as ProjectionApplyRecoveryIntentV1);
-      case "ledgerState":
-        return this.daemon.ledgerState(params[0] as string);
-      case "ledgerDrift":
-        return this.daemon.ledgerDrift(params[0] as string);
-      case "ledgerProject":
-        return this.daemon.ledgerProject(params[0] as string, params[1] as RuntimeLedgerProjectInput | undefined);
-      case "ledgerMigrate":
-        return this.daemon.ledgerMigrate(params[0] as string, params[1] as RuntimeLedgerMigrateInput | undefined);
-      case "ledgerRebuild":
-        return this.daemon.ledgerRebuild(params[0] as string, params[1] as RuntimeLedgerRebuildInput | undefined);
-      case "ledgerRollback":
-        return this.daemon.ledgerRollback(params[0] as string, params[1] as RuntimeLedgerRollbackInput | undefined);
-      case "book":
-        return this.daemon.book(params[0] as string, params[1] as RuntimeBookInput | undefined);
-      case "recommendations":
-        return this.daemon.recommendations(params[0] as string, params[1] as RuntimeRecommendationInput);
-      case "refactorScan":
-        return this.daemon.refactorScan(params[0] as string, params[1] as RuntimeRefactorScanInput | undefined);
-      case "refactorRecord":
-        return this.daemon.refactorRecord(params[0] as string, params[1] as RuntimeRefactorRecordInput);
-      case "refactorVerify":
-        return this.daemon.refactorVerify(params[0] as string, params[1] as RuntimeRefactorVerifyInput);
-      case "repoAdd":
-        return this.daemon.repoAdd(params[0] as string, params[1] as string | undefined);
-      case "repoList":
-        return this.daemon.repoList();
-      case "repoRemove":
-        return this.daemon.repoRemove(params[0] as string);
-      case "landscapeStatus":
-        return this.daemon.landscapeStatus();
-      case "explorerServiceContract":
-        return this.daemon.explorerServiceContract(params[0] as number | undefined);
-      case "explorerProjectionV2":
-        return this.daemon.explorerProjectionV2(params[0] as string, params[1] as ExplorerProjectionQueryV2);
-      case "explorerProjectionDelta":
-        return this.daemon.explorerProjectionDelta(params[0] as string, params[1] as ExplorerDeltaQueryV2);
-      case "startExplorer":
-        return this.daemon.startExplorer(params[0] as string, params[1] as ExplorerServerOptions | undefined);
-      case "stopExplorer":
-        return this.daemon.stopExplorer();
-      case "revokeExplorerToken":
-        return this.daemon.revokeExplorerToken();
-      case "explorerStatus":
-        return this.daemon.explorerStatus();
-      case "contextLandscape":
-        return this.daemon.contextLandscape(params[0] as string, params[1] as number | undefined);
-      case "runtimeStatus":
-        return this.daemon.runtimeStatus(params[0] as string | undefined);
-      // Developer-review inputs are decoded strictly at the boundary: they carry filesystem paths
-      // and the cleanup/recovery pair deletes real directories, so an unknown field (including the
-      // in-process-only `tempRoot`/`stateDir` overrides) is rejected rather than ignored.
-      case "startDeveloperReviewRun":
-        return okEnvelope("developerReview.startRun", this.daemon.startDeveloperReviewRun(decodeStartDeveloperReviewRunParams(params)) as unknown as Json);
-      case "runSignedDeveloperReviewAttestation":
-        return okEnvelope("developerReview.attestation", await this.daemon.runSignedDeveloperReviewAttestation(decodeSignedDeveloperReviewAttestationParams(params)) as unknown as Json);
-      case "cleanupDeveloperReviewRun":
-        return okEnvelope("developerReview.cleanupRun", this.daemon.cleanupDeveloperReviewRun(decodeDeveloperReviewRunCleanupRequest(params[0])) as unknown as Json);
-      case "recoverDeveloperReviewRuns":
-        return okEnvelope("developerReview.recoverRuns", this.daemon.recoverDeveloperReviewRuns(decodeRecoverDeveloperReviewRunsParams(params)) as unknown as Json);
-      case "shutdown":
-        return okEnvelope("daemon.stop", { stopping: true } as Json);
-      default:
-        return {
-          schemaVersion: "archcontext.envelope/v1",
-          ok: false,
-          requestId: "runtime-rpc",
-          error: {
-            code: "AC_SCHEMA_INVALID",
-            message: `Unknown runtime RPC method: ${method}`,
-            severity: "error",
-            retryable: false,
-            action: "upgrade-client"
-          }
-        };
+    if (method === "shutdown") return okEnvelope("daemon.stop", { stopping: true } as Json);
+    const definition = runtimeRpcMethod(method);
+    if (!definition) {
+      return {
+        schemaVersion: "archcontext.envelope/v1",
+        ok: false,
+        requestId: "runtime-rpc",
+        error: {
+          code: "AC_SCHEMA_INVALID",
+          message: `Unknown runtime RPC method: ${method}`,
+          severity: "error",
+          retryable: false,
+          action: "upgrade-client"
+        }
+      };
     }
+    const handler = this.daemon[method as RuntimeRpcMethodName];
+    const result = await Reflect.apply(handler, this.daemon, definition.decodeArgs(params));
+    return definition.encodeResponse(result);
   }
 }
 

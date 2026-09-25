@@ -1,10 +1,6 @@
+import { RUNTIME_RPC_METHODS, runtimeRpcMethod, type RuntimeRpcClientMethods, type RuntimeRpcMethodName } from "./rpc-methods";
 import { RUNTIME_RPC_VERSION } from "./rpc-protocol";
-import type { AgentJobV1, ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, Json, JsonEnvelope, ProjectionApplyRecoveryIntentV1, ProjectionRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
-import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
-import type { DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
-import type { DeveloperReviewAttestation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunPreparation, DeveloperReviewRunRecovery, ExplorerServerOptions, RuntimeAgentJobCancelRpcInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobRetryRpcInput, RuntimeApplyUpdateInput, RuntimeAuditApproveInput, RuntimeAuditRunInput, RuntimeBookInput, RuntimeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimeMcpApplyInput, RuntimeMcpApprovalInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput } from "./index";
-import type { PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
-import type { RuntimeRefactorVerifyInput } from "./refactor-verify";
+import type { Json, JsonEnvelope } from "@archcontext/contracts";
 import type { RuntimeDaemonClient, RuntimeRpcConnection } from "./rpc-protocol";
 
 export type RuntimeRpcTransportErrorCode = "RPC_TIMEOUT" | "RPC_ABORTED";
@@ -52,27 +48,30 @@ export const RUNTIME_RPC_CLIENT_TIMEOUT_POLICY: RuntimeRpcClientTimeoutPolicy = 
   long: 900_000
 };
 
-const RUNTIME_RPC_SHORT_METHODS = new Set([
-  "shutdown", "runtimeStatus", "landscapeStatus", "repoList", "explorerStatus", "explorerServiceContract",
-  "jobsList", "jobsStats", "ledgerState", "ledgerDrift", "stopExplorer", "revokeExplorerToken"
-]);
-
-const RUNTIME_RPC_LONG_METHODS = new Set([
-  "init", "sync", "prepare", "context", "checkpoint", "auditRun", "auditApprove", "recommendations", "book",
-  "ledgerRebuild", "ledgerMigrate", "refactorScan", "refactorVerify", "startDeveloperReviewRun", "runSignedDeveloperReviewAttestation"
-]);
-
-function runtimeRpcMethodTimeout(method: string, policy: RuntimeRpcClientTimeoutPolicy): number {
-  if (RUNTIME_RPC_SHORT_METHODS.has(method)) return policy.short;
-  if (RUNTIME_RPC_LONG_METHODS.has(method)) return policy.long;
-  return policy.normal;
+function runtimeRpcMethodTimeout(method: RuntimeRpcMethodName | "shutdown", policy: RuntimeRpcClientTimeoutPolicy): number {
+  return policy[method === "shutdown" ? "short" : RUNTIME_RPC_METHODS[method].timeout];
 }
+
+export interface RuntimeRpcClient extends RuntimeRpcClientMethods {}
 
 export class RuntimeRpcClient implements RuntimeDaemonClient {
   private readonly timeouts: RuntimeRpcClientTimeoutPolicy;
 
   constructor(private readonly connection: RuntimeRpcConnection, private readonly options: RuntimeRpcClientOptions = {}) {
     this.timeouts = { ...RUNTIME_RPC_CLIENT_TIMEOUT_POLICY, ...options.timeouts };
+  }
+
+  static {
+    for (const method of Object.keys(RUNTIME_RPC_METHODS) as RuntimeRpcMethodName[]) {
+      const definition = runtimeRpcMethod(method)!;
+      Object.defineProperty(RuntimeRpcClient.prototype, method, {
+        configurable: true,
+        writable: true,
+        value: async function (this: RuntimeRpcClient, ...args: unknown[]) {
+          return definition.decodeResponse(await this.call(method, definition.encodeArgs(...args)));
+        }
+      });
+    }
   }
 
   async health(options: { includeEgress?: boolean } = {}): Promise<Json> {
@@ -91,260 +90,7 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return safe;
   }
 
-  init(root: string, productName?: string) {
-    return this.call("init", [root, productName]);
-  }
-
-  sync(root: string, changedPaths: string[] = []) {
-    return this.call("sync", [root, changedPaths]);
-  }
-
-  validate(root: string) {
-    return this.call("validate", [root]);
-  }
-
-  context(root: string, task: string, maxSymbols = 12) {
-    return this.call("context", [root, task, maxSymbols]);
-  }
-
-  prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId?: string) {
-    return this.call("prepare", [root, task, maxBytes, maxItems, taskSessionId]);
-  }
-
-  checkpoint(root: string, input: RuntimeCheckpointInput) {
-    return this.call("checkpoint", [root, input]);
-  }
-
-  jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}) {
-    return this.call("jobsEnqueueGitHook", [root, input]);
-  }
-
-  jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}) {
-    return this.call("jobsList", [root, input]);
-  }
-
-  jobsStats(root: string, input: { now?: string } = {}) {
-    return this.call("jobsStats", [root, input]);
-  }
-
-  jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput) {
-    return this.call("jobsClaim", [root, input]);
-  }
-
-  jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput) {
-    return this.call("jobsComplete", [root, input]);
-  }
-
-  jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput) {
-    return this.call("jobsRetry", [root, input]);
-  }
-
-  jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput) {
-    return this.call("jobsCancel", [root, input]);
-  }
-
-  auditRun(root: string, input: RuntimeAuditRunInput = {}) {
-    return this.call("auditRun", [root, input]);
-  }
-
-  auditList(root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}) {
-    return this.call("auditList", [root, input]);
-  }
-
-  auditShow(root: string, runId: string) {
-    return this.call("auditShow", [root, runId]);
-  }
-
-  auditApprove(root: string, input: RuntimeAuditApproveInput) {
-    return this.call("auditApprove", [root, input]);
-  }
-
-  docs(root: string, input: RuntimeDocsInput) {
-    return this.call("docs", [root, input]);
-  }
-
-  readResource(root: string, uri: string) {
-    return this.call("readResource", [root, uri]);
-  }
-
-  practices(root: string, input: PracticeCatalogCommandInput) {
-    return this.call("practices", [root, input]);
-  }
-
-  practiceWaivers(root: string) {
-    return this.call("practiceWaivers", [root]);
-  }
-
-  planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput) {
-    return this.call("planPracticeWaiver", [root, input]);
-  }
-
-  planUpdate(root: string, input: RuntimePlanUpdateInput) {
-    return this.call("planUpdate", [root, input]);
-  }
-
-  completeTask(root: string, input: RuntimeCompleteTaskInput = {}) {
-    return this.call("completeTask", [root, input]);
-  }
-
-  applyUpdate(root: string, input: RuntimeApplyUpdateInput) {
-    return this.call("applyUpdate", [root, input]);
-  }
-
-  approveMcpUpdate(root: string, input: RuntimeMcpApprovalInput) {
-    return this.call("approveMcpUpdate", [root, input]);
-  }
-
-  applyMcpUpdate(root: string, input: RuntimeMcpApplyInput) {
-    return this.call("applyMcpUpdate", [root, input]);
-  }
-
-  inspectProjectionApplyReceipt(root: string, lookupKey: string) {
-    return this.call("inspectProjectionApplyReceipt", [root, lookupKey]);
-  }
-
-  listProjectionPriorCommittedApplies(root: string, requestId: string) {
-    return this.call("listProjectionPriorCommittedApplies", [root, requestId]);
-  }
-
-  readbackProjectionApply(root: string, request: ProjectionRequestV1) {
-    return this.call("readbackProjectionApply", [root, request]);
-  }
-
-  recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1) {
-    return this.call("recoverProjectionApply", [root, intent]);
-  }
-
-  ledgerState(root: string) {
-    return this.call("ledgerState", [root]);
-  }
-
-  ledgerDrift(root: string) {
-    return this.call("ledgerDrift", [root]);
-  }
-
-  ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }) {
-    return this.call("ledgerProject", [root, input]);
-  }
-
-  ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }) {
-    return this.call("ledgerMigrate", [root, input]);
-  }
-
-  ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}) {
-    return this.call("ledgerRebuild", [root, input]);
-  }
-
-  ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }) {
-    return this.call("ledgerRollback", [root, input]);
-  }
-
-  book(root: string, input: RuntimeBookInput = {}) {
-    return this.call("book", [root, input]);
-  }
-
-  recommendations(root: string, input: RuntimeRecommendationInput) {
-    return this.call("recommendations", [root, input]);
-  }
-
-  refactorScan(root: string, input: RuntimeRefactorScanInput = {}) {
-    return this.call("refactorScan", [root, input]);
-  }
-
-  refactorRecord(root: string, input: RuntimeRefactorRecordInput) {
-    return this.call("refactorRecord", [root, input]);
-  }
-
-  refactorVerify(root: string, input: RuntimeRefactorVerifyInput) {
-    return this.call("refactorVerify", [root, input]);
-  }
-
-  repoAdd(root: string, name?: string) {
-    return this.call("repoAdd", [root, name]);
-  }
-
-  repoList() {
-    return this.call("repoList", []);
-  }
-
-  repoRemove(repositoryId: string) {
-    return this.call("repoRemove", [repositoryId]);
-  }
-
-  landscapeStatus() {
-    return this.call("landscapeStatus", []);
-  }
-
-  explorerServiceContract(tokenTtlSeconds = 900) {
-    return this.call("explorerServiceContract", [tokenTtlSeconds]);
-  }
-
-  explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2) {
-    return this.call("explorerProjectionV2", [root, query]);
-  }
-
-  explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV2) {
-    return this.call("explorerProjectionDelta", [root, query]);
-  }
-
-  startExplorer(root: string, options: ExplorerServerOptions = {}) {
-    return this.call("startExplorer", [root, options]);
-  }
-
-  stopExplorer() {
-    return this.call("stopExplorer", []);
-  }
-
-  revokeExplorerToken() {
-    return this.call("revokeExplorerToken", []);
-  }
-
-  explorerStatus() {
-    return this.call("explorerStatus", []);
-  }
-
-  contextLandscape(task: string, maxSymbols = 12) {
-    return this.call("contextLandscape", [task, maxSymbols]);
-  }
-
-  runtimeStatus(root?: string) {
-    return this.call("runtimeStatus", [root]);
-  }
-
-  async startDeveloperReviewRun(input: {
-    repositoryRoot: string;
-    challenge: ReviewChallengeV2;
-    expectedHeadTreeOid?: string;
-  }): Promise<DeveloperReviewRunPreparation> {
-    return unwrapRpcData(await this.call("startDeveloperReviewRun", [input])) as unknown as DeveloperReviewRunPreparation;
-  }
-
-  async runSignedDeveloperReviewAttestation(input: {
-    challenge: ReviewChallengeV2;
-    worktree: DetachedReviewWorktree;
-    keyRef: string;
-    principalId: string;
-    publicKeyId: string;
-    taskSessionId?: string;
-    mergeBaseSha?: string;
-    startedAt?: string;
-    completedAt?: string;
-  }): Promise<DeveloperReviewAttestation> {
-    return unwrapRpcData(await this.call("runSignedDeveloperReviewAttestation", [input])) as unknown as DeveloperReviewAttestation;
-  }
-
-  async cleanupDeveloperReviewRun(input: DeveloperReviewRunCleanupRequest): Promise<DeveloperReviewRunCleanup> {
-    return unwrapRpcData(await this.call("cleanupDeveloperReviewRun", [input])) as unknown as DeveloperReviewRunCleanup;
-  }
-
-  async recoverDeveloperReviewRuns(input: {
-    repositoryRoot: string;
-    force?: boolean;
-  }): Promise<DeveloperReviewRunRecovery> {
-    return unwrapRpcData(await this.call("recoverDeveloperReviewRuns", [input])) as unknown as DeveloperReviewRunRecovery;
-  }
-
-  private async call(method: string, params: unknown[]): Promise<JsonEnvelope> {
+  private async call(method: RuntimeRpcMethodName | "shutdown", params: readonly unknown[]): Promise<JsonEnvelope> {
     return await this.request(method, runtimeRpcMethodTimeout(method, this.timeouts), `${this.connection.url}rpc`, {
       method: "POST",
       headers: {
@@ -395,9 +141,4 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
       callerSignal?.removeEventListener("abort", onCallerAbort);
     }
   }
-}
-
-function unwrapRpcData(result: JsonEnvelope): Json {
-  if (!result.ok) throw new Error(result.error?.message ?? "runtime-rpc-call-failed");
-  return result.data as Json;
 }
