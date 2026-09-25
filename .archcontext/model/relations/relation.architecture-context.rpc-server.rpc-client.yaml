@@ -1,0 +1,6 @@
+id: "relation.architecture-context.rpc-server.rpc-client"
+intent: "Use the common wire protocol and construct a client from a validated daemon connection file"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.rpc-server"
+target: "component.architecture-context.local-runtime.rpc-client"
