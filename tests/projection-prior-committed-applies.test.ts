@@ -79,7 +79,7 @@ function projectionRequest(root: string, requestId: string): ProjectionRequestV1
 /** The default initialized model is not a valid repo-harness-profile subject; give it one node,
  * relation and flow in the domain.capability shape that profile requires. */
 function writeRepoHarnessProfileModel(root: string): void {
-  rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+  rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
   writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
     schemaVersion: "archcontext.node/v2",
     id: "capability.runtime-harness.hook-adapters",

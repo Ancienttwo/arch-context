@@ -137,7 +137,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
   });
   const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
   try {
-    nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+    nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
     writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
       schemaVersion: "archcontext.node/v2",
       id: "capability.runtime-harness.hook-adapters",
@@ -3638,7 +3638,7 @@ describe("archctx CLI", () => {
 
   test("CLI rebuilds ledger from Git, reports drift, and projects back to Git", async () => {
     const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
     try {
       let status = await runTestCli("status", [], root);
       const rebuild = await runTestCli("ledger", [
@@ -3673,7 +3673,7 @@ describe("archctx CLI", () => {
       expect((project.data as any).writes).toBe("git-projection");
       expect((project.data as any).writtenPaths).toContain(projectionPath);
       expect((project.data as any).reconcile.ok).toBe(true);
-      expect(readFileSync(join(root, projectionPath), "utf8")).toContain("capability.architecture-context");
+      expect(readFileSync(join(root, projectionPath), "utf8")).toContain("capability.architecture.context");
 
       const clean = await runTestCli("ledger", ["drift", "--json"], root);
       expect((clean.data as any).drift.ok).toBe(true);
@@ -3705,24 +3705,24 @@ describe("archctx CLI", () => {
       const query = await runTestCli("book", ["query", "--task", "architecture context", "--max-items", "2", "--explain"], root);
       expect(query.ok).toBe(true);
       expect((query.data as any).schemaVersion).toBe("archcontext.architecture-book-query/v1");
-      expect((query.data as any).results.map((result: any) => result.id)).toContain("capability.architecture-context");
+      expect((query.data as any).results.map((result: any) => result.id)).toContain("capability.architecture.context");
       expect((query.data as any).results[0].scoreBreakdown.graphDistance).toBeGreaterThan(0);
       expect((query.data as any).results[0].scoreBreakdown.recency).toBeGreaterThan(0);
       expect((query.data as any).results[0].explanation.schemaVersion).toBe("archcontext.architecture-book-selection-explanation/v1");
       expect((query.data as any).results[0].explanation.reasonCodes.length).toBeGreaterThan(0);
       expect((query.data as any).freshness.worktreeDigest).toBeTruthy();
 
-      const show = await runTestCli("book", ["show", "capability.architecture-context"], root);
+      const show = await runTestCli("book", ["show", "capability.architecture.context"], root);
       expect(show.ok).toBe(true);
       expect((show.data as any).subject.summary).toContain("architecture intent");
 
-      const neighbors = await runTestCli("book", ["neighbors", "capability.architecture-context", "--depth", "1"], root);
+      const neighbors = await runTestCli("book", ["neighbors", "capability.architecture.context", "--depth", "1"], root);
       expect(neighbors.ok).toBe(true);
-      expect((neighbors.data as any).nodes.map((node: any) => node.id)).toContain("capability.architecture-context");
+      expect((neighbors.data as any).nodes.map((node: any) => node.id)).toContain("capability.architecture.context");
 
-      const timeline = await runTestCli("book", ["timeline", "capability.architecture-context"], root);
+      const timeline = await runTestCli("book", ["timeline", "capability.architecture.context"], root);
       expect(timeline.ok).toBe(true);
-      expect((timeline.data as any).events[0].affectedSubjects).toContain("capability.architecture-context");
+      expect((timeline.data as any).events[0].affectedSubjects).toContain("capability.architecture.context");
       const allTimeline = await runTestCli("book", ["timeline"], root);
       expect(allTimeline.ok).toBe(true);
       const firstTimestamp = (allTimeline.data as any).events[0].timestamp;
@@ -3788,7 +3788,7 @@ describe("archctx CLI", () => {
 
   test("CLI rollback restores YAML authority projection with backup", async () => {
     const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
     const stalePath = ".archcontext/model/nodes/module.cli-rollback-stale.yaml";
     try {
       let status = await runTestCli("status", [], root);
@@ -3825,7 +3825,7 @@ describe("archctx CLI", () => {
       expect((rollback.data as any).drift.ok).toBe(true);
       const backup = (rollback.data as any).backup;
       expect(existsSync(join(root, backup.manifestPath))).toBe(true);
-      expect(readFileSync(join(root, backup.path, "model/nodes/capability.architecture-context.yaml"), "utf8")).toContain("CLI rollback corrupted projection.");
+      expect(readFileSync(join(root, backup.path, "model/nodes/capability.architecture.context.yaml"), "utf8")).toContain("CLI rollback corrupted projection.");
       expect(existsSync(join(root, stalePath))).toBe(false);
       expect(readFileSync(join(root, projectionPath), "utf8")).toBe(canonicalProjection);
       expect((await runTestCli("validate", [], root)).ok).toBe(true);
@@ -4001,7 +4001,7 @@ describe("archctx CLI", () => {
 
   test("CLI rebuild reproduces graph after SQLite deletion and project restores deleted YAML", async () => {
     const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
     try {
       mkdirSync(join(root, "docs/adr"), { recursive: true });
       writeFileSync(join(root, "docs/adr/ADR-0099-cli-ledger-import.md"), [
@@ -4012,7 +4012,7 @@ describe("archctx CLI", () => {
         "status: accepted",
         "decidedAt: 2026-06-25",
         "appliesTo:",
-        "  - capability.architecture-context",
+        "  - capability.architecture.context",
         "supersedes: []",
         "---",
         "",
@@ -4210,7 +4210,7 @@ describe("archctx CLI", () => {
 
   test("CLI rebuild rejects merge-conflict YAML projection without mutating ledger state", async () => {
     const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
     try {
       let status = await runTestCli("status", [], root);
       const initial = await runTestCli("ledger", [
@@ -4316,7 +4316,7 @@ describe("archctx CLI", () => {
       ""
     ].join("\n");
     try {
-      rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"),
         stableYaml({
@@ -4506,7 +4506,7 @@ describe("archctx CLI", () => {
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
     const humanTail = "## 3. Human decisions\nretain  exact spacing  \n";
     try {
-      rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
       writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
         schemaVersion: "archcontext.node/v2", id: "capability.runtime-harness.hook-adapters",
         kind: "capability", name: "Hook Adapters", status: "active", summary: "Routes hook events.",
@@ -4563,7 +4563,7 @@ describe("archctx CLI", () => {
       ""
     ].join("\n");
     try {
-      rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"),
         stableYaml({

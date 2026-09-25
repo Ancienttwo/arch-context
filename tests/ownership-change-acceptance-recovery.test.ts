@@ -78,7 +78,7 @@ function createFixture(): string {
 async function prepareAcceptedMajorChange(root: string, options: { codeGraphReady?: boolean } = {}) {
   const nodePath = join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml");
   const modulePath = join(root, "docs/architecture/modules/runtime-harness/hook-adapters.md");
-  rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+  rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
   writeFileSync(nodePath, stableYaml({
     schemaVersion: "archcontext.node/v2",
     id: "capability.runtime-harness.hook-adapters",

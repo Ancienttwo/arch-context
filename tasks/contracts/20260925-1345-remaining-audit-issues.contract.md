@@ -30,6 +30,7 @@ Repair Explorer credential transport; integrate existing #164 feature extraction
 - Approved S6 continuation: repair hookReadmeCentralFirst and its derived centralHookComplete using the current harness README boundary and product runbook evidence reference; verify missing-boundary negatives and current docs readback without changing runtime, host configuration, or historical artifacts.
 - Current all-PR acceptance directive: inventory #220–#223 and #162/#164/#171; finish current S6 hook contract evidence and diagnose the named Windows docs projection timeout; verify the frozen integrated candidate and clean issue tracking without claiming unimplemented cloud/facade scope delivered.
 - Approved #226 continuation: diagnose only the documentation-drift CodeGraph handshake and projection current-read RPC timeout, capture child/outer timing and typed errors, minimally repair proven causes, then verify those cases. Preserve fresh-read proof and all assertions; no broad matrix or #225 model migration in this slice.
+- Approved #225 continuation: align fresh capability identity and projection-profile consumption, migrate the existing model and all references through exact-digest daemon ChangeSet, and regenerate owned projections. The isolated repo-harness counterpart has its own plan/scope. Preserve source globs/exclusions and selected workflow registry authority. Paired candidate validation does not authorize package release, global installation or merge.
 - Taste constraints: <!-- advisory only, no run gate; default style/taste lives in AGENTS.md and the minimal-change policy, use this to record a per-task override -->
 
 ## Stop Conditions
@@ -95,6 +96,9 @@ allowed_paths:
   - .archcontext/manifest.yaml # only through approved daemon ChangeSet mutation
   - schemas/runtime/changeset.schema.json
   - .archcontext/model/
+  - docs/architecture/ # daemon-owned projection only
+  - AGENTS.md # daemon-owned agent-context marker only
+  - CLAUDE.md # daemon-owned agent-context marker only
   - plans/
   - tasks/
 ```

@@ -71,7 +71,7 @@ describe("@archcontext/surfaces/renderer", () => {
       writeFileSync(join(root, "README.md"), "# tmp\n");
       initializeArchContextModel(root, "Renderer App");
       const loaded = loadNativeModelFromArchContext(root);
-      expect(loaded.nodes.map((node) => node.id)).toContain("capability.architecture-context");
+      expect(loaded.nodes.map((node) => node.id)).toContain("capability.architecture.context");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -281,7 +281,7 @@ describe("@archcontext/surfaces/renderer", () => {
       mkdirSync(join(root, "docs/adr"), { recursive: true });
       writeFileSync(join(root, "docs/adr/ADR-0001-test.md"), "---\ntitle: ADR 0001 Test Decision\nstatus: accepted\n---\n\n# Context\n\nStatus: Ignored\n", "utf8");
       const loaded = loadArchitectureDocumentationInputs(root);
-      expect(loaded.model.nodes.map((node) => node.id)).toContain("capability.architecture-context");
+      expect(loaded.model.nodes.map((node) => node.id)).toContain("capability.architecture.context");
       expect(loaded.decisions).toContainEqual(expect.objectContaining({ id: "ADR-0001-test", title: "ADR 0001 Test Decision", status: "accepted" }));
       expect(loaded.existingFiles.some((file) => file.path === "docs/architecture/index.md")).toBe(false);
     } finally {

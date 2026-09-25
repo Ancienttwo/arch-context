@@ -569,8 +569,8 @@ describe("local runtime foundation", () => {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Freshness Gate App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -610,11 +610,11 @@ describe("local runtime foundation", () => {
       const finding = (stale.data as any).findings.find((entry: any) => entry.id === "stale-context");
       expect(finding.type).toBe("stale-context");
       expect(finding.message).toContain("projection-source-changed-since-verified-commit");
-      expect(finding.message).toContain(`capability.architecture-context(1@${verifiedCommit})`);
+      expect(finding.message).toContain(`capability.architecture.context(1@${verifiedCommit})`);
       const gate = (stale.data as any).extensions.projectionFreshnessGate;
       expect(gate.ok).toBe(false);
       expect(gate.staleNodes).toEqual([{
-        nodeId: "capability.architecture-context",
+        nodeId: "capability.architecture.context",
         verifiedAgainst: expect.objectContaining({ commit: verifiedCommit }),
         changedPathCount: 1,
         changedPaths: ["src/app.ts"],
@@ -646,8 +646,8 @@ describe("local runtime foundation", () => {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Fixed Point App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -686,7 +686,7 @@ describe("local runtime foundation", () => {
 
       // The manifest still names the commit the content was generated against, not the projection
       // commit — and the document itself names no commit at all.
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(appliedAtCommit);
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(appliedAtCommit);
       expect(readText(join(root, "docs/architecture/modules/capability-architecture-context.md")))
         .not.toContain(appliedAtCommit);
     } finally {
@@ -708,8 +708,8 @@ describe("local runtime foundation", () => {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Deadlock App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -721,7 +721,7 @@ describe("local runtime foundation", () => {
       gitCommitAll(root, "project architecture documentation");
       const docPath = join(root, "docs/architecture/modules/capability-architecture-context.md");
       const beforeDoc = readText(docPath);
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(verifiedCommit);
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(verifiedCommit);
 
       // Same line, same line count, same files, same imports: no rendered assertion moves.
       writeFileSync(join(root, "src/app.ts"), "export const app = 2;\n", "utf8");
@@ -742,7 +742,7 @@ describe("local runtime foundation", () => {
       // The re-verification advanced the stamp in the manifest and left the document untouched —
       // byte-identical, marker attributes included. This is the churn fix: re-verifying a capability
       // whose footprint moved no longer produces a documentation diff to commit.
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(reverifiedCommit);
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(reverifiedCommit);
       expect(afterDoc).toBe(beforeDoc);
 
       gitCommitAll(root, "re-verify the architecture documentation");
@@ -775,8 +775,8 @@ describe("local runtime foundation", () => {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Rebase App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -795,14 +795,14 @@ describe("local runtime foundation", () => {
       const loaded = loadArchitectureDocumentationInputs(root);
       const measured = loadCapabilitySourceChangesSinceStamps(root, loaded.model);
       expect(measured).toEqual([{
-        nodeId: "capability.architecture-context",
+        nodeId: "capability.architecture.context",
         commit: orphanedCommit,
         status: "unmeasurable",
         reason: expect.any(String)
       }]);
 
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-rebase-reverify");
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(gitOut(root, "rev-parse", "HEAD"));
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(gitOut(root, "rev-parse", "HEAD"));
       expect(readText(manifestPath)).not.toContain(orphanedCommit);
     } finally {
       await daemon?.stop();
@@ -1011,8 +1011,8 @@ setInterval(() => undefined, 1 << 30);
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Stamp Injection App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -1055,8 +1055,8 @@ setInterval(() => undefined, 1 << 30);
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Path Framing App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -1065,14 +1065,14 @@ setInterval(() => undefined, 1 << 30);
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-path-framing");
       gitCommitAll(root, "project architecture documentation");
       const stampCommit = gitOut(root, "rev-parse", "HEAD~1");
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(stampCommit);
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(stampCommit);
 
       writeFileSync(join(root, "src/資料.ts"), "export const data = 1;\n", "utf8");
       gitCommitAll(root, "add a non-ASCII source path");
 
       const loaded = loadArchitectureDocumentationInputs(root);
       expect(loadCapabilitySourceChangesSinceStamps(root, loaded.model)).toEqual([{
-        nodeId: "capability.architecture-context",
+        nodeId: "capability.architecture.context",
         commit: stampCommit,
         status: "changed",
         changedPathCount: 1
@@ -1113,8 +1113,8 @@ setInterval(() => undefined, 1 << 30);
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Agent Context App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -1145,7 +1145,7 @@ setInterval(() => undefined, 1 << 30);
       });
       expect(applied.ok).toBe(true);
       expect(readText(claudePath)).toContain("Hand-written routing notes.");
-      expect(readText(claudePath)).toContain('id="capability.architecture-context"');
+      expect(readText(claudePath)).toContain('id="capability.architecture.context"');
       expect(readText(agentsPath)).toContain("# Agent Context: Architecture Context");
 
       // Second pass over its own output is byte-identical.
@@ -1166,7 +1166,7 @@ setInterval(() => undefined, 1 << 30);
       // A hand-edited machine region is reported with the file, the node and both digests.
       writeFileSync(claudePath, before.claude.replace("Architecture Context", "Tampered Name"), "utf8");
       expect(() => agentContextProjectionOperation(root)).toThrow("agent-context-marker-output-digest-mismatch: src/CLAUDE.md");
-      expect(() => agentContextProjectionOperation(root)).toThrow("node capability.architecture-context");
+      expect(() => agentContextProjectionOperation(root)).toThrow("node capability.architecture.context");
       writeFileSync(claudePath, before.claude, "utf8");
 
       // The same paths carried by any other operation kind stay outside the write allowlist.
@@ -1198,8 +1198,8 @@ setInterval(() => undefined, 1 << 30);
       // A declared capability footprint is what freshness grades, so the repository needs one
       // before an undiffable stamp can fail closed against anything.
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });

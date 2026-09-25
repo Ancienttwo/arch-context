@@ -462,7 +462,7 @@ describe("M2 architecture control loop", () => {
   test("ChangeSet apply uses allowlist, expected digest, and full rollback under fault injection", async () => {
     const root = tempModel();
     try {
-      const existingPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+      const existingPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
       const existingBody = readFileSync(join(root, existingPath), "utf8");
       const expectedHash = digestJson({ body: existingBody });
       const engine = yamlChangeSetEngine();

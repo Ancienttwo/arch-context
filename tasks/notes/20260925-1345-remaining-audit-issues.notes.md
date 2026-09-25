@@ -183,3 +183,12 @@ Formal freeze fails on the installed harness/repository capability contract mism
 No product/test source or timeout changed. The old outer timeout reproduced; a longer observation then exposed real 5s version-child expirations before the RPC phase. A no-CodeGraph Bun start reproduced the delay before user code; native samples show directory enumeration. Task-scoped `TMPDIR` reduced paired startup to 14ms and the two original uninstrumented cases passed (2 pass, 79 assertions, 29.84s). The existing child deadline rejection also passed. Exact Bun internals remain unproven; no universal runtime fix is claimed.
 
 `docs/researches/20260925-projection-verification-environment.md` contains P1/P2/P3 and Root Cause Evidence; `docs/verification/20260925-projection-environment-diagnosis.json` binds measurements/source/logs. `docs/runbooks/projection-verification-environment.md` supplies the operator command. Contract test checks now fingerprint `TMPDIR`. #226 is ready to close for this bounded resolution; #225 still blocks formal whole-plan acceptance. No full matrix rerun or receipt/merge/release.
+
+
+## #225 profile correction and controlled migration stop (2026-09-26)
+
+Initializer now uses `capability.architecture.context`; the isolated harness candidate separates projection target validation from ownership registry translation. Real initialized-model/daemon-configuration paired proof passes without changing source globs/exclusions or registry authority. ArchContext 145 focused cases and harness 72 cases pass; both typechecks, ArchContext package boundaries and harness required integrity checks pass. Scoped consumer security review passes.
+
+Live migration is not complete. The first transaction rolled back on ADR-0021's old appliesTo reference; the second rolled back on the existing docs/adr write guard. All ten original files match preimages and the new node is absent. Root AGENTS/CLAUDE targets are separately denied by the documented policy boundary. The temporary helper extension was removed; no allowlist/policy change or direct model/projection editing occurred. The required next slice is a typed ADR-reference update and marker-only root-contract write contract with preserved human text and rollback proof, before retrying the complete migration.
+
+Evidence and P1/P2/P3: `docs/researches/20260926-capability-profile-alignment.md` and `docs/verification/20260926-capability-profile-diagnosis.json`. #225 remains open and #223 remains Draft. No new whole-plan freeze, full matrix, AcceptanceReceipt, merge, release or global installation.

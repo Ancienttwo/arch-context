@@ -385,3 +385,28 @@ Empty config/package markers and no-env/no-install/tsconfig flags did not remove
 No product/test source or timeout changed. The old outer timeout reproduced; a longer observation then exposed real 5s version-child expirations before the RPC phase. A no-CodeGraph Bun start reproduced the delay before user code; native samples show directory enumeration. Task-scoped `TMPDIR` reduced paired startup to 14ms and the two original uninstrumented cases passed (2 pass, 79 assertions, 29.84s). The existing child deadline rejection also passed. Exact Bun internals remain unproven; no universal runtime fix is claimed.
 
 `docs/researches/20260925-projection-verification-environment.md` contains P1/P2/P3 and Root Cause Evidence; `docs/verification/20260925-projection-environment-diagnosis.json` binds measurements/source/logs. `docs/runbooks/projection-verification-environment.md` supplies the operator command. Contract test checks now fingerprint `TMPDIR`. #226 is ready to close for this bounded resolution; #225 still blocks formal whole-plan acceptance. No full matrix rerun or receipt/merge/release.
+
+
+## Approved continuation: #225 projection profile alignment
+
+Owner approved capability contract alignment and controlled migration. ArchContext work remains in this worktree. The necessary consumer correction is isolated in `repo-harness-wt-archctx-projection-profile`, based on upstream `6a097792`; existing source-exclusion/release worktrees remain untouched. No package release, global installation or merge is included.
+
+- P1: initializer owns fresh model creation; ADR-0043 defines capability identity and glob ownership; the daemon owns model/projection writes. `repo-harness/v1` requires a three-part capability ID and explicit contract-file targets. Harness policy here selects the existing registry for workflow ownership.
+- P2: prepare-acceptance → automatic projection → snapshot capture → agent-context target discovery currently invokes the complete ownership-registry translator before calling ArchContext. That translator rejects valid generic source globs/exclusions and requires unrelated metadata. Separately, the initializer and current model use a two-part capability ID.
+- P3: target identity is `capability.architecture.context`: architecture is the domain and context is the existing function, retaining the displayed Architecture Context meaning. Fix fresh initialization; migrate the live root plus every graph reference in one exact-digest ChangeSet. Explicit root `AGENTS.md`/`CLAUDE.md` targets follow the existing root routing contract. Preserve include/exclude, entrypoints and workflow registry authority. In the harness projection consumer validate the actual projection profile, without translating source ownership or relaxing the ownership registry. At 10x nodes the existing filesystem snapshot remains the cost boundary; this change adds no provider invocation or second resolver.
+
+### Task Breakdown: #225
+- [x] Prove producer identity and projection-consumer contract failures with focused regression coverage.
+- [x] Correct fresh initialization and the isolated harness projection consumer; retain invalid identity/path rejection.
+- [ ] Apply a reviewed exact-digest model ChangeSet updating all root references; regenerate through daemon-owned projections and validate graph semantics.
+- [ ] Verify the paired candidates using isolated TMPDIR, record source versus installed-runtime boundaries, and attempt normal acceptance only when its actual prerequisites are satisfied.
+- [ ] Update Draft #223, #225 and canonical project memory with verified outcome and any release/adoption prerequisite.
+
+
+## #225 profile correction and controlled migration stop (2026-09-26)
+
+Initializer now uses `capability.architecture.context`; the isolated harness candidate separates projection target validation from ownership registry translation. Real initialized-model/daemon-configuration paired proof passes without changing source globs/exclusions or registry authority. ArchContext 145 focused cases and harness 72 cases pass; both typechecks, ArchContext package boundaries and harness required integrity checks pass. Scoped consumer security review passes.
+
+Live migration is not complete. The first transaction rolled back on ADR-0021's old appliesTo reference; the second rolled back on the existing docs/adr write guard. All ten original files match preimages and the new node is absent. Root AGENTS/CLAUDE targets are separately denied by the documented policy boundary. The temporary helper extension was removed; no allowlist/policy change or direct model/projection editing occurred. The required next slice is a typed ADR-reference update and marker-only root-contract write contract with preserved human text and rollback proof, before retrying the complete migration.
+
+Evidence and P1/P2/P3: `docs/researches/20260926-capability-profile-alignment.md` and `docs/verification/20260926-capability-profile-diagnosis.json`. #225 remains open and #223 remains Draft. No new whole-plan freeze, full matrix, AcceptanceReceipt, merge, release or global installation.
