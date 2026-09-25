@@ -26,6 +26,7 @@ Repair Explorer credential transport; integrate existing #164 feature extraction
 - Approved projection/RPC diagnosis: capture typed errors and subprocess/outer timing for the two CLI verification failures; repair only proven causes, retain the unreproduced failure as unconfirmed, and continue the existing Draft/current-source CI boundary after named checks pass.
 - Approved egress continuation: add shared local-runtime admission for named outbound transports/commands, preserve existing feature consent, enforce explicit local-only denial, and verify the local E2E under real kernel network isolation. Refresh the existing FG6 proof and hosted evidence; no external provider invocation is authorized.
 - Approved manifest continuation: implement the single-field `update_manifest_fields` ChangeSet contract, expose CLI/MCP planning, verify journal/approval boundaries, and apply `content.decisions = docs/adr` through the daemon. Arbitrary manifest editing and configurable ADR routing remain outside this slice.
+- Approved DE1/DE3 continuation: repair only the three historical source predicates (indexedBacklinks, requiredDomainsFailClosed, explicitAuthorityBinding), with negative guards and current behavioral verification. Historical artifact verdicts remain unchanged; no S6 cleanup or runtime semantic changes.
 - Taste constraints: <!-- advisory only, no run gate; default style/taste lives in AGENTS.md and the minimal-change policy, use this to record a per-task override -->
 
 ## Stop Conditions

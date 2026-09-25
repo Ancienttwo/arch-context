@@ -154,3 +154,8 @@ CI merge `9e26ccd31a753e28bd250ab6673a5d0d8562f203` has the same tree as the fro
 Exact source/job/log/payload identities and results: `docs/verification/20260925-egress-hosted-ci.json`. The initial local artifact inspection rejected an operator-assembled jobs envelope missing GitHub `total_count`; supplying the original complete API response passed the unchanged inspector. No test, gate or source was altered to force that result.
 
 The approved egress and bounded projection diagnosis slices are complete. The first historical churn false envelope remains causally unconfirmed despite the subsequent local/hosted passes; the parity outer deadline is proven and corrected. Final publication is records-only with CI skipped; the tested source remains explicit. Draft #223 stays Draft. Remaining #164 facade work, #171 historical DE1/DE3/S6 readback scope, optional #162 cloud delivery and formal whole-plan acceptance remain open. No merge, release, deployment or issue closure.
+
+
+## DE1/DE3 predicate repair (approved bounded slice)
+
+Completed the three current-source detectors without runtime behavior changes. Cause and P1/P2/P3: `docs/researches/20260925-de1-de3-source-predicates.md`; exact input hashes, baseline failures and mutation evidence: `docs/verification/20260925-de1-de3-predicate-readback.json`. Final scoped checks: 41 tests / 118 assertions; ownership 6 tests / 52 assertions; typecheck and package boundaries passed. Three actual product-source mutations failed at the intended assertions and were restored byte-for-byte. Historical DE1/DE3 artifacts remain unchanged; full old command matrices/preflights were not rerun. This is bounded predicate repair acceptance only. S6, remaining facade/cloud scope and whole-plan acceptance remain open.

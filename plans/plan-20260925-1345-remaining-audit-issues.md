@@ -296,3 +296,23 @@ CI merge `9e26ccd31a753e28bd250ab6673a5d0d8562f203` has the same tree as the fro
 Exact source/job/log/payload identities and results: `docs/verification/20260925-egress-hosted-ci.json`. The initial local artifact inspection rejected an operator-assembled jobs envelope missing GitHub `total_count`; supplying the original complete API response passed the unchanged inspector. No test, gate or source was altered to force that result.
 
 The approved egress and bounded projection diagnosis slices are complete. The first historical churn false envelope remains causally unconfirmed despite the subsequent local/hosted passes; the parity outer deadline is proven and corrected. Final publication is records-only with CI skipped; the tested source remains explicit. Draft #223 stays Draft. Remaining #164 facade work, #171 historical DE1/DE3/S6 readback scope, optional #162 cloud delivery and formal whole-plan acceptance remain open. No merge, release, deployment or issue closure.
+
+
+## Approved continuation: DE1/DE3 source readback predicates
+
+Owner approved the bounded #171 slice for `indexedBacklinks`, `requiredDomainsFailClosed`, and `explicitAuthorityBinding`.
+
+- P1: the readback scripts combine source invariants with independent command results. Runtime owns authority selection, compiler owns input admission, SQLite owns indexed bounded metadata reads. Historical artifacts remain historical.
+- P2: `buildExplorerProjectionV2` selects Git/verified-ledger authority, reads planned graph/metadata, and passes explicit graph/evidence cursors into `compileProjectionInputManifest`. The compiler validates the selected graph against its read-set and rejects unavailable domains. Both store read paths call the indexed `readExplorerProjectionBacklinksFromDb`.
+- P3: preserve these invariants and replace obsolete call/error spellings with checks of the current connected function bodies. Scope source witnesses to their current declaration boundaries; require both call sites and guards. Negative mutations and existing runtime/store/compiler tests must remain red on regressions. At 10x graph size, unbounded legacy reads would fail first; do not restore them to satisfy the old detector.
+
+### Task Breakdown: readback continuation
+- [x] Capture the three old predicate failures against the unchanged candidate.
+- [x] Repair only these source predicates and add negative mutation coverage.
+- [x] Run scoped compiler, daemon and SQLite behavior tests plus typecheck/governance ownership checks; record source hashes and exact results.
+- [ ] Publish the bounded slice on Draft #223 and update durable records. Do not relabel historical DE1/DE3 artifacts, merge, deploy, or close umbrella issues.
+
+
+## DE1/DE3 predicate repair (approved bounded slice)
+
+Completed the three current-source detectors without runtime behavior changes. Cause and P1/P2/P3: `docs/researches/20260925-de1-de3-source-predicates.md`; exact input hashes, baseline failures and mutation evidence: `docs/verification/20260925-de1-de3-predicate-readback.json`. Final scoped checks: 41 tests / 118 assertions; ownership 6 tests / 52 assertions; typecheck and package boundaries passed. Three actual product-source mutations failed at the intended assertions and were restored byte-for-byte. Historical DE1/DE3 artifacts remain unchanged; full old command matrices/preflights were not rerun. This is bounded predicate repair acceptance only. S6, remaining facade/cloud scope and whole-plan acceptance remain open.

@@ -923,6 +923,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(result.readSet.rowsRead).toMatchObject({ entities: 2, relations: 1, constraints: 1 });
       expect(result.readSet.planDigest).toBe(plan.planDigest);
       expect(result.readSet.selectedGraphDigest).toBe(architectureLedgerStateDigest(result.graph));
+      expect(result.eventBacklinks.length).toBeGreaterThan(0);
       expect(result.eventBacklinks.every((event) => event.subjectIds.every((id) => ["entity.0", "entity.1", "relation.root-to-worker", "constraint.root-owned"].includes(id)))).toBe(true);
 
       const noncanonicalWithoutDigest = { ...plan, limits: { ...plan.limits, maxEntities: 1, maxGraphRows: plan.limits.maxGraphRows - 2 } };

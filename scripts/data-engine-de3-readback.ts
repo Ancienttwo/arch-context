@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { inspectDataEngineRequiredDomains, inspectDataEngineAuthorityBinding } from "./data-engine-source-invariants";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -11,6 +12,7 @@ const out = argumentPath("--out", defaultOut);
 const report = argumentPath("--report", defaultReport);
 
 const verificationCommands = [
+  ["bun", "test", "scripts/data-engine-source-invariants.test.ts"],
   ["bun", "run", "typecheck"],
   ["bun", "run", "check:package-boundaries"],
   ["bun", "test", "packages/contracts/test/contracts.test.ts", "packages/local-runtime/local-store-sqlite", "packages/local-runtime/runtime-daemon", "packages/surfaces/cli/test/cli.test.ts", "scripts/architecture-ledger-al10-release-packaging-readback.test.ts"],
@@ -55,13 +57,8 @@ if (mode === "run") {
         && compilerSource.includes("EXPLORER_VIEW_INPUT_REQUIREMENTS")
         && storeSource.includes("EXPLORER_VIEW_INPUT_REQUIREMENTS")
         && contractsSource.includes('"task-session": "required"'),
-      requiredDomainsFailClosed: compilerSource.includes("required-input-unavailable")
-        && compilerSource.includes("required-input-digest-mismatch:graph")
-        && !daemonSource.includes("observed = { task, symbols: [], edges: [], evidence: []"),
-      explicitAuthorityBinding: compilerSource.includes('authoritySource: "git" | "ledger"')
-        && compilerSource.includes("required-input-unavailable:authority:ledger-cursor-not-provided")
-        && compilerSource.includes("cursor.evidenceStateDigest !== input.evidenceStateDigest")
-        && daemonSource.includes('authoritySource: authorityCursor ? "ledger" as const : "git" as const'),
+      requiredDomainsFailClosed: inspectDataEngineRequiredDomains(compilerSource, daemonSource),
+      explicitAuthorityBinding: inspectDataEngineAuthorityBinding(compilerSource, daemonSource),
       optionalMissingDiffersFromEmpty: compilerSource.includes('reasonCode: "not-provided"')
         && compilerTest.includes("distinguishes an unavailable optional domain from a known-empty domain"),
       exactManifestCacheLookup: storeSource.includes("readExplorerProjectionByManifest")
