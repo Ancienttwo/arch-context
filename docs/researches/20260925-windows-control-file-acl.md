@@ -1,6 +1,6 @@
 # Windows control-file ACL boundary (#171)
 
-Status: native Windows ACL boundary verified on three Node targets; full Windows matrix and historical FG6 acceptance remain incomplete. This does not close #171 or claim a release.
+Status: BLOCKED after the third repair round. Prior-subject native ACL proof exists, but the latest candidate has an unresolved native subprocess failure. This does not close #171 or claim a release.
 
 ## P1: map
 
@@ -68,3 +68,11 @@ The focused command now uses `bun test --timeout 60000`, matching the existing `
 All six Linux/macOS jobs and Windows/Node 25 completed successfully. Windows/Node 25's full test suite passed 2029 tests in 886.79 s; packaging then needed another 85.59 s. Node 24 passed all 2029 tests in 1022.15 s but hit the 20-minute job cap during post-test verification; Node 22 was cancelled late in the E2E suite without a logged assertion failure. Thus native ACL acceptance passes, while full matrix acceptance is incomplete. Governance still reports exactly the four historical FG6 evidence findings.
 
 Repair round 3 changes only the Windows job wall-clock budget to 30 minutes, keeping other platforms at 20 minutes and all product/test timeouts unchanged. The observed suite plus setup, focused native proof, readback and packaging exceeds the old 20-minute envelope on slower Windows targets. No test is removed or softened. This is the final repair round under the three-round cap; any remaining failure must be reported rather than starting another fix loop.
+
+## Final stop: third repair round exposes native operation failure
+
+[Verify run 36110137854](https://github.com/Ancienttwo/arch-context/actions/runs/36110137854), candidate `7b16ec641893daae7ae8896875d3d2363dd8976a`, failed its Windows/Node 24 focused step: the first `createPrivateControlFile` call threw `Windows native ACL operation failed` after 10024.63 ms. The helper has a 10000 ms subprocess deadline, but its fixed error deliberately suppresses subprocess diagnostics, so timeout/cold-start causality is not proven from this log alone. The other 14 focused cases passed in that job. No further fix or retry was attempted after the three-round cap; the remaining workflow was cancelled to avoid running a matrix already known not to pass.
+
+The prior `61b01b2` native proof and its independent archive verification remain valid historical observations, not current-candidate acceptance. The product/test code is unchanged between that subject and `7b16ec6`; only workflow budget and research/plan records changed. This new intermittent failure therefore remains material. Historical FG6 records were not promoted or marked passing. Source and downloaded payload evidence: `docs/verification/20260925-windows-control-file-acl.json`.
+
+Bounded next slice: capture non-sensitive native child exit code/signal/elapsed-time diagnostics and reproduce the first-create failure on Windows Node 24, then choose an evidence-supported startup/lifecycle correction. Do not blindly raise the product deadline or introduce a permissive fallback. Entry points: `control-file-security/src/index.ts:windowsControlFile`, its existing creation regression, and job `107991495231`. Whole-work-package acceptance, remaining #164/#171 scopes and deferred cloud delivery stay open.

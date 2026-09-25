@@ -173,7 +173,7 @@ Owner approved committing and pushing the current candidate, creating a Draft PR
 
 - [x] Commit candidate, preserve integrated stack ancestry, push and create Draft PR.
 - [ ] Inspect Windows test and installed-bin ACL readback results; repair only concrete in-scope failures within the three-round cap.
-- [ ] Bind actual artifacts to the tested source and update truthful verification records.
+- [x] Bind actual artifacts to the tested source and update truthful verification records.
 
 ### Hosted verification attempt 1 and bounded repair
 
@@ -186,3 +186,7 @@ P3: pin each fixed PowerShell script's module path to its own PSHOME Modules; cr
 Hosted attempt 2 (`36107901114`, `410af0f`) reached 14 passing native cases on all Windows targets, then the standalone focused runner's default 5-second deadline cancelled RPC stale recovery. Repair round 2 aligns that command to the existing full-suite `--timeout 60000`; no source, assertion or product timeout changes. Readback remains pending.
 
 Hosted attempt 3 (`36108161898`, `61b01b2`) passed all three Windows ACL focused steps and installed-bin readbacks. The read-only native-proof blocker is closed, scoped to that subject. Seven full jobs passed, including Windows/Node 25; Node 24 passed all 2029 tests but was cut off afterward, and Node 22 was cut off during late E2E. Repair round 3 changes only the Windows whole-job budget from 20 to 30 minutes, based on measured suite/packaging time. Other deadlines and assertions remain unchanged. No further fail/fix/reverify loop is allowed after this round without a new instruction.
+
+### Final stop after repair round 3
+
+Run `36110137854` / candidate `7b16ec6` failed the first Windows/Node 24 private-file creation after 10024.63 ms with the fixed native-operation error; the other 14 focused cases passed. The exact subprocess cause is unproven. No fourth repair loop is authorized by the standing cap. Remaining jobs were cancelled and actual evidence was preserved. Prior `61b01b2` native-proof PASS does not establish current-candidate or full-work-package acceptance. The Windows verification task stays incomplete; Draft PR #223 is not ready to merge.

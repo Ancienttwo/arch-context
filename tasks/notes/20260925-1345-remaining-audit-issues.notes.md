@@ -1,6 +1,6 @@
 # Implementation Notes: remaining-audit-issues
 
-Status: bounded timeout repair verified; umbrella issues and whole-work-package acceptance remain incomplete.
+Status: Draft PR #223 published; stopped at the three-round Windows repair cap with an unresolved native subprocess failure. Umbrella issues and whole-work-package acceptance remain incomplete.
 Plan: `plans/plan-20260925-1345-remaining-audit-issues.md`.
 Research/disposition: `docs/researches/20260925-remaining-audit-issues.md`.
 
@@ -69,3 +69,7 @@ Owner approved implementing the Windows control-file ACL boundary. Source, P1/P2
 Draft PR: https://github.com/Ancienttwo/arch-context/pull/223 . Published head `7136c6a`; upstream extraction ancestry retained with a tree-identical merge. Hosted run `36105876838` has six passing Linux/macOS jobs, Governance blocked by historical FG6 evidence, and all Windows jobs cancelled at the 20-minute limit. Windows negative fixtures failed native module autoload; stale/idle CLI fixtures also failed. No native acceptance, whole-CI pass, merge, issue closure or release is claimed.
 
 The first bounded correction and its P1/P2/P3 are recorded in the plan and Windows research note. Local focused tests and typecheck pass; corrected Windows verification remains pending. No historical evidence was rewritten as passing.
+
+## Final hosted disposition
+
+Candidate `7b16ec6`, Draft PR #223, remains blocked. Previous subject `61b01b2` produced verified native Windows ACL artifacts on all three Node versions; all six Linux/macOS full jobs and Windows/Node 25 full job passed. Windows/Node 24 passed 2029 tests but hit the whole-job cap afterward; Node 22 hit it during late E2E. The final workflow-budget correction then exposed an intermittent first-create native operation failure on Windows/Node 24 at 10024.63 ms (run `36110137854`, job `107991495231`); other 14 focused cases passed. The fixed subprocess error prevents a confirmed cause. Repair cap reached: no further source change/retry; remaining run cancelled. Evidence is subject-bound in `docs/verification/20260925-windows-control-file-acl.json`; historical FG6 remains unpromoted. No merge, issue closure, release, provider acceptance receipt or whole-plan completion.
