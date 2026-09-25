@@ -12,3 +12,7 @@ The existing Verify workflow accepts a manual event that executes only the canon
 The [GitHub manual workflow documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow) documents dispatch and `--ref`. Verify is already registered on the default branch; the selected branch must contain the manual trigger. This procedure does not merge a PR, waive required checks, publish a release, or close an issue. A skipped matrix check is not matrix execution evidence.
 
 Task history and exact results: `plans/plan-20260925-1345-remaining-audit-issues.md`, `tasks/notes/20260925-1345-remaining-audit-issues.notes.md`. FG6 authority and prior matrix provenance remain in `docs/researches/20260925-fg6-matrix-conclusions.md`.
+
+## Verified execution
+
+[Manual run 36122160055](https://github.com/Ancienttwo/arch-context/actions/runs/36122160055) on `405d6ca1bec1fe6ec603e9eb11ff9c7cc49e5ec8` succeeded: only Governance executed, all 24 canonical commands passed, and the matrix was skipped. Full Verify reported 2037 pass / 2 platform skips / 0 fail. Exact subject, job and log provenance: `docs/verification/20260925-governance-revalidation.json`. The prior platform matrix is a separate run and retains its original source binding.

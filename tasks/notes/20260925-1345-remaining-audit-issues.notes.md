@@ -93,3 +93,14 @@ Subject `c6f7335` passed three fresh Windows/Node 24 creation cases and installe
 - Source and durable evidence: `docs/researches/20260925-fg6-matrix-conclusions.md`, `docs/verification/fg6-platform-workflow-matrix-readback.json`, `docs/verification/20260925-fg6-hosted-matrix-artifacts.json`. Final edits are records only; no expensive matrix rerun.
 - Read-only architecture queue checkpoint: one pending advisory item remains; unrelated architecture projection work was not changed.
 - Draft PR #223 remains open. Remaining #164 facade extraction and #171 manifest/egress work, optional #162 cloud milestone, and full work-package acceptance remain outside this completed FG6 slice.
+
+## Independent hosted Governance completion
+
+P1: existing Verify workflow owns Governance plus the matrix; the canonical Governance command remains unchanged. P2: a record-only follow-up cannot repair the old failed job through rerun because that job uses the old checkout. P3: a manual event runs only Governance with event-isolated concurrency, while PR/main events preserve every matrix target and read-only permissions.
+
+- Workflow routing regression: before change 5 pass / 1 fail; after change combined routing/FG6 tests 16 pass / 92 assertions. Typecheck passed.
+- Published candidate `405d6ca1bec1fe6ec603e9eb11ff9c7cc49e5ec8`; manual run `36122160055` and Governance job `108029917724` completed successfully in 5m40s. Matrix was skipped with no steps executed.
+- Hosted Verify: 2037 pass / 2 platform skips / 0 fail. Canonical Governance summary: 24 executed commands, zero skipped commands, all successful; includes the 23 evidence inspections.
+- Verified exact head/run/attempt, checkout SHA, GitHub job conclusion and downloaded log SHA-256. Durable record: `docs/verification/20260925-governance-revalidation.json`; operator procedure: `docs/runbooks/governance-revalidation.md`.
+- The previous full nine-platform result remains on `8f87777`; differences through this candidate are only workflow routing, its tests and records. This manual run does not replace FG6 matrix evidence. Original failed workflow history remains truthful.
+- Final follow-up changes records only and skips automatic CI. Draft #223, #162/#164/#171 remaining scope and formal acceptance are unchanged; no merge, release, deployment or issue closure.
