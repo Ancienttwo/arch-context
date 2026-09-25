@@ -26,6 +26,20 @@ describe("governance verify workflow", () => {
     expect(WORKFLOW).toContain("node-version: 22.22.x");
   });
 
+  test("isolates manual Governance revalidation without bypassing automatic matrix coverage", () => {
+    const workflow: any = Bun.YAML.parse(WORKFLOW);
+    expect(Object.keys(workflow.on).sort()).toEqual(["pull_request", "push", "workflow_dispatch"]);
+    expect(workflow.on.push.branches).toEqual(["main"]);
+    expect(workflow.jobs.verify.if).toBe("github.event_name != 'workflow_dispatch'");
+    expect(workflow.jobs["governance-verify"].if).toBeUndefined();
+    expect(workflow.jobs["governance-verify"].needs).toBeUndefined();
+    expect(workflow.jobs["governance-verify"].steps.at(-1).run).toBe("bun run verify:governance");
+    expect(workflow.permissions).toEqual({ contents: "read" });
+    expect(workflow.concurrency.group).toBe("verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}");
+    expect(workflow.jobs.verify.strategy.matrix.os).toEqual(["ubuntu-latest", "macos-15", "windows-latest"]);
+    expect(workflow.jobs.verify.strategy.matrix["node-version"]).toEqual(["22.22.x", "24.x", "25.x"]);
+  });
+
   test("keeps governance verify local and evidence-inspection only after full verify", () => {
     expect(VERIFY_GOVERNANCE).toContain('"run", "verify"');
     expect(VERIFY_GOVERNANCE).toContain("requiresCompletedLedgerIds");

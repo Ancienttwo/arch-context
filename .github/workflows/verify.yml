@@ -1,6 +1,8 @@
 name: Verify
+run-name: ${{ github.event_name == 'workflow_dispatch' && 'Governance revalidation' || 'Verify' }}
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -10,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: verify-${{ github.workflow }}-${{ github.ref }}
+  group: verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -40,6 +42,8 @@ jobs:
         run: bun run verify:governance
 
   verify:
+    # Manual revalidation reruns Governance; PR/main events always retain the matrix.
+    if: github.event_name != 'workflow_dispatch'
     name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     runs-on: ${{ matrix.os }}
     # Native Windows ACL subprocesses make the measured full suite plus packaging exceed 20 min.

@@ -218,3 +218,11 @@ Owner approved correcting matrix-job versus workflow conclusions, then one full 
 Record-only follow-up commits preserve the tested source SHA explicitly; they do not claim that their own commit was executed by the earlier workflow. Draft status and all umbrella issue scopes remain open.
 
 FG6 slice complete: frozen `8f87777` / run `36117123203` passed all nine full matrix jobs and actual platform readbacks. Workflow conclusion remains failure because its Governance job inspected the previous recording. The regenerated v2 recording passes inspection, and the other 22 Governance evidence inspections pass locally. Archive/payload identity and CI merge/candidate tree were verified. Record-only publication preserves the tested source explicitly and skips redundant CI. Whole-PR acceptance, remote Governance success and the umbrella issues remain open; see `docs/researches/20260925-fg6-matrix-conclusions.md`.
+
+## Approved continuation: independent Governance revalidation
+
+Owner approved an independent Governance entrypoint and actual hosted revalidation after FG6 evidence refresh. P1: `.github/workflows/verify.yml` owns both Governance and the nine-target matrix; `scripts/verify-governance.mjs` remains the canonical full local Verify plus 23 evidence inspections. P2: a record-only commit follows its tested matrix subject; rerunning the old failed job checks the old recording, while a normal PR event repeats the expensive nine-target matrix. P3: add `workflow_dispatch` to the existing registered Verify workflow; only this event excludes the matrix job. Pull requests and main pushes retain the complete matrix. Separate concurrency by event so a manual governance run cannot cancel an automatic matrix. Keep contents read-only and all Governance commands/deadlines intact. At 10x manual dispatch volume the existing full local Verify dominates cost; no duplicate runner or bypass mode is added.
+
+- [ ] Verify workflow routing and concurrency with focused tests; publish the reviewed diff with automatic CI skipped.
+- [ ] Dispatch Governance on the frozen branch head and verify the exact job/result, with no matrix execution.
+- [ ] Record hosted evidence, update Draft PR and canonical memory, and preserve remaining issue/acceptance scope.
