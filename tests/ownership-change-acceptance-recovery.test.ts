@@ -12,7 +12,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { digestJson, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
-import { runCli } from "@archcontext/surfaces/cli";
+import { runCli } from "../packages/surfaces/cli/src/main";
 
 const codegraphCli = join(dirname(createRequire(import.meta.url).resolve("@colbymchenry/codegraph/package.json")), "npm-shim.js");
 

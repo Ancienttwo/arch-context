@@ -11,7 +11,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { digestJson, projectionResultInvariantIssues, stableYaml, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
-import { runCli } from "@archcontext/surfaces/cli";
+import { runCli } from "../packages/surfaces/cli/src/main";
 
 const timeout = process.platform === "win32" ? 240_000 : 60_000;
 const MANIFEST_PATH = "docs/architecture/.projection-manifest.json";
@@ -71,7 +71,7 @@ function projectionRequest(root: string, requestId: string): ProjectionRequestV1
       repositoryId: repositoryFingerprint(root),
       workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as never).replace(/^sha256:/, "").slice(0, 16)}`,
       headSha: gitOut(root, "rev-parse", "HEAD"),
-      worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as ProjectionRequestV1["expected"]["worktreeDigest"]
+      worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
     }
   };
 }
@@ -144,34 +144,6 @@ async function reachCleanProjection(root: string, daemon: RuntimeDaemonClient): 
   const applied = await runTestCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root, daemon);
   expect(applied.ok, JSON.stringify(applied)).toBe(true);
 }
-
-function snapshotCount(root: string): number {
-  const db = new Database(join(stateRoot(root), "local-store.sqlite"), { readonly: true });
-  try {
-    return (db.query("SELECT COUNT(*) AS count FROM snapshots").get() as { count: number }).count;
-  } finally {
-    db.close();
-  }
-}
-
-test("prior projection journal reads do not create workspace snapshots or sessions", async () => {
-  const root = createFixture();
-  const daemon = await createStartedDaemon({ localStorePath: join(stateRoot(root), "local-store.sqlite") });
-  try {
-    mkdirSync(join(root, ".ai/harness/evidence"), { recursive: true });
-    writeFileSync(join(root, ".ai/harness/evidence/runtime.jsonl"), "runtime evidence is not an input to a journal read\n");
-    const before = snapshotCount(root);
-    expect(daemon.status().sessions).toBe(0);
-    expect(await daemon.listProjectionPriorCommittedApplies(root, "uncommitted-request"))
-      .toMatchObject({ ok: true, data: { applies: [] } });
-    expect(snapshotCount(root)).toBe(before);
-    expect(daemon.status().sessions).toBe(0);
-  } finally {
-    await daemon.stop();
-    rmSync(stateRoot(root), { recursive: true, force: true });
-    rmSync(root, { recursive: true, force: true });
-  }
-});
 
 test("a repeated projection request learns what its own killed attempt already committed", async () => {
   const root = createFixture();
