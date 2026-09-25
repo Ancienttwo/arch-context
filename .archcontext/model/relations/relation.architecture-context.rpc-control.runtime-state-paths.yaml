@@ -1,0 +1,6 @@
+id: "relation.architecture-context.rpc-control.runtime-state-paths"
+intent: "Resolve daemon connection, lock and review-run paths through the shared state path authority"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.rpc-server"
+target: "component.architecture-context.local-runtime.runtime-state-paths"

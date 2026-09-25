@@ -1,0 +1,6 @@
+id: "relation.architecture-context.rpc-client.rpc-control"
+intent: "Read the shared daemon connection file through control helpers without loading the server implementation"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.rpc-client"
+target: "component.architecture-context.local-runtime.rpc-server"

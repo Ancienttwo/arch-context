@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.runtime-state-paths"
+kind: "component"
+name: "Runtime State Paths"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/runtime-state-paths/src/**"
+status: "active"
+summary: "Resolves OS user-data and environment state roots, Git common-dir repository identity and worktree-specific runtime paths without loading SQLite or daemon implementations."

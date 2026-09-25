@@ -1,0 +1,6 @@
+id: "relation.architecture-context.mcp-local.rpc-client"
+intent: "Resolve and call the daemon through the client-only RPC entrypoint"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.surfaces.mcp-local"
+target: "component.architecture-context.local-runtime.rpc-client"

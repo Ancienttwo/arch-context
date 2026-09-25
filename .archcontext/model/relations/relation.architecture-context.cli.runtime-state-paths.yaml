@@ -1,0 +1,6 @@
+id: "relation.architecture-context.cli.runtime-state-paths"
+intent: "Use the shared state path authority in the fast hook client"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.surfaces.cli"
+target: "component.architecture-context.local-runtime.runtime-state-paths"

@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
+import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
 
 const RUNTIME_RPC_VERSION = "archcontext.runtime-rpc/v1";
 const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
@@ -156,29 +155,6 @@ function readRuntimeRpcConnection(root: string) {
   }
 }
 
-function runtimeStatePaths(root: string) {
-  const repositoryRoot = findRepositoryRoot(root);
-  const canonicalRepositoryRoot = canonicalPath(repositoryRoot);
-  const gitCommonDir = readGitPath(canonicalRepositoryRoot, ["rev-parse", "--git-common-dir"]);
-  const repositoryAnchor = canonicalPath(gitCommonDir ? resolveMaybeRelative(canonicalRepositoryRoot, gitCommonDir) : canonicalRepositoryRoot);
-  const workspaceAnchor = canonicalRepositoryRoot;
-  const stateRoot = defaultArchContextStateRoot();
-  const repositoryStateDir = join(stateRoot, "repositories", stableStorageId("repo", repositoryAnchor));
-  const workspaceStateDir = join(repositoryStateDir, "worktrees", stableStorageId("ws", workspaceAnchor));
-  return {
-    daemonConnectionPath: join(workspaceStateDir, "archctxd.json")
-  };
-}
-
-function defaultArchContextStateRoot() {
-  const override = process.env.ARCHCONTEXT_STATE_DIR;
-  if (override) return resolve(override);
-  const home = homedir();
-  if (process.platform === "darwin") return join(home, "Library", "Application Support", "ArchContext");
-  if (process.platform === "win32") return join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "ArchContext");
-  return join(process.env.XDG_DATA_HOME ?? join(home, ".local", "share"), "archcontext");
-}
-
 function findRepositoryRoot(root: string) {
   return readGitPath(root, ["rev-parse", "--show-toplevel"]) ?? root;
 }
@@ -196,23 +172,6 @@ function isPrivateControlFile(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-function resolveMaybeRelative(base: string, path: string) {
-  return isAbsolute(path) ? resolve(path) : resolve(base, path);
-}
-
-function canonicalPath(path: string) {
-  const resolved = resolve(path);
-  try {
-    return realpathSync.native(resolved);
-  } catch {
-    return resolved;
-  }
-}
-
-function stableStorageId(prefix: "repo" | "ws", value: string) {
-  return `${prefix}.${createHash("sha256").update(value).digest("hex").slice(0, 16)}`;
 }
 
 function digestJson(value: unknown) {
