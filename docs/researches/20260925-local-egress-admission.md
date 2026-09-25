@@ -49,6 +49,6 @@ and [unshare(1)](https://www.man7.org/linux/man-pages/man1/unshare.1.html).
 macOS acceptance is based on measured Seatbelt denial and completed workflow,
 not on assuming that a sandbox command launched successfully.
 
-This implements the bounded #171 item locally; broader verification stopped at two projection/RPC failures. Current status and source hashes: `docs/verification/20260925-egress-local-checkpoint.json`. Hosted acceptance and publication are pending. Historical DE1/DE3/S6 evidence,
+This bounded #171 slice is hosted-verified on `5117abd`: Verify `36138457129` passed all ten jobs, including actual Linux namespace proof. Exact job/artifact provenance is in `docs/verification/20260925-egress-hosted-ci.json`. The earlier stop remains historical in `docs/verification/20260925-egress-local-checkpoint.json`; its approved diagnosis is documented in `20260925-projection-rpc-deadline.md`. Historical DE1/DE3/S6 evidence,
 #164 facade work and whole-plan acceptance are separate remaining items. No cloud
 provider delivery, merge, release or umbrella issue closure is implied.

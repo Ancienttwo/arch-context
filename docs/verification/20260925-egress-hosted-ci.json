@@ -1,0 +1,840 @@
+{
+  "schemaVersion": "archcontext.egress-hosted-ci/v1",
+  "scope": "Frozen local egress admission candidate; kernel network proof, full Verify matrix and Governance; no merge or release acceptance",
+  "generatedAt": "2026-09-25T13:28:06.808965+00:00",
+  "sourceHeadSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+  "baseSha": "e3d807759e917b26c539f25c51edc31946feb740",
+  "ciMergeSha": "9e26ccd31a753e28bd250ab6673a5d0d8562f203",
+  "candidateAndMergeTree": "fd406c5cc994ab6eaa2ce05991c10c62206a0e03",
+  "duplicateDiagnosticRun": {
+    "id": 36138457132,
+    "action": "cancelled",
+    "reason": "Canonical matrix already runs Windows ACL regressions and installed-bin readbacks.",
+    "conclusion": "cancelled",
+    "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+    "status": "completed"
+  },
+  "workflow": {
+    "id": 36138457129,
+    "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129",
+    "event": "pull_request",
+    "path": ".github/workflows/verify.yml",
+    "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+    "head_branch": "codex/remaining-audit-issues",
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "jobs": [
+    {
+      "id": 108082135176,
+      "name": "Governance Verify",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135176",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:22Z",
+      "completed_at": "2026-09-25T13:07:56Z",
+      "jobLogSha256": "sha256:cab98337d5aa88746c3f0003c407f0c94447c8f573d543d97bce9a9eb80b0ece",
+      "fullTests": {
+        "pass": 2070,
+        "skip": 2,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "commandSummary": {
+        "schemaVersion": "archcontext.verify-governance/v1",
+        "status": "verified",
+        "ok": true,
+        "commandCount": 24,
+        "skippedCount": 0,
+        "results": [
+          {
+            "command": "bun run verify",
+            "exitCode": 0,
+            "durationMs": 310659
+          },
+          {
+            "command": "bun scripts/fg3-real-pr-synchronize-e2e.ts inspect --evidence docs/verification/fg3-real-pr-synchronize-e2e.json --json",
+            "exitCode": 0,
+            "durationMs": 26
+          },
+          {
+            "command": "bun scripts/fg4-public-fork-adversarial-readback.ts inspect --evidence docs/verification/fg4-public-fork-adversarial-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 31
+          },
+          {
+            "command": "bun scripts/fg5-check-failure-readback.ts inspect --evidence docs/verification/fg5-check-failure-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 25
+          },
+          {
+            "command": "bun scripts/fg5-retention-staging-readback.ts inspect --evidence docs/verification/fg5-retention-staging-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 29
+          },
+          {
+            "command": "bun scripts/fg5-control-plane-incident-drill.ts inspect --evidence docs/verification/fg5-control-plane-incident-drill.json --json",
+            "exitCode": 0,
+            "durationMs": 30
+          },
+          {
+            "command": "bun scripts/fg5-full-plane-dlp-readback.ts inspect --evidence docs/verification/fg5-full-plane-dlp-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 29
+          },
+          {
+            "command": "bun scripts/fg6-local-no-cloud-readback.ts inspect --evidence docs/verification/fg6-local-no-cloud-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 23
+          },
+          {
+            "command": "bun scripts/fg6-developer-review-provenance-readback.ts inspect --evidence docs/verification/fg6-developer-review-provenance-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 194
+          },
+          {
+            "command": "bun scripts/fg6-new-commit-invalidation-readback.ts inspect --evidence docs/verification/fg6-new-commit-invalidation-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 28
+          },
+          {
+            "command": "bun scripts/fg6-organization-runner-no-llm-readback.ts inspect --evidence docs/verification/fg6-organization-runner-no-llm-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 33
+          },
+          {
+            "command": "bun scripts/fg6-privacy-dlp-readback.ts inspect --evidence docs/verification/fg6-privacy-dlp-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 35
+          },
+          {
+            "command": "bun scripts/fg6-no-provider-deterministic-readback.ts inspect --evidence docs/verification/fg6-no-provider-deterministic-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 34
+          },
+          {
+            "command": "bun scripts/fg6-platform-workflow-matrix-readback.ts inspect --evidence docs/verification/fg6-platform-workflow-matrix-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 34
+          },
+          {
+            "command": "bun scripts/fg6-adversarial-governance-matrix-readback.ts inspect --evidence docs/verification/fg6-adversarial-governance-matrix-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 36
+          },
+          {
+            "command": "bun scripts/fg6-chaos-fault-matrix-readback.ts inspect --evidence docs/verification/fg6-chaos-fault-matrix-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 32
+          },
+          {
+            "command": "bun scripts/fg6-security-release-readback.ts inspect --evidence docs/verification/fg6-security-release-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 24
+          },
+          {
+            "command": "bun scripts/fg6-external-security-review-readback.ts inspect --evidence docs/verification/fg6-external-security-review-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 47
+          },
+          {
+            "command": "bun scripts/fg6-representative-benchmark-readback.ts inspect --evidence docs/verification/fg6-representative-benchmark-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 25
+          },
+          {
+            "command": "bun scripts/fg6-slo-readback.ts inspect --evidence docs/verification/fg6-slo-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 29
+          },
+          {
+            "command": "bun scripts/fg6-retention-deletion-readback.ts inspect --evidence docs/verification/fg6-retention-deletion-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 32
+          },
+          {
+            "command": "bun scripts/fg6-ops-runbook-readback.ts inspect --evidence docs/verification/fg6-ops-runbook-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 32
+          },
+          {
+            "command": "bun scripts/fg6-feature-flag-readback.ts inspect --evidence docs/verification/fg6-feature-flag-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 30
+          },
+          {
+            "command": "bun scripts/fg6-rollback-compat-readback.ts inspect --evidence docs/verification/fg6-rollback-compat-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 35
+          }
+        ]
+      },
+      "networkIsolationStep": [],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 20824.17
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 25160.12
+        }
+      ]
+    },
+    {
+      "id": 108082135565,
+      "name": "macos-15 / Node 22.22.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135565",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:27Z",
+      "completed_at": "2026-09-25T13:08:57Z",
+      "jobLogSha256": "sha256:43ddbdb607ea7d1412d1e61e40448b298827a18ea8f67ff5c0ec5d696ec6ca07",
+      "fullTests": {
+        "pass": 2071,
+        "skip": 1,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T13:02:48Z",
+          "completed_at": "2026-09-25T13:02:48Z"
+        }
+      ],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 21963.38
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 30417.36
+        }
+      ]
+    },
+    {
+      "id": 108082135742,
+      "name": "macos-15 / Node 24.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135742",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:27Z",
+      "completed_at": "2026-09-25T13:09:17Z",
+      "jobLogSha256": "sha256:4e94e35f580d0f6df92945fd034d24ff41a9822b47e337a09065a6db955327d8",
+      "fullTests": {
+        "pass": 2071,
+        "skip": 1,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T13:02:48Z",
+          "completed_at": "2026-09-25T13:02:48Z"
+        }
+      ],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 17637.13
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 22506.84
+        }
+      ]
+    },
+    {
+      "id": 108082135570,
+      "name": "macos-15 / Node 25.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135570",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:28Z",
+      "completed_at": "2026-09-25T13:09:15Z",
+      "jobLogSha256": "sha256:7d62b0118770347a75861654dbcff8c0b5eadc39866bb8f013497e1fb3e1d6f9",
+      "fullTests": {
+        "pass": 2071,
+        "skip": 1,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T13:02:55Z",
+          "completed_at": "2026-09-25T13:02:55Z"
+        }
+      ],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 27370.04
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 24939.84
+        }
+      ]
+    },
+    {
+      "id": 108082135583,
+      "name": "ubuntu-latest / Node 22.22.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135583",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:22Z",
+      "completed_at": "2026-09-25T13:08:03Z",
+      "jobLogSha256": "sha256:8af60e40a1a7731be4ddbad08463520e92d5e1536e662a8de20a0720f1635b09",
+      "fullTests": {
+        "pass": 2070,
+        "skip": 2,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-25T13:02:39Z",
+          "completed_at": "2026-09-25T13:02:46Z"
+        }
+      ],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 20455.14
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 25203.16
+        }
+      ]
+    },
+    {
+      "id": 108082135708,
+      "name": "ubuntu-latest / Node 24.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135708",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:21Z",
+      "completed_at": "2026-09-25T13:07:45Z",
+      "jobLogSha256": "sha256:82bd70dacbb900b3ec489242142726b008caa22e6d5e05623ad9b0f2826744ca",
+      "fullTests": {
+        "pass": 2070,
+        "skip": 2,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T13:02:32Z",
+          "completed_at": "2026-09-25T13:02:32Z"
+        }
+      ],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 20541.63
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 25205.7
+        }
+      ]
+    },
+    {
+      "id": 108082135340,
+      "name": "ubuntu-latest / Node 25.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135340",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:21Z",
+      "completed_at": "2026-09-25T13:07:56Z",
+      "jobLogSha256": "sha256:8ae04117ad4869d37360c98568537749a949b703b3e9ba3c6e2a8033ea8f09d9",
+      "fullTests": {
+        "pass": 2070,
+        "skip": 2,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T13:02:38Z",
+          "completed_at": "2026-09-25T13:02:38Z"
+        }
+      ],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 20772.84
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 25455.52
+        }
+      ]
+    },
+    {
+      "id": 108082135513,
+      "name": "windows-latest / Node 22.22.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135513",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:22Z",
+      "completed_at": "2026-09-25T13:27:22Z",
+      "jobLogSha256": "sha256:4acb3e3bebf5c9d4897f98d7308b7f2369c02a8ca5f51e2a5e0de2a653e7d8dc",
+      "fullTests": {
+        "pass": 2071,
+        "skip": 1,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T13:03:19Z",
+          "completed_at": "2026-09-25T13:03:19Z"
+        }
+      ],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 50057.26
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 57094.95
+        }
+      ]
+    },
+    {
+      "id": 108082135544,
+      "name": "windows-latest / Node 24.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135544",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:23Z",
+      "completed_at": "2026-09-25T13:24:18Z",
+      "jobLogSha256": "sha256:5db90e51afda25485251add52c07505e10015e33c5852ad2be14773c19afec5d",
+      "fullTests": {
+        "pass": 2071,
+        "skip": 1,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T13:03:26Z",
+          "completed_at": "2026-09-25T13:03:26Z"
+        }
+      ],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 42784.47
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 51782.42
+        }
+      ]
+    },
+    {
+      "id": 108082135761,
+      "name": "windows-latest / Node 25.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36138457129/job/108082135761",
+      "head_sha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "run_id": 36138457129,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T13:02:22Z",
+      "completed_at": "2026-09-25T13:25:38Z",
+      "jobLogSha256": "sha256:f74dc8ce9ec814d014460deb0c1236fb02ba8240e75a549458c3dc0c2fa8cf76",
+      "fullTests": {
+        "pass": 2071,
+        "skip": 1,
+        "fail": 0,
+        "total": 2072,
+        "files": 203
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T13:03:41Z",
+          "completed_at": "2026-09-25T13:03:41Z"
+        }
+      ],
+      "projectionRegressionCases": [
+        {
+          "name": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+          "pass": true,
+          "durationMs": 44709.51
+        },
+        {
+          "name": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+          "pass": true,
+          "durationMs": 52870.87
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 10865474886,
+      "name": "local-no-cloud-network-linux-node-22",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:951789b70664c956dfbb1521db167feafcddd6a3ca891b602bd737dc676b2996",
+      "payloadSha256": "sha256:8bddab2d533f0a970d8f60221a82b611debbedd847dc7f5f76e00ec8b3fd543e",
+      "networkIsolation": {
+        "mechanism": "linux-network-namespace",
+        "platform": "linux",
+        "nonLoopbackDenied": true,
+        "descendantDenied": true,
+        "loopbackAllowed": true,
+        "probes": [
+          {
+            "family": "ipv4",
+            "directCode": "ENETUNREACH",
+            "childCode": "ENETUNREACH"
+          },
+          {
+            "family": "ipv6",
+            "directCode": "ENETUNREACH",
+            "childCode": "ENETUNREACH"
+          }
+        ],
+        "namespace": {
+          "distinctFromParent": true,
+          "interfaces": [
+            "lo"
+          ]
+        }
+      },
+      "commands": [
+        "doctor",
+        "paths",
+        "mcp install",
+        "init",
+        "sync",
+        "practices validate",
+        "context",
+        "prepare",
+        "status",
+        "checkpoint",
+        "complete",
+        "review"
+      ],
+      "egress": {
+        "ok": true,
+        "policyMode": "local-only",
+        "enforcement": "application-admission",
+        "defaultOutbound": "local-only",
+        "effectiveOutbound": "local-only",
+        "nonLocalEgress": [],
+        "cloudContentUpload": "deny",
+        "secureMcpTunnel": "disabled-by-default",
+        "thirdPartyTelemetry": "disabled",
+        "codeGraph": {
+          "provider": "codegraph",
+          "telemetry": "disabled",
+          "envVar": "DO_NOT_TRACK",
+          "configuredValue": "1",
+          "effectiveValue": "1",
+          "source": "environment"
+        },
+        "warnings": [],
+        "source": "cli-environment"
+      },
+      "taskLifecycle": {
+        "preparePosture": "normal",
+        "checkpointFresh": true,
+        "completeSchemaVersion": "archcontext.review/v1",
+        "completeResult": "pass"
+      }
+    },
+    {
+      "id": 10865594725,
+      "name": "platform-ipc-permission-macos-15-node-22.22.x",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:441738f5e3567decd5eb9687f8b5eec3166b9291d34df812e84bb6664d6a4b94",
+      "payloadSha256": "sha256:7091819f0a5d921625e46873e212d03bd0bf50c1e9e9bef3832eaedd1dfc0c4a",
+      "platform": "darwin",
+      "node": "v22.22.3",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10865695214,
+      "name": "platform-ipc-permission-macos-15-node-24.x",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:3c7f16f13194a2855745214b1d030fd6a7aa520e6a6b61e7f6a464e3e09a3642",
+      "payloadSha256": "sha256:ac9df164b375ace6e6607513cdbdb97fbbc29e545a73d151e56988c995bfaab8",
+      "platform": "darwin",
+      "node": "v24.20.0",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10865715175,
+      "name": "platform-ipc-permission-macos-15-node-25.x",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:63c52e885295d2bcba38b6a4c38a407e01281eb71215e64e887ce7ecddc44901",
+      "payloadSha256": "sha256:a4c5d2c8c21577af503d501c42eeacd74476a93d693d6bc9ba1ca7a80e72f8fc",
+      "platform": "darwin",
+      "node": "v25.9.0",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10866005000,
+      "name": "platform-ipc-permission-ubuntu-latest-node-22.22.x",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:754f35d40760ac07231a48ba941e53c717ac5f2438b498a4e0070befe8b701c2",
+      "payloadSha256": "sha256:2a0d220187368925fb29d91d1ae9c47e53ae461caa9a13a29dcce34bf9835098",
+      "platform": "linux",
+      "node": "v22.22.3",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10865559828,
+      "name": "platform-ipc-permission-ubuntu-latest-node-24.x",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:121716a40e1f5de913cf51ee2070072f4dbbfb908958ddf1fb756993109227ff",
+      "payloadSha256": "sha256:e8a7b6e0b80f51230a50f96880b1fde8fd7882135775c88dd82be5da4e81dd65",
+      "platform": "linux",
+      "node": "v24.21.0",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10864599109,
+      "name": "platform-ipc-permission-ubuntu-latest-node-25.x",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:20d3965d30d03bb3427014986c1cb147868ab7391a8d9de9b49c7c88138d0df9",
+      "payloadSha256": "sha256:6913cb9746b8507dfddc9e2000eec0bcd98626ea56607c82b87a0a20f73a8da8",
+      "platform": "linux",
+      "node": "v25.9.0",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10865840341,
+      "name": "platform-ipc-permission-windows-latest-node-22.22.x",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:80788eb402b8f3844f88d55ee866af82dd8aa3271b756bf948333d9d84bde43d",
+      "payloadSha256": "sha256:09977d89394652ec9081e8e18469a37c4020193777545514290154322f48bec4",
+      "platform": "win32",
+      "node": "v22.22.3",
+      "connectionMode": "win32-acl",
+      "lockMode": "win32-acl",
+      "tokenRedactedFromStatus": true,
+      "windowsAcl": {
+        "connection": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "lock": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "broadReadRejected": true
+      }
+    },
+    {
+      "id": 10866040273,
+      "name": "platform-ipc-permission-windows-latest-node-24.x",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:bb18972ec9e095bce402aa55e016f0878b077345df54eda016a77ccfc2b97e7d",
+      "payloadSha256": "sha256:b6b01226c3f7fffddb845841fcd31a99deea627ebd5d6d7ecc681e160b813c97",
+      "platform": "win32",
+      "node": "v24.21.0",
+      "connectionMode": "win32-acl",
+      "lockMode": "win32-acl",
+      "tokenRedactedFromStatus": true,
+      "windowsAcl": {
+        "connection": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "lock": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "broadReadRejected": true
+      }
+    },
+    {
+      "id": 10864519330,
+      "name": "platform-ipc-permission-windows-latest-node-25.x",
+      "runId": 36138457129,
+      "headSha": "5117abd2a98a5fdaeaab744d79b2386e1cd5037c",
+      "archiveSha256": "sha256:a2d912ffba559fbc6d891689b4d565e3067e9052d3cd0696d426a6a60e1bebff",
+      "payloadSha256": "sha256:a81e7452910022f5d6262895bdde192301ee8482ba2916a2ccedc95b4136136d",
+      "platform": "win32",
+      "node": "v25.9.0",
+      "connectionMode": "win32-acl",
+      "lockMode": "win32-acl",
+      "tokenRedactedFromStatus": true,
+      "windowsAcl": {
+        "connection": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "lock": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "broadReadRejected": true
+      }
+    }
+  ],
+  "artifactInspection": {
+    "command": "bun scripts/fg6-platform-workflow-matrix-readback.ts run --hosted-run-source <run.json> --hosted-jobs-source <jobs.json> --hosted-artifact-dir <artifacts> --out <record.json> --json",
+    "ok": true,
+    "failures": [],
+    "recordSha256": "sha256:f80cb65fc870e79ea34dd950c38116228aab481af22728eca9f50e6be03d000c",
+    "inputSha256": {
+      "run.json": "sha256:451ca7deee952d5dd9fa2752f761b83b5002711d85e59bceb06bd5834b266ee6",
+      "jobs.json": "sha256:5c4e54bdaa4db7f6b2d5a7e4023a5536087e8881ec29e0f35c1e545a99b1cea4"
+    },
+    "matrixArtifactCount": 9,
+    "note": "Collector initially omitted the GitHub jobs total_count field; preserved complete API response and reran inspection without changing the verifier or tested source."
+  }
+}

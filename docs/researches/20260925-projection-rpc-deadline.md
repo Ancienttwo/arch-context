@@ -55,3 +55,5 @@ and selects only the two named cases. Final result and source/log hashes are rec
 in `docs/verification/20260925-projection-rpc-diagnosis.json` after completion.
 This bounded result is separate from full current-candidate CI and from the earlier
 macOS kernel-isolated egress proof.
+
+Final uninstrumented check: 2 pass / 0 fail / 95 assertions in 239.57 seconds; churn 109.124s, parity 130.021s. Typecheck passes. Frozen candidate `5117abd` then passed all ten Verify jobs in run `36138457129`; both named cases passed in every job. Full hosted source/job/artifact evidence is `docs/verification/20260925-egress-hosted-ci.json`. These passes do not establish the missing historical churn envelope's root cause.
