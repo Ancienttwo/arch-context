@@ -136,3 +136,6 @@ The approved egress and bounded projection diagnosis slices are complete. The fi
 ## DE1/DE3 predicate repair (approved bounded slice)
 
 Completed the three current-source detectors without runtime behavior changes. Cause and P1/P2/P3: `docs/researches/20260925-de1-de3-source-predicates.md`; exact input hashes, baseline failures and mutation evidence: `docs/verification/20260925-de1-de3-predicate-readback.json`. Final scoped checks: 41 tests / 118 assertions; ownership 6 tests / 52 assertions; typecheck and package boundaries passed. Three actual product-source mutations failed at the intended assertions and were restored byte-for-byte. Historical DE1/DE3 artifacts remain unchanged; full old command matrices/preflights were not rerun. This is bounded predicate repair acceptance only. S6, remaining facade/cloud scope and whole-plan acceptance remain open.
+
+
+Published source `48a88cecbbc1906bdb1d75958d7423ed4170484a` to Draft #223. Historical full CI remains bound to `5117abd`; this repair has the scoped local verification recorded above. Publication/records completion is not hosted-CI or whole-plan acceptance.

@@ -30,7 +30,8 @@
     "packages/local-runtime/local-store-sqlite/src/index.ts": "sha256:bb192a8dd8d0a8842a8e77a51d39cda93ed513589acdf82b2c379e7d9bf6cbfe",
     "packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts": "sha256:f990721fadefe6126352cf1a7d97107f1fa11204bacc452eecab03d2abef7407",
     "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts": "sha256:ee387fc59e87a53194f321090e1e7000fe6dda9fa11fcd2495573ec3b05d28ad",
-    "packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts": "sha256:519d8dd8e939dc6328de0d311432a0a001d7923c03694591052a98336d60ca4c"
+    "packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts": "sha256:519d8dd8e939dc6328de0d311432a0a001d7923c03694591052a98336d60ca4c",
+    "packages/local-runtime/runtime-daemon/src/explorer-server.ts": "sha256:a37a6fafce652b72de0d5911c5c212b7488d962d97bbdd19126c0d7a1b07560d"
   },
   "verification": {
     "restoredBehaviorAndSourceTests": {
@@ -118,5 +119,7 @@
     "Original DE1/DE3 command matrices and contract preflights were not rerun; historical artifacts are unchanged.",
     "The last full hosted Verify result is bound to 5117abd, not this new checker revision.",
     "S6, remaining facade scope, optional cloud delivery and whole-plan acceptance remain open."
-  ]
+  ],
+  "sourceCommit": "48a88cecbbc1906bdb1d75958d7423ed4170484a",
+  "sourceProbe": "All three inspectors passed against the same index.ts + explorer-server.ts corpus used by both readbacks."
 }

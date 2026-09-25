@@ -310,7 +310,7 @@ Owner approved the bounded #171 slice for `indexedBacklinks`, `requiredDomainsFa
 - [x] Capture the three old predicate failures against the unchanged candidate.
 - [x] Repair only these source predicates and add negative mutation coverage.
 - [x] Run scoped compiler, daemon and SQLite behavior tests plus typecheck/governance ownership checks; record source hashes and exact results.
-- [ ] Publish the bounded slice on Draft #223 and update durable records. Do not relabel historical DE1/DE3 artifacts, merge, deploy, or close umbrella issues.
+- [x] Publish the bounded slice on Draft #223 and update durable records. Do not relabel historical DE1/DE3 artifacts, merge, deploy, or close umbrella issues.
 
 
 ## DE1/DE3 predicate repair (approved bounded slice)
