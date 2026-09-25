@@ -1,3 +1,5 @@
+import { DeveloperReviewSessionService, type DeveloperReviewDigestBundle, type DeveloperReviewSession, type DeveloperReviewAttestation } from "./developer-review-run";
+export type { DeveloperReviewDigestBundle, DeveloperReviewSession, DeveloperReviewAttestation } from "./developer-review-run";
 import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
 export type { ExplorerServerOptions, ExplorerServerStatus } from "./explorer-server";
 import { LedgerAdminService } from "./ledger-admin";
@@ -24,7 +26,6 @@ import {
   addRepositoryToLandscape,
   bindRepository,
   canonicalRepositoryRoot,
-  computeReviewWorktreeDigest,
   computeWorktreeDigest,
   createLandscape,
   landscapeDigest,
@@ -108,10 +109,10 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, baseModelBlockingErrors, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
-import { computeGitChangeFingerprint, findRepositoryRoot, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
+import { computeGitChangeFingerprint, findRepositoryRoot, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readWorktreeChangeMetadata, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
@@ -388,35 +389,6 @@ interface CheckpointCoalesceEntry {
   eventCount: number;
 }
 
-export interface DeveloperReviewDigestBundle {
-  schemaVersion: "archcontext.developer-review-digest-bundle/v1";
-  challengeId: string;
-  repositoryId: number;
-  headSha: string;
-  headTreeOid: string;
-  worktreeDigest: string;
-  modelDigest: string;
-  policyDigest: string;
-  codeFactsDigest: string;
-  runtime: AttestationV2["runtime"];
-}
-
-export interface DeveloperReviewSession {
-  schemaVersion: "archcontext.developer-review-session/v1";
-  challengeId: string;
-  taskSessionId: string;
-  reviewId: string;
-  reviewDigest: string;
-  reviewResult: "pass" | "pass_with_warnings" | "fail_action_required";
-  attestationResult: AttestationResult;
-  summary: {
-    errors: number;
-    warnings: number;
-    notices: number;
-  };
-  digests: DeveloperReviewDigestBundle;
-}
-
 export interface RuntimeCompleteTaskInput {
   taskSessionId?: string;
   task?: string;
@@ -426,15 +398,6 @@ export interface RuntimeCompleteTaskInput {
   compatibilityPathIntroduced?: boolean;
   cleanupRequired?: number;
   cleanupCompleted?: number;
-}
-
-export interface DeveloperReviewAttestation {
-  schemaVersion: "archcontext.developer-review-attestation/v1";
-  challengeId: string;
-  reviewSession: DeveloperReviewSession;
-  attestation: AttestationV2;
-  attestationDigest: string;
-  signingPayloadDigest: string;
 }
 
 export interface RuntimeDeps {
@@ -904,6 +867,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly ledgerAdmin: LedgerAdminService;
   private readonly auditService: AuditService;
   private readonly projectionApplies: ProjectionApplyService;
+  private readonly developerReviewSessions: DeveloperReviewSessionService;
   private readonly developerReviewRuns: DeveloperReviewRunService;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
@@ -1013,6 +977,18 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
     this.maxRepoSessions = deps.maxRepoSessions ?? 8;
     this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded", this.architectureLedger);
+    this.developerReviewSessions = new DeveloperReviewSessionService({
+      assertRunning: () => this.assertRunning(),
+      clock: this.clock,
+      modelStore: this.modelStore,
+      codeFacts: this.codeFacts,
+      localStore: this.localStore,
+      devicePrivateKeySigner: this.devicePrivateKeySigner,
+      composition: this.composition,
+      codeFactsDigest,
+      computeDeveloperReviewDigestBundle: (input) => this.computeDeveloperReviewDigestBundle(input),
+      runDeveloperReviewSession: (input) => this.runDeveloperReviewSession(input)
+    });
   }
 
   async start(): Promise<void> {
@@ -3265,40 +3241,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     codeFactsSnapshot?: CodeFactsSnapshot;
     sparseScope?: string[];
   }): Promise<DeveloperReviewDigestBundle> {
-    this.assertRunning();
-    const verification = verifyDetachedReviewWorktree({
-      worktreeRoot: input.worktree.worktreeRoot,
-      expectedHeadSha: input.challenge.headSha,
-      expectedHeadTreeOid: input.worktree.headTreeOid
-    });
-    if (!verification.accepted) throw new Error(`developer-review-worktree-invalid: ${verification.reasonCode ?? "UNKNOWN"}`);
-
-    const workspace: WorkspaceRef = {
-      root: input.worktree.worktreeRoot,
-      repositoryId: `github.repository.${input.challenge.repositoryId}`,
-      headSha: input.challenge.headSha
-    };
-    const model = await this.modelStore.validateModel(workspace);
-    const modelFiles = await this.modelStore.loadModel(workspace);
-    const codeFacts = input.codeFactsSnapshot ?? await this.codeFacts.sync({ workspace });
-    return {
-      schemaVersion: "archcontext.developer-review-digest-bundle/v1",
-      challengeId: input.challenge.challengeId,
-      repositoryId: input.challenge.repositoryId,
-      headSha: input.challenge.headSha,
-      headTreeOid: input.worktree.headTreeOid,
-      worktreeDigest: computeReviewWorktreeDigest({
-        repositoryNumericId: input.challenge.repositoryId,
-        headSha: input.challenge.headSha,
-        headTreeOid: input.worktree.headTreeOid,
-        trackedTree: readTrackedTreeEntries(input.worktree.worktreeRoot),
-        sparseScope: input.sparseScope
-      }),
-      modelDigest: model.modelDigest,
-      policyDigest: policyDigestForModelFiles(modelFiles, input.challenge.policyProfileId),
-      codeFactsDigest: codeFactsDigest(codeFacts),
-      runtime: runtimeAttestationIdentity(codeFacts, this.composition)
-    };
+    return this.developerReviewSessions.computeDeveloperReviewDigestBundle(input);
   }
 
   async runDeveloperReviewSession(input: {
@@ -3311,36 +3254,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     cleanupRequired?: number;
     cleanupCompleted?: number;
   }): Promise<DeveloperReviewSession> {
-    this.assertRunning();
-    const digests = await this.computeDeveloperReviewDigestBundle({
-      challenge: input.challenge,
-      worktree: input.worktree
-    });
-    const review = completeTaskGate({
-      taskSessionId: input.taskSessionId ?? `developer_review_${input.challenge.challengeId}`,
-      posture: input.posture ?? "normal",
-      headSha: input.challenge.headSha,
-      currentHeadSha: input.challenge.headSha,
-      worktreeDigest: digests.worktreeDigest,
-      modelDigest: digests.modelDigest,
-      codeFactsDigest: digests.codeFactsDigest,
-      compatibilityContract: input.compatibilityContract,
-      compatibilityPathIntroduced: input.compatibilityPathIntroduced,
-      cleanupRequired: input.cleanupRequired,
-      cleanupCompleted: input.cleanupCompleted
-    });
-    await this.localStore.saveReviewResult(review.reviewId, review);
-    return {
-      schemaVersion: "archcontext.developer-review-session/v1",
-      challengeId: input.challenge.challengeId,
-      taskSessionId: review.taskSessionId,
-      reviewId: review.reviewId,
-      reviewDigest: review.extensions.digest,
-      reviewResult: review.result,
-      attestationResult: review.result === "fail_action_required" ? "fail" : "pass",
-      summary: review.summary,
-      digests
-    };
+    return this.developerReviewSessions.runDeveloperReviewSession(input);
   }
 
   async runSignedDeveloperReviewAttestation(input: {
@@ -3354,60 +3268,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     startedAt?: string;
     completedAt?: string;
   }): Promise<DeveloperReviewAttestation> {
-    this.assertRunning();
-    assertNoCallerProvidedAttestationFields(input, "developer-review-attestation");
-    if (!this.devicePrivateKeySigner) throw new Error("device-private-key-signer-unavailable");
-    const startedAt = input.startedAt ?? this.clock();
-    const reviewSession = await this.runDeveloperReviewSession({
-      challenge: input.challenge,
-      worktree: input.worktree,
-      taskSessionId: input.taskSessionId
-    });
-    const completedAt = input.completedAt ?? this.clock();
-    const unsigned = createAttestationV2({
-      challengeId: input.challenge.challengeId,
-      installationId: input.challenge.installationId,
-      repositoryId: input.challenge.repositoryId,
-      pullRequestNumber: input.challenge.pullRequestNumber,
-      headSha: input.challenge.headSha,
-      baseSha: input.challenge.baseSha,
-      mergeBaseSha: input.mergeBaseSha ?? input.challenge.baseSha,
-      headTreeOid: reviewSession.digests.headTreeOid,
-      worktreeDigest: reviewSession.digests.worktreeDigest,
-      modelDigest: reviewSession.digests.modelDigest,
-      policyDigest: reviewSession.digests.policyDigest,
-      codeFactsDigest: reviewSession.digests.codeFactsDigest,
-      reviewDigest: reviewSession.reviewDigest,
-      result: reviewSession.attestationResult,
-      execution: {
-        trustLevel: "developer",
-        source: "clean-commit-worktree",
-        principalId: input.principalId,
-        publicKeyId: input.publicKeyId
-      },
-      runtime: reviewSession.digests.runtime,
-      nonce: input.challenge.nonce,
-      startedAt,
-      completedAt,
-      expiresAt: input.challenge.expiresAt
-    });
-    const signingPayload = canonicalAttestationV2(unsigned);
-    const signature = this.devicePrivateKeySigner.signWithDevicePrivateKey({
-      keyRef: input.keyRef,
-      payload: signingPayload
-    });
-    const attestation = createAttestationV2({
-      ...unsigned,
-      signature: { algorithm: "ed25519", value: signature }
-    });
-    return {
-      schemaVersion: "archcontext.developer-review-attestation/v1",
-      challengeId: input.challenge.challengeId,
-      reviewSession,
-      attestation,
-      attestationDigest: attestationV2Digest(attestation),
-      signingPayloadDigest: digestJson(signingPayload)
-    };
+    return this.developerReviewSessions.runSignedDeveloperReviewAttestation(input);
   }
 
   async repoAdd(root: string, name?: string): Promise<JsonEnvelope> {
@@ -4322,30 +4183,6 @@ function numericRepositoryId(repositoryId: string): number {
   return Math.max(1, hash);
 }
 
-function policyDigestForModelFiles(modelFiles: unknown[], policyProfileId: string): string {
-  const policyFiles = modelFiles
-    .map(modelFileDigestSummary)
-    .filter((file): file is { path: string; digest: string } => Boolean(file?.path.startsWith(".archcontext/policies/")))
-    .sort((a, b) => a.path.localeCompare(b.path));
-  const payload: Record<string, Json> = {
-    schemaVersion: "archcontext.policy-digest/v1",
-    policyProfileId
-  };
-  if (policyFiles.length > 0) {
-    payload.files = policyFiles;
-  } else {
-    payload.fallbackDigest = digestJson(modelFiles as unknown as Json);
-  }
-  return digestJson(payload);
-}
-
-function modelFileDigestSummary(value: unknown): { path: string; digest: string } | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const record = value as { path?: unknown; digest?: unknown };
-  if (typeof record.path !== "string" || typeof record.digest !== "string") return undefined;
-  return { path: record.path, digest: record.digest };
-}
-
 function readGitChangeMetadata(root: string, source: GitChangeSource, input: RuntimeAgentJobEnqueueGitInput): GitChangeMetadata {
   const repositoryRoot = findRepositoryRoot(root);
   if (source === "commit") return readCommitChangeMetadata(repositoryRoot, input.ref ?? "HEAD");
@@ -4697,37 +4534,6 @@ function schemaVersionFromModelBody(body: string): string {
   return "";
 }
 
-function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: RuntimeCompositionReport): AttestationV2["runtime"] {
-  const product = productVersionManifest();
-  return {
-    version: product.product.version,
-    buildDigest: digestJson({
-      schemaVersion: "archcontext.runtime-build/v1",
-      product: product.product,
-      packageManager: product.packageManager,
-      engines: product.engines,
-      schemas: product.schemas,
-      runtime: product.runtime
-    } as unknown as Json),
-    codeGraphVersion: snapshot.version,
-    capabilitiesDigest: digestJson({
-      schemaVersion: "archcontext.runtime-capabilities/v1",
-      adapters: composition.adapters,
-      codeFacts: {
-        provider: snapshot.provider,
-        version: snapshot.version
-      },
-      capabilities: [
-        "detached-review-worktree",
-        "tracked-worktree-digest",
-        "model-digest",
-        "policy-digest",
-        "code-facts-digest",
-        "deterministic-review-session"
-      ]
-    } as unknown as Json)
-  };
-}
 
 function runtimeInvestigationRisk(value: unknown): InvestigationContextRisk {
   if (value === "low" || value === "medium" || value === "high") return value;

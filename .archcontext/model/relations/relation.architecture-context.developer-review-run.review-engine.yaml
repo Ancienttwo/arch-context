@@ -1,0 +1,6 @@
+id: "relation.architecture-context.developer-review-run.review-engine"
+intent: "Compute deterministic review results from daemon-owned digests before persistence and attestation signing"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.developer-review-run"
+target: "component.architecture-context.core.review-engine"
