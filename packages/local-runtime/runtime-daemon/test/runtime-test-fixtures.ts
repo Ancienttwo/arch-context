@@ -1,3 +1,7 @@
+import { expect } from "bun:test";
+import { realpathSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { type RmDirOptions, rmSync as nodeRmSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -63,4 +67,36 @@ export function createStartedTestDaemon(deps: Parameters<typeof createStartedDae
     localStore: new TestLocalStore(),
     ...deps
   });
+}
+
+export function createGitRepo(): string {
+  const root = mkdtempSync(join(tmpdir(), "archctx-runtime-git-"));
+  writeFileSync(join(root, "README.md"), "# fixture\n", "utf8");
+  execFileSync("git", ["init"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", ["add", "."], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  return root;
+}
+
+export function createInitializedGitRepo(): string {
+  const root = mkdtempSync(join(tmpdir(), "archctx-runtime-initialized-git-"));
+  writeFileSync(join(root, "README.md"), "# fixture\n", "utf8");
+  initializeArchContextModel(root, "Digest App");
+  execFileSync("git", ["init"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", ["add", "."], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  return root;
+}
+
+export function gitOut(root: string, ...args: string[]): string {
+  return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+export function expectSameExistingPath(actual: string, expected: string): void {
+  expect(normalizeExistingPath(actual)).toBe(normalizeExistingPath(expected));
+}
+
+export function normalizeExistingPath(path: string): string {
+  const real = realpathSync.native(path);
+  return process.platform === "win32" ? real.toLowerCase() : real;
 }
