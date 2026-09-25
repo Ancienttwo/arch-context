@@ -12,6 +12,7 @@
     "./local-store-sqlite": "./local-store-sqlite/src/index.ts",
     "./model-store-yaml": "./model-store-yaml/src/index.ts",
     "./egress": "./runtime-daemon/src/egress.ts",
+    "./egress-admission": "./runtime-daemon/src/egress-admission.ts",
     "./runtime-daemon": "./runtime-daemon/src/index.ts",
     "./control-file-security": "./control-file-security/src/index.ts",
     "./process-liveness": "./process-liveness/src/index.ts",

@@ -20,6 +20,30 @@ const CONTEXT7_FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429"
 type Context7FailureMatrixCase = typeof CONTEXT7_FAILURE_MATRIX_CASES[number];
 
 describe("daemon external documentation", () => {
+  test("explicit allowNetwork cannot override local-only for manual docs", async () => {
+    const root = tempRepo();
+    let providerCalls = 0;
+    const daemon = await createStartedTestDaemon({ externalDocumentation: fakeExternalDocumentation(() => providerCalls++) });
+    const previousMode = process.env.ARCHCONTEXT_EGRESS_MODE;
+    try {
+      await daemon.init(root, "Local docs");
+      await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true });
+      process.env.ARCHCONTEXT_EGRESS_MODE = "local-only";
+      for (const input of [
+        { command: "resolve" as const, libraryName: "React", query: "state hooks", allowNetwork: true },
+        { command: "fetch" as const, libraryId: "/facebook/react", intent: "state hooks", allowNetwork: true }
+      ]) {
+        const result = await daemon.docs(root, input);
+        expect(result).toMatchObject({ ok: false, error: { code: "AC_POLICY_VIOLATION" } });
+      }
+      expect(providerCalls).toBe(0);
+    } finally {
+      if (previousMode === undefined) delete process.env.ARCHCONTEXT_EGRESS_MODE;
+      else process.env.ARCHCONTEXT_EGRESS_MODE = previousMode;
+      removeTempRepo(root);
+    }
+  });
+
   test("external docs manual fetch is pinned cached and excluded from prepare and complete", async () => {
     const root = tempRepo();
     let providerCalls = 0;

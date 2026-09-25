@@ -1,14 +1,33 @@
 {
-  "schemaVersion": "archcontext.fg6-local-no-cloud-readback/v1",
+  "schemaVersion": "archcontext.fg6-local-no-cloud-readback/v2",
   "acceptanceId": "AC-01",
   "environment": "local-release-readback",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-06-24T02:09:12.836Z",
+  "generatedAt": "2026-09-25T12:32:11.474Z",
   "command": "node scripts/local-no-cloud-e2e.mjs",
   "evidence": {
     "localEvidence": {
-      "schemaVersion": "archcontext.local-no-cloud-e2e/v1",
+      "schemaVersion": "archcontext.local-no-cloud-e2e/v2",
+      "networkIsolation": {
+        "mechanism": "macos-seatbelt",
+        "platform": "darwin",
+        "nonLoopbackDenied": true,
+        "descendantDenied": true,
+        "loopbackAllowed": true,
+        "probes": [
+          {
+            "family": "ipv4",
+            "directCode": "EPERM",
+            "childCode": "EPERM"
+          },
+          {
+            "family": "ipv6",
+            "directCode": "EPERM",
+            "childCode": "EPERM"
+          }
+        ]
+      },
       "commands": [
         "doctor",
         "paths",
@@ -24,16 +43,18 @@
         "review"
       ],
       "providerEnvRemoved": [
-        "GH_PAGER",
-        "OPENAI_API_KEY",
-        "OPENAI_BASE_URL"
+        "GH_PAGER"
       ],
       "git": {
-        "headSha": "f8665bd4948848c3ffed18aaa4834495a72ce4fb"
+        "headSha": "dee1b5156c3adf6e8d86ad94f9a907cfa848cca3"
       },
       "egress": {
         "ok": true,
+        "policyMode": "local-only",
+        "enforcement": "application-admission",
         "defaultOutbound": "local-only",
+        "effectiveOutbound": "local-only",
+        "nonLocalEgress": [],
         "cloudContentUpload": "deny",
         "secureMcpTunnel": "disabled-by-default",
         "thirdPartyTelemetry": "disabled",
@@ -45,7 +66,8 @@
           "effectiveValue": "1",
           "source": "environment"
         },
-        "warnings": []
+        "warnings": [],
+        "source": "cli-environment"
       },
       "mcp": {
         "host": "codex",
@@ -66,7 +88,7 @@
         "practiceCount": 41,
         "sourceCount": 19,
         "profileCount": 8,
-        "catalogDigest": "sha256:a80c896e87aa9ccf2766ae1e1dfae4b159da24add16adbdaa8bd53307d713c14"
+        "catalogDigest": "sha256:674bb22ba5dd6562e15f80689b171a98789b5a9c21cdb59c89aada354b61abd8"
       },
       "review": {
         "schemaVersion": "archcontext.review/v1",
@@ -75,12 +97,12 @@
         "warnings": 0
       },
       "paths": {
-        "repo": "$TMPDIR/archctx-local-no-cloud-DvLf5Q/single-repo-basic",
-        "bin": "/Users/ancienttwo/Projects/arch-context/packages/surfaces/cli/src/main.ts",
-        "runtimeStateRoot": "$TMPDIR/archctx-local-no-cloud-DvLf5Q/archcontext-state",
-        "storageRepositoryId": "repo.1258e542f580cd93",
-        "storageWorkspaceId": "ws.17f8ec9803416732",
-        "localStorePath": "$TMPDIR/archctx-local-no-cloud-DvLf5Q/archcontext-state/repositories/repo.1258e542f580cd93/worktrees/ws.17f8ec9803416732/runtime.sqlite",
+        "repo": "$TMPDIR/archctx-local-no-cloud-Jn1bjd/single-repo-basic",
+        "bin": "/Users/kito/Projects/arch-context-wt-remaining-audit-issues/packages/surfaces/cli/src/main.ts",
+        "runtimeStateRoot": "$TMPDIR/archctx-local-no-cloud-Jn1bjd/archcontext-state",
+        "storageRepositoryId": "repo.49905cf16f28d8fa",
+        "storageWorkspaceId": "ws.8dca0b90344171c8",
+        "localStorePath": "$TMPDIR/archctx-local-no-cloud-Jn1bjd/archcontext-state/repositories/repo.49905cf16f28d8fa/worktrees/ws.8dca0b90344171c8/runtime.sqlite",
         "npmGlobalInstallState": "forbidden"
       }
     },

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { LocalEgressPolicyError, localEgressAdmission, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
 import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, discardLegacyGithubDeveloperReviewState, readGithubDeveloperReviewState, sanitizeGithubDeveloperReviewState, writeGithubDeveloperReviewState, type GitHubDeveloperReviewState } from "./github-review-state";
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
@@ -217,6 +218,7 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
   try {
     return await runCliUnchecked(command, args, cwd, deps);
   } catch (error) {
+    if (error instanceof LocalEgressPolicyError) return errorEnvelope(command, "AC_POLICY_VIOLATION", error.message);
     if (error instanceof RuntimeVersionUnsupportedError) {
       return errorEnvelope(command ?? "cli", "AC_RUNTIME_VERSION_UNSUPPORTED", error.message);
     }
@@ -2577,7 +2579,8 @@ async function doctorReport(cwd: string, args: string[] = []) {
   const hardening = diagnostics(localEgressStatus(process.env, {
     auditEnabled: auditGithubIssuesEnabled(cwd),
     auditUserConsent: auditConsentGrantedForDoctor(auditRoot),
-    githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV
+    githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV,
+    updateCheckRequested: args.includes("--check-updates") || process.env[UPDATE_CHECK_ENV] === "1"
   }));
   const daemonEgress = "health" in daemon ? daemon.health?.egress : undefined;
   const egress = daemon.running
@@ -2622,7 +2625,9 @@ function updateCheckReport(opts: { checkUpdates: boolean; env?: NodeJS.ProcessEn
     installCommand,
     egress: {
       default: "none",
-      checkUpdates: "https://registry.npmjs.org/"
+      checkUpdates: "https://registry.npmjs.org/",
+      admission: localEgressAdmission("npm-update-check", env),
+      requested: opts.checkUpdates
     }
   };
 
@@ -2690,11 +2695,11 @@ function readLatestPackageVersion(env: NodeJS.ProcessEnv): { source: "env" | "np
     return { source: "env", version: env[LATEST_VERSION_ENV] };
   }
 
-  const result = spawnSync("npm", ["view", RELEASE_PACKAGE_NAME, "version", "--json"], {
+  const result = withLocalEgress("npm-update-check", () => spawnSync("npm", ["view", RELEASE_PACKAGE_NAME, "version", "--json"], {
     encoding: "utf8",
     timeout: NPM_VIEW_TIMEOUT_MS,
     shell: false
-  });
+  }), env);
   if (result.status !== 0 || result.error) {
     return {
       source: "npm",

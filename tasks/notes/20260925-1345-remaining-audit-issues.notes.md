@@ -116,3 +116,30 @@ Production CLI plan/apply succeeded under `changeset.manifest-decisions-171` (di
 Developer-requested security scan returned two existing unmanaged Herdr SessionStart hook warnings, no fail/high findings; architecture queue reported one advisory pending job. These are recorded without changing host hooks or processing the unrelated architecture queue.
 
 Manifest hosted closeout: source `57664d58b90abcc69e8c5f71c43a93ace5dcd2e3`, base `e3d807759e917b26c539f25c51edc31946feb740`, Verify run `36125127163` completed successfully with all ten jobs passing. Every full suite ran 2060 tests, zero failures; Linux/Governance report 2058 pass and 2 platform skips, macOS/Windows 2059 pass and 1 platform skip. Governance ran all 24 canonical commands with 0 skipped inspections. Its job log confirms merge `3204b426fb88267114b3cb0d8b0e08c3e98afe3b`; merge and candidate trees match `4321daf4f3b7f6cc9297601c2c2d802a230c4843`. Nine downloaded archive digests match GitHub and their payloads pass the existing FG6 verifier, including actual Windows owner-only ACL and broad-read rejection. Exact job IDs, hashes and results: `docs/verification/20260925-manifest-hosted-ci.json`. Duplicate diagnostic run `36125127252` was cancelled because the full matrix executes the same native boundary tests. Earlier FG6/Governance records retain their historical subjects. Final publication is records-only with `[skip ci]`; no repeated full matrix or additional scope was started. The Obsidian canonical project pointer now references this bounded contract and readbacks.
+
+
+## Local egress continuation: implementation and local proof
+
+P1/P2/P3: `docs/researches/20260925-local-egress-admission.md`. One shared deny policy now gates actual Context7/npm/Claude/gh boundaries and explicit CodeGraph telemetry; existing feature consent remains mandatory. CLI and daemon policy are reported separately. Cached local documentation remains available; denied prepare auto-fetch retains its existing advisory behavior.
+
+Pre-fix Context7 transport guard failed (one request reached the fixture, exit 1); the repaired guard rejects before transport side effects. Focused related suites: 111 pass / 0 fail / 643 assertions. Typecheck and package boundaries pass. Final macOS kernel-isolated first experience passed with direct and descendant IPv4/IPv6 `EPERM`, positive loopback and full task/review lifecycle; canonical FG6 v2 record regenerated from this actual execution. An unisolated probe failed. Linux CI has a dedicated namespace proof step; no Linux result is claimed before execution. Architecture queue remains one advisory pending item; no unrelated queue work was performed.
+
+Candidate publication and current-source hosted verification remain pending at this checkpoint. No merge, release, provider call or umbrella issue closure.
+
+
+## Egress verification stop (current checkpoint)
+
+Runtime implementation and macOS kernel-isolated E2E are complete locally; publication is held. The broader CLI/workflow run finished after 664.60 seconds with 92 pass / 2 fail / 1 error (94 tests, 1507 assertions). `projection apply over real RPC ignores concurrent .ai/harness runtime churn` failed during shared fixture preparation at CLI test line 4448 (`unresolvedProtocol.ok === false`, underlying envelope absent). `projection CLI and MCP share RPC results and single-use request-bound write approval` exceeded the 120000 ms outer deadline; a subsequent unhandled line-5087 assertion expected one successful concurrent result and observed zero.
+
+These are outside the named egress behavior; their causal relationship to this candidate is unproven. They are not labelled known flakes, existing baseline failures or egress regressions without evidence. No projection source/test fix or timeout increase was made. Per the user AGENTS second-out-of-scope-fault hard stop, the pending isolated rerun was interrupted (exit 130, no verdict), no full CI was launched and the work remains uncommitted in the isolated worktree. The 111 related tests, typecheck, package boundaries, architecture Mermaid and actual macOS FG6 proof passed. Linux kernel execution and current-source hosted checks remain unverified.
+
+Exact WIP source hashes, log digests, results and stop boundary: `docs/verification/20260925-egress-local-checkpoint.json`. Next bounded diagnosis is the two projection/RPC failures: capture the typed failure envelopes and child/outer deadlines on this same source before changing any product behavior. Do not repeat a full matrix until that blocker is understood.
+
+
+## Approved projection/RPC diagnosis outcome
+
+Source fingerprints matched the prior stop. The churn case passed at 116.486s under its unchanged 120s budget, then passed at 109.124s in normal verification. Its original false envelope is not reproduced or explained; the assertion now retains the returned error and no product fix is claimed for it.
+
+The parity case reproduced the 120s outer timeout: Bun killed `--version` after 738ms, well before its own 5000ms limit. An observational longer-budget run completed all 61 assertions in 129.938s; all 111 child commands succeeded, consuming 123.816s cumulatively (max 1.666s). Only this test now uses its existing Windows 240s allowance on all platforms. Product RPC/subprocess deadlines, one-time approval and receipt semantics are unchanged. Final uninstrumented verification: 2 pass / 0 fail / 95 assertions, 239.57s; typecheck passes. Exact diagnosis, source/log hashes: `docs/verification/20260925-projection-rpc-diagnosis.json`; P1/P2/P3: `docs/researches/20260925-projection-rpc-deadline.md`.
+
+The previous failed aggregate run remains failed. These current named checks clear the observed parity deadline blocker, without retroactively explaining the historical churn envelope. Existing authorization permits frozen Draft publication and full current-source CI; the original stop and interrupted rerun remain historical.

@@ -4445,7 +4445,7 @@ describe("archctx CLI", () => {
         }
       };
       const unresolvedProtocol = await runTestCli("projection", ["run", "--request-json", JSON.stringify(protocolRequest)], root);
-      expect(unresolvedProtocol.ok).toBe(true);
+      expect(unresolvedProtocol.ok, JSON.stringify(unresolvedProtocol)).toBe(true);
       expect((unresolvedProtocol.data as ProjectionResultV2).status).toBe("human-action-required");
       expect((unresolvedProtocol.data as ProjectionResultV2).refreshSignals[0]?.mode).toBe("human-action-required");
 
@@ -5032,6 +5032,8 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  // The complete real-CodeGraph fixture + approval/recovery path measured 130s locally.
+  // Keep the existing Windows allowance for this scenario on every platform.
   test("projection CLI and MCP share RPC results and single-use request-bound write approval", async () => {
     const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     let now = Date.parse("2026-09-25T00:00:00Z");
@@ -5084,7 +5086,7 @@ describe("archctx CLI", () => {
       expect(await call("run", request, crossScope)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
       const token = await approve();
       const results = await Promise.all([call("run", request, token), call("run", request, token)]);
-      expect(results.filter(result => result.ok)).toHaveLength(1);
+      expect(results.filter(result => result.ok), JSON.stringify(results)).toHaveLength(1);
       expect(results.filter(result => !result.ok)).toMatchObject([{ error: { code: "AC_USER_CONFIRMATION_REQUIRED" } }]);
       const applied = results.find(result => result.ok)!;
       expect(applied.data.status).toBe("applied");
@@ -5105,7 +5107,7 @@ describe("archctx CLI", () => {
       await daemon.stop();
       removeTempRoot(root);
     }
-  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+  }, 240_000);
 
   test("CLI process exit code reflects the final envelope ok value", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-exitcode-"));

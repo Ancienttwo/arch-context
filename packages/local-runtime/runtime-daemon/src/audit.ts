@@ -1,3 +1,4 @@
+import { assertLocalEgressAllowed } from "@archcontext/local-runtime/egress-admission";
 import { readCurrentBranch } from "./projection-inputs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
@@ -154,6 +155,7 @@ export class AuditService {
     // the separate boundary that lets this repository's content reach a model provider (#161).
     const consent = readAuditConsent(repositoryRoot);
     if (!consent.granted) return auditConsentRequiredEnvelope("audit.run", consent.reason);
+    assertLocalEgressAllowed("agent-audit");
     const scope = await this.context.architectureLedgerScope(repositoryRoot);
     const now = this.context.clock();
     const taskSessionId = input.taskSessionId ?? "task_agent_audit";
@@ -565,6 +567,7 @@ export class AuditService {
       }
       const consent = readAuditConsent(repositoryRoot);
       if (!consent.granted) return auditConsentRequiredEnvelope("audit.approve", consent.reason);
+      assertLocalEgressAllowed("github-issue-publishing");
       const scope = await this.context.architectureLedgerScope(repositoryRoot);
       const run = await this.context.localStore.getAuditRun({ ...scope, runId: input.runId });
       if (!run) return errorEnvelope("audit.approve", "AC_REPO_NOT_FOUND", `audit run not found: ${input.runId}`);

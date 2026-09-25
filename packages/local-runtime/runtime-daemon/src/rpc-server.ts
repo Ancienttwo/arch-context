@@ -1,3 +1,4 @@
+import { LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { runtimeRpcMethod, type RuntimeRpcMethodName } from "./rpc-methods";
 import { type AddressInfo } from "node:net";
@@ -302,6 +303,7 @@ export class ArchctxRuntimeRpcServer {
       }
       const result = await this.dispatch(body.method ?? "", body.params ?? []).catch((error: unknown) => {
         // A write refused by the #172 recovery gate is a typed precondition failure, not a 500.
+        if (error instanceof LocalEgressPolicyError) return errorEnvelope(body.method ?? "rpc", "AC_POLICY_VIOLATION", error.message);
         if (error instanceof ChangeSetRecoveryUnresolvedError) return errorEnvelope(body.method ?? "rpc", "AC_PRECONDITION_FAILED", error.message);
         throw error;
       });

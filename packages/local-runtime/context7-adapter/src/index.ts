@@ -1,3 +1,4 @@
+import { assertLocalEgressAllowed, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
 import {
   EXTERNAL_DOCUMENTATION_RESOURCE_SCHEMA_VERSION,
   digestJson,
@@ -220,6 +221,7 @@ export class Context7ExternalDocumentationAdapter implements ExternalDocumentati
 
   async resolve(input: ExternalDocumentationResolveInput): Promise<ExternalDocumentationResolveResult> {
     if (!this.enabled) throw new Error("Context7 external docs provider is disabled");
+    assertLocalEgressAllowed("context7");
     if (input.provider !== "context7") throw new Error("Context7 adapter only supports provider=context7");
     assertSafeOutboundText(input.libraryName, "libraryName");
     assertSafeOutboundText(input.query, "query");
@@ -251,6 +253,7 @@ export class Context7ExternalDocumentationAdapter implements ExternalDocumentati
 
   async fetch(input: ExternalDocumentationFetchInput): Promise<ExternalDocumentationFetchResult> {
     if (!this.enabled) throw new Error("Context7 external docs provider is disabled");
+    assertLocalEgressAllowed("context7");
     if (input.provider !== "context7") throw new Error("Context7 adapter only supports provider=context7");
     assertContext7LibraryId(input.libraryId);
     assertContext7Version(input.version);
@@ -532,7 +535,7 @@ async function fetchWithTimeout(input: string | URL, init: RequestInit, timeoutM
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await withLocalEgress("context7", () => fetch(input, { ...init, redirect: "error", signal: controller.signal }));
   } catch (error) {
     if (isAbortError(error)) {
       throw new Context7ProviderError("timeout", "Context7 provider request timed out", { retryable: true, cause: error });

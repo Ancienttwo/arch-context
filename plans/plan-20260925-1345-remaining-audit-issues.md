@@ -241,3 +241,47 @@ Owner approved #171's supported configuration mutation contract and actual repos
 No `.archcontext/` file is edited directly by an agent. The manifest is in scope only as the output of the supported command. Existing runtime/source changes mean earlier platform CI is historical until this candidate receives its own verification.
 
 Manifest continuation complete: frozen `57664d58b90abcc69e8c5f71c43a93ace5dcd2e3` / Verify `36125127163` passed all ten jobs (nine platform targets plus Governance). Every full suite executed 2060 tests with zero failures; platform skips remain explicit. Governance executed all 24 canonical commands with no skipped inspections. Nine downloaded archive/payload identities, native permission evidence and CI merge/candidate tree equality were verified. Exact results: `docs/verification/20260925-manifest-hosted-ci.json`. Final record-only publication uses `[skip ci]` and preserves the tested source; no runtime/base changes or redundant matrix rerun. The manifest item is complete; whole-plan acceptance, #164 facade work and #171 egress/historical-readback work remain open.
+
+## Approved continuation: local egress admission and network-denied proof
+
+Owner approved the next #171 slice: one admission boundary for actual local-product outbound operations and kernel-enforced network-denied local-first-experience evidence. Existing Draft publication authorization persists; no provider calls, cloud delivery, merge/release, or umbrella issue closure.
+
+P1: current production non-local paths are Context7 HTTP, explicit npm update lookup, the audit investigator subprocess and GitHub issue executor. Feature enablement, user audit consent, publishing confirmation/credentials remain their domain authorities. CodeGraph telemetry is a separate explicitly configurable third-party channel. Daemon RPC/Explorer loopback remains local. Cloud clients currently expose crypto/ports without a production HTTP adapter; this slice does not invent one. The shared admission module belongs to the existing local-runtime workspace and is consumed by transports/CLI; it does not import surfaces or cloud.
+
+P2: `docs fetch` -> external documentation service -> enabled Context7 adapter -> HTTP transport -> fetch; `audit run` -> manifest + user consent -> queued job -> investigator spawn; `audit approve` -> manifest/consent/confirmation/PAT -> repo probe/list/create via gh; `update --check`/opted-in doctor -> npm view spawn. Today those last boundaries have no common deny control. `local-no-cloud-e2e.mjs` strips provider variables but all child processes still inherit usable network access.
+
+P3: introduce `ARCHCONTEXT_EGRESS_MODE=configured|local-only`, defaulting to configured feature opt-ins. `local-only` denies every named non-local operation even if its feature is enabled; invalid policy values fail closed. It never grants consent or overrides content/credential gates. Admission runs before real fetch/spawn and before audit queue/publish state changes. Reporting uses the same policy and separates daemon policy from a CLI update operation. Reject enabled CodeGraph telemetry under local-only instead of silently rewriting the user's value. No process-global fetch monkeypatch or proxy-only claim. The E2E must run under kernel network isolation (macOS Seatbelt / Linux network namespace), prove non-loopback socket and descendant-process denial while loopback works, and reject unsupported/unisolated runs. This verifies the test process tree; runtime admission is not advertised as an OS sandbox for arbitrary third-party code. At 10x operations, existing provider/process latency dominates; admission is constant-time and needs no new queue/cache.
+
+- [x] Capture pre-fix admission/network-proof regressions and implement the shared boundary with exact four-channel wiring and telemetry handling.
+- [x] Verify default opt-ins, explicit local-only/invalid policy denial, zero transport side effects, existing consent/approval, reporting and loopback behavior.
+- [x] Replace env-only E2E proof with actual network-isolated execution; strengthen the existing FG6 evidence inspector with no old-evidence fallback and regenerate valid evidence.
+- [ ] Freeze candidate/base, publish Draft and run required current-source hosted checks once, record actual results and update canonical memory.
+
+The full matrix may take 20–30 minutes; run it only after source freeze. The three-round repair cap applies to this newly approved slice. Network-isolation evidence on unsupported hosts must be a refusal, never a pass or silently unsandboxed execution.
+
+
+## Egress verification stop (current checkpoint)
+
+Runtime implementation and macOS kernel-isolated E2E are complete locally; publication is held. The broader CLI/workflow run finished after 664.60 seconds with 92 pass / 2 fail / 1 error (94 tests, 1507 assertions). `projection apply over real RPC ignores concurrent .ai/harness runtime churn` failed during shared fixture preparation at CLI test line 4448 (`unresolvedProtocol.ok === false`, underlying envelope absent). `projection CLI and MCP share RPC results and single-use request-bound write approval` exceeded the 120000 ms outer deadline; a subsequent unhandled line-5087 assertion expected one successful concurrent result and observed zero.
+
+These are outside the named egress behavior; their causal relationship to this candidate is unproven. They are not labelled known flakes, existing baseline failures or egress regressions without evidence. No projection source/test fix or timeout increase was made. Per the user AGENTS second-out-of-scope-fault hard stop, the pending isolated rerun was interrupted (exit 130, no verdict), no full CI was launched and the work remains uncommitted in the isolated worktree. The 111 related tests, typecheck, package boundaries, architecture Mermaid and actual macOS FG6 proof passed. Linux kernel execution and current-source hosted checks remain unverified.
+
+Exact WIP source hashes, log digests, results and stop boundary: `docs/verification/20260925-egress-local-checkpoint.json`. Next bounded diagnosis is the two projection/RPC failures: capture the typed failure envelopes and child/outer deadlines on this same source before changing any product behavior. Do not repeat a full matrix until that blocker is understood.
+
+
+## Approved continuation: projection/RPC failure diagnosis
+
+Owner approved the bounded diagnosis of the two verification blockers. P1: Bun owns the outer scenario deadline; CLI fixture setup invokes local daemon services; projection snapshot assembly invokes package-local CodeGraph with its own version/status/sync deadlines; later parity operations cross loopback RPC and one-time approval. P2: the first observed false envelope occurs during shared fixture preparation before injected runtime churn; the second expires at the outer 120-second deadline during concurrent approved RPC calls. Existing logs omit the first typed envelope and cannot establish causality. P3: preserve all product behavior, consent/receipt invariants and current deadlines while recording only diagnostic failure envelopes and subprocess method/timing/status. First reproduce the two named cases, then change only a proven cause. A separate observational longer-budget run may distinguish aggregate duration from a child deadline, without treating it as production acceptance. No broad matrix until this blocker is understood; maximum three fix/reverify rounds.
+
+- [x] Capture actual typed errors and command/outer timing on the pinned source.
+- [x] Prove or bound causality, apply only an evidence-supported correction if needed, and verify the named cases.
+- [x] Record the outcome and next publication boundary without conflating targeted results with full CI.
+
+
+## Approved projection/RPC diagnosis outcome
+
+Source fingerprints matched the prior stop. The churn case passed at 116.486s under its unchanged 120s budget, then passed at 109.124s in normal verification. Its original false envelope is not reproduced or explained; the assertion now retains the returned error and no product fix is claimed for it.
+
+The parity case reproduced the 120s outer timeout: Bun killed `--version` after 738ms, well before its own 5000ms limit. An observational longer-budget run completed all 61 assertions in 129.938s; all 111 child commands succeeded, consuming 123.816s cumulatively (max 1.666s). Only this test now uses its existing Windows 240s allowance on all platforms. Product RPC/subprocess deadlines, one-time approval and receipt semantics are unchanged. Final uninstrumented verification: 2 pass / 0 fail / 95 assertions, 239.57s; typecheck passes. Exact diagnosis, source/log hashes: `docs/verification/20260925-projection-rpc-diagnosis.json`; P1/P2/P3: `docs/researches/20260925-projection-rpc-deadline.md`.
+
+The previous failed aggregate run remains failed. These current named checks clear the observed parity deadline blocker, without retroactively explaining the historical churn envelope. Existing authorization permits frozen Draft publication and full current-source CI; the original stop and interrupted rerun remain historical.

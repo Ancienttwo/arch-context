@@ -1,3 +1,4 @@
+import { withLocalEgress } from "@archcontext/local-runtime/egress-admission";
 import { spawn } from "node:child_process";
 import {
   InvestigationRunnerFailure,
@@ -176,11 +177,11 @@ function runNodeInvestigationTransport(
   options: NodeInvestigationTransportOptions
 ): Promise<CommandInvestigationRunnerTransportResult> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(input.command, input.args, {
+    const child = withLocalEgress("agent-audit", () => spawn(input.command, input.args, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: input.cwd ?? options.cwd,
       env: investigationChildEnv(process.env)
-    });
+    }));
     let stdout = "";
     let stderr = "";
     let settled = false;

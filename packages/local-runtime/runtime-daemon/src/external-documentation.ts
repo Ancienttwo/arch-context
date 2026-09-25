@@ -1,3 +1,4 @@
+import { assertLocalEgressAllowed, LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -151,6 +152,7 @@ export class ExternalDocumentationService {
       if (input.command === "resolve") {
         if (!input.allowNetwork) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --allow-network");
         if (!input.libraryName || !input.query) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --library and --query");
+        assertLocalEgressAllowed("context7");
         return okEnvelope("docs.resolve", await this.manualExternalDocumentation().resolve({
           provider: "context7",
           libraryName: input.libraryName,
@@ -182,6 +184,7 @@ export class ExternalDocumentationService {
             request: { libraryId: input.libraryId, version: pinned.version, queryDigest, intent: input.intent }
           } as unknown as Json);
         }
+        assertLocalEgressAllowed("context7");
         const result = await this.manualExternalDocumentation().fetch({
           provider: "context7",
           libraryId: input.libraryId,
@@ -221,6 +224,7 @@ export class ExternalDocumentationService {
       }
       return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
     } catch (error) {
+      if (error instanceof LocalEgressPolicyError) return errorEnvelope(`docs.${input.command}`, "AC_POLICY_VIOLATION", error.message);
       const code = error instanceof ChangeSetRecoveryUnresolvedError ? "AC_PRECONDITION_FAILED" : "AC_SCHEMA_INVALID";
       return errorEnvelope(`docs.${input.command}`, code, error instanceof Error ? error.message : String(error));
     }
@@ -300,6 +304,7 @@ export class ExternalDocumentationService {
       return { ...cached.resource, queryDigest, cacheStatus: "fresh" };
     }
     try {
+      assertLocalEgressAllowed("context7");
       const result = await this.context.externalDocumentation.fetch({
         provider: "context7",
         libraryId: candidate.libraryId,

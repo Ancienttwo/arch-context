@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "archcontext.projection-rpc-diagnosis/v1",
+  "generatedAt": "2026-09-25T13:01:50.610241+00:00",
+  "scope": "Two named projection/RPC verification blockers; product behavior unchanged",
+  "baseHeadSha": "5cb265cf53d84eedebf776a62b530e7008a89064",
+  "testSourceSha256": "sha256:2b3e355d850d7c7a08c89dd38ea217de29c7b6fa2b7c3c100ac18f89f7a80c2f",
+  "rootCauseEvidence": {
+    "root_cause": "The parity test outer 120000 ms deadline kills valid sequential CodeGraph work; a complete run requires 129938 ms and 123816 ms in successful child calls alone.",
+    "repro": "bun test --preload ./_ops/remaining-issues/trace-codegraph.cjs --timeout 60000 packages/surfaces/cli/test/cli.test.ts --test-name-pattern \"projection apply over real RPC ignores concurrent|projection CLI and MCP share RPC\"",
+    "regression_guard": "packages/surfaces/cli/test/cli.test.ts: projection CLI and MCP share RPC results and single-use request-bound write approval",
+    "pre_fix_failure_artifact": "_ops/remaining-issues/projection-rpc/round1.log",
+    "pre_fix_exit_code": 1
+  },
+  "originalChurnFalseEnvelope": {
+    "status": "not reproduced; cause unconfirmed",
+    "originalEvidence": "docs/verification/20260925-egress-local-checkpoint.json",
+    "diagnosticPassMs": 116485.98,
+    "finalPassMs": 109124.2,
+    "timeoutChanged": false,
+    "change": "Failure assertion now includes returned envelope; no product fix claimed."
+  },
+  "parityDiagnosis": {
+    "originalBudgetMs": 120000,
+    "reproducedTimeoutMs": 120012.16,
+    "interruptedChild": {
+      "method": "--version",
+      "elapsedMs": 738,
+      "ownTimeoutMs": 5000,
+      "signal": "SIGTERM"
+    },
+    "observationalRun": {
+      "pass": 1,
+      "fail": 0,
+      "assertions": 61,
+      "testMs": 129937.59,
+      "childCalls": 111,
+      "childTotalMs": 123816,
+      "childMaxMs": 1666,
+      "childFailures": 0
+    },
+    "finalBudgetMs": 240000,
+    "windowsBudgetChanged": false,
+    "productTimeoutsChanged": false
+  },
+  "finalVerification": {
+    "preload": false,
+    "pass": 2,
+    "fail": 0,
+    "assertions": 95,
+    "durationSeconds": 239.57,
+    "testDurationsMs": [
+      109124.2,
+      130021.28
+    ],
+    "typecheck": "pass"
+  },
+  "logs": {
+    "round1.log": "sha256:69a665944a7bac469f0fe67f99a25145ae7de04d8c30ae6aca0be4e5d2ea8713",
+    "round2.log": "sha256:c9e6171a2cea84972c2ca86250c19411c7a89300d13108e37388b8cdcf712888",
+    "typecheck.log": "sha256:8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+    "round1-trace.jsonl": "sha256:62037b7181fbdc3c5307d95b236fd9d2d43a91ea62cf5342b875cdce37ba8727",
+    "final.log": "sha256:1b14da93a19837368c0b1a5804ec48e72bf3306cfaba4b517d901c5d08f800e4",
+    "round2-trace.jsonl": "sha256:177170d6b8bf78d4a3ec3276a92bb1450aa2736be555f909b4031edb3c4dfda9"
+  },
+  "limitations": [
+    "Original churn false envelope remains unexplained; no known-flake or egress-regression claim.",
+    "Targeted verification does not replace hosted candidate CI."
+  ]
+}
