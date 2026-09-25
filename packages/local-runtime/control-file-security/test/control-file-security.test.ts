@@ -10,7 +10,17 @@ test("control credentials are private at creation, readable and never overwrite 
   const root = mkdtempSync(join(tmpdir(), "archctx-control-file-"));
   const path = join(root, "credential.json");
   try {
-    createPrivateControlFile(path, '{"token":"fixture-中文"}');
+    const firstCreateStartedAt = performance.now();
+    let firstCreateCompleted = false;
+    try {
+      createPrivateControlFile(path, '{"token":"fixture-中文"}');
+      firstCreateCompleted = true;
+    } finally {
+      if (process.platform === "win32") console.info(JSON.stringify({
+        event: "native-acl-first-create", completed: firstCreateCompleted,
+        elapsedMs: Math.round(performance.now() - firstCreateStartedAt)
+      }));
+    }
     expect(readPrivateControlFile(path)).toBe('{"token":"fixture-中文"}');
     if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(() => createPrivateControlFile(path, "replacement")).toThrow();

@@ -68,6 +68,7 @@ function windowsControlFile(operation: "create" | "read", path: string, body?: s
   const systemRoot = process.env.SystemRoot;
   if (!systemRoot) throw new Error("Windows native ACL authority unavailable: SystemRoot is missing");
   let output: string;
+  const startedAt = performance.now();
   try {
     output = execFileSync(join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), [
       "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
@@ -76,9 +77,16 @@ function windowsControlFile(operation: "create" | "read", path: string, body?: s
       input: JSON.stringify({ operation, path, body }), encoding: "utf8", windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"], timeout: 10_000, maxBuffer: 1024 * 1024
     });
-  } catch {
-    // Never surface subprocess diagnostics that might quote credential input.
-    throw new Error("Windows native ACL operation failed");
+  } catch (error) {
+    // Select scalar metadata only. Never retain cause, command, path, input, stdout or stderr.
+    const failure = error as { code?: unknown; status?: unknown; signal?: unknown } | null;
+    const code = ["ETIMEDOUT", "ENOENT", "EACCES", "EPERM", "ENOBUFS"].includes(String(failure?.code))
+      ? String(failure?.code) : "UNKNOWN";
+    const signal = ["SIGTERM", "SIGKILL", "SIGABRT", "SIGINT"].includes(String(failure?.signal))
+      ? String(failure?.signal) : null;
+    const status = typeof failure?.status === "number" && Number.isInteger(failure.status) ? failure.status : null;
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    throw new Error(`Windows native ACL operation failed: ${JSON.stringify({ operation, code, status, signal, elapsedMs })}`);
   }
   const result: unknown = JSON.parse(output);
   if (!result || typeof result !== "object" || !("ok" in result)) throw new Error("Invalid native ACL result");

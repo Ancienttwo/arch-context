@@ -84,6 +84,7 @@ allowed_paths:
   - docs/adr/
   - docs/verification/
   - .github/workflows/verify.yml
+  - .github/workflows/windows-acl-diagnostics.yml
   - .archcontext/model/
   - plans/
   - tasks/

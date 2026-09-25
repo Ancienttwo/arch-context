@@ -190,3 +190,15 @@ Hosted attempt 3 (`36108161898`, `61b01b2`) passed all three Windows ACL focused
 ### Final stop after repair round 3
 
 Run `36110137854` / candidate `7b16ec6` failed the first Windows/Node 24 private-file creation after 10024.63 ms with the fixed native-operation error; the other 14 focused cases passed. The exact subprocess cause is unproven. No fourth repair loop is authorized by the standing cap. Remaining jobs were cancelled and actual evidence was preserved. Prior `61b01b2` native-proof PASS does not establish current-candidate or full-work-package acceptance. The Windows verification task stays incomplete; Draft PR #223 is not ready to merge.
+
+## Approved continuation: native first-create diagnostics
+
+Owner approved the bounded next diagnostic after the three-round stop. This renews work only on the unresolved Windows first-create failure, safe subprocess diagnostics, its existing regression, and subject-bound evidence. Existing Draft publication authorization remains; no merge/release/whole-issue closure.
+
+P1: the shared control-file-security module is the native child-process boundary for daemon publication/discovery, fast hook and recovery. Existing creation regression is the reproduction entrypoint; hosted Windows/Node 24 is required.
+P2: createPrivateControlFile -> windowsControlFile -> fixed Windows PowerShell script via execFileSync (10000 ms) -> generic catch discards exit metadata. The prior failure occurred after 10024.63 ms, but code/status/signal are irrecoverable. Paths/body/stdout/stderr must not enter diagnostics.
+P3: keep the native operation/deadline unchanged, attach only an allowlisted error code/signal, numeric exit status and elapsed time, and observe the existing test's first-create duration. Use three independent fresh Windows/Node 24 jobs for bounded cold-start observations. Cancel the redundant full Verify workflow during this diagnostic slice. Passing reruns do not prove the original failure's cause or lift whole-candidate acceptance.
+
+- [x] Add and verify non-sensitive subprocess failure metadata.
+- [ ] Run the existing first-create case on three fresh Windows/Node 24 runners and inspect actual outputs.
+- [ ] Record proven versus unproven cause; make a correction only if supported, otherwise preserve the unresolved finding.

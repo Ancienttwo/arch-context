@@ -73,3 +73,7 @@ The first bounded correction and its P1/P2/P3 are recorded in the plan and Windo
 ## Final hosted disposition
 
 Candidate `7b16ec6`, Draft PR #223, remains blocked. Previous subject `61b01b2` produced verified native Windows ACL artifacts on all three Node versions; all six Linux/macOS full jobs and Windows/Node 25 full job passed. Windows/Node 24 passed 2029 tests but hit the whole-job cap afterward; Node 22 hit it during late E2E. The final workflow-budget correction then exposed an intermittent first-create native operation failure on Windows/Node 24 at 10024.63 ms (run `36110137854`, job `107991495231`); other 14 focused cases passed. The fixed subprocess error prevents a confirmed cause. Repair cap reached: no further source change/retry; remaining run cancelled. Evidence is subject-bound in `docs/verification/20260925-windows-control-file-acl.json`; historical FG6 remains unpromoted. No merge, issue closure, release, provider acceptance receipt or whole-plan completion.
+
+## Approved native diagnostics
+
+Owner approved the bounded first-create diagnosis. New failure metadata is an allowlist of safe scalar values; no raw child-process data or cause is retained. Existing creation regression now observes first-create elapsed/completion. Diagnostic workflow: three fresh Windows/Node 24 jobs, one existing test each; no full matrix rerun intended. Local red/green and privacy sentinel guards pass; root cause and hosted results remain pending. Product deadlines and ACL semantics are unchanged.
