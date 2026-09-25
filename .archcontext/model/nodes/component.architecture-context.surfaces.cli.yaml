@@ -1,11 +1,13 @@
-schemaVersion: archcontext.node/v2
-id: component.architecture-context.surfaces.cli
-kind: component
+id: "component.architecture-context.surfaces.cli"
+kind: "component"
 name: "CLI"
-status: active
-parent: module.architecture-context.surfaces
-summary: "Provides the archctx command line: the bin launcher with its fast hook-enqueue path and the command dispatcher that drives the runtime daemon."
+parent: "module.architecture-context.surfaces"
+schemaVersion: "archcontext.node/v2"
 source:
+  exclude:
+    - "packages/surfaces/cli/src/github-review-state.ts"
   include:
     - "packages/surfaces/cli/src/**"
     - "packages/surfaces/cli/bin/**"
+status: "active"
+summary: "Provides the archctx command line: the bin launcher with its fast hook-enqueue path and the command dispatcher that drives the runtime daemon."

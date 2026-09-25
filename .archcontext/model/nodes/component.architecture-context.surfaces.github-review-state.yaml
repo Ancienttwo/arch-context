@@ -1,0 +1,10 @@
+id: "component.architecture-context.surfaces.github-review-state"
+kind: "component"
+name: "GitHub Review State Privacy"
+parent: "module.architecture-context.surfaces"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/surfaces/cli/src/github-review-state.ts"
+status: "active"
+summary: "Owns metadata-only Developer Review state, strict persisted schema validation, transient secret rejection, CLI credential-material guards and explicit legacy-state discard."

@@ -1,0 +1,6 @@
+id: "relation.architecture-context.cli.github-review-state"
+intent: "Persist and read only review metadata and apply the shared CLI credential privacy guard"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.surfaces.cli"
+target: "component.architecture-context.surfaces.github-review-state"

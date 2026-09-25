@@ -1,0 +1,6 @@
+id: "relation.architecture-context.github-review-state.runtime-state-paths"
+intent: "Resolve the worktree-specific user state directory for local review metadata"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.surfaces.github-review-state"
+target: "component.architecture-context.local-runtime.runtime-state-paths"
