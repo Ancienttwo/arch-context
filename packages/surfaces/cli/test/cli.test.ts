@@ -1,3 +1,4 @@
+import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
@@ -4715,26 +4716,23 @@ describe("archctx CLI", () => {
       expect(absent).toMatchObject({ ok: true, data: { schemaVersion: "archcontext.projection-apply-absence/v1", current: request.expected } });
       let appliedInput: Parameters<RuntimeDaemonClient["applyUpdate"]> | undefined;
       let pendingReadbacks = 0;
-      const client = new Proxy(rpcClient, {
-        get(target, property, receiver) {
-          if (property === "applyUpdate") return (...args: Parameters<RuntimeDaemonClient["applyUpdate"]>) => {
-            appliedInput = args;
-            return target.applyUpdate(...args);
-          };
-          if (property === "recoverProjectionApply") return async (...args: Parameters<RuntimeDaemonClient["recoverProjectionApply"]>) => {
-            const readback = await runCli("projection", ["readback", "--request-json", JSON.stringify(request)], root, { runtimeClient: rpcClient });
-            expect(readback.ok, JSON.stringify(readback)).toBe(true);
-            const receipt = (readback.data as any).receipt;
-            expect(receipt.result.refreshSignals.length).toBeGreaterThan(0);
-            expect(await daemon.inspectProjectionApplyReceipt(root, receipt.identity.lookupKey))
-              .toMatchObject({ ok: true, data: { deliveryStatus: "pending" } });
-            pendingReadbacks += 1;
-            return target.recoverProjectionApply(...args);
-          };
-          const value = Reflect.get(target, property, receiver);
-          return typeof value === "function" ? value.bind(target) : value;
-        }
-      });
+      const applyUpdate = daemon.applyUpdate.bind(daemon);
+      daemon.applyUpdate = (...args) => {
+        appliedInput = args;
+        return applyUpdate(...args);
+      };
+      const recoverProjectionApply = daemon.recoverProjectionApply.bind(daemon);
+      daemon.recoverProjectionApply = async (...args) => {
+        const readback = await runCli("projection", ["readback", "--request-json", JSON.stringify(request)], root, { runtimeClient: rpcClient });
+        expect(readback.ok, JSON.stringify(readback)).toBe(true);
+        const receipt = (readback.data as any).receipt;
+        expect(receipt.result.refreshSignals.length).toBeGreaterThan(0);
+        expect(await daemon.inspectProjectionApplyReceipt(root, receipt.identity.lookupKey))
+          .toMatchObject({ ok: true, data: { deliveryStatus: "pending" } });
+        pendingReadbacks += 1;
+        return recoverProjectionApply(...args);
+      };
+      const client = rpcClient;
       const applied = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: client });
       expect(applied.ok, JSON.stringify(applied)).toBe(true);
       expect(pendingReadbacks).toBe(1);
@@ -4799,22 +4797,14 @@ describe("archctx CLI", () => {
         codeGraphProviderFactory: () => new MockCodeGraphProvider()
       });
       let applyCalls = 0;
-      const racingClient = new Proxy(daemon, {
-        get(target, property, receiver) {
-          if (property === "applyUpdate") {
-            return async (...callArgs: Parameters<RuntimeDaemonClient["applyUpdate"]>) => {
-              applyCalls += 1;
-              const result = await target.applyUpdate(...callArgs);
-              if (applyCalls === 1 && result.ok) {
-                writeFileSync(join(root, "README.md"), "# concurrent non-owned mutation\n", "utf8");
-              }
-              return result;
-            };
-          }
-          const value = Reflect.get(target, property, receiver);
-          return typeof value === "function" ? value.bind(target) : value;
-        }
-      }) as RuntimeDaemonClient;
+      const applyUpdate = daemon.applyUpdate.bind(daemon);
+      daemon.applyUpdate = async (...callArgs) => {
+        applyCalls += 1;
+        const result = await applyUpdate(...callArgs);
+        if (applyCalls === 1 && result.ok) writeFileSync(join(root, "README.md"), "# concurrent non-owned mutation\n", "utf8");
+        return result;
+      };
+      const racingClient = daemon;
       try {
         const firstApplyRequest: ProjectionRequestV1 = {
           ...protocolRequest,
@@ -4952,11 +4942,9 @@ describe("archctx CLI", () => {
     try {
       const client = new RuntimeRpcClient(await rpc.start());
       let injected = false;
-      const racingClient = new Proxy(client, {
-        get(target, property, receiver) {
-          if (property === "planUpdate") {
-            return async (...args: Parameters<RuntimeDaemonClient["planUpdate"]>) => {
-              const planned = await target.planUpdate(...args);
+      const planUpdate = daemon.planUpdate.bind(daemon);
+      daemon.planUpdate = async (...args) => {
+              const planned = await planUpdate(...args);
               if (planned.ok && !injected) {
                 injected = true;
                 const runtimeEvidence = join(root, ".ai/harness/runs/live-projection.json");
@@ -4964,12 +4952,8 @@ describe("archctx CLI", () => {
                 writeFileSync(runtimeEvidence, "{\"status\":\"running\"}\n", "utf8");
               }
               return planned;
-            };
-          }
-          const value = Reflect.get(target, property, receiver);
-          return typeof value === "function" ? value.bind(target) : value;
-        }
-      }) as RuntimeDaemonClient;
+      };
+      const racingClient = client;
       const request: ProjectionRequestV1 = {
         ...protocolRequest,
         requestId: "projection_request.rpc_runtime_churn",
@@ -5010,22 +4994,16 @@ describe("archctx CLI", () => {
     try {
       const client = new RuntimeRpcClient(await rpc.start());
       let injected = false;
-      const racingClient = new Proxy(client, {
-        get(target, property, receiver) {
-          if (property === "planUpdate") {
-            return async (...args: Parameters<RuntimeDaemonClient["planUpdate"]>) => {
-              const planned = await target.planUpdate(...args);
+      const planUpdate = daemon.planUpdate.bind(daemon);
+      daemon.planUpdate = async (...args) => {
+              const planned = await planUpdate(...args);
               if (planned.ok && !injected) {
                 injected = true;
                 writeFileSync(join(root, "README.md"), "# concurrent authority input mutation\n", "utf8");
               }
               return planned;
-            };
-          }
-          const value = Reflect.get(target, property, receiver);
-          return typeof value === "function" ? value.bind(target) : value;
-        }
-      }) as RuntimeDaemonClient;
+      };
+      const racingClient = client;
       const request: ProjectionRequestV1 = {
         ...protocolRequest,
         requestId: "projection_request.rpc_authority_race",
@@ -5049,6 +5027,81 @@ describe("archctx CLI", () => {
       removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("projection CLI and MCP share RPC results and single-use request-bound write approval", async () => {
+    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
+    let now = Date.parse("2026-09-25T00:00:00Z");
+    const daemon = await createStartedDaemon({
+      localStorePath: testRuntimePaths(root).localStorePath,
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      clock: () => new Date(now).toISOString()
+    });
+    const paths = testRuntimePaths(root);
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root, port: 0, token: "projection-parity-test-token",
+      connectionPath: paths.daemonConnectionPath, lockPath: paths.daemonLockPath
+    });
+    try {
+      const client = new RuntimeRpcClient(await rpc.start());
+      const mcp = new McpLocalServer(client);
+      const cli = (action: string, request: unknown, flags: string[] = []) => runCli("projection", [action, "--request-json", JSON.stringify(request), ...flags], root, { runtimeClient: client });
+      const call = async (action: string, request: unknown, approvalToken?: string, atRoot = root) =>
+        (await mcp.callTool("archcontext_projection", { root: atRoot, action, request, approvalToken })).content as any;
+      const request: ProjectionRequestV1 = { ...protocolRequest, mode: "apply", acceptedChange, requestId: "projection_request.mcp_parity" };
+      const check = { ...request, mode: "check" };
+      expect(await call("run", check)).toEqual(await cli("run", check));
+      expect(await call("readback", request)).toEqual(await cli("readback", request));
+      expect(await call("run", request)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      expect(await cli("approve", request)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      const approve = async (value: unknown = request, action = "run") => {
+        const result = await cli("approve", value, ["--action", action, "--approved"]);
+        expect(result.ok, JSON.stringify(result)).toBe(true);
+        return (result.data as any).approvalToken as string;
+      };
+      const malformed = { ...request, mode: "arbitrary-write" };
+      expect(await call("run", malformed)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+      expect(await client.docsProjection(root, { action: "apply", approved: "true" } as any)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+      expect(await client.agentContextProjection(root, { action: "erase" } as any)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+      expect(await cli("approve", { ...request, expected: { ...request.expected, worktreeDigest: `sha256:${"0".repeat(64)}` } }, ["--approved"])).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
+      for (const attack of [
+        { request: { ...request, requestId: "projection_request.changed" }, root },
+        { request, root: dirname(root) }
+      ]) {
+        const token = await approve();
+        expect(await call("run", attack.request, token, attack.root)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+        expect(await call("run", request, token)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      }
+      const expired = await approve();
+      now += 5 * 60_000;
+      expect(await call("run", request, expired)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      const crossScope = await approve();
+      expect(await client.applyMcpUpdate(root, { id: "changeset.foreign", expectedWorktreeDigest: request.expected.worktreeDigest, approvalToken: crossScope })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      expect(await call("run", request, crossScope)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      const token = await approve();
+      const results = await Promise.all([call("run", request, token), call("run", request, token)]);
+      expect(results.filter(result => result.ok)).toHaveLength(1);
+      expect(results.filter(result => !result.ok)).toMatchObject([{ error: { code: "AC_USER_CONFIRMATION_REQUIRED" } }]);
+      const applied = results.find(result => result.ok)!;
+      expect(applied.data.status).toBe("applied");
+      expect(projectionResultInvariantIssues(applied.data)).toEqual([]);
+      expect(await call("run", request, token)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      expect(await call("readback", request)).toEqual(await cli("readback", request));
+      const intent = {
+        schemaVersion: "archcontext.projection-apply-recovery-intent/v1", requestId: request.requestId, profile: request.profile,
+        receipt: { lookupKey: applied.data.applyReceipt.lookupKey, applyId: applied.data.applyReceipt.applyId }
+      };
+      expect(await call("recover", intent)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      const recoveryToken = await approve(intent, "recover");
+      const recovered = await call("recover", intent, recoveryToken);
+      expect(recovered.ok, JSON.stringify(recovered)).toBe(true);
+      expect(await call("recover", intent, recoveryToken)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+    } finally {
+      await rpc.stop();
+      await daemon.stop();
+      removeTempRoot(root);
+    }
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   test("CLI process exit code reflects the final envelope ok value", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-exitcode-"));

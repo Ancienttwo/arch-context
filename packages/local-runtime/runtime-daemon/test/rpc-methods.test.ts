@@ -4,10 +4,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { okEnvelope } from "@archcontext/contracts";
 import { RuntimeRpcClient } from "../src/rpc-client";
-import { runtimeRpcMethod, type RuntimeRpcMethodName } from "../src/rpc-methods";
+import { RUNTIME_RPC_METHODS, runtimeRpcMethod, type RuntimeRpcMethodName } from "../src/rpc-methods";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcConnection } from "../src/rpc-protocol";
 import { ArchctxRuntimeRpcServer } from "../src/rpc-server";
 import baseline from "./rpc-wire-baseline.json";
+
+const projectionCases = [
+  { method: "docsProjection", input: { action: "plan" }, timeout: "long" },
+  { method: "agentContextProjection", input: { action: "preview" }, timeout: "long" },
+  { method: "projection", input: { action: "run", request: {} }, timeout: "long" },
+  { method: "approveMcpProjection", input: { action: "recover", request: {} }, timeout: "normal" },
+  { method: "mcpProjection", input: { action: "run", request: {} }, timeout: "long" }
+].flatMap(({ method, input, timeout }) => {
+  const args: unknown[] = ["/rpc/fixture/repo", input];
+  const samples = [{ method, variant: "projection", args, params: method === "mcpProjection" ? [...args, null] : args, timeout, response: "envelope" }];
+  if (method === "mcpProjection") samples.push({ method, variant: "projection-approved", args: [...args, "one-time-token"], params: [...args, "one-time-token"], timeout, response: "envelope" });
+  return samples;
+});
+const cases = [...baseline.cases, ...projectionCases];
 
 // Captured by exercising the pre-table client, including omitted and explicit arguments.
 // These are transport sentinels; domain validation remains covered by daemon integration tests.
@@ -25,7 +39,7 @@ describe("RPC method table wire contract", () => {
     compositionReport: () => ({}),
     egressReport: async () => ({})
   };
-  for (const sample of baseline.cases) {
+  for (const sample of cases) {
     target[sample.method] = function (...params: unknown[]) {
       calls.push({ method: sample.method, params, bound: this === target });
       const result = sample.response === "data" ? payload : envelope;
@@ -51,7 +65,7 @@ describe("RPC method table wire contract", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  for (const sample of baseline.cases) {
+  for (const sample of cases) {
     test(`${sample.method} preserves ${sample.variant} wire arguments and response`, async () => {
       const method = sample.method as RuntimeRpcMethodName;
       const result = await Reflect.apply(client[method], client, sample.args);
@@ -60,6 +74,10 @@ describe("RPC method table wire contract", () => {
       expect(sample.timeout).toBe(runtimeRpcMethod(method)!.timeout);
     });
   }
+
+  test("every declared method has a wire sentinel", () => {
+    expect([...new Set(cases.map(sample => sample.method))].sort()).toEqual(Object.keys(RUNTIME_RPC_METHODS).sort());
+  });
 
   test("unregistered and prototype names never dispatch a handler", async () => {
     const count = calls.length;

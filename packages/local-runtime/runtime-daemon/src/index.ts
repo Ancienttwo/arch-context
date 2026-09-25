@@ -1,3 +1,6 @@
+import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, projectionInvocationWrites, assertProjectionInvocationSnapshot, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
+import { projectionWorkspaceId as runtimeProjectionWorkspaceId, readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
+export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type DeveloperReviewRunManifest, type DeveloperReviewRun, type DeveloperReviewRunPreparation, type DeveloperReviewRunCleanup, type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunRecovery } from "./developer-review-run";
 export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
@@ -1074,7 +1077,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly changesets = new Map<string, ChangeSetDraft>();
   private readonly changeSetRoots = new Map<string, string>();
   private readonly mcpChangeSets = new Set<string>();
-  private readonly mcpApprovals = new Map<string, { root: string; id: string; draftDigest: string; worktreeDigest: string; expiresAt: number }>();
+  private readonly mcpApprovals = new Map<string, { scope: "changeset"; root: string; id: string; draftDigest: string; worktreeDigest: string; expiresAt: number } | { scope: "projection"; root: string; invocationDigest: string; expiresAt: number }>();
   private readonly changeSetWorktreeDigestProfiles = new Map<string, RuntimeWorktreeDigestProfile>();
   private readonly deferredArchitectureChangeFeedFailures = new Map<string, string>();
   private readonly refactorAssessments = new RefactorAssessmentRegistry();
@@ -2759,6 +2762,73 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     }
   }
 
+  private projectionHost(): ProjectionServiceHost {
+    return {
+      planUpdate: (...args) => this.planUpdate(...args),
+      applyUpdate: (...args) => this.applyUpdate(...args),
+      listProjectionPriorCommittedApplies: (...args) => this.listProjectionPriorCommittedApplies(...args),
+      inspectProjectionApplyReceipt: (...args) => this.inspectProjectionApplyReceipt(...args),
+      readbackProjectionApply: (...args) => this.readbackProjectionApply(...args),
+      recoverProjectionApply: (...args) => this.recoverProjectionApply(...args),
+      loadCapabilitySourceChangesSinceStamps
+    };
+  }
+
+  async docsProjection(root: string, input: RuntimeDocsProjectionInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    try { validateDocsProjectionInput(input); }
+    catch (error) { return errorEnvelope("docs", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)); }
+    return runArchitectureDocsProjectionCommand(input, root, this.projectionHost());
+  }
+
+  async agentContextProjection(root: string, input: RuntimeAgentContextProjectionInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    try { validateAgentContextProjectionInput(input); }
+    catch (error) { return errorEnvelope("agent-context", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)); }
+    return runAgentContextProjectionCommand(input, root, this.projectionHost());
+  }
+
+  async projection(root: string, input: RuntimeProjectionInvocation): Promise<JsonEnvelope> {
+    this.assertRunning();
+    try { validateProjectionInvocation(input); }
+    catch (error) { return errorEnvelope(`projection.${input?.action ?? "run"}`, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)); }
+    return runProjectionProtocolCommand(input, root, this.projectionHost());
+  }
+
+  async approveMcpProjection(root: string, input: RuntimeProjectionInvocation): Promise<JsonEnvelope> {
+    this.assertRunning();
+    try {
+      validateProjectionInvocation(input);
+      if (!projectionInvocationWrites(input)) throw new Error("Projection approval requires an apply, adopt or recover invocation");
+      assertProjectionInvocationSnapshot(root, input);
+    } catch (error) { return errorEnvelope("projection.approve", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error)); }
+    const now = Date.parse(this.clock());
+    if (!Number.isFinite(now)) return errorEnvelope("projection.approve", "AC_PRECONDITION_FAILED", "Approval clock is invalid");
+    for (const [key, grant] of this.mcpApprovals) if (grant.expiresAt <= now) this.mcpApprovals.delete(key);
+    if (this.mcpApprovals.size >= 256) return errorEnvelope("projection.approve", "AC_PRECONDITION_FAILED", "Too many outstanding approvals; consume an approval or wait for expiry");
+    const approvalToken = randomBytes(32).toString("hex");
+    const expiresAt = now + 5 * 60_000;
+    this.mcpApprovals.set(digestJson(approvalToken), { scope: "projection", root: canonicalRepositoryRoot(root), invocationDigest: digestJson(input as unknown as Json), expiresAt });
+    return okEnvelope("projection.approve", { approvalToken, expiresAt: new Date(expiresAt).toISOString() });
+  }
+
+  async mcpProjection(root: string, input: RuntimeProjectionInvocation, approvalToken?: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    try { validateProjectionInvocation(input); }
+    catch (error) { return errorEnvelope("projection", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)); }
+    if (projectionInvocationWrites(input)) {
+      const denied = () => errorEnvelope("projection", "AC_USER_CONFIRMATION_REQUIRED", "A fresh one-time token from archctx projection approve is required");
+      if (typeof approvalToken !== "string" || !/^[a-f0-9]{64}$/.test(approvalToken)) return denied();
+      const key = digestJson(approvalToken);
+      const grant = this.mcpApprovals.get(key);
+      this.mcpApprovals.delete(key);
+      const now = Date.parse(this.clock());
+      if (!grant || grant.scope !== "projection" || !Number.isFinite(now) || grant.expiresAt <= now ||
+          grant.root !== canonicalRepositoryRoot(root) || grant.invocationDigest !== digestJson(input as unknown as Json)) return denied();
+    }
+    return this.projection(root, input);
+  }
+
   async approveMcpUpdate(root: string, input: RuntimeMcpApprovalInput): Promise<JsonEnvelope> {
     this.assertRunning();
     const draft = this.changesets.get(input?.id);
@@ -2776,7 +2846,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const approvalToken = randomBytes(32).toString("hex");
     const expiresAt = now + 5 * 60_000;
     this.mcpApprovals.set(digestJson(approvalToken), {
-      root: canonicalRoot, id: input.id, draftDigest: input.expectedChangeSetDigest,
+      scope: "changeset", root: canonicalRoot, id: input.id, draftDigest: input.expectedChangeSetDigest,
       worktreeDigest: input.expectedWorktreeDigest, expiresAt
     });
     return okEnvelope("approve_mcp_update", { approvalToken, expiresAt: new Date(expiresAt).toISOString() });
@@ -2793,7 +2863,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     this.mcpApprovals.delete(key);
     const draft = this.changesets.get(input.id);
     const now = Date.parse(this.clock());
-    if (!Number.isFinite(now) || grant.expiresAt <= now || grant.root !== canonicalRepositoryRoot(root) ||
+    if (grant.scope !== "changeset" || !Number.isFinite(now) || grant.expiresAt <= now || grant.root !== canonicalRepositoryRoot(root) ||
         grant.id !== input.id || grant.worktreeDigest !== input.expectedWorktreeDigest ||
         !draft || grant.draftDigest !== digestJson(draft as unknown as Json)) return denied();
     return this.applyAuthorizedUpdate(root, { id: input.id, expectedWorktreeDigest: input.expectedWorktreeDigest, approved: true });
@@ -6060,9 +6130,6 @@ function runtimeProjectionOwnedOutputDigest(projection: { files: Array<{ path: s
   } as unknown as Json) as `sha256:${string}`;
 }
 
-function runtimeProjectionWorkspaceId(root: string): string {
-  return `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as unknown as Json).replace(/^sha256:/, "").slice(0, 16)}`;
-}
 
 function isArchContextGeneratedProjectionPath(path: string): boolean {
   return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");
@@ -6864,19 +6931,6 @@ function architectureLedgerWriteAppendsEvents(mode: RuntimeArchitectureLedgerWri
   return mode === "dual" || mode === "ledger-with-projection";
 }
 
-/** Committer date of HEAD (ISO 8601); an unreadable value is rejected by the projection validator. */
-function readHeadCommittedAt(root: string): string {
-  try {
-    return execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
-  } catch {
-    return "";
-  }
-}
-
 /** Same shape `assertArchitectureProjectionVerifiedAgainst` accepts for a stamp commit. */
 const GIT_OBJECT_NAME_PATTERN = /^[0-9a-f]{7,64}$/;
 
@@ -6917,18 +6971,6 @@ function readChangedPathsSince(root: string, commit: string): CapabilitySourceCh
   }
 }
 
-function readCurrentBranch(root: string): string {
-  try {
-    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
-    return branch === "HEAD" ? "detached" : branch;
-  } catch {
-    return "unknown";
-  }
-}
 
 /**
  * Best-effort owner/repo parse from `git remote get-url origin`. This audit cut has zero

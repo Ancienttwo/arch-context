@@ -30,6 +30,7 @@ export const MCP_TOOL_INPUT_SCHEMAS = {
     reason: { type: "object", required: ["taskSessionId"], additionalProperties: false, properties: { taskSessionId: text, interventionId: text } }
   }, ["id", "operations"]),
   archcontext_apply_update: argumentsSchema({ id: text, approvalToken: text, expectedWorktreeDigest: text }, ["id", "expectedWorktreeDigest", "approvalToken"]),
+  archcontext_projection: argumentsSchema({ action: { enum: ["run", "readback", "recover"] }, request: { type: "object" }, approvalToken: text }, ["action", "request"]),
   archcontext_complete_task: argumentsSchema({
     taskSessionId: text, task: text, posture: text, headSha: text,
     compatibilityPathIntroduced: flag, cleanupRequired: { type: "integer", minimum: 0 }, cleanupCompleted: { type: "integer", minimum: 0 },

@@ -1,0 +1,11 @@
+id: "component.architecture-context.local-runtime.projection-service"
+kind: "component"
+name: "Architecture Projection Service"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/runtime-daemon/src/projection-service.ts"
+    - "packages/local-runtime/runtime-daemon/src/projection-inputs.ts"
+status: "active"
+summary: "Owns documentation and agent-context projection rendering, adoption, fixed points, receipt delivery and recovery for typed daemon requests shared by CLI and MCP."

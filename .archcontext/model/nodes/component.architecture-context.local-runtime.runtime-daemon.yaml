@@ -14,6 +14,8 @@ source:
     - "packages/local-runtime/runtime-daemon/src/changeset-recovery-error.ts"
     - "packages/local-runtime/runtime-daemon/src/rpc-methods.ts"
     - "packages/local-runtime/runtime-daemon/src/rpc-client-entry.ts"
+    - "packages/local-runtime/runtime-daemon/src/projection-service.ts"
+    - "packages/local-runtime/runtime-daemon/src/projection-inputs.ts"
     - "packages/local-runtime/runtime-daemon/src/developer-review-run.ts"
   include:
     - "packages/local-runtime/runtime-daemon/src/**"

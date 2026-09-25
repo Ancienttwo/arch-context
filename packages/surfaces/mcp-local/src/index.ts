@@ -73,6 +73,12 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
     annotations: { safety: "destructive", requiresConfirmation: true }
   },
   {
+    name: "archcontext_projection",
+    inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_projection,
+    description: "Run, read back or recover the versioned architecture projection protocol. Apply, adopt and recover require a one-time token from archctx projection approve bound to this exact request.",
+    annotations: { safety: "destructive", requiresConfirmation: true }
+  },
+  {
     name: "archcontext_complete_task",
     inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_complete_task,
     description: "Call before final response. Runs completion gate and returns ReviewResult.",
@@ -142,7 +148,7 @@ export class McpLocalServer {
   }
 
   listChatGptTools(writeEnabled = false): McpToolDefinition[] {
-    const readOnly = LOCAL_MCP_TOOLS.filter((tool) => tool.name !== "archcontext_apply_update");
+    const readOnly = LOCAL_MCP_TOOLS.filter((tool) => tool.annotations.safety !== "destructive");
     return writeEnabled ? LOCAL_MCP_TOOLS : readOnly;
   }
 
@@ -222,6 +228,15 @@ export class McpLocalServer {
           return { content: result as unknown as Json, dataClassification: "local-architecture" };
         } catch (error) {
           return { content: errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error)) as unknown as Json, dataClassification: "local-metadata" };
+        }
+      }
+      case "archcontext_projection": {
+        try {
+          const root = requiredArg(args, "root");
+          const result = await (await this.runtime(root)).mcpProjection(root, { action: args.action, request: args.request }, args.approvalToken);
+          return { content: result as unknown as Json, dataClassification: "local-architecture" };
+        } catch (error) {
+          return runtimeUnavailable("projection", error);
         }
       }
       case "archcontext_complete_task": {

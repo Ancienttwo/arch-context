@@ -175,20 +175,14 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
     const readmePath = join(root, "README.md");
     const originalReadme = readFileSync(readmePath, "utf8");
     let applyCalls = 0;
-    const racingClient = new Proxy(daemon, {
-      get(target, property, receiver) {
-        if (property === "applyUpdate") {
-          return async (...args: Parameters<RuntimeDaemonClient["applyUpdate"]>) => {
-            applyCalls += 1;
-            const result = await target.applyUpdate(...args);
-            if (applyCalls === 1 && result.ok) writeFileSync(join(root, "README.md"), "# concurrent non-owned mutation\n", "utf8");
-            return result;
-          };
-        }
-        const value = Reflect.get(target, property, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
-      }
-    }) as RuntimeDaemonClient;
+    const applyUpdate = daemon.applyUpdate.bind(daemon);
+    daemon.applyUpdate = async (...args) => {
+      applyCalls += 1;
+      const result = await applyUpdate(...args);
+      if (applyCalls === 1 && result.ok) writeFileSync(join(root, "README.md"), "# concurrent non-owned mutation\n", "utf8");
+      return result;
+    };
+    const racingClient = daemon;
     const raced = await runTestCli("projection", ["run", "--request-json", JSON.stringify(request)], root, racingClient);
     expect(raced.ok, JSON.stringify(raced)).toBe(true);
     expect(raced.data as ProjectionResultV2).toMatchObject({ status: "applied-reconcile-required", refreshSignals: [] });
@@ -306,23 +300,18 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
     repairedDatabase.close();
     expect(await daemon.inspectProjectionApplyReceipt(root, lookupKey)).toMatchObject({ ok: true, data: { deliveryStatus: "pending" } });
 
-    // The CLI has proved the fixed point by now; mutate immediately before the daemon's writer
-    // boundary to prove that its proof-bound recheck closes the check-to-consume window.
+    // Mutate at the service-to-writer handoff: recovery must recheck current authority
+    // before consuming the committed receipt.
     let proofBoundMutation = false;
-    const staleDeliveryClient = new Proxy(racingClient, {
-      get(target, property, receiver) {
-        if (property === "recoverProjectionApply") {
-          return async (...args: Parameters<RuntimeDaemonClient["recoverProjectionApply"]>) => {
-            proofBoundMutation = true;
-            writeFileSync(readmePath, "# mutation after recovery proof\n", "utf8");
-            return target.recoverProjectionApply(...args);
-          };
-        }
-        const value = Reflect.get(target, property, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
-      }
-    }) as RuntimeDaemonClient;
+    const recoverProjectionApply = daemon.recoverProjectionApply.bind(daemon);
+    daemon.recoverProjectionApply = async (...args) => {
+      proofBoundMutation = true;
+      writeFileSync(readmePath, "# mutation before recovery writer\n", "utf8");
+      return recoverProjectionApply(...args);
+    };
+    const staleDeliveryClient = daemon;
     const staleDelivery = await runTestCli("projection", ["recover", "--request-json", JSON.stringify(matchingRequest)], root, staleDeliveryClient);
+    daemon.recoverProjectionApply = recoverProjectionApply;
     expect(proofBoundMutation).toBe(true);
     expect(staleDelivery.ok, "the daemon must recheck proof-bound state before consuming the receipt").toBe(false);
     expect((staleDelivery as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
@@ -364,22 +353,16 @@ test("semantic recovery rejects a committed receipt whose approved CodeGraph pro
   try {
     const { request } = await prepareAcceptedMajorChange(root);
     let injected = false;
-    const racingClient = new Proxy(daemon, {
-      get(target, property, receiver) {
-        if (property === "applyUpdate") {
-          return async (...args: Parameters<RuntimeDaemonClient["applyUpdate"]>) => {
-            const applied = await target.applyUpdate(...args);
-            if (!injected && applied.ok) {
-              injected = true;
-              writeFileSync(join(root, "README.md"), "# concurrent non-owned mutation\n", "utf8");
-            }
-            return applied;
-          };
-        }
-        const value = Reflect.get(target, property, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
+    const applyUpdate = daemon.applyUpdate.bind(daemon);
+    daemon.applyUpdate = async (...args) => {
+      const applied = await applyUpdate(...args);
+      if (!injected && applied.ok) {
+        injected = true;
+        writeFileSync(join(root, "README.md"), "# concurrent non-owned mutation\n", "utf8");
       }
-    }) as RuntimeDaemonClient;
+      return applied;
+    };
+    const racingClient = daemon;
     const raced = await runTestCli("projection", ["run", "--request-json", JSON.stringify(request)], root, racingClient);
     expect(raced.ok, JSON.stringify(raced)).toBe(true);
     expect((raced.data as ProjectionResultV2).status).toBe("applied-reconcile-required");

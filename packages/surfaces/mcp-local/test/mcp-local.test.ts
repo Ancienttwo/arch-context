@@ -95,13 +95,14 @@ async function readToolEnvelope(server: McpLocalServer, result: { content: any; 
 }
 
 describe("local MCP server", () => {
-  test("exposes exactly six workflow tools with safety annotations", () => {
+  test("exposes exactly seven workflow tools with safety annotations", () => {
     expect(LOCAL_MCP_TOOLS.map((tool) => tool.name)).toEqual([
       "archcontext_prepare_task",
       "archcontext_practices",
       "archcontext_checkpoint",
       "archcontext_plan_update",
       "archcontext_apply_update",
+      "archcontext_projection",
       "archcontext_complete_task"
     ]);
     expect(LOCAL_MCP_TOOLS.every((tool) => tool.description.length > 20)).toBe(true);
@@ -424,7 +425,7 @@ describe("local MCP server", () => {
     }
     await runStdioMcpLoop(input(), (line) => output.push(line), (line) => logs.push(line));
     expect(output.length).toBe(1);
-    expect(JSON.parse(output[0]).result.tools.length).toBe(6);
+    expect(JSON.parse(output[0]).result.tools.length).toBe(7);
     expect(logs).toEqual(["[archctx-mcp] started"]);
   });
 
@@ -456,7 +457,7 @@ describe("local MCP server", () => {
     expect(initialize.result.capabilities.tools).toEqual({ listChanged: false });
     const tools = JSON.parse(output[1]);
     expect(tools.id).toBe(2);
-    expect(tools.result.tools.length).toBe(6);
+    expect(tools.result.tools.length).toBe(7);
     expect(logs).toEqual(["[archctx-mcp] started"]);
   });
 
@@ -510,7 +511,7 @@ describe("local MCP server", () => {
     });
 
     expect(output.map((line) => JSON.parse(line).id)).toEqual([1, 2, 3]);
-    expect(JSON.parse(output[0]).result.tools.length).toBe(6);
+    expect(JSON.parse(output[0]).result.tools.length).toBe(7);
     expect(resolvedRoots).toEqual([root]);
     expect(practiceRoots).toEqual([root, root]);
     expect(JSON.parse(JSON.parse(output[1]).result.content[0].text).ok).toBe(true);
