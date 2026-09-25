@@ -16,4 +16,3 @@ Set-Acl -LiteralPath $path -AclObject $acl
     "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")
   ], { input: JSON.stringify(path), encoding: "utf8", timeout: 10_000 });
 }
-

@@ -551,4 +551,3 @@ function writeContext7Lockfile(root: string, lock: Context7LockfileV1, expectedH
     expectedHash
   });
 }
-

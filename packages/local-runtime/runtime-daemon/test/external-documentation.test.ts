@@ -574,4 +574,3 @@ function canonicalContextByteLength(context: { extensions: Record<string, unknow
   delete extensions.digest;
   return Buffer.byteLength(JSON.stringify({ ...context, extensions }), "utf8");
 }
-
