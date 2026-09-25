@@ -6,6 +6,15 @@ describe("fg6 platform workflow matrix readback evidence", () => {
     expect(inspectFg6PlatformWorkflowMatrix(verifiedRecording())).toEqual({ ok: true, failures: [] });
   });
 
+  test("rejects historical Windows labels without measured ACL evidence", () => {
+    const recording: any = verifiedRecording();
+    const artifact = recording.evidence.hostedCi.artifacts.find((entry: any) => entry.platform === "win32");
+    delete artifact.windowsAcl;
+    const result = inspectFg6PlatformWorkflowMatrix(recording);
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContain(`hostedCi artifact ${artifact.name} Windows ACL evidence missing or invalid`);
+  });
+
   test("rejects missing matrix targets, weak IPC contract, invalid artifacts, and failed runner workflows", () => {
     const recording: any = verifiedRecording();
     recording.evidence.workflowMatrix.os = ["ubuntu-latest", "macos-15"];
@@ -68,6 +77,7 @@ function verifiedRecording() {
         checksLoopback: true,
         checksTokenRedaction: true,
         checksPosixPermissions: true,
+        checksWindowsAcl: true,
         checksLifecycle: true
       },
       hostedCi: {
@@ -85,7 +95,12 @@ function verifiedRecording() {
           node: name.includes("22.22.x") ? "v22.22.3" : name.includes("24.x") ? "v24.19.0" : "v25.9.0",
           bun: "1.4.0",
           connectionMode: name.includes("windows-latest") ? "win32-acl" : "600",
-          lockMode: name.includes("windows-latest") ? "win32-acl" : "600"
+          lockMode: name.includes("windows-latest") ? "win32-acl" : "600",
+          windowsAcl: name.includes("windows-latest") ? {
+            connection: { ownerMatchesCurrentUser: true, inheritanceDisabled: true, explicitOwnerFullControlOnly: true, accessRuleCount: 1 },
+            lock: { ownerMatchesCurrentUser: true, inheritanceDisabled: true, explicitOwnerFullControlOnly: true, accessRuleCount: 1 },
+            broadReadRejected: true
+          } : null
         })),
         artifactFailures: [],
         posixModeVerified: true,

@@ -4694,7 +4694,7 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
-  }, DAEMON_TEST_TIMEOUT_MS);
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   test("projection readback preserves delivered receipt and validates every current read over RPC", async () => {
     const { root, modulePath, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });

@@ -1,3 +1,7 @@
+import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
+export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
+import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
+export type { RuntimeDocsInput, RuntimeResourceReadResult } from "./external-documentation";
 import { DeveloperReviewSessionService, type DeveloperReviewDigestBundle, type DeveloperReviewSession, type DeveloperReviewAttestation } from "./developer-review-run";
 export type { DeveloperReviewDigestBundle, DeveloperReviewSession, DeveloperReviewAttestation } from "./developer-review-run";
 import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
@@ -20,7 +24,7 @@ export * from "./rpc-client";
 export * from "./rpc-protocol";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   addRepositoryToLandscape,
@@ -37,9 +41,8 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
-import { assertPathHasNoSymlinkSegments, ChangeSetEngine, writeFileWithoutFollowingSymlinks, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
-  assertArchitectureLedgerPersistenceSafe,
   architectureLedgerBookSubjects,
   architectureLedgerPayload,
   architectureLedgerStateDigest,
@@ -99,7 +102,7 @@ import {
   type RuntimeRefactorVerifyInput
 } from "./refactor-verify";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
-import { buildInvestigationContextBundleFromLedgerQuery, createInvestigationAgentJob, investigationReportProposalValidationDigest, planRuntimeAgentQueueControls, type AgentInvestigationRunMetadata, type CommandInvestigationRunnerTransport, type InvestigationReportProposalPlan } from "@archcontext/core/agent-orchestrator";
+import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agent-orchestrator";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
@@ -107,13 +110,13 @@ import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { agentContextProjectionTargetPaths, architectureDocumentationProjectionWorktreeDigest, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, assertArchitectureProjectionVerifiedAgainst, capabilitySourceChangesSinceStamps, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestVerifiedAgainst, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection, type ArchitectureProjectionManifestVerifiedAgainstReadback, type ArchitectureProjectionVerifiedAgainst, type CapabilitySourceChangeSet, type CapabilitySourceChangeSetForCommit, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
-import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
-import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
+import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
+import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
-import { computeGitChangeFingerprint, findRepositoryRoot, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readWorktreeChangeMetadata, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
+import { findRepositoryRoot, readHeadSha, readTrackedSourceFiles, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
@@ -133,9 +136,6 @@ import {
   type ExplorerResolvedBindingV2
 } from "./explorer-projection";
 
-const RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS = 32;
-const RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY = 0;
-const RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS = 1;
 export interface RuntimeStatus {
   running: boolean;
   sessions: number;
@@ -205,82 +205,6 @@ export interface RuntimeRecommendationInput {
   expectedWorktreeDigest?: string;
   agentJobId?: string;
   now?: string;
-}
-
-export interface RuntimeAgentJobEnqueueGitInput {
-  source?: GitChangeSource;
-  ref?: string;
-  baseRef?: string;
-  event?: string;
-  taskSessionId?: string;
-  analysisKind?: string;
-  risk?: InvestigationContextRisk;
-  uncertainty?: InvestigationContextUncertainty;
-  policyRequestedInvestigation?: boolean;
-  coalesceKey?: string;
-  contextMaxItems?: number;
-  cooldownMs?: number;
-  debounceUntil?: string;
-  maxAttempts?: number;
-  priority?: number;
-  maxQueuedJobs?: number;
-  runnerPort?: AgentJobV1["runnerPort"];
-  codeFactsDigest?: string;
-  generatedProjection?: boolean;
-  skipGeneratedProjection?: boolean;
-}
-
-export interface RuntimeAgentJobClaimRpcInput {
-  workerId: string;
-  leaseMs?: number;
-  now?: string;
-  maxRunningJobs?: number;
-}
-
-export interface RuntimeAgentJobCompleteRpcInput {
-  jobId: string;
-  status: Extract<AgentJobV1["status"], "succeeded" | "failed">;
-  workerId?: string;
-  outputDigest?: string;
-  runMetadata?: AgentInvestigationRunMetadata;
-  proposalPlan?: InvestigationReportProposalPlan;
-  error?: string;
-  now?: string;
-}
-
-export interface RuntimeAgentJobRetryRpcInput {
-  jobId: string;
-  reason?: string;
-  now?: string;
-}
-
-export interface RuntimeAgentJobCancelRpcInput {
-  jobId: string;
-  status?: Extract<AgentJobV1["status"], "cancelled" | "superseded" | "expired">;
-  reason?: string;
-  supersededByJobId?: string;
-  now?: string;
-}
-
-export interface RuntimeDocsInput {
-  command: "status" | "resolve" | "pin" | "fetch" | "purge";
-  provider?: ExternalDocumentationProvider;
-  libraryName?: string;
-  libraryId?: string;
-  version?: string;
-  query?: string;
-  intent?: string;
-  approved?: boolean;
-  allowNetwork?: boolean;
-  forceRefresh?: boolean;
-  all?: boolean;
-}
-
-export interface RuntimeResourceReadResult {
-  schemaVersion: "archcontext.resource-read/v1";
-  uri: string;
-  dataClassification: "external-unverified-documentation";
-  resource: ExternalDocumentationResourceV1;
 }
 
 export interface RuntimePracticeWaiverInput {
@@ -804,52 +728,6 @@ interface PersistedPracticeCheckpointBaseline {
   updatedAt: string;
 }
 
-const CONTEXT7_LOCKFILE = ".archcontext/integrations/context7.lock.yaml";
-
-type PreparedTaskContext = Awaited<ReturnType<typeof prepareTask>>["context"];
-
-interface PrepareUnknownsCandidate {
-  packageName: string;
-  libraryId: string;
-  version: string;
-  intent: string;
-}
-
-const CONTEXT7_PREPARE_FRAMEWORKS = [
-  {
-    packageName: "react",
-    libraryId: "/facebook/react",
-    scopePattern: /\b(react|jsx|hook|hooks|usestate|useeffect|component|suspense)\b/i,
-    intentPattern: /\b(hook|hooks|usestate|useeffect|state|component|suspense|jsx)\b/i,
-    intent: "state hooks"
-  },
-  {
-    packageName: "next",
-    libraryId: "/vercel/next.js",
-    scopePattern: /\b(next(?:\.js)?|app router|route handler|middleware|server component)\b/i,
-    intentPattern: /\b(app router|route handler|middleware|server component|routing|cache)\b/i,
-    intent: "app router"
-  },
-  {
-    packageName: "express",
-    libraryId: "/expressjs/express",
-    scopePattern: /\b(express|middleware|route handler)\b/i,
-    intentPattern: /\b(middleware|route|handler|request|response)\b/i,
-    intent: "middleware routing"
-  }
-] as const;
-
-const EXTERNAL_DOCUMENTATION_RESOURCE_URI_PATTERN = /^archcontext:\/\/external-docs\/context7\/(sha256:[0-9a-f]{64})$/;
-
-function parseExternalDocumentationResourceUri(uri: string): {
-  provider: ExternalDocumentationProvider;
-  contentDigest: string;
-} | undefined {
-  const match = EXTERNAL_DOCUMENTATION_RESOURCE_URI_PATTERN.exec(uri);
-  if (!match) return undefined;
-  return { provider: "context7", contentDigest: match[1] };
-}
-
 export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
@@ -857,6 +735,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly readModelStore: ModelStorePort;
   private readonly localStore: RuntimeLocalStore;
   private readonly changeSetEngine: ChangeSetEngine;
+  private readonly externalDocumentationService: ExternalDocumentationService;
   private readonly externalDocumentation: ExternalDocumentationPort;
   private readonly externalDocumentationInjected: boolean;
   private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
@@ -865,6 +744,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly githubIssueExecutor: GithubIssueExecutorPort;
   private readonly clock: () => string;
   private readonly ledgerAdmin: LedgerAdminService;
+  private readonly agentJobs: AgentJobService;
   private readonly auditService: AuditService;
   private readonly projectionApplies: ProjectionApplyService;
   private readonly developerReviewSessions: DeveloperReviewSessionService;
@@ -942,6 +822,13 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       managedModelPath: isArchitectureLedgerManagedModelPath,
       shortDigest
     });
+    this.agentJobs = new AgentJobService({
+      assertRunning: () => this.assertRunning(),
+      openSession: (root) => this.openSession(root),
+      architectureLedgerScope: (root) => this.architectureLedgerScope(root),
+      clock: this.clock,
+      localStore: this.localStore
+    });
     this.auditService = new AuditService({
       assertRunning: () => this.assertRunning(),
       openSession: (root) => this.openSession(root),
@@ -976,6 +863,15 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     });
     this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
     this.maxRepoSessions = deps.maxRepoSessions ?? 8;
+    this.externalDocumentationService = new ExternalDocumentationService({
+      assertRunning: () => this.assertRunning(),
+      openSession: (root) => this.openSession(root),
+      withWriter: (fn) => this.withWriter(fn),
+      clock: this.clock,
+      externalDocumentation: this.externalDocumentation,
+      externalDocumentationInjected: this.externalDocumentationInjected,
+      localStore: this.localStore
+    });
     this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded", this.architectureLedger);
     this.developerReviewSessions = new DeveloperReviewSessionService({
       assertRunning: () => this.assertRunning(),
@@ -1170,7 +1066,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
       budget: { maxBytes, maxItems }
     });
-    const context = await this.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
+    const context = await this.externalDocumentationService.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
     const augmentedResult = context === result.context ? result : { ...result, context };
     await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, {
       schemaVersion: "archcontext.practice-checkpoint-snapshot/v1",
@@ -1247,320 +1143,31 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const repositoryRoot = findRepositoryRoot(root);
-    const session = await this.openSession(repositoryRoot);
-    const scope = await this.architectureLedgerScope(repositoryRoot);
-    const source = input.source ?? "worktree";
-    const metadata = readGitChangeMetadata(repositoryRoot, source, input);
-    const analysisKind = input.analysisKind ?? "architecture-delta";
-    if (shouldSkipGeneratedProjectionJob(metadata, input)) {
-      return okEnvelope("jobs.enqueueGitHook", {
-        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
-        skipped: true,
-        enqueued: false,
-        reasonCode: "archcontext-generated-projection",
-        event: input.event ?? source,
-        source,
-        change: metadata,
-        analysisKind,
-        expiredJobIds: [],
-        hook: {
-          failOpen: false,
-          egress: "none",
-          network: "forbidden"
-        }
-      } as unknown as Json);
-    }
-    if (metadata.paths.length === 0) {
-      return okEnvelope("jobs.enqueueGitHook", {
-        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
-        skipped: true,
-        enqueued: false,
-        reasonCode: "no-changed-paths",
-        event: input.event ?? source,
-        source,
-        change: metadata,
-        analysisKind,
-        expiredJobIds: [],
-        hook: {
-          failOpen: false,
-          egress: "none",
-          network: "forbidden"
-        }
-      } as unknown as Json);
-    }
-    const now = this.clock();
-    const codeFactsDigestValue = input.codeFactsDigest
-      ?? session.codeFactsDigest
-      ?? digestJson({
-        schemaVersion: "archcontext.git-hook-codefacts-fallback/v1",
-        source,
-        headSha: metadata.headSha,
-        metadataDigest: metadata.metadataDigest
-      } as unknown as Json);
-    const fingerprint = computeGitChangeFingerprint({
-      repositoryId: scope.repository.storageRepositoryId,
-      baseSha: metadata.baseSha ?? scope.worktree.headSha,
-      headSha: metadata.headSha,
-      paths: metadata.paths,
-      codeFactsDigest: codeFactsDigestValue,
-      analysisKind
-    });
-    const jobWorktree = {
-      ...scope.worktree,
-      headSha: metadata.headSha
-    };
-    const ledgerState = await this.localStore.readArchitectureLedgerState(scope);
-    const taskSessionId = input.taskSessionId ?? "task_runtime_agent";
-    const trigger = { source: "git_hook" as const, reason: input.event ?? source };
-    const risk = runtimeInvestigationRisk(input.risk ?? (metadata.paths.length > 0 ? "medium" : "low"));
-    const uncertainty = runtimeInvestigationUncertainty(input.uncertainty ?? "high");
-    const context = buildInvestigationContextBundleFromLedgerQuery({
-      repository: scope.repository,
-      worktree: jobWorktree,
-      taskSessionId,
-      fingerprint,
-      trigger,
-      risk,
-      uncertainty,
-      summary: `${analysisKind} investigation for ${metadata.paths.length} changed path(s).`,
-      ledger: {
-        graphDigest: architectureLedgerStateDigest(ledgerState),
-        entities: ledgerState.entities,
-        relations: ledgerState.relations,
-        constraints: ledgerState.constraints,
-        evidenceBindings: [],
-        candidateChanges: [],
-        maxItems: input.contextMaxItems ?? 12
-      },
-      extensions: {
-        gitChange: {
-          source,
-          event: input.event ?? source,
-          metadataDigest: metadata.metadataDigest,
-          pathCount: metadata.paths.length,
-          changedPaths: metadata.paths
-            .slice(0, input.contextMaxItems ?? 12)
-            .map((path) => ({ path: path.path, status: path.status, rawStatus: path.rawStatus })),
-          omittedPathCount: Math.max(0, metadata.paths.length - (input.contextMaxItems ?? 12))
-        },
-        codeFactsDigest: codeFactsDigestValue,
-        analysisKind
-      } as Record<string, Json>
-    });
-    const promptTemplateDigest = digestJson({
-        schemaVersion: "archcontext.runtime-agent-job-prompt-template/v1",
-        analysisKind
-      } as unknown as Json);
-    const job = createInvestigationAgentJob({
-      repository: scope.repository,
-      worktree: jobWorktree,
-      taskSessionId,
-      fingerprint,
-      trigger,
-      risk,
-      uncertainty,
-      deterministicAnalysisFound: metadata.paths.length > 0,
-      policyRequestedInvestigation: input.policyRequestedInvestigation === true,
-      documentationSynthesisUseful: true,
-      budgetUsage: { taskRuns: 0, repositoryRunsToday: 0, totalRunsToday: 0 },
-      now,
-      policy: {
-        adapterEnabled: true,
-        maxRunsPerTask: 1,
-        maxRunsPerRepositoryPerDay: 4,
-        cooldownMs: input.cooldownMs ?? 0
-      },
-      jobId: runtimeAgentJobId(fingerprint, context.inputDigest, now),
-      runnerPort: input.runnerPort ?? "codex",
-      inputDigest: context.inputDigest,
-      promptTemplateDigest
-    });
-    const queuePlan = planRuntimeAgentQueueControls({
-      job,
-      analysisKind,
-      now,
-      coalesceKey: input.coalesceKey,
-      cooldownMs: input.cooldownMs,
-      maxQueuedJobs: input.maxQueuedJobs ?? RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS,
-      priority: input.priority ?? RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY
-    });
-    const jobWithContext: AgentJobV1 = {
-      ...job,
-      extensions: {
-        ...(job.extensions ?? {}),
-        investigationContext: context as unknown as Json,
-        queuePlanDigest: digestJson(queuePlan as unknown as Json)
-      }
-    };
-    const expired = await this.localStore.cancelStaleRuntimeAgentJobs({
-      ...scope,
-      headSha: scope.worktree.headSha,
-      worktreeDigest: scope.worktree.worktreeDigest,
-      now,
-      reason: "enqueue-newer-git-hook-job"
-    });
-    const enqueue = await this.localStore.enqueueRuntimeAgentJob({
-      job: jobWithContext,
-      analysisKind: queuePlan.enqueue.analysisKind,
-      coalesceKey: queuePlan.enqueue.coalesceKey,
-      maxAttempts: input.maxAttempts,
-      debounceUntil: input.debounceUntil ?? queuePlan.enqueue.debounceUntil,
-      priority: queuePlan.enqueue.priority,
-      maxQueuedJobs: queuePlan.enqueue.maxQueuedJobs
-    });
-    return okEnvelope("jobs.enqueueGitHook", {
-      ...enqueue,
-      change: metadata,
-      codeFactsDigest: codeFactsDigestValue,
-      analysisKind,
-      expiredJobIds: expired.map((record) => record.job.jobId)
-    } as unknown as Json);
+    return this.agentJobs.jobsEnqueueGitHook(root, input);
   }
 
   async jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
-    const jobs = await this.localStore.listRuntimeAgentJobs({ ...scope, statuses: input.statuses });
-    return okEnvelope("jobs.list", { jobs, count: jobs.length } as unknown as Json);
+    return this.agentJobs.jobsList(root, input);
   }
 
   async jobsStats(root: string, input: { now?: string } = {}): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
-    const stats = await this.localStore.queueStatsRuntimeAgentJobs({ ...scope, now: input.now ?? this.clock() });
-    return okEnvelope("jobs.stats", stats as unknown as Json);
+    return this.agentJobs.jobsStats(root, input);
   }
 
   async jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    if (!input.workerId) return errorEnvelope("jobs.claim", "AC_SCHEMA_INVALID", "jobs.claim requires workerId");
-    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
-    const job = await this.localStore.claimRuntimeAgentJob({
-      ...scope,
-      workerId: input.workerId,
-      leaseMs: input.leaseMs ?? 60_000,
-      now: input.now ?? this.clock(),
-      maxRunningJobs: input.maxRunningJobs ?? RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS
-    });
-    return okEnvelope("jobs.claim", { job } as unknown as Json);
+    return this.agentJobs.jobsClaim(root, input);
   }
 
   async jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    try {
-      assertArchitectureLedgerPersistenceSafe({
-        ...(input.runMetadata === undefined ? {} : { runMetadata: input.runMetadata }),
-        ...(input.error === undefined ? {} : { error: input.error }),
-        ...(input.proposalPlan === undefined ? {} : { proposalPlan: input.proposalPlan })
-      } as unknown as Json, "jobs.complete");
-    } catch (error) {
-      return errorEnvelope("jobs.complete", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : "Unsafe job completion payload");
-    }
-    const repositoryRoot = findRepositoryRoot(root);
-    const scope = await this.architectureLedgerScope(repositoryRoot);
-    const jobs = await this.localStore.listRuntimeAgentJobs(scope);
-    const record = jobs.find((candidate) => candidate.job.jobId === input.jobId);
-    if (!record) return runtimeAgentJobOutOfScopeEnvelope("jobs.complete", input.jobId);
-    if (record.job.status !== "running") {
-      return errorEnvelope(
-        "jobs.complete",
-        "AC_PRECONDITION_FAILED",
-        `runtime agent job completion requires a running job: ${input.jobId}`
-      );
-    }
-    if (input.status === "succeeded") {
-      // Mirrors cancelStaleRuntimeAgentJobs's own stalePolicy gate: a job that opted into
-      // "advisory-only-on-stale" (e.g. archctx audit run's multi-minute investigation, which can
-      // legitimately outlive a worktree digest shift from something as small as an untracked
-      // .archcontext/ directory changing) must not be silently self-cancelled here either — this
-      // check is a second, independent staleness enforcement point from that sweep, and both must
-      // agree on the same policy or a stalePolicy override is only half-honored.
-      if (record.job.stalePolicy === "cancel-on-head-change" && isRuntimeAgentJobCursorStale(record.job, scope)) {
-        await this.localStore.cancelRuntimeAgentJob({
-          ...scope,
-          jobId: input.jobId,
-          status: "expired",
-          now: input.now ?? this.clock(),
-          reason: "stale-head-or-worktree"
-        });
-        return errorEnvelope(
-          "jobs.complete",
-          "AC_CONTEXT_STALE",
-          `runtime agent job is stale for current HEAD/worktree: ${input.jobId}`
-        );
-      }
-    }
-    if (input.proposalPlan) {
-      const validation = validateRuntimeAgentProposalPlan({
-        proposalPlan: input.proposalPlan,
-        job: record.job,
-        jobId: input.jobId,
-        outputDigest: input.outputDigest
-      });
-      if (!validation.ok) return errorEnvelope("jobs.complete", "AC_SCHEMA_INVALID", validation.reason);
-    }
-    const runMetadata = input.proposalPlan
-      ? {
-        ...(input.runMetadata ?? {}),
-        proposalPlan: input.proposalPlan
-      } as unknown as Json
-      : input.runMetadata as unknown as Json | undefined;
-    const job = await this.localStore.completeRuntimeAgentJob({
-      ...scope,
-      jobId: input.jobId,
-      status: input.status,
-      workerId: input.workerId,
-      outputDigest: input.outputDigest,
-      runMetadata,
-      error: input.error,
-      now: input.now ?? this.clock()
-    });
-    return okEnvelope("jobs.complete", { job } as unknown as Json);
+    return this.agentJobs.jobsComplete(root, input);
   }
 
   async jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
-    if (!(await this.runtimeAgentJobInScope(scope, input.jobId))) {
-      return runtimeAgentJobOutOfScopeEnvelope("jobs.retry", input.jobId);
-    }
-    const job = await this.localStore.retryRuntimeAgentJob({
-      ...scope,
-      jobId: input.jobId,
-      reason: input.reason,
-      now: input.now ?? this.clock()
-    });
-    return okEnvelope("jobs.retry", { job } as unknown as Json);
+    return this.agentJobs.jobsRetry(root, input);
   }
 
   async jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
-    if (!(await this.runtimeAgentJobInScope(scope, input.jobId))) {
-      return runtimeAgentJobOutOfScopeEnvelope("jobs.cancel", input.jobId);
-    }
-    const job = await this.localStore.cancelRuntimeAgentJob({
-      ...scope,
-      jobId: input.jobId,
-      status: input.status ?? "cancelled",
-      reason: input.reason,
-      supersededByJobId: input.supersededByJobId,
-      now: input.now ?? this.clock()
-    });
-    return okEnvelope("jobs.cancel", { job } as unknown as Json);
-  }
-
-  /**
-   * Resolves `jobId` inside the caller's own repository/worktree scope. The store rejects
-   * out-of-scope mutations by throwing; resolving first lets the RPC surface answer with an error
-   * envelope instead of an exception, and keeps a cross-repository job ID indistinguishable from an
-   * unknown one.
-   */
-  private async runtimeAgentJobInScope(scope: ArchitectureLedgerScope, jobId: string): Promise<RuntimeAgentJobRecord | undefined> {
-    const jobs = await this.localStore.listRuntimeAgentJobs(scope);
-    return jobs.find((candidate) => candidate.job.jobId === jobId);
+    return this.agentJobs.jobsCancel(root, input);
   }
 
   async auditRun(root: string, input: RuntimeAuditRunInput = {}): Promise<JsonEnvelope> {
@@ -1665,166 +1272,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const provider = input.provider ?? "context7";
-    if (provider !== "context7") return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs provider must be context7");
-    const session = await this.openSession(root);
-    try {
-      if (input.command === "status") {
-        const lock = readContext7Lockfile(session.workspace.root);
-        const cached = await this.localStore.listExternalDocumentation("context7");
-        return okEnvelope("docs.status", {
-          schemaVersion: "archcontext.external-docs-status/v1",
-          provider: "context7",
-          health: await this.externalDocumentation.health(),
-          lock,
-          cacheEntries: cached.map((entry) => ({
-            provider: entry.provider,
-            libraryId: entry.libraryId,
-            version: entry.version,
-            queryDigest: entry.queryDigest,
-            contentDigest: entry.contentDigest,
-            retrievedAt: entry.retrievedAt,
-            expiresAt: entry.expiresAt,
-            stale: Date.parse(entry.expiresAt) <= Date.parse(this.clock())
-          })),
-          defaultPrepareEgress: "none"
-        } as unknown as Json);
-      }
-      if (input.command === "pin") {
-        if (!input.libraryId || !input.version) return errorEnvelope("docs.pin", "AC_SCHEMA_INVALID", "docs pin requires --library-id and --version");
-        assertContext7LibraryId(input.libraryId);
-        assertContext7Version(input.version);
-        const pin = {
-          libraryId: input.libraryId,
-          version: input.version,
-          pinnedAt: this.clock(),
-          source: "manual" as const
-        };
-        if (!input.approved) {
-          return okEnvelope("docs.pin", {
-            schemaVersion: "archcontext.context7-pin-preview/v1",
-            approved: false,
-            path: CONTEXT7_LOCKFILE,
-            lock: upsertContext7Pin(readContext7LockfileState(session.workspace.root).lock, pin)
-          } as unknown as Json);
-        }
-        // The approved pin writes a tracked `.archcontext/` file, so it is a writer like any other
-        // (#172: refused while ChangeSet recovery is unresolved).
-        return await this.withWriter(async () => {
-          const current = readContext7LockfileState(session.workspace.root);
-          const lock = upsertContext7Pin(current.lock, pin);
-          writeContext7Lockfile(session.workspace.root, lock, current.expectedHash);
-          return okEnvelope("docs.pin", {
-            schemaVersion: "archcontext.context7-pin/v1",
-            approved: true,
-            path: CONTEXT7_LOCKFILE,
-            lock
-          } as unknown as Json);
-        });
-      }
-      if (input.command === "resolve") {
-        if (!input.allowNetwork) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --allow-network");
-        if (!input.libraryName || !input.query) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --library and --query");
-        return okEnvelope("docs.resolve", await this.manualExternalDocumentation().resolve({
-          provider: "context7",
-          libraryName: input.libraryName,
-          query: input.query,
-          fast: true
-        }) as unknown as Json);
-      }
-      if (input.command === "fetch") {
-        if (!input.allowNetwork) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --allow-network");
-        if (!input.libraryId || !input.intent) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --library-id and --intent");
-        assertContext7LibraryId(input.libraryId);
-        const lock = readContext7Lockfile(session.workspace.root);
-        const pinned = lock.libraries.find((library) => library.libraryId === input.libraryId);
-        if (!pinned) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires a pinned library in .archcontext/integrations/context7.lock.yaml");
-        const query = buildContext7Query({ intent: input.intent, query: input.query });
-        const queryDigest = digestJson({ provider: "context7", libraryId: input.libraryId, version: pinned.version, query });
-        const cached = await this.localStore.readExternalDocumentation({
-          provider: "context7",
-          libraryId: input.libraryId,
-          version: pinned.version,
-          queryDigest
-        });
-        if (cached && !input.forceRefresh && Date.parse(cached.expiresAt) > Date.parse(this.clock())) {
-          return okEnvelope("docs.fetch", {
-            schemaVersion: "archcontext.external-docs-fetch/v1",
-            provider: "context7",
-            cacheStatus: "fresh",
-            resource: { ...cached.resource, cacheStatus: "fresh" },
-            request: { libraryId: input.libraryId, version: pinned.version, queryDigest, intent: input.intent }
-          } as unknown as Json);
-        }
-        const result = await this.manualExternalDocumentation().fetch({
-          provider: "context7",
-          libraryId: input.libraryId,
-          version: pinned.version,
-          intent: input.intent,
-          ...(input.query ? { query: input.query } : {}),
-          forceRefresh: input.forceRefresh
-        } satisfies ExternalDocumentationFetchInput);
-        const resource = { ...result.resource, queryDigest, cacheStatus: "fresh" as const };
-        await this.localStore.saveExternalDocumentation({
-          provider: "context7",
-          libraryId: input.libraryId,
-          version: pinned.version,
-          queryDigest,
-          contentDigest: resource.contentDigest,
-          resource,
-          retrievedAt: resource.retrievedAt,
-          expiresAt: resource.expiresAt
-        } satisfies ExternalDocumentationCacheEntry);
-        return okEnvelope("docs.fetch", {
-          ...result,
-          cacheStatus: "miss",
-          request: { ...result.request, queryDigest },
-          resource
-        } as unknown as Json);
-      }
-      if (input.command === "purge") {
-        const purged = await this.localStore.purgeExternalDocumentation({
-          provider: "context7",
-          ...(input.libraryId ? { libraryId: input.libraryId } : {}),
-          all: input.all
-        });
-        return okEnvelope("docs.purge", {
-          schemaVersion: "archcontext.external-docs-purge/v1",
-          purged
-        } as unknown as Json);
-      }
-      return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
-    } catch (error) {
-      const code = error instanceof ChangeSetRecoveryUnresolvedError ? "AC_PRECONDITION_FAILED" : "AC_SCHEMA_INVALID";
-      return errorEnvelope(`docs.${input.command}`, code, error instanceof Error ? error.message : String(error));
-    }
+    return this.externalDocumentationService.docs(root, input);
   }
 
   async readResource(root: string, uri: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    await this.openSession(root);
-    const parsed = parseExternalDocumentationResourceUri(uri);
-    if (!parsed) {
-      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "unsupported resource URI");
-    }
-    const cached = await this.localStore.readExternalDocumentationByContentDigest(parsed);
-    if (!cached) {
-      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "external documentation resource is not present in the local daemon cache");
-    }
-    const cacheStatus = Date.parse(cached.expiresAt) > Date.parse(this.clock()) ? "fresh" : "stale";
-    const resource: ExternalDocumentationResourceV1 = {
-      ...cached.resource,
-      uri,
-      cacheStatus
-    };
-    const result: RuntimeResourceReadResult = {
-      schemaVersion: "archcontext.resource-read/v1",
-      uri,
-      dataClassification: "external-unverified-documentation",
-      resource
-    };
-    return okEnvelope("resource.read", result as unknown as Json);
+    return this.externalDocumentationService.readResource(root, uri);
   }
 
   async planUpdate(root: string, rawInput: RuntimePlanUpdateInput): Promise<JsonEnvelope> {
@@ -1931,77 +1383,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const review = completeTaskGate(reviewInput);
     await this.localStore.saveReviewResult(review.reviewId, review);
     return okEnvelope("complete_task", review as unknown as Json);
-  }
-
-  private manualExternalDocumentation(): ExternalDocumentationPort {
-    if (this.externalDocumentationInjected) return this.externalDocumentation;
-    return new Context7ExternalDocumentationAdapter({
-      enabled: true,
-      mode: "manual",
-      clock: this.clock
-    });
-  }
-
-  private async augmentPrepareContextWithExternalDocs(
-    session: RepositorySession,
-    task: string,
-    context: PreparedTaskContext,
-    maxBytes: number
-  ): Promise<PreparedTaskContext> {
-    let health;
-    try {
-      health = await this.externalDocumentation.health();
-    } catch {
-      return context;
-    }
-    if (health.provider !== "context7" || !health.enabled || health.mode !== "prepare-unknowns") return context;
-    const lock = readContext7Lockfile(session.workspace.root);
-    const candidate = resolvePrepareUnknownsCandidate(session.workspace.root, task, context, lock);
-    if (!candidate) return context;
-    const resource = await this.readOrFetchPrepareExternalDocumentation(candidate);
-    if (!resource) return context;
-    return appendExternalDocumentationToContext(context, resource, candidate, maxBytes);
-  }
-
-  private async readOrFetchPrepareExternalDocumentation(candidate: PrepareUnknownsCandidate): Promise<ExternalDocumentationResourceV1 | undefined> {
-    const query = buildContext7Query({ intent: candidate.intent });
-    const queryDigest = digestJson({
-      provider: "context7",
-      libraryId: candidate.libraryId,
-      version: candidate.version,
-      query
-    });
-    const cached = await this.localStore.readExternalDocumentation({
-      provider: "context7",
-      libraryId: candidate.libraryId,
-      version: candidate.version,
-      queryDigest
-    });
-    if (cached && Date.parse(cached.expiresAt) > Date.parse(this.clock())) {
-      return { ...cached.resource, queryDigest, cacheStatus: "fresh" };
-    }
-    try {
-      const result = await this.externalDocumentation.fetch({
-        provider: "context7",
-        libraryId: candidate.libraryId,
-        version: candidate.version,
-        intent: candidate.intent
-      });
-      const resource = { ...result.resource, queryDigest, cacheStatus: "fresh" as const };
-      await this.localStore.saveExternalDocumentation({
-        provider: "context7",
-        libraryId: candidate.libraryId,
-        version: candidate.version,
-        queryDigest,
-        contentDigest: resource.contentDigest,
-        resource,
-        retrievedAt: resource.retrievedAt,
-        expiresAt: resource.expiresAt
-      });
-      return resource;
-    } catch {
-      return cached ? { ...cached.resource, queryDigest, cacheStatus: "stale" } : undefined;
-    }
   }
 
   private projectionHost(): ProjectionServiceHost {
@@ -4183,39 +3564,6 @@ function numericRepositoryId(repositoryId: string): number {
   return Math.max(1, hash);
 }
 
-function readGitChangeMetadata(root: string, source: GitChangeSource, input: RuntimeAgentJobEnqueueGitInput): GitChangeMetadata {
-  const repositoryRoot = findRepositoryRoot(root);
-  if (source === "commit") return readCommitChangeMetadata(repositoryRoot, input.ref ?? "HEAD");
-  if (source === "staged") return readStagedChangeMetadata(repositoryRoot, input.baseRef ?? "HEAD");
-  return readWorktreeChangeMetadata(repositoryRoot);
-}
-
-function shouldSkipGeneratedProjectionJob(metadata: GitChangeMetadata, input: RuntimeAgentJobEnqueueGitInput): boolean {
-  if (input.skipGeneratedProjection === false) return false;
-  if (input.generatedProjection === true) return true;
-  return metadata.paths.length > 0 && metadata.paths.every((path) => isArchContextGeneratedProjectionPath(path.path));
-}
-
-function isRuntimeAgentJobCursorStale(job: AgentJobV1, scope: ArchitectureLedgerScope): boolean {
-  return job.worktree.headSha !== scope.worktree.headSha
-    || job.worktree.worktreeDigest !== scope.worktree.worktreeDigest;
-}
-
-/**
- * One reply for "this job ID is not yours" and "this job ID does not exist". Job IDs are unique
- * across every repository sharing one local store, so a stale, copied, or misrouted ID from another
- * repository or worktree must not be able to mutate — or even confirm the existence of — that
- * repository's queue state.
- */
-function runtimeAgentJobOutOfScopeEnvelope(requestId: string, jobId: string): JsonEnvelope {
-  return errorEnvelope(
-    requestId,
-    "AC_PRECONDITION_FAILED",
-    `runtime agent job does not belong to this repository/worktree: ${jobId}`,
-    "runtime-agent-job-out-of-scope"
-  );
-}
-
 function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfile): string {
   switch (profile) {
     case "repository":
@@ -4225,20 +3573,6 @@ function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfi
     default:
       throw new RuntimeUpdateInputError(`unsupported worktree digest profile: ${String(profile)}`);
   }
-}
-
-function isArchContextGeneratedProjectionPath(path: string): boolean {
-  return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");
-}
-
-function runtimeAgentJobId(fingerprint: string, inputDigest: string, queuedAt: string): string {
-  return `agent_job.${digestJson({
-    schemaVersion: "archcontext.runtime-agent-job-id/v1",
-    fingerprint,
-    inputDigest,
-    queuedAt,
-    nonce: randomBytes(6).toString("hex")
-  } as unknown as Json).replace(/^sha256:/, "").slice(0, 32)}`;
 }
 
 function codeFactsDigest(snapshot: CodeFactsSnapshot): string {
@@ -4535,16 +3869,6 @@ function schemaVersionFromModelBody(body: string): string {
 }
 
 
-function runtimeInvestigationRisk(value: unknown): InvestigationContextRisk {
-  if (value === "low" || value === "medium" || value === "high") return value;
-  throw new Error("runtime-agent-risk-invalid");
-}
-
-function runtimeInvestigationUncertainty(value: unknown): InvestigationContextUncertainty {
-  if (value === "low" || value === "medium" || value === "high") return value;
-  throw new Error("runtime-agent-uncertainty-invalid");
-}
-
 function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiverV1): string {
   const explicitTrimmed = explicit?.trim();
   if (explicitTrimmed && (explicitTrimmed === "." || explicitTrimmed === ".." || explicitTrimmed.includes("/") || explicitTrimmed.includes("\\"))) {
@@ -4562,233 +3886,6 @@ function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiv
     throw new Error("practice-waiver-id-invalid");
   }
   return candidate;
-}
-
-function resolvePrepareUnknownsCandidate(root: string, task: string, context: PreparedTaskContext, lock: Context7LockfileV1): PrepareUnknownsCandidate | undefined {
-  if (!prepareContextHasVersionRelatedUnknown(context)) return undefined;
-  for (const framework of CONTEXT7_PREPARE_FRAMEWORKS) {
-    if (!framework.scopePattern.test(task) || !framework.intentPattern.test(task)) continue;
-    const pinned = lock.libraries.find((library) => library.libraryId === framework.libraryId);
-    if (!pinned) continue;
-    const exactVersion = readExactPackageVersion(root, framework.packageName);
-    if (!exactVersion || exactVersion !== pinned.version) continue;
-    return {
-      packageName: framework.packageName,
-      libraryId: framework.libraryId,
-      version: exactVersion,
-      intent: framework.intent
-    };
-  }
-  return undefined;
-}
-
-function appendExternalDocumentationToContext(
-  context: PreparedTaskContext,
-  resource: ExternalDocumentationResourceV1,
-  candidate: PrepareUnknownsCandidate,
-  maxBytes: number
-): PreparedTaskContext {
-  const externalResource = {
-    type: "external-docs",
-    provider: resource.provider,
-    uri: resource.uri,
-    digest: resource.contentDigest,
-    libraryId: candidate.libraryId,
-    packageName: candidate.packageName,
-    version: candidate.version,
-    queryDigest: resource.queryDigest,
-    trust: resource.trust,
-    enforcement: resource.enforcement,
-    cacheStatus: resource.cacheStatus,
-    retrievedAt: resource.retrievedAt,
-    expiresAt: resource.expiresAt
-  } as Record<string, Json>;
-  const resources = context.resources.some((entry) => entry.uri === resource.uri)
-    ? context.resources
-    : [...context.resources, externalResource as any];
-  const unknown = `External documentation is advisory and untrusted for ${candidate.packageName}@${candidate.version}: ${candidate.intent}`;
-  const unknowns = context.unknowns.includes(unknown) ? context.unknowns : [...context.unknowns, unknown];
-  const augmented = {
-    ...context,
-    unknowns,
-    resources,
-    recommendedTargetState: {
-      ...context.recommendedTargetState,
-      externalDocumentation: {
-        provider: resource.provider,
-        libraryId: candidate.libraryId,
-        packageName: candidate.packageName,
-        version: candidate.version,
-        intent: candidate.intent,
-        resourceUri: resource.uri,
-        contentDigest: resource.contentDigest,
-        trust: resource.trust,
-        enforcement: resource.enforcement
-      }
-    },
-    extensions: {
-      ...context.extensions,
-      externalDocumentationDigest: digestJson({
-        provider: resource.provider,
-        libraryId: candidate.libraryId,
-        version: candidate.version,
-        queryDigest: resource.queryDigest,
-        contentDigest: resource.contentDigest,
-        cacheStatus: resource.cacheStatus
-      } as unknown as Json)
-    }
-  };
-  return finalizeContextBudgetMetadata(augmented, maxBytes);
-}
-
-function prepareContextHasVersionRelatedUnknown(context: PreparedTaskContext): boolean {
-  const unknowns = context.unknowns.join(" ").toLowerCase();
-  if (/\b(version|dependency|dependencies|package|lockfile|runtime dependency|pinned)\b/.test(unknowns)) return true;
-  return context.architecturePressure.signals.includes("unpinned-runtime-dependency");
-}
-
-function readExactPackageVersion(root: string, packageName: string): string | undefined {
-  const lockVersion = readPackageLockExactVersion(root, packageName);
-  if (lockVersion) return lockVersion;
-  for (const manifestPath of packageManifestPaths(root)) {
-    const manifest = readJsonFile(manifestPath);
-    const version = exactVersionFromManifest(manifest, packageName);
-    if (version) return version;
-  }
-  return undefined;
-}
-
-function readPackageLockExactVersion(root: string, packageName: string): string | undefined {
-  const lock = readJsonFile(resolve(root, "package-lock.json"));
-  if (!lock || typeof lock !== "object" || Array.isArray(lock)) return undefined;
-  const packages = (lock as { packages?: Record<string, unknown> }).packages;
-  if (packages && typeof packages === "object") {
-    const entry = packages[`node_modules/${packageName}`] as { version?: unknown } | undefined;
-    if (typeof entry?.version === "string" && isExactPackageVersion(entry.version)) return entry.version;
-  }
-  const dependencies = (lock as { dependencies?: Record<string, unknown> }).dependencies;
-  if (dependencies && typeof dependencies === "object") {
-    const entry = dependencies[packageName] as { version?: unknown } | undefined;
-    if (typeof entry?.version === "string" && isExactPackageVersion(entry.version)) return entry.version;
-  }
-  return undefined;
-}
-
-function packageManifestPaths(root: string): string[] {
-  const paths = [resolve(root, "package.json")];
-  const rootManifest = readJsonFile(paths[0]);
-  for (const pattern of workspacePatternsFromManifest(rootManifest)) {
-    for (const path of expandWorkspacePackageJson(root, pattern)) paths.push(path);
-  }
-  return [...new Set(paths)];
-}
-
-function workspacePatternsFromManifest(manifest: unknown): string[] {
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return [];
-  const workspaces = (manifest as { workspaces?: unknown }).workspaces;
-  if (Array.isArray(workspaces)) return workspaces.filter((item): item is string => typeof item === "string");
-  if (workspaces && typeof workspaces === "object" && Array.isArray((workspaces as { packages?: unknown }).packages)) {
-    return (workspaces as { packages: unknown[] }).packages.filter((item): item is string => typeof item === "string");
-  }
-  return [];
-}
-
-function expandWorkspacePackageJson(root: string, pattern: string): string[] {
-  if (pattern.includes("**") || pattern.startsWith("/") || pattern.includes("\\")) return [];
-  if (!pattern.includes("*")) {
-    const path = resolve(root, pattern, "package.json");
-    return existsSync(path) ? [path] : [];
-  }
-  if (!pattern.endsWith("/*")) return [];
-  const base = resolve(root, pattern.slice(0, -2));
-  if (!existsSync(base) || !statSync(base).isDirectory()) return [];
-  return readdirSync(base, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => resolve(base, entry.name, "package.json"))
-    .filter((path) => existsSync(path));
-}
-
-function exactVersionFromManifest(manifest: unknown, packageName: string): string | undefined {
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return undefined;
-  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const) {
-    const dependencies = (manifest as Record<string, unknown>)[field];
-    if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) continue;
-    const value = (dependencies as Record<string, unknown>)[packageName];
-    if (typeof value === "string" && isExactPackageVersion(value)) return value;
-  }
-  return undefined;
-}
-
-function readJsonFile(path: string): unknown {
-  if (!existsSync(path)) return undefined;
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return undefined;
-  }
-}
-
-function isExactPackageVersion(value: string): boolean {
-  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(value);
-}
-
-function readContext7Lockfile(root: string): Context7LockfileV1 {
-  return readContext7LockfileState(root).lock;
-}
-
-/**
- * The lockfile plus the hash of the exact bytes the lock was parsed from, so an approved pin can
- * carry that hash into the write as an optimistic-concurrency precondition. Reading once is what
- * makes the precondition meaningful: hashing a second read would only prove the file was stable
- * between two reads, not that the pin is being applied to the state it was computed from.
- */
-function readContext7LockfileState(root: string): { lock: Context7LockfileV1; expectedHash: string } {
-  const path = assertPathHasNoSymlinkSegments(root, CONTEXT7_LOCKFILE);
-  if (!existsSync(path)) {
-    return {
-      lock: {
-        schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
-        provider: "context7",
-        libraries: []
-      },
-      expectedHash: "missing"
-    };
-  }
-  const body = readFileSync(path, "utf8");
-  const parsed = JSON.parse(body) as Context7LockfileV1;
-  if (parsed.schemaVersion !== CONTEXT7_LOCKFILE_SCHEMA_VERSION || parsed.provider !== "context7" || !Array.isArray(parsed.libraries)) {
-    throw new Error("Invalid Context7 lockfile");
-  }
-  for (const library of parsed.libraries) {
-    assertContext7LibraryId(library.libraryId);
-    assertContext7Version(library.version);
-  }
-  return {
-    lock: {
-      ...parsed,
-      libraries: [...parsed.libraries].sort((a, b) => a.libraryId.localeCompare(b.libraryId))
-    },
-    expectedHash: digestJson({ body } as unknown as Json)
-  };
-}
-
-function upsertContext7Pin(lock: Context7LockfileV1, pin: Context7LibraryPinV1): Context7LockfileV1 {
-  return {
-    schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
-    provider: "context7",
-    libraries: [...lock.libraries.filter((library) => library.libraryId !== pin.libraryId), pin]
-      .sort((a, b) => a.libraryId.localeCompare(b.libraryId))
-  };
-}
-
-function writeContext7Lockfile(root: string, lock: Context7LockfileV1, expectedHash: string): void {
-  writeFileWithoutFollowingSymlinks({
-    root,
-    path: CONTEXT7_LOCKFILE,
-    body: JSON.stringify(lock, null, 2),
-    mode: 0o600,
-    expectedHash
-  });
 }
 
 export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<ArchctxDaemon> {
@@ -5141,85 +4238,4 @@ export function loadCapabilitySourceChangesSinceStamps(root: string, model: Nati
     manifest,
     changeSets: measureChangeSetsForManifestStamps(root, manifest)
   });
-}
-
-function validateRuntimeAgentProposalPlan(input: {
-  proposalPlan: InvestigationReportProposalPlan;
-  job?: AgentJobV1;
-  jobId: string;
-  outputDigest?: string;
-}): { ok: true } | { ok: false; reason: string } {
-  const plan = input.proposalPlan;
-  if (plan.schemaVersion !== "archcontext.investigation-report-proposal-plan/v1") {
-    return { ok: false, reason: "proposalPlan schemaVersion mismatch" };
-  }
-  if (plan.jobId !== input.jobId) return { ok: false, reason: "proposalPlan jobId must match completed job" };
-  if (input.job && plan.inputDigest !== input.job.inputDigest) {
-    return { ok: false, reason: "proposalPlan inputDigest must match completed job" };
-  }
-  if (input.outputDigest && plan.outputDigest !== input.outputDigest) {
-    return { ok: false, reason: "proposalPlan outputDigest must match completed job outputDigest" };
-  }
-  if (plan.directMutationAllowed !== false || plan.authority !== "advisory-only") {
-    return { ok: false, reason: "proposalPlan must remain advisory-only and directMutationAllowed=false" };
-  }
-  const selectedDeltaDigests = new Set(plan.proposedDeltaDigests);
-  for (const draft of plan.documentationDrafts ?? []) {
-    if (draft.jobId !== plan.jobId) return { ok: false, reason: `documentation draft jobId mismatch: ${draft.draftId}` };
-    if (draft.reportId !== plan.reportId) return { ok: false, reason: `documentation draft reportId mismatch: ${draft.draftId}` };
-    if (draft.inputDigest !== plan.inputDigest) return { ok: false, reason: `documentation draft inputDigest mismatch: ${draft.draftId}` };
-    if (draft.outputDigest !== plan.outputDigest) return { ok: false, reason: `documentation draft outputDigest mismatch: ${draft.draftId}` };
-    if (draft.acceptedProjection !== false || draft.authority !== "advisory-only") {
-      return { ok: false, reason: `documentation draft must not be an accepted projection: ${draft.draftId}` };
-    }
-    if (digestJson({ prose: draft.prose } as unknown as Json) !== draft.proseDigest) {
-      return { ok: false, reason: `documentation draft proseDigest mismatch: ${draft.draftId}` };
-    }
-    if (draft.proposedDeltaDigests.length === 0 || draft.proposedDeltaDigests.some((digest) => !selectedDeltaDigests.has(digest))) {
-      return { ok: false, reason: `documentation draft must reference selected deterministic deltas: ${draft.draftId}` };
-    }
-  }
-  for (const draft of plan.githubIssueDrafts ?? []) {
-    if (draft.jobId !== plan.jobId) return { ok: false, reason: `github issue draft jobId mismatch: ${draft.draftId}` };
-    if (draft.reportId !== plan.reportId) return { ok: false, reason: `github issue draft reportId mismatch: ${draft.draftId}` };
-    if (draft.inputDigest !== plan.inputDigest) return { ok: false, reason: `github issue draft inputDigest mismatch: ${draft.draftId}` };
-    if (draft.outputDigest !== plan.outputDigest) return { ok: false, reason: `github issue draft outputDigest mismatch: ${draft.draftId}` };
-    if (draft.authority !== "advisory-only") return { ok: false, reason: `github issue draft must be advisory-only: ${draft.draftId}` };
-    if (digestJson({ bodyMarkdown: draft.bodyMarkdown } as unknown as Json) !== draft.bodyDigest) {
-      return { ok: false, reason: `github issue draft bodyDigest mismatch: ${draft.draftId}` };
-    }
-    const { draftDigest, ...draftInput } = draft;
-    if (digestJson(draftInput as unknown as Json) !== draftDigest) {
-      return { ok: false, reason: `github issue draft draftDigest mismatch: ${draft.draftId}` };
-    }
-  }
-  // plan.githubIssueDraftDigests (not plan.githubIssueDrafts) is what gets written to the
-  // architecture ledger (see appendAuditRunToArchitectureLedger's issueDraftDigests), so it must be
-  // exactly the digests of the accompanying drafts — otherwise the two could be tampered
-  // independently and the ledger's audit trail would no longer reflect the actual draft content.
-  const expectedGithubIssueDraftDigests = (plan.githubIssueDrafts ?? []).map((draft) => draft.draftDigest).sort();
-  const actualGithubIssueDraftDigests = [...(plan.githubIssueDraftDigests ?? [])].sort();
-  if (JSON.stringify(expectedGithubIssueDraftDigests) !== JSON.stringify(actualGithubIssueDraftDigests)) {
-    return { ok: false, reason: "proposalPlan githubIssueDraftDigests must match the digests of githubIssueDrafts" };
-  }
-  // validationDigest and proposalDigest are claimed integrity digests over the plan; recompute
-  // both rather than trust the claim. Checked last so a tampered plan that also fails one of the
-  // more specific structural checks above still reports that more actionable reason first.
-  const expectedValidationDigest = investigationReportProposalValidationDigest({
-    jobId: plan.jobId,
-    reportId: plan.reportId,
-    inputDigest: plan.inputDigest,
-    outputDigest: plan.outputDigest,
-    proposedDeltaDigests: plan.proposedDeltaDigests,
-    documentationDraftDigests: plan.documentationDraftDigests,
-    githubIssueDraftDigests: plan.githubIssueDraftDigests ?? []
-  });
-  if (plan.validationDigest !== expectedValidationDigest) {
-    return { ok: false, reason: "proposalPlan validationDigest mismatch" };
-  }
-  const { proposalDigest, ...proposalPlanWithoutDigest } = plan;
-  if (digestJson(proposalPlanWithoutDigest as unknown as Json) !== proposalDigest) {
-    return { ok: false, reason: "proposalPlan proposalDigest mismatch" };
-  }
-  return { ok: true };
 }

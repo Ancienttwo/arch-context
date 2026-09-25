@@ -6,6 +6,34 @@ import type {
 } from "@archcontext/contracts";
 import { renderExplorerTopology } from "./topology";
 
+const EXPLORER_SESSION_KEY = "archcontext.explorer.token";
+
+/** A data-free bootstrap. Credentials stay in the current tab and origin (including port). */
+export function renderExplorerConnectHtml(): string {
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><title>Connect Explorer</title><p id="status">Connecting to Explorer…</p><script>
+  (async function(){
+    var fragment=location.hash;
+    history.replaceState(null,"",location.pathname+location.search);
+    var key=${JSON.stringify(EXPLORER_SESSION_KEY)};
+    try {
+      if(fragment){
+        var supplied=new URLSearchParams(fragment.slice(1)).get("token");
+        if(!supplied)throw new Error("Invalid Explorer connection link.");
+        sessionStorage.setItem(key,supplied);
+      }
+      var token=sessionStorage.getItem(key);
+      if(!token)throw new Error("Open the browserUrl returned by archctx explore start.");
+      var response=await fetch("/"+location.search,{headers:{Authorization:"Bearer "+token},credentials:"omit",redirect:"error"});
+      if(!response.ok)throw new Error("Explorer session expired or access was rejected. Start a new Explorer session.");
+      var html=await response.text();
+      document.open();document.write(html);document.close();
+    }catch(error){
+      try{sessionStorage.removeItem(key);}catch(_){}
+      document.getElementById("status").textContent=error.message;
+    }
+  })();</script></html>`;
+}
+
 export interface RenderExplorerHtmlOptions {
   focusSubjectId?: string | null;
 }
@@ -155,8 +183,8 @@ function countBy<T>(items: T[], key: (item: T) => string): Record<string, number
 
 function runtimeScript(eventUrl: string, projectionDigest: string, viewDefinitionDigest: string): string {
   return `(function(){"use strict";
-  function navigate(change){var u=new URL(window.location.href);Object.keys(change.set||{}).forEach(function(key){u.searchParams.set(key,change.set[key]);});(change.remove||[]).forEach(function(key){u.searchParams.delete(key);});window.location.href=u.toString();}
-  function toggleExpand(value){var u=new URL(window.location.href);var values=u.searchParams.getAll("expand");u.searchParams.delete("expand");var found=false;values.forEach(function(current){if(current===value){found=true;}else{u.searchParams.append("expand",current);}});if(!found)u.searchParams.append("expand",value);window.location.href=u.toString();}
+  function navigate(change){var u=new URL(window.location.href);u.pathname="/connect";Object.keys(change.set||{}).forEach(function(key){u.searchParams.set(key,change.set[key]);});(change.remove||[]).forEach(function(key){u.searchParams.delete(key);});window.location.href=u.toString();}
+  function toggleExpand(value){var u=new URL(window.location.href);u.pathname="/connect";var values=u.searchParams.getAll("expand");u.searchParams.delete("expand");var found=false;values.forEach(function(current){if(current===value){found=true;}else{u.searchParams.append("expand",current);}});if(!found)u.searchParams.append("expand",value);window.location.href=u.toString();}
   document.querySelectorAll("[data-view]").forEach(function(el){el.addEventListener("click",function(){navigate({set:{view:el.getAttribute("data-view")}});});});
   document.querySelectorAll("[data-level]").forEach(function(el){el.addEventListener("click",function(){navigate({set:{level:el.getAttribute("data-level")}});});});
   document.querySelectorAll("[data-focus]").forEach(function(el){el.addEventListener("click",function(){navigate({set:{focus:el.getAttribute("data-focus"),level:"detail"}});});});
@@ -170,11 +198,43 @@ function runtimeScript(eventUrl: string, projectionDigest: string, viewDefinitio
   document.querySelectorAll("[data-topology-action]").forEach(function(el){el.addEventListener("click",function(){var action=el.getAttribute("data-topology-action");if(action==="zoom-in")zoom(.2);else if(action==="zoom-out")zoom(-.2);else{scale=1;tx=0;ty=0;applyTransform();}});});
   if(svg){svg.addEventListener("wheel",function(event){if(event.preventDefault)event.preventDefault();zoom(event.deltaY<0?.1:-.1);});svg.addEventListener("pointerdown",function(event){drag={x:event.clientX,y:event.clientY,tx:tx,ty:ty};if(svg.setPointerCapture&&event.pointerId!==undefined)svg.setPointerCapture(event.pointerId);});svg.addEventListener("pointermove",function(event){if(!drag)return;tx=drag.tx+event.clientX-drag.x;ty=drag.ty+event.clientY-drag.y;applyTransform();});svg.addEventListener("pointerup",function(){drag=null;});svg.addEventListener("pointercancel",function(){drag=null;});}
   window.addEventListener("keydown",function(event){var target=event.target||{};var tag=(target.tagName||"").toUpperCase();if(target.isContentEditable||tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT")return;if(event.key==="+"){zoom(.2);}else if(event.key==="-"){zoom(-.2);}else if(event.key==="0"){scale=1;tx=0;ty=0;applyTransform();}else{return;}if(event.preventDefault)event.preventDefault();});
-  var current=${JSON.stringify(projectionDigest)};var currentView=${JSON.stringify(viewDefinitionDigest)};var live=document.getElementById("live-status");var reloadTimer=null;var source=null;
+  var current=${JSON.stringify(projectionDigest)};var currentView=${JSON.stringify(viewDefinitionDigest)};var live=document.getElementById("live-status");var reloadTimer=null;var controller=null;
   function liveState(value){if(live){live.textContent=value;live.setAttribute("data-live-state",value==="live updates connected"?"connected":"disconnected");}}
-  function disconnect(){if(reloadTimer!==null){window.clearTimeout(reloadTimer);reloadTimer=null;}if(source)source.close();liveState("live updates disconnected");}
+  function disconnect(){if(reloadTimer!==null){window.clearTimeout(reloadTimer);reloadTimer=null;}if(controller)controller.abort();liveState("live updates disconnected");}
   function scheduleReload(){if(reloadTimer!==null)return;reloadTimer=window.setTimeout(function(){reloadTimer=null;window.location.reload();},120);}
-  var token=new URL(window.location.href).searchParams.get("token");if(token&&window.EventSource){source=new window.EventSource(${JSON.stringify(eventUrl)}+"?token="+encodeURIComponent(token));source.addEventListener("open",function(){liveState("live updates connected");});source.addEventListener("authority-changed",function(){scheduleReload();});source.addEventListener("projection-invalidated",function(event){try{var data=JSON.parse(event.data);if(data.viewDefinitionDigest===currentView&&data.projectionDigest&&data.projectionDigest!==current)scheduleReload();}catch(_){disconnect();}});source.addEventListener("error",disconnect);}else{liveState("live updates disconnected");}
+  async function liveUpdates(){
+    var reader;
+    try{
+      var token=window.sessionStorage.getItem(${JSON.stringify(EXPLORER_SESSION_KEY)});
+      if(!token)throw new Error("Explorer token required");
+      controller=new AbortController();
+      var response=await window.fetch(${JSON.stringify(eventUrl)},{headers:{Authorization:"Bearer "+token},credentials:"omit",redirect:"error",signal:controller.signal});
+      if(response.status===401)window.sessionStorage.removeItem(${JSON.stringify(EXPLORER_SESSION_KEY)});
+      if(!response.ok||!response.body)throw new Error("Explorer stream rejected");
+      liveState("live updates connected");
+      reader=response.body.getReader();
+      var decoder=new TextDecoder();var pending="";
+      while(true){
+        var chunk=await reader.read();if(chunk.done)break;
+        pending=(pending+decoder.decode(chunk.value,{stream:true})).replace(/\\r\\n/g,"\\n");
+        if(pending.length>65536)throw new Error("Explorer event exceeds budget");
+        var boundary;
+        while((boundary=pending.indexOf("\\n\\n"))!==-1){
+          var frame=pending.slice(0,boundary);pending=pending.slice(boundary+2);
+          var event="";var data=[];
+          frame.split("\\n").forEach(function(line){if(line.startsWith("event:"))event=line.slice(6).trim();else if(line.startsWith("data:"))data.push(line.slice(5).trimStart());});
+          if(event==="authority-changed")scheduleReload();
+          else if(event==="projection-invalidated"){
+            var value=JSON.parse(data.join("\\n"));
+            if(value.viewDefinitionDigest===currentView&&value.projectionDigest&&value.projectionDigest!==current)scheduleReload();
+          }
+        }
+      }
+    }catch(_){/* A failed or revoked stream stays disconnected until a new page request. */}
+    finally{disconnect();if(reader)try{await reader.cancel();}catch(_){}}
+  }
+  window.addEventListener("pagehide",disconnect);
+  void liveUpdates();
 })();`;
 }
 

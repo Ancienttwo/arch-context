@@ -190,13 +190,14 @@ function inspectWorkflowText(text: string) {
 
 function inspectPlatformReadbackScript(text: string) {
   return {
-    schemaVersion: text.includes("archcontext.platform-ipc-permission-readback/v1"),
+    schemaVersion: text.includes("archcontext.platform-ipc-permission-readback/v2"),
     usesInstalledBin: text.includes("resolveInstalledArchctxCommand") && text.includes("node_modules") && text.includes(".bin"),
     avoidsSourceEntrypoint: !text.includes("packages/surfaces/cli/src/main.ts"),
     checksHelp: text.includes("helpOk") && text.includes("hasDaemonCommand") && text.includes("hasMcpCommand") && text.includes("hasDoctorCommand"),
     checksLoopback: text.includes("http-loopback") && text.includes("127.0.0.1") && text.includes("loopbackOnly"),
     checksTokenRedaction: text.includes("tokenRedactedFromStatus"),
     checksPosixPermissions: text.includes("connectionMode === \"600\"") && text.includes("lockMode === \"600\""),
+    checksWindowsAcl: text.includes("windowsAclEvidence") && text.includes("broadReadRejected") && text.includes("Get-Acl -LiteralPath"),
     checksLifecycle: text.includes("daemon\", \"start") && text.includes("daemon\", \"status") && text.includes("daemon\", \"stop")
   };
 }
@@ -214,7 +215,7 @@ function extractHostedCiEvidence(text: string, hostedArtifacts: Awaited<ReturnTy
     artifacts: hostedArtifacts.artifacts,
     artifactFailures: hostedArtifacts.failures,
     posixModeVerified: text.includes("Linux/macOS connection and lock modes are `600`"),
-    windowsAclVerified: text.includes("Windows connection and lock modes are `win32-acl`")
+    windowsAclVerified: hostedArtifacts.verified && hostedArtifacts.artifacts.filter(artifact => artifact.platform === "win32").length === 3 && hostedArtifacts.artifacts.filter(artifact => artifact.platform === "win32").every(artifact => validWindowsAclEvidence(artifact.windowsAcl))
   };
 }
 
@@ -228,6 +229,7 @@ async function verifyHostedArtifacts(root: string) {
     bun: string;
     connectionMode: string;
     lockMode: string;
+    windowsAcl: unknown;
   }>;
   for (const name of REQUIRED_ARTIFACTS) {
     const path = join(root, name, PLATFORM_ARTIFACT_FILENAME);
@@ -254,12 +256,13 @@ async function verifyHostedArtifacts(root: string) {
     const node = String(artifact.node ?? "");
     const expectedMode = expectedPlatform === "win32" ? "win32-acl" : "600";
     const checks = [
-      [artifact.schemaVersion === "archcontext.platform-ipc-permission-readback/v1", "schemaVersion mismatch"],
+      [artifact.schemaVersion === "archcontext.platform-ipc-permission-readback/v2", "schemaVersion mismatch"],
       [artifact.platform === expectedPlatform, `platform must be ${expectedPlatform}`],
       [node.startsWith(`v${expectedNode}.`), `node must match ${expectedNode}.x`],
       [install.helpOk === true && install.hasDaemonCommand === true && install.hasMcpCommand === true && install.hasDoctorCommand === true, "installed-bin help contract failed"],
       [transport.protocol === "http-loopback" && transport.bindHost === "127.0.0.1" && transport.loopbackOnly === true, "loopback transport contract failed"],
       [controlFiles.connectionMode === expectedMode && controlFiles.lockMode === expectedMode, `control-file mode must be ${expectedMode}`],
+      [expectedPlatform !== "win32" || validWindowsAclEvidence(controlFiles.windowsAcl), "Windows ACL evidence missing or invalid"],
       [controlFiles.tokenRedactedFromStatus === true, "daemon status token was not redacted"],
       [lifecycle.started === true && lifecycle.statusRunning === true && lifecycle.stopped === true, "daemon lifecycle failed"]
     ] as const;
@@ -271,7 +274,8 @@ async function verifyHostedArtifacts(root: string) {
       node,
       bun: String(artifact.bun ?? ""),
       connectionMode: String(controlFiles.connectionMode ?? ""),
-      lockMode: String(controlFiles.lockMode ?? "")
+      lockMode: String(controlFiles.lockMode ?? ""),
+      windowsAcl: controlFiles.windowsAcl ?? null
     });
   }
   return { verified: failures.length === 0 && artifacts.length === REQUIRED_ARTIFACTS.length, artifacts, failures };
@@ -334,6 +338,7 @@ function inspectPlatformIpcContract(platformIpcContract: Record<string, unknown>
     "checksLoopback",
     "checksTokenRedaction",
     "checksPosixPermissions",
+    "checksWindowsAcl",
     "checksLifecycle"
   ]) {
     if (platformIpcContract[key] !== true) failures.push(`platformIpcContract.${key} must be true`);
@@ -360,6 +365,7 @@ function inspectHostedCi(hostedCi: Record<string, unknown>, currentHeadSha: stri
     const expectedMode = expectedPlatform === "win32" ? "win32-acl" : "600";
     if (artifact.platform !== expectedPlatform) failures.push(`hostedCi artifact ${name} platform mismatch`);
     if (!String(artifact.node ?? "").startsWith(`v${expectedNode}.`)) failures.push(`hostedCi artifact ${name} node mismatch`);
+    if (expectedPlatform === "win32" && !validWindowsAclEvidence(artifact.windowsAcl)) failures.push(`hostedCi artifact ${name} Windows ACL evidence missing or invalid`);
     if (artifact.bun !== "1.4.0") failures.push(`hostedCi artifact ${name} bun mismatch`);
     if (artifact.connectionMode !== expectedMode || artifact.lockMode !== expectedMode) failures.push(`hostedCi artifact ${name} mode mismatch`);
   }
@@ -424,4 +430,13 @@ function renderHuman(result: { ok?: unknown; failures?: unknown }): string {
 
 function renderInspectHuman(result: { ok: boolean; failures: string[] }): string {
   return result.ok ? "FG6 platform workflow matrix evidence verified" : `FG6 platform workflow matrix evidence failed: ${result.failures.join("; ")}`;
+}
+
+function validWindowsAclEvidence(value: unknown): boolean {
+  const evidence = readRecord(value);
+  return evidence.broadReadRejected === true && [evidence.connection, evidence.lock].every(value => {
+    const acl = readRecord(value);
+    return acl.ownerMatchesCurrentUser === true && acl.inheritanceDisabled === true
+      && acl.explicitOwnerFullControlOnly === true && acl.accessRuleCount === 1;
+  });
 }

@@ -1,3 +1,4 @@
+import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { isProcessAlive } from "../../process-liveness/src/index";
 import { ARCHCONTEXT_LOCAL_STORE_PATH_ENV, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
 export { ARCHCONTEXT_STATE_DIR_ENV, ARCHCONTEXT_LOCAL_STORE_PATH_ENV, defaultArchContextStateRoot, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
@@ -6780,7 +6781,9 @@ function runtimeStateRecoveryLiveDaemonPid(paths: RuntimeStatePaths): number | u
     if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`runtime-state-recovery-daemon-control-invalid:${path}`);
     let pid: number | undefined;
     try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as { pid?: unknown };
+      const body = readPrivateControlFile(path);
+      if (body === undefined) throw new Error("unverified control-file permissions");
+      const parsed = JSON.parse(body) as { pid?: unknown };
       if (typeof parsed.pid === "number" && Number.isInteger(parsed.pid) && parsed.pid > 0) pid = parsed.pid;
     } catch {
       throw new Error(`runtime-state-recovery-daemon-control-invalid:${path}`);

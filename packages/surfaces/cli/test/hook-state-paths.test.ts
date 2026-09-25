@@ -1,7 +1,9 @@
+import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
+import { grantEveryoneRead } from "../../../local-runtime/control-file-security/test/windows-acl-fixtures";
 import { expect, test } from "bun:test";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
@@ -33,10 +35,11 @@ test("fast hook finds daemon connections written with store state paths for repo
     for (const cwd of [repo, join(repo, "packages", "web"), linked]) {
       const paths = runtimeStatePaths(cwd);
       mkdirSync(dirname(paths.daemonConnectionPath), { recursive: true });
-      writeFileSync(paths.daemonConnectionPath, JSON.stringify({
+      rmSync(paths.daemonConnectionPath, { force: true });
+      createPrivateControlFile(paths.daemonConnectionPath, JSON.stringify({
         schemaVersion: RUNTIME_RPC_VERSION, protocol: "http-loopback", version: 1,
         url, token: "parity-fixture", pid: process.pid
-      }), { mode: 0o600 });
+      }));
       const result = await runFastHookEnqueue(["hook", "enqueue", "--event", "post-edit", "--path", "src/中文.ts"], cwd);
       expect((result.envelope as any).data).toMatchObject({ enqueued: true, hookLog: { reasonCode: "enqueued", failOpen: false } });
       const call = calls.at(-1);
@@ -45,10 +48,16 @@ test("fast hook finds daemon connections written with store state paths for repo
       expect(call.params[1]).toMatchObject({ source: "worktree", event: "post-edit" });
     }
     expect(calls.length).toBe(3);
+    const path = runtimeStatePaths(repo).daemonConnectionPath;
+    if (process.platform === "win32") grantEveryoneRead(path);
+    else chmodSync(path, 0o644);
+    const denied = await runFastHookEnqueue(["hook", "enqueue", "--path", "src/private.ts"], repo);
+    expect((denied.envelope as any).data.enqueued).toBe(false);
+    expect(calls.length).toBe(3);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     if (previous === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
     else process.env.ARCHCONTEXT_STATE_DIR = previous;
     rmSync(workspace, { recursive: true, force: true });
   }
-});
+}, 30_000);

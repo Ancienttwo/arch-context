@@ -21,6 +21,8 @@ source:
     - "packages/local-runtime/runtime-daemon/src/audit.ts"
     - "packages/local-runtime/runtime-daemon/src/ledger-admin.ts"
     - "packages/local-runtime/runtime-daemon/src/explorer-server.ts"
+    - "packages/local-runtime/runtime-daemon/src/external-documentation.ts"
+    - "packages/local-runtime/runtime-daemon/src/agent-jobs.ts"
   include:
     - "packages/local-runtime/runtime-daemon/src/**"
 status: "active"

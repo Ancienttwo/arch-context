@@ -14,6 +14,7 @@ const PATHS = {
   s5Context7Gate: "docs/verification/practice-assets-s5-context7-gate.md",
   s6ReleaseGate: "docs/verification/practice-assets-s6-release-gate.md",
   runtimeDaemonSource: "packages/local-runtime/runtime-daemon/src/index.ts",
+  externalDocumentationSource: "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
   hookReadback: "docs/verification/practice-hook-egress-readback.json",
   context7Readback: "docs/verification/practice-context7-readback.json",
   catalogReadback: "docs/verification/practice-assets-s6-catalog-readback.json",
@@ -85,7 +86,10 @@ export async function runPracticeAssetsS6DocsOpsReadback(config: ReadbackConfig)
     s4EnforcementGate: await readText(config.root, PATHS.s4EnforcementGate),
     s5Context7Gate: await readText(config.root, PATHS.s5Context7Gate),
     s6ReleaseGate: await readText(config.root, PATHS.s6ReleaseGate),
-    runtimeDaemonSource: await readText(config.root, PATHS.runtimeDaemonSource)
+    runtimeDaemonSource: [
+      await readText(config.root, PATHS.runtimeDaemonSource),
+      await readText(config.root, PATHS.externalDocumentationSource)
+    ].join("\n")
   };
   const json = {
     hook: await readJson(config.root, PATHS.hookReadback),

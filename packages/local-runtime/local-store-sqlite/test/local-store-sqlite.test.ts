@@ -1,3 +1,4 @@
+import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { createCommittedGitRepo, git } from "./git-fixtures";
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -1313,7 +1314,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       const paths = runtimeStatePaths(root, env);
       await writeIncompleteSqliteTarget(paths.localStorePath);
       const before = readFileSync(paths.localStorePath);
-      writeFileSync(paths.daemonConnectionPath, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+      createPrivateControlFile(paths.daemonConnectionPath, JSON.stringify({ pid: process.pid }));
       const inspection = inspectRuntimeStateRecovery(root, env);
       expect(inspection).toMatchObject({ status: "blocked", reasonCode: "daemon-running", daemonPid: process.pid });
       expect(() => recoverRuntimeStateTarget({
