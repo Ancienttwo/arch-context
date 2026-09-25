@@ -2992,6 +2992,7 @@ describe("archctx CLI", () => {
       expiresAt: "2026-06-20T09:15:00Z"
     });
     const submissions: any[] = [];
+    const challengeFetches: number[] = [];
     const deps = {
       codeFacts: new CodeGraphAdapter(provider),
       codeGraphProviderFactory: () => new MockCodeGraphProvider(),
@@ -3002,6 +3003,12 @@ describe("archctx CLI", () => {
       githubGovernancePort: {
         async getPullHeadMetadata(input: any) {
           return { ...input, headSha, baseSha };
+        }
+      },
+      githubReviewChallengePort: {
+        fetchReviewChallenge(input: { pullRequestNumber: number }) {
+          challengeFetches.push(input.pullRequestNumber);
+          return challenge;
         }
       },
       githubReviewSubmissionPort: {
@@ -3034,9 +3041,15 @@ describe("archctx CLI", () => {
       expect(existsSync(statePath)).toBe(true);
       if (process.platform !== "win32") expect(readFileMode(statePath) & 0o077).toBe(0);
       const persistedClaim = readFileSync(statePath, "utf8");
+      expect(persistedClaim).not.toContain(challenge.nonce);
       expect(persistedClaim).not.toContain("fixed-review-verifier");
       expect(persistedClaim).not.toContain("PRIVATE KEY");
       expect(persistedClaim).not.toContain("keychain://archcontext/device/acct_review/key_device_review");
+
+      const missingChallengeSource = await runCli("github", ["review", "run", "--pr", "42"], root, { ...deps, githubReviewChallengePort: undefined });
+      expect(missingChallengeSource.ok).toBe(false);
+      expect((missingChallengeSource as any).error.message).toContain("configured Challenge fetch port");
+      expect(readFileSync(statePath, "utf8")).toBe(persistedClaim);
 
       const run = await runCli("github", [
         "review",
@@ -3069,6 +3082,12 @@ describe("archctx CLI", () => {
       expect(submissions[0].challenge.challengeId).toBe(challenge.challengeId);
       expect(submissions[0].attestation.nonce).toBe(challenge.nonce);
       expectSafeGithubReviewOutput(submit.data, challenge, submissions[0].attestation.signature.value);
+      const persistedSubmission = readFileSync(statePath, "utf8");
+      expect(persistedSubmission).not.toContain(challenge.nonce);
+      expect(persistedSubmission).not.toContain(submissions[0].attestation.signature.value);
+      expect(JSON.parse(persistedSubmission)).not.toHaveProperty("attestation");
+      expect(JSON.parse(persistedSubmission)).not.toHaveProperty("submission");
+      expect(JSON.parse(persistedSubmission).submissionDigest).toMatch(/^sha256:/);
 
       const cancel = await runCli("github", ["review", "cancel", "--pr", "42", "--now", "2026-06-20T09:04:00Z"], root, deps);
       expect(cancel.ok).toBe(true);
@@ -3084,7 +3103,24 @@ describe("archctx CLI", () => {
       expect(retry.requestId).toBe("github.review.submit");
       expect((retry.data as any).status).toBe("submitted");
       expect(submissions).toHaveLength(2);
+      expect(challengeFetches).toEqual([42, 42, 42]);
       expectSafeGithubReviewOutput(retry.data, challenge, submissions[1].attestation.signature.value);
+
+      let echoedSignature = "";
+      const rejectedEcho = await runCli("github", ["review", "submit", "--pr", "42", "--now", "2026-06-20T09:06:00Z"], root, {
+        ...deps,
+        githubReviewSubmissionPort: {
+          submitDeveloperReview(input) {
+            echoedSignature = input.attestation.signature.value;
+            return { echo: echoedSignature };
+          }
+        }
+      });
+      expect((rejectedEcho.data as any).status).toBe("failed");
+      expect((rejectedEcho.data as any).reasonCode).toBe("github-review-secret-material-forbidden");
+      expect(JSON.stringify(rejectedEcho)).not.toContain(echoedSignature);
+      expect(readFileSync(statePath, "utf8")).not.toContain(echoedSignature);
+      expect(readFileSync(statePath, "utf8")).not.toContain(challenge.nonce);
     } finally {
       if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
       else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
