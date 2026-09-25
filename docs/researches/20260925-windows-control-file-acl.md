@@ -1,6 +1,6 @@
 # Windows control-file ACL boundary (#171)
 
-Status: implemented and locally verified; native Windows acceptance is pending. This does not close #171 or claim a release.
+Status: native Windows ACL boundary verified on three Node targets; full Windows matrix and historical FG6 acceptance remain incomplete. This does not close #171 or claim a release.
 
 ## P1: map
 
@@ -60,3 +60,11 @@ Local correction validation: 14 pass, 1 native skip, 97 assertions in ACL/RPC/ho
 [Verify run 36107901114](https://github.com/Ancienttwo/arch-context/actions/runs/36107901114), candidate `410af0f8d5c57e8b6377b3308d404d308feeefa8`, passed 14 native cases on each Windows Node target, including private creation, broad-read rejection, inherited-ACL rejection and preservation of pre-existing files. The remaining RPC stale-recovery case was cancelled at exactly the standalone runner's default 5-second timeout on all three targets. No Windows readback ran because that step follows the focused tests.
 
 The focused command now uses `bun test --timeout 60000`, matching the existing `package.json` full-verify runner. No test body, assertion or product deadline changes in this correction. This is repair round 2; native full acceptance remains pending.
+
+## Hosted attempt 3: native boundary passes; whole-job budget is insufficient
+
+[Verify run 36108161898](https://github.com/Ancienttwo/arch-context/actions/runs/36108161898), candidate `61b01b2390c52af0536c5f4643b91e9adaee5968`, passed all 15 native ACL/RPC/hook cases and installed-bin v2 readback on Windows Node 22.22/24/25. All nine readback artifacts were downloaded and validated. A read-only verifier independently matched the three Windows archive digests and remote/local payload bytes to that HEAD, and closed only the missing-native-proof finding. The PR merge commit `6da8683deac783cd41cb809f5ec7f17981a5fbf7` and candidate share tree `7ee79b8717af07202022bff2795322dd6dda379f`.
+
+All six Linux/macOS jobs and Windows/Node 25 completed successfully. Windows/Node 25's full test suite passed 2029 tests in 886.79 s; packaging then needed another 85.59 s. Node 24 passed all 2029 tests in 1022.15 s but hit the 20-minute job cap during post-test verification; Node 22 was cancelled late in the E2E suite without a logged assertion failure. Thus native ACL acceptance passes, while full matrix acceptance is incomplete. Governance still reports exactly the four historical FG6 evidence findings.
+
+Repair round 3 changes only the Windows job wall-clock budget to 30 minutes, keeping other platforms at 20 minutes and all product/test timeouts unchanged. The observed suite plus setup, focused native proof, readback and packaging exceeds the old 20-minute envelope on slower Windows targets. No test is removed or softened. This is the final repair round under the three-round cap; any remaining failure must be reported rather than starting another fix loop.
