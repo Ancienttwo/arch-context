@@ -54,3 +54,9 @@ Microsoft documents [PSModulePath inheritance through intermediate processes](ht
 The stale fixture now uses private creation. Idle proof observes publication during the subprocess lifecycle, then still requires connection/lock deletion and PID exit; its one-second idle setting is unchanged. A missing-file rejection avoids an unnecessary PowerShell launch and cannot authorize any read. Windows-focused tests and installed-bin readback now precede the full suite, preserving actual boundary artifacts even if later checks fail. Native acceptance remains pending the corrected candidate.
 
 Local correction validation: 14 pass, 1 native skip, 97 assertions in ACL/RPC/hook cases; both affected CLI cases pass (10 assertions); typecheck and diff check pass. These are macOS results and do not replace the next Windows execution.
+
+## Hosted attempt 2: focused runner deadline
+
+[Verify run 36107901114](https://github.com/Ancienttwo/arch-context/actions/runs/36107901114), candidate `410af0f8d5c57e8b6377b3308d404d308feeefa8`, passed 14 native cases on each Windows Node target, including private creation, broad-read rejection, inherited-ACL rejection and preservation of pre-existing files. The remaining RPC stale-recovery case was cancelled at exactly the standalone runner's default 5-second timeout on all three targets. No Windows readback ran because that step follows the focused tests.
+
+The focused command now uses `bun test --timeout 60000`, matching the existing `package.json` full-verify runner. No test body, assertion or product deadline changes in this correction. This is repair round 2; native full acceptance remains pending.
