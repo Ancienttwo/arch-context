@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "archcontext.hosted-artifact-provenance/v1",
+  "scope": "Downloaded archive and payload identity; workflow conclusions are recorded separately in fg6-platform-workflow-matrix-readback.json",
+  "generatedAt": "2026-09-25T09:32:44.884284+00:00",
+  "runId": 36117123203,
+  "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/36117123203",
+  "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+  "baseSha": "e3d807759e917b26c539f25c51edc31946feb740",
+  "ciMergeSha": "f3cd030620d2b27c53237033e1dc1a8e0c3e7889",
+  "candidateAndMergeTree": "91f54386c4cfbe43a36f2e3cc7890f3aa2ae14d9",
+  "checkoutMergeConfirmedInJobLog": 108013731902,
+  "artifactCount": 9,
+  "artifacts": [
+    {
+      "id": 10855189689,
+      "name": "platform-ipc-permission-macos-15-node-22.22.x",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "archiveSha256": "sha256:f18a00db6df2d23d53624a2f7dde2976a9e8c80ec40810d97fea2d01a0261fbf",
+      "payloadSha256": "sha256:f5ba6e94b726d310435223e2feb289730bea99bad30b383a8efa9cdad11c839a",
+      "platform": "darwin",
+      "node": "v22.22.3"
+    },
+    {
+      "id": 10854399522,
+      "name": "platform-ipc-permission-macos-15-node-24.x",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "archiveSha256": "sha256:f4e9c7c4222763980dfe2b9c325a73e8e75f6cc333ab6486db6d04de0a373a7a",
+      "payloadSha256": "sha256:2df08483848885fd88bddb6d20979d0ec6f884da1c14bb5e8a8fbc8c6513c150",
+      "platform": "darwin",
+      "node": "v24.20.0"
+    },
+    {
+      "id": 10855353801,
+      "name": "platform-ipc-permission-macos-15-node-25.x",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "archiveSha256": "sha256:c55b7d82be529519af76d8e9a6e6ca71e566f2a906b9a5f42f6cce46b8bcdb0e",
+      "payloadSha256": "sha256:1bfb75c6ab1dacfe06c56eddf2b9408525d5c71dff5d2c284df0fe7b11e4eba6",
+      "platform": "darwin",
+      "node": "v25.9.0"
+    },
+    {
+      "id": 10855755881,
+      "name": "platform-ipc-permission-ubuntu-latest-node-22.22.x",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "archiveSha256": "sha256:db6ef06f68091c4308382a12d1642bec7b34067f35f527c3f42faf1c8ebf58b8",
+      "payloadSha256": "sha256:23f0f5eab2ab34faca1ea3d6774461114677df30588e3999eb09b1f875567134",
+      "platform": "linux",
+      "node": "v22.22.3"
+    },
+    {
+      "id": 10855855319,
+      "name": "platform-ipc-permission-ubuntu-latest-node-24.x",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "archiveSha256": "sha256:4b3b5ed104dd7af7c20fd4867245cdc3ff76b076169b2cd97c728902b841e494",
+      "payloadSha256": "sha256:dab63fb868e93a8e78961f7f47e0a40a94e5936f639d4ed5ab48e148d12f26f8",
+      "platform": "linux",
+      "node": "v24.21.0"
+    },
+    {
+      "id": 10855546481,
+      "name": "platform-ipc-permission-ubuntu-latest-node-25.x",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "archiveSha256": "sha256:237e6f83ed30421f17c601b7fa2d7b1fb989428d27fb35d0329aaf040a33a22d",
+      "payloadSha256": "sha256:5ba62bc1d3c03a4d197d0b42dd355b8bc640de8861342552ce6ab4808f2a6436",
+      "platform": "linux",
+      "node": "v25.9.0"
+    },
+    {
+      "id": 10854474568,
+      "name": "platform-ipc-permission-windows-latest-node-22.22.x",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "archiveSha256": "sha256:64a02d79b094dcac6691120eeccca2bb6a71654813593b5e7230ebfc5750a91d",
+      "payloadSha256": "sha256:1006cad6a67eb1cb960a62301188f502321d5e58a7608d5f2d6bfe277041d44b",
+      "platform": "win32",
+      "node": "v22.22.3"
+    },
+    {
+      "id": 10855840673,
+      "name": "platform-ipc-permission-windows-latest-node-24.x",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "archiveSha256": "sha256:cc72e9e96367f8be9ad123e1481a892d8f92815ab85d258579192d33142a5045",
+      "payloadSha256": "sha256:a6e4d6bb604035ff8c5fa5524edb90515ec5887248ef7fddbb38e5320a77d04d",
+      "platform": "win32",
+      "node": "v24.20.0"
+    },
+    {
+      "id": 10855438679,
+      "name": "platform-ipc-permission-windows-latest-node-25.x",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "archiveSha256": "sha256:43036239f3ccf8960d7220adfc7e68ae78f46969d1eadc917c869c4cba0c6065",
+      "payloadSha256": "sha256:25a239183d78bb861eb95741a9a4003e968bab50c8e1a4475bcef49b3fd49507",
+      "platform": "win32",
+      "node": "v25.9.0"
+    }
+  ]
+}
