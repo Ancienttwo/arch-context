@@ -19,6 +19,7 @@ source:
     - "packages/local-runtime/runtime-daemon/src/developer-review-run.ts"
     - "packages/local-runtime/runtime-daemon/src/projection-apply.ts"
     - "packages/local-runtime/runtime-daemon/src/audit.ts"
+    - "packages/local-runtime/runtime-daemon/src/ledger-admin.ts"
   include:
     - "packages/local-runtime/runtime-daemon/src/**"
 status: "active"

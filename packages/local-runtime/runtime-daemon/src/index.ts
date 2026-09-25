@@ -1,3 +1,4 @@
+import { LedgerAdminService } from "./ledger-admin";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
@@ -39,9 +40,7 @@ import {
 } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments, ChangeSetEngine, writeFileWithoutFollowingSymlinks, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
-  ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
   assertArchitectureLedgerPersistenceSafe,
-  architectureLedgerGitCursorFromPlan,
   architectureLedgerBookSubjects,
   architectureLedgerPayload,
   architectureLedgerStateDigest,
@@ -50,10 +49,7 @@ import {
   diffArchitectureLedgerBookStates,
   emptyArchitectureLedgerState,
   planChangeSetApplyToArchitectureLedgerEvent,
-  planExternalProjectionChangeToArchitectureLedgerEvent,
-  planGitCursorRefreshToArchitectureLedgerEvent,
   planYamlToArchitectureLedgerImport,
-  planYamlToArchitectureLedgerRebuild,
   projectArchitectureLedgerStateToYamlFiles,
   queryArchitectureLedgerBook,
   queryArchitectureLedgerBookEvidence,
@@ -66,7 +62,6 @@ import {
   type ArchitectureAuditRunV1,
   type ArchitectureLedgerAppendInput,
   type ArchitectureLedgerAppendResult,
-  type ArchitectureLedgerProjectionFile,
   type ArchitectureLedgerReplayResult,
   type ArchitectureLedgerScope,
   type ArchitectureLedgerGraphState,
@@ -85,7 +80,6 @@ import {
 import {
   RefactorAssessmentRegistry,
   buildRefactorRecordEvent,
-  planRecommendationV3Migration,
   refactorClassifierRulesetDigest,
   refactorProposalAuthorPairIssues,
   type RegisteredRefactorAssessmentV1
@@ -938,6 +932,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly investigationTransport: CommandInvestigationRunnerTransport;
   private readonly githubIssueExecutor: GithubIssueExecutorPort;
   private readonly clock: () => string;
+  private readonly ledgerAdmin: LedgerAdminService;
   private readonly auditService: AuditService;
   private readonly projectionApplies: ProjectionApplyService;
   private readonly developerReviewRuns: DeveloperReviewRunService;
@@ -991,6 +986,23 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
     this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
     this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
+    this.ledgerAdmin = new LedgerAdminService({
+      assertRunning: () => this.assertRunning(),
+      withWriter: (run) => this.withWriter(run),
+      clock: this.clock,
+      architectureLedger: this.architectureLedger,
+      architectureLedgerScope: (root) => this.architectureLedgerScope(root),
+      architectureLedgerGitScope: (root) => this.architectureLedgerGitScope(root),
+      assertFreshWorktree: (root, digest, command) => this.assertFreshWorktree(root, digest, command),
+      appendArchitectureEventsWithFeed: (root, input) => this.appendArchitectureEventsWithFeed(root, input),
+      localStore: this.localStore,
+      openSession: (root) => this.openSession(root),
+      modelStore: this.modelStore,
+      changeSetEngine: this.changeSetEngine,
+      recommendationArtifacts: recommendationArtifactsFromEvents,
+      managedModelPath: isArchitectureLedgerManagedModelPath,
+      shortDigest
+    });
     this.auditService = new AuditService({
       assertRunning: () => this.assertRunning(),
       openSession: (root) => this.openSession(root),
@@ -2271,75 +2283,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return result;
   }
 
-  private async applyArchitectureProjectionChangeSet(root: string, input: {
-    id: string;
-    files: { path: string; body: string }[];
-    removedPaths: string[];
-  }): Promise<void> {
-    const session = await this.openSession(root);
-    const model = await this.modelStore.validateModel(session.workspace);
-    const baseErrors = baseModelBlockingErrors(model);
-    if (baseErrors.length > 0) throw new Error(`Architecture projection ChangeSet base model is invalid: ${baseErrors.join("; ")}`);
-    const projectionFiles = input.files.map((file) => ({
-      path: file.path,
-      body: file.body.endsWith("\n") ? file.body : `${file.body}\n`,
-      expectedHash: expectedFileHash(root, file.path)
-    }));
-    const operations: ChangeOperation[] = [
-      ...(projectionFiles.length > 0 ? [{ op: "render_projection" as const, expectedHash: "missing", projectionFiles }] : []),
-      ...input.removedPaths.map((path) => ({
-        op: "delete_entity" as const,
-        path,
-        expectedHash: expectedFileHash(root, path)
-      }))
-    ];
-    const draft = this.changeSetEngine.approve(this.changeSetEngine.plan({
-      id: input.id,
-      base: {
-        headSha: session.workspace.headSha,
-        worktreeDigest: session.snapshot.worktreeDigest,
-        modelDigest: model.modelDigest
-      },
-      reason: { taskSessionId: input.id },
-      operations
-    }));
-    await this.changeSetEngine.apply(root, draft, { approved: true });
-  }
-
-  private async applyArchitectureProjectionRollbackChangeSet(
-    root: string,
-    projectedFiles: ArchitectureLedgerProjectionFile[],
-    currentFiles: ModelFile[],
-    createdAt: string
-  ): Promise<ArchitectureProjectionRollbackWriteResult> {
-    const backupBase = `.archcontext/backups/ledger-rollback/${safePathSegment(createdAt)}`;
-    const backupRelativePath = uniqueBackupPath(root, backupBase);
-    const manifestPath = `${backupRelativePath}/manifest.json`;
-    const { backup, manifest } = architectureProjectionRollbackBackup(currentFiles, {
-      createdAt,
-      path: backupRelativePath,
-      manifestPath
-    });
-    const removedPaths = obsoleteManagedProjectionPaths(currentFiles, projectedFiles);
-    await this.applyArchitectureProjectionChangeSet(root, {
-      id: `changeset.ledger-rollback-${shortDigest(digestJson({ createdAt, projectionDigest: architectureLedgerProjectionDigest(projectedFiles) } as unknown as Json))}`,
-      files: [
-        ...currentFiles.map((file) => ({
-          path: `${backupRelativePath}/${archContextRelativePath(file.path)}`,
-          body: file.body
-        })),
-        { path: manifestPath, body: `${JSON.stringify(manifest, null, 2)}\n` },
-        ...projectedFiles.map(({ path, body }) => ({ path, body }))
-      ],
-      removedPaths
-    });
-    return {
-      backup,
-      writtenPaths: projectedFiles.map((file) => file.path),
-      removedPaths
-    };
-  }
-
   async ledgerState(root: string): Promise<JsonEnvelope> {
     this.assertRunning();
     return okEnvelope("ledger.state", await this.architectureLedgerReadback(root) as unknown as Json);
@@ -3126,457 +3069,19 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const writes = input.dryRun === false;
-    const project = async () => {
-      if (writes) this.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger project --to-git");
-      const scope = await this.architectureLedgerScope(root);
-      const state = await this.localStore.readArchitectureLedgerState(scope);
-      const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
-      const removedPaths = obsoleteManagedProjectionPaths(
-        listModelFiles(root).filter((file) => isArchitectureLedgerManagedModelPath(file.path)),
-        projectedFiles
-      );
-      if (writes) {
-        await this.applyArchitectureProjectionChangeSet(root, {
-          id: `changeset.ledger-project-${shortDigest(architectureLedgerProjectionDigest(projectedFiles))}`,
-          files: projectedFiles.map(({ path, body }) => ({ path, body })),
-          removedPaths
-        });
-      }
-      const drift = compareArchitectureLedgerStateToYaml({
-        state,
-        files: listModelFiles(root),
-        createdAt: this.clock(),
-        command: "archctx ledger project --to-git"
-      });
-      const reconcile = reconcileArchitectureLedgerDrift({ drift });
-      return okEnvelope("ledger.project", {
-        schemaVersion: "archcontext.runtime-architecture-ledger-project/v1",
-        architectureLedger: this.architectureLedger,
-        repository: scope.repository,
-        worktree: scope.worktree,
-        dryRun: !writes,
-        writes: writes ? "git-projection" : "none",
-        projectedFileCount: projectedFiles.length,
-        projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
-        graphDigest: architectureLedgerStateDigest(state),
-        writtenPaths: writes ? projectedFiles.map((file) => file.path) : [],
-        removedPaths: writes ? removedPaths : [],
-        projectedFiles: writes ? undefined : projectedFiles,
-        drift,
-        reconcile
-      } as unknown as Json);
-    };
-    return writes ? this.withWriter(project) : project();
+    return this.ledgerAdmin.ledgerProject(root, input);
   }
 
   async ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }): Promise<JsonEnvelope> {
-    this.assertRunning();
-    if (input.fromYaml && input.recommendationV3) {
-      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate accepts --from-yaml or --recommendation-v3, not both");
-    }
-    if (input.recommendationV3) return this.ledgerMigrateRecommendationV3(root, input);
-    if (!input.fromYaml) return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate requires --from-yaml or --recommendation-v3");
-    const writes = input.dryRun === false;
-    const migrate = async () => {
-      const repositoryRoot = root;
-      if (writes) this.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, "ledger migrate --from-yaml");
-      const scope = await this.architectureLedgerScope(repositoryRoot);
-      const files = listModelFiles(repositoryRoot);
-      const command = writes
-        ? "archctx ledger migrate --from-yaml --write"
-        : "archctx ledger migrate --from-yaml --dry-run";
-      const previousEvidenceState = await this.localStore.replayArchitectureLedgerEvidence(scope);
-      const plan = planYamlToArchitectureLedgerImport({
-        ...scope,
-        files,
-        previousEvidenceState,
-        createdAt: this.clock(),
-        command
-      });
-      const previousState = await this.localStore.readArchitectureLedgerState(scope);
-      const previousGraphDigest = architectureLedgerStateDigest(previousState);
-      const base = {
-        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
-        architectureLedger: this.architectureLedger,
-        repository: scope.repository,
-        worktree: scope.worktree,
-        sourceMode: "git-yaml",
-        dryRun: !writes,
-        graphDigest: plan.graphDigest,
-        previousGraphDigest,
-        sourceDigest: plan.sourceDigest,
-        projectionDigest: plan.projectionDigest,
-        imported: plan.imported,
-        ignoredFiles: plan.ignoredFiles,
-        unsupportedFiles: plan.unsupportedFiles,
-        rollback: {
-          command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
-          safeDowngradeEnvironment: this.architectureLedger.phaseFlags.safeDowngrade.environment
-        }
-      } as const;
-      if (!writes) {
-        return okEnvelope("ledger.migrate", {
-          ...base,
-          status: plan.unsupportedFiles.length > 0 ? "blocked" : "planned",
-          writes: "none",
-          backup: { status: "not-created", reason: "dry-run" },
-          append: { status: "not-applied" },
-          verification: { status: "not-run", reason: "dry-run" },
-          drift: plan.drift,
-          reconcile: reconcileArchitectureLedgerDrift({ drift: plan.drift })
-        } as unknown as Json);
-      }
-      if (plan.unsupportedFiles.length > 0) {
-        return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate --from-yaml --write requires supported YAML model files");
-      }
-      const paths = runtimeStatePaths(repositoryRoot);
-      const backupCreatedAt = this.clock();
-      const backupPath = uniqueRuntimeBackupPath(join(
-        paths.workspaceStateDir,
-        "backups",
-        "ledger-migrate",
-        safePathSegment(backupCreatedAt),
-        "runtime.sqlite"
-      ));
-      const backup = await this.localStore.backupArchitectureLedger({ backupPath });
-      const append = await this.appendArchitectureEventsWithFeed(repositoryRoot, {
-        writer: "runtime-daemon",
-        events: [plan.event]
-      });
-      const replay = await this.localStore.rebuildArchitectureLedgerCurrentState(scope);
-      const integrity = await this.localStore.checkArchitectureLedgerIntegrity(scope);
-      const drift = compareArchitectureLedgerStateToYaml({
-        state: replay.state,
-        files: listModelFiles(repositoryRoot),
-        createdAt: this.clock(),
-        command
-      });
-      const reconcile = reconcileArchitectureLedgerDrift({ drift });
-      const verified = integrity.ok && replay.graphDigest === plan.graphDigest && drift.ok && reconcile.ok;
-      return okEnvelope("ledger.migrate", {
-        ...base,
-        status: verified ? "verified" : "verification-failed",
-        writes: "architecture-ledger",
-        backup: {
-          schemaVersion: "archcontext.runtime-architecture-ledger-sqlite-backup/v1",
-          status: "created",
-          backupPath: backup.backupPath,
-          integrity: backup.integrity,
-          createdAt: backupCreatedAt
-        },
-        append: {
-          status: "appended",
-          appendedEventCount: append.appendedEvents.length,
-          duplicateEventCount: append.duplicateEvents.length,
-          graphDigest: append.graphDigest,
-          entityCount: append.entityCount,
-          relationCount: append.relationCount,
-          constraintCount: append.constraintCount
-        },
-        verification: {
-          schemaVersion: "archcontext.runtime-architecture-ledger-migration-verification/v1",
-          ok: verified,
-          replayedEventCount: replay.cursor.eventCount,
-          graphDigest: replay.graphDigest,
-          expectedGraphDigest: plan.graphDigest,
-          integrity,
-          driftOk: drift.ok,
-          reconcileOk: reconcile.ok
-        },
-        drift,
-        reconcile,
-        recommendedEnvironment: {
-          ARCHCONTEXT_LEDGER_MODE: "dual"
-        }
-      } as unknown as Json);
-    };
-    return writes ? this.withWriter(migrate) : migrate();
-  }
-
-  /**
-   * Appends one migration event; it never rewrites a `recommendations` row. The event stream is
-   * the authority, so an in-place UPDATE would leave the log at v2, and `operations` stays empty
-   * so `ledger rebuild` replays to an identical `graphDigest` before and after.
-   */
-  private async ledgerMigrateRecommendationV3(root: string, input: RuntimeLedgerMigrateInput): Promise<JsonEnvelope> {
-    const repositoryRoot = findRepositoryRoot(root);
-    const writes = input.dryRun === false;
-    const migrate = async (): Promise<JsonEnvelope> => {
-      if (writes) this.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, "ledger migrate --recommendation-v3");
-      const scope = await this.architectureLedgerScope(repositoryRoot);
-      const replay = await this.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
-      const artifacts = recommendationArtifactsFromEvents(replay.events);
-      let plan: ReturnType<typeof planRecommendationV3Migration>;
-      try {
-        plan = planRecommendationV3Migration({
-          repository: scope.repository,
-          worktree: scope.worktree,
-          recommendations: artifacts.recommendations,
-          graphDigest: replay.graphDigest,
-          now: this.clock()
-        });
-      } catch (error) {
-        return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
-      }
-      const base = {
-        schemaVersion: "archcontext.runtime-recommendation-v3-migrate/v1",
-        mode: "recommendation-v3",
-        architectureLedger: this.architectureLedger,
-        repository: scope.repository,
-        worktree: scope.worktree,
-        dryRun: !writes,
-        graphDigest: replay.graphDigest,
-        inputDigest: plan.inputDigest,
-        upgradedCount: plan.upgraded.length,
-        recommendationIds: plan.upgraded.map((recommendation) => recommendation.recommendationId)
-      } as const;
-      if (!writes) {
-        return okEnvelope("ledger.migrate", {
-          ...base,
-          status: plan.upgraded.length === 0 ? "up-to-date" : "planned",
-          writes: "none",
-          append: { status: "not-applied" }
-        } as unknown as Json);
-      }
-      if (!plan.event) {
-        return okEnvelope("ledger.migrate", {
-          ...base,
-          status: "up-to-date",
-          writes: "none",
-          append: { status: "not-applied", appendedEventCount: 0, duplicateEventCount: 0 },
-          verification: { ok: true, graphDigest: replay.graphDigest, expectedGraphDigest: replay.graphDigest }
-        } as unknown as Json);
-      }
-      const append = await this.appendArchitectureEventsWithFeed(root, {
-        writer: "runtime-daemon",
-        events: [plan.event]
-      });
-      const rebuilt = await this.localStore.rebuildArchitectureLedgerCurrentState(scope);
-      const verified = rebuilt.graphDigest === replay.graphDigest;
-      return okEnvelope("ledger.migrate", {
-        ...base,
-        status: verified ? "verified" : "verification-failed",
-        writes: "architecture-ledger",
-        append: {
-          status: "appended",
-          appendedEventCount: append.appendedEvents.length,
-          duplicateEventCount: append.duplicateEvents.length,
-          graphDigest: append.graphDigest,
-          entityCount: append.entityCount,
-          relationCount: append.relationCount,
-          constraintCount: append.constraintCount
-        },
-        verification: {
-          schemaVersion: "archcontext.runtime-recommendation-v3-migration-verification/v1",
-          ok: verified,
-          replayedEventCount: rebuilt.cursor.eventCount,
-          graphDigest: rebuilt.graphDigest,
-          expectedGraphDigest: replay.graphDigest
-        }
-      } as unknown as Json);
-    };
-    return writes ? this.withWriter(migrate) : migrate();
+    return this.ledgerAdmin.ledgerMigrate(root, input);
   }
 
   async ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }): Promise<JsonEnvelope> {
-    this.assertRunning();
-    if (!input.toYaml) return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback currently requires --to-yaml");
-    const writes = input.dryRun === false;
-    const rollback = async () => {
-      if (writes) this.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger rollback --to-yaml");
-      const scope = await this.architectureLedgerScope(root);
-      const state = await this.localStore.readArchitectureLedgerState(scope);
-      const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
-      const currentManagedFiles = listModelFiles(root).filter((file) => isArchitectureLedgerManagedModelPath(file.path));
-      const backupPlan = architectureProjectionRollbackBackup(currentManagedFiles);
-      const writeResult = writes
-        ? await this.applyArchitectureProjectionRollbackChangeSet(root, projectedFiles, currentManagedFiles, this.clock())
-        : { backup: backupPlan.backup, writtenPaths: [], removedPaths: [] };
-      const drift = compareArchitectureLedgerStateToYaml({
-        state,
-        files: listModelFiles(root),
-        createdAt: this.clock(),
-        command: "archctx ledger rollback --to-yaml"
-      });
-      const reconcile = reconcileArchitectureLedgerDrift({ drift });
-      return okEnvelope("ledger.rollback", {
-        schemaVersion: "archcontext.runtime-architecture-ledger-rollback/v1",
-        architectureLedger: this.architectureLedger,
-        repository: scope.repository,
-        worktree: scope.worktree,
-        sourceAuthority: "ledger",
-        targetAuthority: "yaml",
-        dryRun: !writes,
-        writes: writes ? "git-projection" : "none",
-        backup: writeResult.backup,
-        projectedFileCount: projectedFiles.length,
-        projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
-        graphDigest: architectureLedgerStateDigest(state),
-        writtenPaths: writeResult.writtenPaths,
-        removedPaths: writeResult.removedPaths,
-        projectedFiles: writes ? undefined : projectedFiles,
-        drift,
-        reconcile,
-        recommendedEnvironment: {
-          ARCHCONTEXT_LEDGER_MODE: "yaml"
-        }
-      } as unknown as Json);
-    };
-    return writes ? this.withWriter(rollback) : rollback();
+    return this.ledgerAdmin.ledgerRollback(root, input);
   }
 
   async ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}): Promise<JsonEnvelope> {
-    this.assertRunning();
-    if (!input.fromGit) return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild currently requires --from-git");
-    return this.withWriter(async () => {
-      this.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger rebuild --from-git");
-      const scope = await this.architectureLedgerGitScope(root);
-      const files = listModelFiles(root);
-      const exactReplay = await this.localStore.replayArchitectureLedger(scope);
-      const exactEvidenceState = exactReplay.evidenceState;
-      const exactScopeHasEvents = exactReplay.cursor.eventCount > 0;
-      const authorityScope = exactScopeHasEvents
-        ? scope
-        : await this.localStore.resolveLatestArchitectureLedgerScope(scope);
-      const previousState = exactScopeHasEvents
-        ? exactReplay.state
-        : await this.localStore.readArchitectureLedgerState(authorityScope);
-      const previousGraphDigest = architectureLedgerStateDigest(previousState);
-      const authorityEvidenceState = exactScopeHasEvents
-        ? exactEvidenceState
-        : (await this.localStore.replayArchitectureLedger(authorityScope)).evidenceState;
-      const rebuildCommand = input.acceptExternalProjection
-        ? "archctx ledger rebuild --from-git --accept-external-projection"
-        : "archctx ledger rebuild --from-git";
-      const plan = planYamlToArchitectureLedgerRebuild({
-        ...scope,
-        files,
-        createdAt: this.clock(),
-        command: rebuildCommand,
-        previousState,
-        previousEvidenceState: exactEvidenceState
-      });
-      const importPlan = planYamlToArchitectureLedgerImport({
-        ...scope,
-        files,
-        previousEvidenceState: exactEvidenceState,
-        createdAt: this.clock(),
-        command: rebuildCommand
-      });
-      if (plan.unsupportedFiles.length > 0) {
-        return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild requires supported YAML model files");
-      }
-      const cursor = architectureLedgerGitCursorFromPlan({ ...scope, plan });
-      const previousCursor = await this.localStore.readArchitectureLedgerSourceCursor({
-        ...authorityScope,
-        cursorId: ARCHITECTURE_LEDGER_GIT_CURSOR_ID
-      });
-      const cursorChanged = previousCursor?.cursorDigest !== cursor.cursorDigest;
-      const previousStateEmpty = isEmptyArchitectureLedgerState(previousState);
-      let append: ArchitectureLedgerAppendResult = {
-        appendedEvents: [],
-        duplicateEvents: [],
-        graphDigest: previousGraphDigest,
-        entityCount: previousState.entities.length,
-        relationCount: previousState.relations.length,
-        constraintCount: previousState.constraints.length
-      };
-      let rebuildStatus: "unchanged" | "cursor-refreshed" | "rebuilt" | "external-projection-proposed" | "external-projection-accepted" = "unchanged";
-      let proposedExternalProjectionChange: Json | undefined;
-      if (previousGraphDigest === plan.graphDigest) {
-        if (!exactScopeHasEvents) {
-          append = await this.appendArchitectureEventsWithFeed(root, {
-            writer: "runtime-daemon",
-            events: [importPlan.event]
-          });
-          rebuildStatus = isEmptyArchitectureLedgerState(previousState) ? "rebuilt" : "cursor-refreshed";
-        } else if (cursorChanged) {
-          const cursorPlan = planGitCursorRefreshToArchitectureLedgerEvent({
-            ...scope,
-            cursor,
-            graphDigest: plan.graphDigest,
-            createdAt: this.clock(),
-            command: rebuildCommand
-          });
-          append = await this.appendArchitectureEventsWithFeed(root, {
-            writer: "runtime-daemon",
-            events: [cursorPlan.event]
-          });
-          rebuildStatus = "cursor-refreshed";
-        }
-      } else if (!previousStateEmpty && !input.acceptExternalProjection) {
-        const proposal = planExternalProjectionChangeToArchitectureLedgerEvent({
-          ...authorityScope,
-          files,
-          createdAt: this.clock(),
-          command: rebuildCommand,
-          previousState,
-          previousEvidenceState: authorityEvidenceState
-        });
-        append = await this.appendArchitectureEventsWithFeed(root, {
-          writer: "runtime-daemon",
-          events: [proposal.event]
-        });
-        rebuildStatus = "external-projection-proposed";
-        proposedExternalProjectionChange = {
-          eventId: proposal.event.eventId,
-          baseGraphDigest: proposal.baseGraphDigest,
-          proposedGraphDigest: proposal.proposedGraphDigest,
-          sourceDigest: proposal.sourceDigest,
-          projectionDigest: proposal.projectionDigest,
-          reasonCodes: proposal.drift.reasonCodes,
-          reconcileCommand: "archctx ledger rebuild --from-git --accept-external-projection --expected-worktree-digest <current>"
-        } as unknown as Json;
-      } else {
-        append = await this.appendArchitectureEventsWithFeed(root, {
-          writer: "runtime-daemon",
-          events: [exactScopeHasEvents ? plan.event : importPlan.event]
-        });
-        rebuildStatus = previousStateEmpty ? "rebuilt" : "external-projection-accepted";
-      }
-      const replayScope = rebuildStatus === "external-projection-proposed" ? authorityScope : scope;
-      const replay = await this.localStore.rebuildArchitectureLedgerCurrentState(replayScope);
-      const drift = compareArchitectureLedgerStateToYaml({
-        state: replay.state,
-        files: listModelFiles(root),
-        createdAt: this.clock(),
-        command: "archctx ledger rebuild --from-git"
-      });
-      const reconcile = reconcileArchitectureLedgerDrift({ drift });
-      return okEnvelope("ledger.rebuild", {
-        schemaVersion: "archcontext.runtime-architecture-ledger-rebuild/v1",
-        architectureLedger: this.architectureLedger,
-        repository: scope.repository,
-        worktree: scope.worktree,
-        sourceMode: "git-yaml",
-        status: rebuildStatus,
-        reconcileRequired: rebuildStatus === "external-projection-proposed",
-        appendedEventCount: append.appendedEvents.length,
-        duplicateEventCount: append.duplicateEvents.length,
-        replayedEventCount: replay.cursor.eventCount,
-        graphDigest: replay.graphDigest,
-        previousGraphDigest,
-        proposedGraphDigest: plan.graphDigest,
-        cursor: {
-          changed: cursorChanged,
-          cursorDigest: cursor.cursorDigest,
-          previousCursorDigest: typeof previousCursor?.cursorDigest === "string" ? previousCursor.cursorDigest : undefined,
-          sourceDigest: cursor.sourceDigest,
-          projectionDigest: cursor.projectionDigest,
-          branch: cursor.branch,
-          headSha: cursor.headSha,
-          worktreeDigest: cursor.worktreeDigest
-        },
-        proposedExternalProjectionChange,
-        imported: plan.imported,
-        ignoredFiles: plan.ignoredFiles,
-        unsupportedFiles: plan.unsupportedFiles,
-        drift,
-        reconcile
-      } as unknown as Json);
-    });
+    return this.ledgerAdmin.ledgerRebuild(root, input);
   }
 
   private async architectureLedgerReadback(root: string) {
@@ -5290,10 +4795,6 @@ function architectureBookMarkdown(state: ArchitectureLedgerGraphState): string {
   return `${lines.join("\n")}\n`;
 }
 
-function isEmptyArchitectureLedgerState(state: ArchitectureLedgerGraphState): boolean {
-  return state.entities.length === 0 && state.relations.length === 0 && state.constraints.length === 0;
-}
-
 function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const paths = new Set(files.map((file) => file.path));
@@ -5944,87 +5445,6 @@ function readChangedPathsSince(root: string, commit: string): CapabilitySourceCh
   }
 }
 
-
-interface ArchitectureProjectionRollbackWriteResult {
-  backup: Json;
-  writtenPaths: string[];
-  removedPaths: string[];
-}
-
-/**
- * Managed model files the ledger no longer projects.
- *
- * Both ledger-to-Git directions — `ledger project --to-git` and `ledger rollback --to-yaml` — must
- * use this one set difference, so an entity, relation, or constraint retired in the ledger cannot
- * survive as stale YAML. `currentFiles` is already filtered to ledger-managed model paths, which is
- * what keeps manifests, policies, waivers, backups, and generated artifacts out of the deletion set.
- */
-function obsoleteManagedProjectionPaths(
-  currentFiles: ModelFile[],
-  projectedFiles: ArchitectureLedgerProjectionFile[]
-): string[] {
-  const targetPaths = new Set(projectedFiles.map((file) => file.path));
-  return currentFiles.filter((file) => !targetPaths.has(file.path)).map((file) => file.path);
-}
-
-function expectedFileHash(root: string, path: string): string {
-  const absolute = resolve(root, path);
-  return existsSync(absolute) ? digestJson({ body: readFileSync(absolute, "utf8") } as unknown as Json) : "missing";
-}
-
-function architectureProjectionRollbackBackup(
-  files: ModelFile[],
-  options: { createdAt?: string; path?: string; manifestPath?: string } = {}
-): { backup: Json; manifest: Json } {
-  const manifest = {
-    schemaVersion: "archcontext.architecture-ledger-yaml-rollback-backup/v1",
-    createdAt: options.createdAt,
-    fileCount: files.length,
-    files: files.map((file) => ({
-      path: file.path,
-      schemaVersion: file.schemaVersion,
-      digest: file.digest
-    }))
-  } as unknown as Json;
-  const backup = {
-    schemaVersion: "archcontext.architecture-ledger-yaml-rollback-backup/v1",
-    required: true,
-    path: options.path,
-    manifestPath: options.manifestPath,
-    fileCount: files.length,
-    paths: files.map((file) => file.path),
-    digest: digestJson(manifest)
-  } as unknown as Json;
-  return { backup, manifest };
-}
-
-function uniqueBackupPath(root: string, backupBase: string): string {
-  let candidate = backupBase;
-  let suffix = 2;
-  while (existsSync(resolve(root, candidate))) {
-    candidate = `${backupBase}-${suffix}`;
-    suffix += 1;
-  }
-  return candidate;
-}
-
-function uniqueRuntimeBackupPath(backupBase: string): string {
-  let candidate = backupBase;
-  let suffix = 2;
-  while (existsSync(candidate)) {
-    candidate = backupBase.replace(/\.sqlite$/, `-${suffix}.sqlite`);
-    suffix += 1;
-  }
-  return candidate;
-}
-
-function safePathSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9._-]/g, "-");
-}
-
-function archContextRelativePath(path: string): string {
-  return path.startsWith(".archcontext/") ? path.slice(".archcontext/".length) : path;
-}
 
 function blockedProductionInjections(deps: RuntimeDeps): string[] {
   return [

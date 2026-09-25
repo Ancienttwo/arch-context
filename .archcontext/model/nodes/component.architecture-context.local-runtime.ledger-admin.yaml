@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.ledger-admin"
+kind: "component"
+name: "Ledger Administration Service"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/runtime-daemon/src/ledger-admin.ts"
+status: "active"
+summary: "Owns explicit ledger project, migration, rollback and rebuild orchestration under existing daemon writer and transaction boundaries."

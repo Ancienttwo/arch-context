@@ -1,0 +1,6 @@
+id: "relation.architecture-context.ledger-admin.ledger"
+intent: "Plan explicit ledger migrations and Git projection changes with shared ledger contracts"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.ledger-admin"
+target: "component.architecture-context.core.architecture-ledger"
