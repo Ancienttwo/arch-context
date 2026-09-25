@@ -1,3 +1,5 @@
+import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
+export type { ExplorerServerOptions, ExplorerServerStatus } from "./explorer-server";
 import { LedgerAdminService } from "./ledger-admin";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
@@ -9,18 +11,14 @@ import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type Develope
 export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
-import { isLoopbackRemote, writeJson } from "./loopback-http";
 export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
 export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, recoverStaleDaemonControlFiles } from "./daemon-control";
 export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 export * from "./rpc-client";
 export * from "./rpc-protocol";
-import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import {
   addRepositoryToLandscape,
@@ -106,12 +104,11 @@ import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPractic
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { agentContextProjectionTargetPaths, architectureDocumentationProjectionWorktreeDigest, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, assertArchitectureProjectionVerifiedAgainst, capabilitySourceChangesSinceStamps, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestVerifiedAgainst, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection, type ArchitectureProjectionManifestVerifiedAgainstReadback, type ArchitectureProjectionVerifiedAgainst, type CapabilitySourceChangeSet, type CapabilitySourceChangeSetForCommit, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
-import { renderExplorerHtml } from "@archcontext/local-runtime/explorer-html";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, baseModelBlockingErrors, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, baseModelBlockingErrors, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
@@ -490,21 +487,6 @@ interface RuntimeConstructionOptions {
   legacyLocalStoreMigrationRoot?: string;
 }
 
-export interface ExplorerServerOptions {
-  port?: number;
-  tokenTtlSeconds?: number;
-}
-
-export interface ExplorerServerStatus {
-  running: boolean;
-  host: "127.0.0.1";
-  port?: number;
-  url?: string;
-  tokenExpiresAt?: string;
-  revoked: boolean;
-  readOnly: true;
-}
-
 export type RuntimeWorktreeDigestProfile = "repository" | "architecture-documentation-projection";
 
 export interface RuntimePlanUpdateInput {
@@ -773,19 +755,6 @@ function movedWorktreeIdentityFields(
   return moved;
 }
 
-interface ExplorerServerSession {
-  server: Server;
-  root: string;
-  host: "127.0.0.1";
-  port: number;
-  token: string;
-  expiresAt: number;
-  revoked: boolean;
-  sseClients: Set<ServerResponse>;
-  expiryTimer?: ReturnType<typeof setTimeout>;
-  lastProjectionDigest?: string;
-}
-
 interface ArchitectureLedgerReadModelValidation extends ModelValidationResult {
   architectureLedger: RuntimeArchitectureLedgerModes & {
     graphDigest: string;
@@ -953,7 +922,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   // rather than leaving them running orphaned past the daemon's own lifetime.
   private readonly auditRunAbortControllers = new Map<string, AbortController>();
   private landscape?: Landscape;
-  private explorer?: ExplorerServerSession;
+  private readonly explorerServer: ExplorerServerService;
   private running = false;
   private writerLocked = false;
   private unresolvedChangeSetJournals: UnresolvedChangeSetJournal[] = [];
@@ -986,6 +955,12 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
     this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
     this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
+    this.explorerServer = new ExplorerServerService({
+      assertRunning: () => this.assertRunning(),
+      clock: this.clock,
+      explorerProjectionV2: (root, input) => this.explorerProjectionV2(root, input),
+      explorerProjectionDelta: (root, input) => this.explorerProjectionDelta(root, input)
+    });
     this.ledgerAdmin = new LedgerAdminService({
       assertRunning: () => this.assertRunning(),
       withWriter: (run) => this.withWriter(run),
@@ -3916,83 +3891,32 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return projection;
   }
 
-  private notifyExplorerInvalidation(projection: ExplorerProjectionV2, affectedOccurrenceIds: string[]): void {
-    const explorer = this.explorer;
-    if (!explorer || explorer.lastProjectionDigest === projection.projectionDigest) return;
-    if (explorer.revoked || Date.parse(this.clock()) >= explorer.expiresAt) {
-      for (const client of explorer.sseClients) client.end();
-      explorer.sseClients.clear();
-      return;
-    }
-    explorer.lastProjectionDigest = projection.projectionDigest;
-    const payload = JSON.stringify({
-      schemaVersion: "archcontext.explorer-invalidation/v1",
-      projectionDigest: projection.projectionDigest,
-      graphDigest: projection.cursor.graphDigest,
-      observedFactsDigest: projection.cursor.observedFactsDigest,
-      viewDefinitionDigest: projection.cursor.viewDefinitionDigest,
-      affectedOccurrencesDigest: digestJson(affectedOccurrenceIds as unknown as Json)
-    });
-    for (const client of explorer.sseClients) client.write(`event: projection-invalidated\ndata: ${payload}\n\n`);
-  }
-
   async startExplorer(root: string, options: ExplorerServerOptions = {}): Promise<JsonEnvelope> {
-    this.assertRunning();
-    await this.closeExplorer();
-    const ttlSeconds = options.tokenTtlSeconds ?? 900;
-    const token = randomBytes(18).toString("base64url");
-    const expiresAt = Date.parse(this.clock()) + ttlSeconds * 1000;
-    const holder = {} as ExplorerServerSession;
-    const server = createServer((request, response) => {
-      void this.handleExplorerRequest(request, response, holder).catch((error) => {
-        writeJson(response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
-      });
-    });
-    Object.assign(holder, {
-      server,
-      root,
-      host: "127.0.0.1",
-      port: 0,
-      token,
-      expiresAt,
-      revoked: false,
-      sseClients: new Set<ServerResponse>()
-    });
-    await new Promise<void>((resolveListen) => server.listen(options.port ?? 0, "127.0.0.1", resolveListen));
-    holder.port = (server.address() as AddressInfo).port;
-    holder.expiryTimer = setTimeout(
-      () => this.expireExplorerSession(holder),
-      Math.max(0, expiresAt - Date.parse(this.clock()))
-    );
-    this.explorer = holder;
-    return okEnvelope("explorer.start", {
-      ...this.explorerStatusData(),
-      token,
-      tokenTtlSeconds: ttlSeconds
-    } as Json);
+    return this.explorerServer.startExplorer(root, options);
   }
 
   async stopExplorer(): Promise<JsonEnvelope> {
-    this.assertRunning();
-    await this.closeExplorer();
-    return okEnvelope("explorer.stop", this.explorerStatusData() as unknown as Json);
+    return this.explorerServer.stopExplorer();
   }
 
   async revokeExplorerToken(): Promise<JsonEnvelope> {
-    this.assertRunning();
-    if (this.explorer) {
-      if (this.explorer.expiryTimer) clearTimeout(this.explorer.expiryTimer);
-      this.explorer.expiryTimer = undefined;
-      this.explorer.revoked = true;
-      for (const client of this.explorer.sseClients) client.end();
-      this.explorer.sseClients.clear();
-    }
-    return okEnvelope("explorer.revoke", this.explorerStatusData() as unknown as Json);
+    return this.explorerServer.revokeExplorerToken();
   }
 
   explorerStatus(): JsonEnvelope {
-    this.assertRunning();
-    return okEnvelope("explorer.status", this.explorerStatusData() as unknown as Json);
+    return this.explorerServer.explorerStatus();
+  }
+
+  private async closeExplorer(): Promise<void> {
+    return this.explorerServer.closeExplorer();
+  }
+
+  private notifyExplorerInvalidation(projection: ExplorerProjectionV2, affectedOccurrenceIds: string[]): void {
+    this.explorerServer.notifyExplorerInvalidation(projection, affectedOccurrenceIds);
+  }
+
+  private notifyExplorerAuthorityInvalidation(root: string, record: ArchitectureChangeFeedRecordV1, occurrenceIds: string[]): void {
+    this.explorerServer.notifyExplorerAuthorityInvalidation(root, record, occurrenceIds);
   }
 
   async contextLandscape(task: string, maxSymbols = 12): Promise<JsonEnvelope> {
@@ -4260,130 +4184,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     throw new Error("architecture-change-feed-page-limit-exceeded");
   }
 
-  private notifyExplorerAuthorityInvalidation(root: string, record: ArchitectureChangeFeedRecordV1, occurrenceIds: string[]): void {
-    const explorer = this.explorer;
-    if (!explorer || explorer.root !== root) return;
-    if (explorer.revoked || Date.parse(this.clock()) >= explorer.expiresAt) {
-      for (const client of explorer.sseClients) client.end();
-      explorer.sseClients.clear();
-      return;
-    }
-    const payload = JSON.stringify({
-      schemaVersion: "archcontext.explorer-authority-invalidation/v1",
-      feedSequence: record.feedSequence,
-      eventId: record.eventId,
-      eventHash: record.eventHash,
-      subjectsDigest: record.subjectsDigest,
-      changedInputDigestsDigest: digestJson(record.changedInputDigests as unknown as Json),
-      affectedOccurrencesDigest: digestJson(occurrenceIds as unknown as Json)
-    });
-    for (const client of explorer.sseClients) client.write(`event: authority-changed\ndata: ${payload}\n\n`);
-  }
-
-  private async handleExplorerRequest(request: IncomingMessage, response: ServerResponse, session: ExplorerServerSession): Promise<void> {
-    const url = new URL(request.url ?? "/", `http://${session.host}:${session.port}`);
-    response.setHeader("Cache-Control", "no-store");
-    if (!isLoopbackRemote(request.socket.remoteAddress) || !matchesLoopbackAuthority(request, `http://${session.host}:${session.port}`)) {
-      writeJson(response, 403, { ok: false, error: "explorer request authority rejected" });
-      return;
-    }
-    if (request.method !== "GET") {
-      writeJson(response, 405, { ok: false, error: "explorer is read-only" });
-      return;
-    }
-    if (!this.isExplorerAuthorized(request, url, session)) {
-      writeJson(response, 401, { ok: false, error: "explorer token required" });
-      return;
-    }
-    if (url.pathname === "/health") {
-      writeJson(response, 200, { ok: true, running: true, readOnly: true, host: session.host });
-      return;
-    }
-    if (url.pathname === "/events") {
-      response.writeHead(200, {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-store",
-        "Connection": "keep-alive",
-        "X-Accel-Buffering": "no"
-      });
-      response.write(": archcontext explorer digest invalidation\n\n");
-      session.sseClients.add(response);
-      request.on("close", () => session.sseClients.delete(response));
-      return;
-    }
-    if (url.pathname === "/" || url.pathname === "/index.html") {
-      let query: ExplorerProjectionQueryV2;
-      try {
-        query = explorerProjectionQueryV2FromUrl(url);
-      } catch (error) {
-        writeJson(response, 400, errorEnvelope("explorer.projection.v2", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)));
-        return;
-      }
-      const result = await this.explorerProjectionV2(session.root, query);
-      if (!result.ok) {
-        writeJson(response, result.error?.code === "AC_PRECONDITION_FAILED" ? 409 : 400, result);
-        return;
-      }
-      const projection = result.data as unknown as ExplorerProjectionV2;
-      writeHtml(response, 200, renderExplorerHtml(projection, { focusSubjectId: query.focus?.subjectId }));
-      return;
-    }
-    if (url.pathname === "/projection/v2") {
-      let query: ExplorerProjectionQueryV2;
-      try {
-        query = explorerProjectionQueryV2FromUrl(url);
-      } catch (error) {
-        writeJson(response, 400, errorEnvelope(
-          "explorer.projection.v2",
-          "AC_SCHEMA_INVALID",
-          error instanceof Error ? error.message : String(error)
-        ));
-        return;
-      }
-      const result = await this.explorerProjectionV2(session.root, query);
-      writeJson(response, result.ok ? 200 : result.error?.code === "AC_PRECONDITION_FAILED" ? 409 : 400, result);
-      return;
-    }
-    if (url.pathname === "/delta") {
-      const baseEventId = url.searchParams.get("baseEventId");
-      const headEventId = url.searchParams.get("headEventId");
-      const baseProjectionDigest = url.searchParams.get("baseProjectionDigest");
-      const headProjectionDigest = url.searchParams.get("headProjectionDigest");
-      if (!baseEventId || !headEventId || !baseProjectionDigest || !headProjectionDigest) {
-        writeJson(response, 400, errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", "baseEventId, headEventId, baseProjectionDigest and headProjectionDigest are required"));
-        return;
-      }
-      const result = await this.explorerProjectionDelta(session.root, {
-        schemaVersion: "archcontext.explorer-delta-query/v2",
-        base: { eventId: baseEventId, projectionDigest: baseProjectionDigest },
-        head: { eventId: headEventId, projectionDigest: headProjectionDigest }
-      });
-      writeJson(response, result.ok ? 200 : 409, result);
-      return;
-    }
-    writeJson(response, 404, { ok: false, error: "not found" });
-  }
-
-  private isExplorerAuthorized(request: IncomingMessage, url: URL, session: ExplorerServerSession): boolean {
-    if (session.revoked || Date.parse(this.clock()) >= session.expiresAt) return false;
-    const authorization = request.headers.authorization ?? "";
-    const bearer = Array.isArray(authorization) ? authorization[0] : authorization;
-    return matchesSecret(bearer, `Bearer ${session.token}`) || matchesSecret(url.searchParams.get("token"), session.token);
-  }
-
-  private explorerStatusData(): ExplorerServerStatus {
-    if (!this.explorer) return { running: false, host: "127.0.0.1", revoked: true, readOnly: true };
-    return {
-      running: true,
-      host: this.explorer.host,
-      port: this.explorer.port,
-      url: `http://${this.explorer.host}:${this.explorer.port}/`,
-      tokenExpiresAt: new Date(this.explorer.expiresAt).toISOString(),
-      revoked: this.explorer.revoked,
-      readOnly: true
-    };
-  }
-
   private createLandscapeCodeGraphProviders() {
     if (!this.landscape) return {};
     return Object.fromEntries(
@@ -4394,26 +4194,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     );
   }
 
-  private async closeExplorer(): Promise<void> {
-    const current = this.explorer;
-    if (!current) return;
-    this.explorer = undefined;
-    if (current.expiryTimer) clearTimeout(current.expiryTimer);
-    current.expiryTimer = undefined;
-    for (const client of current.sseClients) client.end();
-    current.sseClients.clear();
-    await new Promise<void>((resolveClose, rejectClose) => {
-      current.server.close((error) => error ? rejectClose(error) : resolveClose());
-    });
-  }
 
-  private expireExplorerSession(session: ExplorerServerSession): void {
-    if (this.explorer !== session || session.revoked) return;
-    session.expiryTimer = undefined;
-    session.revoked = true;
-    for (const client of session.sseClients) client.end();
-    session.sseClients.clear();
-  }
 }
 
 function recommendationArtifactsFromEvents(events: readonly ArchitectureEventV1[]): {
@@ -4834,44 +4615,6 @@ function isArchitectureLedgerManagedModelPath(path: string): boolean {
     || path.startsWith(".archcontext/model/constraints/");
 }
 
-function explorerProjectionQueryV2FromUrl(url: URL): ExplorerProjectionQueryV2 {
-  const expectedValues = {
-    headSha: url.searchParams.get("expectedHeadSha") ?? undefined,
-    worktreeDigest: url.searchParams.get("expectedWorktreeDigest") ?? undefined,
-    graphDigest: url.searchParams.get("expectedGraphDigest") ?? undefined,
-    observedFactsDigest: url.searchParams.get("expectedObservedFactsDigest") ?? undefined
-  };
-  const expectedRequired = [expectedValues.headSha, expectedValues.worktreeDigest, expectedValues.graphDigest];
-  if (expectedRequired.some(Boolean) && !expectedRequired.every(Boolean)) {
-    throw new Error("expectedHeadSha, expectedWorktreeDigest, and expectedGraphDigest must be provided together");
-  }
-  const maxNodes = parseExplorerInteger(url.searchParams.get("maxNodes"), 80, "maxNodes");
-  const maxRelations = parseExplorerInteger(url.searchParams.get("maxRelations"), 160, "maxRelations");
-  const depth = parseExplorerInteger(url.searchParams.get("depth"), 1, "depth") as 0 | 1 | 2;
-  const viewId = url.searchParams.get("view") ?? "system-map";
-  if (!(EXPLORER_VIEW_IDS as readonly string[]).includes(viewId)) throw new Error(`unsupported Explorer view: ${viewId}`);
-  const semanticLevel = url.searchParams.get("level") ?? "context";
-  if (!(["overview", "context", "detail"] as string[]).includes(semanticLevel)) throw new Error(`unsupported Explorer semantic level: ${semanticLevel}`);
-  return {
-    schemaVersion: "archcontext.explorer-projection-query/v2",
-    viewId: viewId as ExplorerProjectionQueryV2["viewId"],
-    semanticLevel: semanticLevel as NonNullable<ExplorerProjectionQueryV2["semanticLevel"]>,
-    ...(url.searchParams.get("taskSessionId") ? { taskSessionId: url.searchParams.get("taskSessionId")! } : {}),
-    ...(expectedRequired.every(Boolean) ? {
-      expectedCursor: {
-        headSha: expectedValues.headSha!,
-        worktreeDigest: expectedValues.worktreeDigest!,
-        graphDigest: expectedValues.graphDigest!,
-        ...(expectedValues.observedFactsDigest ? { observedFactsDigest: expectedValues.observedFactsDigest } : {})
-      }
-    } : {}),
-    ...(url.searchParams.get("focus") ? { focus: { subjectId: url.searchParams.get("focus")! } } : {}),
-    expandedOccurrenceIds: url.searchParams.getAll("expand"),
-    depth,
-    budget: { maxNodes, maxRelations }
-  };
-}
-
 function explorerProjectionDependencies(projection: ExplorerProjectionV2): Array<{ occurrenceId: string; dependencyKeys: string[] }> {
   return projection.occurrences.map((occurrence) => ({
     occurrenceId: occurrence.occurrenceId,
@@ -4940,13 +4683,6 @@ function explorerChangedDependencyKeys(base: ExplorerProjectionV2, head: Explore
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)].sort();
-}
-
-function parseExplorerInteger(value: string | null, fallback: number, field: string): number {
-  if (value === null) return fallback;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed)) throw new Error(`${field} must be an integer`);
-  return parsed;
 }
 
 function schemaVersionFromModelBody(body: string): string {
@@ -5680,12 +5416,4 @@ function validateRuntimeAgentProposalPlan(input: {
     return { ok: false, reason: "proposalPlan proposalDigest mismatch" };
   }
   return { ok: true };
-}
-
-function writeHtml(response: ServerResponse, statusCode: number, body: string): void {
-  response.writeHead(statusCode, {
-    "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": "default-src 'none'; connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-  });
-  response.end(body);
 }
