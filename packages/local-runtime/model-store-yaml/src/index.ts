@@ -34,7 +34,7 @@ export function createDefaultManifest(productId: string, productName: string): J
     schemaVersion: "archcontext.manifest/v1",
     codeFacts: { provider: "codegraph", mode: "embedded", required: true },
     content: {
-      decisions: ".archcontext/decisions",
+      decisions: "docs/adr",
       generated: ".archcontext/generated",
       policies: ".archcontext/policies",
       practices: ".archcontext/practices",
