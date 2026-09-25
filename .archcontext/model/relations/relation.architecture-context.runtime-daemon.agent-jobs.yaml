@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.agent-jobs"
+intent: "Compose job queue orchestration and supply existing session and ledger scope ports"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.agent-jobs"
