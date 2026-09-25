@@ -30,7 +30,7 @@ test("control credentials are private at creation, readable and never overwrite 
     expect(readPrivateControlFile(path)).toBeUndefined();
     expect(readPrivateControlFile(join(root, "missing"))).toBeUndefined();
   } finally { rmSync(root, { recursive: true, force: true }); }
-}, 30_000);
+}, 60_000);
 
 test.skipIf(process.platform !== "win32")("native Windows rejects inherited ACLs without changing their content", () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-inherited-acl-"));

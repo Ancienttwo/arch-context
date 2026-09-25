@@ -200,5 +200,7 @@ P2: createPrivateControlFile -> windowsControlFile -> fixed Windows PowerShell s
 P3: keep the native operation/deadline unchanged, attach only an allowlisted error code/signal, numeric exit status and elapsed time, and observe the existing test's first-create duration. Use three independent fresh Windows/Node 24 jobs for bounded cold-start observations. Cancel the redundant full Verify workflow during this diagnostic slice. Passing reruns do not prove the original failure's cause or lift whole-candidate acceptance.
 
 - [x] Add and verify non-sensitive subprocess failure metadata.
-- [ ] Run the existing first-create case on three fresh Windows/Node 24 runners and inspect actual outputs.
+- [x] Run the existing first-create case on three fresh Windows/Node 24 runners and inspect actual outputs.
 - [ ] Record proven versus unproven cause; make a correction only if supported, otherwise preserve the unresolved finding.
+
+Diagnostic run `36114666871` / `86e2e7d` confirmed ETIMEDOUT/SIGTERM at 10252 ms, with successful first-create samples at 3395/9885 ms. Correction: create-only native deadline 30000 ms within existing Windows daemon startup 150000 ms; read deadline stays 10000 ms. Reverify three first-create samples plus one installed-bin lifecycle/ACL readback. This is repair round 1 of the newly approved diagnostic slice.

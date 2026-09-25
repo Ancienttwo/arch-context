@@ -75,7 +75,9 @@ function windowsControlFile(operation: "create" | "read", path: string, body?: s
       Buffer.from(WINDOWS_CONTROL_FILE_SCRIPT, "utf16le").toString("base64")
     ], {
       input: JSON.stringify({ operation, path, body }), encoding: "utf8", windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"], timeout: 10_000, maxBuffer: 1024 * 1024
+      // Fresh Windows startup exceeded the former 10 s create cap in hosted reproduction.
+      // Two daemon startup files fit within its existing 150 s startup budget; reads stay bounded.
+      stdio: ["pipe", "pipe", "pipe"], timeout: operation === "create" ? 30_000 : 10_000, maxBuffer: 1024 * 1024
     });
   } catch (error) {
     // Select scalar metadata only. Never retain cause, command, path, input, stdout or stderr.
