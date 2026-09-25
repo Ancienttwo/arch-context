@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.rpc-server"
+intent: "Compose the public RPC server and share control-file, HTTP and strict review-boundary helpers"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.rpc-server"

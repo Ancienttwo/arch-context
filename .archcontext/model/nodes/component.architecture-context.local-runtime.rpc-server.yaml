@@ -1,18 +1,14 @@
-id: "component.architecture-context.local-runtime.runtime-daemon"
+id: "component.architecture-context.local-runtime.rpc-server"
 kind: "component"
-name: "Runtime Daemon"
+name: "Runtime RPC Server and Control"
 parent: "module.architecture-context.local-runtime"
 schemaVersion: "archcontext.node/v2"
 source:
-  exclude:
-    - "packages/local-runtime/runtime-daemon/src/rpc-client.ts"
-    - "packages/local-runtime/runtime-daemon/src/rpc-protocol.ts"
+  include:
     - "packages/local-runtime/runtime-daemon/src/rpc-server.ts"
     - "packages/local-runtime/runtime-daemon/src/daemon-control.ts"
     - "packages/local-runtime/runtime-daemon/src/developer-review-codec.ts"
     - "packages/local-runtime/runtime-daemon/src/loopback-http.ts"
     - "packages/local-runtime/runtime-daemon/src/changeset-recovery-error.ts"
-  include:
-    - "packages/local-runtime/runtime-daemon/src/**"
 status: "active"
-summary: "Composes the local daemon and public RPC facade, owning task gates, ChangeSet plan and apply, refactor scan and verify, audit consent, and Explorer projections."
+summary: "Owns loopback RPC lifecycle, authentication, bounded request decoding and dispatch, daemon control files, and shared HTTP, review-boundary and recovery-error contracts."
