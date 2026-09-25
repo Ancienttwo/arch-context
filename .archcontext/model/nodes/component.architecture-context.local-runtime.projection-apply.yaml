@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.projection-apply"
+kind: "component"
+name: "Projection Receipt Service"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/runtime-daemon/src/projection-apply.ts"
+status: "active"
+summary: "Owns committed projection receipt inspection, prior-commit lookup, readback and recovery under the daemon writer gate."

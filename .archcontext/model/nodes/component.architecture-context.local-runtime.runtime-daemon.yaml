@@ -17,6 +17,7 @@ source:
     - "packages/local-runtime/runtime-daemon/src/projection-service.ts"
     - "packages/local-runtime/runtime-daemon/src/projection-inputs.ts"
     - "packages/local-runtime/runtime-daemon/src/developer-review-run.ts"
+    - "packages/local-runtime/runtime-daemon/src/projection-apply.ts"
   include:
     - "packages/local-runtime/runtime-daemon/src/**"
 status: "active"
