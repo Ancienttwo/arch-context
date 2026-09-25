@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.explorer-server"
+intent: "Compose Explorer session lifecycle and send committed projection and authority invalidations"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.explorer-server"
