@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { once } from "node:events";
@@ -7056,13 +7056,35 @@ setInterval(() => undefined, 1 << 30);
   test("Explorer token expiry fails closed for HTML and SSE without ambient authentication", async () => {
     const root = tempRepo();
     let now = "2026-06-20T00:00:00.000Z";
+    let daemon: ArchctxDaemon | undefined;
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+    let expireSession: (() => void) | undefined;
     try {
-      const daemon = await createStartedTestDaemon({ clock: () => now });
+      daemon = await createStartedTestDaemon({ clock: () => now });
       await daemon.init(root, "Explorer Token Expiry App");
-      const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 0.25 });
+      const realSetTimeout = globalThis.setTimeout;
+      // Drive the expiry callback with the injected clock; real socket setup may exceed 250ms.
+      const schedule = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
+        if (delay !== 250) return realSetTimeout(callback, delay, ...args);
+        expiryTimer = realSetTimeout(() => {}, 60_000);
+        expiryTimer.unref();
+        expireSession = () => {
+          clearTimeout(expiryTimer);
+          callback(...args);
+        };
+        return expiryTimer;
+      }) as typeof setTimeout);
+      let started: JsonEnvelope;
+      try {
+        started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 0.25 });
+      } finally {
+        schedule.mockRestore();
+      }
+      expect(expireSession).toBeDefined();
       const data = started.data as any;
       const beforeExpiry = await fetch(`${data.url}?token=${data.token}`);
       expect(beforeExpiry.status).toBe(200);
+      await new Promise((resolve) => setTimeout(resolve, 300));
       const connectedSse = await fetch(`${data.url}events?token=${data.token}`);
       expect(connectedSse.status).toBe(200);
       const connectedReader = connectedSse.body!.getReader();
@@ -7074,11 +7096,13 @@ setInterval(() => undefined, 1 << 30);
       expect(expiredSse.status).toBe(401);
       const ambient = await fetch(data.url, { headers: { Cookie: `token=${data.token}` } });
       expect(ambient.status).toBe(401);
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      expireSession!();
       expect((await connectedReader.read()).done).toBe(true);
       expect((daemon.explorerStatus().data as any).revoked).toBe(true);
       await daemon.stopExplorer();
     } finally {
+      clearTimeout(expiryTimer);
+      await daemon?.stop();
       removeTempRepo(root);
     }
   });
