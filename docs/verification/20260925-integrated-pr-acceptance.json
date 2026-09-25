@@ -1,0 +1,177 @@
+{
+  "schemaVersion": "archcontext.integrated-pr-acceptance/v1",
+  "generatedAt": "2026-09-25T15:16:04.286990+00:00",
+  "sourceHeadSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+  "baseSha": "e3d807759e917b26c539f25c51edc31946feb740",
+  "formalDisposition": "blocked",
+  "acceptanceReceipt": "not-issued",
+  "blockers": [
+    225,
+    226
+  ],
+  "hostedCi": {
+    "runId": 36149269956,
+    "conclusion": "success",
+    "jobs": 10,
+    "testsPerFullSuite": 2115,
+    "zeroFailures": true,
+    "record": "docs/verification/20260925-integrated-pr-hosted-ci.json"
+  },
+  "localContract": {
+    "command": "repo-harness run verify-contract --contract tasks/contracts/20260925-1345-remaining-audit-issues.contract.md --strict",
+    "harnessVersion": "0.19.2",
+    "bunVersion": "1.4.0",
+    "exitCode": 1,
+    "status": "Partial",
+    "totalCriteria": 9,
+    "failedCriteria": 1,
+    "fullSuite": {
+      "pass": 2112,
+      "skip": 1,
+      "fail": 2,
+      "total": 2115,
+      "assertions": 12128,
+      "testDurationSeconds": 1283.6
+    },
+    "executionRecords": [
+      {
+        "protocol": 1,
+        "kind": "verification_execution_record",
+        "execution_id": "vx-3a78cfe201d042dead28",
+        "cache_key": "sha256:336b9385d5630a67992f096deda9b5500eb952b5c989510cc1f0d414ef15abc8",
+        "result": {
+          "id": "full-verify",
+          "kind": "command",
+          "target": "current_exact",
+          "passed": false,
+          "message": "check exited 1; diagnostics: .ai/harness/runs/verification-vx-3a78cfe201d042dead28.log",
+          "duration_ms": 1306151,
+          "timed_out": false,
+          "exit_code": 1,
+          "signal": null,
+          "execution": "executed",
+          "cache_key": "sha256:336b9385d5630a67992f096deda9b5500eb952b5c989510cc1f0d414ef15abc8",
+          "command": "/bin/bash --noprofile --norc -c bun run verify",
+          "force_reason": null,
+          "execution_id": "vx-3a78cfe201d042dead28",
+          "run_file": ".ai/harness/runs/verification-vx-3a78cfe201d042dead28.json",
+          "failure_log_file": ".ai/harness/runs/verification-vx-3a78cfe201d042dead28.log"
+        }
+      },
+      {
+        "protocol": 1,
+        "kind": "verification_execution_record",
+        "execution_id": "vx-4bc6a47bdcb44b9093b6",
+        "cache_key": "sha256:0628926eb43be23a5090bfe3205061acc76a1ad76716c13d63ddd8cbc27c9a05",
+        "result": {
+          "id": "package-boundaries",
+          "kind": "command",
+          "target": "current_exact",
+          "passed": true,
+          "message": "check passed",
+          "duration_ms": 1283,
+          "timed_out": false,
+          "exit_code": 0,
+          "signal": null,
+          "execution": "executed",
+          "cache_key": "sha256:0628926eb43be23a5090bfe3205061acc76a1ad76716c13d63ddd8cbc27c9a05",
+          "command": "/bin/bash --noprofile --norc -c node scripts/package-boundary-audit.mjs",
+          "force_reason": null,
+          "execution_id": "vx-4bc6a47bdcb44b9093b6",
+          "run_file": ".ai/harness/runs/verification-vx-4bc6a47bdcb44b9093b6.json",
+          "failure_log_file": null
+        }
+      },
+      {
+        "protocol": 1,
+        "kind": "verification_execution_record",
+        "execution_id": "vx-8d86601685e44439ac46",
+        "cache_key": "sha256:d7cd19253a15396ddf20bcf28b0084f6e92c0a901b11fdd52d34cad4f30bb635",
+        "result": {
+          "id": "typecheck",
+          "kind": "command",
+          "target": "current_exact",
+          "passed": true,
+          "message": "check passed",
+          "duration_ms": 2331,
+          "timed_out": false,
+          "exit_code": 0,
+          "signal": null,
+          "execution": "executed",
+          "cache_key": "sha256:d7cd19253a15396ddf20bcf28b0084f6e92c0a901b11fdd52d34cad4f30bb635",
+          "command": "/bin/bash --noprofile --norc -c bun run typecheck",
+          "force_reason": null,
+          "execution_id": "vx-8d86601685e44439ac46",
+          "run_file": ".ai/harness/runs/verification-vx-8d86601685e44439ac46.json",
+          "failure_log_file": null
+        }
+      },
+      {
+        "protocol": 1,
+        "kind": "verification_execution_record",
+        "execution_id": "vx-b18d8d97d7bf4c54884f",
+        "cache_key": "sha256:63990f5dd88d52da0e92ead60271aba62dd9ac8fb9d15cae053f43ac66dbd035",
+        "result": {
+          "id": "explorer-session",
+          "kind": "command",
+          "target": "current_exact",
+          "passed": true,
+          "message": "check passed",
+          "duration_ms": 972,
+          "timed_out": false,
+          "exit_code": 0,
+          "signal": null,
+          "execution": "executed",
+          "cache_key": "sha256:63990f5dd88d52da0e92ead60271aba62dd9ac8fb9d15cae053f43ac66dbd035",
+          "command": "/bin/bash --noprofile --norc -c bun test packages/local-runtime/runtime-daemon/test/explorer-session.test.ts",
+          "force_reason": null,
+          "execution_id": "vx-b18d8d97d7bf4c54884f",
+          "run_file": ".ai/harness/runs/verification-vx-b18d8d97d7bf4c54884f.json",
+          "failure_log_file": null
+        }
+      }
+    ],
+    "logSha256": "sha256:14db7299210a0348b735ec5e7d20a7ca91815a0ac47bec7f7b0cffcdf9da3fb3",
+    "failedExecutionLogSha256": "sha256:4764d550293f375bced0d75f12972009a2b9bfdd77b04e5525a45f27b315b578",
+    "remainingVerifyCommands": "not reached after failed test suite"
+  },
+  "prepareAcceptance": {
+    "command": "repo-harness run verify-sprint --prepare-acceptance --contract tasks/contracts/20260925-1345-remaining-audit-issues.contract.md",
+    "exitCode": 1,
+    "phase": "automatic architecture projection before freeze",
+    "reason": "installed harness capability model contract rejects existing repository capability node",
+    "logSha256": "sha256:ef22abaf081993422f008c1d5aa59551326f77c107796f5a5af4d0b1074989bb"
+  },
+  "sourceInputs": {
+    "tasks/contracts/20260925-1345-remaining-audit-issues.contract.md": "sha256:696fca0664cad0ad2db5fdb7bb16e03061e58c46a0f0d31a27fc6ed9090aaf76",
+    "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts": "sha256:ee387fc59e87a53194f321090e1e7000fe6dda9fa11fcd2495573ec3b05d28ad",
+    "packages/surfaces/cli/test/cli.test.ts": "sha256:2b3e355d850d7c7a08c89dd38ea217de29c7b6fa2b7c3c100ac18f89f7a80c2f",
+    "packages/local-runtime/codegraph-adapter/src/index.ts": "sha256:13c4220534bd800b8ec07e85deda691f432e917ac5983e565bfa285c089fc6f4",
+    "packages/local-runtime/runtime-daemon/src/index.ts": "sha256:cd3bc0ff6768b9fcf492a786d2db6d058cfb137e0acb91f496c3b8df3719f84d",
+    "scripts/practice-assets-s6-docs-ops-readback.ts": "sha256:11195cbf6b4b4799f8bd9ec39afd9e736f16deb2a98a135584481c6fca46f733",
+    "scripts/practice-assets-s6-docs-ops-readback.test.ts": "sha256:9cd77c7204589f423c2ef06394d0c6ae863787f7bc6f4079b9d1921d9c31e49c"
+  },
+  "dispositions": {
+    "closedPrsAsSuperseded": [
+      220,
+      221,
+      222
+    ],
+    "remainingDraftPr": 223,
+    "closedCompletedIssues": [
+      162
+    ],
+    "openIssues": [
+      164,
+      171,
+      224,
+      225,
+      226
+    ]
+  },
+  "limits": [
+    "No typed whole-plan receipt, merge, release or deployment.",
+    "No timeout or runtime change to repair the two local failures; no rerun.",
+    "Historical failed runs are not relabelled by current hosted success."
+  ]
+}

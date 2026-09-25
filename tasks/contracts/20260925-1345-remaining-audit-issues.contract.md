@@ -1,6 +1,6 @@
 # Task Contract: remaining-audit-issues
 
-> **Status**: Active
+> **Status**: Partial
 > **Plan**: plans/plan-20260925-1345-remaining-audit-issues.md
 > **Task Profile**: code-change
 > <!-- legal values: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | bugfix (omit for legacy passthrough); see docs/reference-configs/sprint-contracts.md -->
@@ -147,12 +147,6 @@ exit_criteria:
   artifacts_exist:
     - .ai/harness/checks/latest.json
     - tasks/notes/20260925-1345-remaining-audit-issues.notes.md
-  tests_pass:
-    - path: packages/local-runtime/runtime-daemon/test/explorer-session.test.ts
-  commands_succeed:
-    - bun run typecheck
-    - node scripts/package-boundary-audit.mjs
-    - bun run verify
 # Optional exact-subject reuse is fail-closed and opt-in. List only deterministic
 # criteria whose inputs are fully bound by the frozen subject/toolchain context.
 # criterion_reuse:
@@ -160,6 +154,77 @@ exit_criteria:
 #     - path/to/deterministic.test.ts
 #   commands_succeed:
 #     - bun test --timeout 60000
+```
+
+
+## Verification Plan
+
+```json
+{
+  "protocol": 1,
+  "checks": [
+    {
+      "id": "explorer-session",
+      "cwd": ".",
+      "phase": "preflight",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Preserve the original mandatory Explorer credential/session regression.",
+      "inputs": {
+        "env": [
+          "PATH"
+        ]
+      },
+      "kind": "command",
+      "command": "bun test packages/local-runtime/runtime-daemon/test/explorer-session.test.ts"
+    },
+    {
+      "id": "typecheck",
+      "cwd": ".",
+      "phase": "preflight",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Preserve TypeScript contract verification.",
+      "inputs": {
+        "env": [
+          "PATH"
+        ]
+      },
+      "kind": "command",
+      "command": "bun run typecheck"
+    },
+    {
+      "id": "package-boundaries",
+      "cwd": ".",
+      "phase": "preflight",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Preserve workspace import/ownership validation.",
+      "inputs": {
+        "env": [
+          "PATH"
+        ]
+      },
+      "kind": "command",
+      "command": "node scripts/package-boundary-audit.mjs"
+    },
+    {
+      "id": "full-verify",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "expensive",
+      "evidence_policy": "current_exact",
+      "necessity": "Preserve the full frozen-source test, packaging, privacy and evidence gate before acceptance.",
+      "inputs": {
+        "env": [
+          "PATH"
+        ]
+      },
+      "kind": "command",
+      "command": "bun run verify"
+    }
+  ]
+}
 ```
 
 ## Acceptance Notes (Human Review)

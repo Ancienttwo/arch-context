@@ -325,10 +325,10 @@ Completed the three current-source detectors without runtime behavior changes. C
 - P3: check the current harness README contract and put the product-specific evidence link in the existing product runbook. Preserve the predicate key and aggregate computation; no compatibility alternative or fabricated current network evidence. At repeated harness refreshes, product prose in generated helper docs would drift again; product-owned documentation prevents that coupling.
 
 ### Task Breakdown: S6 continuation
-- [ ] Capture baseline failure and a failing run-path regression on unchanged code/docs.
-- [ ] Repair the current README/runbook predicate and test missing-boundary/evidence negatives.
-- [ ] Run/inspect a separate current docs readback, scoped tests and typecheck; preserve historical artifacts.
-- [ ] Publish to Draft #223, record verification limits and update project memory.
+- [x] Capture baseline failure and a failing run-path regression on unchanged code/docs.
+- [x] Repair the current README/runbook predicate and test missing-boundary/evidence negatives.
+- [x] Run/inspect a separate current docs readback, scoped tests and typecheck; preserve historical artifacts.
+- [x] Publish to Draft #223, record verification limits and update project memory.
 
 
 ## Current directive: accept all PRs and clean remaining issues
@@ -336,14 +336,23 @@ Completed the three current-source detectors without runtime behavior changes. C
 Owner requested acceptance of every open PR and cleanup of remaining issues. This supersedes the preceding bounded-slice stop: S6 current hook evidence and the observed Windows CI failure are now named acceptance blockers. Inventory covers #220/#221/#222/#223 and #162/#164/#171. Preserve prior proof by exact subject; do not infer cloud delivery or a composition-only facade from partial extractions. Final disposition must link completed work and retain concrete unfinished work. No release, deployment or provider activation is included.
 
 ### Task Breakdown: integrated acceptance
-- [ ] Audit all open PR heads, dependencies, current CI and issue acceptance criteria.
-- [ ] Finish S6 current adapter evidence and resolve the named Windows verification blocker with bounded proof.
-- [ ] Freeze candidate; run scoped checks and one complete current-source verification; review the integrated diff once.
-- [ ] Publish findings and perform supported PR/issue dispositions; record unresolved delivery gates explicitly.
+- [x] Audit all open PR heads, dependencies, current CI and issue acceptance criteria.
+- [x] Finish S6 current adapter evidence and resolve the named Windows verification blocker with bounded proof.
+- [x] Freeze candidate; run scoped checks and one complete current-source verification; review the integrated diff once.
+- [x] Publish findings and perform supported PR/issue dispositions; record unresolved delivery gates explicitly.
 
+
+- [ ] Clear #225/#226 and obtain the normal frozen whole-plan AcceptanceReceipt; remains blocked.
 
 ## Integrated acceptance scope and source review
 
 The current user directive accepts the existing PR work and cleans issue tracking. #220/#221/#222 heads are ancestors of #223; their feature extractions are included. Further composition-only facade work and general RPC decoders remain #164 and are explicitly deferred in `tasks/todos.md`, rather than claimed complete by this PR. Cloud delivery remains a blocking milestone under #224; ADR-0016/0017 retain the target and now point to it. This supersedes the earlier open-ended further-extraction task for this acceptance boundary, without marking #164 done.
 
 S6 v2 now validates current CLI metadata, required evidence fields and the current generic harness README. Canonical output was generated; v1 was archived byte-for-byte. Source review found no blocking code defects. The reported stale S6 proof hashes/assertion count were corrected against final verified source. Windows run 36144083941 remains failed: the docs digest test exceeded 15 seconds once; unchanged production code previously passed that test in 3.608 seconds. No particular slow phase is proven. Retain the 15-second deadline and all assertions for the one planned frozen-candidate matrix.
+
+
+## Final integrated acceptance disposition (2026-09-25)
+
+**BLOCKED**. Hosted candidate `18d2075` passed all ten jobs in run 36149269956, with 2115 tests per full suite and zero failures; native/network artifacts and source/merge identities were verified. #220–#222 were closed as superseded by Draft #223, preserving branches. #162 is closed for completed local status truthfulness; #224 retains real cloud delivery. #164 and #171 remain open with explicit remaining work.
+
+Formal freeze fails on the installed harness/repository capability contract mismatch (#225). Migrated direct local contract checks passed Explorer session, typecheck and boundaries, but full verify failed with 2112 pass / 1 skip / 2 fail: documentation-drift CodeGraph handshake timeout and a separate projection RPC readback outer timeout (#226). No second matrix, timeout change or additional repair was attempted. No AcceptanceReceipt, merge, release or deployment is claimed. Exact source/log/command evidence and P1/P2/P3: `docs/verification/20260925-integrated-pr-acceptance.json` and `docs/researches/20260925-integrated-pr-acceptance.md`.
