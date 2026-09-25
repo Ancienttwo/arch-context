@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { runCli } from "@archcontext/surfaces/cli";
 
 const DEFAULT_OUTPUT = "docs/verification/practice-assets-s6-docs-ops-readback.json";
 const DEFAULT_REPORT = "docs/verification/practice-assets-s6-docs-ops-readback.md";
@@ -45,6 +46,61 @@ const CODE_CONTENT_PATTERNS = [
   /\/pulls\/\d+\/files/i,
   /application\/vnd\.github\.(?:v3\.)?(?:diff|patch)/i
 ] as const;
+
+const EVIDENCE_FIELDS = {
+  documentation: [
+        "readmeStaticDynamicBoundary",
+        "readmeNoDataSentBoundary",
+        "repoPracticeHowTo",
+        "enforcementPromotionHowTo",
+        "waiverHowTo",
+        "centralHookHowTo",
+        "context7PinPrivacyHowTo",
+        "sourceUpdateRunbook",
+        "licenseIncidentRunbook",
+        "falsePositiveRollbackRunbook",
+        "quarterlyReviewOwner",
+        "featureFlagsRolloutReadback",
+        "releaseGateUpdated"
+      ],
+  independentDisable: [
+        "enforcementAdvisoryModeDocumented",
+        "enforcementAdvisoryModeVerified",
+        "context7DefaultDisabled",
+        "context7FailureMatrixComplete",
+        "context7FailureMatrixLeavesLocalCoreUnchanged",
+        "context7AdvisoryOnly",
+        "context7ManualNetworkOnly"
+      ],
+  centralHook: [
+        "hookReadbackVerified",
+        "codexHostCentralFirst",
+        "adapterIsRepoHarnessHook",
+        "hookEntrypointArchctxEnqueue",
+        "checkpointFallbackLocalOnly",
+        "currentAdapterVerified",
+        "hookZeroNetwork",
+        "hookNoRawChangedPathBody",
+        "hookReadmeCentralFirst"
+      ],
+  operations: [
+        "catalogRevisionManifestVerified",
+        "releasePackageManifestVerified",
+        "localTarballLifecycleVerified",
+        "rollbackCompatibilityVerified",
+        "staleCatalogDetected",
+        "context7PurgeCommandImplemented",
+        "cachePurgeRunbookDocumented",
+        "upgradeRollbackRunbookCoversPracticeAssets"
+      ],
+  assertions: [
+        "documentationComplete",
+        "independentDisableComplete",
+        "centralHookComplete",
+        "operationsComplete",
+        "noPrivateContent"
+      ]
+} as const;
 
 type ReadbackConfig = ReturnType<typeof buildPracticeAssetsS6DocsOpsReadbackConfig>;
 
@@ -93,6 +149,7 @@ export async function runPracticeAssetsS6DocsOpsReadback(config: ReadbackConfig)
   };
   const json = {
     hook: await readJson(config.root, PATHS.hookReadback),
+    currentHookAdapter: await runCli("hooks", ["status", "--host", "codex"], config.root),
     context7: await readJson(config.root, PATHS.context7Readback),
     catalog: await readJson(config.root, PATHS.catalogReadback),
     runtime: await readJson(config.root, PATHS.runtimeReadback),
@@ -103,9 +160,10 @@ export async function runPracticeAssetsS6DocsOpsReadback(config: ReadbackConfig)
 
   const evidence = buildEvidence(texts, json);
   const packet = {
-    schemaVersion: "archcontext.practice-assets-s6-docs-ops-readback/v1",
+    schemaVersion: "archcontext.practice-assets-s6-docs-ops-readback/v2",
     taskIds: ["S6-34", "S6-35", "S6-36", "S6-37", "S6-38", "S6-39", "S6-40", "S6-EG5", "S6-EG6", "S6-EG7"],
     environment: "local-release-readback",
+    evidenceScope: "current-docs-and-cli-contract-with-historical-fixtures",
     status: "verified",
     ok: true,
     generatedAt: config.generatedAt(),
@@ -114,6 +172,7 @@ export async function runPracticeAssetsS6DocsOpsReadback(config: ReadbackConfig)
       reportPath: config.reportPath
     },
     evidence,
+    currentHookAdapter: json.currentHookAdapter,
     failures: [] as string[]
   };
   const inspection = inspectPracticeAssetsS6DocsOpsReadback(packet);
@@ -129,25 +188,22 @@ export function inspectPracticeAssetsS6DocsOpsReadback(packet: unknown): { ok: b
   const failures: string[] = [];
   const record = readRecord(packet);
   const evidence = readRecord(record.evidence);
-  const assertions = readRecord(evidence.assertions);
-  const docs = readRecord(evidence.documentation);
-  const disable = readRecord(evidence.independentDisable);
-  const hook = readRecord(evidence.centralHook);
-  const operations = readRecord(evidence.operations);
 
-  if (record.schemaVersion !== "archcontext.practice-assets-s6-docs-ops-readback/v1") failures.push("schemaVersion mismatch");
+  if (record.schemaVersion !== "archcontext.practice-assets-s6-docs-ops-readback/v2") failures.push("schemaVersion mismatch");
   if (record.environment !== "local-release-readback") failures.push("environment must be local-release-readback");
   if (record.status !== "verified" || record.ok !== true) failures.push("status must be verified ok");
   for (const taskId of ["S6-34", "S6-35", "S6-36", "S6-37", "S6-38", "S6-39", "S6-40", "S6-EG5", "S6-EG6", "S6-EG7"]) {
     if (!Array.isArray(record.taskIds) || !record.taskIds.includes(taskId)) failures.push(`missing taskId ${taskId}`);
   }
-  for (const [key, value] of Object.entries(assertions)) {
-    if (value !== true) failures.push(`assertion ${key} must be true`);
-  }
-  for (const [groupName, group] of Object.entries({ documentation: docs, independentDisable: disable, centralHook: hook, operations })) {
-    for (const [key, value] of Object.entries(group)) {
-      if (typeof value === "boolean" && value !== true) failures.push(`${groupName}.${key} must be true`);
+  for (const [groupName, keys] of Object.entries(EVIDENCE_FIELDS)) {
+    const group = readRecord(evidence[groupName]);
+    for (const key of keys) {
+      if (group[key] !== true) failures.push(groupName === "assertions"
+        ? `assertion ${key} must be true` : `${groupName}.${key} must be true`);
     }
+  }
+  for (const [key, value] of Object.entries(currentHookContractChecks(record.currentHookAdapter))) {
+    if (!value) failures.push(`currentHookAdapter.${key} must be true`);
   }
   const serialized = JSON.stringify(packet);
   for (const pattern of SECRET_PATTERNS) {
@@ -161,66 +217,47 @@ export function inspectPracticeAssetsS6DocsOpsReadback(packet: unknown): { ok: b
 
 export function verifiedPracticeAssetsS6DocsOpsFixture() {
   return {
-    schemaVersion: "archcontext.practice-assets-s6-docs-ops-readback/v1",
+    schemaVersion: "archcontext.practice-assets-s6-docs-ops-readback/v2",
     taskIds: ["S6-34", "S6-35", "S6-36", "S6-37", "S6-38", "S6-39", "S6-40", "S6-EG5", "S6-EG6", "S6-EG7"],
     environment: "local-release-readback",
     status: "verified",
     ok: true,
     generatedAt: "2026-06-24T00:00:00.000Z",
     sources: {},
+    currentHookAdapter: {
+      ok: true, requestId: "hooks.status", data: {
+        schemaVersion: "archcontext.hook-adapter/v1", host: "codex", adapterName: "repo-harness-hook",
+        ownership: "central-first", hookRuntime: "external-user-level", repoLocalRuntime: "not-vendored",
+        entrypoint: { command: "archctx", args: ["hook", "enqueue"], egress: "none", network: "forbidden", failOpen: true },
+        fallbackEntrypoint: { command: "archctx", args: ["hook", "checkpoint"], egress: "none", network: "forbidden", failOpen: true }
+      }
+    },
     evidence: {
-      documentation: allTrue([
-        "readmeStaticDynamicBoundary",
-        "readmeNoDataSentBoundary",
-        "repoPracticeHowTo",
-        "enforcementPromotionHowTo",
-        "waiverHowTo",
-        "centralHookHowTo",
-        "context7PinPrivacyHowTo",
-        "sourceUpdateRunbook",
-        "licenseIncidentRunbook",
-        "falsePositiveRollbackRunbook",
-        "quarterlyReviewOwner",
-        "featureFlagsRolloutReadback",
-        "releaseGateUpdated"
-      ]),
-      independentDisable: allTrue([
-        "enforcementAdvisoryModeDocumented",
-        "enforcementAdvisoryModeVerified",
-        "context7DefaultDisabled",
-        "context7FailureMatrixComplete",
-        "context7FailureMatrixLeavesLocalCoreUnchanged",
-        "context7AdvisoryOnly",
-        "context7ManualNetworkOnly"
-      ]),
-      centralHook: allTrue([
-        "hookReadbackVerified",
-        "codexHostCentralFirst",
-        "adapterIsRepoHarnessHook",
-        "hookEntrypointArchctxCheckpoint",
-        "hookZeroNetwork",
-        "hookNoRawChangedPathBody",
-        "hookReadmeCentralFirst"
-      ]),
-      operations: allTrue([
-        "catalogRevisionManifestVerified",
-        "releasePackageManifestVerified",
-        "localTarballLifecycleVerified",
-        "rollbackCompatibilityVerified",
-        "staleCatalogDetected",
-        "context7PurgeCommandImplemented",
-        "cachePurgeRunbookDocumented",
-        "upgradeRollbackRunbookCoversPracticeAssets"
-      ]),
-      assertions: allTrue([
-        "documentationComplete",
-        "independentDisableComplete",
-        "centralHookComplete",
-        "operationsComplete",
-        "noPrivateContent"
-      ])
+      documentation: allTrue(EVIDENCE_FIELDS.documentation),
+      independentDisable: allTrue(EVIDENCE_FIELDS.independentDisable),
+      centralHook: allTrue(EVIDENCE_FIELDS.centralHook),
+      operations: allTrue(EVIDENCE_FIELDS.operations),
+      assertions: allTrue(EVIDENCE_FIELDS.assertions)
     },
     failures: []
+  };
+}
+
+function currentHookContractChecks(envelope: unknown) {
+  const record = readRecord(envelope);
+  const data = readRecord(record.data);
+  const entrypoint = readRecord(data.entrypoint);
+  const checkpoint = readRecord(data.fallbackEntrypoint);
+  const exactArgs = (args: unknown, expected: string[]) => Array.isArray(args)
+    && args.length === expected.length && expected.every((arg, index) => args[index] === arg);
+  return {
+    envelope: record.ok === true && record.requestId === "hooks.status" && data.schemaVersion === "archcontext.hook-adapter/v1",
+    ownership: data.host === "codex" && data.adapterName === "repo-harness-hook"
+      && data.ownership === "central-first" && data.hookRuntime === "external-user-level" && data.repoLocalRuntime === "not-vendored",
+    enqueueEntrypoint: entrypoint.command === "archctx" && exactArgs(entrypoint.args, ["hook", "enqueue"])
+      && entrypoint.egress === "none" && entrypoint.network === "forbidden" && entrypoint.failOpen === true,
+    checkpointFallback: checkpoint.command === "archctx" && exactArgs(checkpoint.args, ["hook", "checkpoint"])
+      && checkpoint.egress === "none" && checkpoint.network === "forbidden" && checkpoint.failOpen === true
   };
 }
 
@@ -231,7 +268,7 @@ function buildEvidence(texts: Record<string, string>, json: Record<string, any>)
     repoPracticeHowTo: includesAll(texts.practiceRunbook, ["Write A Repo Practice", ".archcontext/practices/", "overlay.mode"]),
     enforcementPromotionHowTo: includesAll(texts.practiceRunbook, ["Promote Enforcement", ".archcontext/policies/practices.yaml", "mode: advisory", "mode: active"]),
     waiverHowTo: includesAll(texts.practiceRunbook, ["Add A Waiver", "archctx practices waive", ".archcontext/waivers/"]),
-    centralHookHowTo: includesAll(texts.practiceRunbook, ["Connect A Central Hook", "repo-harness-hook", "archctx hook checkpoint"]),
+    centralHookHowTo: includesAll(texts.practiceRunbook, ["Connect A Central Hook", "repo-harness-hook", "archctx hook enqueue", "archctx hook checkpoint"]),
     context7PinPrivacyHowTo: includesAll(texts.practiceRunbook, ["Pin Context7", "archctx docs pin", "archctx docs purge --all", "advisory-only"]),
     sourceUpdateRunbook: includesAll(texts.practiceRunbook, ["Source Update Runbook", "bun run record:s6:catalog", "bun run readback:s6:catalog"]),
     licenseIncidentRunbook: includesAll(texts.practiceRunbook, ["License Incident Runbook", "reference-only", "NOTICE.md"]),
@@ -252,17 +289,24 @@ function buildEvidence(texts: Record<string, string>, json: Record<string, any>)
     context7ManualNetworkOnly: includesAll(texts.s5Context7Gate, ["docs resolve --allow-network", "docs fetch", "advisory-only"])
   };
 
-  const hookData = json.hook?.hookAdapter?.data ?? {};
+  const hookData = json.currentHookAdapter?.data ?? {};
+  const currentChecks = currentHookContractChecks(json.currentHookAdapter);
   const centralHook = {
     hookReadbackVerified: json.hook?.status === "verified",
     codexHostCentralFirst: hookData.host === "codex" && hookData.ownership === "central-first",
     adapterIsRepoHarnessHook: hookData.adapterName === "repo-harness-hook",
-    hookEntrypointArchctxCheckpoint: Array.isArray(hookData.entrypoint?.args) && hookData.entrypoint.args.join(" ") === "hook checkpoint",
+    hookEntrypointArchctxEnqueue: currentChecks.enqueueEntrypoint,
+    checkpointFallbackLocalOnly: currentChecks.checkpointFallback,
+    currentAdapterVerified: Object.values(currentChecks).every(Boolean),
     hookZeroNetwork: json.hook?.capture?.totalRequests === 0
       && hookData.entrypoint?.egress === "none"
       && hookData.entrypoint?.network === "forbidden",
     hookNoRawChangedPathBody: json.hook?.assertions?.rawChangedPathBodyAbsent === true && json.hook?.assertions?.sourceBodyAbsent === true,
-    hookReadmeCentralFirst: includesAll(texts.hookReadme, ["central-first", "repo-harness-hook", "docs/verification/practice-hook-egress-readback.json"])
+    // Harness-owned helper docs describe runtime ownership; product evidence lives in the runbook.
+    hookReadmeCentralFirst: includesAll(texts.hookReadme, [
+      "user-level", "repo-harness-hook", "operator helper libraries only",
+      "no repo-local host-event dispatcher or route script is supported"
+    ]) && includesAll(texts.practiceRunbook, [PATHS.hookReadback])
   };
 
   const operations = {
@@ -302,6 +346,7 @@ function renderReport(packet: any) {
 
 - Task: S6-34 through S6-40 and S6-EG5 through S6-EG7
 - Environment: local-release-readback
+- Scope: current documentation and CLI adapter contract; referenced runtime/network packets are historical fixtures, not a fresh installed-host capture.
 - Generated At: ${packet.generatedAt}
 - Status: ${status}
 
@@ -343,7 +388,7 @@ function passFail(value: boolean) {
   return value ? "PASS" : "FAIL";
 }
 
-function allTrue(keys: string[]) {
+function allTrue(keys: readonly string[]) {
   return Object.fromEntries(keys.map((key) => [key, true]));
 }
 

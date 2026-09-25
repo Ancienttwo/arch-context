@@ -139,3 +139,10 @@ Completed the three current-source detectors without runtime behavior changes. C
 
 
 Published source `48a88cecbbc1906bdb1d75958d7423ed4170484a` to Draft #223. Historical full CI remains bound to `5117abd`; this repair has the scoped local verification recorded above. Publication/records completion is not hosted-CI or whole-plan acceptance.
+
+
+## Integrated acceptance scope and source review
+
+The current user directive accepts the existing PR work and cleans issue tracking. #220/#221/#222 heads are ancestors of #223; their feature extractions are included. Further composition-only facade work and general RPC decoders remain #164 and are explicitly deferred in `tasks/todos.md`, rather than claimed complete by this PR. Cloud delivery remains a blocking milestone under #224; ADR-0016/0017 retain the target and now point to it. This supersedes the earlier open-ended further-extraction task for this acceptance boundary, without marking #164 done.
+
+S6 v2 now validates current CLI metadata, required evidence fields and the current generic harness README. Canonical output was generated; v1 was archived byte-for-byte. Source review found no blocking code defects. The reported stale S6 proof hashes/assertion count were corrected against final verified source. Windows run 36144083941 remains failed: the docs digest test exceeded 15 seconds once; unchanged production code previously passed that test in 3.608 seconds. No particular slow phase is proven. Retain the 15-second deadline and all assertions for the one planned frozen-candidate matrix.
