@@ -1,10 +1,10 @@
-schemaVersion: archcontext.node/v2
-id: component.architecture-context.local-runtime.local-store-sqlite
-kind: component
+id: "component.architecture-context.local-runtime.local-store-sqlite"
+kind: "component"
 name: "SQLite Local Store"
-status: active
-parent: module.architecture-context.local-runtime
-summary: "Persists daemon runtime state in SQLite, including schema migrations, runtime state paths, ChangeSet journals and recovery, architecture ledger events, evidence, and recommendations."
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
 source:
   include:
     - "packages/local-runtime/local-store-sqlite/src/**"
+status: "active"
+summary: "Persists daemon runtime state in SQLite, including schema migrations, ChangeSet journals and recovery, architecture ledger events, evidence, and recommendations."

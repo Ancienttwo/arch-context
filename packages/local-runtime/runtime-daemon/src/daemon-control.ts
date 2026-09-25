@@ -1,7 +1,7 @@
 import { RUNTIME_RPC_VERSION, type RuntimeRpcCompatibilityIssue, type RuntimeRpcConnection, type RuntimeRpcConnectionFile } from "./rpc-protocol";
 import { RuntimeRpcClient } from "./rpc-client";
 import { existsSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 
 export type DaemonControlRecoveryReason =
   | "insecure-connection-file"

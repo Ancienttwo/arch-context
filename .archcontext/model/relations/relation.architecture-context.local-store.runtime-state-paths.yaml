@@ -1,0 +1,6 @@
+id: "relation.architecture-context.local-store.runtime-state-paths"
+intent: "Resolve runtime storage partitions and re-export the existing public state-path contract"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.local-store-sqlite"
+target: "component.architecture-context.local-runtime.runtime-state-paths"

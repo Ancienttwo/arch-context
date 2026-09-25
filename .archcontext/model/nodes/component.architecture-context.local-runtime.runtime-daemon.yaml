@@ -13,6 +13,7 @@ source:
     - "packages/local-runtime/runtime-daemon/src/loopback-http.ts"
     - "packages/local-runtime/runtime-daemon/src/changeset-recovery-error.ts"
     - "packages/local-runtime/runtime-daemon/src/rpc-methods.ts"
+    - "packages/local-runtime/runtime-daemon/src/rpc-client-entry.ts"
   include:
     - "packages/local-runtime/runtime-daemon/src/**"
 status: "active"

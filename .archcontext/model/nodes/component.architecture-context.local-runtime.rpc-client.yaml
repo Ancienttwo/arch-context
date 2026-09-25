@@ -9,5 +9,6 @@ source:
     - "packages/local-runtime/runtime-daemon/src/rpc-protocol.ts"
     - "packages/local-runtime/runtime-daemon/src/rpc-methods.ts"
     - "packages/local-runtime/runtime-daemon/src/developer-review-codec.ts"
+    - "packages/local-runtime/runtime-daemon/src/rpc-client-entry.ts"
 status: "active"
 summary: "Owns loopback RPC client deadlines and cancellation, connection protocol, typed method table and strict review-boundary codecs shared by client and server."
