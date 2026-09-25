@@ -1,4 +1,4 @@
-import { MANIFEST_UPDATE_OPERATION_SCHEMA } from "@archcontext/core/changeset-engine";
+import { ADR_REFERENCE_OPERATION_SCHEMA, MANIFEST_UPDATE_OPERATION_SCHEMA } from "@archcontext/core/changeset-engine";
 import type { validateJsonSchema } from "@archcontext/contracts";
 
 type Schema = Parameters<typeof validateJsonSchema>[0];
@@ -15,7 +15,7 @@ const entityOperation: Schema = {
   }
 };
 
-const operation: Schema = { oneOf: [entityOperation, MANIFEST_UPDATE_OPERATION_SCHEMA] };
+const operation: Schema = { oneOf: [entityOperation, MANIFEST_UPDATE_OPERATION_SCHEMA, ADR_REFERENCE_OPERATION_SCHEMA] };
 
 function argumentsSchema(properties: Record<string, Schema>, required: string[] = []) {
   return { type: "object" as const, properties: { root: text, ...properties }, required: ["root", ...required], additionalProperties: false };

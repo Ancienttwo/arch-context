@@ -1,4 +1,8 @@
-id: "capability.architecture-context"
+extensions:
+  contractFiles:
+    agents: "AGENTS.md"
+    claude: "CLAUDE.md"
+id: "capability.architecture.context"
 kind: "capability"
 name: "Architecture Context"
 schemaVersion: "archcontext.node/v2"

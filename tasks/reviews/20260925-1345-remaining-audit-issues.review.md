@@ -169,3 +169,7 @@ Initializer now uses `capability.architecture.context`; the isolated harness can
 Live migration is not complete. The first transaction rolled back on ADR-0021's old appliesTo reference; the second rolled back on the existing docs/adr write guard. All ten original files match preimages and the new node is absent. Root AGENTS/CLAUDE targets are separately denied by the documented policy boundary. The temporary helper extension was removed; no allowlist/policy change or direct model/projection editing occurred. The required next slice is a typed ADR-reference update and marker-only root-contract write contract with preserved human text and rollback proof, before retrying the complete migration.
 
 Evidence and P1/P2/P3: `docs/researches/20260926-capability-profile-alignment.md` and `docs/verification/20260926-capability-profile-diagnosis.json`. #225 remains open and #223 remains Draft. No new whole-plan freeze, full matrix, AcceptanceReceipt, merge, release or global installation.
+
+## #225 restricted writer review boundary
+
+The approved writer-contract and migration slice is locally verified. ADR updates are typed scalar substitutions; root marker writes require an existing file, current explicit target scope and canonical renderer equality. Fault-injection and recovery tests preserve preimages with no false committed claim. The documentation projection's current major-change gate still blocks a complete acceptance verdict and typed AcceptanceReceipt; see `docs/verification/20260926-restricted-writer-migration.json`. Draft #223 remains unmerged.

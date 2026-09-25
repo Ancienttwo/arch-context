@@ -1,5 +1,5 @@
 applicability: "required"
-capabilityId: "capability.architecture-context"
+capabilityId: "capability.architecture.context"
 id: "flow.architecture-context.projection-render"
 name: "Project the accepted architecture model into documentation"
 outcomes:
@@ -35,7 +35,7 @@ outcomes:
       participant: "trigger"
 participants:
   - id: "trigger"
-    nodeId: "capability.architecture-context"
+    nodeId: "capability.architecture.context"
   - id: "renderer"
     nodeId: "component.architecture-context.projection-renderer"
 schemaVersion: "archcontext.flow/v1"

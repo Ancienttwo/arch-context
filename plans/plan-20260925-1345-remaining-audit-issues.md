@@ -410,3 +410,23 @@ Initializer now uses `capability.architecture.context`; the isolated harness can
 Live migration is not complete. The first transaction rolled back on ADR-0021's old appliesTo reference; the second rolled back on the existing docs/adr write guard. All ten original files match preimages and the new node is absent. Root AGENTS/CLAUDE targets are separately denied by the documented policy boundary. The temporary helper extension was removed; no allowlist/policy change or direct model/projection editing occurred. The required next slice is a typed ADR-reference update and marker-only root-contract write contract with preserved human text and rollback proof, before retrying the complete migration.
 
 Evidence and P1/P2/P3: `docs/researches/20260926-capability-profile-alignment.md` and `docs/verification/20260926-capability-profile-diagnosis.json`. #225 remains open and #223 remains Draft. No new whole-plan freeze, full matrix, AcceptanceReceipt, merge, release or global installation.
+
+
+## Approved continuation: #225 restricted writer contracts
+
+Owner approved the bounded ADR-reference and root-contract writer slice after the safe rollback report. Preserve the isolated worktree and the existing local harness counterpart. Draft publication remains authorized; no package release/global installation/merge is implied.
+
+- P1: ChangeSetEngine owns approval, expected hashes, journaling and rollback; policy-engine owns per-operation path scope; projection-engine owns generated marker content; runtime-daemon binds current-model rendering to the writer; CLI/MCP/proposal helper are triggers.
+- P2: identity migration must update ADR-0021 appliesTo within the same transaction as node/graph references. Existing generic writes cannot reach docs/adr. Root agent-context targets are already explicit profile fields, but the writer rejects them regardless of renderer output.
+- P3: add closed `update_adr_references` operations containing an existing-file hash and exact old/new node-ID replacements, never arbitrary Markdown body. Patch only explicit YAML scalar ranges in appliesTo, rejecting malformed/ambiguous/alias values and preserving all other bytes. Root AGENTS/CLAUDE writes remain render_agent_context-only, require existing hash-bound files and explicit current model targets, and must match a fresh canonical renderer result. Preserve human bytes when appending the first generated region. Keep generic write/delete and inferred-root source ownership forbidden. At 10x model size repeated current-model rendering is the existing read cost; introduce no cache that can mask changed authority.
+
+### Task Breakdown: restricted writers
+- [x] Add failing ADR transaction and root marker-only write regressions.
+- [x] Implement closed operation/schema/surface/readback support and exact renderer validation.
+- [x] Verify rejection, rollback/recovery, current-model/hash checks and human-byte preservation.
+- [ ] Rebuild the complete migration proposal, apply through daemon with exact digests, regenerate projections through their owner and inspect current readback.
+- [ ] Record verified source/candidate/installed-runtime boundaries and complete the available acceptance/disposition steps without bypassing guards.
+
+### Current boundary after restricted writers
+
+The 11-file model/ADR migration and two root contract marker writes committed through the daemon. Source invariants, focused tests, typecheck and boundaries pass. Documentation projection still reports `human-action-required` for the real node rename; the YAML-mode ChangeSet journal does not contain an architecture event that can truthfully fill `acceptedChange.eventId`. No adoption candidates exist. Keep documentation regeneration, paired installed-harness acceptance and the typed whole-plan receipt pending until that event reference and fixed point are established. Evidence: `docs/verification/20260926-restricted-writer-migration.json`.

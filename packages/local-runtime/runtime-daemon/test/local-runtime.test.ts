@@ -1106,6 +1106,33 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
+  test("explicit root contract projection preserves human bytes and rejects forged bodies", async () => {
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon();
+      await daemon.init(root, "Root Contract App");
+      const nodePath = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
+      writeFileSync(nodePath, `${readText(nodePath)}extensions:\n  contractFiles:\n    agents: "AGENTS.md"\n    claude: "CLAUDE.md"\n`);
+      const human = "# Human routing\n\nKeep these trailing spaces.  \n\n\n";
+      for (const path of ["AGENTS.md", "CLAUDE.md"]) writeFileSync(join(root, path), human);
+      const operation = agentContextProjectionOperation(root);
+      expect(operation.projectionFiles.every(file => file.body.startsWith(human))).toBe(true);
+      const planned = await daemon.planUpdate(root, { id: "changeset.root-contract", reason: { taskSessionId: "task.root-contract" }, operations: [operation] });
+      expect((planned.data as any).preview.allowed).toBe(true);
+      const applied = await daemon.applyUpdate(root, { id: "changeset.root-contract", approved: true, expectedWorktreeDigest: (planned.data as any).draft.base.worktreeDigest });
+      expect(applied.ok).toBe(true);
+      expect(readText(join(root, "AGENTS.md"))).toBe(readText(join(root, "CLAUDE.md")));
+      expect(agentContextProjectionOperation(root).projectionFiles).toEqual(operation.projectionFiles.map(file => ({ ...file, expectedHash: digestJson({ body: file.body }) })));
+      const forged = agentContextProjectionOperation(root);
+      forged.projectionFiles[0]!.body = forged.projectionFiles[0]!.body.replace("Human routing", "Attacker routing");
+      const denied = await daemon.planUpdate(root, { id: "changeset.root-forged", reason: { taskSessionId: "task.root-contract" }, operations: [forged] });
+      expect((denied.data as any).preview.allowed).toBe(false);
+      await expect(daemon.applyUpdate(root, { id: "changeset.root-forged", approved: true, expectedWorktreeDigest: (denied.data as any).draft.base.worktreeDigest })).rejects.toThrow();
+      expect(readText(join(root, "AGENTS.md"))).toBe(operation.projectionFiles.find(file => file.path === "AGENTS.md")!.body);
+    } finally { await daemon?.stop(); removeTempRepo(root); }
+  });
+
   test("agent-context projection applies through its own ChangeSet operation kind and is idempotent", async () => {
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
