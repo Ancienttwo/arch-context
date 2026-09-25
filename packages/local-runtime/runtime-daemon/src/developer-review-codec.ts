@@ -1,5 +1,5 @@
 import { type DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
-import { type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunManifest } from "./index";
+import { type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunManifest } from "./developer-review-run";
 import { type ReviewChallengeV2 } from "@archcontext/contracts";
 
 function rpcInputInvalid(context: string, detail: string): Error {

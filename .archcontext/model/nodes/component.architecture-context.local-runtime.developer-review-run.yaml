@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.developer-review-run"
+kind: "component"
+name: "Developer Review Run Lifecycle"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/runtime-daemon/src/developer-review-run.ts"
+status: "active"
+summary: "Owns detached review worktree preparation, run locks, ownership and containment checks, cleanup and crash recovery under the daemon clock and running-state guard."
