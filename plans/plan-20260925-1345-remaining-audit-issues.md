@@ -356,3 +356,32 @@ S6 v2 now validates current CLI metadata, required evidence fields and the curre
 **BLOCKED**. Hosted candidate `18d2075` passed all ten jobs in run 36149269956, with 2115 tests per full suite and zero failures; native/network artifacts and source/merge identities were verified. #220–#222 were closed as superseded by Draft #223, preserving branches. #162 is closed for completed local status truthfulness; #224 retains real cloud delivery. #164 and #171 remain open with explicit remaining work.
 
 Formal freeze fails on the installed harness/repository capability contract mismatch (#225). Migrated direct local contract checks passed Explorer session, typecheck and boundaries, but full verify failed with 2112 pass / 1 skip / 2 fail: documentation-drift CodeGraph handshake timeout and a separate projection RPC readback outer timeout (#226). No second matrix, timeout change or additional repair was attempted. No AcceptanceReceipt, merge, release or deployment is claimed. Exact source/log/command evidence and P1/P2/P3: `docs/verification/20260925-integrated-pr-acceptance.json` and `docs/researches/20260925-integrated-pr-acceptance.md`.
+
+
+## Approved continuation: issue #226 deadline diagnosis
+
+Owner approved the two named local projection failures. Continue in the existing Draft worktree. #225, full matrix reruns, merge and release remain outside this slice.
+
+- P1: runtime completion owns the documentation-drift gate; the CodeGraph adapter owns package-local public CLI proof and child deadlines. The CLI integration test owns the real RPC/readback scenario and outer test deadline.
+- P2: completeTask → completeTaskProjectionDrift → prepareArchitectureDocumentationProjectionSnapshot → prepareProjectionCodeFacts → package-local `--version` (5000ms). The second test prepares an adopted/indexed model, applies via RPC, observes pending recovery, verifies delivered receipt stability and rejects changed identities/targets/inputs. Each current read reconstructs proof rather than trusting the historical receipt.
+- P3: preserve child/runtime deadlines, fresh-current-read proof, all original assertions and writer authority. Capture command timing and failure envelopes before deciding any correction. At 10x reads, repeated subprocess startup is the likely cost pressure, not a reason to cache away the current-read contract. Do not call an unreproduced timeout a known flake or infer its cause from later success.
+
+### Task Breakdown: #226
+- [x] Verify prior source/log identities and reproduce only the two cases with child and outer timing.
+- [x] Establish the failing phase and a sufficient regression before fixing a proven cause; at most three rounds.
+- [x] Run the two uninstrumented cases and relevant cheap checks after any correction.
+- [x] Publish bounded evidence and update #226, Draft #223 and project memory; retain unresolved causes and #225 gate.
+
+
+### #226 measured decision before final scoped check
+
+Round 1 reproduced the 120s outer RPC deadline; round 2's diagnostic 240s window instead exposed two actual `--version` child deadline expirations at 5008/5022ms during fixture setup. The diagnostic test edit was restored byte-for-byte. A no-CodeGraph `bun -e` probe reproduced a 5s failure before user code. Nested preload timing puts the delay before Bun preload, while bundled Node version execution takes tens of milliseconds. A one-second native sample places 719 of 767 main-thread samples at directory enumeration (`__getdirentries64`); exact Bun-internal symbol/directory cause remains unproven.
+
+Empty config/package markers and no-env/no-install/tsconfig flags did not remove the warm startup penalty. Paired same-runtime/same-script probes gave 637–793ms under system temp versus 14ms under the task's isolated temp base. Use an operator-scoped `TMPDIR` in ignored `_ops/remaining-issues/issue226/temp-base` for the final two original tests. This is environment isolation; do not change product commands, child/outer deadlines, runtime semantics, assertions, or global system temp. No deletion of other temp state is authorized.
+
+
+## #226 local verification environment resolved
+
+No product/test source or timeout changed. The old outer timeout reproduced; a longer observation then exposed real 5s version-child expirations before the RPC phase. A no-CodeGraph Bun start reproduced the delay before user code; native samples show directory enumeration. Task-scoped `TMPDIR` reduced paired startup to 14ms and the two original uninstrumented cases passed (2 pass, 79 assertions, 29.84s). The existing child deadline rejection also passed. Exact Bun internals remain unproven; no universal runtime fix is claimed.
+
+`docs/researches/20260925-projection-verification-environment.md` contains P1/P2/P3 and Root Cause Evidence; `docs/verification/20260925-projection-environment-diagnosis.json` binds measurements/source/logs. `docs/runbooks/projection-verification-environment.md` supplies the operator command. Contract test checks now fingerprint `TMPDIR`. #226 is ready to close for this bounded resolution; #225 still blocks formal whole-plan acceptance. No full matrix rerun or receipt/merge/release.

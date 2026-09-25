@@ -29,6 +29,7 @@ Repair Explorer credential transport; integrate existing #164 feature extraction
 - Approved DE1/DE3 continuation: repair only the three historical source predicates (indexedBacklinks, requiredDomainsFailClosed, explicitAuthorityBinding), with negative guards and current behavioral verification. Historical artifact verdicts remain unchanged; no S6 cleanup or runtime semantic changes.
 - Approved S6 continuation: repair hookReadmeCentralFirst and its derived centralHookComplete using the current harness README boundary and product runbook evidence reference; verify missing-boundary negatives and current docs readback without changing runtime, host configuration, or historical artifacts.
 - Current all-PR acceptance directive: inventory #220–#223 and #162/#164/#171; finish current S6 hook contract evidence and diagnose the named Windows docs projection timeout; verify the frozen integrated candidate and clean issue tracking without claiming unimplemented cloud/facade scope delivered.
+- Approved #226 continuation: diagnose only the documentation-drift CodeGraph handshake and projection current-read RPC timeout, capture child/outer timing and typed errors, minimally repair proven causes, then verify those cases. Preserve fresh-read proof and all assertions; no broad matrix or #225 model migration in this slice.
 - Taste constraints: <!-- advisory only, no run gate; default style/taste lives in AGENTS.md and the minimal-change policy, use this to record a per-task override -->
 
 ## Stop Conditions
@@ -172,7 +173,8 @@ exit_criteria:
       "necessity": "Preserve the original mandatory Explorer credential/session regression.",
       "inputs": {
         "env": [
-          "PATH"
+          "PATH",
+          "TMPDIR"
         ]
       },
       "kind": "command",
@@ -217,7 +219,8 @@ exit_criteria:
       "necessity": "Preserve the full frozen-source test, packaging, privacy and evidence gate before acceptance.",
       "inputs": {
         "env": [
-          "PATH"
+          "PATH",
+          "TMPDIR"
         ]
       },
       "kind": "command",
