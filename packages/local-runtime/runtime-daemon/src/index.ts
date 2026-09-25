@@ -1,3 +1,5 @@
+import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
+export type { RuntimeDocsInput, RuntimeResourceReadResult } from "./external-documentation";
 import { DeveloperReviewSessionService, type DeveloperReviewDigestBundle, type DeveloperReviewSession, type DeveloperReviewAttestation } from "./developer-review-run";
 export type { DeveloperReviewDigestBundle, DeveloperReviewSession, DeveloperReviewAttestation } from "./developer-review-run";
 import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
@@ -21,7 +23,7 @@ export * from "./rpc-client";
 export * from "./rpc-protocol";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   addRepositoryToLandscape,
@@ -38,7 +40,7 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
-import { assertPathHasNoSymlinkSegments, ChangeSetEngine, writeFileWithoutFollowingSymlinks, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   assertArchitectureLedgerPersistenceSafe,
   architectureLedgerBookSubjects,
@@ -108,9 +110,9 @@ import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { agentContextProjectionTargetPaths, architectureDocumentationProjectionWorktreeDigest, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, assertArchitectureProjectionVerifiedAgainst, capabilitySourceChangesSinceStamps, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestVerifiedAgainst, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection, type ArchitectureProjectionManifestVerifiedAgainstReadback, type ArchitectureProjectionVerifiedAgainst, type CapabilitySourceChangeSet, type CapabilitySourceChangeSetForCommit, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
-import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
-import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
+import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
+import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationPort, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readWorktreeChangeMetadata, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
@@ -261,27 +263,6 @@ export interface RuntimeAgentJobCancelRpcInput {
   reason?: string;
   supersededByJobId?: string;
   now?: string;
-}
-
-export interface RuntimeDocsInput {
-  command: "status" | "resolve" | "pin" | "fetch" | "purge";
-  provider?: ExternalDocumentationProvider;
-  libraryName?: string;
-  libraryId?: string;
-  version?: string;
-  query?: string;
-  intent?: string;
-  approved?: boolean;
-  allowNetwork?: boolean;
-  forceRefresh?: boolean;
-  all?: boolean;
-}
-
-export interface RuntimeResourceReadResult {
-  schemaVersion: "archcontext.resource-read/v1";
-  uri: string;
-  dataClassification: "external-unverified-documentation";
-  resource: ExternalDocumentationResourceV1;
 }
 
 export interface RuntimePracticeWaiverInput {
@@ -805,52 +786,6 @@ interface PersistedPracticeCheckpointBaseline {
   updatedAt: string;
 }
 
-const CONTEXT7_LOCKFILE = ".archcontext/integrations/context7.lock.yaml";
-
-type PreparedTaskContext = Awaited<ReturnType<typeof prepareTask>>["context"];
-
-interface PrepareUnknownsCandidate {
-  packageName: string;
-  libraryId: string;
-  version: string;
-  intent: string;
-}
-
-const CONTEXT7_PREPARE_FRAMEWORKS = [
-  {
-    packageName: "react",
-    libraryId: "/facebook/react",
-    scopePattern: /\b(react|jsx|hook|hooks|usestate|useeffect|component|suspense)\b/i,
-    intentPattern: /\b(hook|hooks|usestate|useeffect|state|component|suspense|jsx)\b/i,
-    intent: "state hooks"
-  },
-  {
-    packageName: "next",
-    libraryId: "/vercel/next.js",
-    scopePattern: /\b(next(?:\.js)?|app router|route handler|middleware|server component)\b/i,
-    intentPattern: /\b(app router|route handler|middleware|server component|routing|cache)\b/i,
-    intent: "app router"
-  },
-  {
-    packageName: "express",
-    libraryId: "/expressjs/express",
-    scopePattern: /\b(express|middleware|route handler)\b/i,
-    intentPattern: /\b(middleware|route|handler|request|response)\b/i,
-    intent: "middleware routing"
-  }
-] as const;
-
-const EXTERNAL_DOCUMENTATION_RESOURCE_URI_PATTERN = /^archcontext:\/\/external-docs\/context7\/(sha256:[0-9a-f]{64})$/;
-
-function parseExternalDocumentationResourceUri(uri: string): {
-  provider: ExternalDocumentationProvider;
-  contentDigest: string;
-} | undefined {
-  const match = EXTERNAL_DOCUMENTATION_RESOURCE_URI_PATTERN.exec(uri);
-  if (!match) return undefined;
-  return { provider: "context7", contentDigest: match[1] };
-}
-
 export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
@@ -858,6 +793,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly readModelStore: ModelStorePort;
   private readonly localStore: RuntimeLocalStore;
   private readonly changeSetEngine: ChangeSetEngine;
+  private readonly externalDocumentationService: ExternalDocumentationService;
   private readonly externalDocumentation: ExternalDocumentationPort;
   private readonly externalDocumentationInjected: boolean;
   private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
@@ -977,6 +913,15 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     });
     this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
     this.maxRepoSessions = deps.maxRepoSessions ?? 8;
+    this.externalDocumentationService = new ExternalDocumentationService({
+      assertRunning: () => this.assertRunning(),
+      openSession: (root) => this.openSession(root),
+      withWriter: (fn) => this.withWriter(fn),
+      clock: this.clock,
+      externalDocumentation: this.externalDocumentation,
+      externalDocumentationInjected: this.externalDocumentationInjected,
+      localStore: this.localStore
+    });
     this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded", this.architectureLedger);
     this.developerReviewSessions = new DeveloperReviewSessionService({
       assertRunning: () => this.assertRunning(),
@@ -1171,7 +1116,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
       budget: { maxBytes, maxItems }
     });
-    const context = await this.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
+    const context = await this.externalDocumentationService.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
     const augmentedResult = context === result.context ? result : { ...result, context };
     await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, {
       schemaVersion: "archcontext.practice-checkpoint-snapshot/v1",
@@ -1666,166 +1611,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const provider = input.provider ?? "context7";
-    if (provider !== "context7") return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs provider must be context7");
-    const session = await this.openSession(root);
-    try {
-      if (input.command === "status") {
-        const lock = readContext7Lockfile(session.workspace.root);
-        const cached = await this.localStore.listExternalDocumentation("context7");
-        return okEnvelope("docs.status", {
-          schemaVersion: "archcontext.external-docs-status/v1",
-          provider: "context7",
-          health: await this.externalDocumentation.health(),
-          lock,
-          cacheEntries: cached.map((entry) => ({
-            provider: entry.provider,
-            libraryId: entry.libraryId,
-            version: entry.version,
-            queryDigest: entry.queryDigest,
-            contentDigest: entry.contentDigest,
-            retrievedAt: entry.retrievedAt,
-            expiresAt: entry.expiresAt,
-            stale: Date.parse(entry.expiresAt) <= Date.parse(this.clock())
-          })),
-          defaultPrepareEgress: "none"
-        } as unknown as Json);
-      }
-      if (input.command === "pin") {
-        if (!input.libraryId || !input.version) return errorEnvelope("docs.pin", "AC_SCHEMA_INVALID", "docs pin requires --library-id and --version");
-        assertContext7LibraryId(input.libraryId);
-        assertContext7Version(input.version);
-        const pin = {
-          libraryId: input.libraryId,
-          version: input.version,
-          pinnedAt: this.clock(),
-          source: "manual" as const
-        };
-        if (!input.approved) {
-          return okEnvelope("docs.pin", {
-            schemaVersion: "archcontext.context7-pin-preview/v1",
-            approved: false,
-            path: CONTEXT7_LOCKFILE,
-            lock: upsertContext7Pin(readContext7LockfileState(session.workspace.root).lock, pin)
-          } as unknown as Json);
-        }
-        // The approved pin writes a tracked `.archcontext/` file, so it is a writer like any other
-        // (#172: refused while ChangeSet recovery is unresolved).
-        return await this.withWriter(async () => {
-          const current = readContext7LockfileState(session.workspace.root);
-          const lock = upsertContext7Pin(current.lock, pin);
-          writeContext7Lockfile(session.workspace.root, lock, current.expectedHash);
-          return okEnvelope("docs.pin", {
-            schemaVersion: "archcontext.context7-pin/v1",
-            approved: true,
-            path: CONTEXT7_LOCKFILE,
-            lock
-          } as unknown as Json);
-        });
-      }
-      if (input.command === "resolve") {
-        if (!input.allowNetwork) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --allow-network");
-        if (!input.libraryName || !input.query) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --library and --query");
-        return okEnvelope("docs.resolve", await this.manualExternalDocumentation().resolve({
-          provider: "context7",
-          libraryName: input.libraryName,
-          query: input.query,
-          fast: true
-        }) as unknown as Json);
-      }
-      if (input.command === "fetch") {
-        if (!input.allowNetwork) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --allow-network");
-        if (!input.libraryId || !input.intent) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --library-id and --intent");
-        assertContext7LibraryId(input.libraryId);
-        const lock = readContext7Lockfile(session.workspace.root);
-        const pinned = lock.libraries.find((library) => library.libraryId === input.libraryId);
-        if (!pinned) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires a pinned library in .archcontext/integrations/context7.lock.yaml");
-        const query = buildContext7Query({ intent: input.intent, query: input.query });
-        const queryDigest = digestJson({ provider: "context7", libraryId: input.libraryId, version: pinned.version, query });
-        const cached = await this.localStore.readExternalDocumentation({
-          provider: "context7",
-          libraryId: input.libraryId,
-          version: pinned.version,
-          queryDigest
-        });
-        if (cached && !input.forceRefresh && Date.parse(cached.expiresAt) > Date.parse(this.clock())) {
-          return okEnvelope("docs.fetch", {
-            schemaVersion: "archcontext.external-docs-fetch/v1",
-            provider: "context7",
-            cacheStatus: "fresh",
-            resource: { ...cached.resource, cacheStatus: "fresh" },
-            request: { libraryId: input.libraryId, version: pinned.version, queryDigest, intent: input.intent }
-          } as unknown as Json);
-        }
-        const result = await this.manualExternalDocumentation().fetch({
-          provider: "context7",
-          libraryId: input.libraryId,
-          version: pinned.version,
-          intent: input.intent,
-          ...(input.query ? { query: input.query } : {}),
-          forceRefresh: input.forceRefresh
-        } satisfies ExternalDocumentationFetchInput);
-        const resource = { ...result.resource, queryDigest, cacheStatus: "fresh" as const };
-        await this.localStore.saveExternalDocumentation({
-          provider: "context7",
-          libraryId: input.libraryId,
-          version: pinned.version,
-          queryDigest,
-          contentDigest: resource.contentDigest,
-          resource,
-          retrievedAt: resource.retrievedAt,
-          expiresAt: resource.expiresAt
-        } satisfies ExternalDocumentationCacheEntry);
-        return okEnvelope("docs.fetch", {
-          ...result,
-          cacheStatus: "miss",
-          request: { ...result.request, queryDigest },
-          resource
-        } as unknown as Json);
-      }
-      if (input.command === "purge") {
-        const purged = await this.localStore.purgeExternalDocumentation({
-          provider: "context7",
-          ...(input.libraryId ? { libraryId: input.libraryId } : {}),
-          all: input.all
-        });
-        return okEnvelope("docs.purge", {
-          schemaVersion: "archcontext.external-docs-purge/v1",
-          purged
-        } as unknown as Json);
-      }
-      return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
-    } catch (error) {
-      const code = error instanceof ChangeSetRecoveryUnresolvedError ? "AC_PRECONDITION_FAILED" : "AC_SCHEMA_INVALID";
-      return errorEnvelope(`docs.${input.command}`, code, error instanceof Error ? error.message : String(error));
-    }
+    return this.externalDocumentationService.docs(root, input);
   }
 
   async readResource(root: string, uri: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    await this.openSession(root);
-    const parsed = parseExternalDocumentationResourceUri(uri);
-    if (!parsed) {
-      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "unsupported resource URI");
-    }
-    const cached = await this.localStore.readExternalDocumentationByContentDigest(parsed);
-    if (!cached) {
-      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "external documentation resource is not present in the local daemon cache");
-    }
-    const cacheStatus = Date.parse(cached.expiresAt) > Date.parse(this.clock()) ? "fresh" : "stale";
-    const resource: ExternalDocumentationResourceV1 = {
-      ...cached.resource,
-      uri,
-      cacheStatus
-    };
-    const result: RuntimeResourceReadResult = {
-      schemaVersion: "archcontext.resource-read/v1",
-      uri,
-      dataClassification: "external-unverified-documentation",
-      resource
-    };
-    return okEnvelope("resource.read", result as unknown as Json);
+    return this.externalDocumentationService.readResource(root, uri);
   }
 
   async planUpdate(root: string, rawInput: RuntimePlanUpdateInput): Promise<JsonEnvelope> {
@@ -1932,77 +1722,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const review = completeTaskGate(reviewInput);
     await this.localStore.saveReviewResult(review.reviewId, review);
     return okEnvelope("complete_task", review as unknown as Json);
-  }
-
-  private manualExternalDocumentation(): ExternalDocumentationPort {
-    if (this.externalDocumentationInjected) return this.externalDocumentation;
-    return new Context7ExternalDocumentationAdapter({
-      enabled: true,
-      mode: "manual",
-      clock: this.clock
-    });
-  }
-
-  private async augmentPrepareContextWithExternalDocs(
-    session: RepositorySession,
-    task: string,
-    context: PreparedTaskContext,
-    maxBytes: number
-  ): Promise<PreparedTaskContext> {
-    let health;
-    try {
-      health = await this.externalDocumentation.health();
-    } catch {
-      return context;
-    }
-    if (health.provider !== "context7" || !health.enabled || health.mode !== "prepare-unknowns") return context;
-    const lock = readContext7Lockfile(session.workspace.root);
-    const candidate = resolvePrepareUnknownsCandidate(session.workspace.root, task, context, lock);
-    if (!candidate) return context;
-    const resource = await this.readOrFetchPrepareExternalDocumentation(candidate);
-    if (!resource) return context;
-    return appendExternalDocumentationToContext(context, resource, candidate, maxBytes);
-  }
-
-  private async readOrFetchPrepareExternalDocumentation(candidate: PrepareUnknownsCandidate): Promise<ExternalDocumentationResourceV1 | undefined> {
-    const query = buildContext7Query({ intent: candidate.intent });
-    const queryDigest = digestJson({
-      provider: "context7",
-      libraryId: candidate.libraryId,
-      version: candidate.version,
-      query
-    });
-    const cached = await this.localStore.readExternalDocumentation({
-      provider: "context7",
-      libraryId: candidate.libraryId,
-      version: candidate.version,
-      queryDigest
-    });
-    if (cached && Date.parse(cached.expiresAt) > Date.parse(this.clock())) {
-      return { ...cached.resource, queryDigest, cacheStatus: "fresh" };
-    }
-    try {
-      const result = await this.externalDocumentation.fetch({
-        provider: "context7",
-        libraryId: candidate.libraryId,
-        version: candidate.version,
-        intent: candidate.intent
-      });
-      const resource = { ...result.resource, queryDigest, cacheStatus: "fresh" as const };
-      await this.localStore.saveExternalDocumentation({
-        provider: "context7",
-        libraryId: candidate.libraryId,
-        version: candidate.version,
-        queryDigest,
-        contentDigest: resource.contentDigest,
-        resource,
-        retrievedAt: resource.retrievedAt,
-        expiresAt: resource.expiresAt
-      });
-      return resource;
-    } catch {
-      return cached ? { ...cached.resource, queryDigest, cacheStatus: "stale" } : undefined;
-    }
   }
 
   private projectionHost(): ProjectionServiceHost {
@@ -4559,233 +4278,6 @@ function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiv
     throw new Error("practice-waiver-id-invalid");
   }
   return candidate;
-}
-
-function resolvePrepareUnknownsCandidate(root: string, task: string, context: PreparedTaskContext, lock: Context7LockfileV1): PrepareUnknownsCandidate | undefined {
-  if (!prepareContextHasVersionRelatedUnknown(context)) return undefined;
-  for (const framework of CONTEXT7_PREPARE_FRAMEWORKS) {
-    if (!framework.scopePattern.test(task) || !framework.intentPattern.test(task)) continue;
-    const pinned = lock.libraries.find((library) => library.libraryId === framework.libraryId);
-    if (!pinned) continue;
-    const exactVersion = readExactPackageVersion(root, framework.packageName);
-    if (!exactVersion || exactVersion !== pinned.version) continue;
-    return {
-      packageName: framework.packageName,
-      libraryId: framework.libraryId,
-      version: exactVersion,
-      intent: framework.intent
-    };
-  }
-  return undefined;
-}
-
-function appendExternalDocumentationToContext(
-  context: PreparedTaskContext,
-  resource: ExternalDocumentationResourceV1,
-  candidate: PrepareUnknownsCandidate,
-  maxBytes: number
-): PreparedTaskContext {
-  const externalResource = {
-    type: "external-docs",
-    provider: resource.provider,
-    uri: resource.uri,
-    digest: resource.contentDigest,
-    libraryId: candidate.libraryId,
-    packageName: candidate.packageName,
-    version: candidate.version,
-    queryDigest: resource.queryDigest,
-    trust: resource.trust,
-    enforcement: resource.enforcement,
-    cacheStatus: resource.cacheStatus,
-    retrievedAt: resource.retrievedAt,
-    expiresAt: resource.expiresAt
-  } as Record<string, Json>;
-  const resources = context.resources.some((entry) => entry.uri === resource.uri)
-    ? context.resources
-    : [...context.resources, externalResource as any];
-  const unknown = `External documentation is advisory and untrusted for ${candidate.packageName}@${candidate.version}: ${candidate.intent}`;
-  const unknowns = context.unknowns.includes(unknown) ? context.unknowns : [...context.unknowns, unknown];
-  const augmented = {
-    ...context,
-    unknowns,
-    resources,
-    recommendedTargetState: {
-      ...context.recommendedTargetState,
-      externalDocumentation: {
-        provider: resource.provider,
-        libraryId: candidate.libraryId,
-        packageName: candidate.packageName,
-        version: candidate.version,
-        intent: candidate.intent,
-        resourceUri: resource.uri,
-        contentDigest: resource.contentDigest,
-        trust: resource.trust,
-        enforcement: resource.enforcement
-      }
-    },
-    extensions: {
-      ...context.extensions,
-      externalDocumentationDigest: digestJson({
-        provider: resource.provider,
-        libraryId: candidate.libraryId,
-        version: candidate.version,
-        queryDigest: resource.queryDigest,
-        contentDigest: resource.contentDigest,
-        cacheStatus: resource.cacheStatus
-      } as unknown as Json)
-    }
-  };
-  return finalizeContextBudgetMetadata(augmented, maxBytes);
-}
-
-function prepareContextHasVersionRelatedUnknown(context: PreparedTaskContext): boolean {
-  const unknowns = context.unknowns.join(" ").toLowerCase();
-  if (/\b(version|dependency|dependencies|package|lockfile|runtime dependency|pinned)\b/.test(unknowns)) return true;
-  return context.architecturePressure.signals.includes("unpinned-runtime-dependency");
-}
-
-function readExactPackageVersion(root: string, packageName: string): string | undefined {
-  const lockVersion = readPackageLockExactVersion(root, packageName);
-  if (lockVersion) return lockVersion;
-  for (const manifestPath of packageManifestPaths(root)) {
-    const manifest = readJsonFile(manifestPath);
-    const version = exactVersionFromManifest(manifest, packageName);
-    if (version) return version;
-  }
-  return undefined;
-}
-
-function readPackageLockExactVersion(root: string, packageName: string): string | undefined {
-  const lock = readJsonFile(resolve(root, "package-lock.json"));
-  if (!lock || typeof lock !== "object" || Array.isArray(lock)) return undefined;
-  const packages = (lock as { packages?: Record<string, unknown> }).packages;
-  if (packages && typeof packages === "object") {
-    const entry = packages[`node_modules/${packageName}`] as { version?: unknown } | undefined;
-    if (typeof entry?.version === "string" && isExactPackageVersion(entry.version)) return entry.version;
-  }
-  const dependencies = (lock as { dependencies?: Record<string, unknown> }).dependencies;
-  if (dependencies && typeof dependencies === "object") {
-    const entry = dependencies[packageName] as { version?: unknown } | undefined;
-    if (typeof entry?.version === "string" && isExactPackageVersion(entry.version)) return entry.version;
-  }
-  return undefined;
-}
-
-function packageManifestPaths(root: string): string[] {
-  const paths = [resolve(root, "package.json")];
-  const rootManifest = readJsonFile(paths[0]);
-  for (const pattern of workspacePatternsFromManifest(rootManifest)) {
-    for (const path of expandWorkspacePackageJson(root, pattern)) paths.push(path);
-  }
-  return [...new Set(paths)];
-}
-
-function workspacePatternsFromManifest(manifest: unknown): string[] {
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return [];
-  const workspaces = (manifest as { workspaces?: unknown }).workspaces;
-  if (Array.isArray(workspaces)) return workspaces.filter((item): item is string => typeof item === "string");
-  if (workspaces && typeof workspaces === "object" && Array.isArray((workspaces as { packages?: unknown }).packages)) {
-    return (workspaces as { packages: unknown[] }).packages.filter((item): item is string => typeof item === "string");
-  }
-  return [];
-}
-
-function expandWorkspacePackageJson(root: string, pattern: string): string[] {
-  if (pattern.includes("**") || pattern.startsWith("/") || pattern.includes("\\")) return [];
-  if (!pattern.includes("*")) {
-    const path = resolve(root, pattern, "package.json");
-    return existsSync(path) ? [path] : [];
-  }
-  if (!pattern.endsWith("/*")) return [];
-  const base = resolve(root, pattern.slice(0, -2));
-  if (!existsSync(base) || !statSync(base).isDirectory()) return [];
-  return readdirSync(base, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => resolve(base, entry.name, "package.json"))
-    .filter((path) => existsSync(path));
-}
-
-function exactVersionFromManifest(manifest: unknown, packageName: string): string | undefined {
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return undefined;
-  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const) {
-    const dependencies = (manifest as Record<string, unknown>)[field];
-    if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) continue;
-    const value = (dependencies as Record<string, unknown>)[packageName];
-    if (typeof value === "string" && isExactPackageVersion(value)) return value;
-  }
-  return undefined;
-}
-
-function readJsonFile(path: string): unknown {
-  if (!existsSync(path)) return undefined;
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return undefined;
-  }
-}
-
-function isExactPackageVersion(value: string): boolean {
-  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(value);
-}
-
-function readContext7Lockfile(root: string): Context7LockfileV1 {
-  return readContext7LockfileState(root).lock;
-}
-
-/**
- * The lockfile plus the hash of the exact bytes the lock was parsed from, so an approved pin can
- * carry that hash into the write as an optimistic-concurrency precondition. Reading once is what
- * makes the precondition meaningful: hashing a second read would only prove the file was stable
- * between two reads, not that the pin is being applied to the state it was computed from.
- */
-function readContext7LockfileState(root: string): { lock: Context7LockfileV1; expectedHash: string } {
-  const path = assertPathHasNoSymlinkSegments(root, CONTEXT7_LOCKFILE);
-  if (!existsSync(path)) {
-    return {
-      lock: {
-        schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
-        provider: "context7",
-        libraries: []
-      },
-      expectedHash: "missing"
-    };
-  }
-  const body = readFileSync(path, "utf8");
-  const parsed = JSON.parse(body) as Context7LockfileV1;
-  if (parsed.schemaVersion !== CONTEXT7_LOCKFILE_SCHEMA_VERSION || parsed.provider !== "context7" || !Array.isArray(parsed.libraries)) {
-    throw new Error("Invalid Context7 lockfile");
-  }
-  for (const library of parsed.libraries) {
-    assertContext7LibraryId(library.libraryId);
-    assertContext7Version(library.version);
-  }
-  return {
-    lock: {
-      ...parsed,
-      libraries: [...parsed.libraries].sort((a, b) => a.libraryId.localeCompare(b.libraryId))
-    },
-    expectedHash: digestJson({ body } as unknown as Json)
-  };
-}
-
-function upsertContext7Pin(lock: Context7LockfileV1, pin: Context7LibraryPinV1): Context7LockfileV1 {
-  return {
-    schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
-    provider: "context7",
-    libraries: [...lock.libraries.filter((library) => library.libraryId !== pin.libraryId), pin]
-      .sort((a, b) => a.libraryId.localeCompare(b.libraryId))
-  };
-}
-
-function writeContext7Lockfile(root: string, lock: Context7LockfileV1, expectedHash: string): void {
-  writeFileWithoutFollowingSymlinks({
-    root,
-    path: CONTEXT7_LOCKFILE,
-    body: JSON.stringify(lock, null, 2),
-    mode: 0o600,
-    expectedHash
-  });
 }
 
 export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<ArchctxDaemon> {

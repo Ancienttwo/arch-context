@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.external-documentation"
+kind: "component"
+name: "External Documentation Service"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/runtime-daemon/src/external-documentation.ts"
+status: "active"
+summary: "Owns Context7 commands, pinned lockfile operations, cache resource reads and advisory prepare augmentation under existing network and writer controls."
