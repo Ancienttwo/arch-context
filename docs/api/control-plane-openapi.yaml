@@ -105,7 +105,7 @@ paths:
     post:
       tags: [Challenges]
       summary: Submit Attestation v2 for the current Challenge head.
-      x-archcontext-schemaVersion: archcontext.challenge-submit-request/v1
+      x-archcontext-schemaVersion: archcontext.challenge-submit-request/v2
       parameters:
         - $ref: "#/components/parameters/challenge"
       requestBody:
@@ -319,7 +319,7 @@ components:
       required: [schemaVersion, challengeId, attestation, currentPullHead, resourceAuthorization, now]
       properties:
         schemaVersion:
-          const: archcontext.challenge-submit-request/v1
+          const: archcontext.challenge-submit-request/v2
         challengeId:
           type: string
         attestation:

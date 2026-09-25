@@ -483,7 +483,6 @@ export function renderArchitectureDocumentationProjection(input: {
       digests: architectureDigests
     },
     receiptDigest,
-    refreshSignalIds: refreshSignals.map((signal) => signal.signalId),
     targetCount: targets.length,
     fileCount: rendered.length,
     // Machine-readable copy of the `Verified against` line each entity-summary intro prints, one
@@ -839,10 +838,12 @@ function scaleMagnitudeBucketLabel(value: number): string {
 
 export function architectureDocumentationSourceDigest(input: {
   model: NativeModel;
+  profile?: ArchitectureProjectionProfile;
   decisions: ArchitectureDecisionRecord[];
 }): string {
   return digestJson({
     model: input.model,
+    profile: input.profile ?? "default",
     decisions: input.decisions.map((decision) => ({
       id: decision.id,
       path: decision.path,
@@ -850,6 +851,16 @@ export function architectureDocumentationSourceDigest(input: {
       status: decision.status
     }))
   } as unknown as Json);
+}
+
+/** The applied manifest selects the layout to verify; never guess a missing profile. */
+export function loadArchitectureDocumentationProfile(root: string): ArchitectureProjectionProfile {
+  const manifest = JSON.parse(readFileSync(resolve(root, "docs/architecture/.projection-manifest.json"), "utf8"));
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)
+    || (manifest.profile !== "default" && manifest.profile !== REPO_HARNESS_PROJECTION_PROFILE)) {
+    throw new Error("projection-manifest-profile-invalid: regenerate docs with an explicit supported --profile");
+  }
+  return manifest.profile;
 }
 
 export function loadArchitectureDecisionRecords(root: string): ArchitectureDecisionRecord[] {

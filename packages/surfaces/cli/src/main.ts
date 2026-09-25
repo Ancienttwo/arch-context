@@ -44,6 +44,7 @@ import { runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
 import {
   REPO_HARNESS_PROJECTION_PROFILE,
   architectureAdoptionReceipt,
+  architectureDocumentationSourceDigest,
   assertArchitectureProjectionVerifiedAgainst,
   buildArchitectureDocumentationAdoptionPlan,
   exportMermaidModel,
@@ -1264,11 +1265,7 @@ function buildArchitectureDocsProjection(
 ) {
   const loadedFromDisk = loadArchitectureDocumentationInputs(root, profile);
   const loaded = { ...loadedFromDisk, existingFiles: existingFilesOverride ?? loadedFromDisk.existingFiles };
-  const sourceDigest = digestJson({
-    model: loaded.model,
-    profile,
-    decisions: loaded.decisions.map((decision) => ({ id: decision.id, path: decision.path, title: decision.title, status: decision.status }))
-  } as unknown as Json);
+  const sourceDigest = architectureDocumentationSourceDigest({ model: loaded.model, profile, decisions: loaded.decisions });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({

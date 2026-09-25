@@ -1,0 +1,12 @@
+id: "constraint.architecture-context.cloud-not-local-runtime"
+name: "Cloud does not depend on the local runtime"
+rationale: "Cloud receives local capabilities through ports defined in contracts instead of importing local-runtime adapters. Allowed: cloud -> contracts, cloud -> core. Raised from warning to error after #166 removed the last cloud -> local-runtime imports. Mirrors scripts/package-boundary-audit.mjs: a non-test cloud file importing @archcontext/local-runtime must \"inject contracts ports instead\"."
+rule:
+  targets:
+    - "module.architecture-context.local-runtime"
+  type: "forbid-dependency"
+schemaVersion: "archcontext.constraint/v1"
+scope:
+  nodes:
+    - "module.architecture-context.cloud"
+severity: "error"

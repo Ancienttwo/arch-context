@@ -1,0 +1,15 @@
+id: "constraint.architecture-context.contracts-depends-on-nothing"
+name: "Contracts depends on no other workspace"
+rationale: "Contracts is the leaf of the workspace graph: every other workspace may depend on it, and it depends on none of them. Allowed: none (contracts -> contracts only). Mirrors scripts/package-boundary-audit.mjs: a non-test file \"is in contracts and must not import\" another workspace."
+rule:
+  targets:
+    - "module.architecture-context.core"
+    - "module.architecture-context.local-runtime"
+    - "module.architecture-context.surfaces"
+    - "module.architecture-context.cloud"
+  type: "forbid-dependency"
+schemaVersion: "archcontext.constraint/v1"
+scope:
+  nodes:
+    - "module.architecture-context.contracts"
+severity: "error"

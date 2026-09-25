@@ -1,0 +1,14 @@
+id: "constraint.architecture-context.core-stays-pure"
+name: "Core depends only on contracts"
+rationale: "Core holds the runtime-independent domain engines, so it must not reach into runtime adapters, surfaces or cloud. Allowed: core -> contracts. Mirrors scripts/package-boundary-audit.mjs: a non-test core file may import only @archcontext/contracts and @archcontext/core, because \"core must stay pure\"."
+rule:
+  targets:
+    - "module.architecture-context.local-runtime"
+    - "module.architecture-context.surfaces"
+    - "module.architecture-context.cloud"
+  type: "forbid-dependency"
+schemaVersion: "archcontext.constraint/v1"
+scope:
+  nodes:
+    - "module.architecture-context.core"
+severity: "error"

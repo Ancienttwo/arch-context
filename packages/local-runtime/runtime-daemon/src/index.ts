@@ -1,3 +1,7 @@
+import { RuntimeRpcClient } from "./rpc-client";
+import { RUNTIME_RPC_VERSION, type RuntimeDaemonClient, type RuntimeRpcConnection, type RuntimeRpcConnectionFile, type RuntimeRpcCompatibilityIssue } from "./rpc-protocol";
+export * from "./rpc-client";
+export * from "./rpc-protocol";
 import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -118,6 +122,7 @@ import {
   capabilitySourceChangesSinceStamps,
   evaluateArchitectureProjectionSnapshotFreshness,
   loadArchitectureDocumentationInputs,
+  loadArchitectureDocumentationProfile,
   loadArchitectureProjectionManifestVerifiedAgainst,
   loadCapabilitySourceScaleSignals,
   loadNativeModelFromArchContext,
@@ -135,7 +140,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, baseModelBlockingErrors, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, baseModelBlockingErrors, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
@@ -720,45 +725,6 @@ export interface ExplorerServerStatus {
   readOnly: true;
 }
 
-export const RUNTIME_RPC_VERSION = LOCAL_RUNTIME_RPC_SCHEMA_VERSION;
-
-export interface RuntimeRpcConnection {
-  schemaVersion: typeof RUNTIME_RPC_VERSION;
-  protocol: "http-loopback";
-  version: 1;
-  root: string;
-  url: string;
-  token: string;
-  pid: number;
-  lockPath: string;
-  connectionPath: string;
-  startedAt: string;
-}
-
-export interface RuntimeRpcConnectionFile {
-  schemaVersion?: string;
-  protocol?: string;
-  version?: number;
-  root?: string;
-  url?: string;
-  token?: string;
-  pid?: number;
-  lockPath?: string;
-  connectionPath?: string;
-  startedAt?: string;
-}
-
-export interface RuntimeRpcCompatibilityIssue {
-  reason: "rpc-version-mismatch" | "product-version-mismatch" | "stale-daemon-entry";
-  expected: string;
-  received: string;
-  connectionPath: string;
-  lockPath: string;
-  pid?: number;
-  pidAlive: boolean;
-  upgradeCommand: "archctx daemon upgrade";
-}
-
 export type DaemonControlRecoveryReason =
   | "insecure-connection-file"
   | "invalid-connection-file"
@@ -1069,85 +1035,6 @@ function movedWorktreeIdentityFields(
   if (captured.headSha !== live.headSha) moved.push("headSha");
   if (captured.worktreeDigest !== live.worktreeDigest) moved.push("worktreeDigest");
   return moved;
-}
-
-export interface RuntimeDaemonClient {
-  init(root: string, productName?: string): Promise<JsonEnvelope> | JsonEnvelope;
-  sync(root: string, changedPaths?: string[]): Promise<JsonEnvelope> | JsonEnvelope;
-  validate(root: string): Promise<JsonEnvelope> | JsonEnvelope;
-  context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
-  prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope> | JsonEnvelope;
-  checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> | JsonEnvelope;
-  jobsEnqueueGitHook(root: string, input?: RuntimeAgentJobEnqueueGitInput): Promise<JsonEnvelope> | JsonEnvelope;
-  jobsList(root: string, input?: { statuses?: AgentJobV1["status"][] }): Promise<JsonEnvelope> | JsonEnvelope;
-  jobsStats(root: string, input?: { now?: string }): Promise<JsonEnvelope> | JsonEnvelope;
-  jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
-  jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
-  jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
-  jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
-  auditRun(root: string, input?: RuntimeAuditRunInput): Promise<JsonEnvelope> | JsonEnvelope;
-  auditList(root: string, input?: { statuses?: ArchitectureAuditRunV1["status"][] }): Promise<JsonEnvelope> | JsonEnvelope;
-  auditShow(root: string, runId: string): Promise<JsonEnvelope> | JsonEnvelope;
-  auditApprove(root: string, input: RuntimeAuditApproveInput): Promise<JsonEnvelope> | JsonEnvelope;
-  docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> | JsonEnvelope;
-  readResource(root: string, uri: string): Promise<JsonEnvelope> | JsonEnvelope;
-  practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
-  practiceWaivers(root: string): Promise<JsonEnvelope> | JsonEnvelope;
-  planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> | JsonEnvelope;
-  planUpdate(root: string, input: RuntimePlanUpdateInput): Promise<JsonEnvelope> | JsonEnvelope;
-  completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
-  applyUpdate(root: string, input: RuntimeApplyUpdateInput): Promise<JsonEnvelope> | JsonEnvelope;
-  approveMcpUpdate(root: string, input: RuntimeMcpApprovalInput): Promise<JsonEnvelope> | JsonEnvelope;
-  applyMcpUpdate(root: string, input: RuntimeMcpApplyInput): Promise<JsonEnvelope> | JsonEnvelope;
-  inspectProjectionApplyReceipt(root: string, lookupKey: string): Promise<JsonEnvelope> | JsonEnvelope;
-  listProjectionPriorCommittedApplies(root: string, requestId: string): Promise<JsonEnvelope> | JsonEnvelope;
-  recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1): Promise<JsonEnvelope> | JsonEnvelope;
-  readbackProjectionApply(root: string, request: ProjectionRequestV1): Promise<JsonEnvelope> | JsonEnvelope;
-  ledgerState(root: string): Promise<JsonEnvelope> | JsonEnvelope;
-  ledgerDrift(root: string): Promise<JsonEnvelope> | JsonEnvelope;
-  ledgerProject(root: string, input?: RuntimeLedgerProjectInput): Promise<JsonEnvelope> | JsonEnvelope;
-  ledgerMigrate(root: string, input?: RuntimeLedgerMigrateInput): Promise<JsonEnvelope> | JsonEnvelope;
-  ledgerRebuild(root: string, input?: RuntimeLedgerRebuildInput): Promise<JsonEnvelope> | JsonEnvelope;
-  ledgerRollback(root: string, input?: RuntimeLedgerRollbackInput): Promise<JsonEnvelope> | JsonEnvelope;
-  book(root: string, input?: RuntimeBookInput): Promise<JsonEnvelope> | JsonEnvelope;
-  recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope> | JsonEnvelope;
-  refactorScan(root: string, input?: RuntimeRefactorScanInput): Promise<JsonEnvelope> | JsonEnvelope;
-  refactorRecord(root: string, input: RuntimeRefactorRecordInput): Promise<JsonEnvelope> | JsonEnvelope;
-  refactorVerify(root: string, input: RuntimeRefactorVerifyInput): Promise<JsonEnvelope> | JsonEnvelope;
-  repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
-  repoList(): Promise<JsonEnvelope> | JsonEnvelope;
-  repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
-  landscapeStatus(): Promise<JsonEnvelope> | JsonEnvelope;
-  explorerServiceContract(tokenTtlSeconds?: number): Promise<JsonEnvelope> | JsonEnvelope;
-  explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2): Promise<JsonEnvelope> | JsonEnvelope;
-  explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV2): Promise<JsonEnvelope> | JsonEnvelope;
-  startExplorer(root: string, options?: ExplorerServerOptions): Promise<JsonEnvelope> | JsonEnvelope;
-  stopExplorer(): Promise<JsonEnvelope> | JsonEnvelope;
-  revokeExplorerToken(): Promise<JsonEnvelope> | JsonEnvelope;
-  explorerStatus(): Promise<JsonEnvelope> | JsonEnvelope;
-  contextLandscape(task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
-  runtimeStatus(root?: string): Promise<JsonEnvelope> | JsonEnvelope;
-  startDeveloperReviewRun(input: {
-    repositoryRoot: string;
-    challenge: ReviewChallengeV2;
-    expectedHeadTreeOid?: string;
-  }): Promise<DeveloperReviewRunPreparation> | DeveloperReviewRunPreparation;
-  runSignedDeveloperReviewAttestation(input: {
-    challenge: ReviewChallengeV2;
-    worktree: DetachedReviewWorktree;
-    keyRef: string;
-    principalId: string;
-    publicKeyId: string;
-    taskSessionId?: string;
-    mergeBaseSha?: string;
-    startedAt?: string;
-    completedAt?: string;
-  }): Promise<DeveloperReviewAttestation> | DeveloperReviewAttestation;
-  cleanupDeveloperReviewRun(input: DeveloperReviewRunCleanupRequest): Promise<DeveloperReviewRunCleanup> | DeveloperReviewRunCleanup;
-  recoverDeveloperReviewRuns(input: {
-    repositoryRoot: string;
-    force?: boolean;
-  }): Promise<DeveloperReviewRunRecovery> | DeveloperReviewRunRecovery;
 }
 
 interface ExplorerServerSession {
@@ -6160,401 +6047,11 @@ export class ArchctxDaemon {
   }
 }
 
-export type RuntimeRpcTransportErrorCode = "RPC_TIMEOUT" | "RPC_ABORTED";
-
-/**
- * Stable classification for a runtime RPC call that never produced a response. Carries the method
- * and its deadline so a caller can decide on retry/backoff, and deliberately carries neither the
- * bearer token nor the request body.
- */
 /** Thrown by `withWriter` while startup recovery left ChangeSet journals unresolved (#172). */
 export class ChangeSetRecoveryUnresolvedError extends Error {
   constructor(readonly unresolvedJournals: UnresolvedChangeSetJournal[]) {
     super(`changeset-recovery-unresolved: ${unresolvedChangeSetJournalSummary(unresolvedJournals)}; fix the cause and restart archctxd to retry recovery`);
     this.name = "ChangeSetRecoveryUnresolvedError";
-  }
-}
-
-export class RuntimeRpcTransportError extends Error {
-  constructor(
-    readonly code: RuntimeRpcTransportErrorCode,
-    readonly method: string,
-    readonly timeoutMs: number,
-    readonly elapsedMs: number
-  ) {
-    super(code === "RPC_TIMEOUT"
-      ? `runtime RPC timeout: ${method} exceeded ${timeoutMs}ms`
-      : `runtime RPC cancelled: ${method} aborted after ${elapsedMs}ms`);
-    this.name = "RuntimeRpcTransportError";
-  }
-}
-
-export interface RuntimeRpcClientTimeoutPolicy {
-  /** `GET /health` liveness probe. */
-  health: number;
-  /** Control and status reads that must not depend on repository work. */
-  short: number;
-  /** Default class for ordinary repository operations. */
-  normal: number;
-  /** Indexing, audit, and review methods that legitimately run for minutes. */
-  long: number;
-}
-
-export interface RuntimeRpcClientOptions {
-  timeouts?: Partial<RuntimeRpcClientTimeoutPolicy>;
-  /** Caller-owned cancellation applied to every call this client makes. */
-  signal?: AbortSignal;
-}
-
-export const RUNTIME_RPC_CLIENT_TIMEOUT_POLICY: RuntimeRpcClientTimeoutPolicy = {
-  health: 5_000,
-  short: 15_000,
-  normal: 120_000,
-  long: 900_000
-};
-
-const RUNTIME_RPC_SHORT_METHODS = new Set([
-  "shutdown", "runtimeStatus", "landscapeStatus", "repoList", "explorerStatus", "explorerServiceContract",
-  "jobsList", "jobsStats", "ledgerState", "ledgerDrift", "stopExplorer", "revokeExplorerToken"
-]);
-
-const RUNTIME_RPC_LONG_METHODS = new Set([
-  "init", "sync", "prepare", "context", "checkpoint", "auditRun", "auditApprove", "recommendations", "book",
-  "ledgerRebuild", "ledgerMigrate", "refactorScan", "refactorVerify", "startDeveloperReviewRun", "runSignedDeveloperReviewAttestation"
-]);
-
-function runtimeRpcMethodTimeout(method: string, policy: RuntimeRpcClientTimeoutPolicy): number {
-  if (RUNTIME_RPC_SHORT_METHODS.has(method)) return policy.short;
-  if (RUNTIME_RPC_LONG_METHODS.has(method)) return policy.long;
-  return policy.normal;
-}
-
-export class RuntimeRpcClient implements RuntimeDaemonClient {
-  private readonly timeouts: RuntimeRpcClientTimeoutPolicy;
-
-  constructor(private readonly connection: RuntimeRpcConnection, private readonly options: RuntimeRpcClientOptions = {}) {
-    this.timeouts = { ...RUNTIME_RPC_CLIENT_TIMEOUT_POLICY, ...options.timeouts };
-  }
-
-  async health(options: { includeEgress?: boolean } = {}): Promise<Json> {
-    const suffix = options.includeEgress ? "?egress=1" : "";
-    return await this.request("health", options.includeEgress ? this.timeouts.normal : this.timeouts.health, `${this.connection.url}health${suffix}`, {
-      headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION, Authorization: `Bearer ${this.connection.token}` }
-    }) as Json;
-  }
-
-  async shutdown(): Promise<JsonEnvelope> {
-    return this.call("shutdown", []);
-  }
-
-  connectionInfo(): Omit<RuntimeRpcConnection, "token"> {
-    const { token: _token, ...safe } = this.connection;
-    return safe;
-  }
-
-  init(root: string, productName?: string) {
-    return this.call("init", [root, productName]);
-  }
-
-  sync(root: string, changedPaths: string[] = []) {
-    return this.call("sync", [root, changedPaths]);
-  }
-
-  validate(root: string) {
-    return this.call("validate", [root]);
-  }
-
-  context(root: string, task: string, maxSymbols = 12) {
-    return this.call("context", [root, task, maxSymbols]);
-  }
-
-  prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId?: string) {
-    return this.call("prepare", [root, task, maxBytes, maxItems, taskSessionId]);
-  }
-
-  checkpoint(root: string, input: RuntimeCheckpointInput) {
-    return this.call("checkpoint", [root, input]);
-  }
-
-  jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}) {
-    return this.call("jobsEnqueueGitHook", [root, input]);
-  }
-
-  jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}) {
-    return this.call("jobsList", [root, input]);
-  }
-
-  jobsStats(root: string, input: { now?: string } = {}) {
-    return this.call("jobsStats", [root, input]);
-  }
-
-  jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput) {
-    return this.call("jobsClaim", [root, input]);
-  }
-
-  jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput) {
-    return this.call("jobsComplete", [root, input]);
-  }
-
-  jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput) {
-    return this.call("jobsRetry", [root, input]);
-  }
-
-  jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput) {
-    return this.call("jobsCancel", [root, input]);
-  }
-
-  auditRun(root: string, input: RuntimeAuditRunInput = {}) {
-    return this.call("auditRun", [root, input]);
-  }
-
-  auditList(root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}) {
-    return this.call("auditList", [root, input]);
-  }
-
-  auditShow(root: string, runId: string) {
-    return this.call("auditShow", [root, runId]);
-  }
-
-  auditApprove(root: string, input: RuntimeAuditApproveInput) {
-    return this.call("auditApprove", [root, input]);
-  }
-
-  docs(root: string, input: RuntimeDocsInput) {
-    return this.call("docs", [root, input]);
-  }
-
-  readResource(root: string, uri: string) {
-    return this.call("readResource", [root, uri]);
-  }
-
-  practices(root: string, input: PracticeCatalogCommandInput) {
-    return this.call("practices", [root, input]);
-  }
-
-  practiceWaivers(root: string) {
-    return this.call("practiceWaivers", [root]);
-  }
-
-  planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput) {
-    return this.call("planPracticeWaiver", [root, input]);
-  }
-
-  planUpdate(root: string, input: RuntimePlanUpdateInput) {
-    return this.call("planUpdate", [root, input]);
-  }
-
-  completeTask(root: string, input: RuntimeCompleteTaskInput = {}) {
-    return this.call("completeTask", [root, input]);
-  }
-
-  applyUpdate(root: string, input: RuntimeApplyUpdateInput) {
-    return this.call("applyUpdate", [root, input]);
-  }
-
-  approveMcpUpdate(root: string, input: RuntimeMcpApprovalInput) {
-    return this.call("approveMcpUpdate", [root, input]);
-  }
-
-  applyMcpUpdate(root: string, input: RuntimeMcpApplyInput) {
-    return this.call("applyMcpUpdate", [root, input]);
-  }
-
-  inspectProjectionApplyReceipt(root: string, lookupKey: string) {
-    return this.call("inspectProjectionApplyReceipt", [root, lookupKey]);
-  }
-
-  listProjectionPriorCommittedApplies(root: string, requestId: string) {
-    return this.call("listProjectionPriorCommittedApplies", [root, requestId]);
-  }
-
-  readbackProjectionApply(root: string, request: ProjectionRequestV1) {
-    return this.call("readbackProjectionApply", [root, request]);
-  }
-
-  recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1) {
-    return this.call("recoverProjectionApply", [root, intent]);
-  }
-
-  ledgerState(root: string) {
-    return this.call("ledgerState", [root]);
-  }
-
-  ledgerDrift(root: string) {
-    return this.call("ledgerDrift", [root]);
-  }
-
-  ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }) {
-    return this.call("ledgerProject", [root, input]);
-  }
-
-  ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }) {
-    return this.call("ledgerMigrate", [root, input]);
-  }
-
-  ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}) {
-    return this.call("ledgerRebuild", [root, input]);
-  }
-
-  ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }) {
-    return this.call("ledgerRollback", [root, input]);
-  }
-
-  book(root: string, input: RuntimeBookInput = {}) {
-    return this.call("book", [root, input]);
-  }
-
-  recommendations(root: string, input: RuntimeRecommendationInput) {
-    return this.call("recommendations", [root, input]);
-  }
-
-  refactorScan(root: string, input: RuntimeRefactorScanInput = {}) {
-    return this.call("refactorScan", [root, input]);
-  }
-
-  refactorRecord(root: string, input: RuntimeRefactorRecordInput) {
-    return this.call("refactorRecord", [root, input]);
-  }
-
-  refactorVerify(root: string, input: RuntimeRefactorVerifyInput) {
-    return this.call("refactorVerify", [root, input]);
-  }
-
-  repoAdd(root: string, name?: string) {
-    return this.call("repoAdd", [root, name]);
-  }
-
-  repoList() {
-    return this.call("repoList", []);
-  }
-
-  repoRemove(repositoryId: string) {
-    return this.call("repoRemove", [repositoryId]);
-  }
-
-  landscapeStatus() {
-    return this.call("landscapeStatus", []);
-  }
-
-  explorerServiceContract(tokenTtlSeconds = 900) {
-    return this.call("explorerServiceContract", [tokenTtlSeconds]);
-  }
-
-  explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2) {
-    return this.call("explorerProjectionV2", [root, query]);
-  }
-
-  explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV2) {
-    return this.call("explorerProjectionDelta", [root, query]);
-  }
-
-  startExplorer(root: string, options: ExplorerServerOptions = {}) {
-    return this.call("startExplorer", [root, options]);
-  }
-
-  stopExplorer() {
-    return this.call("stopExplorer", []);
-  }
-
-  revokeExplorerToken() {
-    return this.call("revokeExplorerToken", []);
-  }
-
-  explorerStatus() {
-    return this.call("explorerStatus", []);
-  }
-
-  contextLandscape(task: string, maxSymbols = 12) {
-    return this.call("contextLandscape", [task, maxSymbols]);
-  }
-
-  runtimeStatus(root?: string) {
-    return this.call("runtimeStatus", [root]);
-  }
-
-  async startDeveloperReviewRun(input: {
-    repositoryRoot: string;
-    challenge: ReviewChallengeV2;
-    expectedHeadTreeOid?: string;
-  }): Promise<DeveloperReviewRunPreparation> {
-    return unwrapRpcData(await this.call("startDeveloperReviewRun", [input])) as unknown as DeveloperReviewRunPreparation;
-  }
-
-  async runSignedDeveloperReviewAttestation(input: {
-    challenge: ReviewChallengeV2;
-    worktree: DetachedReviewWorktree;
-    keyRef: string;
-    principalId: string;
-    publicKeyId: string;
-    taskSessionId?: string;
-    mergeBaseSha?: string;
-    startedAt?: string;
-    completedAt?: string;
-  }): Promise<DeveloperReviewAttestation> {
-    return unwrapRpcData(await this.call("runSignedDeveloperReviewAttestation", [input])) as unknown as DeveloperReviewAttestation;
-  }
-
-  async cleanupDeveloperReviewRun(input: DeveloperReviewRunCleanupRequest): Promise<DeveloperReviewRunCleanup> {
-    return unwrapRpcData(await this.call("cleanupDeveloperReviewRun", [input])) as unknown as DeveloperReviewRunCleanup;
-  }
-
-  async recoverDeveloperReviewRuns(input: {
-    repositoryRoot: string;
-    force?: boolean;
-  }): Promise<DeveloperReviewRunRecovery> {
-    return unwrapRpcData(await this.call("recoverDeveloperReviewRuns", [input])) as unknown as DeveloperReviewRunRecovery;
-  }
-
-  private async call(method: string, params: unknown[]): Promise<JsonEnvelope> {
-    return await this.request(method, runtimeRpcMethodTimeout(method, this.timeouts), `${this.connection.url}rpc`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${this.connection.token}`,
-        "Content-Type": "application/json",
-        "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION
-      },
-      body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method, params })
-    }) as JsonEnvelope;
-  }
-
-  /**
-   * Single transport path for health and every RPC method. The deadline covers response headers
-   * *and* body, so a daemon that starts a response and stalls still fails. A timed-out call is
-   * never replayed here: the daemon may have already committed a mutation whose response was lost,
-   * so reconciliation is the caller's decision, not a silent retry.
-   *
-   * Every request also opts out of HTTP keep-alive (`Connection: close`, #178). The daemon closes an
-   * idle kept-alive socket on its own keep-alive timer; when a synchronous RPC such as `planUpdate`
-   * blocks the daemon's event loop past that deadline, the close fires right after the response,
-   * while the client (whose keep-alive clock also stalls during synchronous CLI work) is reusing the
-   * same pooled socket for the next call. That next call, e.g. `applyUpdate`, then dies with
-   * `fetch failed` before the daemon reads it. A fresh loopback connection per call costs far less
-   * than any retry, and a retry is not an option here for the same reason as above.
-   */
-  private async request(method: string, timeoutMs: number, url: string, init: { method?: string; headers: Record<string, string>; body?: string }): Promise<unknown> {
-    const controller = new AbortController();
-    const startedAt = Date.now();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
-    const callerSignal = this.options.signal;
-    const onCallerAbort = (): void => controller.abort();
-    if (callerSignal?.aborted) controller.abort();
-    else callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
-    try {
-      const response = await fetch(url, { ...init, headers: { ...init.headers, "Connection": "close" }, signal: controller.signal });
-      return await response.json();
-    } catch (error) {
-      const elapsedMs = Date.now() - startedAt;
-      if (timedOut) throw new RuntimeRpcTransportError("RPC_TIMEOUT", method, timeoutMs, elapsedMs);
-      if (callerSignal?.aborted) throw new RuntimeRpcTransportError("RPC_ABORTED", method, timeoutMs, elapsedMs);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-      callerSignal?.removeEventListener("abort", onCallerAbort);
-    }
   }
 }
 
@@ -7097,11 +6594,6 @@ export function readRuntimeRpcConnectionFile(root = process.cwd()): RuntimeRpcCo
   }
 }
 
-function unwrapRpcData(result: JsonEnvelope): Json {
-  if (!result.ok) throw new Error(result.error?.message ?? "runtime-rpc-call-failed");
-  return result.data as Json;
-}
-
 export function runtimeRpcCompatibilityIssue(root = process.cwd()): RuntimeRpcCompatibilityIssue | undefined {
   const connection = readRuntimeRpcConnectionFile(root);
   if (!connection) return undefined;
@@ -7238,11 +6730,11 @@ type RuntimeProjectionRecoveryFixedPoint = {
 /** Rebuilds recovery semantics from repository authority while the daemon owns the writer. */
 function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjectionRecoveryFixedPoint {
   const loaded = loadArchitectureDocumentationInputs(root, REPO_HARNESS_PROJECTION_PROFILE);
-  const sourceDigest = digestJson({
+  const sourceDigest = architectureDocumentationSourceDigest({
     model: loaded.model,
     profile: REPO_HARNESS_PROJECTION_PROFILE,
-    decisions: loaded.decisions.map((decision) => ({ id: decision.id, path: decision.path, title: decision.title, status: decision.status }))
-  } as unknown as Json);
+    decisions: loaded.decisions
+  });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   const provenance = codeGraphInputs.provenance;
   const projection = renderArchitectureDocumentationProjection({
@@ -8928,15 +8420,18 @@ function parsePracticeCheckpointBaselineState(
 
 function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
   if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return undefined;
-  const loaded = loadArchitectureDocumentationInputs(root);
+  const profile = loadArchitectureDocumentationProfile(root);
+  const loaded = loadArchitectureDocumentationInputs(root, profile);
   const sourceDigest = architectureDocumentationSourceDigest({
     model: loaded.model,
+    profile,
     decisions: loaded.decisions
   });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
+    profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     verifiedAgainst: assertArchitectureProjectionVerifiedAgainst({
