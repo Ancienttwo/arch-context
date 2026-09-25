@@ -15,7 +15,8 @@
     "./runtime-daemon": "./runtime-daemon/src/index.ts",
     "./process-liveness": "./process-liveness/src/index.ts",
     "./runtime-state-paths": "./runtime-state-paths/src/index.ts",
-    "./runtime-rpc-client": "./runtime-daemon/src/rpc-client-entry.ts"
+    "./runtime-rpc-client": "./runtime-daemon/src/rpc-client-entry.ts",
+    "./projection-paths": "./projection-paths/src/index.ts"
   },
   "dependencies": {
     "@archcontext/contracts": "workspace:*",

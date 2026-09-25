@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.projection-paths"
+kind: "component"
+name: "Projection Paths"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/projection-paths/src/**"
+status: "active"
+summary: "Owns the generated projection path predicate shared by daemon hook scheduling and both CLI hook entrypoints."
