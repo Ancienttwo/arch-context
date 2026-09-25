@@ -145,6 +145,15 @@ async function reachCleanProjection(root: string, daemon: RuntimeDaemonClient): 
   expect(applied.ok, JSON.stringify(applied)).toBe(true);
 }
 
+function snapshotCount(root: string): number {
+  const db = new Database(join(stateRoot(root), "local-store.sqlite"), { readonly: true });
+  try {
+    return (db.query("SELECT COUNT(*) AS count FROM snapshots").get() as { count: number }).count;
+  } finally {
+    db.close();
+  }
+}
+
 test("a repeated projection request learns what its own killed attempt already committed", async () => {
   const root = createFixture();
   const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
