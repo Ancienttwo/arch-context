@@ -236,6 +236,8 @@ Owner approved #171's supported configuration mutation contract and actual repos
 - [x] Prove current rejection; implement typed operation, narrow path scope and schema/CLI/MCP/journal support.
 - [x] Verify supported update, invalid fields/paths/body, stale hash, symlinks, no projection changes, rollback/recovery, daemon approval and CLI flow.
 - [x] Apply the repository manifest update through the supported daemon ChangeSet path, verify preserved fields and record evidence.
-- [ ] Freeze and publish the candidate, complete appropriate checks, update Draft PR and canonical memory.
+- [x] Freeze and publish the candidate, complete appropriate checks, update Draft PR and canonical memory.
 
 No `.archcontext/` file is edited directly by an agent. The manifest is in scope only as the output of the supported command. Existing runtime/source changes mean earlier platform CI is historical until this candidate receives its own verification.
+
+Manifest continuation complete: frozen `57664d58b90abcc69e8c5f71c43a93ace5dcd2e3` / Verify `36125127163` passed all ten jobs (nine platform targets plus Governance). Every full suite executed 2060 tests with zero failures; platform skips remain explicit. Governance executed all 24 canonical commands with no skipped inspections. Nine downloaded archive/payload identities, native permission evidence and CI merge/candidate tree equality were verified. Exact results: `docs/verification/20260925-manifest-hosted-ci.json`. Final record-only publication uses `[skip ci]` and preserves the tested source; no runtime/base changes or redundant matrix rerun. The manifest item is complete; whole-plan acceptance, #164 facade work and #171 egress/historical-readback work remain open.
