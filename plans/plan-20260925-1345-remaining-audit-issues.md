@@ -206,3 +206,13 @@ P3: keep the native operation/deadline unchanged, attach only an allowlisted err
 Diagnostic run `36114666871` / `86e2e7d` confirmed ETIMEDOUT/SIGTERM at 10252 ms, with successful first-create samples at 3395/9885 ms. Correction: create-only native deadline 30000 ms within existing Windows daemon startup 150000 ms; read deadline stays 10000 ms. Reverify three first-create samples plus one installed-bin lifecycle/ACL readback. This is repair round 1 of the newly approved diagnostic slice.
 
 Bounded diagnostic complete: run `36115539255` / `c6f7335` passed three fresh Windows/Node 24 creation cases (4437/5946/4428 ms) and one installed-bin ACL/lifecycle readback. Archive/payload hashes and candidate/merge tree were verified. Evidence: `docs/verification/20260925-windows-first-create-diagnostics.json`. The child-deadline cause is proven and corrected; underlying OS startup-cost attribution remains unproven. Full PR/issue acceptance and historical FG6 are not marked complete. Final record-only publication uses `[skip ci]` to avoid repeating unchanged code verification.
+
+## Approved continuation: FG6 matrix evidence closure
+
+Owner approved correcting matrix-job versus workflow conclusions, then one full Verify run on a frozen candidate. P1: FG6 reads the Verify workflow contract, platform artifacts and independent FG4 runner records; Governance consumes the FG6 recording. P2: the old generator parses a human FG1 sentence saying matrix jobs PASS into runConclusion PASS, losing the separate failed Governance result. P3: replace that Markdown authority with explicit GitHub REST run and jobs JSON, record workflow status/conclusion separately, and require all nine exact matrix jobs to complete successfully for the matrix gate. Retain artifact ACL validation and current-source binding. No v1 fallback. A failed Governance job must remain visibly failed, even if the matrix passes. At 10x targets, job enumeration and artifact downloads dominate; the required matrix remains the current fixed nine.
+
+- [x] Prove the conclusion confusion with regression coverage, implement the structured authority cutover, and run focused checks.
+- [ ] Freeze code/base, publish the candidate, and run one full Verify matrix (expected 20–30 minutes for Windows).
+- [ ] Record actual run/job/artifact evidence; verify FG6 and remaining Governance gates without claiming workflow success or rerunning unchanged matrix evidence.
+
+Record-only follow-up commits preserve the tested source SHA explicitly; they do not claim that their own commit was executed by the earlier workflow. Draft status and all umbrella issue scopes remain open.

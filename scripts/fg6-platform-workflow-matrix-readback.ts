@@ -7,19 +7,14 @@ import { inspectFg4GithubHostedRunnerReadback } from "./fg4-github-hosted-runner
 
 const DEFAULT_WORKFLOW = ".github/workflows/verify.yml";
 const DEFAULT_PLATFORM_READBACK_SCRIPT = "scripts/platform-ipc-permission-readback.mjs";
-const DEFAULT_FG1_GATE = "docs/verification/fg1-local-product-gate.md";
 const DEFAULT_GITHUB_HOSTED_RUNNER_SOURCE = "docs/verification/fg4-github-hosted-runner-readback.json";
 const DEFAULT_SELF_HOSTED_RUNNER_SOURCE = "docs/verification/fg4-self-hosted-runner-execution-readback.json";
 const DEFAULT_OUTPUT = "docs/verification/fg6-platform-workflow-matrix-readback.json";
 const PLATFORM_ARTIFACT_FILENAME = "platform-ipc-permission-readback.json";
 const REQUIRED_OS = ["ubuntu-latest", "macos-15", "windows-latest"] as const;
-const SUPPORTED_OS_SETS = [
-  REQUIRED_OS,
-  ["ubuntu-latest", "macos-latest", "windows-latest"] as const
-] as const;
 const REQUIRED_NODE = ["22.22.x", "24.x", "25.x"] as const;
 const REQUIRED_ARTIFACTS = REQUIRED_OS.flatMap((os) => REQUIRED_NODE.map((nodeVersion) => `platform-ipc-permission-${os}-node-${nodeVersion}`));
-const SUPPORTED_ARTIFACT_SETS = SUPPORTED_OS_SETS.map((osSet) => osSet.flatMap((os) => REQUIRED_NODE.map((nodeVersion) => `platform-ipc-permission-${os}-node-${nodeVersion}`)));
+const REQUIRED_JOBS = REQUIRED_OS.flatMap(os => REQUIRED_NODE.map(node => `${os} / Node ${node}`));
 const SECRET_PATTERNS = [
   /gh[opsu]_[A-Za-z0-9_]+/,
   /Bearer\s+[A-Za-z0-9._-]+/i,
@@ -42,7 +37,7 @@ if (import.meta.main) {
     process.stdout.write(`${args.includes("--json") ? JSON.stringify(result, null, 2) : renderInspectHuman(result)}\n`);
     if (!result.ok) process.exit(1);
   } else {
-    console.error("[fg6-platform-workflow-matrix-readback] usage: run|inspect [--hosted-artifact-dir path] [--out path] [--json]");
+    console.error("[fg6-platform-workflow-matrix-readback] usage: run|inspect [--hosted-run-source path] [--hosted-jobs-source path] [--hosted-artifact-dir path] [--out path] [--json]");
     process.exit(2);
   }
 }
@@ -52,7 +47,8 @@ export function buildFg6PlatformWorkflowMatrixConfig(env: NodeJS.ProcessEnv = pr
     root: readFlag(args, "--root") ?? env.ARCHCONTEXT_READBACK_ROOT ?? process.cwd(),
     workflowPath: readFlag(args, "--workflow") ?? env.ARCHCONTEXT_FG6_WORKFLOW ?? DEFAULT_WORKFLOW,
     platformReadbackScript: readFlag(args, "--platform-readback-script") ?? env.ARCHCONTEXT_FG6_PLATFORM_READBACK_SCRIPT ?? DEFAULT_PLATFORM_READBACK_SCRIPT,
-    fg1Gate: readFlag(args, "--fg1-gate") ?? env.ARCHCONTEXT_FG6_FG1_GATE ?? DEFAULT_FG1_GATE,
+    hostedRunSource: readFlag(args, "--hosted-run-source") ?? "",
+    hostedJobsSource: readFlag(args, "--hosted-jobs-source") ?? "",
     githubHostedRunnerSource: readFlag(args, "--github-hosted-runner-source") ?? env.ARCHCONTEXT_FG6_GITHUB_HOSTED_RUNNER_SOURCE ?? DEFAULT_GITHUB_HOSTED_RUNNER_SOURCE,
     selfHostedRunnerSource: readFlag(args, "--self-hosted-runner-source") ?? env.ARCHCONTEXT_FG6_SELF_HOSTED_RUNNER_SOURCE ?? DEFAULT_SELF_HOSTED_RUNNER_SOURCE,
     hostedArtifactDir: readFlag(args, "--hosted-artifact-dir") ?? env.ARCHCONTEXT_FG6_HOSTED_ARTIFACT_DIR ?? "",
@@ -64,22 +60,24 @@ export function buildFg6PlatformWorkflowMatrixConfig(env: NodeJS.ProcessEnv = pr
 
 export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof buildFg6PlatformWorkflowMatrixConfig>) {
   if (!config.hostedArtifactDir) throw new Error("--hosted-artifact-dir is required for hosted matrix evidence");
-  const [workflowText, platformReadbackScript, fg1Gate, githubHostedRunnerSource, selfHostedRunnerSource] = await Promise.all([
+  if (!config.hostedRunSource || !config.hostedJobsSource) throw new Error("--hosted-run-source and --hosted-jobs-source are required GitHub REST responses");
+  const [workflowText, platformReadbackScript, runSource, jobsSource, githubHostedRunnerSource, selfHostedRunnerSource] = await Promise.all([
     readFile(resolve(config.root, config.workflowPath), "utf8"),
     readFile(resolve(config.root, config.platformReadbackScript), "utf8"),
-    readFile(resolve(config.root, config.fg1Gate), "utf8"),
+    readJson(resolve(config.root, config.hostedRunSource)),
+    readJson(resolve(config.root, config.hostedJobsSource)),
     readJson(resolve(config.root, config.githubHostedRunnerSource)),
     readJson(resolve(config.root, config.selfHostedRunnerSource))
   ]);
   const hostedInspection = inspectFg4GithubHostedRunnerReadback(githubHostedRunnerSource);
   const selfHostedInspection = inspectFg4GithubHostedRunnerReadback(selfHostedRunnerSource);
   const hostedArtifacts = await verifyHostedArtifacts(resolve(config.root, config.hostedArtifactDir));
-  const hostedCi = extractHostedCiEvidence(fg1Gate, hostedArtifacts);
+  const hostedCi = extractHostedCiEvidence(runSource, jobsSource, hostedArtifacts);
   const currentHeadSha = currentGitHead(config.root);
   const workflowMatrix = inspectWorkflowText(workflowText);
   const platformIpcContract = inspectPlatformReadbackScript(platformReadbackScript);
   const recording = {
-    schemaVersion: "archcontext.fg6-platform-workflow-matrix-readback/v1",
+    schemaVersion: "archcontext.fg6-platform-workflow-matrix-readback/v2",
     taskId: "FG6-08",
     environment: "staging-release-readback",
     status: "verified",
@@ -88,7 +86,8 @@ export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof bui
     sources: {
       workflowPath: config.workflowPath,
       platformReadbackScript: config.platformReadbackScript,
-      fg1Gate: config.fg1Gate,
+      hostedRunSource: basename(config.hostedRunSource),
+      hostedJobsSource: basename(config.hostedJobsSource),
       githubHostedRunnerSource: config.githubHostedRunnerSource,
       selfHostedRunnerSource: config.selfHostedRunnerSource,
       hostedArtifactDirectory: basename(resolve(config.root, config.hostedArtifactDir))
@@ -109,7 +108,7 @@ export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof bui
       assertions: {
         localRuntimeMatrixNineTargets: workflowMatrix.targetCount === 9 && hostedCi.artifactNames.length === 9,
         installedBinIpcReadbackUploaded: workflowMatrix.uploadArtifact === true && platformIpcContract.usesInstalledBin === true,
-        hostedCiArtifactsVerified: hostedCi.runConclusion === "PASS" && hostedCi.downloadedArtifactsVerified === true,
+        hostedCiArtifactsVerified: hostedCi.matrixConclusion === "success" && hostedCi.downloadedArtifactsVerified === true,
         hostedCiMatchesCurrentHead: hostedCi.headSha === currentHeadSha,
         githubHostedRunnerWorkflowPass: hostedInspection.ok === true,
         selfHostedRunnerWorkflowPass: selfHostedInspection.ok === true,
@@ -140,7 +139,7 @@ export function inspectFg6PlatformWorkflowMatrix(recording: unknown): { ok: bool
   const sourceInspections = readRecord(evidence.sourceInspections);
   const assertions = readRecord(evidence.assertions);
 
-  if (record.schemaVersion !== "archcontext.fg6-platform-workflow-matrix-readback/v1") failures.push("schemaVersion mismatch");
+  if (record.schemaVersion !== "archcontext.fg6-platform-workflow-matrix-readback/v2") failures.push("schemaVersion mismatch");
   if (record.taskId !== "FG6-08") failures.push("taskId must be FG6-08");
   if (record.environment !== "staging-release-readback") failures.push("environment must be staging-release-readback");
   if (record.status !== "verified" || record.ok !== true) failures.push("status must be verified ok");
@@ -202,19 +201,37 @@ function inspectPlatformReadbackScript(text: string) {
   };
 }
 
-function extractHostedCiEvidence(text: string, hostedArtifacts: Awaited<ReturnType<typeof verifyHostedArtifacts>>) {
-  const runMatch = text.match(/Verify run `(\d+)`, head `([a-f0-9]{40})`/);
+// GitHub REST is the execution authority. Human prose is never a status input.
+export function summarizeHostedRun(runSource: unknown, jobsSource: unknown) {
+  const run = readRecord(runSource);
+  const response = readRecord(jobsSource);
+  const jobs = Array.isArray(response.jobs) ? response.jobs.map(readRecord) : [];
+  const matrixJobs = jobs.filter(job => REQUIRED_JOBS.includes(String(job.name))).map(job => ({
+    id: job.id, runId: job.run_id, runAttempt: job.run_attempt, headSha: job.head_sha,
+    name: job.name, status: job.status, conclusion: job.conclusion
+  }));
   return {
-    runId: runMatch ? Number(runMatch[1]) : 0,
-    headSha: runMatch?.[2] ?? "",
-    runUrl: runMatch ? `https://github.com/Ancienttwo/arch-context/actions/runs/${runMatch[1]}` : "",
-    runConclusion: runMatch && text.includes(`GitHub Actions Verify run \`${runMatch[1]}\`: PASS`) ? "PASS" : "unknown",
+    runId: run.id, headSha: run.head_sha, runUrl: run.html_url,
+    workflowName: run.name, workflowPath: run.path, event: run.event,
+    runAttempt: run.run_attempt, workflowStatus: run.status, workflowConclusion: run.conclusion,
+    jobsComplete: response.total_count === jobs.length && jobs.length > 0,
+    matrixJobs,
+    matrixConclusion: matrixJobs.length === 9 && REQUIRED_JOBS.every(name =>
+      matrixJobs.filter(job => job.name === name && job.status === "completed" && job.conclusion === "success").length === 1
+    ) ? "success" : "failure"
+  };
+}
+
+function extractHostedCiEvidence(runSource: unknown, jobsSource: unknown, hostedArtifacts: Awaited<ReturnType<typeof verifyHostedArtifacts>>) {
+  return {
+    ...summarizeHostedRun(runSource, jobsSource),
     downloadedArtifactsVerified: hostedArtifacts.verified,
     artifactNames: hostedArtifacts.artifacts.map((artifact) => artifact.name),
     artifactCount: hostedArtifacts.artifacts.length,
     artifacts: hostedArtifacts.artifacts,
     artifactFailures: hostedArtifacts.failures,
-    posixModeVerified: text.includes("Linux/macOS connection and lock modes are `600`"),
+    posixModeVerified: hostedArtifacts.verified && hostedArtifacts.artifacts.filter(artifact => artifact.platform !== "win32").length === 6
+      && hostedArtifacts.artifacts.filter(artifact => artifact.platform !== "win32").every(artifact => artifact.connectionMode === "600" && artifact.lockMode === "600"),
     windowsAclVerified: hostedArtifacts.verified && hostedArtifacts.artifacts.filter(artifact => artifact.platform === "win32").length === 3 && hostedArtifacts.artifacts.filter(artifact => artifact.platform === "win32").every(artifact => validWindowsAclEvidence(artifact.windowsAcl))
   };
 }
@@ -318,10 +335,8 @@ function summarizeRunner(recording: unknown) {
 function inspectWorkflowMatrix(workflowMatrix: Record<string, unknown>, failures: string[]): void {
   const os = Array.isArray(workflowMatrix.os) ? workflowMatrix.os.map(String) : [];
   const nodeVersions = Array.isArray(workflowMatrix.nodeVersions) ? workflowMatrix.nodeVersions.map(String) : [];
-  const hasSupportedOsSet = SUPPORTED_OS_SETS.some((osSet) => osSet.every((value) => os.includes(value)));
-  if (!hasSupportedOsSet) {
-    for (const value of REQUIRED_OS) if (!os.includes(value)) failures.push(`workflow matrix missing OS ${value}`);
-  }
+  for (const value of REQUIRED_OS) if (!os.includes(value)) failures.push(`workflow matrix missing OS ${value}`);
+  if (os.length !== 3 || nodeVersions.length !== 3) failures.push("workflow matrix must contain exactly three OS and Node targets");
   for (const value of REQUIRED_NODE) if (!nodeVersions.includes(value)) failures.push(`workflow matrix missing Node ${value}`);
   if (Number(workflowMatrix.targetCount ?? 0) !== 9) failures.push("workflow matrix targetCount must be 9");
   for (const key of ["failFastFalse", "verifyCommand", "platformReadbackCommand", "uploadArtifact", "artifactNamePattern", "governanceVerifySeparateJob"]) {
@@ -349,8 +364,25 @@ function inspectHostedCi(hostedCi: Record<string, unknown>, currentHeadSha: stri
   if (!Number.isInteger(Number(hostedCi.runId)) || Number(hostedCi.runId) <= 0) failures.push("hostedCi.runId must be positive");
   if (!/^[a-f0-9]{40}$/.test(String(hostedCi.headSha ?? ""))) failures.push("hostedCi.headSha must be a commit SHA");
   if (String(hostedCi.headSha ?? "") !== currentHeadSha) failures.push("hostedCi.headSha must match currentHeadSha");
-  if (!String(hostedCi.runUrl ?? "").startsWith("https://github.com/")) failures.push("hostedCi.runUrl must be GitHub");
-  if (hostedCi.runConclusion !== "PASS") failures.push("hostedCi.runConclusion must be PASS");
+  if (hostedCi.runUrl !== `https://github.com/Ancienttwo/arch-context/actions/runs/${hostedCi.runId}`) failures.push("hostedCi.runUrl must identify the recorded repository run");
+  if ("runConclusion" in hostedCi) failures.push("hostedCi.runConclusion is obsolete; workflow and matrix conclusions must be separate");
+  if (hostedCi.workflowName !== "Verify" || hostedCi.workflowPath !== DEFAULT_WORKFLOW) failures.push("hostedCi must reference the Verify workflow");
+  if (!["pull_request", "push"].includes(String(hostedCi.event))) failures.push("hostedCi event must be pull_request or push");
+  if (!Number.isInteger(hostedCi.runAttempt) || Number(hostedCi.runAttempt) <= 0) failures.push("hostedCi.runAttempt must be positive");
+  if (hostedCi.workflowStatus !== "completed") failures.push("hostedCi workflow must be completed");
+  if (!["success", "failure", "cancelled", "timed_out", "action_required", "neutral", "skipped", "stale", "startup_failure"].includes(String(hostedCi.workflowConclusion))) failures.push("hostedCi workflow conclusion must be an explicit GitHub terminal conclusion");
+  if (hostedCi.jobsComplete !== true) failures.push("hostedCi jobs response must be complete");
+  const jobs = Array.isArray(hostedCi.matrixJobs) ? hostedCi.matrixJobs.map(readRecord) : [];
+  if (jobs.length !== 9 || new Set(jobs.map(job => job.id)).size !== 9) failures.push("hostedCi must contain nine distinct matrix jobs");
+  for (const name of REQUIRED_JOBS) {
+    const matches = jobs.filter(job => job.name === name);
+    if (matches.length !== 1) failures.push(`hostedCi matrix job must occur once: ${name}`);
+  }
+  for (const job of jobs) {
+    if (!Number.isInteger(job.id) || Number(job.id) <= 0 || job.runId !== hostedCi.runId || job.runAttempt !== hostedCi.runAttempt || job.headSha !== hostedCi.headSha) failures.push(`hostedCi matrix job subject mismatch: ${job.name}`);
+    if (job.status !== "completed" || job.conclusion !== "success") failures.push(`hostedCi matrix job must succeed: ${job.name}`);
+  }
+  if (hostedCi.matrixConclusion !== "success") failures.push("hostedCi matrix conclusion must be success");
   if (hostedCi.downloadedArtifactsVerified !== true) failures.push("hostedCi downloaded artifacts must be verified");
   if (Number(hostedCi.artifactCount ?? 0) !== 9) failures.push("hostedCi artifactCount must be 9");
   const artifactNames = Array.isArray(hostedCi.artifactNames) ? hostedCi.artifactNames.map(String) : [];
@@ -371,12 +403,8 @@ function inspectHostedCi(hostedCi: Record<string, unknown>, currentHeadSha: stri
   }
   if (new Set(artifacts.map((artifact) => String(artifact.name ?? ""))).size !== artifacts.length) failures.push("hostedCi artifact digest record names must be unique");
   if (Array.isArray(hostedCi.artifactFailures) && hostedCi.artifactFailures.length > 0) failures.push("hostedCi artifact failures must be empty");
-  const hasSupportedArtifactSet = SUPPORTED_ARTIFACT_SETS.some((artifactSet) => artifactSet.every((name) => artifactNames.includes(name)));
-  if (!hasSupportedArtifactSet) {
-    for (const name of REQUIRED_ARTIFACTS) {
-      if (!artifactNames.includes(name)) failures.push(`hostedCi missing artifact ${name}`);
-    }
-  }
+  if (artifactNames.length !== 9 || new Set(artifactNames).size !== 9) failures.push("hostedCi artifact names must contain nine distinct targets");
+  for (const name of REQUIRED_ARTIFACTS) if (!artifactNames.includes(name)) failures.push(`hostedCi missing artifact ${name}`);
   if (hostedCi.posixModeVerified !== true) failures.push("hostedCi POSIX mode proof missing");
   if (hostedCi.windowsAclVerified !== true) failures.push("hostedCi Windows ACL proof missing");
 }
