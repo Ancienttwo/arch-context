@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.developer-review-run"
+intent: "Delegate review worktree lifecycle through the composed service with the daemon running-state guard and clock"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.developer-review-run"

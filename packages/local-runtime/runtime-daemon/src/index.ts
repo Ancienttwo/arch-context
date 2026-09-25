@@ -1,7 +1,7 @@
+import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type DeveloperReviewRunManifest, type DeveloperReviewRun, type DeveloperReviewRunPreparation, type DeveloperReviewRunCleanup, type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunRecovery } from "./developer-review-run";
+export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
-import { decodeDeveloperReviewRunManifest } from "./developer-review-codec";
-import { defaultDeveloperReviewRunStateDir, isProcessAlive } from "./daemon-control";
 import { isLoopbackRemote, writeJson } from "./loopback-http";
 export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
 export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, recoverStaleDaemonControlFiles } from "./daemon-control";
@@ -11,11 +11,10 @@ export * from "./rpc-protocol";
 import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, type Stats } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import {
   addRepositoryToLandscape,
   bindRepository,
@@ -137,7 +136,7 @@ import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetM
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, baseModelBlockingErrors, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
-import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
+import { computeGitChangeFingerprint, findRepositoryRoot, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
@@ -572,64 +571,6 @@ export interface DeveloperReviewAttestation {
   attestation: AttestationV2;
   attestationDigest: string;
   signingPayloadDigest: string;
-}
-
-export type DeveloperReviewRunStatus = "preparing" | "running";
-
-export interface DeveloperReviewRunManifest {
-  schemaVersion: "archcontext.developer-review-run/v1";
-  runId: string;
-  challengeId: string;
-  repositoryId: number;
-  sourceRoot: string;
-  runRoot: string;
-  worktreeTempRoot: string;
-  manifestPath: string;
-  lockPath: string;
-  pid: number;
-  createdAt: string;
-  status: DeveloperReviewRunStatus;
-  codeGraphTemporaryState: {
-    root: string;
-    cleanup: "remove-run-root";
-  };
-  worktree?: DetachedReviewWorktree;
-}
-
-export interface DeveloperReviewRun extends DeveloperReviewRunManifest {
-  status: "running";
-  worktree: DetachedReviewWorktree;
-}
-
-export interface DeveloperReviewRunPreparation extends DetachedReviewWorktreePreparation {
-  run?: DeveloperReviewRun;
-  cleanup?: DeveloperReviewRunCleanup;
-}
-
-export interface DeveloperReviewRunCleanup {
-  schemaVersion: "archcontext.developer-review-run-cleanup/v1";
-  runId: string;
-  challengeId: string;
-  cleaned: boolean;
-  removed: Array<"worktree" | "run-root" | "manifest" | "lock">;
-  errors: string[];
-}
-
-export interface DeveloperReviewRunCleanupRequest {
-  repositoryRoot: string;
-  challengeId: string;
-  runId: string;
-}
-
-export interface DeveloperReviewRunRecovery {
-  schemaVersion: "archcontext.developer-review-run-recovery/v1";
-  sourceRoot: string;
-  stateDir: string;
-  recovered: DeveloperReviewRunCleanup[];
-  removedLocks: string[];
-  skippedActive: string[];
-  /** State-dir entries left untouched because they failed the daemon-ownership check. */
-  rejected: string[];
 }
 
 export interface RuntimeDeps {
@@ -1124,6 +1065,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly investigationTransport: CommandInvestigationRunnerTransport;
   private readonly githubIssueExecutor: GithubIssueExecutorPort;
   private readonly clock: () => string;
+  private readonly developerReviewRuns: DeveloperReviewRunService;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
   private readonly sessions = new Map<string, RepositorySession>();
@@ -1174,6 +1116,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
     this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
     this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
+    this.developerReviewRuns = new DeveloperReviewRunService(() => this.assertRunning(), this.clock);
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
       enabled: process.env[CONTEXT7_ENABLED_ENV] === "1",
       mode: process.env[CONTEXT7_MODE_ENV] === "prepare-unknowns" ? "prepare-unknowns" : "manual",
@@ -4606,13 +4549,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     expectedHeadTreeOid?: string;
     tempRoot?: string;
   }): DetachedReviewWorktreePreparation {
-    this.assertRunning();
-    return prepareDetachedReviewWorktree({
-      sourceRoot: input.repositoryRoot,
-      headSha: input.challenge.headSha,
-      expectedHeadTreeOid: input.expectedHeadTreeOid,
-      tempRoot: input.tempRoot
-    });
+    return this.developerReviewRuns.prepareDeveloperReviewWorktree(input);
   }
 
   startDeveloperReviewRun(input: {
@@ -4622,84 +4559,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     /** In-process callers only; the production RPC contract does not accept a temp root. */
     tempRoot?: string;
   }): DeveloperReviewRunPreparation {
-    this.assertRunning();
-    const sourceRoot = findRepositoryRoot(input.repositoryRoot);
-    const paths = createDeveloperReviewRunPaths({
-      sourceRoot,
-      challengeId: input.challenge.challengeId,
-      tempRoot: input.tempRoot
-    });
-    mkdirSync(paths.stateDir, { recursive: true });
-    mkdirSync(paths.runRoot, { recursive: true });
-    mkdirSync(paths.worktreeTempRoot, { recursive: true });
-    const createdAt = this.clock();
-    writeDeveloperReviewRunOwnerMarker({
-      runRoot: paths.runRoot,
-      runId: paths.runId,
-      challengeId: input.challenge.challengeId,
-      stateDir: paths.stateDir,
-      manifestPath: paths.manifestPath,
-      lockPath: paths.lockPath,
-      createdAt
-    });
-    const preparing: DeveloperReviewRunManifest = {
-      schemaVersion: "archcontext.developer-review-run/v1",
-      runId: paths.runId,
-      challengeId: input.challenge.challengeId,
-      repositoryId: input.challenge.repositoryId,
-      sourceRoot,
-      runRoot: paths.runRoot,
-      worktreeTempRoot: paths.worktreeTempRoot,
-      manifestPath: paths.manifestPath,
-      lockPath: paths.lockPath,
-      pid: process.pid,
-      createdAt,
-      status: "preparing",
-      codeGraphTemporaryState: {
-        root: paths.runRoot,
-        cleanup: "remove-run-root"
-      }
-    };
-    if (existsSync(paths.lockPath) || existsSync(paths.manifestPath)) {
-      removePathWithRetry(paths.runRoot);
-      throw new Error(`developer-review-run-already-active: ${input.challenge.challengeId}`);
-    }
-    let lockAcquired = false;
-    try {
-      writePrivateJson(paths.lockPath, {
-        schemaVersion: "archcontext.developer-review-run-lock/v1",
-        runId: paths.runId,
-        challengeId: input.challenge.challengeId,
-        pid: process.pid,
-        createdAt: preparing.createdAt
-      }, "wx");
-      lockAcquired = true;
-      writeDeveloperReviewRunManifest(preparing);
-      const prepared = prepareDetachedReviewWorktree({
-        sourceRoot,
-        headSha: input.challenge.headSha,
-        expectedHeadTreeOid: input.expectedHeadTreeOid,
-        tempRoot: paths.worktreeTempRoot
-      });
-      if (!prepared.accepted || !prepared.worktree) {
-        const cleanup = this.cleanupOwnedDeveloperReviewRun(preparing);
-        return { ...prepared, cleanup };
-      }
-      const run: DeveloperReviewRun = {
-        ...preparing,
-        status: "running",
-        worktree: prepared.worktree
-      };
-      writeDeveloperReviewRunManifest(run);
-      return { ...prepared, run };
-    } catch (error) {
-      if (lockAcquired) {
-        this.cleanupOwnedDeveloperReviewRun(preparing);
-      } else {
-        removePathWithRetry(paths.runRoot);
-      }
-      throw error;
-    }
+    return this.developerReviewRuns.startDeveloperReviewRun(input);
   }
 
   async withDeveloperReviewRun<T>(input: {
@@ -4709,138 +4569,22 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     /** In-process callers only; the production RPC contract does not accept a temp root. */
     tempRoot?: string;
   }, run: (developerReviewRun: DeveloperReviewRun) => Promise<T> | T): Promise<T> {
-    const prepared = this.startDeveloperReviewRun(input);
-    if (!prepared.accepted || !prepared.run) {
-      throw new Error(`developer-review-run-prepare-failed: ${prepared.reasonCode ?? "UNKNOWN"}`);
-    }
-    try {
-      return await run(prepared.run);
-    } finally {
-      this.cleanupOwnedDeveloperReviewRun(prepared.run);
-    }
+    return this.developerReviewRuns.withDeveloperReviewRun(input, run);
   }
 
   cleanupOwnedDeveloperReviewRun(run: DeveloperReviewRunManifest): DeveloperReviewRunCleanup {
-    // Throws before anything is removed when the manifest names a path this daemon does not own.
-    const targets = resolveOwnedDeveloperReviewRunTargets(run);
-    const removed: DeveloperReviewRunCleanup["removed"] = [];
-    const errors: string[] = [];
-    if (targets.worktree) {
-      try {
-        const hadWorktree = existsSync(targets.worktree.worktreeRoot);
-        removeDetachedReviewWorktree(targets.worktree);
-        if (hadWorktree) removed.push("worktree");
-      } catch (error) {
-        errors.push(cleanupErrorMessage("worktree", error));
-      }
-    }
-    for (const [kind, path] of [
-      ["run-root", targets.runRoot],
-      ["manifest", targets.manifestPath],
-      ["lock", targets.lockPath]
-    ] as const) {
-      if (!path) continue;
-      try {
-        const existed = existsSync(path);
-        removePathWithRetry(path);
-        if (existed) removed.push(kind);
-      } catch (error) {
-        errors.push(cleanupErrorMessage(kind, error));
-      }
-    }
-    return {
-      schemaVersion: "archcontext.developer-review-run-cleanup/v1",
-      runId: run.runId,
-      challengeId: run.challengeId,
-      cleaned: errors.length === 0,
-      removed,
-      errors
-    };
+    return this.developerReviewRuns.cleanupOwnedDeveloperReviewRun(run);
   }
 
   cleanupDeveloperReviewRun(input: DeveloperReviewRunCleanupRequest): DeveloperReviewRunCleanup {
-    this.assertRunning();
-    const sourceRoot = findRepositoryRoot(input.repositoryRoot);
-    const safeChallengeId = safeControlFileSegment(input.challengeId);
-    const manifestPath = join(defaultDeveloperReviewRunStateDir(sourceRoot), `${safeChallengeId}.json`);
-    const manifest = readDeveloperReviewRunManifest(manifestPath);
-    if (!manifest) throw developerReviewRunNotOwned("persisted-manifest-missing");
-    if (manifest.runId !== input.runId || manifest.challengeId !== input.challengeId || resolve(manifest.sourceRoot) !== sourceRoot) {
-      throw developerReviewRunNotOwned("persisted-manifest-identity-mismatch");
-    }
-    return this.cleanupOwnedDeveloperReviewRun(manifest);
+    return this.developerReviewRuns.cleanupDeveloperReviewRun(input);
   }
 
-  /**
-   * Crash recovery scans one directory only: the daemon-owned developer-review state dir for the
-   * caller's repository. There is no caller-selected scan root, and every manifest found there is
-   * still re-validated against its own file location before its run is cleaned up.
-   */
   recoverDeveloperReviewRuns(input: {
     repositoryRoot: string;
     force?: boolean;
   }): DeveloperReviewRunRecovery {
-    this.assertRunning();
-    const sourceRoot = findRepositoryRoot(input.repositoryRoot);
-    const stateDir = defaultDeveloperReviewRunStateDir(sourceRoot);
-    const recovery: DeveloperReviewRunRecovery = {
-      schemaVersion: "archcontext.developer-review-run-recovery/v1",
-      sourceRoot,
-      stateDir,
-      recovered: [],
-      removedLocks: [],
-      skippedActive: [],
-      rejected: []
-    };
-    if (!existsSync(stateDir)) return recovery;
-
-    for (const entry of readdirSync(stateDir).sort()) {
-      if (!entry.endsWith(".json")) continue;
-      const manifestPath = join(stateDir, entry);
-      const stats = lstatIfExists(manifestPath);
-      if (!stats || !stats.isFile()) {
-        recovery.rejected.push(`${entry}: not-a-regular-file`);
-        continue;
-      }
-      const manifest = readDeveloperReviewRunManifest(manifestPath);
-      if (!manifest) {
-        rmSync(manifestPath, { force: true });
-        continue;
-      }
-      if (resolve(manifest.manifestPath) !== manifestPath) {
-        recovery.rejected.push(`${entry}: manifest-path-mismatch`);
-        continue;
-      }
-      if (!input.force && isDeveloperReviewPidAlive(manifest.pid)) {
-        recovery.skippedActive.push(manifest.runId);
-        continue;
-      }
-      try {
-        recovery.recovered.push(this.cleanupOwnedDeveloperReviewRun(manifest));
-      } catch (error) {
-        recovery.rejected.push(`${entry}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
-    for (const entry of readdirSync(stateDir).sort()) {
-      if (!entry.endsWith(".lock")) continue;
-      const lockPath = join(stateDir, entry);
-      const stats = lstatIfExists(lockPath);
-      if (!stats || !stats.isFile()) {
-        recovery.rejected.push(`${entry}: not-a-regular-file`);
-        continue;
-      }
-      const lock = readJsonObject(lockPath);
-      const pid = typeof lock?.pid === "number" ? lock.pid : undefined;
-      const runId = typeof lock?.runId === "string" ? lock.runId : entry;
-      if (!input.force && pid !== undefined && isDeveloperReviewPidAlive(pid)) {
-        recovery.skippedActive.push(runId);
-        continue;
-      }
-      rmSync(lockPath, { force: true });
-      recovery.removedLocks.push(lockPath);
-    }
-    return recovery;
+    return this.developerReviewRuns.recoverDeveloperReviewRuns(input);
   }
 
   async computeDeveloperReviewDigestBundle(input: {
@@ -6708,196 +6452,6 @@ function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: Ru
   };
 }
 
-const DEVELOPER_REVIEW_RUN_ROOT_PREFIX = "archctx-developer-review-";
-const DEVELOPER_REVIEW_RUN_OWNER_MARKER_FILE = ".archctx-developer-review-run.json";
-const DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION = "archcontext.developer-review-run-owner/v1";
-/** `mkdtempSync` appends exactly six random characters to the requested prefix. */
-const DEVELOPER_REVIEW_RUN_ROOT_SUFFIX = /^[A-Za-z0-9]{6}$/;
-/** `runId` is the safe challenge segment plus `randomBytes(6).toString("hex")`. */
-const DEVELOPER_REVIEW_RUN_ID_SUFFIX = /^[0-9a-f]{12}$/;
-
-interface DeveloperReviewRunOwnerMarkerV1 {
-  schemaVersion: typeof DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION;
-  runId: string;
-  challengeId: string;
-  stateDir: string;
-  manifestPath: string;
-  lockPath: string;
-  pid: number;
-  createdAt: string;
-}
-
-/**
- * Deletion targets for one developer-review run, re-derived from daemon-owned state instead of
- * trusted from the caller-supplied manifest. `runRoot`/`worktree` are absent when the run root is
- * already gone, which leaves manifest and lock removal as the only remaining work — that is the
- * crash window between removing a run root and removing its manifest, not a caller-controlled
- * shortcut.
- */
-interface OwnedDeveloperReviewRunTargets {
-  stateDir: string;
-  manifestPath: string;
-  lockPath: string;
-  runRoot?: string;
-  worktree?: DetachedReviewWorktree;
-}
-
-function createDeveloperReviewRunPaths(input: {
-  sourceRoot: string;
-  challengeId: string;
-  tempRoot?: string;
-}): {
-  runId: string;
-  stateDir: string;
-  runRoot: string;
-  worktreeTempRoot: string;
-  manifestPath: string;
-  lockPath: string;
-} {
-  const safeChallengeId = safeControlFileSegment(input.challengeId);
-  const runId = `${safeChallengeId}-${randomBytes(6).toString("hex")}`;
-  const stateDir = defaultDeveloperReviewRunStateDir(input.sourceRoot);
-  const tempParent = input.tempRoot ? resolve(input.tempRoot) : tmpdir();
-  mkdirSync(tempParent, { recursive: true });
-  const runRoot = mkdtempSync(join(tempParent, `${DEVELOPER_REVIEW_RUN_ROOT_PREFIX}${safeChallengeId.slice(0, 32)}-`));
-  return {
-    runId,
-    stateDir,
-    runRoot,
-    worktreeTempRoot: join(runRoot, "worktrees"),
-    manifestPath: join(stateDir, `${safeChallengeId}.json`),
-    lockPath: join(stateDir, `${safeChallengeId}.lock`)
-  };
-}
-
-/**
- * Written into a run root the moment the daemon creates it. Cleanup deletes a run root only when
- * this marker is present and matches the run being cleaned, which is what proves the daemon
- * created the directory it is about to remove — including after a crash, from a different process.
- */
-function writeDeveloperReviewRunOwnerMarker(input: {
-  runRoot: string;
-  runId: string;
-  challengeId: string;
-  stateDir: string;
-  manifestPath: string;
-  lockPath: string;
-  createdAt: string;
-}): void {
-  const marker: DeveloperReviewRunOwnerMarkerV1 = {
-    schemaVersion: DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION,
-    runId: input.runId,
-    challengeId: input.challengeId,
-    stateDir: input.stateDir,
-    manifestPath: input.manifestPath,
-    lockPath: input.lockPath,
-    pid: process.pid,
-    createdAt: input.createdAt
-  };
-  writePrivateJson(join(input.runRoot, DEVELOPER_REVIEW_RUN_OWNER_MARKER_FILE), marker, "wx");
-}
-
-function readDeveloperReviewRunOwnerMarker(path: string): DeveloperReviewRunOwnerMarkerV1 | undefined {
-  const stats = lstatIfExists(path);
-  if (!stats || !stats.isFile()) return undefined;
-  const parsed = readJsonObject(path);
-  if (!parsed || parsed.schemaVersion !== DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION) return undefined;
-  if (typeof parsed.runId !== "string" || typeof parsed.challengeId !== "string") return undefined;
-  if (typeof parsed.manifestPath !== "string" || typeof parsed.lockPath !== "string") return undefined;
-  return parsed as unknown as DeveloperReviewRunOwnerMarkerV1;
-}
-
-function developerReviewRunNotOwned(reason: string): Error {
-  return new Error(`developer-review-run-not-owned: ${reason}`);
-}
-
-/**
- * Fail-closed containment check for every developer-review deletion. Nothing here trusts a
- * caller-supplied path: the state directory comes from `runtimeStatePaths`, manifest and lock
- * names are re-derived from the challenge id, the run root must carry the daemon's mkdtemp naming
- * convention plus its ownership marker, and the worktree must sit inside that run root. Any
- * mismatch throws before a single unlink happens.
- */
-function resolveOwnedDeveloperReviewRunTargets(run: DeveloperReviewRunManifest): OwnedDeveloperReviewRunTargets {
-  const safeChallengeId = safeControlFileSegment(run.challengeId);
-  const runIdSuffix = run.runId.startsWith(`${safeChallengeId}-`) ? run.runId.slice(safeChallengeId.length + 1) : undefined;
-  if (!runIdSuffix || !DEVELOPER_REVIEW_RUN_ID_SUFFIX.test(runIdSuffix)) throw developerReviewRunNotOwned("run-id");
-
-  const stateDir = defaultDeveloperReviewRunStateDir(run.sourceRoot);
-  const manifestPath = join(stateDir, `${safeChallengeId}.json`);
-  const lockPath = join(stateDir, `${safeChallengeId}.lock`);
-  if (resolve(run.manifestPath) !== manifestPath) throw developerReviewRunNotOwned("manifest-path");
-  if (resolve(run.lockPath) !== lockPath) throw developerReviewRunNotOwned("lock-path");
-
-  const persisted = readDeveloperReviewRunManifest(manifestPath);
-  if (!persisted) throw developerReviewRunNotOwned("persisted-manifest-missing");
-  if (
-    persisted.runId !== run.runId
-    || persisted.challengeId !== run.challengeId
-    || persisted.repositoryId !== run.repositoryId
-    || resolve(persisted.sourceRoot) !== resolve(run.sourceRoot)
-    || resolve(persisted.runRoot) !== resolve(run.runRoot)
-    || resolve(persisted.worktreeTempRoot) !== resolve(run.worktreeTempRoot)
-    || resolve(persisted.manifestPath) !== manifestPath
-    || resolve(persisted.lockPath) !== lockPath
-  ) {
-    throw developerReviewRunNotOwned("persisted-manifest-mismatch");
-  }
-  const lockStats = lstatIfExists(lockPath);
-  const lock = lockStats?.isFile() ? readJsonObject(lockPath) : undefined;
-  if (
-    !lock
-    || lock.schemaVersion !== "archcontext.developer-review-run-lock/v1"
-    || lock.runId !== run.runId
-    || lock.challengeId !== run.challengeId
-  ) {
-    throw developerReviewRunNotOwned("persisted-lock-mismatch");
-  }
-
-  const runRoot = resolve(run.runRoot);
-  const runRootPrefix = `${DEVELOPER_REVIEW_RUN_ROOT_PREFIX}${safeChallengeId.slice(0, 32)}-`;
-  const runRootName = basename(runRoot);
-  if (!runRootName.startsWith(runRootPrefix) || !DEVELOPER_REVIEW_RUN_ROOT_SUFFIX.test(runRootName.slice(runRootPrefix.length))) {
-    throw developerReviewRunNotOwned("run-root-name");
-  }
-  const worktreeTempRoot = join(runRoot, "worktrees");
-  if (resolve(run.worktreeTempRoot) !== worktreeTempRoot) throw developerReviewRunNotOwned("worktree-temp-root");
-  if (resolve(run.codeGraphTemporaryState.root) !== runRoot) throw developerReviewRunNotOwned("codegraph-temporary-state-root");
-
-  const runRootStats = lstatIfExists(runRoot);
-  if (!runRootStats) return { stateDir, manifestPath, lockPath };
-  if (!runRootStats.isDirectory()) throw developerReviewRunNotOwned("run-root-not-a-directory");
-  const marker = readDeveloperReviewRunOwnerMarker(join(runRoot, DEVELOPER_REVIEW_RUN_OWNER_MARKER_FILE));
-  if (!marker) throw developerReviewRunNotOwned("run-root-owner-marker-missing");
-  if (marker.runId !== run.runId || marker.challengeId !== run.challengeId) throw developerReviewRunNotOwned("run-root-owner-marker-mismatch");
-  if (marker.manifestPath !== manifestPath || marker.lockPath !== lockPath) throw developerReviewRunNotOwned("run-root-owner-marker-mismatch");
-  if (!run.worktree) return { stateDir, manifestPath, lockPath, runRoot };
-
-  const temporaryRoot = resolve(run.worktree.temporaryRoot);
-  const worktreeRoot = resolve(run.worktree.worktreeRoot);
-  if (!isContainedPath(worktreeTempRoot, temporaryRoot)) throw developerReviewRunNotOwned("worktree-temporary-root");
-  if (!isContainedPath(temporaryRoot, worktreeRoot)) throw developerReviewRunNotOwned("worktree-root");
-  if (defaultDeveloperReviewRunStateDir(run.worktree.sourceRoot) !== stateDir) throw developerReviewRunNotOwned("worktree-source-root");
-  return { stateDir, manifestPath, lockPath, runRoot, worktree: { ...run.worktree, temporaryRoot, worktreeRoot } };
-}
-
-function isContainedPath(parent: string, child: string): boolean {
-  return child === parent || child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`);
-}
-
-function lstatIfExists(path: string): Stats | undefined {
-  try {
-    return lstatSync(path);
-  } catch {
-    return undefined;
-  }
-}
-
-function safeControlFileSegment(value: string): string {
-  const sanitized = value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
-  return sanitized.length > 0 ? sanitized : "developer-review";
-}
-
 function runtimeInvestigationRisk(value: unknown): InvestigationContextRisk {
   if (value === "low" || value === "medium" || value === "high") return value;
   throw new Error("runtime-agent-risk-invalid");
@@ -7152,42 +6706,6 @@ function writeContext7Lockfile(root: string, lock: Context7LockfileV1, expectedH
     mode: 0o600,
     expectedHash
   });
-}
-
-function writeDeveloperReviewRunManifest(manifest: DeveloperReviewRunManifest): void {
-  writePrivateJson(manifest.manifestPath, manifest);
-}
-
-function writePrivateJson(path: string, value: unknown, flag: "w" | "wx" = "w"): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600, flag });
-  chmodSync(path, 0o600);
-}
-
-function readDeveloperReviewRunManifest(path: string): DeveloperReviewRunManifest | undefined {
-  try {
-    return decodeDeveloperReviewRunManifest(readJsonObject(path), "developer-review-run-manifest");
-  } catch {
-    return undefined;
-  }
-}
-
-function readJsonObject(path: string): Record<string, unknown> | undefined {
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function isDeveloperReviewPidAlive(pid: number | undefined): boolean {
-  if (!pid || pid <= 0) return false;
-  return isProcessAlive(pid);
-}
-
-function cleanupErrorMessage(kind: string, error: unknown): string {
-  return `${kind}: ${error instanceof Error ? error.message : String(error)}`;
 }
 
 export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<ArchctxDaemon> {

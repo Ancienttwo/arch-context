@@ -1,0 +1,6 @@
+id: "relation.architecture-context.developer-review-run.rpc-server"
+intent: "Use shared daemon control paths, process liveness and strict persisted run manifest decoding"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.developer-review-run"
+target: "component.architecture-context.local-runtime.rpc-server"
