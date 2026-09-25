@@ -38,6 +38,7 @@
       "@archcontext/local-runtime/local-store-sqlite": ["./packages/local-runtime/local-store-sqlite/src/index.ts"],
       "@archcontext/local-runtime/model-store-yaml": ["./packages/local-runtime/model-store-yaml/src/index.ts"],
       "@archcontext/local-runtime/runtime-daemon": ["./packages/local-runtime/runtime-daemon/src/index.ts"],
+      "@archcontext/local-runtime/process-liveness": ["./packages/local-runtime/process-liveness/src/index.ts"],
       "@archcontext/local-runtime/runtime-state-paths": ["./packages/local-runtime/runtime-state-paths/src/index.ts"],
       "@archcontext/local-runtime/runtime-rpc-client": ["./packages/local-runtime/runtime-daemon/src/rpc-client-entry.ts"],
       "@archcontext/local-runtime/test/codegraph-factories": ["./packages/local-runtime/codegraph-adapter/test/factories.ts"],

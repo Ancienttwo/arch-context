@@ -1,0 +1,6 @@
+id: "relation.architecture-context.local-store-sqlite.process-liveness"
+intent: "Use the shared process liveness semantics before stale-owner recovery"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.local-store-sqlite"
+target: "component.architecture-context.local-runtime.process-liveness"

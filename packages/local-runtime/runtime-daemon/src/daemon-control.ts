@@ -1,3 +1,5 @@
+import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
+export { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcCompatibilityIssue, type RuntimeRpcConnection, type RuntimeRpcConnectionFile } from "./rpc-protocol";
 import { RuntimeRpcClient } from "./rpc-client";
 import { existsSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -156,14 +158,5 @@ function isStaleLock(lockPath: string): boolean {
     return !isProcessAlive(lock.pid);
   } catch {
     return true;
-  }
-}
-
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }

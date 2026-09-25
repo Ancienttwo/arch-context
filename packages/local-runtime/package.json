@@ -13,6 +13,7 @@
     "./model-store-yaml": "./model-store-yaml/src/index.ts",
     "./egress": "./runtime-daemon/src/egress.ts",
     "./runtime-daemon": "./runtime-daemon/src/index.ts",
+    "./process-liveness": "./process-liveness/src/index.ts",
     "./runtime-state-paths": "./runtime-state-paths/src/index.ts",
     "./runtime-rpc-client": "./runtime-daemon/src/rpc-client-entry.ts"
   },
