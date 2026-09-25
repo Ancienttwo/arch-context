@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { digestJson, type Json } from "@archcontext/contracts";
+import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { existsSync, readFileSync, statSync } from "node:fs";
 
 const RUNTIME_RPC_VERSION = "archcontext.runtime-rpc/v1";
 const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
-
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 interface FastHookResult {
   handled: boolean;
@@ -174,18 +173,6 @@ function isPrivateControlFile(path: string): boolean {
   }
 }
 
-function digestJson(value: unknown) {
-  return `sha256:${createHash("sha256").update(JSON.stringify(sortJson(value)), "utf8").digest("hex")}`;
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sortJson(child)]));
-  }
-  return value;
-}
-
 function hookLogRecord(input: { event: string; changedPaths: string[]; reasonCode: string; elapsedMs: number; failOpen: boolean }) {
   return {
     schemaVersion: HOOK_LOG_SCHEMA_VERSION,
@@ -232,7 +219,7 @@ function optionalInteger(args: string[], flag: string, positive: boolean): { val
 function shouldSkipGeneratedProjectionHook(args: string[], changedPaths: string[]) {
   if (args.includes("--no-generated-projection-guard")) return false;
   if (args.includes("--generated-projection")) return true;
-  return changedPaths.length > 0 && changedPaths.every((path) => path.replace(/\\/g, "/").startsWith(".archcontext/generated/"));
+  return changedPaths.length > 0 && changedPaths.every(isArchContextGeneratedProjectionPath);
 }
 
 function hookEnqueueReasonCode(data: Record<string, Json>) {

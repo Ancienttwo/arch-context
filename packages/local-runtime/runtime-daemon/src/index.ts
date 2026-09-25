@@ -2,6 +2,7 @@ import { DeveloperReviewSessionService, type DeveloperReviewDigestBundle, type D
 export type { DeveloperReviewDigestBundle, DeveloperReviewSession, DeveloperReviewAttestation } from "./developer-review-run";
 import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
 export type { ExplorerServerOptions, ExplorerServerStatus } from "./explorer-server";
+import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { LedgerAdminService } from "./ledger-admin";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
@@ -4225,10 +4226,6 @@ function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfi
     default:
       throw new RuntimeUpdateInputError(`unsupported worktree digest profile: ${String(profile)}`);
   }
-}
-
-function isArchContextGeneratedProjectionPath(path: string): boolean {
-  return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");
 }
 
 function runtimeAgentJobId(fingerprint: string, inputDigest: string, queuedAt: string): string {

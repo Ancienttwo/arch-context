@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, discardLegacyGithubDeveloperReviewState, readGithubDeveloperReviewState, sanitizeGithubDeveloperReviewState, writeGithubDeveloperReviewState, type GitHubDeveloperReviewState } from "./github-review-state";
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
 import { spawn, spawnSync } from "node:child_process";
@@ -2494,10 +2495,6 @@ function shouldSkipGeneratedProjectionHook(args: string[], changedPaths: string[
   if (args.includes("--no-generated-projection-guard")) return false;
   if (args.includes("--generated-projection")) return true;
   return changedPaths.length > 0 && changedPaths.every(isArchContextGeneratedProjectionPath);
-}
-
-function isArchContextGeneratedProjectionPath(path: string): boolean {
-  return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");
 }
 
 function hookEnqueueReasonCode(data: Record<string, Json>): string {
