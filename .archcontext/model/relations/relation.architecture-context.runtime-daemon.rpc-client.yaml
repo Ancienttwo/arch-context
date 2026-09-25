@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.rpc-client"
+intent: "Compose the loopback RPC client through the runtime facade while preserving the public protocol"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.rpc-client"
