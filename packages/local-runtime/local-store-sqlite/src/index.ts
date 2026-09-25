@@ -7722,6 +7722,7 @@ export function committedChangeSetFileOperation(operation: string, journalId: st
       return "delete";
     case "create_entity":
     case "update_entity_fields":
+    case "update_manifest_fields":
     case "write_policy":
     case "write_waiver":
     case "render_projection":

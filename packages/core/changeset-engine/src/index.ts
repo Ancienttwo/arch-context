@@ -17,12 +17,15 @@ import {
 } from "@archcontext/contracts";
 import { assertAllowedArchContextPath, evaluateChangeSetPaths, type ArchContextPathScope } from "@archcontext/core/policy-engine";
 import { descriptorRelativeWrite } from "./descriptor-relative-write";
+import { MANIFEST_UPDATE_PATH, assertManifestUpdateOperation, renderManifestFieldsUpdate, type ManifestUpdateFields } from "./manifest-update";
+export { MANIFEST_UPDATE_PATH, MANIFEST_UPDATE_OPERATION_SCHEMA, type ManifestUpdateFields } from "./manifest-update";
 
 export type ChangeSetStatus = "proposed" | "approved" | "applied" | "rolled-back" | "rejected";
 export type ChangeOperationKind =
   | "create_entity"
   | "update_entity_fields"
   | "delete_entity"
+  | "update_manifest_fields"
   | "write_policy"
   | "write_waiver"
   | "render_projection"
@@ -45,6 +48,7 @@ export interface ChangeOperation {
   entityId?: string;
   expectedHash: string;
   body?: string;
+  fields?: ManifestUpdateFields;
   projectionFiles?: ChangeSetProjectionFile[];
 }
 
@@ -199,7 +203,8 @@ export class ChangeSetEngine {
       reason: input.reason,
       operations: input.operations,
       preconditions: ["schema-valid-before", "expected-digest-match"],
-      postconditions: ["schema-valid-after", "projection-rebuilt"],
+      postconditions: input.operations.some(operation => operation.op === "update_manifest_fields")
+        ? ["schema-valid-after", "manifest-fields-updated"] : ["schema-valid-after", "projection-rebuilt"],
       requiresConfirmation: input.requiresConfirmation ?? true,
       idempotencyKey: `idem_${input.id}`
     };
@@ -216,6 +221,10 @@ export class ChangeSetEngine {
     const agentContextPaths = this.agentContextPathsFor(root, draft);
     const paths: string[] = [];
     const findings: string[] = [];
+    if (draft.operations.some(operation => operation.op === "update_manifest_fields")) {
+      try { this.manifestUpdateBody(root, draft); }
+      catch (error) { findings.push(error instanceof Error ? error.message : String(error)); }
+    }
     for (const operation of draft.operations) {
       const operationPaths = operationTargetPaths(operation);
       paths.push(...operationPaths);
@@ -248,6 +257,8 @@ export class ChangeSetEngine {
     const deps = this.requireDeps();
     await this.validateModel(root, draft, deps, "before");
     const agentContextPaths = this.agentContextPathsFor(root, draft);
+    const manifestBody = draft.operations.some(operation => operation.op === "update_manifest_fields")
+      ? this.manifestUpdateBody(root, draft) : undefined;
     const backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[] = [];
     const journalId = await deps.journal?.beginChangeSet(root, draft);
     let journalCommitted = false;
@@ -268,7 +279,7 @@ export class ChangeSetEngine {
           continue;
         }
         if (!operation.path) throw new Error(`Change operation requires path: ${operation.op}`);
-        await this.applyFileOperation(root, operation.path, operation.expectedHash, operation.body ?? "", operation.op, backups, journalId, applied + 1, agentContextPaths);
+        await this.applyFileOperation(root, operation.path, operation.expectedHash, operation.op === "update_manifest_fields" ? manifestBody! : operation.body ?? "", operation.op, backups, journalId, applied + 1, agentContextPaths);
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
@@ -279,7 +290,7 @@ export class ChangeSetEngine {
         (operation.op === "render_projection" || operation.op === "render_agent_context") &&
         operation.projectionFiles !== undefined && operation.projectionFiles.length > 0
       );
-      if (!explicitProjectionOnly) {
+      if (!explicitProjectionOnly && manifestBody === undefined) {
         for (const projection of deps.projection.planGeneratedProjection(root)) {
           await this.applyFileOperation(
             root,
@@ -321,6 +332,17 @@ export class ChangeSetEngine {
       this.states.set(draft.id, rolledBack);
       throw error;
     }
+  }
+
+  private manifestUpdateBody(root: string, draft: ChangeSetDraft): string {
+    if (draft.operations.length !== 1) throw new Error("Manifest update must be the only ChangeSet operation");
+    const operation = draft.operations[0]!;
+    assertManifestUpdateOperation(operation);
+    const absolute = assertPathHasNoSymlinkSegments(root, MANIFEST_UPDATE_PATH);
+    assertExpectedHash(absolute, operation.expectedHash);
+    const directory = assertPathHasNoSymlinkSegments(root, "docs/adr");
+    if (!lstatSync(directory).isDirectory()) throw new Error("Manifest decisions target docs/adr must be an existing directory");
+    return renderManifestFieldsUpdate(readFileSync(absolute, "utf8"), operation.fields);
   }
 
   private async validateModel(root: string, draft: ChangeSetDraft, deps: ChangeSetEngineDeps, phase: "before" | "after"): Promise<void> {
@@ -648,6 +670,15 @@ function shortDigest(digest: string): string {
 
 const EMPTY_PATH_SET: ReadonlySet<string> = new Set<string>();
 
+export function planManifestFieldsOperation(root: string, fields: ManifestUpdateFields): ChangeOperation {
+  const absolute = assertPathHasNoSymlinkSegments(root, MANIFEST_UPDATE_PATH);
+  const body = readFileSync(absolute, "utf8");
+  const operation: ChangeOperation = { op: "update_manifest_fields", path: MANIFEST_UPDATE_PATH, expectedHash: digestJson({ body }), fields };
+  assertManifestUpdateOperation(operation);
+  renderManifestFieldsUpdate(body, fields);
+  return operation;
+}
+
 function operationTargetPaths(operation: ChangeOperation): string[] {
   return [
     ...(operation.path ? [operation.path] : []),
@@ -657,7 +688,7 @@ function operationTargetPaths(operation: ChangeOperation): string[] {
 
 function pathScope(operation: ChangeOperationKind, agentContextPaths: ReadonlySet<string>): ArchContextPathScope {
   return {
-    operation: operation === "render_agent_context" ? "agent-context" : "default",
+    operation: operation === "render_agent_context" ? "agent-context" : operation === "update_manifest_fields" ? "manifest" : "default",
     agentContextPaths
   };
 }

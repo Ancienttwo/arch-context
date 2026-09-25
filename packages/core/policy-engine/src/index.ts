@@ -188,15 +188,16 @@ function shortDigest(digest: string): string {
 /**
  * Per-ChangeSet widening of the write allowlist, supplied by the caller that owns the operation.
  *
- * The base `ALLOWLIST` is unconditional and unchanged. The agent-context projection is the one
- * writer that must reach outside it — ADR-0043 puts a capability's contract file inside that
+ * The base `ALLOWLIST` is unconditional and unchanged. The agent-context projection reaches
+ * outside it — ADR-0043 puts a capability's contract file inside that
  * capability's own source directory — so instead of loosening the allowlist by file name (which
  * would put every `CLAUDE.md` anywhere in the repository on the write surface forever), the caller
  * passes the exact path set it derived from the model for this operation, and only that set is
- * widened, only for `render_agent_context` operations.
+ * widened, only for `render_agent_context` operations. The manifest scope grants exactly
+ * `.archcontext/manifest.yaml`; ChangeSetEngine restricts it to the typed field-update operation.
  */
 export interface ArchContextPathScope {
-  operation: "default" | "agent-context";
+  operation: "default" | "agent-context" | "manifest";
   /** The exact repo-relative paths the model's agent-context derivation produced. */
   agentContextPaths: ReadonlySet<string>;
 }
@@ -220,7 +221,8 @@ function isAgentContextScopedPath(relativePath: string, scope?: ArchContextPathS
 export function assertAllowedArchContextPath(root: string, relativePath: string, scope?: ArchContextPathScope): void {
   assertRepoRelativePath(relativePath);
   const normalized = relativePath.endsWith("/") ? relativePath : relativePath;
-  if (!ALLOWLIST.some((prefix) => normalized.startsWith(prefix)) && !isAgentContextScopedPath(relativePath, scope)) {
+  if (!ALLOWLIST.some((prefix) => normalized.startsWith(prefix)) && !isAgentContextScopedPath(relativePath, scope)
+      && !(scope?.operation === "manifest" && relativePath === ".archcontext/manifest.yaml")) {
     throw new Error(`Path is outside ArchContext write allowlist: ${relativePath}`);
   }
   const absoluteRoot = resolve(root);

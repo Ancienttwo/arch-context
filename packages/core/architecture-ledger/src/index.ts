@@ -2238,6 +2238,7 @@ function changeSetLedgerSummary(draft: ChangeSetDraft): Record<string, Json> {
       ...(operation.path ? { path: operation.path } : {}),
       ...(operation.entityId ? { entityId: operation.entityId } : {}),
       expectedHash: operation.expectedHash,
+      ...(operation.fields ? { fieldsDigest: digestJson(operation.fields as unknown as Json) } : {}),
       ...(operation.body ? { bodyDigest: digestJson({ body: operation.body } as unknown as Json) } : {})
     } as unknown as Json))
   };

@@ -23,6 +23,7 @@ Repair Explorer credential transport; integrate existing #164 feature extraction
 
 - In scope: Explorer auth/server/renderer tests, original #220/#221/#222 integration, bounded audit fixes and issue disposition evidence. Owner approved committing/pushing this candidate as a Draft PR, hosted Windows CI, and truthful validation-evidence updates. The latest approved slice replaces FG6 Markdown conclusion parsing with structured GitHub run/job authority and runs one frozen-candidate matrix; workflow failure remains distinct from matrix success. Owner additionally approved a manual Governance-only event in the existing Verify workflow and its actual hosted execution; normal PR/main matrix coverage remains intact.
 - Out of scope: cloud delivery implementation, PR merge, package publication/deployment, bypassing model/ledger mutation boundaries. Draft-PR branch publication and hosted verification are authorized.
+- Approved manifest continuation: implement the single-field `update_manifest_fields` ChangeSet contract, expose CLI/MCP planning, verify journal/approval boundaries, and apply `content.decisions = docs/adr` through the daemon. Arbitrary manifest editing and configurable ADR routing remain outside this slice.
 - Taste constraints: <!-- advisory only, no run gate; default style/taste lives in AGENTS.md and the minimal-change policy, use this to record a per-task override -->
 
 ## Stop Conditions
@@ -85,6 +86,8 @@ allowed_paths:
   - docs/verification/
   - .github/workflows/verify.yml
   - .github/workflows/windows-acl-diagnostics.yml
+  - .archcontext/manifest.yaml # only through approved daemon ChangeSet mutation
+  - schemas/runtime/changeset.schema.json
   - .archcontext/model/
   - plans/
   - tasks/

@@ -91,3 +91,7 @@ screenshot/artifact path, or reviewer observation.
 ## Summary
 
 - ...
+
+## Manifest field mutation scope review
+
+Source inspection confirms fixed-path/field admission before journaling, existing approval and repository freshness checks, no generic allowlist widening, no generated projection writes, rollback/recovery readback support, shared MCP/runtime schema, and digest-only ledger field metadata. YAML alias consumers are detached when computing the expected document so unrelated alias changes fail closed. Focused validation passes 21 tests / 140 assertions, plus typecheck and workspace boundaries. This is a scoped implementation review, not a provider-owned AcceptanceReceipt or whole-plan acceptance. Hosted candidate validation is recorded separately.

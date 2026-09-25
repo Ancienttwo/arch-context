@@ -104,3 +104,13 @@ P1: existing Verify workflow owns Governance plus the matrix; the canonical Gove
 - Verified exact head/run/attempt, checkout SHA, GitHub job conclusion and downloaded log SHA-256. Durable record: `docs/verification/20260925-governance-revalidation.json`; operator procedure: `docs/runbooks/governance-revalidation.md`.
 - The previous full nine-platform result remains on `8f87777`; differences through this candidate are only workflow routing, its tests and records. This manual run does not replace FG6 matrix evidence. Original failed workflow history remains truthful.
 - Final follow-up changes records only and skips automatic CI. Draft #223, #162/#164/#171 remaining scope and formal acceptance are unchanged; no merge, release, deployment or issue closure.
+
+## Approved manifest configuration contract
+
+P1/P2/P3 and operator usage are recorded in `docs/researches/20260925-manifest-content-paths.md`. The new `update_manifest_fields` operation grants only the fixed manifest path and `content.decisions = docs/adr`, requires an existing-file hash, rejects mixed drafts and bypass payloads, and leaves projections untouched. Shared CLI/MCP/runtime schema, durable journal vocabulary and hashed ledger metadata use the existing daemon approval/writer boundaries.
+
+Pre-fix regression: `_ops/remaining-issues/manifest-red.log` rejected manifest preview as outside the generic allowlist. Final focused validation: 21 tests / 140 assertions / 0 failures, including real RPC, dual-ledger append and single-use MCP approval. Typecheck, package boundaries and diff checks pass. During development, the non-exported schema type import and an error-message assertion were corrected; neither changes the product contract.
+
+Production CLI plan/apply succeeded under `changeset.manifest-decisions-171` (digest `sha256:af2c4bc6e9a71bb5ab2ea4fa8322c5c163e21313c338a9fe71620c8eaeeffa2b`). Git diff is exactly one manifest scalar. Actual runtime mode is YAML, with no ledger promotion; dual mode was checked in isolated integration fixtures. Evidence: `docs/verification/20260925-manifest-fields-readback.json`. The worktree daemon was stopped through `archctx daemon stop`. Main was fetched and remains `e3d807759e917b26c539f25c51edc31946feb740` before candidate freeze. Whole issues #162/#164/#171 and Draft PR acceptance remain open.
+
+Developer-requested security scan returned two existing unmanaged Herdr SessionStart hook warnings, no fail/high findings; architecture queue reported one advisory pending job. These are recorded without changing host hooks or processing the unrelated architecture queue.
