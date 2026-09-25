@@ -201,6 +201,8 @@ P3: keep the native operation/deadline unchanged, attach only an allowlisted err
 
 - [x] Add and verify non-sensitive subprocess failure metadata.
 - [x] Run the existing first-create case on three fresh Windows/Node 24 runners and inspect actual outputs.
-- [ ] Record proven versus unproven cause; make a correction only if supported, otherwise preserve the unresolved finding.
+- [x] Record proven versus unproven cause; make a correction only if supported, otherwise preserve the unresolved finding.
 
 Diagnostic run `36114666871` / `86e2e7d` confirmed ETIMEDOUT/SIGTERM at 10252 ms, with successful first-create samples at 3395/9885 ms. Correction: create-only native deadline 30000 ms within existing Windows daemon startup 150000 ms; read deadline stays 10000 ms. Reverify three first-create samples plus one installed-bin lifecycle/ACL readback. This is repair round 1 of the newly approved diagnostic slice.
+
+Bounded diagnostic complete: run `36115539255` / `c6f7335` passed three fresh Windows/Node 24 creation cases (4437/5946/4428 ms) and one installed-bin ACL/lifecycle readback. Archive/payload hashes and candidate/merge tree were verified. Evidence: `docs/verification/20260925-windows-first-create-diagnostics.json`. The child-deadline cause is proven and corrected; underlying OS startup-cost attribution remains unproven. Full PR/issue acceptance and historical FG6 are not marked complete. Final record-only publication uses `[skip ci]` to avoid repeating unchanged code verification.

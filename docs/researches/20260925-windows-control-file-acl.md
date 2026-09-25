@@ -1,6 +1,6 @@
 # Windows control-file ACL boundary (#171)
 
-Status: BLOCKED after the third repair round. Prior-subject native ACL proof exists, but the latest candidate has an unresolved native subprocess failure. This does not close #171 or claim a release.
+Status: first-create child timeout reproduced and corrected; bounded Windows/Node 24 verification passes. Full PR acceptance, historical FG6 and umbrella issues remain open. This does not close #171 or claim a release.
 
 ## P1: map
 
@@ -92,3 +92,11 @@ Local evidence: the new diagnostic regression fails against the prior implementa
 The minimal correction gives native **create** a 30000 ms child budget; reads retain 10000 ms. Daemon startup already permits 150000 ms on Windows (`surfaces/cli/src/main.ts`), so the two private startup writes have a combined child budget of 60000 ms within that existing outer envelope. The creation regression uses the repository's normal 60000 ms test budget. No retry, permission cache, fallback, credential transport or ACL predicate changes. The tradeoff is up to 20 s more waiting on a stuck create, with bounded diagnostic failure; hook/read latency limits remain unchanged.
 
 Validation is bounded to three fresh first-create samples and one installed-bin private ACL/redaction/start/status/stop readback. A nine-platform full rerun is not required to distinguish this reproduced native deadline from the unchanged historical FG6 gate.
+
+### Final bounded verification
+
+[Diagnostic run 36115539255](https://github.com/Ancienttwo/arch-context/actions/runs/36115539255), subject `c6f73359bc2ec5e05355c4d0a2f6a972bec10132`, passed all three fresh-runner creation cases. First-create times were 4437, 5946 and 4428 ms. Each case retained private readback, Unicode roundtrip, CreateNew collision preservation, broad-read rejection and missing-file rejection assertions. These finite samples are not a worst-case latency guarantee.
+
+The installed-bin Windows/Node 24 readback also passed owner/current-user checks, protected inheritance, exactly one explicit FullControl rule for both files, broad-read rejection, token redaction, and daemon start/status/stop. Archive `10855092826` SHA-256 matched GitHub metadata; downloaded payload bytes matched the remote archive. The tested merge commit `6f739c1a12a2601329c00937d5d6b1a1b73376db` and candidate have the same tree `24780643fdbc2edfb898431c78ad4e6823dd2eea`.
+
+Reproduction and post-fix measurements, safe error metadata, artifact hashes and scope are preserved in `docs/verification/20260925-windows-first-create-diagnostics.json`. The first-create deadline defect is resolved within this slice. No claim is made that the particular OS startup subsystem is identified, that read latency changed, or that the full nine-platform Verify/Governance gate passed. Those full workflows were deliberately cancelled for this narrow diagnostic; historical FG6 remains unpromoted.

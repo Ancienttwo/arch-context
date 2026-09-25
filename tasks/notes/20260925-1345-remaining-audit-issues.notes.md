@@ -1,6 +1,6 @@
 # Implementation Notes: remaining-audit-issues
 
-Status: Draft PR #223 published; stopped at the three-round Windows repair cap with an unresolved native subprocess failure. Umbrella issues and whole-work-package acceptance remain incomplete.
+Status: Draft PR #223 published; approved continuation reproduced and corrected the Windows first-create child timeout. Bounded Windows verification passes; umbrella issues and whole-work-package acceptance remain incomplete.
 Plan: `plans/plan-20260925-1345-remaining-audit-issues.md`.
 Research/disposition: `docs/researches/20260925-remaining-audit-issues.md`.
 
@@ -77,3 +77,9 @@ Candidate `7b16ec6`, Draft PR #223, remains blocked. Previous subject `61b01b2` 
 ## Approved native diagnostics
 
 Owner approved the bounded first-create diagnosis. New failure metadata is an allowlist of safe scalar values; no raw child-process data or cause is retained. Existing creation regression now observes first-create elapsed/completion. Diagnostic workflow: three fresh Windows/Node 24 jobs, one existing test each; no full matrix rerun intended. Local red/green and privacy sentinel guards pass; root cause and hosted results remain pending. Product deadlines and ACL semantics are unchanged.
+
+## Native diagnostic conclusion
+
+The approved continuation reproduced `ETIMEDOUT`/`SIGTERM` at 10252 ms on subject `86e2e7d`; peer samples succeeded at 3395/9885 ms. The fixed 10000 ms child deadline was too short for observed first creation. Only native create now uses 30000 ms, within the existing 150000 ms Windows daemon-start budget; read remains 10000 ms, ACL and credential semantics unchanged. Safe failure metadata omits cause, commands, paths, input and raw child output.
+
+Subject `c6f7335` passed three fresh Windows/Node 24 creation cases and installed-bin private-ACL/redaction/start/status/stop readback. Typecheck, package boundaries and local diagnostic privacy tests pass. Exact evidence: `docs/verification/20260925-windows-first-create-diagnostics.json`. The OS subsystem responsible for variable startup cost is not identified; no full-matrix/Governance acceptance is claimed. Historical stop/run records remain historical evidence, superseded for this particular deadline finding by the approved diagnostic conclusion.
