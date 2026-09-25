@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { NativeModel } from "../../projection-engine/src/index";
+import type { NativeModel } from "@archcontext/core/projection-engine";
 import type { ModuleStatisticsInputV1, ModuleStatisticsWorkspacePackageV1 } from "../src/index";
 
 export function digestOf(seed: string): string {

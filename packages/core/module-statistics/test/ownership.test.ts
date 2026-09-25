@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { NativeModel } from "../../projection-engine/src/index";
+import type { NativeModel } from "@archcontext/core/projection-engine";
 import { buildModuleStatisticsSnapshot, resolveOwnership } from "../src/index";
 import { MODEL, TRACKED_FILES, makeInput } from "./factories";
 

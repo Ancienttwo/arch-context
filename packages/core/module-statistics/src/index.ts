@@ -15,7 +15,7 @@ import {
   type ModuleStatisticsV1,
   type RefactorScaleReasonCode
 } from "@archcontext/contracts";
-import { nativeNodeSource, type NativeModel, type NativeNode } from "../../projection-engine/src/index";
+import { nativeNodeSource, type NativeModel, type NativeNode } from "@archcontext/core/projection-engine";
 import { buildModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
 import { ancestorChain, resolveOwnership, type OwnershipIndex } from "./ownership";
 

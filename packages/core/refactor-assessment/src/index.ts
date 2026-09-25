@@ -18,8 +18,8 @@ import {
   type RefactorScale,
   type RefactorScaleReasonCode
 } from "@archcontext/contracts";
-import { resolveOwnership } from "../../module-statistics/src/index";
-import type { NativeModel } from "../../projection-engine/src/index";
+import { resolveOwnership } from "@archcontext/core/module-statistics";
+import type { NativeModel } from "@archcontext/core/projection-engine";
 import { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaDerivationV1 } from "./target-delta";
 
 export { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaContextV1, type TargetDeltaDerivationV1 } from "./target-delta";
