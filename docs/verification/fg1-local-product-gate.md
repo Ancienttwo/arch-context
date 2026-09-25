@@ -34,9 +34,9 @@
 ## 0.4.8 Nine-target hosted matrix readback
 
 - Verify run `33573235102`, head `a1d34e414fcf08bbfaea30de854288c3e481d15d`: https://github.com/Ancienttwo/arch-context/actions/runs/33573235102
-- GitHub Actions Verify run `33573235102`: PASS for all nine matrix jobs; Governance remained fail-closed on the pre-bun-1.4 platform workflow matrix evidence and is regenerated separately.
+- Historical matrix result: all nine matrix jobs passed. The GitHub Actions Verify workflow `33573235102` completed with `failure`; Governance rejected its pre-bun-1.4 platform matrix evidence. Matrix success does not imply workflow success. Current FG6 matrix evidence is recorded separately in `fg6-platform-workflow-matrix-readback.json`.
 - Downloaded hosted IPC artifacts: PASS, all nine `platform-ipc-permission-readback.json` files report Bun `1.4.0` and are verified for schema, installed-bin help, HTTP loopback binding, token redaction, and daemon lifecycle.
-- Hosted permission readback: Linux/macOS connection and lock modes are `600`; Windows connection and lock modes are `win32-acl`.
+- Historical permission readback: Linux/macOS connection and lock modes are `600`; Windows emitted the `win32-acl` label only. That label is not measured ACL proof and cannot satisfy the current FG6 gate.
 - Artifact names verified from that run:
   - `platform-ipc-permission-ubuntu-latest-node-22.22.x`
   - `platform-ipc-permission-ubuntu-latest-node-24.x`
@@ -160,7 +160,7 @@ gh run download 27967560199 --repo Ancienttwo/arch-context --dir /tmp/archctx-27
 - `bun run verify`: PASS, including typecheck, package-boundary audit, production mock reachability audit, 279-test suite, packaged CLI smoke, privacy audits, 47-entry acceptance ledger, sprint-status, and representative eval.
 - GitHub Actions Verify run `27967560199`: PASS on Governance Verify plus ubuntu-latest, macos-latest, and windows-latest for Node 24.x and 25.x.
 - Downloaded hosted IPC artifacts: PASS, six `platform-ipc-permission-readback.json` files verified for schema `archcontext.platform-ipc-permission-readback/v1`, installed `archctx` help readback, `http-loopback`, `127.0.0.1`, `loopbackOnly=true`, `tokenRedactedFromStatus=true`, and daemon start/status/stop lifecycle.
-- Hosted permission readback: Linux/macOS connection and lock modes are `600`; Windows connection and lock modes are `win32-acl`.
+- Historical permission readback: Linux/macOS connection and lock modes are `600`; Windows emitted the `win32-acl` label only. That label is not measured ACL proof and cannot satisfy the current FG6 gate.
 
 ## Negative Tests
 

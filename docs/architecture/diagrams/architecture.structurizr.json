@@ -1,11 +1,11 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:f0122631908fe80dab14babccd5911ba36206ff2189426fd1948d33417056310" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:220d571916fd6aa3187fd2e64dd213172761e9ce0da58eee6ce7ffa350e8dcb6" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:a903f3c6df97285edb0412806ef7ee91443567694338ca78e0439d5bb4db74e6" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:4a45d400ae2f799c32e5bc847d51b292f0e36709d6aa52999f43e2c5be883438" -->
 {
   "schemaVersion": "archcontext.structurizr-export/v1",
   "name": "ArchContext Architecture",
   "model": {
     "elements": [
       {
-        "id": "capability.architecture-context",
+        "id": "capability.architecture.context",
         "name": "Architecture Context",
         "type": "Software System",
         "tags": [
@@ -165,6 +165,62 @@
         ]
       },
       {
+        "id": "component.architecture-context.local-runtime.agent-jobs",
+        "name": "Agent Job Service",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.audit",
+        "name": "Architecture Audit Service",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.control-file-security",
+        "name": "Control File Security",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.developer-review-run",
+        "name": "Developer Review Runs and Attestations",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.explorer-server",
+        "name": "Explorer Server and Session",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.external-documentation",
+        "name": "External Documentation Service",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.ledger-admin",
+        "name": "Ledger Administration Service",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
         "id": "component.architecture-context.local-runtime.local-store-sqlite",
         "name": "SQLite Local Store",
         "type": "Component",
@@ -173,8 +229,64 @@
         ]
       },
       {
+        "id": "component.architecture-context.local-runtime.process-liveness",
+        "name": "Process Liveness",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.projection-apply",
+        "name": "Projection Receipt Service",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.projection-paths",
+        "name": "Projection Paths",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.projection-service",
+        "name": "Architecture Projection Service",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.rpc-client",
+        "name": "Runtime RPC Client and Contract",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.rpc-server",
+        "name": "Runtime RPC Server and Control",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
         "id": "component.architecture-context.local-runtime.runtime-daemon",
         "name": "Runtime Daemon",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.runtime-state-paths",
+        "name": "Runtime State Paths",
         "type": "Component",
         "tags": [
           "component"
@@ -191,6 +303,14 @@
       {
         "id": "component.architecture-context.surfaces.cli",
         "name": "CLI",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.surfaces.github-review-state",
+        "name": "GitHub Review State Privacy",
         "type": "Component",
         "tags": [
           "component"
@@ -243,13 +363,231 @@
         "tags": [
           "module"
         ]
+      },
+      {
+        "id": "module.architecture-context.tooling",
+        "name": "Repository Tooling",
+        "type": "Container",
+        "tags": [
+          "module"
+        ]
       }
     ],
     "relationships": [
       {
-        "id": "relation.architecture-context.projection-renderer",
-        "sourceId": "capability.architecture-context",
+        "id": "relation.architecture-context.agent-jobs.scope-callback",
+        "sourceId": "component.architecture-context.local-runtime.agent-jobs",
+        "destinationId": "component.architecture-context.local-runtime.runtime-daemon",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.audit.agent-jobs",
+        "sourceId": "component.architecture-context.local-runtime.audit",
+        "destinationId": "component.architecture-context.local-runtime.agent-jobs",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.audit.investigation",
+        "sourceId": "component.architecture-context.local-runtime.audit",
+        "destinationId": "component.architecture-context.core.agent-orchestrator",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.cli.control-file-security",
+        "sourceId": "component.architecture-context.surfaces.cli",
+        "destinationId": "component.architecture-context.local-runtime.control-file-security",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.cli.github-review-state",
+        "sourceId": "component.architecture-context.surfaces.cli",
+        "destinationId": "component.architecture-context.surfaces.github-review-state",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.cli.runtime-state-paths",
+        "sourceId": "component.architecture-context.surfaces.cli",
+        "destinationId": "component.architecture-context.local-runtime.runtime-state-paths",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.developer-review-run.review-engine",
+        "sourceId": "component.architecture-context.local-runtime.developer-review-run",
+        "destinationId": "component.architecture-context.core.review-engine",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.developer-review-run.rpc-server",
+        "sourceId": "component.architecture-context.local-runtime.developer-review-run",
+        "destinationId": "component.architecture-context.local-runtime.rpc-server",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.explorer-server.projection-callback",
+        "sourceId": "component.architecture-context.local-runtime.explorer-server",
+        "destinationId": "component.architecture-context.local-runtime.runtime-daemon",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.external-documentation.session-writer-callback",
+        "sourceId": "component.architecture-context.local-runtime.external-documentation",
+        "destinationId": "component.architecture-context.local-runtime.runtime-daemon",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.github-review-state.runtime-state-paths",
+        "sourceId": "component.architecture-context.surfaces.github-review-state",
+        "destinationId": "component.architecture-context.local-runtime.runtime-state-paths",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.ledger-admin.ledger",
+        "sourceId": "component.architecture-context.local-runtime.ledger-admin",
+        "destinationId": "component.architecture-context.core.architecture-ledger",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.local-runtime.runtime-daemon.projection-paths",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.projection-paths",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.local-store-sqlite.process-liveness",
+        "sourceId": "component.architecture-context.local-runtime.local-store-sqlite",
+        "destinationId": "component.architecture-context.local-runtime.process-liveness",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.local-store.control-file-security",
+        "sourceId": "component.architecture-context.local-runtime.local-store-sqlite",
+        "destinationId": "component.architecture-context.local-runtime.control-file-security",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.local-store.runtime-state-paths",
+        "sourceId": "component.architecture-context.local-runtime.local-store-sqlite",
+        "destinationId": "component.architecture-context.local-runtime.runtime-state-paths",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.mcp-local.rpc-client",
+        "sourceId": "component.architecture-context.surfaces.mcp-local",
+        "destinationId": "component.architecture-context.local-runtime.rpc-client",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.projection-apply.renderer",
+        "sourceId": "component.architecture-context.local-runtime.projection-apply",
         "destinationId": "component.architecture-context.projection-renderer",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.projection-renderer",
+        "sourceId": "capability.architecture.context",
+        "destinationId": "component.architecture-context.projection-renderer",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.projection-service.renderer",
+        "sourceId": "component.architecture-context.local-runtime.projection-service",
+        "destinationId": "component.architecture-context.projection-renderer",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.rpc-client.rpc-control",
+        "sourceId": "component.architecture-context.local-runtime.rpc-client",
+        "destinationId": "component.architecture-context.local-runtime.rpc-server",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.rpc-control.runtime-state-paths",
+        "sourceId": "component.architecture-context.local-runtime.rpc-server",
+        "destinationId": "component.architecture-context.local-runtime.runtime-state-paths",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.rpc-server.control-file-security",
+        "sourceId": "component.architecture-context.local-runtime.rpc-server",
+        "destinationId": "component.architecture-context.local-runtime.control-file-security",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.rpc-server.process-liveness",
+        "sourceId": "component.architecture-context.local-runtime.rpc-server",
+        "destinationId": "component.architecture-context.local-runtime.process-liveness",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.rpc-server.rpc-client",
+        "sourceId": "component.architecture-context.local-runtime.rpc-server",
+        "destinationId": "component.architecture-context.local-runtime.rpc-client",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.agent-jobs",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.agent-jobs",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.audit",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.audit",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.developer-review-run",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.developer-review-run",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.explorer-server",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.explorer-server",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.external-documentation",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.external-documentation",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.ledger-admin",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.ledger-admin",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.projection-apply",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.projection-apply",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.projection-service",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.projection-service",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.rpc-client",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.rpc-client",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.runtime-daemon.rpc-server",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.rpc-server",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.surfaces.cli.projection-paths",
+        "sourceId": "component.architecture-context.surfaces.cli",
+        "destinationId": "component.architecture-context.local-runtime.projection-paths",
         "description": "calls"
       }
     ]
@@ -258,7 +596,7 @@
     "systemLandscape": {
       "key": "archcontext-landscape",
       "include": [
-        "capability.architecture-context",
+        "capability.architecture.context",
         "component.architecture-context.cloud.control-plane",
         "component.architecture-context.core.agent-orchestrator",
         "component.architecture-context.core.application",
@@ -278,16 +616,32 @@
         "component.architecture-context.core.refactor-decision",
         "component.architecture-context.core.retrieval",
         "component.architecture-context.core.review-engine",
+        "component.architecture-context.local-runtime.agent-jobs",
+        "component.architecture-context.local-runtime.audit",
+        "component.architecture-context.local-runtime.control-file-security",
+        "component.architecture-context.local-runtime.developer-review-run",
+        "component.architecture-context.local-runtime.explorer-server",
+        "component.architecture-context.local-runtime.external-documentation",
+        "component.architecture-context.local-runtime.ledger-admin",
         "component.architecture-context.local-runtime.local-store-sqlite",
+        "component.architecture-context.local-runtime.process-liveness",
+        "component.architecture-context.local-runtime.projection-apply",
+        "component.architecture-context.local-runtime.projection-paths",
+        "component.architecture-context.local-runtime.projection-service",
+        "component.architecture-context.local-runtime.rpc-client",
+        "component.architecture-context.local-runtime.rpc-server",
         "component.architecture-context.local-runtime.runtime-daemon",
+        "component.architecture-context.local-runtime.runtime-state-paths",
         "component.architecture-context.projection-renderer",
         "component.architecture-context.surfaces.cli",
+        "component.architecture-context.surfaces.github-review-state",
         "component.architecture-context.surfaces.mcp-local",
         "module.architecture-context.cloud",
         "module.architecture-context.contracts",
         "module.architecture-context.core",
         "module.architecture-context.local-runtime",
-        "module.architecture-context.surfaces"
+        "module.architecture-context.surfaces",
+        "module.architecture-context.tooling"
       ]
     }
   }

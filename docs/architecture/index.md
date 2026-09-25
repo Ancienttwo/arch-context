@@ -29,47 +29,53 @@ Script ownership and cleanup rules are frozen in
 - [ ] 2026-09-09T00:45:34+0800 [medium] `package.json` -> [root](requests/root.md)
 <!-- END ARCHITECTURE PENDING REQUESTS -->
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:f0122631908fe80dab14babccd5911ba36206ff2189426fd1948d33417056310" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:418cbe586b220cba6a3e9a489cc3d407e58d31c9897fc0b8e34a54b4ddc30299" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:a903f3c6df97285edb0412806ef7ee91443567694338ca78e0439d5bb4db74e6" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:38e9a2939c1e89f89c6fba262b1d1b7b48de2790cef87026620c445e8b914ff4" -->
 # Architecture Index
 
 Generated: 1970-01-01T00:00:00.000Z
 
 ## Entities
 
-- [Architecture Context](modules/capability-architecture-context.md) — capability / active
-- [Control Plane](modules/component-architecture-context-cloud-control-plane.md) — component / active
-- [Agent Orchestrator](modules/component-architecture-context-core-agent-orchestrator.md) — component / active
-- [Application Control Loop](modules/component-architecture-context-core-application.md) — component / active
-- [Architecture Delta](modules/component-architecture-context-core-architecture-delta.md) — component / active
-- [Architecture Domain](modules/component-architecture-context-core-architecture-domain.md) — component / active
-- [Architecture Ledger](modules/component-architecture-context-core-architecture-ledger.md) — component / active
-- [ChangeSet Engine](modules/component-architecture-context-core-changeset-engine.md) — component / active
-- [Context Compiler](modules/component-architecture-context-core-context-compiler.md) — component / active
-- [Module Statistics](modules/component-architecture-context-core-module-statistics.md) — component / active
-- [Policy Engine](modules/component-architecture-context-core-policy-engine.md) — component / active
-- [Practice Catalog](modules/component-architecture-context-core-practice-catalog.md) — component / active
-- [Practice Engine](modules/component-architecture-context-core-practice-engine.md) — component / active
-- [Pressure Engine](modules/component-architecture-context-core-pressure-engine.md) — component / active
-- [Recommendation Engine](modules/component-architecture-context-core-recommendation-engine.md) — component / active
-- [Reconcile Engine](modules/component-architecture-context-core-reconcile-engine.md) — component / active
-- [Refactor Assessment](modules/component-architecture-context-core-refactor-assessment.md) — component / active
-- [Refactor Decision](modules/component-architecture-context-core-refactor-decision.md) — component / active
-- [Retrieval](modules/component-architecture-context-core-retrieval.md) — component / active
-- [Review Engine](modules/component-architecture-context-core-review-engine.md) — component / active
-- [SQLite Local Store](modules/component-architecture-context-local-runtime-local-store-sqlite.md) — component / active
-- [Runtime Daemon](modules/component-architecture-context-local-runtime-runtime-daemon.md) — component / active
-- [Architecture Documentation Renderer](modules/component-architecture-context-projection-renderer.md) — component / active
-- [CLI](modules/component-architecture-context-surfaces-cli.md) — component / active
-- [Local MCP Server](modules/component-architecture-context-surfaces-mcp-local.md) — component / active
-- [Cloud Workspace](modules/module-architecture-context-cloud.md) — module / active
-- [Contracts Workspace](modules/module-architecture-context-contracts.md) — module / active
-- [Core Workspace](modules/module-architecture-context-core.md) — module / active
-- [Local Runtime Workspace](modules/module-architecture-context-local-runtime.md) — module / active
-- [Surfaces Workspace](modules/module-architecture-context-surfaces.md) — module / active
+- [Architecture Context](modules/architecture/context.md) — capability / active
 
 ## Relations
 
-- [capability.architecture-context -> component.architecture-context.projection-renderer](relations/relation-architecture-context-projection-renderer.md) — calls
+- component.architecture-context.local-runtime.agent-jobs -> component.architecture-context.local-runtime.runtime-daemon — calls
+- component.architecture-context.local-runtime.audit -> component.architecture-context.local-runtime.agent-jobs — calls
+- component.architecture-context.local-runtime.audit -> component.architecture-context.core.agent-orchestrator — calls
+- component.architecture-context.surfaces.cli -> component.architecture-context.local-runtime.control-file-security — calls
+- component.architecture-context.surfaces.cli -> component.architecture-context.surfaces.github-review-state — calls
+- component.architecture-context.surfaces.cli -> component.architecture-context.local-runtime.runtime-state-paths — calls
+- component.architecture-context.local-runtime.developer-review-run -> component.architecture-context.core.review-engine — calls
+- component.architecture-context.local-runtime.developer-review-run -> component.architecture-context.local-runtime.rpc-server — calls
+- component.architecture-context.local-runtime.explorer-server -> component.architecture-context.local-runtime.runtime-daemon — calls
+- component.architecture-context.local-runtime.external-documentation -> component.architecture-context.local-runtime.runtime-daemon — calls
+- component.architecture-context.surfaces.github-review-state -> component.architecture-context.local-runtime.runtime-state-paths — calls
+- component.architecture-context.local-runtime.ledger-admin -> component.architecture-context.core.architecture-ledger — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.projection-paths — calls
+- component.architecture-context.local-runtime.local-store-sqlite -> component.architecture-context.local-runtime.process-liveness — calls
+- component.architecture-context.local-runtime.local-store-sqlite -> component.architecture-context.local-runtime.control-file-security — calls
+- component.architecture-context.local-runtime.local-store-sqlite -> component.architecture-context.local-runtime.runtime-state-paths — calls
+- component.architecture-context.surfaces.mcp-local -> component.architecture-context.local-runtime.rpc-client — calls
+- component.architecture-context.local-runtime.projection-apply -> component.architecture-context.projection-renderer — calls
+- capability.architecture.context -> component.architecture-context.projection-renderer — calls
+- component.architecture-context.local-runtime.projection-service -> component.architecture-context.projection-renderer — calls
+- component.architecture-context.local-runtime.rpc-client -> component.architecture-context.local-runtime.rpc-server — calls
+- component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.runtime-state-paths — calls
+- component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.control-file-security — calls
+- component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.process-liveness — calls
+- component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.rpc-client — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.agent-jobs — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.audit — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.developer-review-run — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.explorer-server — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.external-documentation — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.ledger-admin — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.projection-apply — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.projection-service — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.rpc-client — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.rpc-server — calls
+- component.architecture-context.surfaces.cli -> component.architecture-context.local-runtime.projection-paths — calls
 
 ## Projections
 

@@ -108,6 +108,17 @@ export interface ArchitectureLedgerEventPayload {
   sourceCursors?: Record<string, Json>[];
   waivers?: Record<string, Json>[];
   feedback?: Record<string, Json>[];
+  /** Approval of a committed YAML ChangeSet; this does not materialize ledger graph operations. */
+  acceptedCommittedChange?: {
+    schemaVersion: "archcontext.accepted-committed-change/v1";
+    journalId: string;
+    changeSetId: string;
+    fileSetDigest: string;
+    modelDigest: string;
+    reasonCodes: string[];
+    affectedNodeIds: string[];
+    authority: "yaml";
+  };
 }
 
 export interface ArchitectureLedgerGraphState {
@@ -2238,6 +2249,7 @@ function changeSetLedgerSummary(draft: ChangeSetDraft): Record<string, Json> {
       ...(operation.path ? { path: operation.path } : {}),
       ...(operation.entityId ? { entityId: operation.entityId } : {}),
       expectedHash: operation.expectedHash,
+      ...(operation.fields ? { fieldsDigest: digestJson(operation.fields as unknown as Json) } : {}),
       ...(operation.body ? { bodyDigest: digestJson({ body: operation.body } as unknown as Json) } : {})
     } as unknown as Json))
   };

@@ -8,7 +8,7 @@ import { CONSTRAINT_RULE_TYPES, readDependencyConstraints, readReviewPolicy } fr
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "../src/index";
 
 const NODE_PATH = ".archcontext/model/nodes/module.api.yaml";
-const NODE_BODY = "schemaVersion: archcontext.node/v2\nid: module.api\nkind: module\nname: API\nstatus: active\nparent: capability.architecture-context\nsummary: Serves API requests.\n";
+const NODE_BODY = "schemaVersion: archcontext.node/v2\nid: module.api\nkind: module\nname: API\nstatus: active\nparent: capability.architecture.context\nsummary: Serves API requests.\n";
 const ADR_PATH = "docs/adr/ADR-0001-api-boundary.md";
 const digest = `sha256:${"a".repeat(64)}`;
 
@@ -46,7 +46,7 @@ describe("YamlModelStore ADR appliesTo integrity (#163)", () => {
   test("ADR appliesTo ids that resolve to model nodes validate", async () => {
     const root = modelRoot();
     try {
-      writeAdr(root, ["module.api", "capability.architecture-context"]);
+      writeAdr(root, ["module.api", "capability.architecture.context"]);
       expect(await validate(root)).toMatchObject({ valid: true, errors: [] });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -186,7 +186,7 @@ function writeConstraint(root: string, overrides: Record<string, unknown> = {}):
     name: "API does not reach up",
     severity: "error",
     scope: { nodes: ["module.api"] },
-    rule: { type: "forbid-dependency", targets: ["capability.architecture-context"] },
+    rule: { type: "forbid-dependency", targets: ["capability.architecture.context"] },
     rationale: "fixture",
     ...overrides
   }, null, 2)}\n`, "utf8");

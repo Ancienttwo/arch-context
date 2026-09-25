@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.agent-jobs"
+kind: "component"
+name: "Agent Job Service"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/runtime-daemon/src/agent-jobs.ts"
+status: "active"
+summary: "Owns Git hook investigation enqueue, queue lifecycle and advisory proposal integrity under repository and worktree scope."

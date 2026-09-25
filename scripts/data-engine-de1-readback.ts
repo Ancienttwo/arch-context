@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { inspectDataEngineIndexedBacklinks } from "./data-engine-source-invariants";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -11,6 +12,7 @@ const out = argumentPath("--out", defaultOut);
 const report = argumentPath("--report", defaultReport);
 
 const verificationCommands = [
+  ["bun", "test", "scripts/data-engine-source-invariants.test.ts"],
   ["bun", "run", "typecheck"],
   ["bun", "run", "check:package-boundaries"],
   ["bun", "test", "packages/contracts/test/contracts.test.ts", "packages/local-runtime/local-store-sqlite", "packages/local-runtime/runtime-daemon", "scripts/architecture-ledger-al10-release-packaging-readback.test.ts"],
@@ -50,7 +52,7 @@ if (mode === "run") {
       transactionalOutbox: storeSource.includes("appendArchitectureChangeFeed(db") && storeSource.includes("db.exec(\"BEGIN IMMEDIATE\")"),
       typedSubjectIndex: storeSource.includes("architecture_event_subjects") && storeSource.includes("architectureAffectedSubjectFromRow"),
       durableMonotonicFeed: storeSource.includes("architecture_change_feed_consumers") && storeSource.includes("architecture-change-feed-ack-requires-delivered-sequence"),
-      indexedBacklinks: daemonSource.includes("listArchitectureEventBacklinks(scope)") && !daemonSource.includes("function explorerEventBacklinks("),
+      indexedBacklinks: inspectDataEngineIndexedBacklinks(daemonSource, storeSource),
       feedDrivenInvalidation: daemonSource.includes("processArchitectureChangeFeed(root, scope)") && daemonSource.includes("architectureChangeFeedDependencyKeys(record)"),
       digestOnlySse: daemonSource.includes("archcontext.explorer-authority-invalidation/v1") && daemonTest.includes("expect(eventText).not.toContain(\"payload\")"),
       crashAndRestartRecovery: storeTest.includes("transactional typed restart-safe and idempotent") && daemonTest.includes("lifecycleFeedRecord.feedSequence"),

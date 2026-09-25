@@ -107,16 +107,25 @@ archctx hooks status --host codex
 Expected adapter path:
 
 ```text
-~/.codex/hooks.json -> repo-harness-hook -> archctx hook checkpoint
+~/.codex/hooks.json -> repo-harness-hook -> archctx hook enqueue
 ```
 
 Hook invariants:
 
 - The hook is a trigger only; the daemon remains the decision owner.
-- `archctx hook checkpoint` is local RPC only, has `network: forbidden`, and
-  fail-opens when the daemon is unavailable.
+- `archctx hook enqueue` is the primary local RPC entrypoint; it queues daemon-owned
+  work, declares `network: forbidden`, and fail-opens when unavailable.
+- `archctx hook checkpoint` is the explicitly advertised compatibility entrypoint
+  in the current CLI adapter contract, with the same local-only network boundary.
 - Do not set `"hook_source": "repo"` unless doing an explicitly reviewed
   repo-local hook runtime override.
+
+The recorded hook contract fixture is
+[`practice-hook-egress-readback.json`](../verification/practice-hook-egress-readback.json)
+(repository path: `docs/verification/practice-hook-egress-readback.json`). Inspect it
+with `bun run readback:s3:hook-egress`. It records the adapter, local-only egress,
+fail-open behavior and redacted path logging; it is historical fixture evidence,
+not a fresh capture of the installed host runtime.
 
 ## Pin Context7 And Preserve Privacy
 

@@ -17,12 +17,19 @@ import {
 } from "@archcontext/contracts";
 import { assertAllowedArchContextPath, evaluateChangeSetPaths, type ArchContextPathScope } from "@archcontext/core/policy-engine";
 import { descriptorRelativeWrite } from "./descriptor-relative-write";
+import { MANIFEST_UPDATE_PATH, assertManifestUpdateOperation, renderManifestFieldsUpdate, type ManifestUpdateFields } from "./manifest-update";
+export { MANIFEST_UPDATE_PATH, MANIFEST_UPDATE_OPERATION_SCHEMA, type ManifestUpdateFields } from "./manifest-update";
+
+import { assertAdrReferenceOperation, renderAdrReferenceUpdate, type AdrReferenceReplacement } from "./adr-reference-update";
+export { ADR_REFERENCE_OPERATION_SCHEMA, assertAdrReferenceOperation, type AdrReferenceReplacement } from "./adr-reference-update";
 
 export type ChangeSetStatus = "proposed" | "approved" | "applied" | "rolled-back" | "rejected";
 export type ChangeOperationKind =
   | "create_entity"
   | "update_entity_fields"
   | "delete_entity"
+  | "update_manifest_fields"
+  | "update_adr_references"
   | "write_policy"
   | "write_waiver"
   | "render_projection"
@@ -45,6 +52,8 @@ export interface ChangeOperation {
   entityId?: string;
   expectedHash: string;
   body?: string;
+  fields?: ManifestUpdateFields;
+  references?: AdrReferenceReplacement[];
   projectionFiles?: ChangeSetProjectionFile[];
 }
 
@@ -138,6 +147,8 @@ export interface ChangeSetJournalPort {
  */
 export interface AgentContextScopePort {
   derive(root: string): ReadonlySet<string>;
+  /** Mandatory for existing root contracts; verifies canonical marker-only rendering. */
+  validateRootWrite?(root: string, file: ChangeSetProjectionFile): void;
 }
 
 export interface ChangeSetEngineDeps {
@@ -199,7 +210,8 @@ export class ChangeSetEngine {
       reason: input.reason,
       operations: input.operations,
       preconditions: ["schema-valid-before", "expected-digest-match"],
-      postconditions: ["schema-valid-after", "projection-rebuilt"],
+      postconditions: input.operations.some(operation => operation.op === "update_manifest_fields")
+        ? ["schema-valid-after", "manifest-fields-updated"] : ["schema-valid-after", "projection-rebuilt"],
       requiresConfirmation: input.requiresConfirmation ?? true,
       idempotencyKey: `idem_${input.id}`
     };
@@ -216,7 +228,15 @@ export class ChangeSetEngine {
     const agentContextPaths = this.agentContextPathsFor(root, draft);
     const paths: string[] = [];
     const findings: string[] = [];
+    if (draft.operations.some(operation => operation.op === "update_manifest_fields")) {
+      try { this.manifestUpdateBody(root, draft); }
+      catch (error) { findings.push(error instanceof Error ? error.message : String(error)); }
+    }
     for (const operation of draft.operations) {
+      try {
+        if (operation.op === "update_adr_references") this.adrReferenceBody(root, operation);
+        if (operation.op === "render_agent_context") for (const file of operation.projectionFiles ?? []) this.validateRootContractWrite(root, file);
+      } catch (error) { findings.push(error instanceof Error ? error.message : String(error)); }
       const operationPaths = operationTargetPaths(operation);
       paths.push(...operationPaths);
       findings.push(
@@ -248,6 +268,8 @@ export class ChangeSetEngine {
     const deps = this.requireDeps();
     await this.validateModel(root, draft, deps, "before");
     const agentContextPaths = this.agentContextPathsFor(root, draft);
+    const manifestBody = draft.operations.some(operation => operation.op === "update_manifest_fields")
+      ? this.manifestUpdateBody(root, draft) : undefined;
     const backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[] = [];
     const journalId = await deps.journal?.beginChangeSet(root, draft);
     let journalCommitted = false;
@@ -268,7 +290,7 @@ export class ChangeSetEngine {
           continue;
         }
         if (!operation.path) throw new Error(`Change operation requires path: ${operation.op}`);
-        await this.applyFileOperation(root, operation.path, operation.expectedHash, operation.body ?? "", operation.op, backups, journalId, applied + 1, agentContextPaths);
+        await this.applyFileOperation(root, operation.path, operation.expectedHash, operation.op === "update_manifest_fields" ? manifestBody! : operation.op === "update_adr_references" ? this.adrReferenceBody(root, operation) : operation.body ?? "", operation.op, backups, journalId, applied + 1, agentContextPaths);
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
@@ -279,7 +301,7 @@ export class ChangeSetEngine {
         (operation.op === "render_projection" || operation.op === "render_agent_context") &&
         operation.projectionFiles !== undefined && operation.projectionFiles.length > 0
       );
-      if (!explicitProjectionOnly) {
+      if (!explicitProjectionOnly && manifestBody === undefined) {
         for (const projection of deps.projection.planGeneratedProjection(root)) {
           await this.applyFileOperation(
             root,
@@ -323,6 +345,34 @@ export class ChangeSetEngine {
     }
   }
 
+  private adrReferenceBody(root: string, operation: ChangeOperation): string {
+    assertAdrReferenceOperation(operation);
+    const absolute = assertPathHasNoSymlinkSegments(root, operation.path);
+    assertExpectedHash(absolute, operation.expectedHash);
+    return renderAdrReferenceUpdate(readFileSync(absolute, "utf8"), operation.references);
+  }
+
+  private validateRootContractWrite(root: string, file: ChangeSetProjectionFile): void {
+    if (file.path !== "AGENTS.md" && file.path !== "CLAUDE.md") return;
+    const validate = this.deps?.agentContextScope?.validateRootWrite;
+    if (!validate) throw new Error("Root contract write requires canonical marker-only validation");
+    const absolute = assertPathHasNoSymlinkSegments(root, file.path);
+    if (!/^sha256:[a-f0-9]{64}$/.test(file.expectedHash)) throw new Error("Root contract must exist with an exact expectedHash");
+    assertExpectedHash(absolute, file.expectedHash);
+    validate(root, file);
+  }
+
+  private manifestUpdateBody(root: string, draft: ChangeSetDraft): string {
+    if (draft.operations.length !== 1) throw new Error("Manifest update must be the only ChangeSet operation");
+    const operation = draft.operations[0]!;
+    assertManifestUpdateOperation(operation);
+    const absolute = assertPathHasNoSymlinkSegments(root, MANIFEST_UPDATE_PATH);
+    assertExpectedHash(absolute, operation.expectedHash);
+    const directory = assertPathHasNoSymlinkSegments(root, "docs/adr");
+    if (!lstatSync(directory).isDirectory()) throw new Error("Manifest decisions target docs/adr must be an existing directory");
+    return renderManifestFieldsUpdate(readFileSync(absolute, "utf8"), operation.fields);
+  }
+
   private async validateModel(root: string, draft: ChangeSetDraft, deps: ChangeSetEngineDeps, phase: "before" | "after"): Promise<void> {
     const result = await deps.modelStore.validateModel({ root, repositoryId: draft.reason.taskSessionId, headSha: draft.base.headSha });
     // The before-apply model may carry dangling references that this ChangeSet repairs; the
@@ -352,6 +402,7 @@ export class ChangeSetEngine {
   ): Promise<void> {
     assertSafeTarget(root, path, pathScope(operation, agentContextPaths));
     const deps = this.requireDeps();
+    if (operation === "render_agent_context") this.validateRootContractWrite(root, { path, expectedHash, body });
     const absolute = resolve(root, path);
     const existed = existsSync(absolute);
     const backupPath = `${absolute}.archctx-backup`;
@@ -369,6 +420,16 @@ export class ChangeSetEngine {
         operation,
         bodyHash: operation === "delete_entity" ? "missing" : digestJson({ body })
       });
+    }
+    // Recheck after the asynchronous journal append, immediately before touching files.
+    if (operation === "update_adr_references" || (operation === "render_agent_context" && (path === "AGENTS.md" || path === "CLAUDE.md"))) {
+      assertPathHasNoSymlinkSegments(root, path);
+      assertExpectedHash(absolute, expectedHash);
+      if (operation === "render_agent_context") {
+        const currentPaths = deps.agentContextScope?.derive(root) ?? EMPTY_PATH_SET;
+        assertSafeTarget(root, path, pathScope(operation, currentPaths));
+        this.validateRootContractWrite(root, { path, expectedHash, body });
+      }
     }
     backups.push(backup);
     if (existed) {
@@ -648,6 +709,15 @@ function shortDigest(digest: string): string {
 
 const EMPTY_PATH_SET: ReadonlySet<string> = new Set<string>();
 
+export function planManifestFieldsOperation(root: string, fields: ManifestUpdateFields): ChangeOperation {
+  const absolute = assertPathHasNoSymlinkSegments(root, MANIFEST_UPDATE_PATH);
+  const body = readFileSync(absolute, "utf8");
+  const operation: ChangeOperation = { op: "update_manifest_fields", path: MANIFEST_UPDATE_PATH, expectedHash: digestJson({ body }), fields };
+  assertManifestUpdateOperation(operation);
+  renderManifestFieldsUpdate(body, fields);
+  return operation;
+}
+
 function operationTargetPaths(operation: ChangeOperation): string[] {
   return [
     ...(operation.path ? [operation.path] : []),
@@ -657,7 +727,7 @@ function operationTargetPaths(operation: ChangeOperation): string[] {
 
 function pathScope(operation: ChangeOperationKind, agentContextPaths: ReadonlySet<string>): ArchContextPathScope {
   return {
-    operation: operation === "render_agent_context" ? "agent-context" : "default",
+    operation: operation === "render_agent_context" ? "agent-context" : operation === "update_manifest_fields" ? "manifest" : operation === "update_adr_references" ? "adr-reference" : "default",
     agentContextPaths
   };
 }

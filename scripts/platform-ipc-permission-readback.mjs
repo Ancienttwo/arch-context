@@ -20,12 +20,28 @@ try {
   const status = runArchctx("daemon", "status");
   const connectionMode = posixMode(connection.connectionPath);
   const lockMode = posixMode(connection.lockPath);
+  const windowsAcl = process.platform === "win32" ? {
+    connection: windowsAclEvidence(connection.connectionPath),
+    lock: windowsAclEvidence(connection.lockPath),
+    broadReadRejected: false
+  } : null;
   const tokenRedactedFromStatus = !JSON.stringify(status).includes(connection.token);
   const stopped = runArchctx("daemon", "stop");
   await waitFor(() => !existsSync(connectionPath) && !existsSync(lockPath), 5_000);
 
+  if (windowsAcl) {
+    // No active credential is widened: the daemon is stopped before this fake-file negative case.
+    assert(privateWindowsAcl(windowsAcl.connection) && privateWindowsAcl(windowsAcl.lock), "native private ACL readback failed");
+    writeFileSync(connectionPath, JSON.stringify({ ...connection, token: "acl-negative-fixture", pid: process.pid }));
+    windowsAclEvidence(connectionPath, true);
+    const rejected = runArchctx("daemon", "status");
+    windowsAcl.broadReadRejected = rejected.data?.running === false
+      && rejected.data?.recoveredStaleControlFiles?.includes("insecure-connection-file") === true;
+    assert(windowsAcl.broadReadRejected, "Windows broad-read connection must be rejected as insecure");
+  }
+
   const readback = {
-    schemaVersion: "archcontext.platform-ipc-permission-readback/v1",
+    schemaVersion: "archcontext.platform-ipc-permission-readback/v2",
     platform: process.platform,
     node: process.version,
     bun: bunVersion(),
@@ -51,6 +67,7 @@ try {
       npmGlobalInstallState: paths.data.npmGlobalInstallState,
       connectionMode,
       lockMode,
+      windowsAcl,
       tokenRedactedFromStatus
     },
     lifecycle: {
@@ -157,4 +174,50 @@ async function waitFor(predicate, timeoutMs) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+// Independent native oracle: records measured ACL properties, never account SIDs or credentials.
+function windowsAclEvidence(path, grantBroadRead = false) {
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+# A pwsh -> Node/Bun -> powershell.exe launch inherits incompatible PS7 module paths.
+$env:PSModulePath = "$PSHOME\Modules"
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$acl = Get-Acl -LiteralPath $request.path
+if ($request.grantBroadRead) {
+  $everyone = New-Object System.Security.Principal.SecurityIdentifier('S-1-1-0')
+  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($everyone, [System.Security.AccessControl.FileSystemRights]::Read, [System.Security.AccessControl.AccessControlType]::Allow)
+  $acl.AddAccessRule($rule)
+  Set-Acl -LiteralPath $request.path -AclObject $acl
+  $acl = Get-Acl -LiteralPath $request.path
+}
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+$onlyOwner = $rules.Count -eq 1
+foreach ($rule in $rules) {
+  $onlyOwner = $onlyOwner -and $rule.IdentityReference.Value -eq $sid.Value -and
+    $rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+    $rule.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
+    -not $rule.IsInherited -and
+    $rule.InheritanceFlags -eq [System.Security.AccessControl.InheritanceFlags]::None -and
+    $rule.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None
+}
+@{ ownerMatchesCurrentUser = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value;
+   inheritanceDisabled = $acl.AreAccessRulesProtected;
+   explicitOwnerFullControlOnly = [bool]$onlyOwner;
+   accessRuleCount = $rules.Count } | ConvertTo-Json -Compress
+`;
+  assert(process.env.SystemRoot, "Windows native ACL authority is required");
+  const result = spawnSync(join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), [
+    "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")
+  ], { input: JSON.stringify({ path, grantBroadRead }), encoding: "utf8", timeout: 10_000, windowsHide: true });
+  assert(result.status === 0, "Windows native ACL readback failed");
+  return JSON.parse(result.stdout);
+}
+
+function privateWindowsAcl(acl) {
+  return acl.ownerMatchesCurrentUser === true && acl.inheritanceDisabled === true
+    && acl.explicitOwnerFullControlOnly === true && acl.accessRuleCount === 1;
 }

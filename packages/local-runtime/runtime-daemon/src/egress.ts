@@ -1,3 +1,4 @@
+import { localEgressAdmission, localEgressMode } from "@archcontext/local-runtime/egress-admission";
 import type { LocalEgressReport, NonLocalEgressChannel } from "@archcontext/contracts";
 import { CODEGRAPH_TELEMETRY_DISABLED_VALUE, CODEGRAPH_TELEMETRY_ENV } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, DEFAULT_CONTEXT7_API_BASE } from "@archcontext/local-runtime/context7-adapter";
@@ -13,6 +14,8 @@ export interface LiveEgressConfig {
   auditUserConsent?: boolean;
   /** Env var holding the audit-approve GitHub PAT; its presence enables gh publishing. */
   githubIssuesTokenEnv?: string;
+  /** Transient CLI request; daemon health never infers a CLI action from its own environment. */
+  updateCheckRequested?: boolean;
 }
 
 
@@ -51,7 +54,9 @@ export function effectiveEgressChannels(env: Record<string, string | undefined>,
       });
     }
   }
-  return channels;
+  if (live.updateCheckRequested) channels.push({ channel: "npm-update-check", destination: "configured npm registry", trigger: "explicit update --check or doctor --check-updates", data: "archctx package version lookup", status: "enabled" });
+  if (env[CODEGRAPH_TELEMETRY_ENV] !== undefined && env[CODEGRAPH_TELEMETRY_ENV] !== CODEGRAPH_TELEMETRY_DISABLED_VALUE) channels.push({ channel: "codegraph-telemetry", destination: "CodeGraph configured telemetry endpoint", trigger: "CodeGraph execution with telemetry enabled", data: "third-party telemetry", status: "enabled" });
+  return channels.map(channel => localEgressAdmission(channel.channel, env).allowed ? channel : { ...channel, status: "blocked-by-policy" });
 }
 
 export function localEgressStatus(env: Record<string, string | undefined> = process.env, live: LiveEgressConfig = {}): LocalEgressReport {
@@ -63,6 +68,8 @@ export function localEgressStatus(env: Record<string, string | undefined> = proc
   const effectiveOutbound = nonLocalEgress.some((channel) => channel.status === "enabled") ? "non-local" : "local-only";
   return {
     ok: warnings.length === 0,
+    policyMode: localEgressMode(env),
+    enforcement: "application-admission",
     defaultOutbound: "local-only",
     effectiveOutbound,
     nonLocalEgress,

@@ -1,3 +1,4 @@
+import { ADR_REFERENCE_OPERATION_SCHEMA, MANIFEST_UPDATE_OPERATION_SCHEMA } from "@archcontext/core/changeset-engine";
 import type { validateJsonSchema } from "@archcontext/contracts";
 
 type Schema = Parameters<typeof validateJsonSchema>[0];
@@ -5,7 +6,7 @@ const text: Schema = { type: "string", minLength: 1 };
 const flag: Schema = { type: "boolean" };
 const texts: Schema = { type: "array", items: text };
 const budget = { maxBytes: { type: "integer", minimum: 1 }, maxItems: { type: "integer", minimum: 1 } } satisfies Record<string, Schema>;
-const operation: Schema = {
+const entityOperation: Schema = {
   type: "object", required: ["op", "expectedHash"], additionalProperties: false,
   properties: {
     op: { enum: ["create_entity", "update_entity_fields", "delete_entity", "write_policy", "write_waiver", "render_projection", "render_agent_context"] },
@@ -13,6 +14,8 @@ const operation: Schema = {
     projectionFiles: { type: "array", items: { type: "object", required: ["path", "expectedHash", "body"], additionalProperties: false, properties: { path: text, expectedHash: text, body: { type: "string" } } } }
   }
 };
+
+const operation: Schema = { oneOf: [entityOperation, MANIFEST_UPDATE_OPERATION_SCHEMA, ADR_REFERENCE_OPERATION_SCHEMA] };
 
 function argumentsSchema(properties: Record<string, Schema>, required: string[] = []) {
   return { type: "object" as const, properties: { root: text, ...properties }, required: ["root", ...required], additionalProperties: false };

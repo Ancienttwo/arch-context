@@ -1,7 +1,7 @@
 # Deferred Goal Ledger
 
 > **Status**: Backlog
-> **Updated**: 2026-09-25 02:07
+> **Updated**: 2026-09-25 13:48
 > **Scope**: Medium/long-term goals deferred from active plan execution
 
 Current plan tasks live in the active plan's `## Task Breakdown`.
@@ -20,3 +20,6 @@ Do not duplicate that execution checklist here. Record only work intentionally d
 | Git-authority focus totals 的增量化 | 当前 focused Explorer 输出与 source-read budget 已有边界，但 totals 仍遍历完整 Git graph；本次发布不声明所有 Git-authority 写读路径具备广义 10x bounded latency | 结果与 authority correctness 不受影响；超大图下首先增加读取延迟与内存峰值 | 代表性 Git graph 达到 100k nodes/relations，或 focus totals p95 超出 Explorer benchmark budget 时，由 `packages/local-runtime/local-store-sqlite` / runtime-daemon owner 切增量 totals 索引 |
 | Evidence current-state fold 的增量化 | event append 目前为构建 current evidence state 执行全量 fold；本次发布优先保证 append-only migration history 与事务正确性 | evidence history 增长后，append 锁持有时间与延迟会线性增加；不影响已提交状态正确性 | 单 scope evidence events 达到 100k，或 append p95 超过 50ms 时，由 `packages/local-runtime/local-store-sqlite` owner 引入 snapshot-anchored fold checkpoint |
 | Derived architecture feed 异步 drain | post-commit drain 已保证失败不会把 durable mutation 误报为失败，且未 ack feed 可在后续读路径重放；本次不扩大为独立 worker lifecycle | 大 backlog 会增加 mutation latency，但不再破坏 correctness；当前不声明广义 10x write latency | 单次待消费 feed 超过 10k records，或 mutation p95 超过 100ms 时，由 runtime-daemon owner 将 drain 移到受监督的 bounded worker，并保留 checkpoint/replay 不变量 |
+| Real cloud control-plane and credential delivery (#224; Cloud control-plane delivery milestone) | Local connection truthfulness is complete, while production cloud delivery is outside the local audit-repair scope | D1/Queue/OAuth/device registration and cross-process OS credentials remain unimplemented delivery gates; do not report a real connection or close the cloud gate | An explicitly approved cloud-delivery milestone; entrypoints: docs/adr/ADR-0017-cloudflare-control-plane.md and docs/adr/ADR-0016-signed-local-attestation.md |
+| Remaining runtime facade and RPC decoder work (#164) | All existing extraction PRs are integrated; composition-only facade and general runtime decoding remain unfinished | Current behavior and transport allowlist remain intact; do not claim #164 complete | Resume with the explicit RPC decoder contract in `packages/local-runtime/runtime-daemon/src/rpc-methods.ts`, then bounded feature-service extractions from `index.ts` |
+| Capability producer/consumer contract and formal acceptance (#225) | Initializer, isolated consumer, typed ADR/root writers and live model/root migration pass focused checks | #223 remains Draft; docs projection reports a 38-file major-change gate and no accepted architecture event; no typed receipt | Bind a real accepted-change event to the committed migration, regenerate docs through the projection owner, then run paired acceptance; see docs/researches/20260926-capability-profile-alignment.md |

@@ -93,14 +93,13 @@ describe("@archcontext/core/policy-engine", () => {
       }
     });
 
-    test("never widens the repository-root contract files, nor a neighbour that merely sits in the same directory", () => {
+    test("root contracts require exact operation scope, and neighbours remain forbidden", () => {
       const root = mkdtempSync(join(tmpdir(), "archctx-policy-agent-context-guard-"));
       try {
-        // Even a derivation that wrongly yields the repo-root routing contract cannot write it.
-        expect(() => assertAllowedArchContextPath(root, "CLAUDE.md", scoped("CLAUDE.md")))
-          .toThrow("Path is outside ArchContext write allowlist");
-        expect(() => assertAllowedArchContextPath(root, "AGENTS.md", scoped("AGENTS.md")))
-          .toThrow("Path is outside ArchContext write allowlist");
+        // Root content/hash validation belongs to ChangeSetEngine; path scope alone is not write authorization.
+        expect(() => assertAllowedArchContextPath(root, "CLAUDE.md", scoped("CLAUDE.md"))).not.toThrow();
+        expect(() => assertAllowedArchContextPath(root, "AGENTS.md", scoped("AGENTS.md"))).not.toThrow();
+        expect(() => assertAllowedArchContextPath(root, "AGENTS.md")).toThrow("allowlist");
         // A scoped set that names a non-contract file in an allowed directory is still denied.
         expect(() => assertAllowedArchContextPath(root, "packages/core/policy-engine/NOTES.md", scoped("packages/core/policy-engine/NOTES.md")))
           .toThrow("Path is outside ArchContext write allowlist");

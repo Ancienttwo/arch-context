@@ -1,0 +1,2704 @@
+{
+  "purpose": "Subject-bound hosted observations; not a harness AcceptanceReceipt or whole-issue closure.",
+  "currentCandidateAcceptance": "blocked",
+  "priorSubject": {
+    "head": "61b01b2390c52af0536c5f4643b91e9adaee5968",
+    "mergeCommit": "6da8683deac783cd41cb809f5ec7f17981a5fbf7",
+    "tree": "7ee79b8717af07202022bff2795322dd6dda379f",
+    "runId": 36108161898,
+    "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898",
+    "workflowConclusion": "failure",
+    "jobs": [
+      {
+        "completedAt": "2026-09-25T07:38:23Z",
+        "conclusion": "failure",
+        "databaseId": 107985517440,
+        "name": "Governance Verify",
+        "startedAt": "2026-09-25T07:33:14Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:16Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:17Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:16Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:24Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:25Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:24Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:31Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:25Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:21Z",
+            "conclusion": "failure",
+            "name": "Governance verify",
+            "number": 6,
+            "startedAt": "2026-09-25T07:33:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:21Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 10,
+            "startedAt": "2026-09-25T07:38:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:21Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 11,
+            "startedAt": "2026-09-25T07:38:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:21Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 12,
+            "startedAt": "2026-09-25T07:38:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:21Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 13,
+            "startedAt": "2026-09-25T07:38:21Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517440"
+      },
+      {
+        "completedAt": "2026-09-25T07:38:54Z",
+        "conclusion": "success",
+        "databaseId": 107985517633,
+        "name": "ubuntu-latest / Node 22.22.x",
+        "startedAt": "2026-09-25T07:33:14Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:16Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:17Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:16Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:22Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:23Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:29Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:29Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:33:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:31Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:33:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:32Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:33:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:52Z",
+            "conclusion": "success",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:33:32Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:52Z",
+            "conclusion": "success",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:38:52Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:52Z",
+            "conclusion": "success",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:38:52Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:52Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:38:52Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:52Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:38:52Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517633"
+      },
+      {
+        "completedAt": "2026-09-25T07:37:17Z",
+        "conclusion": "success",
+        "databaseId": 107985517636,
+        "name": "ubuntu-latest / Node 24.x",
+        "startedAt": "2026-09-25T07:33:14Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:17Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:19Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:21Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:22Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:29Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:29Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:33:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:31Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:33:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:32Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:33:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:37:14Z",
+            "conclusion": "success",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:33:32Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:37:14Z",
+            "conclusion": "success",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:37:14Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:37:14Z",
+            "conclusion": "success",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:37:14Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:37:14Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:37:14Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:37:14Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:37:14Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517636"
+      },
+      {
+        "completedAt": "2026-09-25T07:53:21Z",
+        "conclusion": "cancelled",
+        "databaseId": 107985517641,
+        "name": "windows-latest / Node 22.22.x",
+        "startedAt": "2026-09-25T07:33:14Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:16Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:23Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:16Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:31Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:34Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:34:13Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:34:45Z",
+            "conclusion": "success",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:34:13Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:34:56Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:34:45Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:34:57Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:34:56Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:15Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:34:57Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:15Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:53:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:15Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:53:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:19Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:53:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:53:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517641"
+      },
+      {
+        "completedAt": "2026-09-25T07:53:22Z",
+        "conclusion": "cancelled",
+        "databaseId": 107985517665,
+        "name": "windows-latest / Node 24.x",
+        "startedAt": "2026-09-25T07:33:15Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:17Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:16Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:24Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:30Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:24Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:32Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:30Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:34:21Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:32Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:34:58Z",
+            "conclusion": "success",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:34:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:35:10Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:34:58Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:35:11Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:35:10Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:18Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:35:11Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:18Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:53:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:18Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:53:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:20Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:53:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:53:20Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:53:20Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517665"
+      },
+      {
+        "completedAt": "2026-09-25T07:38:13Z",
+        "conclusion": "success",
+        "databaseId": 107985517670,
+        "name": "macos-15 / Node 24.x",
+        "startedAt": "2026-09-25T07:33:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:20Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:22Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:23Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:23Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:34Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:34Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:33:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:35Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:33:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:36Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:33:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:08Z",
+            "conclusion": "success",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:33:36Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:08Z",
+            "conclusion": "success",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:38:08Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:09Z",
+            "conclusion": "success",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:38:08Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:09Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:38:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:11Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:38:09Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517670"
+      },
+      {
+        "completedAt": "2026-09-25T07:38:46Z",
+        "conclusion": "success",
+        "databaseId": 107985517690,
+        "name": "ubuntu-latest / Node 25.x",
+        "startedAt": "2026-09-25T07:33:16Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:18Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:19Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:25Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:27Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:25Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:34Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:27Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:34Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:33:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:36Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:33:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:37Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:33:36Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:41Z",
+            "conclusion": "success",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:33:37Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:42Z",
+            "conclusion": "success",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:38:41Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:42Z",
+            "conclusion": "success",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:38:42Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:42Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:38:42Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:38:42Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:38:42Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517690"
+      },
+      {
+        "completedAt": "2026-09-25T07:40:53Z",
+        "conclusion": "success",
+        "databaseId": 107985517691,
+        "name": "macos-15 / Node 25.x",
+        "startedAt": "2026-09-25T07:33:20Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:22Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:24Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:30Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:24Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:31Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:30Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:44Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:44Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:33:44Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:47Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:33:44Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:48Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:33:47Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:40:48Z",
+            "conclusion": "success",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:33:48Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:40:49Z",
+            "conclusion": "success",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:40:48Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:40:49Z",
+            "conclusion": "success",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:40:49Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:40:50Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:40:49Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:40:52Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:40:50Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517691"
+      },
+      {
+        "completedAt": "2026-09-25T07:52:02Z",
+        "conclusion": "success",
+        "databaseId": 107985517733,
+        "name": "windows-latest / Node 25.x",
+        "startedAt": "2026-09-25T07:33:15Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:17Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:16Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:23Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:31Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:34Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:34:35Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:35:04Z",
+            "conclusion": "success",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:34:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:35:13Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:35:04Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:35:15Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:35:13Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:51:58Z",
+            "conclusion": "success",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:35:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:51:58Z",
+            "conclusion": "success",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:51:58Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:51:58Z",
+            "conclusion": "success",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:51:58Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:52:00Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:51:58Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:52:00Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:52:00Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517733"
+      },
+      {
+        "completedAt": "2026-09-25T07:39:26Z",
+        "conclusion": "success",
+        "databaseId": 107985517743,
+        "name": "macos-15 / Node 22.22.x",
+        "startedAt": "2026-09-25T07:33:21Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:33:23Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:33:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:25Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:33:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:32Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:33:25Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:34Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:33:32Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:46Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:33:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:46Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:33:46Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:48Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:33:46Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:33:49Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:33:48Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:39:22Z",
+            "conclusion": "success",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:33:49Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:39:22Z",
+            "conclusion": "success",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:39:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:39:22Z",
+            "conclusion": "success",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:39:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:39:23Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:39:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:39:24Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:39:23Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36108161898/job/107985517743"
+      }
+    ],
+    "artifacts": [
+      {
+        "name": "platform-ipc-permission-macos-15-node-22.22.x",
+        "artifactId": 10851354698,
+        "archiveDigest": "sha256:30ec8f317510bce3c3719293dcb0689f613a770488aaea1925ad43e718857a72",
+        "payloadSha256": "5de6224dc8ed018e7bc08a54b227e6102fa11e1fca5e9b6ef4d5a55e18acf711",
+        "payload": {
+          "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+          "platform": "darwin",
+          "node": "v22.22.3",
+          "bun": "1.4.0",
+          "install": {
+            "binPath": "<workspace>/node_modules/.bin/archctx",
+            "binKind": "posix-shim",
+            "helpOk": true,
+            "hasDaemonCommand": true,
+            "hasMcpCommand": true,
+            "hasDoctorCommand": true
+          },
+          "transport": {
+            "protocol": "http-loopback",
+            "bindHost": "127.0.0.1",
+            "loopbackOnly": true
+          },
+          "controlFiles": {
+            "connectionPath": "/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/archctx-platform-ipc-state-8SKo8i/repositories/repo.1f6f917e6fa4aabb/worktrees/ws.1f6f917e6fa4aabb/archctxd.json",
+            "lockPath": "/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/archctx-platform-ipc-state-8SKo8i/repositories/repo.1f6f917e6fa4aabb/worktrees/ws.1f6f917e6fa4aabb/archctxd.lock",
+            "runtimeStateRoot": "/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/archctx-platform-ipc-state-8SKo8i",
+            "storageRepositoryId": "repo.1f6f917e6fa4aabb",
+            "storageWorkspaceId": "ws.1f6f917e6fa4aabb",
+            "npmGlobalInstallState": "forbidden",
+            "connectionMode": "600",
+            "lockMode": "600",
+            "windowsAcl": null,
+            "tokenRedactedFromStatus": true
+          },
+          "lifecycle": {
+            "started": true,
+            "statusRunning": true,
+            "stopped": true
+          }
+        }
+      },
+      {
+        "name": "platform-ipc-permission-macos-15-node-24.x",
+        "artifactId": 10852121725,
+        "archiveDigest": "sha256:5e380cffe0e8c12b156966313ac49ae1e1ee8f4c5a0fdd85740d8601f4980507",
+        "payloadSha256": "c633ae435610e875ec052dce5c6efec780c2673f3006ef974cab9954367ac41d",
+        "payload": {
+          "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+          "platform": "darwin",
+          "node": "v24.20.0",
+          "bun": "1.4.0",
+          "install": {
+            "binPath": "<workspace>/node_modules/.bin/archctx",
+            "binKind": "posix-shim",
+            "helpOk": true,
+            "hasDaemonCommand": true,
+            "hasMcpCommand": true,
+            "hasDoctorCommand": true
+          },
+          "transport": {
+            "protocol": "http-loopback",
+            "bindHost": "127.0.0.1",
+            "loopbackOnly": true
+          },
+          "controlFiles": {
+            "connectionPath": "/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/archctx-platform-ipc-state-MK17wc/repositories/repo.a2cd4e488e6a0004/worktrees/ws.a2cd4e488e6a0004/archctxd.json",
+            "lockPath": "/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/archctx-platform-ipc-state-MK17wc/repositories/repo.a2cd4e488e6a0004/worktrees/ws.a2cd4e488e6a0004/archctxd.lock",
+            "runtimeStateRoot": "/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/archctx-platform-ipc-state-MK17wc",
+            "storageRepositoryId": "repo.a2cd4e488e6a0004",
+            "storageWorkspaceId": "ws.a2cd4e488e6a0004",
+            "npmGlobalInstallState": "forbidden",
+            "connectionMode": "600",
+            "lockMode": "600",
+            "windowsAcl": null,
+            "tokenRedactedFromStatus": true
+          },
+          "lifecycle": {
+            "started": true,
+            "statusRunning": true,
+            "stopped": true
+          }
+        }
+      },
+      {
+        "name": "platform-ipc-permission-macos-15-node-25.x",
+        "artifactId": 10851882209,
+        "archiveDigest": "sha256:c2a752a35d0897a8f488be249f2a5c97d976443db33cb1e09753bd659a87ab69",
+        "payloadSha256": "e3b498206b319011a8b69f574cb72806b75ba5608e00f79582f66a4669291480",
+        "payload": {
+          "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+          "platform": "darwin",
+          "node": "v25.9.0",
+          "bun": "1.4.0",
+          "install": {
+            "binPath": "<workspace>/node_modules/.bin/archctx",
+            "binKind": "posix-shim",
+            "helpOk": true,
+            "hasDaemonCommand": true,
+            "hasMcpCommand": true,
+            "hasDoctorCommand": true
+          },
+          "transport": {
+            "protocol": "http-loopback",
+            "bindHost": "127.0.0.1",
+            "loopbackOnly": true
+          },
+          "controlFiles": {
+            "connectionPath": "/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/archctx-platform-ipc-state-KcOEZA/repositories/repo.5f1d94e9abeb4fe3/worktrees/ws.5f1d94e9abeb4fe3/archctxd.json",
+            "lockPath": "/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/archctx-platform-ipc-state-KcOEZA/repositories/repo.5f1d94e9abeb4fe3/worktrees/ws.5f1d94e9abeb4fe3/archctxd.lock",
+            "runtimeStateRoot": "/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/archctx-platform-ipc-state-KcOEZA",
+            "storageRepositoryId": "repo.5f1d94e9abeb4fe3",
+            "storageWorkspaceId": "ws.5f1d94e9abeb4fe3",
+            "npmGlobalInstallState": "forbidden",
+            "connectionMode": "600",
+            "lockMode": "600",
+            "windowsAcl": null,
+            "tokenRedactedFromStatus": true
+          },
+          "lifecycle": {
+            "started": true,
+            "statusRunning": true,
+            "stopped": true
+          }
+        }
+      },
+      {
+        "name": "platform-ipc-permission-ubuntu-latest-node-22.22.x",
+        "artifactId": 10852127795,
+        "archiveDigest": "sha256:6d8964235ad2170edc80180318a778e86ca523374579b3fbbc1eec119fc9bad9",
+        "payloadSha256": "9c48feeaf45228b8b236dae2ffd3942a9b28f1ff485960ab0e141696134de01b",
+        "payload": {
+          "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+          "platform": "linux",
+          "node": "v22.22.3",
+          "bun": "1.4.0",
+          "install": {
+            "binPath": "<workspace>/node_modules/.bin/archctx",
+            "binKind": "posix-shim",
+            "helpOk": true,
+            "hasDaemonCommand": true,
+            "hasMcpCommand": true,
+            "hasDoctorCommand": true
+          },
+          "transport": {
+            "protocol": "http-loopback",
+            "bindHost": "127.0.0.1",
+            "loopbackOnly": true
+          },
+          "controlFiles": {
+            "connectionPath": "/tmp/archctx-platform-ipc-state-AHMksT/repositories/repo.78fe46a5cd755c71/worktrees/ws.78fe46a5cd755c71/archctxd.json",
+            "lockPath": "/tmp/archctx-platform-ipc-state-AHMksT/repositories/repo.78fe46a5cd755c71/worktrees/ws.78fe46a5cd755c71/archctxd.lock",
+            "runtimeStateRoot": "/tmp/archctx-platform-ipc-state-AHMksT",
+            "storageRepositoryId": "repo.78fe46a5cd755c71",
+            "storageWorkspaceId": "ws.78fe46a5cd755c71",
+            "npmGlobalInstallState": "forbidden",
+            "connectionMode": "600",
+            "lockMode": "600",
+            "windowsAcl": null,
+            "tokenRedactedFromStatus": true
+          },
+          "lifecycle": {
+            "started": true,
+            "statusRunning": true,
+            "stopped": true
+          }
+        }
+      },
+      {
+        "name": "platform-ipc-permission-ubuntu-latest-node-24.x",
+        "artifactId": 10851404350,
+        "archiveDigest": "sha256:36c1fffcb3394613c962e10def2a3c355aab29e67d8d70523625ec554bc6d290",
+        "payloadSha256": "dcb21689e0e4248ae1a45a822d7197f2d9d7b7b892190f419ecb7217963c35d3",
+        "payload": {
+          "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+          "platform": "linux",
+          "node": "v24.21.0",
+          "bun": "1.4.0",
+          "install": {
+            "binPath": "<workspace>/node_modules/.bin/archctx",
+            "binKind": "posix-shim",
+            "helpOk": true,
+            "hasDaemonCommand": true,
+            "hasMcpCommand": true,
+            "hasDoctorCommand": true
+          },
+          "transport": {
+            "protocol": "http-loopback",
+            "bindHost": "127.0.0.1",
+            "loopbackOnly": true
+          },
+          "controlFiles": {
+            "connectionPath": "/tmp/archctx-platform-ipc-state-nTGWxJ/repositories/repo.5b1f9c4f8cc5ceb4/worktrees/ws.5b1f9c4f8cc5ceb4/archctxd.json",
+            "lockPath": "/tmp/archctx-platform-ipc-state-nTGWxJ/repositories/repo.5b1f9c4f8cc5ceb4/worktrees/ws.5b1f9c4f8cc5ceb4/archctxd.lock",
+            "runtimeStateRoot": "/tmp/archctx-platform-ipc-state-nTGWxJ",
+            "storageRepositoryId": "repo.5b1f9c4f8cc5ceb4",
+            "storageWorkspaceId": "ws.5b1f9c4f8cc5ceb4",
+            "npmGlobalInstallState": "forbidden",
+            "connectionMode": "600",
+            "lockMode": "600",
+            "windowsAcl": null,
+            "tokenRedactedFromStatus": true
+          },
+          "lifecycle": {
+            "started": true,
+            "statusRunning": true,
+            "stopped": true
+          }
+        }
+      },
+      {
+        "name": "platform-ipc-permission-ubuntu-latest-node-25.x",
+        "artifactId": 10851817383,
+        "archiveDigest": "sha256:db04e27bcbd6c871ec503054de7360a1ffc4412dca7b564a0bcd82c0f14e18ac",
+        "payloadSha256": "02637f0c5b46450e3e8eb727e37b81b3fc506f37a7490420883abed315083d78",
+        "payload": {
+          "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+          "platform": "linux",
+          "node": "v25.9.0",
+          "bun": "1.4.0",
+          "install": {
+            "binPath": "<workspace>/node_modules/.bin/archctx",
+            "binKind": "posix-shim",
+            "helpOk": true,
+            "hasDaemonCommand": true,
+            "hasMcpCommand": true,
+            "hasDoctorCommand": true
+          },
+          "transport": {
+            "protocol": "http-loopback",
+            "bindHost": "127.0.0.1",
+            "loopbackOnly": true
+          },
+          "controlFiles": {
+            "connectionPath": "/tmp/archctx-platform-ipc-state-IXTHgT/repositories/repo.15d7302f1c360fc9/worktrees/ws.15d7302f1c360fc9/archctxd.json",
+            "lockPath": "/tmp/archctx-platform-ipc-state-IXTHgT/repositories/repo.15d7302f1c360fc9/worktrees/ws.15d7302f1c360fc9/archctxd.lock",
+            "runtimeStateRoot": "/tmp/archctx-platform-ipc-state-IXTHgT",
+            "storageRepositoryId": "repo.15d7302f1c360fc9",
+            "storageWorkspaceId": "ws.15d7302f1c360fc9",
+            "npmGlobalInstallState": "forbidden",
+            "connectionMode": "600",
+            "lockMode": "600",
+            "windowsAcl": null,
+            "tokenRedactedFromStatus": true
+          },
+          "lifecycle": {
+            "started": true,
+            "statusRunning": true,
+            "stopped": true
+          }
+        }
+      },
+      {
+        "name": "platform-ipc-permission-windows-latest-node-22.22.x",
+        "artifactId": 10852247317,
+        "archiveDigest": "sha256:8ce99f497804d498cc5c1cf031167e54ed9d8be51ec6eb7b9a7ed2e45aa5af7d",
+        "payloadSha256": "1c851e1c7cb657b216d125f1f1e1007bbba2293bb23c3e7140d302af1e747aea",
+        "payload": {
+          "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+          "platform": "win32",
+          "node": "v22.22.3",
+          "bun": "1.4.0",
+          "install": {
+            "binPath": "<workspace>\\node_modules\\.bin\\archctx.exe",
+            "binKind": "exe",
+            "helpOk": true,
+            "hasDaemonCommand": true,
+            "hasMcpCommand": true,
+            "hasDoctorCommand": true
+          },
+          "transport": {
+            "protocol": "http-loopback",
+            "bindHost": "127.0.0.1",
+            "loopbackOnly": true
+          },
+          "controlFiles": {
+            "connectionPath": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-Gf4o8W\\repositories\\repo.13176456e69639bb\\worktrees\\ws.13176456e69639bb\\archctxd.json",
+            "lockPath": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-Gf4o8W\\repositories\\repo.13176456e69639bb\\worktrees\\ws.13176456e69639bb\\archctxd.lock",
+            "runtimeStateRoot": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-Gf4o8W",
+            "storageRepositoryId": "repo.13176456e69639bb",
+            "storageWorkspaceId": "ws.13176456e69639bb",
+            "npmGlobalInstallState": "forbidden",
+            "connectionMode": "win32-acl",
+            "lockMode": "win32-acl",
+            "windowsAcl": {
+              "connection": {
+                "inheritanceDisabled": true,
+                "accessRuleCount": 1,
+                "ownerMatchesCurrentUser": true,
+                "explicitOwnerFullControlOnly": true
+              },
+              "lock": {
+                "inheritanceDisabled": true,
+                "accessRuleCount": 1,
+                "ownerMatchesCurrentUser": true,
+                "explicitOwnerFullControlOnly": true
+              },
+              "broadReadRejected": true
+            },
+            "tokenRedactedFromStatus": true
+          },
+          "lifecycle": {
+            "started": true,
+            "statusRunning": true,
+            "stopped": true
+          }
+        }
+      },
+      {
+        "name": "platform-ipc-permission-windows-latest-node-24.x",
+        "artifactId": 10851772630,
+        "archiveDigest": "sha256:0aca01e07ac51c5449ca256f62087187497c87978db45679547264361442cdd8",
+        "payloadSha256": "22829739bf82caf20ca9803b2d0c364cd797e6c01cc67cb68aeb0e38b1068fd9",
+        "payload": {
+          "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+          "platform": "win32",
+          "node": "v24.21.0",
+          "bun": "1.4.0",
+          "install": {
+            "binPath": "<workspace>\\node_modules\\.bin\\archctx.exe",
+            "binKind": "exe",
+            "helpOk": true,
+            "hasDaemonCommand": true,
+            "hasMcpCommand": true,
+            "hasDoctorCommand": true
+          },
+          "transport": {
+            "protocol": "http-loopback",
+            "bindHost": "127.0.0.1",
+            "loopbackOnly": true
+          },
+          "controlFiles": {
+            "connectionPath": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-KYFpgy\\repositories\\repo.3a60e890466a16f5\\worktrees\\ws.3a60e890466a16f5\\archctxd.json",
+            "lockPath": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-KYFpgy\\repositories\\repo.3a60e890466a16f5\\worktrees\\ws.3a60e890466a16f5\\archctxd.lock",
+            "runtimeStateRoot": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-KYFpgy",
+            "storageRepositoryId": "repo.3a60e890466a16f5",
+            "storageWorkspaceId": "ws.3a60e890466a16f5",
+            "npmGlobalInstallState": "forbidden",
+            "connectionMode": "win32-acl",
+            "lockMode": "win32-acl",
+            "windowsAcl": {
+              "connection": {
+                "inheritanceDisabled": true,
+                "accessRuleCount": 1,
+                "ownerMatchesCurrentUser": true,
+                "explicitOwnerFullControlOnly": true
+              },
+              "lock": {
+                "inheritanceDisabled": true,
+                "accessRuleCount": 1,
+                "ownerMatchesCurrentUser": true,
+                "explicitOwnerFullControlOnly": true
+              },
+              "broadReadRejected": true
+            },
+            "tokenRedactedFromStatus": true
+          },
+          "lifecycle": {
+            "started": true,
+            "statusRunning": true,
+            "stopped": true
+          }
+        }
+      },
+      {
+        "name": "platform-ipc-permission-windows-latest-node-25.x",
+        "artifactId": 10851717770,
+        "archiveDigest": "sha256:167211d81bcb104300253fadb7906d9fccdc339dfb8684ad85ff58d1b92254e9",
+        "payloadSha256": "e05a21f39cdaf89f1ca061ac0bfb934af36e27075c44d9645a30866012aadbf5",
+        "payload": {
+          "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+          "platform": "win32",
+          "node": "v25.9.0",
+          "bun": "1.4.0",
+          "install": {
+            "binPath": "<workspace>\\node_modules\\.bin\\archctx.exe",
+            "binKind": "exe",
+            "helpOk": true,
+            "hasDaemonCommand": true,
+            "hasMcpCommand": true,
+            "hasDoctorCommand": true
+          },
+          "transport": {
+            "protocol": "http-loopback",
+            "bindHost": "127.0.0.1",
+            "loopbackOnly": true
+          },
+          "controlFiles": {
+            "connectionPath": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-VU7iKy\\repositories\\repo.0fc2aa30ec104518\\worktrees\\ws.0fc2aa30ec104518\\archctxd.json",
+            "lockPath": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-VU7iKy\\repositories\\repo.0fc2aa30ec104518\\worktrees\\ws.0fc2aa30ec104518\\archctxd.lock",
+            "runtimeStateRoot": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-VU7iKy",
+            "storageRepositoryId": "repo.0fc2aa30ec104518",
+            "storageWorkspaceId": "ws.0fc2aa30ec104518",
+            "npmGlobalInstallState": "forbidden",
+            "connectionMode": "win32-acl",
+            "lockMode": "win32-acl",
+            "windowsAcl": {
+              "connection": {
+                "inheritanceDisabled": true,
+                "accessRuleCount": 1,
+                "ownerMatchesCurrentUser": true,
+                "explicitOwnerFullControlOnly": true
+              },
+              "lock": {
+                "inheritanceDisabled": true,
+                "accessRuleCount": 1,
+                "ownerMatchesCurrentUser": true,
+                "explicitOwnerFullControlOnly": true
+              },
+              "broadReadRejected": true
+            },
+            "tokenRedactedFromStatus": true
+          },
+          "lifecycle": {
+            "started": true,
+            "statusRunning": true,
+            "stopped": true
+          }
+        }
+      }
+    ]
+  },
+  "latestCandidate": {
+    "head": "7b16ec641893daae7ae8896875d3d2363dd8976a",
+    "runId": 36110137854,
+    "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854",
+    "workflowConclusion": "cancelled",
+    "jobs": [
+      {
+        "completedAt": "2026-09-25T07:59:26Z",
+        "conclusion": "cancelled",
+        "databaseId": 107991494899,
+        "name": "Governance Verify",
+        "startedAt": "2026-09-25T07:55:24Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:26Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:25Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:27Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:26Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:32Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:27Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:34Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:32Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:41Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:22Z",
+            "conclusion": "cancelled",
+            "name": "Governance verify",
+            "number": 6,
+            "startedAt": "2026-09-25T07:55:41Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:22Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 10,
+            "startedAt": "2026-09-25T07:59:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:22Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 11,
+            "startedAt": "2026-09-25T07:59:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:23Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 12,
+            "startedAt": "2026-09-25T07:59:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:23Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 13,
+            "startedAt": "2026-09-25T07:59:23Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991494899"
+      },
+      {
+        "completedAt": "2026-09-25T07:59:23Z",
+        "conclusion": "cancelled",
+        "databaseId": 107991495068,
+        "name": "ubuntu-latest / Node 24.x",
+        "startedAt": "2026-09-25T07:55:24Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:26Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:25Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:28Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:26Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:31Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:28Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:33Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:40Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:33Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:40Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:55:40Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:41Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:55:40Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:43Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:55:41Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:55:43Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:59:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:59:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:59:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:59:20Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991495068"
+      },
+      {
+        "completedAt": "2026-09-25T07:57:05Z",
+        "conclusion": "failure",
+        "databaseId": 107991495231,
+        "name": "windows-latest / Node 24.x",
+        "startedAt": "2026-09-25T07:55:26Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:29Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:27Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:40Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:45Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:40Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:48Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:45Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:56:23Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:48Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:02Z",
+            "conclusion": "failure",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:56:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:02Z",
+            "conclusion": "skipped",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:57:02Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:02Z",
+            "conclusion": "skipped",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:57:02Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:02Z",
+            "conclusion": "skipped",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:57:02Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:02Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:57:02Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:02Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:57:02Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:04Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:57:02Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:04Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:57:04Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991495231"
+      },
+      {
+        "completedAt": "2026-09-25T07:59:33Z",
+        "conclusion": "cancelled",
+        "databaseId": 107991495267,
+        "name": "macos-15 / Node 24.x",
+        "startedAt": "2026-09-25T07:55:28Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:31Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:33Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:34Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:33Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:36Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:45Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:36Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:45Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:55:45Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:47Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:55:45Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:48Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:55:47Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:27Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:55:48Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:27Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:59:27Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:27Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:59:27Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:28Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:59:27Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:31Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:59:28Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991495267"
+      },
+      {
+        "completedAt": "2026-09-25T07:59:25Z",
+        "conclusion": "cancelled",
+        "databaseId": 107991495287,
+        "name": "ubuntu-latest / Node 22.22.x",
+        "startedAt": "2026-09-25T07:55:25Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:27Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:26Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:28Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:27Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:33Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:28Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:34Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:33Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:41Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:41Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:55:41Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:43Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:55:41Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:43Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:55:43Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:23Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:55:43Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:23Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:59:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:23Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:59:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:23Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:59:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:23Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:59:23Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991495287"
+      },
+      {
+        "completedAt": "2026-09-25T07:59:34Z",
+        "conclusion": "cancelled",
+        "databaseId": 107991495308,
+        "name": "macos-15 / Node 25.x",
+        "startedAt": "2026-09-25T07:55:31Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:33Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:32Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:35Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:33Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:39Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:42Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:39Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:53Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:42Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:54Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:55:53Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:55Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:55:54Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:57Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:55:55Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:29Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:55:57Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:29Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:59:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:29Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:59:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:31Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:59:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:31Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:59:31Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991495308"
+      },
+      {
+        "completedAt": "2026-09-25T07:59:22Z",
+        "conclusion": "cancelled",
+        "databaseId": 107991495310,
+        "name": "ubuntu-latest / Node 25.x",
+        "startedAt": "2026-09-25T07:55:23Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:25Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:24Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:26Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:25Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:31Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:26Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:32Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:39Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:32Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:39Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:55:39Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:40Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:55:39Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:41Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:55:40Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:55:41Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:59:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:59:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:59:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:20Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:59:20Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991495310"
+      },
+      {
+        "completedAt": "2026-09-25T07:59:16Z",
+        "conclusion": "cancelled",
+        "databaseId": 107991495414,
+        "name": "windows-latest / Node 22.22.x",
+        "startedAt": "2026-09-25T07:55:25Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:28Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:26Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:35Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:28Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:49Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:56Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:49Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:58:06Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:56Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:58:37Z",
+            "conclusion": "success",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:58:06Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:58:48Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:58:37Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:58:49Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:58:48Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:12Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:58:49Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:12Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:59:12Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:12Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:59:12Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:14Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:59:12Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:14Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:59:14Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991495414"
+      },
+      {
+        "completedAt": "2026-09-25T07:59:29Z",
+        "conclusion": "cancelled",
+        "databaseId": 107991495488,
+        "name": "macos-15 / Node 22.22.x",
+        "startedAt": "2026-09-25T07:55:27Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:29Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:28Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:31Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:36Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:38Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:36Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:47Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:38Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:47Z",
+            "conclusion": "skipped",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:55:47Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:49Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:55:47Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:50Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:55:49Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:26Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:55:50Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:26Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:59:26Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:26Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:59:26Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:26Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:59:26Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:27Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:59:26Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991495488"
+      },
+      {
+        "completedAt": "2026-09-25T07:59:12Z",
+        "conclusion": "cancelled",
+        "databaseId": 107991495551,
+        "name": "windows-latest / Node 25.x",
+        "startedAt": "2026-09-25T07:55:26Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-09-25T07:55:28Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-09-25T07:55:27Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:34Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-09-25T07:55:28Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:44Z",
+            "conclusion": "success",
+            "name": "Setup Node",
+            "number": 3,
+            "startedAt": "2026-09-25T07:55:34Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:55:46Z",
+            "conclusion": "success",
+            "name": "Setup Bun",
+            "number": 4,
+            "startedAt": "2026-09-25T07:55:44Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:56:17Z",
+            "conclusion": "success",
+            "name": "Install dependencies",
+            "number": 5,
+            "startedAt": "2026-09-25T07:55:46Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:56:51Z",
+            "conclusion": "success",
+            "name": "Windows control-file ACL regression",
+            "number": 6,
+            "startedAt": "2026-09-25T07:56:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:03Z",
+            "conclusion": "success",
+            "name": "Platform IPC permission readback",
+            "number": 7,
+            "startedAt": "2026-09-25T07:56:51Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:57:04Z",
+            "conclusion": "success",
+            "name": "Upload platform IPC permission readback",
+            "number": 8,
+            "startedAt": "2026-09-25T07:57:03Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:09Z",
+            "conclusion": "cancelled",
+            "name": "Verify",
+            "number": 9,
+            "startedAt": "2026-09-25T07:57:04Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:09Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Bun",
+            "number": 16,
+            "startedAt": "2026-09-25T07:59:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:09Z",
+            "conclusion": "skipped",
+            "name": "Post Setup Node",
+            "number": 17,
+            "startedAt": "2026-09-25T07:59:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:11Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 18,
+            "startedAt": "2026-09-25T07:59:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-09-25T07:59:11Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 19,
+            "startedAt": "2026-09-25T07:59:11Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36110137854/job/107991495551"
+      }
+    ],
+    "failedJobId": 107991495231,
+    "observedError": "Windows native ACL operation failed",
+    "failingCase": "control credentials are private at creation, readable and never overwrite another file",
+    "observedCaseDurationMs": 10024.63,
+    "rootCause": "unproven; native subprocess diagnostics are suppressed",
+    "remainingJobsCancelledAfterFailure": true
+  },
+  "stopReason": "Three repair rounds reached; no additional fix or retry.",
+  "historicalFg6Promoted": false
+}

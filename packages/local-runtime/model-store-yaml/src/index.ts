@@ -175,9 +175,9 @@ export function initializeArchContextModel(root: string, productName = "ArchCont
     nonGoals: [],
     riskDomains: []
   });
-  addYaml(".archcontext/model/nodes/capability.architecture-context.yaml", {
+  addYaml(".archcontext/model/nodes/capability.architecture.context.yaml", {
     schemaVersion: "archcontext.node/v2",
-    id: "capability.architecture-context",
+    id: "capability.architecture.context",
     kind: "capability",
     name: "Architecture Context",
     status: "active",

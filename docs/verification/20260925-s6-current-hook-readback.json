@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "archcontext.s6-current-hook-repair/v1",
+  "baseCommit": "8b5b37a79dc2cf367c310f39f5447e6bfe341c2d",
+  "rootCause": "Harness README refresh b24808c removed product-specific phrases; v1 also consumed an obsolete checkpoint adapter fixture instead of the current enqueue contract.",
+  "preFixFailures": [
+    "assertion centralHookComplete must be true",
+    "centralHook.hookReadmeCentralFirst must be true"
+  ],
+  "regressionGuard": "scripts/practice-assets-s6-docs-ops-readback.test.ts",
+  "preFixTestExit": 1,
+  "sourceDigests": {
+    "scripts/practice-assets-s6-docs-ops-readback.ts": "sha256:11195cbf6b4b4799f8bd9ec39afd9e736f16deb2a98a135584481c6fca46f733",
+    "scripts/practice-assets-s6-docs-ops-readback.test.ts": "sha256:9cd77c7204589f423c2ef06394d0c6ae863787f7bc6f4079b9d1921d9c31e49c",
+    "docs/runbooks/practice-assets-v1.md": "sha256:5ffdb1b354111d9558ae9339d89a33c01c765f4e27063f274c6d9df4b6f0e495",
+    ".ai/hooks/README.md": "sha256:c0f63cd9bc1704bbd6933189fe6fec885cca608d7ea85a0b5bbeb74e898f8c31",
+    "packages/surfaces/cli/src/main.ts": "sha256:3a827e3999b5827e9481bb0e77c46901029b922bb58ddea6617c6f807fcfb2ce"
+  },
+  "validation": {
+    "docsAndHookInspectorTests": {
+      "passed": 14,
+      "failed": 0,
+      "assertions": 61
+    },
+    "cliHookTests": {
+      "passed": 2,
+      "failed": 0,
+      "assertions": 29
+    },
+    "typecheck": true,
+    "canonicalV2RunAndInspect": true,
+    "acceptanceLedgers": {
+      "mainEntries": 192,
+      "practiceEntries": 14
+    }
+  },
+  "historicalV1Archive": "docs/verification/archive/s6-docs-ops-v1",
+  "scope": "Current docs and CLI adapter contract; historical capture fixtures are not a new installed-host or kernel egress measurement."
+}

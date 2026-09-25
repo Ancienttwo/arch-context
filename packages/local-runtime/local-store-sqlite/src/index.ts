@@ -1,3 +1,4 @@
+import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { isProcessAlive } from "../../process-liveness/src/index";
 import { ARCHCONTEXT_LOCAL_STORE_PATH_ENV, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
 export { ARCHCONTEXT_STATE_DIR_ENV, ARCHCONTEXT_LOCAL_STORE_PATH_ENV, defaultArchContextStateRoot, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
@@ -1470,6 +1471,8 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recordProjectionApplyReceipt(journalId: string, receipt: ProjectionApplyReceiptV1): Promise<void>;
   inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined>;
   listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]>;
+  readCommittedChangeSet(root: string, journalId: string): Promise<CommittedChangeSetForTaskSession | undefined>;
+  readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined>;
   consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
   appendArchitectureEventsAndCommitChangeSet(
@@ -2251,6 +2254,34 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     }
     return matched;
   }
+
+  async readCommittedChangeSet(root: string, journalId: string): Promise<CommittedChangeSetForTaskSession | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT journal_id, changeset_id, root, files_json, completed_at, updated_at
+        FROM changeset_journal WHERE journal_id = ? AND status = 'committed'`
+    ).get(journalId);
+    if (!row || canonicalRepositoryRoot(String(row.root)) !== canonicalRepositoryRoot(root)) return undefined;
+    return {
+      journalId: String(row.journal_id),
+      changeSetId: String(row.changeset_id),
+      committedAt: String(row.completed_at ?? row.updated_at),
+      files: committedChangeSetJournalFiles(String(row.files_json), journalId)
+    };
+  }
+
+  async readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT * FROM architecture_events WHERE event_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
+    ).get(
+      architectureLedgerStorageId(input.worktree, input.eventId),
+      input.repository.storageRepositoryId,
+      architectureLedgerWorkspaceKey(input.worktree)
+    );
+    return row ? architectureLedgerEventFromAuthorityRow(input, row) : undefined;
+  }
+
 
   async consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined> {
     const db = await this.database();
@@ -6780,7 +6811,9 @@ function runtimeStateRecoveryLiveDaemonPid(paths: RuntimeStatePaths): number | u
     if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`runtime-state-recovery-daemon-control-invalid:${path}`);
     let pid: number | undefined;
     try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as { pid?: unknown };
+      const body = readPrivateControlFile(path);
+      if (body === undefined) throw new Error("unverified control-file permissions");
+      const parsed = JSON.parse(body) as { pid?: unknown };
       if (typeof parsed.pid === "number" && Number.isInteger(parsed.pid) && parsed.pid > 0) pid = parsed.pid;
     } catch {
       throw new Error(`runtime-state-recovery-daemon-control-invalid:${path}`);
@@ -7719,6 +7752,8 @@ export function committedChangeSetFileOperation(operation: string, journalId: st
       return "delete";
     case "create_entity":
     case "update_entity_fields":
+    case "update_manifest_fields":
+    case "update_adr_references":
     case "write_policy":
     case "write_waiver":
     case "render_projection":

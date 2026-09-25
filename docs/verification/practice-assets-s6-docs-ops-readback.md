@@ -2,7 +2,8 @@
 
 - Task: S6-34 through S6-40 and S6-EG5 through S6-EG7
 - Environment: local-release-readback
-- Generated At: 2026-06-24T05:22:56.623Z
+- Scope: current documentation and CLI adapter contract; referenced runtime/network packets are historical fixtures, not a fresh installed-host capture.
+- Generated At: 2026-09-25T14:35:32.135Z
 - Status: verified
 
 ## Decision

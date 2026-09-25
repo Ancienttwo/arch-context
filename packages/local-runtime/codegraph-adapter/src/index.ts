@@ -1,3 +1,4 @@
+import { assertLocalEgressAllowed, localEgressMode } from "@archcontext/local-runtime/egress-admission";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
@@ -34,6 +35,8 @@ const CODEGRAPH_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
 const CODEGRAPH_QUERY_TIMEOUT_MS = 30_000;
 
 export function disableCodeGraphTelemetryByDefault(env: MutableEnv = process.env): string {
+  localEgressMode(env);
+  if (env[CODEGRAPH_TELEMETRY_ENV] !== undefined && env[CODEGRAPH_TELEMETRY_ENV] !== CODEGRAPH_TELEMETRY_DISABLED_VALUE) assertLocalEgressAllowed("codegraph-telemetry", env);
   env[CODEGRAPH_TELEMETRY_ENV] ??= CODEGRAPH_TELEMETRY_DISABLED_VALUE;
   return env[CODEGRAPH_TELEMETRY_ENV] ?? CODEGRAPH_TELEMETRY_DISABLED_VALUE;
 }
@@ -127,6 +130,7 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
   }
 
   private run(args: string[]): string {
+    disableCodeGraphTelemetryByDefault();
     const invocation = codeGraphCliInvocation(this.binary, this.workspaceRoot);
     try {
       return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
@@ -372,6 +376,7 @@ export class CodeGraphAdapter implements CodeFactsPort {
   }
 
   private assertCompatible(): void {
+    disableCodeGraphTelemetryByDefault();
     if (this.provider.version !== REQUIRED_CODEGRAPH_VERSION) {
       throw new Error(`CodeGraph ${REQUIRED_CODEGRAPH_VERSION} required, got ${this.provider.version}`);
     }
@@ -1129,6 +1134,7 @@ function normalizedIndexPath(path: string): string {
 }
 
 function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[]): string {
+  disableCodeGraphTelemetryByDefault();
   const invocation = codeGraphCliInvocation(binary, workspaceRoot);
   try {
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {

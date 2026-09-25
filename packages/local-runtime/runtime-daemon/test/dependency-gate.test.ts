@@ -74,7 +74,7 @@ async function fixture(options: {
       id,
       kind: "module",
       name: id,
-      parent: "capability.architecture-context",
+      parent: "capability.architecture.context",
       status: "active",
       summary: "fixture",
       source: { include: [include] }

@@ -337,7 +337,7 @@ describe("daemon Explorer server", () => {
       expect(staleV2.status).toBe(409);
       expect(((await staleV2.json()) as any).error.code).toBe("AC_PRECONDITION_FAILED");
 
-      const html = await fetch(`${data.url}?token=${data.token}`);
+      const html = await fetch(data.url, { headers: { Authorization: `Bearer ${data.token}` } });
       expect(html.status).toBe(200);
       expect(html.headers.get("content-type")).toContain("text/html");
       expect(html.headers.get("content-security-policy")).toBe("default-src 'none'; connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
@@ -389,17 +389,17 @@ describe("daemon Explorer server", () => {
       }
       expect(expireSession).toBeDefined();
       const data = started.data as any;
-      const beforeExpiry = await fetch(`${data.url}?token=${data.token}`);
+      const beforeExpiry = await fetch(data.url, { headers: { Authorization: `Bearer ${data.token}` } });
       expect(beforeExpiry.status).toBe(200);
       await new Promise((resolve) => setTimeout(resolve, 300));
-      const connectedSse = await fetch(`${data.url}events?token=${data.token}`);
+      const connectedSse = await fetch(`${data.url}events`, { headers: { Authorization: `Bearer ${data.token}` } });
       expect(connectedSse.status).toBe(200);
       const connectedReader = connectedSse.body!.getReader();
       expect((await connectedReader.read()).done).toBe(false);
       now = "2026-06-20T00:00:02.000Z";
-      const expiredHtml = await fetch(`${data.url}?token=${data.token}`);
+      const expiredHtml = await fetch(data.url, { headers: { Authorization: `Bearer ${data.token}` } });
       expect(expiredHtml.status).toBe(401);
-      const expiredSse = await fetch(`${data.url}events?token=${data.token}`);
+      const expiredSse = await fetch(`${data.url}events`, { headers: { Authorization: `Bearer ${data.token}` } });
       expect(expiredSse.status).toBe(401);
       const ambient = await fetch(data.url, { headers: { Cookie: `token=${data.token}` } });
       expect(ambient.status).toBe(401);

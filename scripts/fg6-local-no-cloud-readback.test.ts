@@ -6,6 +6,40 @@ describe("fg6 local no-cloud readback evidence", () => {
     expect(inspectFg6LocalNoCloud(verifiedRecording())).toEqual({ ok: true, failures: [] });
   });
 
+  test("rejects obsolete, absent, simulated or incomplete kernel proof", () => {
+    const mutations = [
+      (r: any) => { r.schemaVersion = "archcontext.fg6-local-no-cloud-readback/v1"; },
+      (r: any) => { delete r.evidence.localEvidence.networkIsolation; },
+      (r: any) => { r.evidence.localEvidence.networkIsolation.descendantDenied = false; },
+      (r: any) => { r.evidence.localEvidence.networkIsolation.loopbackAllowed = false; },
+      (r: any) => { r.evidence.localEvidence.networkIsolation.probes[0].directCode = "ETIMEDOUT"; },
+      (r: any) => { r.evidence.localEvidence.networkIsolation.probes[1].childCode = "ECONNREFUSED"; },
+      (r: any) => { r.evidence.localEvidence.networkIsolation.probes[1].family = "ipv4"; },
+      (r: any) => { r.evidence.localEvidence.networkIsolation.mechanism = "env-only"; },
+      (r: any) => { r.evidence.localEvidence.egress.policyMode = "configured"; }
+    ];
+    for (const mutate of mutations) {
+      const recording = verifiedRecording();
+      mutate(recording);
+      expect(inspectFg6LocalNoCloud(recording).ok).toBe(false);
+    }
+  });
+
+  test("Linux proof requires a distinct namespace with only loopback", () => {
+    const recording = verifiedRecording();
+    const isolation: any = recording.evidence.localEvidence.networkIsolation;
+    isolation.platform = "linux";
+    isolation.mechanism = "linux-network-namespace";
+    isolation.probes.forEach((p: any) => { p.directCode = "ENETUNREACH"; p.childCode = "ENETUNREACH"; });
+    expect(inspectFg6LocalNoCloud(recording).ok).toBe(false);
+    isolation.namespace = { distinctFromParent: true, interfaces: ["lo"] };
+    expect(inspectFg6LocalNoCloud(recording).ok).toBe(true);
+    isolation.namespace.interfaces.push("eth0");
+    expect(inspectFg6LocalNoCloud(recording).ok).toBe(false);
+    isolation.namespace = { distinctFromParent: false, interfaces: ["lo"] };
+    expect(inspectFg6LocalNoCloud(recording).ok).toBe(false);
+  });
+
   test("rejects missing MCP/task lifecycle and secret markers", () => {
     const recording = verifiedRecording();
     recording.evidence.localEvidence.commands = recording.evidence.localEvidence.commands.filter((command) => command !== "mcp install");
@@ -23,7 +57,7 @@ describe("fg6 local no-cloud readback evidence", () => {
 
 function verifiedRecording() {
   return {
-    schemaVersion: "archcontext.fg6-local-no-cloud-readback/v1",
+    schemaVersion: "archcontext.fg6-local-no-cloud-readback/v2",
     acceptanceId: "AC-01",
     environment: "local-release-readback",
     status: "verified",
@@ -32,7 +66,8 @@ function verifiedRecording() {
     command: "node scripts/local-no-cloud-e2e.mjs",
     evidence: {
       localEvidence: {
-        schemaVersion: "archcontext.local-no-cloud-e2e/v1",
+        schemaVersion: "archcontext.local-no-cloud-e2e/v2",
+        networkIsolation: { mechanism: "macos-seatbelt", platform: "darwin", nonLoopbackDenied: true, descendantDenied: true, loopbackAllowed: true, probes: [{ family: "ipv4", directCode: "EPERM", childCode: "EPERM" }, { family: "ipv6", directCode: "EPERM", childCode: "EPERM" }] },
         commands: ["doctor", "mcp install", "init", "sync", "practices validate", "context", "prepare", "status", "checkpoint", "complete", "review"],
         providerEnvRemoved: ["GH_TOKEN", "OPENAI_API_KEY"],
         git: {
@@ -40,6 +75,9 @@ function verifiedRecording() {
         },
         egress: {
           defaultOutbound: "local-only",
+          effectiveOutbound: "local-only",
+          policyMode: "local-only",
+          enforcement: "application-admission",
           cloudContentUpload: "deny",
           secureMcpTunnel: "disabled-by-default",
           thirdPartyTelemetry: "disabled"

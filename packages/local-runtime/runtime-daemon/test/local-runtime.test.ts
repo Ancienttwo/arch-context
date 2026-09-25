@@ -1,46 +1,27 @@
-import { normalizeExistingPath, createGitRepo, createInitializedGitRepo, gitOut, rmSync, tempRepo, removeTempRepo, removeTempPath, sleep, readText, createStartedTestDaemon } from "./runtime-test-fixtures";
+import { normalizeExistingPath, createGitRepo, createInitializedGitRepo, gitOut, rmSync, tempRepo, removeTempRepo, sleep, readText, createStartedTestDaemon } from "./runtime-test-fixtures";
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { verify } from "node:crypto";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint, validateLandscape, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
-import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, type CodeFactsPort, type ExternalDocumentationPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
-import { investigationReportProposalValidationDigest } from "@archcontext/core/agent-orchestrator";
+import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
-import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
-import {
-  createNodeGithubIssueExecutor,
-  preflightGithubIssueDrafts,
-  withGithubIssueBodyFile,
-  type GithubIssueExecutorPort,
-  type GithubIssuePreflightDraft
-} from "../src/github-issue-executor";
-import {
-  architectureDocumentationSourceDigest,
-  architectureDocumentationProjectionWorktreeDigest,
-  loadAgentContextProjectionFiles,
-  loadArchitectureDocumentationInputs,
-  loadCapabilitySourceScaleSignals,
-  loadNativeModelFromArchContext,
-  renderAgentContextProjection,
-  renderArchitectureDocumentationProjection
-} from "@archcontext/core/projection-engine";
+import { createNodeGithubIssueExecutor, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueExecutorPort, type GithubIssuePreflightDraft } from "../src/github-issue-executor";
+import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, loadCapabilitySourceChangesSinceStamps, runtimeDefaultClock } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-runtime-state-"));
-const CONTEXT7_FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429", "timeout", "malformed"] as const;
 const WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 5_000;
-type Context7FailureMatrixCase = typeof CONTEXT7_FAILURE_MATRIX_CASES[number];
 process.env.ARCHCONTEXT_STATE_DIR = RUNTIME_TEST_STATE_ROOT;
 
 afterAll(() => {
@@ -65,19 +46,6 @@ async function waitForStdoutLine(child: ChildProcess, line: string, timeoutMs = 
       }
     });
   });
-}
-
-/**
- * Independent re-serialization of the canonical measured form: the returned context minus the three
- * self-referential extension fields. Deliberately does not import the compiler helper — the point is
- * to prove the recorded `byteLength` matches a payload measured by someone other than its producer.
- */
-function canonicalContextByteLength(context: { extensions: Record<string, unknown> }): number {
-  const extensions = { ...context.extensions };
-  delete extensions.byteLength;
-  delete extensions.budgetExceeded;
-  delete extensions.digest;
-  return Buffer.byteLength(JSON.stringify({ ...context, extensions }), "utf8");
 }
 
 function projectionTestProvenance(root: string, model: ReturnType<typeof loadNativeModelFromArchContext>) {
@@ -253,155 +221,6 @@ function countingCheckpointFacts(): { port: CodeFactsPort; counts: () => { sync:
   return { port, counts: () => ({ sync, buildTaskContext }) };
 }
 
-function fakeExternalDocumentation(
-  onFetch: () => void,
-  mode: "manual" | "prepare-unknowns" = "manual",
-  options: { failFetch?: boolean } = {}
-): ExternalDocumentationPort {
-  return {
-    health() {
-      return {
-        provider: "context7",
-        enabled: true,
-        mode,
-        egress: mode === "prepare-unknowns" ? "prepare-unknowns" : "manual-only",
-        cache: "sqlite",
-        keySource: "none"
-      };
-    },
-    async resolve() {
-      return {
-        schemaVersion: "archcontext.external-docs-resolve/v1",
-        provider: "context7",
-        queryDigest: `sha256:${"3".repeat(64)}`,
-        searchFilterApplied: false,
-        egress: "manual-only",
-        candidates: [{
-          id: "/facebook/react",
-          title: "React",
-          versions: ["18.2.0"]
-        }]
-      };
-    },
-    async fetch(input) {
-      onFetch();
-      if (options.failFetch) throw new Error("context7 unavailable");
-      return {
-        schemaVersion: "archcontext.external-docs-fetch/v1",
-        provider: "context7",
-        cacheStatus: "miss",
-        request: {
-          libraryId: input.libraryId,
-          version: input.version,
-          queryDigest: `sha256:${"4".repeat(64)}`,
-          intent: input.intent
-        },
-        resource: {
-          schemaVersion: "archcontext.external-document/v1",
-          provider: "context7",
-          libraryId: input.libraryId,
-          requestedVersion: input.version,
-          resolvedVersion: input.version,
-          queryDigest: `sha256:${"4".repeat(64)}`,
-          contentDigest: `sha256:${"5".repeat(64)}`,
-          retrievedAt: "2026-06-24T00:00:00.000Z",
-          expiresAt: "2026-07-24T00:00:00.000Z",
-          trust: "external-unverified",
-          enforcement: "advisory-only",
-          cacheStatus: "miss",
-          uri: `archcontext://external-docs/context7/sha256:${"5".repeat(64)}`,
-          byteCount: 38,
-          snippets: [{
-            title: "React useState",
-            contentPreview: "External documentation data for useState.",
-            contentDigest: `sha256:${"5".repeat(64)}`,
-            sourceUri: "https://react.dev/reference/react/useState",
-            byteCount: 38
-          }],
-          warning: "untrusted-documentation-data"
-        }
-      };
-    }
-  };
-}
-
-function context7FailureMatrixProvider(label: Context7FailureMatrixCase): { port: ExternalDocumentationPort; fetchCalls: () => number } {
-  let fetchCalls = 0;
-  const adapter = new Context7ExternalDocumentationAdapter({
-    enabled: label !== "disabled",
-    mode: "prepare-unknowns",
-    retryBudget: 0,
-    rateLimit: false,
-    circuitBreaker: false,
-    transport: context7FailureMatrixTransport(label),
-    clock: () => "2026-06-24T00:00:00.000Z"
-  });
-  return {
-    port: {
-      health: () => adapter.health(),
-      resolve: (input) => adapter.resolve(input),
-      async fetch(input) {
-        fetchCalls += 1;
-        return adapter.fetch(input);
-      }
-    },
-    fetchCalls: () => fetchCalls
-  };
-}
-
-function context7FailureMatrixTransport(label: Context7FailureMatrixCase): Context7Transport {
-  return {
-    async search() {
-      return {
-        searchFilterApplied: true,
-        results: [{
-          id: "/facebook/react",
-          title: "React",
-          versions: ["18.2.0"]
-        }]
-      };
-    },
-    async getContext(input) {
-      if (label === "no-key" && !input.apiKey) {
-        throw new Context7ProviderError("http-error", "Context7 provider rejected missing API key", { statusCode: 401, retryable: false });
-      }
-      if (label === "no-network") throw new TypeError("fetch failed");
-      if (label === "429") {
-        throw new Context7ProviderError("rate-limited", "Context7 provider rate limited request", { statusCode: 429, retryable: false });
-      }
-      if (label === "timeout") {
-        throw new Context7ProviderError("timeout", "Context7 provider request timed out", { retryable: false });
-      }
-      if (label === "malformed") {
-        throw new Context7ProviderError("malformed", "Context7 provider returned malformed response", { retryable: false });
-      }
-      throw new Error(`unexpected failure matrix case: ${label}`);
-    }
-  };
-}
-
-function projectLocalCorePrepareComplete(prepare: any, complete: any) {
-  const context = prepare.data?.context;
-  return {
-    prepareOk: prepare.ok,
-    completeOk: complete.ok,
-    practiceIds: (context?.practiceGuidance?.matches ?? []).map((match: any) => match.practiceId),
-    constraints: context?.constraints,
-    realConstraints: context?.realConstraints,
-    posture: prepare.data?.posture,
-    pressure: prepare.data?.pressure,
-    externalResourceCount: (context?.resources ?? []).filter((resource: any) => resource.type === "external-docs").length,
-    complete: {
-      result: complete.data?.result,
-      summary: complete.data?.summary,
-      findings: complete.data?.findings,
-      practiceViolations: complete.data?.practiceViolations,
-      actionsRequired: complete.data?.actionsRequired,
-      cleanup: complete.data?.cleanup
-    }
-  };
-}
-
 function mutableCycleFacts(): { port: CodeFactsPort; setCycle: (enabled: boolean) => void } {
   let cycle = false;
   const port: CodeFactsPort = {
@@ -543,813 +362,6 @@ describe("local runtime foundation", () => {
       expect((last.data as any).hook.coalescedEventCount).toBe(10);
       expect((last.data as any).resultDigest).toBe((first.data as any).resultDigest);
       expect(facts.counts()).toEqual({ sync: 1, buildTaskContext: 2 });
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("runtime jobs enqueue Git metadata through daemon boundary and claim a lease", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-25T02:00:00.000Z"
-      });
-      mkdirSync(join(root, "src"), { recursive: true });
-      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-
-      const first = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree",
-        event: "post-edit",
-        taskSessionId: "task.runtime-agent",
-        analysisKind: "architecture-delta",
-        risk: "high",
-        uncertainty: "high",
-        coalesceKey: "coalesce.runtime-test",
-        maxAttempts: 2,
-        cooldownMs: 1_000,
-        contextMaxItems: 2
-      });
-      const duplicate = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree",
-        event: "post-edit",
-        taskSessionId: "task.runtime-agent",
-        analysisKind: "architecture-delta",
-        risk: "high",
-        uncertainty: "high",
-        coalesceKey: "coalesce.runtime-test",
-        maxAttempts: 2,
-        cooldownMs: 1_000,
-        contextMaxItems: 2
-      });
-      expect(first.ok).toBe(true);
-      expect(duplicate.ok).toBe(true);
-      expect((first.data as any).enqueued).toBe(true);
-      expect((first.data as any).backpressure).toMatchObject({ accepted: true, maxQueuedJobs: 32, priority: 0 });
-      expect((duplicate.data as any).deduplicated).toBe(true);
-      expect((first.data as any).change.paths).toEqual([{ path: "src/changed.ts", status: "added", rawStatus: "??" }]);
-      expect(JSON.stringify(first.data)).not.toContain("export const changed");
-
-      const list = await daemon.jobsList(root, { statuses: ["queued"] });
-      expect((list.data as any).count).toBe(1);
-      const queued = (list.data as any).jobs[0];
-      expect(queued.job.trigger).toMatchObject({ source: "git_hook", reason: "post-edit" });
-      expect(queued.debounceUntil).toBe("2026-06-25T02:00:01.000Z");
-      expect(queued.job.inputDigest).toBe(queued.job.extensions.investigationContext.inputDigest);
-      expect(queued.job.extensions.investigationContext).toMatchObject({
-        schemaVersion: "archcontext.investigation-context-bundle/v1",
-        taskSessionId: "task.runtime-agent",
-        fingerprint: queued.job.fingerprint,
-        extensions: {
-          ledgerContext: {
-            schemaVersion: "archcontext.investigation-ledger-context/v1",
-            selected: {
-              entities: [],
-              relations: [],
-              constraints: [],
-              evidenceBindings: [],
-              candidateChanges: []
-            }
-          },
-          gitChange: {
-            pathCount: 1,
-            changedPaths: [{ path: "src/changed.ts", status: "added", rawStatus: "??" }]
-          },
-          analysisKind: "architecture-delta"
-        }
-      });
-      expect(queued.job.extensions.queuePlanDigest).toMatch(/^sha256:/);
-      expect(JSON.stringify(queued.job.extensions)).not.toContain("export const changed");
-      expect(JSON.stringify(queued.job.extensions)).not.toContain("diff --git");
-
-      const claim = await daemon.jobsClaim(root, {
-        workerId: "worker.al4",
-        leaseMs: 30_000,
-        now: "2026-06-25T02:00:01.000Z"
-      });
-      expect((claim.data as any).job).toMatchObject({
-        job: { status: "running" },
-        attemptCount: 1,
-        leaseOwner: "worker.al4"
-      });
-      const secondClaim = await daemon.jobsClaim(root, {
-        workerId: "worker.al4-second",
-        leaseMs: 30_000,
-        now: "2026-06-25T02:00:02.000Z"
-      });
-      expect((secondClaim.data as any).job).toBeUndefined();
-
-      const stats = await daemon.jobsStats(root, { now: "2026-06-25T02:00:03.000Z" });
-      expect((stats.data as any)).toMatchObject({
-        schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1",
-        queuedDepth: 0,
-        runningDepth: 1,
-        activeDepth: 1,
-        totalJobCount: 1
-      });
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("runtime jobs reject stale successful completion before worker side effects", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-25T02:20:00.000Z"
-      });
-      mkdirSync(join(root, "src"), { recursive: true });
-      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-
-      const enqueue = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree",
-        event: "post-edit",
-        analysisKind: "architecture-delta",
-        risk: "high",
-        uncertainty: "high",
-        coalesceKey: "coalesce.runtime-stale-complete"
-      });
-      const jobId = (enqueue.data as any).record.job.jobId;
-      const claim = await daemon.jobsClaim(root, {
-        workerId: "worker.stale",
-        leaseMs: 30_000,
-        now: "2026-06-25T02:20:01.000Z"
-      });
-      expect((claim.data as any).job.job.jobId).toBe(jobId);
-
-      execFileSync("git", ["add", "src/changed.ts"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
-      execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "advance-head"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
-      const complete = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.stale",
-        status: "succeeded",
-        outputDigest: digestJson({ staleWorkerOutput: true } as any),
-        now: "2026-06-25T02:20:02.000Z"
-      });
-
-      expect(complete.ok).toBe(false);
-      expect((complete as any).error.code).toBe("AC_CONTEXT_STALE");
-      const expired = await daemon.jobsList(root, { statuses: ["expired"] });
-      expect((expired.data as any).jobs).toHaveLength(1);
-      expect((expired.data as any).jobs[0].job.jobId).toBe(jobId);
-      expect((expired.data as any).jobs[0].lastError).toBe("stale-head-or-worktree");
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("runtime jobs reject duplicate terminal completion before replacing output", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-25T02:25:00.000Z"
-      });
-      mkdirSync(join(root, "src"), { recursive: true });
-      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-
-      const enqueue = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree",
-        event: "post-edit",
-        analysisKind: "architecture-delta",
-        risk: "high",
-        uncertainty: "high",
-        coalesceKey: "coalesce.runtime-duplicate-complete"
-      });
-      const jobId = (enqueue.data as any).record.job.jobId;
-      await daemon.jobsClaim(root, {
-        workerId: "worker.duplicate",
-        leaseMs: 30_000,
-        now: "2026-06-25T02:25:01.000Z"
-      });
-      const outputDigest = digestJson({ workerOutput: "first-completion" } as any);
-      const firstComplete = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.duplicate",
-        status: "succeeded",
-        outputDigest,
-        now: "2026-06-25T02:25:02.000Z"
-      });
-      expect(firstComplete.ok).toBe(true);
-
-      const duplicateComplete = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.duplicate",
-        status: "succeeded",
-        outputDigest: digestJson({ workerOutput: "duplicate-completion" } as any),
-        now: "2026-06-25T02:25:03.000Z"
-      });
-      expect(duplicateComplete.ok).toBe(false);
-      expect((duplicateComplete as any).error.code).toBe("AC_PRECONDITION_FAILED");
-
-      const succeeded = await daemon.jobsList(root, { statuses: ["succeeded"] });
-      expect((succeeded.data as any).jobs).toHaveLength(1);
-      expect((succeeded.data as any).jobs[0].job.outputDigest).toBe(outputDigest);
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("runtime jobs refuse completion, retry, and cancellation issued from another repository", async () => {
-    const owner = createGitRepo();
-    const foreign = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-25T02:40:00.000Z"
-      });
-      mkdirSync(join(owner, "src"), { recursive: true });
-      writeFileSync(join(owner, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-      mkdirSync(join(foreign, "src"), { recursive: true });
-      writeFileSync(join(foreign, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-
-      const enqueue = await daemon.jobsEnqueueGitHook(owner, {
-        source: "worktree",
-        event: "post-edit",
-        analysisKind: "architecture-delta",
-        risk: "high",
-        uncertainty: "high",
-        coalesceKey: "coalesce.runtime-cross-repository"
-      });
-      const jobId = (enqueue.data as any).record.job.jobId;
-      const claim = await daemon.jobsClaim(owner, {
-        workerId: "worker.owner",
-        leaseMs: 30_000,
-        now: "2026-06-25T02:40:01.000Z"
-      });
-      expect((claim.data as any).job.job.jobId).toBe(jobId);
-
-      const crossComplete = await daemon.jobsComplete(foreign, {
-        jobId,
-        workerId: "worker.owner",
-        status: "succeeded",
-        outputDigest: digestJson({ workerOutput: "cross-repository" } as any),
-        now: "2026-06-25T02:40:02.000Z"
-      });
-      expect(crossComplete.ok).toBe(false);
-      expect((crossComplete as any).error.code).toBe("AC_PRECONDITION_FAILED");
-      expect((crossComplete as any).error.reasonCode).toBe("runtime-agent-job-out-of-scope");
-
-      const crossRetry = await daemon.jobsRetry(foreign, {
-        jobId,
-        reason: "cross-repository-retry",
-        now: "2026-06-25T02:40:03.000Z"
-      });
-      expect(crossRetry.ok).toBe(false);
-      expect((crossRetry as any).error.reasonCode).toBe("runtime-agent-job-out-of-scope");
-
-      const crossCancel = await daemon.jobsCancel(foreign, {
-        jobId,
-        reason: "cross-repository-cancel",
-        now: "2026-06-25T02:40:04.000Z"
-      });
-      expect(crossCancel.ok).toBe(false);
-      expect((crossCancel as any).error.reasonCode).toBe("runtime-agent-job-out-of-scope");
-
-      const stillRunning = await daemon.jobsList(owner, { statuses: ["running"] });
-      expect((stillRunning.data as any).jobs).toHaveLength(1);
-      expect((stillRunning.data as any).jobs[0]).toMatchObject({
-        job: { jobId, status: "running" },
-        leaseOwner: "worker.owner"
-      });
-
-      const complete = await daemon.jobsComplete(owner, {
-        jobId,
-        workerId: "worker.owner",
-        status: "failed",
-        error: "owner-failure",
-        now: "2026-06-25T02:40:05.000Z"
-      });
-      expect(complete.ok).toBe(true);
-      const retry = await daemon.jobsRetry(owner, { jobId, reason: "owner-retry", now: "2026-06-25T02:40:06.000Z" });
-      expect(retry.ok).toBe(true);
-      const cancel = await daemon.jobsCancel(owner, { jobId, reason: "owner-cancel", now: "2026-06-25T02:40:07.000Z" });
-      expect(cancel.ok).toBe(true);
-      expect((cancel.data as any).job.job.status).toBe("cancelled");
-    } finally {
-      removeTempRepo(owner);
-      removeTempRepo(foreign);
-    }
-  });
-
-  test("issue #169: runtime jobs reject unsafe completion metadata without changing the running job", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({ localStore: store });
-      writeFileSync(join(root, "changed.ts"), "export const changed = true;\n");
-      const enqueue = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree", event: "post-edit", analysisKind: "architecture-delta",
-        risk: "high", uncertainty: "high", coalesceKey: "privacy-regression"
-      });
-      const jobId = (enqueue.data as any).record.job.jobId;
-      await daemon.jobsClaim(root, { workerId: "privacy-test" });
-      const before = await daemon.jobsList(root);
-      const forbidden = [
-        "-----BEGIN PRIVATE KEY-----",
-        "ghp_" + "x".repeat(24),
-        "github_pat_" + "x".repeat(24),
-        "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after",
-        "x".repeat(8193)
-      ];
-      for (const value of forbidden) {
-        for (const field of ["runMetadata", "error"]) {
-          const result = await daemon.jobsComplete(root, {
-            jobId, workerId: "privacy-test", status: "failed",
-            [field]: field === "runMetadata" ? { summary: value } : value
-          } as any);
-          expect(result.ok).toBe(false);
-          expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
-          expect(await daemon.jobsList(root)).toEqual(before);
-        }
-      }
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("runtime jobs persist provider run metadata on completion", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-25T02:30:00.000Z"
-      });
-      mkdirSync(join(root, "src"), { recursive: true });
-      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-
-      const enqueue = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree",
-        event: "post-edit",
-        analysisKind: "architecture-delta",
-        risk: "high",
-        uncertainty: "high",
-        coalesceKey: "coalesce.runtime-metadata"
-      });
-      const jobId = (enqueue.data as any).record.job.jobId;
-      const claim = await daemon.jobsClaim(root, {
-        workerId: "worker.metadata",
-        leaseMs: 30_000,
-        now: "2026-06-25T02:30:01.000Z"
-      });
-      const claimedJob = (claim.data as any).job.job;
-      const outputDigest = digestJson({ workerOutput: "metadata" } as any);
-
-      const complete = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.metadata",
-        status: "succeeded",
-        outputDigest,
-        runMetadata: {
-          schemaVersion: "archcontext.agent-investigation-run-metadata/v1",
-          runnerId: "runner.codex",
-          provider: "codex",
-          modelId: "codex-test",
-          promptTemplateDigest: claimedJob.promptTemplateDigest,
-          inputDigest: claimedJob.inputDigest,
-          outputDigest,
-          startedAt: "2026-06-25T02:30:01.000Z",
-          completedAt: "2026-06-25T02:30:04.000Z",
-          durationMs: 3_000,
-          outcome: "succeeded",
-          attempts: 1,
-          maxAttempts: 1,
-          fallbackUsed: false
-        },
-        now: "2026-06-25T02:30:04.000Z"
-      });
-
-      expect(complete.ok).toBe(true);
-      expect((complete.data as any).job.job.extensions.agentRun).toMatchObject({
-        schemaVersion: "archcontext.agent-investigation-run-metadata/v1",
-        runnerId: "runner.codex",
-        provider: "codex",
-        modelId: "codex-test",
-        outputDigest,
-        outcome: "succeeded",
-        attempts: 1,
-        fallbackUsed: false
-      });
-      const succeeded = await daemon.jobsList(root, { statuses: ["succeeded"] });
-      expect((succeeded.data as any).jobs[0].job.extensions.agentRun).toMatchObject({
-        provider: "codex",
-        durationMs: 3_000,
-        outputDigest
-      });
-      expect(JSON.stringify((succeeded.data as any).jobs[0].job.extensions.agentRun)).not.toContain("export const changed");
-      expect(JSON.stringify((succeeded.data as any).jobs[0].job.extensions.agentRun)).not.toContain("diff --git");
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("runtime jobs store agent documentation drafts only inside advisory proposal metadata", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-25T02:35:00.000Z"
-      });
-      mkdirSync(join(root, "src"), { recursive: true });
-      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-
-      const enqueue = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree",
-        event: "post-edit",
-        analysisKind: "architecture-delta",
-        risk: "high",
-        uncertainty: "high",
-        coalesceKey: "coalesce.runtime-proposal-plan"
-      });
-      const jobId = (enqueue.data as any).record.job.jobId;
-      const claim = await daemon.jobsClaim(root, {
-        workerId: "worker.proposal",
-        leaseMs: 30_000,
-        now: "2026-06-25T02:35:01.000Z"
-      });
-      const claimedJob = (claim.data as any).job.job;
-      const outputDigest = digestJson({ workerOutput: "proposal-plan" } as any);
-      const proposedDeltaDigest = digestJson({ delta: "selected" } as any);
-      const prose = "## Context\n\nThe deterministic delta selected module.runtime.proposal for review.\n";
-      const proseDigest = digestJson({ prose } as any);
-      const documentationDraftInput = {
-        schemaVersion: "archcontext.agent-documentation-draft/v1",
-        draftId: "agent_doc_draft.runtime_proposal",
-        jobId,
-        reportId: "investigation_report.runtime_proposal",
-        kind: "adr-prose",
-        title: "Runtime proposal ADR prose",
-        prose,
-        proseDigest,
-        targetPath: "docs/adr/ADR-0041-runtime-proposal.md",
-        proposedDeltaDigests: [proposedDeltaDigest],
-        evidenceBindingIds: ["binding.runtime.proposal"],
-        inputDigest: claimedJob.inputDigest,
-        outputDigest,
-        promptTemplateDigest: claimedJob.promptTemplateDigest,
-        acceptedProjection: false,
-        authority: "advisory-only",
-        requiredNextStep: "deterministic-validation",
-        createdAt: "2026-06-25T02:35:03.000Z"
-      };
-      const proposalPlanInput = {
-        schemaVersion: "archcontext.investigation-report-proposal-plan/v1",
-        proposalId: "investigation_proposal.runtime_proposal",
-        jobId,
-        reportId: "investigation_report.runtime_proposal",
-        repository: claimedJob.repository,
-        worktree: claimedJob.worktree,
-        inputDigest: claimedJob.inputDigest,
-        outputDigest,
-        proposedDeltaDigests: [proposedDeltaDigest],
-        proposedDeltas: [],
-        documentationDraftDigests: [digestJson(documentationDraftInput as any)],
-        documentationDrafts: [{
-          ...documentationDraftInput,
-          draftDigest: digestJson(documentationDraftInput as any)
-        }],
-        evidenceBindingIds: ["binding.runtime.proposal"],
-        evidenceIds: ["evidence.runtime.proposal"],
-        validationDigest: investigationReportProposalValidationDigest({
-          jobId,
-          reportId: "investigation_report.runtime_proposal",
-          inputDigest: claimedJob.inputDigest,
-          outputDigest,
-          proposedDeltaDigests: [proposedDeltaDigest],
-          documentationDraftDigests: [digestJson(documentationDraftInput as any)],
-          githubIssueDraftDigests: []
-        }),
-        directMutationAllowed: false,
-        requiredNextStep: "deterministic-validation",
-        forbiddenActions: ["write-ledger", "write-yaml", "write-docs", "apply-changeset", "run-tool", "execute-command"],
-        authority: "advisory-only",
-        retention: "no-raw-source-or-diff-bodies",
-        createdAt: "2026-06-25T02:35:03.000Z"
-      };
-      const proposalPlan = {
-        ...proposalPlanInput,
-        proposalDigest: digestJson(proposalPlanInput as any)
-      } as any;
-
-      const invalid = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.proposal",
-        status: "succeeded",
-        outputDigest,
-        proposalPlan: {
-          ...proposalPlan,
-          documentationDrafts: [{
-            ...proposalPlan.documentationDrafts[0],
-            acceptedProjection: true
-          }]
-        },
-        now: "2026-06-25T02:35:03.500Z"
-      } as any);
-      expect(invalid.ok).toBe(false);
-      expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
-
-      const complete = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.proposal",
-        status: "succeeded",
-        outputDigest,
-        proposalPlan,
-        now: "2026-06-25T02:35:04.000Z"
-      });
-
-      expect(complete.ok).toBe(true);
-      expect((complete.data as any).job.job.extensions.agentRun.proposalPlan.documentationDrafts[0]).toMatchObject({
-        draftId: "agent_doc_draft.runtime_proposal",
-        acceptedProjection: false,
-        authority: "advisory-only",
-        inputDigest: claimedJob.inputDigest,
-        outputDigest
-      });
-      expect(existsSync(join(root, "docs/adr/ADR-0041-runtime-proposal.md"))).toBe(false);
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("runtime jobs reject tampered github issue drafts inside advisory proposal metadata", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-25T02:45:00.000Z"
-      });
-      mkdirSync(join(root, "src"), { recursive: true });
-      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-
-      const enqueue = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree",
-        event: "post-edit",
-        analysisKind: "architecture-delta",
-        risk: "high",
-        uncertainty: "high",
-        coalesceKey: "coalesce.runtime-issue-draft-proposal"
-      });
-      const jobId = (enqueue.data as any).record.job.jobId;
-      const claim = await daemon.jobsClaim(root, {
-        workerId: "worker.issue-draft",
-        leaseMs: 30_000,
-        now: "2026-06-25T02:45:01.000Z"
-      });
-      const claimedJob = (claim.data as any).job.job;
-      const outputDigest = digestJson({ workerOutput: "issue-draft-plan" } as any);
-      const bodyMarkdown = "## Problem\n\nThe legacy wrapper still duplicates the v2 fallback path.\n";
-      const bodyDigest = digestJson({ bodyMarkdown } as any);
-      const githubIssueDraftInput = {
-        schemaVersion: "archcontext.github-issue-draft/v1",
-        draftId: "github_issue_draft.runtime_proposal",
-        jobId,
-        reportId: "investigation_report.runtime_proposal",
-        kind: "task",
-        priority: "P2",
-        title: "Remove legacy wrapper v1 duplication",
-        bodyMarkdown,
-        bodyDigest,
-        labels: ["architecture"],
-        evidence: [{ path: "src/billing/legacy-wrapper-v1.ts", startLine: 1, note: "duplicate of v2 fallback" }],
-        acceptance: ["legacy wrapper removed"],
-        verificationCommands: ["bun test"],
-        baseSha: claimedJob.worktree.headSha,
-        inputDigest: claimedJob.inputDigest,
-        outputDigest,
-        promptTemplateDigest: claimedJob.promptTemplateDigest,
-        authority: "advisory-only",
-        requiredNextStep: "deterministic-validation",
-        createdAt: "2026-06-25T02:45:03.000Z"
-      };
-      const githubIssueDraft = {
-        ...githubIssueDraftInput,
-        draftDigest: digestJson(githubIssueDraftInput as any)
-      };
-      const proposalPlanInput = {
-        schemaVersion: "archcontext.investigation-report-proposal-plan/v1",
-        proposalId: "investigation_proposal.runtime_issue_draft",
-        jobId,
-        reportId: "investigation_report.runtime_proposal",
-        repository: claimedJob.repository,
-        worktree: claimedJob.worktree,
-        inputDigest: claimedJob.inputDigest,
-        outputDigest,
-        proposedDeltaDigests: [],
-        proposedDeltas: [],
-        documentationDraftDigests: [],
-        documentationDrafts: [],
-        githubIssueDraftDigests: [githubIssueDraft.draftDigest],
-        githubIssueDrafts: [githubIssueDraft],
-        evidenceBindingIds: [],
-        evidenceIds: [],
-        validationDigest: investigationReportProposalValidationDigest({
-          jobId,
-          reportId: "investigation_report.runtime_proposal",
-          inputDigest: claimedJob.inputDigest,
-          outputDigest,
-          proposedDeltaDigests: [],
-          documentationDraftDigests: [],
-          githubIssueDraftDigests: [githubIssueDraft.draftDigest]
-        }),
-        directMutationAllowed: false,
-        requiredNextStep: "deterministic-validation",
-        forbiddenActions: ["write-ledger", "write-yaml", "write-docs", "apply-changeset", "run-tool", "execute-command"],
-        authority: "advisory-only",
-        retention: "no-raw-source-or-diff-bodies",
-        createdAt: "2026-06-25T02:45:03.000Z"
-      };
-      const proposalPlan = {
-        ...proposalPlanInput,
-        proposalDigest: digestJson(proposalPlanInput as any)
-      } as any;
-
-      const tamperedBodyDigest = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.issue-draft",
-        status: "succeeded",
-        outputDigest,
-        proposalPlan: {
-          ...proposalPlan,
-          githubIssueDrafts: [{ ...proposalPlan.githubIssueDrafts[0], bodyDigest: `sha256:${"0".repeat(64)}` }]
-        },
-        now: "2026-06-25T02:45:03.500Z"
-      } as any);
-      expect(tamperedBodyDigest.ok).toBe(false);
-      expect((tamperedBodyDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedBodyDigest as any).error.message).toContain("bodyDigest mismatch");
-
-      const tamperedAuthority = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.issue-draft",
-        status: "succeeded",
-        outputDigest,
-        proposalPlan: {
-          ...proposalPlan,
-          githubIssueDrafts: [{ ...proposalPlan.githubIssueDrafts[0], authority: "direct-mutation" }]
-        },
-        now: "2026-06-25T02:45:03.600Z"
-      } as any);
-      expect(tamperedAuthority.ok).toBe(false);
-      expect((tamperedAuthority as any).error.message).toContain("advisory-only");
-
-      // A draft's own draftDigest is recomputed from its full content (not just bodyDigest), so
-      // tampering the digest label itself is caught even though every other field is untouched.
-      const tamperedDraftDigest = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.issue-draft",
-        status: "succeeded",
-        outputDigest,
-        proposalPlan: {
-          ...proposalPlan,
-          githubIssueDrafts: [{ ...proposalPlan.githubIssueDrafts[0], draftDigest: `sha256:${"1".repeat(64)}` }]
-        },
-        now: "2026-06-25T02:45:03.700Z"
-      } as any);
-      expect(tamperedDraftDigest.ok).toBe(false);
-      expect((tamperedDraftDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedDraftDigest as any).error.message).toContain("draftDigest mismatch");
-
-      // plan.githubIssueDraftDigests (what actually gets written to the architecture ledger) must
-      // match the digests of plan.githubIssueDrafts, even though the drafts themselves are untouched.
-      const tamperedDigestsArray = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.issue-draft",
-        status: "succeeded",
-        outputDigest,
-        proposalPlan: {
-          ...proposalPlan,
-          githubIssueDraftDigests: []
-        },
-        now: "2026-06-25T02:45:03.800Z"
-      } as any);
-      expect(tamperedDigestsArray.ok).toBe(false);
-      expect((tamperedDigestsArray as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedDigestsArray as any).error.message).toContain("githubIssueDraftDigests must match");
-
-      // plan.validationDigest is a claimed top-level integrity digest over the plan's own digests
-      // (proposedDeltaDigests/documentationDraftDigests/githubIssueDraftDigests); the daemon must
-      // recompute it rather than trust the claim, so forging it must be caught even though every
-      // array it covers is untouched.
-      const tamperedValidationDigest = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.issue-draft",
-        status: "succeeded",
-        outputDigest,
-        proposalPlan: {
-          ...proposalPlan,
-          validationDigest: digestJson({ validation: "forged" } as any)
-        },
-        now: "2026-06-25T02:45:03.850Z"
-      } as any);
-      expect(tamperedValidationDigest.ok).toBe(false);
-      expect((tamperedValidationDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedValidationDigest as any).error.message).toContain("validationDigest mismatch");
-
-      // plan.proposalDigest is recomputed as digestJson(plan minus proposalDigest) and must cover
-      // the whole plan; forging just the digest label, with every other field untouched, must
-      // still be caught.
-      const tamperedProposalDigest = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.issue-draft",
-        status: "succeeded",
-        outputDigest,
-        proposalPlan: {
-          ...proposalPlan,
-          proposalDigest: `sha256:${"2".repeat(64)}`
-        },
-        now: "2026-06-25T02:45:03.900Z"
-      } as any);
-      expect(tamperedProposalDigest.ok).toBe(false);
-      expect((tamperedProposalDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedProposalDigest as any).error.message).toContain("proposalDigest mismatch");
-
-      const complete = await daemon.jobsComplete(root, {
-        jobId,
-        workerId: "worker.issue-draft",
-        status: "succeeded",
-        outputDigest,
-        proposalPlan,
-        now: "2026-06-25T02:45:04.000Z"
-      });
-      expect(complete.ok).toBe(true);
-      expect((complete.data as any).job.job.extensions.agentRun.proposalPlan.githubIssueDrafts[0]).toMatchObject({
-        draftId: "github_issue_draft.runtime_proposal",
-        authority: "advisory-only",
-        priority: "P2"
-      });
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("runtime jobs skip generated projection hook changes without enqueueing", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-25T02:10:00.000Z"
-      });
-      mkdirSync(join(root, ".archcontext", "generated"), { recursive: true });
-      writeFileSync(join(root, ".archcontext", "generated", "ARCHITECTURE.md"), "<!-- Generated by ArchContext. Do not edit by hand. -->\n", "utf8");
-
-      const skipped = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree",
-        event: "post-write"
-      });
-      expect(skipped.ok).toBe(true);
-      expect((skipped.data as any)).toMatchObject({
-        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
-        skipped: true,
-        enqueued: false,
-        reasonCode: "archcontext-generated-projection",
-        source: "worktree"
-      });
-      expect((skipped.data as any).change.paths).toEqual([
-        { path: ".archcontext/generated/ARCHITECTURE.md", status: "added", rawStatus: "??" }
-      ]);
-      expect(JSON.stringify(skipped.data)).not.toContain("Do not edit by hand");
-
-      const list = await daemon.jobsList(root);
-      expect((list.data as any).count).toBe(0);
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("runtime jobs skip clean hook changes without enqueueing", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-25T02:11:00.000Z"
-      });
-
-      const skipped = await daemon.jobsEnqueueGitHook(root, {
-        source: "worktree",
-        event: "post-write"
-      });
-      expect(skipped.ok).toBe(true);
-      expect((skipped.data as any)).toMatchObject({
-        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
-        skipped: true,
-        enqueued: false,
-        reasonCode: "no-changed-paths",
-        source: "worktree",
-        analysisKind: "architecture-delta"
-      });
-
-      const list = await daemon.jobsList(root);
-      expect((list.data as any).count).toBe(0);
     } finally {
       removeTempRepo(root);
     }
@@ -1557,8 +569,8 @@ describe("local runtime foundation", () => {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Freshness Gate App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -1598,11 +610,11 @@ describe("local runtime foundation", () => {
       const finding = (stale.data as any).findings.find((entry: any) => entry.id === "stale-context");
       expect(finding.type).toBe("stale-context");
       expect(finding.message).toContain("projection-source-changed-since-verified-commit");
-      expect(finding.message).toContain(`capability.architecture-context(1@${verifiedCommit})`);
+      expect(finding.message).toContain(`capability.architecture.context(1@${verifiedCommit})`);
       const gate = (stale.data as any).extensions.projectionFreshnessGate;
       expect(gate.ok).toBe(false);
       expect(gate.staleNodes).toEqual([{
-        nodeId: "capability.architecture-context",
+        nodeId: "capability.architecture.context",
         verifiedAgainst: expect.objectContaining({ commit: verifiedCommit }),
         changedPathCount: 1,
         changedPaths: ["src/app.ts"],
@@ -1634,8 +646,8 @@ describe("local runtime foundation", () => {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Fixed Point App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -1674,7 +686,7 @@ describe("local runtime foundation", () => {
 
       // The manifest still names the commit the content was generated against, not the projection
       // commit — and the document itself names no commit at all.
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(appliedAtCommit);
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(appliedAtCommit);
       expect(readText(join(root, "docs/architecture/modules/capability-architecture-context.md")))
         .not.toContain(appliedAtCommit);
     } finally {
@@ -1696,8 +708,8 @@ describe("local runtime foundation", () => {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Deadlock App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -1709,7 +721,7 @@ describe("local runtime foundation", () => {
       gitCommitAll(root, "project architecture documentation");
       const docPath = join(root, "docs/architecture/modules/capability-architecture-context.md");
       const beforeDoc = readText(docPath);
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(verifiedCommit);
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(verifiedCommit);
 
       // Same line, same line count, same files, same imports: no rendered assertion moves.
       writeFileSync(join(root, "src/app.ts"), "export const app = 2;\n", "utf8");
@@ -1730,7 +742,7 @@ describe("local runtime foundation", () => {
       // The re-verification advanced the stamp in the manifest and left the document untouched —
       // byte-identical, marker attributes included. This is the churn fix: re-verifying a capability
       // whose footprint moved no longer produces a documentation diff to commit.
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(reverifiedCommit);
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(reverifiedCommit);
       expect(afterDoc).toBe(beforeDoc);
 
       gitCommitAll(root, "re-verify the architecture documentation");
@@ -1763,8 +775,8 @@ describe("local runtime foundation", () => {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Rebase App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -1783,14 +795,14 @@ describe("local runtime foundation", () => {
       const loaded = loadArchitectureDocumentationInputs(root);
       const measured = loadCapabilitySourceChangesSinceStamps(root, loaded.model);
       expect(measured).toEqual([{
-        nodeId: "capability.architecture-context",
+        nodeId: "capability.architecture.context",
         commit: orphanedCommit,
         status: "unmeasurable",
         reason: expect.any(String)
       }]);
 
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-rebase-reverify");
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(gitOut(root, "rev-parse", "HEAD"));
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(gitOut(root, "rev-parse", "HEAD"));
       expect(readText(manifestPath)).not.toContain(orphanedCommit);
     } finally {
       await daemon?.stop();
@@ -1999,8 +1011,8 @@ setInterval(() => undefined, 1 << 30);
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Stamp Injection App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -2043,8 +1055,8 @@ setInterval(() => undefined, 1 << 30);
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Path Framing App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -2053,14 +1065,14 @@ setInterval(() => undefined, 1 << 30);
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-path-framing");
       gitCommitAll(root, "project architecture documentation");
       const stampCommit = gitOut(root, "rev-parse", "HEAD~1");
-      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(stampCommit);
+      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(stampCommit);
 
       writeFileSync(join(root, "src/資料.ts"), "export const data = 1;\n", "utf8");
       gitCommitAll(root, "add a non-ASCII source path");
 
       const loaded = loadArchitectureDocumentationInputs(root);
       expect(loadCapabilitySourceChangesSinceStamps(root, loaded.model)).toEqual([{
-        nodeId: "capability.architecture-context",
+        nodeId: "capability.architecture.context",
         commit: stampCommit,
         status: "changed",
         changedPathCount: 1
@@ -2094,6 +1106,33 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
+  test("explicit root contract projection preserves human bytes and rejects forged bodies", async () => {
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon();
+      await daemon.init(root, "Root Contract App");
+      const nodePath = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
+      writeFileSync(nodePath, `${readText(nodePath)}extensions:\n  contractFiles:\n    agents: "AGENTS.md"\n    claude: "CLAUDE.md"\n`);
+      const human = "# Human routing\n\nKeep these trailing spaces.  \n\n\n";
+      for (const path of ["AGENTS.md", "CLAUDE.md"]) writeFileSync(join(root, path), human);
+      const operation = agentContextProjectionOperation(root);
+      expect(operation.projectionFiles.every(file => file.body.startsWith(human))).toBe(true);
+      const planned = await daemon.planUpdate(root, { id: "changeset.root-contract", reason: { taskSessionId: "task.root-contract" }, operations: [operation] });
+      expect((planned.data as any).preview.allowed).toBe(true);
+      const applied = await daemon.applyUpdate(root, { id: "changeset.root-contract", approved: true, expectedWorktreeDigest: (planned.data as any).draft.base.worktreeDigest });
+      expect(applied.ok).toBe(true);
+      expect(readText(join(root, "AGENTS.md"))).toBe(readText(join(root, "CLAUDE.md")));
+      expect(agentContextProjectionOperation(root).projectionFiles).toEqual(operation.projectionFiles.map(file => ({ ...file, expectedHash: digestJson({ body: file.body }) })));
+      const forged = agentContextProjectionOperation(root);
+      forged.projectionFiles[0]!.body = forged.projectionFiles[0]!.body.replace("Human routing", "Attacker routing");
+      const denied = await daemon.planUpdate(root, { id: "changeset.root-forged", reason: { taskSessionId: "task.root-contract" }, operations: [forged] });
+      expect((denied.data as any).preview.allowed).toBe(false);
+      await expect(daemon.applyUpdate(root, { id: "changeset.root-forged", approved: true, expectedWorktreeDigest: (denied.data as any).draft.base.worktreeDigest })).rejects.toThrow();
+      expect(readText(join(root, "AGENTS.md"))).toBe(operation.projectionFiles.find(file => file.path === "AGENTS.md")!.body);
+    } finally { await daemon?.stop(); removeTempRepo(root); }
+  });
+
   test("agent-context projection applies through its own ChangeSet operation kind and is idempotent", async () => {
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
@@ -2101,8 +1140,8 @@ setInterval(() => undefined, 1 << 30);
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Agent Context App");
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -2133,7 +1172,7 @@ setInterval(() => undefined, 1 << 30);
       });
       expect(applied.ok).toBe(true);
       expect(readText(claudePath)).toContain("Hand-written routing notes.");
-      expect(readText(claudePath)).toContain('id="capability.architecture-context"');
+      expect(readText(claudePath)).toContain('id="capability.architecture.context"');
       expect(readText(agentsPath)).toContain("# Agent Context: Architecture Context");
 
       // Second pass over its own output is byte-identical.
@@ -2154,7 +1193,7 @@ setInterval(() => undefined, 1 << 30);
       // A hand-edited machine region is reported with the file, the node and both digests.
       writeFileSync(claudePath, before.claude.replace("Architecture Context", "Tampered Name"), "utf8");
       expect(() => agentContextProjectionOperation(root)).toThrow("agent-context-marker-output-digest-mismatch: src/CLAUDE.md");
-      expect(() => agentContextProjectionOperation(root)).toThrow("node capability.architecture-context");
+      expect(() => agentContextProjectionOperation(root)).toThrow("node capability.architecture.context");
       writeFileSync(claudePath, before.claude, "utf8");
 
       // The same paths carried by any other operation kind stay outside the write allowlist.
@@ -2186,8 +1225,8 @@ setInterval(() => undefined, 1 << 30);
       // A declared capability footprint is what freshness grades, so the repository needs one
       // before an undiffable stamp can fail closed against anything.
       writeFileSync(
-        join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"),
-        `${readText(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
         "utf8"
       );
       mkdirSync(join(root, "src"), { recursive: true });
@@ -2215,397 +1254,6 @@ setInterval(() => undefined, 1 << 30);
         .toEqual(["projection-change-set-unavailable"]);
     } finally {
       await daemon?.stop();
-      removeTempRepo(root);
-    }
-  });
-
-  test("external docs manual fetch is pinned cached and excluded from prepare and complete", async () => {
-    const root = tempRepo();
-    let providerCalls = 0;
-    const daemon = await createStartedTestDaemon({
-      clock: () => "2026-06-24T00:00:00.000Z",
-      externalDocumentation: fakeExternalDocumentation(() => providerCalls++)
-    });
-    try {
-      await daemon.init(root, "Docs App");
-      const defaultStatus = await daemon.docs(root, { command: "status" });
-      expect((defaultStatus.data as any).defaultPrepareEgress).toBe("none");
-
-      const blockedResolve = await daemon.docs(root, {
-        command: "resolve",
-        libraryName: "React",
-        query: "state hooks"
-      });
-      expect(blockedResolve.ok).toBe(false);
-      expect(providerCalls).toBe(0);
-
-      const pin = await daemon.docs(root, {
-        command: "pin",
-        libraryId: "/facebook/react",
-        version: "18.2.0",
-        approved: true
-      });
-      expect(pin.ok).toBe(true);
-      expect(existsSync(join(root, ".archcontext", "integrations", "context7.lock.yaml"))).toBe(true);
-
-      const firstFetch = await daemon.docs(root, {
-        command: "fetch",
-        libraryId: "/facebook/react",
-        intent: "state hooks",
-        allowNetwork: true
-      });
-      expect(firstFetch.ok).toBe(true);
-      expect((firstFetch.data as any).cacheStatus).toBe("miss");
-      expect((firstFetch.data as any).resource.enforcement).toBe("advisory-only");
-      expect(providerCalls).toBe(1);
-      const resourceUri = (firstFetch.data as any).resource.uri as string;
-
-      const secondFetch = await daemon.docs(root, {
-        command: "fetch",
-        libraryId: "/facebook/react",
-        intent: "state hooks",
-        allowNetwork: true
-      });
-      expect(secondFetch.ok).toBe(true);
-      expect((secondFetch.data as any).cacheStatus).toBe("fresh");
-      expect(providerCalls).toBe(1);
-
-      const resourceRead = await daemon.readResource(root, resourceUri);
-      expect(resourceRead.ok).toBe(true);
-      expect((resourceRead.data as any)).toMatchObject({
-        schemaVersion: "archcontext.resource-read/v1",
-        uri: resourceUri,
-        dataClassification: "external-unverified-documentation",
-        resource: {
-          provider: "context7",
-          libraryId: "/facebook/react",
-          resolvedVersion: "18.2.0",
-          trust: "external-unverified",
-          enforcement: "advisory-only",
-          cacheStatus: "fresh"
-        }
-      });
-      expect((await daemon.readResource(root, "https://context7.com/react")).ok).toBe(false);
-      expect((await daemon.readResource(root, `archcontext://external-docs/context7/sha256:${"9".repeat(64)}`)).ok).toBe(false);
-
-      await daemon.prepare(root, "Use React state hooks", 12_288, 12, "task_docs");
-      await daemon.completeTask(root, { taskSessionId: "task_docs", headSha: "abc123" });
-      expect(providerCalls).toBe(1);
-    } finally {
-      await daemon.stop();
-      removeTempRepo(root);
-    }
-  });
-
-  test("approved docs pin refuses a symlinked lockfile path and leaves the outside target untouched", async () => {
-    const root = tempRepo();
-    const outside = mkdtempSync(join(tmpdir(), "archctx-pin-target-"));
-    const victim = join(outside, "victim.yaml");
-    const daemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
-    try {
-      await daemon.init(root, "Pin Symlink App");
-      writeFileSync(victim, "do-not-touch\n", { encoding: "utf8", mode: 0o644 });
-      const modeBefore = statSync(victim).mode;
-      mkdirSync(join(root, ".archcontext/integrations"), { recursive: true });
-      symlinkSync(victim, join(root, ".archcontext/integrations/context7.lock.yaml"));
-
-      const pin = await daemon.docs(root, {
-        command: "pin",
-        libraryId: "/facebook/react",
-        version: "18.2.0",
-        approved: true
-      });
-
-      expect(pin.ok).toBe(false);
-      expect(JSON.stringify(pin)).toContain("symlink");
-      expect(readText(victim)).toBe("do-not-touch\n");
-      expect(statSync(victim).mode).toBe(modeBefore);
-    } finally {
-      await daemon.stop();
-      removeTempPath(outside);
-      removeTempRepo(root);
-    }
-  });
-
-  test("approved docs pin refuses a symlinked parent of the lockfile path", async () => {
-    const root = tempRepo();
-    const outside = mkdtempSync(join(tmpdir(), "archctx-pin-parent-"));
-    const daemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
-    try {
-      await daemon.init(root, "Pin Parent Symlink App");
-      symlinkSync(outside, join(root, ".archcontext/integrations"));
-
-      const pin = await daemon.docs(root, {
-        command: "pin",
-        libraryId: "/facebook/react",
-        version: "18.2.0",
-        approved: true
-      });
-
-      expect(pin.ok).toBe(false);
-      expect(JSON.stringify(pin)).toContain("symlink");
-      expect(existsSync(join(outside, "context7.lock.yaml"))).toBe(false);
-    } finally {
-      await daemon.stop();
-      removeTempPath(outside);
-      removeTempRepo(root);
-    }
-  });
-
-  test("approved docs pin writes a private lockfile and re-pins over its own previous state", async () => {
-    const root = tempRepo();
-    const lockPath = join(root, ".archcontext/integrations/context7.lock.yaml");
-    const daemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
-    try {
-      await daemon.init(root, "Pin Rewrite App");
-
-      expect((await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true })).ok).toBe(true);
-      if (process.platform !== "win32") {
-        expect(statSync(lockPath).mode & 0o777).toBe(0o600);
-      }
-
-      const second = await daemon.docs(root, { command: "pin", libraryId: "/vercel/next.js", version: "14.0.0", approved: true });
-      expect(second.ok).toBe(true);
-      expect(((second.data as any).lock.libraries as any[]).map((library) => library.libraryId))
-        .toEqual(["/facebook/react", "/vercel/next.js"]);
-      expect(JSON.parse(readText(lockPath)).libraries).toHaveLength(2);
-      if (process.platform !== "win32") {
-        expect(statSync(lockPath).mode & 0o777).toBe(0o600);
-      }
-    } finally {
-      await daemon.stop();
-      removeTempRepo(root);
-    }
-  });
-
-  test("prepare-unknowns adds only advisory external docs resources for exact pinned framework versions", async () => {
-    const root = tempRepo();
-    writeFileSync(join(root, "package.json"), JSON.stringify({
-      name: "react-docs-app",
-      dependencies: { react: "18.2.0" }
-    }, null, 2), "utf8");
-    let providerCalls = 0;
-    const daemon = await createStartedTestDaemon({
-      clock: () => "2026-06-24T00:00:00.000Z",
-      externalDocumentation: fakeExternalDocumentation(() => providerCalls++, "prepare-unknowns")
-    });
-    try {
-      await daemon.init(root, "React Docs App");
-      await daemon.docs(root, {
-        command: "pin",
-        libraryId: "/facebook/react",
-        version: "18.2.0",
-        approved: true
-      });
-
-      const noVersionUnknown = await daemon.prepare(root, "Use React state hooks without changing architecture constraints", 12_288, 12, "task_context7_no_version_unknown");
-      expect(noVersionUnknown.ok).toBe(true);
-      expect(((noVersionUnknown.data as any).context.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(false);
-      expect(providerCalls).toBe(0);
-
-      const first = await daemon.prepare(root, "Use React state hooks and confirm package version unknowns without changing architecture constraints", 12_288, 12, "task_context7_prepare");
-      expect(first.ok).toBe(true);
-      const firstContext = (first.data as any).context;
-      const external = firstContext.resources.find((resource: any) => resource.type === "external-docs");
-      expect(external).toMatchObject({
-        provider: "context7",
-        libraryId: "/facebook/react",
-        packageName: "react",
-        version: "18.2.0",
-        trust: "external-unverified",
-        enforcement: "advisory-only",
-        cacheStatus: "fresh"
-      });
-      expect(external.uri).toMatch(/^archcontext:\/\/external-docs\/context7\/sha256:/);
-      expect(firstContext.unknowns.some((unknown: string) => unknown.includes("react@18.2.0"))).toBe(true);
-      expect(JSON.stringify(firstContext.constraints)).not.toContain("External documentation");
-      expect(JSON.stringify(firstContext.realConstraints)).not.toContain("External documentation");
-      expect(JSON.stringify(firstContext.practiceGuidance.resources)).not.toContain("external-docs");
-      expect(providerCalls).toBe(1);
-
-      const second = await daemon.prepare(root, "Use React state hooks and confirm package version unknowns without changing architecture constraints", 12_288, 12, "task_context7_prepare_2");
-      expect(second.ok).toBe(true);
-      expect(((second.data as any).context.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(true);
-      expect(providerCalls).toBe(1);
-    } finally {
-      await daemon.stop();
-      removeTempRepo(root);
-    }
-  });
-
-  test("Context7 augmentation recomputes byteLength and budgetExceeded over the returned canonical payload", async () => {
-    const root = tempRepo();
-    writeFileSync(join(root, "package.json"), JSON.stringify({
-      name: "react-docs-app",
-      dependencies: { react: "18.2.0" }
-    }, null, 2), "utf8");
-    const daemon = await createStartedTestDaemon({
-      clock: () => "2026-06-24T00:00:00.000Z",
-      externalDocumentation: fakeExternalDocumentation(() => undefined, "prepare-unknowns")
-    });
-    try {
-      await daemon.init(root, "React Docs App");
-      await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true });
-
-      const plainTask = "Use React state hooks without changing architecture constraints";
-      const docsTask = "Use React state hooks and confirm package version unknowns without changing architecture constraints";
-
-      const plain = ((await daemon.prepare(root, plainTask, 1_048_576, 12, "task_bytes_no_docs")).data as any).context;
-      expect(plain.resources.some((resource: any) => resource.type === "external-docs")).toBe(false);
-      expect(plain.extensions.byteLength).toBe(canonicalContextByteLength(plain));
-      expect(plain.extensions.budgetExceeded).toBe(false);
-
-      const augmented = ((await daemon.prepare(root, docsTask, 1_048_576, 12, "task_bytes_docs")).data as any).context;
-      expect(augmented.resources.some((resource: any) => resource.type === "external-docs")).toBe(true);
-      expect(augmented.extensions.externalDocumentationDigest).toMatch(/^sha256:/);
-      expect(augmented.extensions.byteLength).toBe(canonicalContextByteLength(augmented));
-      expect(augmented.extensions.budgetExceeded).toBe(false);
-
-      // A budget between the compiled size and the augmented size must surface as budgetExceeded:
-      // Context7 is what pushes the returned payload over, and it says so on the payload it returns.
-      const maxBytes = canonicalContextByteLength(augmented) - 1;
-      const tight = ((await daemon.prepare(root, docsTask, maxBytes, 12, "task_bytes_docs_tight")).data as any).context;
-      expect(tight.resources.some((resource: any) => resource.type === "external-docs")).toBe(true);
-      expect(tight.extensions.byteLength).toBe(canonicalContextByteLength(tight));
-      expect(tight.extensions.byteLength).toBeGreaterThan(maxBytes);
-      expect(tight.extensions.budgetExceeded).toBe(true);
-    } finally {
-      await daemon.stop();
-      removeTempRepo(root);
-    }
-  });
-
-  test("prepare-unknowns refuses fuzzy manifest versions and missing pins", async () => {
-    const root = tempRepo();
-    writeFileSync(join(root, "package.json"), JSON.stringify({
-      name: "react-docs-app",
-      dependencies: { react: "^18.2.0" }
-    }, null, 2), "utf8");
-    let providerCalls = 0;
-    const daemon = await createStartedTestDaemon({
-      clock: () => "2026-06-24T00:00:00.000Z",
-      externalDocumentation: fakeExternalDocumentation(() => providerCalls++, "prepare-unknowns")
-    });
-    try {
-      await daemon.init(root, "React Docs App");
-      await daemon.docs(root, {
-        command: "pin",
-        libraryId: "/facebook/react",
-        version: "18.2.0",
-        approved: true
-      });
-
-      const prepare = await daemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_context7_fuzzy");
-      expect(prepare.ok).toBe(true);
-      expect(((prepare.data as any).context.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(false);
-      expect(providerCalls).toBe(0);
-    } finally {
-      await daemon.stop();
-      removeTempRepo(root);
-    }
-  });
-
-  test("prepare-unknowns failure matrix leaves static Local Core result unchanged", async () => {
-    const root = tempRepo();
-    writeFileSync(join(root, "package.json"), JSON.stringify({
-      name: "react-docs-app",
-      dependencies: { react: "18.2.0" }
-    }, null, 2), "utf8");
-    const staticDaemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
-    const failureDaemons: Array<Awaited<ReturnType<typeof createStartedTestDaemon>>> = [];
-    try {
-      await staticDaemon.init(root, "React Docs App");
-      const staticPrepare = await staticDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_static");
-      const staticComplete = await staticDaemon.completeTask(root, { taskSessionId: "task_static", task: "Use React state hooks and confirm package version unknowns" });
-      const staticProjection = projectLocalCorePrepareComplete(staticPrepare, staticComplete);
-      expect(staticProjection.prepareOk).toBe(true);
-      expect(staticProjection.completeOk).toBe(true);
-
-      for (const label of CONTEXT7_FAILURE_MATRIX_CASES) {
-        const provider = context7FailureMatrixProvider(label);
-        const daemon = await createStartedTestDaemon({
-          clock: () => "2026-06-24T00:00:00.000Z",
-          externalDocumentation: provider.port
-        });
-        failureDaemons.push(daemon);
-        await daemon.init(root, `React Docs App ${label}`);
-        await daemon.docs(root, {
-          command: "pin",
-          libraryId: "/facebook/react",
-          version: "18.2.0",
-          approved: true
-        });
-
-        const prepare = await daemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, `task_context7_${label}`);
-        const complete = await daemon.completeTask(root, {
-          taskSessionId: `task_context7_${label}`,
-          task: "Use React state hooks and confirm package version unknowns"
-        });
-        const projection = projectLocalCorePrepareComplete(prepare, complete);
-
-        expect(projection).toEqual(staticProjection);
-        expect(provider.fetchCalls()).toBe(label === "disabled" ? 0 : 1);
-      }
-    } finally {
-      await staticDaemon.stop();
-      await Promise.all(failureDaemons.map((daemon) => daemon.stop()));
-      removeTempRepo(root);
-    }
-  });
-
-  test("prepare-unknowns falls back to stale cached docs when provider fails after TTL expiry", async () => {
-    const root = tempRepo();
-    writeFileSync(join(root, "package.json"), JSON.stringify({
-      name: "react-docs-app",
-      dependencies: { react: "18.2.0" }
-    }, null, 2), "utf8");
-    const store = new TestLocalStore();
-    let warmCalls = 0;
-    let failingCalls = 0;
-    let warmDaemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
-    let failingDaemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
-    try {
-      warmDaemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-06-24T00:00:00.000Z",
-        externalDocumentation: fakeExternalDocumentation(() => warmCalls++, "prepare-unknowns")
-      });
-      await warmDaemon.init(root, "React Docs App");
-      await warmDaemon.docs(root, {
-        command: "pin",
-        libraryId: "/facebook/react",
-        version: "18.2.0",
-        approved: true
-      });
-      const warm = await warmDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_context7_warm");
-      expect(warm.ok).toBe(true);
-      const warmExternal = ((warm.data as any).context.resources as any[]).find((resource) => resource.type === "external-docs");
-      expect(warmExternal?.cacheStatus).toBe("fresh");
-      expect(warmCalls).toBe(1);
-      await warmDaemon.stop();
-      warmDaemon = undefined;
-
-      failingDaemon = await createStartedTestDaemon({
-        localStore: store,
-        clock: () => "2026-07-25T00:00:00.000Z",
-        externalDocumentation: fakeExternalDocumentation(() => failingCalls++, "prepare-unknowns", { failFetch: true })
-      });
-      await failingDaemon.init(root, "React Docs App");
-      const fallback = await failingDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_context7_stale");
-      expect(fallback.ok).toBe(true);
-      const fallbackExternal = ((fallback.data as any).context.resources as any[]).find((resource) => resource.type === "external-docs");
-      expect(fallbackExternal).toMatchObject({
-        provider: "context7",
-        libraryId: "/facebook/react",
-        version: "18.2.0",
-        trust: "external-unverified",
-        enforcement: "advisory-only",
-        cacheStatus: "stale"
-      });
-      expect(failingCalls).toBe(1);
-    } finally {
-      await failingDaemon?.stop();
-      await warmDaemon?.stop();
       removeTempRepo(root);
     }
   });

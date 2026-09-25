@@ -1,0 +1,12 @@
+schemaVersion: archcontext.node/v2
+id: module.architecture-context.tooling
+kind: module
+name: Repository Tooling
+status: active
+parent: capability.architecture.context
+summary: Owns repository verification, release preparation, operator commands and historical evidence readbacks under the script surface retention policy.
+source:
+  include:
+    - scripts/**
+  exclude:
+    - scripts/**/*.test.ts

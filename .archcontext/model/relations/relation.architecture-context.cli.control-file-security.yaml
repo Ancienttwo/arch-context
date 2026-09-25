@@ -1,0 +1,6 @@
+schemaVersion: "archcontext.relation/v1"
+id: "relation.architecture-context.cli.control-file-security"
+kind: "calls"
+source: "component.architecture-context.surfaces.cli"
+target: "component.architecture-context.local-runtime.control-file-security"
+intent: "Use shared private control-file permission authority"

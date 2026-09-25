@@ -7,7 +7,7 @@ import { ArchContextInitRefusedError, initializeArchContextModel, rebuildGenerat
 const INIT_FILES = [
   ".archcontext/manifest.yaml",
   ".archcontext/product.yaml",
-  ".archcontext/model/nodes/capability.architecture-context.yaml",
+  ".archcontext/model/nodes/capability.architecture.context.yaml",
   ".archcontext/policies/review.yaml",
   ".archcontext/projections/targets.json"
 ];
@@ -34,6 +34,10 @@ describe("initializeArchContextModel is create-only (#167)", () => {
     try {
       initializeArchContextModel(root, "Fresh App");
       for (const path of INIT_FILES) expect(existsSync(join(root, path))).toBe(true);
+      const capability = Bun.YAML.parse(readFileSync(join(root, INIT_FILES[2]!), "utf8")) as Record<string, unknown>;
+      expect(capability.id).toBe("capability.architecture.context");
+      // Initialization declares intent, not an invented repository ownership boundary.
+      expect(capability.source).toBeUndefined();
       // Model files are ordinary repository files: readable and writable under the process umask.
       if (process.platform !== "win32") {
         const expectedMode = 0o666 & ~process.umask();

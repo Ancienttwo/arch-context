@@ -1,6 +1,8 @@
 name: Verify
+run-name: ${{ github.event_name == 'workflow_dispatch' && 'Governance revalidation' || 'Verify' }}
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -10,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: verify-${{ github.workflow }}-${{ github.ref }}
+  group: verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -40,9 +42,12 @@ jobs:
         run: bun run verify:governance
 
   verify:
+    # Manual revalidation reruns Governance; PR/main events always retain the matrix.
+    if: github.event_name != 'workflow_dispatch'
     name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Native Windows ACL subprocesses make the measured full suite plus packaging exceed 20 min.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 30 || 20 }}
 
     strategy:
       fail-fast: false
@@ -73,8 +78,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Verify
-        run: bun run verify
+      - name: Network-isolated local first experience
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22.22.x'
+        run: node scripts/local-no-cloud-e2e.mjs > local-no-cloud-network-readback.json
+
+      - name: Upload network isolation readback
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22.22.x'
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-no-cloud-network-linux-node-22
+          path: local-no-cloud-network-readback.json
+
+      - name: Windows control-file ACL regression
+        if: runner.os == 'Windows'
+        run: bun test --timeout 60000 packages/local-runtime/control-file-security/test/control-file-security.test.ts packages/local-runtime/runtime-daemon/test/daemon-control-acl.test.ts packages/local-runtime/runtime-daemon/test/rpc-server.test.ts packages/surfaces/cli/test/hook-state-paths.test.ts
 
       - name: Platform IPC permission readback
         run: node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json
@@ -84,3 +101,6 @@ jobs:
         with:
           name: platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}
           path: platform-ipc-permission-readback.json
+
+      - name: Verify
+        run: bun run verify
