@@ -1,16 +1,16 @@
 # Task Review: remaining-audit-issues
 
-> **Status**: Pending
+> **Status**: Accepted
 > **Plan**: plans/plan-20260925-1345-remaining-audit-issues.md
 > **Contract**: tasks/contracts/20260925-1345-remaining-audit-issues.contract.md
 > **Notes File**: tasks/notes/20260925-1345-remaining-audit-issues.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
 > **Last Updated**: 2026-09-25 13:48
-> **Recommendation**: fail
+> **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:d3df0790c362f8e13f76cce5c2a85212cebdc2ef84823e1d5b6f119e9c868eac
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
+> **Reviewed Target Revision**: e3d807759e917b26c539f25c51edc31946feb740
 
 ## Human Review Card
 
@@ -49,17 +49,17 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Codex
+> **Source**: codex-plugin
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:d3df0790c362f8e13f76cce5c2a85212cebdc2ef84823e1d5b6f119e9c868eac
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: e3d807759e917b26c539f25c51edc31946feb740
+> **Verification Evidence SHA256**: sha256:e98b9d121d913ba160c1993b3b889dbe581197b36399661474e2c484c0070e82
+> **Issued At**: 2026-09-26T19:26:11.103Z
 
-- Summary: No AcceptanceReceipt has been recorded.
+- Summary: Accepted the bounded local integration subject: prior scoped source reviews cover Explorer auth, egress admission, ChangeSet writer restrictions, migration and projection; the final diagnostic-only change preserves child deadlines and failure semantics with red/green subprocess guards. Exact installed 0.5.12 producer readback and all five declared verification checks pass, including complete full verify. Change Assessment binds deterministic and runtime oracles. Remaining general RPC/facade work, cloud delivery, registry publication and consumer registry adoption remain outside this accepted scope; the historical intermittent timeout cause is not claimed solved.
 - Findings: none
 
 ## Behavior Diff Notes
