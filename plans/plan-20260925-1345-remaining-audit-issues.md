@@ -480,3 +480,13 @@ Bounded diagnosis did not reproduce the aggregate failure: isolated parity and f
 - [ ] Refresh the frozen producer artifact and perform current-source final acceptance; original timeout remains unproven.
 
 Evidence: `docs/verification/20260927-handshake-diagnostics-change.json`.
+
+
+## Refreshed artifact acceptance checkpoint
+
+- [x] Freeze diagnostic source, rebuild producer, verify installed bytes and runtime readback.
+- [x] Execute one full Verification Plan: every command passed.
+- [x] Correct missing Change Assessment oracle declarations; direct assessment passes.
+- [ ] Prepare fresh evidence after freezing the corrected contract, then record/finalize semantic acceptance. No second expensive run in this slice.
+
+Evidence: `docs/verification/20260927-refreshed-producer-gate.json`.

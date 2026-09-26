@@ -191,3 +191,14 @@ P1: the adapter executes package-local version/status/sync children; daemon read
 Red proof: two new diagnostic assertions fail on the unchanged adapter. Green: all 16 adapter tests / 74 assertions, typecheck, package boundary audit and diff check pass. Real subprocess tests distinguish ETIMEDOUT, status exit 7 and ENOENT; the status fixture proves only version/status execute, with no retry. Evidence: `docs/verification/20260927-handshake-diagnostics-change.json`.
 
 This completes the approved observability slice. The original aggregate timeout remains unexplained and formal acceptance remains blocked. Previously packed 0.5.12 artifacts do not contain this source change; next acceptance preparation must freeze and rebuild the changed producer before one current-source gate. No full gate, publication, merge or successful AcceptanceReceipt in this slice.
+
+
+## Refreshed producer and full gate (2026-09-27)
+
+Frozen product source aadf04b was packed once and installed offline into a separate canonical prefix with the previously verified consumer. Release dry-run passes; all 88 producer and 180 contracts package files match installed bytes. Supported daemon upgrade succeeds; installed projection check is noop with no refresh signals. Acceptance materialization updated only the projection manifest provenance through the owner.
+
+All four Verification Plan checks passed, including complete `bun run verify` (exit 0, 409.508s). The contract reported 9 checks / 0 failures. The formal prepare nevertheless exited 1 because Change Assessment had an empty oracle declaration for the whole auth/schema/security/migration subject. This is a governance failure, not a failed test run. Historical timeout root cause remains unproven.
+
+The contract now binds `full-verify` as the deterministic oracle and `installed-projection-readback` as runtime readback, with the latter added to preflight. Direct current-base Change Assessment passes and the normalized review subject is unchanged. The verification cache separately binds the complete Git virtual tree and plan/contract identity, so the successful run is not transplanted to the edited contract. No second expensive gate or AcceptanceReceipt. Freeze the corrected declaration before the next acceptance run. Evidence: `docs/verification/20260927-refreshed-producer-gate.json`.
+
+P1: producer packaging/install, daemon-owned projection and harness evidence remain distinct authorities. P2: installed prepare applies provenance, executes all checks successfully, then fails selection for missing oracle declarations. P3: bind real existing deterministic/runtime evidence and place runtime readback before expensive verification; retain exact-tree cache validity and the failed prepare record.

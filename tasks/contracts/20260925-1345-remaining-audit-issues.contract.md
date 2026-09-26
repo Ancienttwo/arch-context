@@ -69,8 +69,28 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 ## Change Assessment
 
 ```json
-{"protocol":1,"oracles":[]}
+{
+  "protocol": 1,
+  "oracles": [
+    {
+      "id": "full-verify",
+      "kind": "deterministic_test",
+      "paths": [
+        "*"
+      ]
+    },
+    {
+      "id": "installed-projection-readback",
+      "kind": "runtime_readback",
+      "paths": [
+        "*"
+      ]
+    }
+  ]
+}
 ```
+
+The `full-verify` oracle binds the repository-wide deterministic tests, including auth/schema/security boundaries. `installed-projection-readback` binds the actual daemon-owned migration/projection state and is executed as a preflight. These declarations select required review evidence; they do not assert that a changed contract inherits an earlier AcceptanceReceipt.
 
 ## Acceptance Policy
 
@@ -180,6 +200,23 @@ exit_criteria:
 {
   "protocol": 1,
   "checks": [
+    {
+      "id": "installed-projection-readback",
+      "cwd": ".",
+      "phase": "preflight",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Read the migrated repository through the exact installed producer before expensive verification; acceptance materialization must already be at its fixed point.",
+      "inputs": {
+        "env": [
+          "PATH",
+          "TMPDIR",
+          "REPO_HARNESS_CLI_BIN"
+        ]
+      },
+      "kind": "command",
+      "command": "\"$REPO_HARNESS_CLI_BIN\" architecture-projection check --json"
+    },
     {
       "id": "explorer-session",
       "cwd": ".",
