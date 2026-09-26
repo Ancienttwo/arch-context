@@ -37,6 +37,7 @@
 - `/tmp/archctx-main-0512-smoke.log`: installed CLI and daemon smoke exit 0, version 0.5.12.
 - `repo-harness architecture-projection plan --json` is blocked by current main's existing `.archcontext/model/nodes/capability.architecture-context.yaml` ID `capability.architecture-context`. This branch does not edit that file; draft #223 owns it.
 - PR #227 first hosted Governance Verify failed because the recorded no-provider `modelDigest` was stale after the 0.5.12 version change. The official FG4/FG6 generators refreshed only the evidence timestamps and digest; local `bun run verify:governance` passed. Hosted CI must run again on the new head.
+- The second hosted matrix completed 9 required checks successfully; Windows/Node 25 was canceled at the 20-minute job timeout after its evaluation reported PASS. The same matrix now has a 30-minute job limit. A fresh hosted run must complete before merge.
 
 ## Manual Check Evidence
 
@@ -80,7 +81,7 @@ No non-built-in manual checks are declared in this contract. Registry readback c
 ## Failing Items
 
 - Current-main architecture projection rejects pre-existing `capability.architecture-context` ID.
-- PR #227 requires a new hosted CI run on the regenerated evidence head; the first head's Governance Verify failed on stale evidence.
+- PR #227 requires a fresh hosted CI run with the 30-minute job limit; the prior Windows/Node 25 job was canceled at its 20-minute limit.
 
 ## Retest Steps
 

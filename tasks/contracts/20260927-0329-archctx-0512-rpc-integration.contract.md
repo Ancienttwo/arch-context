@@ -71,6 +71,7 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 
 ```yaml
 allowed_paths:
+  - .github/workflows/verify.yml
   - actions/review-action/action.yml
   - bun.lock
   - docs/examples/github-hosted-runner-workflow.yml

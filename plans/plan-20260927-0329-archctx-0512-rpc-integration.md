@@ -113,6 +113,7 @@ Integrate the version bump from current main, preserving `@archcontext/contracts
 
 
 ## Allowed paths
+.github/workflows/verify.yml
 package.json
 bun.lock
 packages/cloud/package.json
