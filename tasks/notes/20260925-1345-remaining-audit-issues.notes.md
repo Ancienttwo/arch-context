@@ -213,3 +213,8 @@ This proves the installed candidate projection boundary, not registry publicatio
 P1: installed repo-harness freezes the task; ArchContext CLI/MCP share daemon-owned projection and the CodeGraph adapter supplies current inputs. P2: after one-time approval/apply assertions pass, the test compares both readback paths; the MCP path surfaces runProjectionCodeGraph's execFileSync timeout. The log does not identify which handshake subcommand timed out. P3: preserve fresh-read failure, deadlines and assertions; the isolated TMPDIR did not eliminate this occurrence. Historical environment evidence does not prove this occurrence's root cause. Next bounded work is child-command/timing diagnosis before another full gate. At larger fixture/repository loads the external handshake remains the observed pressure point.
 
 Exact subject, runtime, log/run digests and unexecuted checks: `docs/verification/20260927-final-acceptance-checkpoint.json`. This supersedes any inference that installed projection success alone clears whole-plan acceptance.
+
+
+## Approved handshake recurrence diagnosis
+
+Bounded diagnosis did not reproduce the aggregate failure: isolated parity and five adjacent projection scenarios recorded 517 successful child calls; restored-source parity and deadline rejection passed. All assertions/deadlines remain unchanged, and temporary instrumentation was restored byte-for-byte. No specific original subcommand or delay cause is established; full acceptance remains blocked. P1/P2/P3 and stop boundary: `docs/researches/20260927-handshake-recurrence.md`; exact source/timing/log evidence: `docs/verification/20260927-handshake-diagnosis.json`. Next discriminating work is bounded handshake failure metadata, not another blind isolated rerun.

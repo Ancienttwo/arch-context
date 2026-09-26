@@ -466,3 +466,8 @@ P1: repo-harness consumes a package-local archctx binary, with the shipped ARCHC
 
 - [x] Reverify installed-candidate artifact integrity and execute one frozen full gate.
 - [ ] Resolve the observed CodeGraph handshake timeout before successful formal acceptance. Current gate is blocked; see `docs/verification/20260927-final-acceptance-checkpoint.json`. No receipt or release claimed.
+
+
+## Approved handshake recurrence diagnosis
+
+Bounded diagnosis did not reproduce the aggregate failure: isolated parity and five adjacent projection scenarios recorded 517 successful child calls; restored-source parity and deadline rejection passed. All assertions/deadlines remain unchanged, and temporary instrumentation was restored byte-for-byte. No specific original subcommand or delay cause is established; full acceptance remains blocked. P1/P2/P3 and stop boundary: `docs/researches/20260927-handshake-recurrence.md`; exact source/timing/log evidence: `docs/verification/20260927-handshake-diagnosis.json`. Next discriminating work is bounded handshake failure metadata, not another blind isolated rerun.
