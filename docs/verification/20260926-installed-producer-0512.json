@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "archcontext.installed-producer-readback/v1",
+  "status": "passed-installed-projection",
+  "recordedAt": "2026-09-26T15:54:54.327540+00:00",
+  "source": {
+    "archContextHead": "ced33c4416e379cc5709e5597fa72e4f60cfaeb5",
+    "consumerCommit": "16ec0b21",
+    "consumerSubstantiveDigest": "sha256:495641a838aca5dc1f1400bcf2fbe6b99f7552cea7262db0801d2f953cdbd253"
+  },
+  "producer": {
+    "name": "archctx",
+    "version": "0.5.12",
+    "tarball": "archctx-0.5.12.tgz",
+    "integrity": "sha512-mbCM3GelHuMNaLmhIq3BAaFIvrSwTgoPEEhEqFstm86oRi8idu3DmKyYbk42j4mrHCm9X8lZhF9BfnYPaGFsQQ==",
+    "contracts": {
+      "version": "0.5.12",
+      "tarball": "archctx-contracts-0.5.12.tgz",
+      "integrity": "sha512-p7BEb4AtbAPq5jVLec9G6VEs1Fk6PLtG0VIUYJblaB4bB8/G4o0XRUdwvMNmbJdHnkvhjDBcKTTdO5twDMbgXA=="
+    }
+  },
+  "consumer": {
+    "name": "repo-harness",
+    "version": "0.19.3",
+    "tarball": "repo-harness-0.19.3.tgz",
+    "integrity": "sha512-lzf/2Hh68M9hUZFyDi8ox4s1j1VmnWYPjdvGbELckwjwwqNR/3VnPw2PrjsE7q3zAy8DKwkVsuY2PvidmpHL/g==",
+    "packagedFilesMatchedToSource": 838,
+    "installationPrefix": "/private/tmp/issue225-final-installed-v2",
+    "installationMode": "offline npm with canonical file tarballs and declared overrides",
+    "dependencyTree": {
+      "name": "issue225-final-installed-v2",
+      "dependencies": {
+        "archctx-contracts": {
+          "version": "0.5.12",
+          "resolved": "file:/private/tmp/issue225-producer-0512/archctx-contracts-0.5.12.tgz",
+          "overridden": true
+        },
+        "archctx": {
+          "version": "0.5.12",
+          "resolved": "file:/private/tmp/issue225-producer-0512/archctx-0.5.12.tgz",
+          "overridden": true
+        },
+        "repo-harness": {
+          "version": "0.19.3",
+          "resolved": "file:/private/tmp/issue225-consumer-0512/repo-harness-0.19.3.tgz",
+          "overridden": true,
+          "dependencies": {
+            "archctx-contracts": {
+              "version": "0.5.12"
+            },
+            "archctx": {
+              "version": "0.5.12"
+            }
+          }
+        }
+      }
+    }
+  },
+  "projection": {
+    "applyStatus": "applied",
+    "repeatCheckStatus": "noop",
+    "refreshSignals": [],
+    "adrReadback": {
+      "adrCount": 45,
+      "indexCount": 45,
+      "failures": [],
+      "ok": true
+    },
+    "generatedFilesEqualPreviouslyAcceptedGitBytes": true,
+    "oldProducerRejected": true,
+    "runtimeAlignment": "supported daemon upgrade after installation; stale-daemon-entry refusal preserved"
+  },
+  "verification": {
+    "testsPassed": 215,
+    "testsFailed": 1,
+    "failedTest": "global-runtime-init: CLI subprocesses stay bound to the validated launcher Bun when PATH contains an older Bun",
+    "sameFailureReproducedOnUnchangedConsumerBase": "d6deed06",
+    "typecheck": "pass",
+    "requiredIntegrityChecks": 9,
+    "requiredIntegrityResult": "pass"
+  },
+  "boundaries": {
+    "registryPublished": false,
+    "registryVersionReadback": "E404 for both 0.5.12 packages",
+    "consumerRegistryLockUpdated": false,
+    "consumerBranchPushed": false,
+    "wholePlanAcceptance": false,
+    "globalInstallationChanged": false
+  }
+}

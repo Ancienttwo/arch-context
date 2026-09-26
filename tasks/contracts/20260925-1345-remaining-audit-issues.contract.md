@@ -32,6 +32,7 @@ Repair Explorer credential transport; integrate existing #164 feature extraction
 - Approved #226 continuation: diagnose only the documentation-drift CodeGraph handshake and projection current-read RPC timeout, capture child/outer timing and typed errors, minimally repair proven causes, then verify those cases. Preserve fresh-read proof and all assertions; no broad matrix or #225 model migration in this slice.
 - Approved #225 continuation: align fresh capability identity and projection-profile consumption, migrate the existing model and all references through exact-digest daemon ChangeSet, and regenerate owned projections. The isolated repo-harness counterpart has its own plan/scope. Preserve source globs/exclusions and selected workflow registry authority. Paired candidate validation does not authorize package release, global installation or merge.
 - Approved #225 restricted writers: add typed existing-file ADR appliesTo reference replacements and root AGENTS/CLAUDE marker-only rendering validated against current model and preserved human content. Verify journal rollback and generic-write rejection, then retry the complete migration and owned projection generation. Do not broaden the generic allowlist.
+- Approved #225 installed-candidate continuation: use an isolated consumer candidate with real dependency and default-version pins set to 0.5.12; CLI global configuration deliberately has no version override. Install the byte-verified consumer tarball with explicit npm dependency overrides in an isolated candidate prefix. Preserve exact-version capability checks and use only daemon-owned projection applies; registry publication and global installation remain separate.
 - Taste constraints: <!-- advisory only, no run gate; default style/taste lives in AGENTS.md and the minimal-change policy, use this to record a per-task override -->
 
 ## Stop Conditions
@@ -178,22 +179,6 @@ exit_criteria:
 {
   "protocol": 1,
   "checks": [
-    {
-      "id": "source-runtime",
-      "cwd": ".",
-      "phase": "preflight",
-      "cost": "normal",
-      "evidence_policy": "current_exact",
-      "necessity": "After the pinned consumer producer materializes projection using archctx 0.5.11, align the worktree daemon with this 0.5.12 source through the supported upgrade command before source CLI verification. Preserve exact-version refusal; do not bypass discovery.",
-      "inputs": {
-        "env": [
-          "PATH",
-          "TMPDIR"
-        ]
-      },
-      "kind": "command",
-      "command": "bun packages/surfaces/cli/src/main.ts daemon upgrade"
-    },
     {
       "id": "explorer-session",
       "cwd": ".",
