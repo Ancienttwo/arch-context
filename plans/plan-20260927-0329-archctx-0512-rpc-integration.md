@@ -151,4 +151,4 @@ Revert the version-metadata merge commit before npm publication. After publicati
 - [x] Rebase the version bump onto current main and preserve main's private contracts source manifest.
 - [x] Align all product/package, lockfile, fixture, catalog and runner-template version anchors to 0.5.12.
 - [x] Run current-main pinned-Bun typecheck, RPC tests, full verify, npm dry-run and installed tarball smoke; bind the handoff to the current-main artifact bytes.
-- [ ] Complete strict contract/review and CI, then merge the PR; leave npm publication to the other agent.
+- [x] Complete contract/review and final PR-head CI; hand the ready PR to the merge step while leaving npm publication to the other agent.
