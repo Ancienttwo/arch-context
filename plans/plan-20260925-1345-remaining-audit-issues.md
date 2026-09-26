@@ -471,3 +471,12 @@ P1: repo-harness consumes a package-local archctx binary, with the shipped ARCHC
 ## Approved handshake recurrence diagnosis
 
 Bounded diagnosis did not reproduce the aggregate failure: isolated parity and five adjacent projection scenarios recorded 517 successful child calls; restored-source parity and deadline rejection passed. All assertions/deadlines remain unchanged, and temporary instrumentation was restored byte-for-byte. No specific original subcommand or delay cause is established; full acceptance remains blocked. P1/P2/P3 and stop boundary: `docs/researches/20260927-handshake-recurrence.md`; exact source/timing/log evidence: `docs/verification/20260927-handshake-diagnosis.json`. Next discriminating work is bounded handshake failure metadata, not another blind isolated rerun.
+
+
+## Handshake diagnostic metadata delivery
+
+- [x] Add bounded subcommand/deadline/elapsed/exit metadata without retry or deadline changes.
+- [x] Prove old-source red, current adapter tests green, typecheck and package boundaries.
+- [ ] Refresh the frozen producer artifact and perform current-source final acceptance; original timeout remains unproven.
+
+Evidence: `docs/verification/20260927-handshake-diagnostics-change.json`.

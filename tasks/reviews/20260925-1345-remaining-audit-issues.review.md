@@ -182,3 +182,12 @@ The approved writer-contract and migration slice is locally verified. ADR update
 P1: installed repo-harness freezes the task; ArchContext CLI/MCP share daemon-owned projection and the CodeGraph adapter supplies current inputs. P2: after one-time approval/apply assertions pass, the test compares both readback paths; the MCP path surfaces runProjectionCodeGraph's execFileSync timeout. The log does not identify which handshake subcommand timed out. P3: preserve fresh-read failure, deadlines and assertions; the isolated TMPDIR did not eliminate this occurrence. Historical environment evidence does not prove this occurrence's root cause. Next bounded work is child-command/timing diagnosis before another full gate. At larger fixture/repository loads the external handshake remains the observed pressure point.
 
 Exact subject, runtime, log/run digests and unexecuted checks: `docs/verification/20260927-final-acceptance-checkpoint.json`. This supersedes any inference that installed projection success alone clears whole-plan acceptance.
+
+
+## Approved handshake failure diagnostics
+
+P1: the adapter executes package-local version/status/sync children; daemon readback forwards the thrown message in AC_PRECONDITION_FAILED. P2: a child error now retains its original detail and appends JSON containing the fixed subcommand, deadlineMs, monotonic elapsedMs, code, exitCode and signal. No invocation arguments or environment values are added. P3: preserve all deadlines, success output, fail-closed behavior and single-attempt execution; expose existing process facts rather than infer a timeout cause. Additional work occurs only on failure apart from one clock read.
+
+Red proof: two new diagnostic assertions fail on the unchanged adapter. Green: all 16 adapter tests / 74 assertions, typecheck, package boundary audit and diff check pass. Real subprocess tests distinguish ETIMEDOUT, status exit 7 and ENOENT; the status fixture proves only version/status execute, with no retry. Evidence: `docs/verification/20260927-handshake-diagnostics-change.json`.
+
+This completes the approved observability slice. The original aggregate timeout remains unexplained and formal acceptance remains blocked. Previously packed 0.5.12 artifacts do not contain this source change; next acceptance preparation must freeze and rebuild the changed producer before one current-source gate. No full gate, publication, merge or successful AcceptanceReceipt in this slice.

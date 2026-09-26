@@ -921,6 +921,7 @@ function runProjectionCodeGraph(
   timeout: number
 ): string {
   disableCodeGraphTelemetryByDefault();
+  const startedAt = performance.now();
   try {
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd: root,
@@ -932,7 +933,17 @@ function runProjectionCodeGraph(
   } catch (error) {
     const stderr = error && typeof error === "object" && "stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : "";
     const message = stderr.trim() || (error instanceof Error ? error.message : String(error));
-    throw new Error(`CodeGraph projection handshake failed: ${message}`);
+    const childError = error as { code?: string | number; status?: number | null; signal?: string | null } | null;
+    // Only the fixed subcommand is recorded; arguments may contain repository paths.
+    const diagnostics = {
+      subcommand: args[0],
+      deadlineMs: timeout,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      code: childError?.code ?? null,
+      exitCode: childError?.status ?? null,
+      signal: childError?.signal ?? null
+    };
+    throw new Error(`CodeGraph projection handshake failed: ${message}\nCodeGraph handshake diagnostics: ${JSON.stringify(diagnostics)}`);
   }
 }
 

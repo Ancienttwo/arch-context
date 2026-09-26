@@ -107,11 +107,59 @@ process.exit(2);
     const binary = join(root, "fake-codegraph.js");
     try {
       writeFileSync(binary, "setTimeout(() => process.stdout.write('1.5.0\\n'), 500);\n");
-      expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
-        binary,
-        sourceTreeDigest: `sha256:${"3".repeat(64)}`,
-        timeouts: { versionMs: 20 }
-      })).toThrow("CodeGraph projection handshake failed");
+      let failure: unknown;
+      try {
+        prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+          binary,
+          sourceTreeDigest: `sha256:${"3".repeat(64)}`,
+          timeouts: { versionMs: 20 }
+        });
+      } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(Error);
+      const message = (failure as Error).message;
+      expect(message).toContain("CodeGraph projection handshake failed:");
+      const details = JSON.parse(message.split("\nCodeGraph handshake diagnostics: ")[1]!);
+      expect(details).toMatchObject({ subcommand: "--version", deadlineMs: 20, code: "ETIMEDOUT" });
+      expect(Number.isFinite(details.elapsedMs)).toBe(true);
+      expect(details.elapsedMs).toBeGreaterThanOrEqual(0);
+      expect(details).toHaveProperty("exitCode");
+      expect(details).toHaveProperty("signal");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("handshake diagnostics distinguish a status exit from a spawn failure without retry", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-handshake-diagnostics-"));
+    const binary = join(root, "fake-codegraph.js");
+    const calls = join(root, "calls");
+    const failureDetails = (binary: string) => {
+      let failure: unknown;
+      try {
+        prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+          binary, sourceTreeDigest: `sha256:${"3".repeat(64)}`
+        });
+      } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(Error);
+      return { message: (failure as Error).message, details: JSON.parse((failure as Error).message.split("\nCodeGraph handshake diagnostics: ")[1]!) };
+    };
+    try {
+      mkdirSync(join(root, ".codegraph"));
+      writeFileSync(binary, `
+import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(calls)}, process.argv[2] + "\\n");
+if (process.argv[2] === "--version") { process.stdout.write("1.5.0\\n"); process.exit(0); }
+process.stderr.write("status probe rejected");
+process.exit(7);
+`);
+      const exited = failureDetails(binary);
+      expect(exited.message).toContain("CodeGraph projection handshake failed: status probe rejected");
+      expect(exited.details).toMatchObject({ subcommand: "status", deadlineMs: 10000, exitCode: 7, signal: null });
+      expect(exited.details.elapsedMs).toBeGreaterThanOrEqual(0);
+      expect(readFileSync(calls, "utf8")).toBe("--version\nstatus\n");
+      const missing = failureDetails(join(root, "missing-codegraph"));
+      expect(missing.details).toMatchObject({ subcommand: "--version", deadlineMs: 5000, code: "ENOENT", exitCode: null, signal: null });
+      expect(missing.details.elapsedMs).toBeGreaterThanOrEqual(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
