@@ -444,3 +444,11 @@ Owner approved the next #225 slice. YAML remains the Git-visible declared author
 - [x] Implement the operator-invoked daemon event append and readback for a committed YAML node rename; reject missing journal, stale snapshot/file hashes, other major-change shapes and repeated inputs without promoting ledger graph authority. Typecheck and package boundaries pass; the live append remains pending until source freeze.
 - [x] Produce and read back the real event for the committed migration, then use its exact identity in the projection owner's accepted-change apply; verify the no-accepted-change fixed point.
 - [ ] Run required bounded checks and update evidence, #225, Draft #223 and canonical project memory. Keep formal installed-harness/whole-plan gates distinct.
+
+## Owner-approved final closeout (2026-09-26)
+
+The Owner requested completion of the four remaining issues and the integrated PR, approved a CodeGraph index in the isolated repo-harness consumer worktree, and selected Chris Cloudflare account plus `Ancienttwo/fortune-algo` for the separate cloud delivery boundary. Current local candidate acceptance stays bounded to this plan; the remaining RPC/facade and cloud implementation retain their own issue criteria.
+
+Consumer Draft #454 has passed frozen semantic acceptance. Exercise its real packed installation against this repository. P1: consumer owns profile discovery, its pinned producer owns projection, and the source CLI owns its runtime verification. P2: installed consumer projection uses archctx 0.5.11; source `bun run verify` invokes the 0.5.12 practices CLI. Both enforce exact daemon version. P3: after projection, explicitly upgrade the worktree daemon through the current source CLI as a declared preflight. Keep version mismatch refusal unchanged; this is serialized operator lifecycle alignment, not a second semantic authority.
+
+Use pinned Bun 1.4.0 with an isolated TMPDIR outside Git worktrees and the busy system temporary tree. A minimal child-start probe passed before the final run; this avoids both the observed system-temp startup delay and unintended ancestor-repository discovery from in-worktree fixture roots. Freeze the candidate before the full verification.

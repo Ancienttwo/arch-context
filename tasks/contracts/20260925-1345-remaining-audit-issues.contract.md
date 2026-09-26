@@ -179,6 +179,22 @@ exit_criteria:
   "protocol": 1,
   "checks": [
     {
+      "id": "source-runtime",
+      "cwd": ".",
+      "phase": "preflight",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "After the pinned consumer producer materializes projection using archctx 0.5.11, align the worktree daemon with this 0.5.12 source through the supported upgrade command before source CLI verification. Preserve exact-version refusal; do not bypass discovery.",
+      "inputs": {
+        "env": [
+          "PATH",
+          "TMPDIR"
+        ]
+      },
+      "kind": "command",
+      "command": "bun packages/surfaces/cli/src/main.ts daemon upgrade"
+    },
+    {
       "id": "explorer-session",
       "cwd": ".",
       "phase": "preflight",
