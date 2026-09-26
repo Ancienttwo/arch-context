@@ -1,4 +1,4 @@
-# RPC keep-alive hotfix release candidate (0.5.12)
+# RPC keep-alive fix and 0.5.12 release integration
 
 ## Boundary and failure trace
 
@@ -8,14 +8,16 @@ The source fix was merged as `1eabeb9` / PR #180 after the `v0.5.11` tag and alr
 
 ## Candidate and trade-off
 
-This branch starts at the published `v0.5.11` tag, cherry-picks only `1eabeb9`, and raises the package, product, lockfile, fixture, catalog, and runner-template version anchors to 0.5.12. It excludes all other post-tag main changes. The fix opens a fresh local connection for each RPC. That adds a small loopback handshake cost but avoids retrying a mutation whose commit state could be unknown after a reset. No protocol or storage migration changes are included.
+The source fix is already on main. This integration branch starts at current main and raises the package, product, lockfile, fixture, catalog, and runner-template version anchors to 0.5.12; it preserves main's private source manifest for `@archcontext/contracts`. The fix opens a fresh local connection for each RPC. That adds a small loopback handshake cost but avoids retrying a mutation whose commit state could be unknown after a reset. No protocol or storage migration changes are introduced by this integration.
+
+A separate, narrower candidate branch (`codex/rpc-keepalive-hotfix-0512`) was built from `v0.5.11` plus only `1eabeb9`. Its tarballs have **different bytes** from the current-main build below. Publication must choose one source revision and run its release gates; these hashes are not interchangeable.
 
 ## Verification
 
-- The targeted keep-alive regression test passes with pinned Bun 1.4.0.
-- `bun run verify` passes, including the full test suite and configured evaluation gates.
+- The current-main RPC client tests pass (3/3) with pinned Bun 1.4.0; typecheck passes.
+- The narrow tag-based candidate passed `bun run verify` (1,779 tests). The current-main integration also passed the complete pinned-Bun `verify` (2,022 tests, 0 failures, configured evaluation gates).
 - The npm release dry-run is `verified` with no failures; frozen lockfile install passes.
 - The source-built tarball smoke passes install, daemon/MCP, reinstall-upgrade and uninstall state-retention checks; the installed CLI reports 0.5.12.
-- Candidate `archctx-0.5.12.tgz` SHA-256: `6c9837fac3b5ae2ca04888dde50e236821a5942c1527a191b048e90cbb10682e`. Candidate `archctx-contracts-0.5.12.tgz` SHA-256: `996ec64b9b6f253ec3f2352e33ddf92a8eb435f547f5ec335a567c5183b3fe8c`. Local artifacts and evidence are under `_ops/npm/rpc-keepalive-0512/`.
+- Current-main candidate `archctx-0.5.12.tgz` SHA-256: `7b2fba89cf16469c2151e7f14d7bb6350f30c3364ec74a14942e7d0e13627f4b`. Current-main `archctx-contracts-0.5.12.tgz` SHA-256: `b0201f28409868232ec8c9b28b170ff063b38dbe28da29b46754b69b088ed98b`. Local artifacts and evidence are under `_ops/npm/main-0512/`.
 
-Nothing has been published. Publication requires the normal registry identity and release gates. After publication, update the exact `archctx` / `archctx-contracts` dependency closure in `repo-harness`, then rerun the downstream projection and sprint gate without a transport shim.
+Nothing has been published. Another agent owns publication. It must rebuild and verify both tarballs from the exact merged release source, read back registry identity and package bytes, publish contracts before `archctx`, then update the exact `archctx` / `archctx-contracts` dependency closure in `repo-harness` and rerun the downstream projection and sprint gate without a transport shim. Do not publish the tag-based tarballs while claiming current-main provenance.
