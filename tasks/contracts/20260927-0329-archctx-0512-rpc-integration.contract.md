@@ -76,6 +76,8 @@ allowed_paths:
   - docs/examples/github-hosted-runner-workflow.yml
   - docs/examples/reusable-organization-runner-caller.yml
   - docs/researches/20260927-rpc-keepalive-hotfix-0512.md
+  - docs/verification/fg4-deterministic-conclusion-readback.json
+  - docs/verification/fg6-no-provider-deterministic-readback.json
   - package.json
   - packages/cloud/package.json
   - packages/contracts/fixtures/valid/archctx-capabilities.json
@@ -201,6 +203,28 @@ exit_criteria:
       "cost": "normal",
       "evidence_policy": "current_exact",
       "necessity": "Exercises the installed Node-only CLI, daemon, upgrade, uninstall and retained state from source-built release bytes.",
+      "inputs": { "env": [] }
+    },
+    {
+      "id": "deterministic-gate-evidence",
+      "kind": "command",
+      "command": "npm exec --yes --package bun@1.4.0 -- bun scripts/fg4-deterministic-conclusion-readback.ts inspect --evidence docs/verification/fg4-deterministic-conclusion-readback.json --json",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "The release version changes the no-provider model digest; inspect the regenerated deterministic gate evidence.",
+      "inputs": { "env": [] }
+    },
+    {
+      "id": "no-provider-release-evidence",
+      "kind": "command",
+      "command": "npm exec --yes --package bun@1.4.0 -- bun scripts/fg6-no-provider-deterministic-readback.ts inspect --evidence docs/verification/fg6-no-provider-deterministic-readback.json --json",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Governance Verify consumes this aggregate release evidence and must see the current model digest.",
       "inputs": { "env": [] }
     }
   ]

@@ -128,6 +128,8 @@ actions/review-action/action.yml
 docs/examples/github-hosted-runner-workflow.yml
 docs/examples/reusable-organization-runner-caller.yml
 docs/researches/20260927-rpc-keepalive-hotfix-0512.md
+docs/verification/fg4-deterministic-conclusion-readback.json
+docs/verification/fg6-no-provider-deterministic-readback.json
 plans/plan-*-archctx-0512-rpc-integration.md
 tasks/contracts/*-archctx-0512-rpc-integration.contract.md
 tasks/reviews/*-archctx-0512-rpc-integration.review.md

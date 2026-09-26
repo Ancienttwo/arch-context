@@ -36,6 +36,7 @@
 - Installed tarball smoke: `/tmp/archctx-main-0512-smoke.log`, exit 0; installed CLI identifies as 0.5.12.
 - Current-main candidate SHA-256: `archctx-0.5.12.tgz` `7b2fba89cf16469c2151e7f14d7bb6350f30c3364ec74a14942e7d0e13627f4b`; `archctx-contracts-0.5.12.tgz` `b0201f28409868232ec8c9b28b170ff063b38dbe28da29b46754b69b088ed98b`. These are local pre-merge artifacts, not registry publications.
 - Local `repo-harness architecture-projection plan --json` fails on current main's existing `.archcontext/model/nodes/capability.architecture-context.yaml` ID `capability.architecture-context` (requires `capability.<domain>.<name>`). Draft PR #223 owns that model file; this version PR does not change it. Treat local strict sprint acceptance as blocked until the baseline model is repaired or an approved exact waiver is recorded.
+- PR #227 first hosted `Governance Verify` failed at `fg6-no-provider-deterministic-readback.ts inspect`: the old `modelDigest` belonged to version 0.5.11. `fg4-deterministic-conclusion-readback.ts run` regenerated its evidence (only timestamp and digest changed); `fg6-no-provider-deterministic-readback.ts run` refreshed the aggregate from that canonical source. Local `bun run verify:governance` then exited 0. The version/packaging source did not change and the tarball digest remains as listed above.
 
 ## Promotion Filter
 
