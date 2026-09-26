@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "archcontext.pre-release-acceptance-checkpoint/v1",
+  "recordedAt": "2026-09-26T17:23:56.933371+00:00",
+  "status": "blocked",
+  "sourceHead": "dbd818e73ccee4fe684f11721937be501280744c",
+  "reviewSubjectSha256": "sha256:f23de238506f944bbad046e8cc622287d7904495f01dbd051b253990cd985df9",
+  "installedCandidateEvidence": "docs/verification/20260926-installed-producer-0512.json",
+  "tarballIntegritiesReverified": true,
+  "runtime": {
+    "bun": "1.4.0",
+    "consumerPrefix": "/private/tmp/issue225-final-installed-v2",
+    "TMPDIR": "/Users/kito/.cache/archctx-closeout-tmp"
+  },
+  "verification": {
+    "prepareExitCode": 1,
+    "preflights": {
+      "explorer-session": "pass",
+      "typecheck": "pass",
+      "package-boundaries": "pass"
+    },
+    "fullVerify": "fail",
+    "tests": {
+      "passed": 2146,
+      "skipped": 1,
+      "failed": 1,
+      "assertions": 12288,
+      "durationSeconds": 440.02
+    },
+    "runFile": ".ai/harness/runs/run-20260927T011409-17963-20260925-1345-remaining-audit-issues.json",
+    "runSha256": "sha256:d76f83417ebe161578fba2b17747c2e07149aeccc40a1f61a37f67124d7c1f82",
+    "diagnostics": ".ai/harness/runs/verification-vx-dbb7e43712d048bf98ca.log",
+    "diagnosticsSha256": "sha256:2f4b9111b24e25668fcca11f08ab2b1a6ab005732fff6c3f4739bcf2684ebadb"
+  },
+  "failure": {
+    "test": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+    "location": "packages/surfaces/cli/test/cli.test.ts:5095",
+    "testDurationMs": 38179.58,
+    "envelopeCode": "AC_PRECONDITION_FAILED",
+    "message": "CodeGraph projection handshake failed: spawnSync /Users/kito/Projects/arch-context/_ops/toolchain-bun-1.4.0/node_modules/bun/bin/bun.exe ETIMEDOUT",
+    "observed": "MCP readback returned a handshake error while CLI readback returned successful current projection data. Earlier single-use approval assertions passed.",
+    "rootCause": "unproven; log does not identify the timed-out CodeGraph subcommand or establish a Bun/environment root cause"
+  },
+  "notExecutedAfterTestFailure": [
+    "verify:explorer",
+    "packaged-cli-smoke",
+    "privacy-route-audit",
+    "verify:github-api-contract",
+    "privacy-packet-capture-audit",
+    "privacy-capture-manifest readback",
+    "readback:s3:hook-egress",
+    "readback:s5:context7",
+    "security-scan-manifest readback",
+    "verify-acceptance-ledger",
+    "verify-practice-assets-acceptance-ledger",
+    "sprint-status-check",
+    "evals/run.ts --check"
+  ],
+  "boundaries": {
+    "newSourceFix": false,
+    "repeatFullRun": false,
+    "acceptanceReceiptIssued": false,
+    "merged": false,
+    "published": false,
+    "issuesClosed": false
+  },
+  "nextSlice": "Diagnose the named CodeGraph handshake child timeout on the pinned runtime and isolated TMPDIR before any repair or further full gate."
+}

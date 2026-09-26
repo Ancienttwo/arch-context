@@ -460,3 +460,9 @@ P1: repo-harness consumes a package-local archctx binary, with the shipped ARCHC
 - [x] Install and read back the exact candidate dependency tree.
 - [x] Regenerate the current ADR outputs through the installed producer/daemon and verify all links/titles against ADR frontmatter.
 - [x] Run installed-consumer projection readback and record remaining registry/adoption boundaries; whole-plan acceptance remains separate.
+
+
+## Final pre-release gate checkpoint
+
+- [x] Reverify installed-candidate artifact integrity and execute one frozen full gate.
+- [ ] Resolve the observed CodeGraph handshake timeout before successful formal acceptance. Current gate is blocked; see `docs/verification/20260927-final-acceptance-checkpoint.json`. No receipt or release claimed.

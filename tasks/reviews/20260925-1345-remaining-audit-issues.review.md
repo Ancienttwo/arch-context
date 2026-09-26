@@ -173,3 +173,12 @@ Evidence and P1/P2/P3: `docs/researches/20260926-capability-profile-alignment.md
 ## #225 restricted writer review boundary
 
 The approved writer-contract and migration slice is locally verified. ADR updates are typed scalar substitutions; root marker writes require an existing file, current explicit target scope and canonical renderer equality. Fault-injection and recovery tests preserve preimages with no false committed claim. The documentation projection's current major-change gate still blocks a complete acceptance verdict and typed AcceptanceReceipt; see `docs/verification/20260926-restricted-writer-migration.json`. Draft #223 remains unmerged.
+
+
+## 0.5.12 final pre-release acceptance checkpoint (2026-09-27)
+
+**BLOCKED** on frozen `dbd818e73ccee4fe684f11721937be501280744c`. All three installed-candidate tarball SHA-512 values match the previously recorded artifacts. Installed-consumer architecture materialization is noop; Explorer session, typecheck and package boundaries pass. One explicitly authorized full verify ran: 2146 pass / 1 skip / 1 fail, 12288 assertions in 440.02s. The CLI/MCP projection parity test fails at cli.test.ts:5095: MCP readback returns AC_PRECONDITION_FAILED with CodeGraph spawnSync ETIMEDOUT, while CLI readback returns successful projection data. The command short-circuited before Explorer build, packaged CLI and subsequent audits/evals. No successful AcceptanceReceipt, full rerun, source fix, merge, publication or issue closure.
+
+P1: installed repo-harness freezes the task; ArchContext CLI/MCP share daemon-owned projection and the CodeGraph adapter supplies current inputs. P2: after one-time approval/apply assertions pass, the test compares both readback paths; the MCP path surfaces runProjectionCodeGraph's execFileSync timeout. The log does not identify which handshake subcommand timed out. P3: preserve fresh-read failure, deadlines and assertions; the isolated TMPDIR did not eliminate this occurrence. Historical environment evidence does not prove this occurrence's root cause. Next bounded work is child-command/timing diagnosis before another full gate. At larger fixture/repository loads the external handshake remains the observed pressure point.
+
+Exact subject, runtime, log/run digests and unexecuted checks: `docs/verification/20260927-final-acceptance-checkpoint.json`. This supersedes any inference that installed projection success alone clears whole-plan acceptance.
