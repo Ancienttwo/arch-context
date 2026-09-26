@@ -211,11 +211,11 @@ exit_criteria:
         "env": [
           "PATH",
           "TMPDIR",
-          "REPO_HARNESS_CLI_BIN"
+          "ARCHCTX_ACCEPTANCE_CONSUMER_BIN"
         ]
       },
       "kind": "command",
-      "command": "\"$REPO_HARNESS_CLI_BIN\" architecture-projection check --json"
+      "command": "\"$ARCHCTX_ACCEPTANCE_CONSUMER_BIN\" architecture-projection check --json"
     },
     {
       "id": "explorer-session",
