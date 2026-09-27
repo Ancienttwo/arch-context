@@ -1,6 +1,6 @@
 # architecture/context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:bb3d21607d15865736d8a8ac82436de846519b141a8ce73006e8080d826f31e8" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:2f40ae2d7808a3f4aab344d8547219d368683ef52aee07bd56b7d0b4587a145f" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:2f419896d5ace83bd3652f49bf87f773c1ab2c20f143864732b8122efbc57cc7" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:e44c71ebaa177189c556abe4e9bdcf68eddf434b8a83a6754abaa07b46aec313" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture.context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -36,6 +36,7 @@ flowchart LR
   p1_component_architecture_context_core_retrieval_3cb3b2c1["Retrieval"]:::component
   p1_component_architecture_context_core_review_engine_f590debf["Review Engine"]:::component
   p1_component_architecture_context_local_runtime_agent_jobs_33e671d3["Agent Job Service"]:::component
+  p1_component_architecture_context_local_runtime_architecture_book_ec146b18["Architecture Book Service"]:::component
   p1_component_architecture_context_local_runtime_audit_eaeac660["Architecture Audit Service"]:::component
   p1_component_architecture_context_local_runtime_control_file_security_af51dbd4["Control File Security"]:::component
   p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce["Developer Review Runs and Attestations"]:::component
@@ -63,6 +64,8 @@ flowchart LR
   p1_module_architecture_context_surfaces_7bec6277["Surfaces Workspace"]:::component
   p1_module_architecture_context_tooling_d6655cd5["Repository Tooling"]:::component
   p1_component_architecture_context_local_runtime_agent_jobs_33e671d3 -->|"Resolve repository sessions and ledger scope without moving store transactional ownership"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
+  p1_component_architecture_context_local_runtime_architecture_book_ec146b18 -->|"Query， diff and export Book subjects from replayed ledger state and events with shared ledger contracts"| p1_component_architecture_context_core_architecture_ledger_248e87de
+  p1_component_architecture_context_local_runtime_architecture_book_ec146b18 -->|"Resolve the architecture-ledger readback and Git scope without moving ledger readback ownership"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
   p1_component_architecture_context_local_runtime_audit_eaeac660 -->|"Use the same job completion， ID， risk and proposal validation semantics through the existing daemon callbacks"| p1_component_architecture_context_local_runtime_agent_jobs_33e671d3
   p1_component_architecture_context_local_runtime_audit_eaeac660 -->|"Run read-only investigation and compile advisory proposals before daemon-owned ledger recording"| p1_component_architecture_context_core_agent_orchestrator_dd368317
   p1_component_architecture_context_surfaces_cli_c2747804 -->|"Use shared private control-file permission authority"| p1_component_architecture_context_local_runtime_control_file_security_af51dbd4
@@ -88,6 +91,7 @@ flowchart LR
   p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Use the shared process liveness semantics before stale-owner recovery"| p1_component_architecture_context_local_runtime_process_liveness_f8365b95
   p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Use the common wire protocol and construct a client from a validated daemon connection file"| p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose job queue orchestration and supply existing session and ledger scope ports"| p1_component_architecture_context_local_runtime_agent_jobs_33e671d3
+  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose Architecture Book reads and the task-context ledger query port using the shared ledger readback and local store"| p1_component_architecture_context_local_runtime_architecture_book_ec146b18
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate audit orchestration with existing lifecycle cancellation， writer gate， stores and job completion"| p1_component_architecture_context_local_runtime_audit_eaeac660
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate review worktree lifecycle through the composed service with the daemon running-state guard and clock"| p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose Explorer session lifecycle and send committed projection and authority invalidations"| p1_component_architecture_context_local_runtime_explorer_server_52082528
@@ -104,8 +108,8 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:c2ab93c9abe9259c9ccc0d20b54925537b43f4727a96c1e05a3d8889ad559091`).
-- Semantic nodes: `47`; declared relations: `36`.
+- Proof: `proven` (`sha256:8526c5437470d43a865a6aff17d3022a1ad314de46f2dd4ba0e4031ad3d0040f`).
+- Semantic nodes: `48`; declared relations: `39`.
 
 ### 1.2 模組職責表
 
@@ -133,7 +137,7 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **Proof**: `proven` (`sha256:c2ab93c9abe9259c9ccc0d20b54925537b43f4727a96c1e05a3d8889ad559091`); selectors `2/2`.
+> **Proof**: `proven` (`sha256:8526c5437470d43a865a6aff17d3022a1ad314de46f2dd4ba0e4031ad3d0040f`); selectors `2/2`.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%

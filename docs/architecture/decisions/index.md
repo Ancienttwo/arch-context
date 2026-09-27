@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" sourceDigest="sha256:ac1cf5b590a237524feaae7fb3cff28811f807c08ff8dd0d70f41f238e7c18d9" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:b9a2f39ba0903a744cfc490cf9f45dfc0d86097987cc698f7d47ca5aa78a26c9" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" sourceDigest="sha256:3a6635faca59a7f833b136c3c4f8eb04956d501f4d448224b4bd072ecf0b0d96" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:b9a2f39ba0903a744cfc490cf9f45dfc0d86097987cc698f7d47ca5aa78a26c9" -->
 # Architecture Decision Index
 
 - [Agentic Architecture Control Loop](../../adr/ADR-0001-agentic-architecture-control-loop.md) — accepted
