@@ -1,6 +1,6 @@
 # architecture/context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:c46f928ebdc5929c07a1b91988091d2f41c955fac3eb2a79b202515e46ff816d" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:838288b31611daceb33acd4424da90dd788a5eb815bb4c7bb3c29165efcb8bb7" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:8f5b79b0348a19a3d73c80ef65ce96552f7d86f86fdf5d0472d8abf0617025cd" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:93fec0618c2b13431ef7e70d7d3217349e491e88b339b78eeb53ed8cd50ab37a" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture.context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -49,6 +49,7 @@ flowchart LR
   p1_component_architecture_context_local_runtime_projection_apply_154446a6["Projection Receipt Service"]:::component
   p1_component_architecture_context_local_runtime_projection_paths_f737d52b["Projection Paths"]:::component
   p1_component_architecture_context_local_runtime_projection_service_5fe94894["Architecture Projection Service"]:::component
+  p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30["Local Runtime Public Entrypoints"]:::component
   p1_component_architecture_context_local_runtime_recommendations_0ebeafe6["Recommendations and Refactor Service"]:::component
   p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb["Runtime RPC Client and Contract"]:::component
   p1_component_architecture_context_local_runtime_rpc_server_90daf412["Runtime RPC Server and Control"]:::component
@@ -82,15 +83,16 @@ flowchart LR
   p1_component_architecture_context_local_runtime_local_store_sqlite_cd341e9b -->|"Use the shared process liveness semantics before stale-owner recovery"| p1_component_architecture_context_local_runtime_process_liveness_f8365b95
   p1_component_architecture_context_local_runtime_local_store_sqlite_cd341e9b -->|"Use shared private control-file permission authority"| p1_component_architecture_context_local_runtime_control_file_security_af51dbd4
   p1_component_architecture_context_local_runtime_local_store_sqlite_cd341e9b -->|"Resolve runtime storage partitions and re-export the existing public state-path contract"| p1_component_architecture_context_local_runtime_runtime_state_paths_13691514
-  p1_component_architecture_context_surfaces_mcp_local_d11d91ff -->|"Resolve and call the daemon through the client-only RPC entrypoint"| p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb
+  p1_component_architecture_context_surfaces_mcp_local_d11d91ff -->|"Resolve and call the daemon through the client-only RPC entrypoint"| p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30
   p1_component_architecture_context_local_runtime_projection_apply_154446a6 -->|"Rebuild fixed-point proof from repository， model and CodeGraph authority before receipt delivery"| p1_component_architecture_context_projection_renderer_53dbb119
   p1_capability_architecture_context_d82fe06a -->|"Project the accepted architecture model into documentation"| p1_component_architecture_context_projection_renderer_53dbb119
   p1_component_architecture_context_local_runtime_projection_service_5fe94894 -->|"Render deterministic documentation and agent context using daemon-owned inputs"| p1_component_architecture_context_projection_renderer_53dbb119
+  p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30 -->|"Re-export the loopback RPC client， wire protocol， and shared RPC type contracts through the client-only subpath"| p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb
+  p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30 -->|"Read the shared daemon connection file through control helpers without loading the server implementation"| p1_component_architecture_context_local_runtime_rpc_server_90daf412
+  p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30 -->|"Re-export the daemon facade and its egress status through the package root barrel"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
   p1_component_architecture_context_local_runtime_recommendations_0ebeafe6 -->|"Transition recommendation lifecycle status， build feedback and aggregate lifecycle metrics from the frozen recommendation engine"| p1_component_architecture_context_core_recommendation_engine_bb326e86
   p1_component_architecture_context_local_runtime_recommendations_0ebeafe6 -->|"Classify refactor scans and evaluate verify resolutions against the frozen refactor assessment engine"| p1_component_architecture_context_core_refactor_assessment_3ccf5012
   p1_component_architecture_context_local_runtime_recommendations_0ebeafe6 -->|"Resolve ledger scope， writer， clock， short digest and the non-journal append callback without moving writer or ledger scope ownership"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
-  p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb -->|"Type the refactorVerify RPC method from the recommendations service's verify request shape"| p1_component_architecture_context_local_runtime_recommendations_0ebeafe6
-  p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb -->|"Read the shared daemon connection file through control helpers without loading the server implementation"| p1_component_architecture_context_local_runtime_rpc_server_90daf412
   p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Resolve daemon connection， lock and review-run paths through the shared state path authority"| p1_component_architecture_context_local_runtime_runtime_state_paths_13691514
   p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Use shared private control-file permission authority"| p1_component_architecture_context_local_runtime_control_file_security_af51dbd4
   p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Use the shared process liveness semantics before stale-owner recovery"| p1_component_architecture_context_local_runtime_process_liveness_f8365b95
@@ -114,8 +116,8 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:934cf55baadd013dc8385cbb81114511cd25f1912f247e40ba4cc551b0cfdcbf`).
-- Semantic nodes: `49`; declared relations: `44`.
+- Proof: `proven` (`sha256:691d588d1ae919bf87f70307b32074f641c94f6b4a2029fc3d08c718c6ecb049`).
+- Semantic nodes: `50`; declared relations: `45`.
 
 ### 1.2 模組職責表
 
@@ -143,7 +145,7 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **Proof**: `proven` (`sha256:934cf55baadd013dc8385cbb81114511cd25f1912f247e40ba4cc551b0cfdcbf`); selectors `2/2`.
+> **Proof**: `proven` (`sha256:691d588d1ae919bf87f70307b32074f641c94f6b4a2029fc3d08c718c6ecb049`); selectors `2/2`.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%

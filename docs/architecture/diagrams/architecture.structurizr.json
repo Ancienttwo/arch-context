@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:ee6e339157f82b830fc9215416fd7ed56b9fe4046151586464fa59641321ccd8" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:bf15dd2e25522433b838c935e43e67f11e5bfc4042bde44c2b65de43bfe9dd4c" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:64721018c4c3401a55b0a115a4f61e5f34072d69e958381c7fb1e6d2d1e07efc" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:e3c9b6d756eda5cbe432ff8a56ff0452056756def0feeb6718128e92dc99f731" -->
 {
   "schemaVersion": "archcontext.structurizr-export/v1",
   "name": "ArchContext Architecture",
@@ -277,6 +277,14 @@
         ]
       },
       {
+        "id": "component.architecture-context.local-runtime.public-entrypoints",
+        "name": "Local Runtime Public Entrypoints",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
         "id": "component.architecture-context.local-runtime.recommendations",
         "name": "Recommendations and Refactor Service",
         "type": "Component",
@@ -507,9 +515,9 @@
         "description": "calls"
       },
       {
-        "id": "relation.architecture-context.mcp-local.rpc-client",
+        "id": "relation.architecture-context.mcp-local.public-entrypoints",
         "sourceId": "component.architecture-context.surfaces.mcp-local",
-        "destinationId": "component.architecture-context.local-runtime.rpc-client",
+        "destinationId": "component.architecture-context.local-runtime.public-entrypoints",
         "description": "calls"
       },
       {
@@ -531,6 +539,24 @@
         "description": "calls"
       },
       {
+        "id": "relation.architecture-context.public-entrypoints.rpc-client",
+        "sourceId": "component.architecture-context.local-runtime.public-entrypoints",
+        "destinationId": "component.architecture-context.local-runtime.rpc-client",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.public-entrypoints.rpc-control",
+        "sourceId": "component.architecture-context.local-runtime.public-entrypoints",
+        "destinationId": "component.architecture-context.local-runtime.rpc-server",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.public-entrypoints.runtime-daemon",
+        "sourceId": "component.architecture-context.local-runtime.public-entrypoints",
+        "destinationId": "component.architecture-context.local-runtime.runtime-daemon",
+        "description": "calls"
+      },
+      {
         "id": "relation.architecture-context.recommendations.recommendation-engine",
         "sourceId": "component.architecture-context.local-runtime.recommendations",
         "destinationId": "component.architecture-context.core.recommendation-engine",
@@ -546,18 +572,6 @@
         "id": "relation.architecture-context.recommendations.scope-callback",
         "sourceId": "component.architecture-context.local-runtime.recommendations",
         "destinationId": "component.architecture-context.local-runtime.runtime-daemon",
-        "description": "calls"
-      },
-      {
-        "id": "relation.architecture-context.rpc-client.recommendations",
-        "sourceId": "component.architecture-context.local-runtime.rpc-client",
-        "destinationId": "component.architecture-context.local-runtime.recommendations",
-        "description": "calls"
-      },
-      {
-        "id": "relation.architecture-context.rpc-client.rpc-control",
-        "sourceId": "component.architecture-context.local-runtime.rpc-client",
-        "destinationId": "component.architecture-context.local-runtime.rpc-server",
         "description": "calls"
       },
       {
@@ -702,6 +716,7 @@
         "component.architecture-context.local-runtime.projection-apply",
         "component.architecture-context.local-runtime.projection-paths",
         "component.architecture-context.local-runtime.projection-service",
+        "component.architecture-context.local-runtime.public-entrypoints",
         "component.architecture-context.local-runtime.recommendations",
         "component.architecture-context.local-runtime.rpc-client",
         "component.architecture-context.local-runtime.rpc-server",
