@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
+import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { digestJson, type Json } from "@archcontext/contracts";
+import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 
 const RUNTIME_RPC_VERSION = "archcontext.runtime-rpc/v1";
 const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
-
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 interface FastHookResult {
   handled: boolean;
@@ -140,9 +139,10 @@ async function callRuntimeRpc(connection: Record<string, unknown>, method: strin
 
 function readRuntimeRpcConnection(root: string) {
   const path = runtimeStatePaths(root).daemonConnectionPath;
-  if (!isPrivateControlFile(path)) return undefined;
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    const body = readPrivateControlFile(path);
+    if (body === undefined) return undefined;
+    const parsed = JSON.parse(body);
     if (!isObject(parsed)) return undefined;
     if (parsed.schemaVersion !== RUNTIME_RPC_VERSION) return undefined;
     if (parsed.protocol !== "http-loopback" || parsed.version !== 1) return undefined;
@@ -162,28 +162,6 @@ function findRepositoryRoot(root: string) {
 function readGitPath(root: string, args: string[]) {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return result.status === 0 ? result.stdout.trim() || undefined : undefined;
-}
-
-function isPrivateControlFile(path: string): boolean {
-  if (!existsSync(path)) return false;
-  if (process.platform === "win32") return true;
-  try {
-    return (statSync(path).mode & 0o077) === 0;
-  } catch {
-    return false;
-  }
-}
-
-function digestJson(value: unknown) {
-  return `sha256:${createHash("sha256").update(JSON.stringify(sortJson(value)), "utf8").digest("hex")}`;
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sortJson(child)]));
-  }
-  return value;
 }
 
 function hookLogRecord(input: { event: string; changedPaths: string[]; reasonCode: string; elapsedMs: number; failOpen: boolean }) {
@@ -232,7 +210,7 @@ function optionalInteger(args: string[], flag: string, positive: boolean): { val
 function shouldSkipGeneratedProjectionHook(args: string[], changedPaths: string[]) {
   if (args.includes("--no-generated-projection-guard")) return false;
   if (args.includes("--generated-projection")) return true;
-  return changedPaths.length > 0 && changedPaths.every((path) => path.replace(/\\/g, "/").startsWith(".archcontext/generated/"));
+  return changedPaths.length > 0 && changedPaths.every(isArchContextGeneratedProjectionPath);
 }
 
 function hookEnqueueReasonCode(data: Record<string, Json>) {

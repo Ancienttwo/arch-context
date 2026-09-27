@@ -1,0 +1,267 @@
+{
+  "schemaVersion": "archcontext.projection-environment-diagnosis/v1",
+  "generatedAt": "2026-09-25T15:48:37.613103+00:00",
+  "issue": 226,
+  "sourceHeadSha": "af70401268068dee621309d2620cbbcacfe0e4c5",
+  "runtimeChanges": false,
+  "testSourceChanges": false,
+  "deadlineChanges": false,
+  "toolchain": {
+    "bun": "1.4.0",
+    "codegraph": "1.5.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "priorFailure": "docs/verification/20260925-integrated-pr-acceptance.json",
+  "round1": {
+    "completion": {
+      "exitCode": 0,
+      "testMs": 6548.14,
+      "assertions": 15,
+      "trace": {
+        "calls": 4,
+        "sumChildMs": 5651,
+        "maxChildMs": 3488,
+        "failures": []
+      }
+    },
+    "readback": {
+      "exitCode": 1,
+      "testMs": 120003.76,
+      "assertionsReached": 55,
+      "trace": {
+        "calls": 118,
+        "sumChildMs": 114411,
+        "maxChildMs": 1839,
+        "failures": [
+          {
+            "method": [
+              "status",
+              "-j"
+            ],
+            "atMs": 119881,
+            "elapsedMs": 304,
+            "timeoutMs": 10000,
+            "ok": false,
+            "signal": "SIGTERM",
+            "status": null
+          }
+        ]
+      }
+    }
+  },
+  "round2": {
+    "diagnosticOnlyOuterMs": 240000,
+    "testRestoredByteForByte": true,
+    "exitCode": 1,
+    "testMs": 57067.47,
+    "assertionsReached": 20,
+    "failedPhase": "fixture unresolved docs plan; main RPC readback scenario not reached",
+    "trace": {
+      "calls": 48,
+      "sumChildMs": 54330,
+      "maxChildMs": 5022,
+      "failures": [
+        {
+          "method": [
+            "--version"
+          ],
+          "atMs": 2277,
+          "elapsedMs": 5022,
+          "timeoutMs": 5000,
+          "ok": false,
+          "code": "ETIMEDOUT",
+          "signal": "SIGTERM",
+          "status": null
+        },
+        {
+          "method": [
+            "--version"
+          ],
+          "atMs": 52264,
+          "elapsedMs": 5008,
+          "timeoutMs": 5000,
+          "ok": false,
+          "code": "ETIMEDOUT",
+          "signal": "SIGTERM",
+          "status": null
+        }
+      ]
+    }
+  },
+  "startupEvidence": {
+    "noCodeGraphProbe": [
+      {
+        "trial": 0,
+        "cwd": "repo",
+        "elapsedMs": 22,
+        "status": 0,
+        "output": "ready"
+      },
+      {
+        "trial": 0,
+        "cwd": "temp",
+        "elapsedMs": 5172,
+        "status": null,
+        "code": "ETIMEDOUT",
+        "output": ""
+      },
+      {
+        "trial": 1,
+        "cwd": "repo",
+        "elapsedMs": 318,
+        "status": 0,
+        "output": "ready"
+      },
+      {
+        "trial": 1,
+        "cwd": "temp",
+        "elapsedMs": 777,
+        "status": 0,
+        "output": "ready"
+      }
+    ],
+    "cwdPairedProbe": [
+      {
+        "trial": 0,
+        "cwd": "repo",
+        "status": 0,
+        "version": "1.5.0",
+        "elapsedMs": 215
+      },
+      {
+        "trial": 0,
+        "cwd": "temp",
+        "status": 0,
+        "version": "1.5.0",
+        "elapsedMs": 3024
+      },
+      {
+        "trial": 1,
+        "cwd": "repo",
+        "status": 0,
+        "version": "1.5.0",
+        "elapsedMs": 69
+      },
+      {
+        "trial": 1,
+        "cwd": "temp",
+        "status": 0,
+        "version": "1.5.0",
+        "elapsedMs": 702
+      }
+    ],
+    "isolationPairedProbe": [
+      {
+        "trial": 0,
+        "cwd": "system",
+        "elapsedMs": 793,
+        "status": 0,
+        "output": "ready"
+      },
+      {
+        "trial": 0,
+        "cwd": "isolated",
+        "elapsedMs": 14,
+        "status": 0,
+        "output": "ready"
+      },
+      {
+        "trial": 1,
+        "cwd": "system",
+        "elapsedMs": 637,
+        "status": 0,
+        "output": "ready"
+      },
+      {
+        "trial": 1,
+        "cwd": "isolated",
+        "elapsedMs": 14,
+        "status": 0,
+        "output": "ready"
+      }
+    ],
+    "sample": {
+      "mainThreadSamples": 767,
+      "directoryEnumerationSamples": 719,
+      "nativeFrame": "__getdirentries64",
+      "exactBunInternalFunctionAndDirectorySet": "not established"
+    },
+    "nestedTiming": {
+      "systemTempBeforeBunPreloadMs": 847,
+      "systemTempNodePreloadToExitMs": 27
+    },
+    "negativeHypotheses": [
+      "Empty package.json and bunfig.toml markers did not remove the warm penalty.",
+      "No-env-file, no-install and explicit tsconfig did not remove the warm penalty.",
+      "Both execFileSync and spawnSync were fast in repo cwd."
+    ]
+  },
+  "final": {
+    "command": "TMPDIR=$PWD/_ops/remaining-issues/issue226/temp-base bun test --timeout 60000 packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts -t 'complete_task blocks active documentation projection drift until projections are reconciled|projection readback preserves delivered receipt and validates every current read over RPC'",
+    "instrumentation": false,
+    "exitCode": 0,
+    "pass": 2,
+    "fail": 0,
+    "assertions": 79,
+    "totalSeconds": 29.84,
+    "completionMs": 1366.91,
+    "readbackMs": 28030.37,
+    "childVersionDeadlineMs": 5000,
+    "readbackOuterDeadlineMs": 120000,
+    "childDeadlineNegativeGuard": {
+      "pass": 1,
+      "fail": 0,
+      "assertions": 1,
+      "caseMs": 24.23
+    }
+  },
+  "disposition": {
+    "issue226": "resolved by scoped verification environment isolation",
+    "formalAcceptance": "blocked by issue 225; no new full-suite or hosted verdict",
+    "historicalFailures": "retained"
+  },
+  "sourceInputs": {
+    "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts": "sha256:ee387fc59e87a53194f321090e1e7000fe6dda9fa11fcd2495573ec3b05d28ad",
+    "packages/surfaces/cli/test/cli.test.ts": "sha256:2b3e355d850d7c7a08c89dd38ea217de29c7b6fa2b7c3c100ac18f89f7a80c2f",
+    "packages/local-runtime/codegraph-adapter/src/index.ts": "sha256:13c4220534bd800b8ec07e85deda691f432e917ac5983e565bfa285c089fc6f4",
+    "packages/local-runtime/runtime-daemon/src/index.ts": "sha256:cd3bc0ff6768b9fcf492a786d2db6d058cfb137e0acb91f496c3b8df3719f84d",
+    "packages/local-runtime/runtime-daemon/src/projection-apply.ts": "sha256:08bb6784fcab931108b58e38f1d6e160aea1919124d8d5caa1966133feb2bea3"
+  },
+  "localEvidence": {
+    "_ops/remaining-issues/issue226/completion-round1.log": "sha256:6f6b2cbf1518b6aa56cc9c124cb0467baf5b5b8e60d7562f4e4c3721747a2a05",
+    "_ops/remaining-issues/issue226/completion-round1.jsonl": "sha256:e2903f1e3f7dcc5c2ad863f9e934f1ce42cfadfcc9cbd2447289f856c0a051fa",
+    "_ops/remaining-issues/issue226/readback-round1.log": "sha256:02864ffc6053cc1e19619397edefb929eda23083fceac172afb8e7635602c3ed",
+    "_ops/remaining-issues/issue226/readback-round1.jsonl": "sha256:c23c3eb49c34a83e6e674e41f8fd174e213aa10c18bf7e245372d24fe72563b8",
+    "_ops/remaining-issues/issue226/readback-round2.log": "sha256:de8d916682edf2942470f2d247ea8db49cc407380677d6d09cea95e43e6b9be4",
+    "_ops/remaining-issues/issue226/readback-round2.jsonl": "sha256:3c9ffd7cb030862410c4da4da2736cd185128615ec86b8dbf22f8ae2ec78225e",
+    "_ops/remaining-issues/issue226/readback-round2-phases.jsonl": "sha256:9b17a13405dad9112838af2f97e0f29d7871bb1081a44276b32a57f751f4969c",
+    "_ops/remaining-issues/issue226/startup-results.json": "sha256:cba2d9214ea5b697a4373e859718185a5b628d8ed8787a27afcec7bd938c8a7f",
+    "_ops/remaining-issues/issue226/version-api-results.json": "sha256:00f1eb954e613b774efbe068821c070514af8bc96cd37379b4ab24f6a950eb72",
+    "_ops/remaining-issues/issue226/version-cwd-results.json": "sha256:9d5bfc3ac9efd935277596de054d14e2944fe9b51c6e1cff07670eb7937ba866",
+    "_ops/remaining-issues/issue226/startup-cwd-results.json": "sha256:70034dc5085fd5aa9a265d2d448af70b6e5ec3db6e34970f646ec09b6a47df86",
+    "_ops/remaining-issues/issue226/startup-cwd-repo.jsonl": "sha256:b5e5059c0ff291f1d5f4cd2809a5470bd5f82276b998f12b39f48f08bab5d07e",
+    "_ops/remaining-issues/issue226/startup-cwd-temp.jsonl": "sha256:08bcd44d4d5df5a8c73c374ac0a270f6f0dae71162894ba3c9f9e31891fb4d9d",
+    "_ops/remaining-issues/issue226/bun-startup-results.json": "sha256:1df3efa29fefe695e3a59dfdaeee30e91d15539cb51abba9655f8cf8cc4c64ba",
+    "_ops/remaining-issues/issue226/bun-discovery-results.json": "sha256:db25272481e3be6da37200ac892cb612a0ae01dbd37a8d291233202f09621009",
+    "_ops/remaining-issues/issue226/bun-options-results.json": "sha256:bafefd9c93006a682584cb57aac36781307f8311c4a58a0e81914fe83a1ebd08",
+    "_ops/remaining-issues/issue226/bun-startup-sample.txt": "sha256:bf53e9ca5af138bbb9d46c4d6dc825d3d2ad4e9ee284873a8485c27d37e168cf",
+    "_ops/remaining-issues/issue226/bun-startup-sample-result.json": "sha256:95ca65fa0c34ddf97c3c2339eb66ae89caaccfd6f7ef725c5d7149d94b08752b",
+    "_ops/remaining-issues/issue226/bun-startup-directories.json": "sha256:92e7c75eba55a3b12aaf516812c08a95e4a48db37560dd9d98697cb71a256f90",
+    "_ops/remaining-issues/issue226/bun-isolation-results.json": "sha256:4d96ba1807766bd7d2ef19bdc7e5719a47f0a6c30c02a04d1cf284d43f2bc70b",
+    "_ops/remaining-issues/issue226/final-isolated.log": "sha256:7f5c1543abb9e4eac47bdbbbb9945f6eb79a91daa5b3169966d291c0857e6097",
+    "_ops/remaining-issues/issue226/child-deadline-guard.log": "sha256:2384a6b22d484a503de2f3a3dc51218f0d5f5496badd74b67998386169cf3c9c"
+  },
+  "limitations": [
+    "Exact Bun internal directory-discovery implementation is not established; no universal Bun fix claimed.",
+    "No system temp cleanup, global environment change, runtime runner substitution or proof caching.",
+    "Observed timings are local, not a cross-platform performance guarantee."
+  ],
+  "recordChecks": {
+    "verificationPlanValidation": "pass",
+    "planHash": "sha256:8b7952798048606465f0e612caedbcab495b413c246dcb684e03efc517dacc7c",
+    "acceptanceLedgerEntries": 192,
+    "practiceAssetsLedgerEntries": 14,
+    "gitDiffCheck": "pass"
+  }
+}

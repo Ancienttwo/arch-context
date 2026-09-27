@@ -2,7 +2,7 @@ import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, Ru
 import type { AgentJobV1, ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, Json, JsonEnvelope, ProjectionApplyRecoveryIntentV1, ProjectionRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import type { DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
-import type { DeveloperReviewAttestation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunPreparation, DeveloperReviewRunRecovery, ExplorerServerOptions, RuntimeAgentJobCancelRpcInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobRetryRpcInput, RuntimeApplyUpdateInput, RuntimeAuditApproveInput, RuntimeAuditRunInput, RuntimeBookInput, RuntimeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimeMcpApplyInput, RuntimeMcpApprovalInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput } from "./index";
+import type { DeveloperReviewAttestation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunPreparation, DeveloperReviewRunRecovery, ExplorerServerOptions, RuntimeAcceptCommittedChangeInput, RuntimeAgentJobCancelRpcInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobRetryRpcInput, RuntimeApplyUpdateInput, RuntimeAuditApproveInput, RuntimeAuditRunInput, RuntimeBookInput, RuntimeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimeMcpApplyInput, RuntimeMcpApprovalInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput } from "./index";
 import type { PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import type { RuntimeRefactorVerifyInput } from "./refactor-verify";
 import { okEnvelope } from "@archcontext/contracts";
@@ -96,6 +96,7 @@ export const RUNTIME_RPC_METHODS = {
   readbackProjectionApply: envelopeMethod("normal", (root: string, request: ProjectionRequestV1) => [root, request] as const),
   ledgerState: envelopeMethod("short", (root: string) => [root] as const),
   ledgerDrift: envelopeMethod("short", (root: string) => [root] as const),
+  acceptCommittedChange: envelopeMethod("long", (root: string, input: RuntimeAcceptCommittedChangeInput) => [root, input] as const),
   ledgerProject: envelopeMethod("normal", (root: string, input: RuntimeLedgerProjectInput = { dryRun: true }) => [root, input] as const),
   ledgerMigrate: envelopeMethod("long", (root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }) => [root, input] as const),
   ledgerRebuild: envelopeMethod("long", (root: string, input: RuntimeLedgerRebuildInput = {}) => [root, input] as const),

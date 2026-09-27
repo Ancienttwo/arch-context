@@ -4,7 +4,7 @@
   "environment": "staging-release-readback",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-09-26T19:55:41.815Z",
+  "generatedAt": "2026-09-25T19:40:39.642Z",
   "sources": {
     "localNoCloudSource": "docs/verification/fg6-local-no-cloud-readback.json",
     "runnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
@@ -15,9 +15,7 @@
     "localCore": {
       "commandCount": 12,
       "providerEnvRemoved": [
-        "GH_PAGER",
-        "OPENAI_API_KEY",
-        "OPENAI_BASE_URL"
+        "GH_PAGER"
       ],
       "noLlmProviderRequired": true,
       "localReviewComplete": true,

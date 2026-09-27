@@ -811,15 +811,17 @@ export interface ReviewCheckoutGitPort {
 }
 
 export interface NonLocalEgressChannel {
-  channel: "context7" | "agent-audit" | "github-issue-publishing";
+  channel: "context7" | "agent-audit" | "github-issue-publishing" | "npm-update-check" | "codegraph-telemetry";
   destination: string;
   trigger: string;
   data: string;
-  status: "enabled" | "declared-awaiting-user-consent";
+  status: "enabled" | "declared-awaiting-user-consent" | "blocked-by-policy";
 }
 
 export interface LocalEgressReport {
   ok: boolean;
+  policyMode: "configured" | "local-only";
+  enforcement: "application-admission";
   defaultOutbound: "local-only";
   effectiveOutbound: "local-only" | "non-local";
   nonLocalEgress: NonLocalEgressChannel[];

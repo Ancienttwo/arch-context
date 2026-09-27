@@ -22,3 +22,14 @@ This is the root routing contract for Claude Code and Codex.
 - Ledger-affecting writes must go through ChangeSet or a daemon-owned transactional event append. CLI, MCP, hooks, and agents are triggers/readers unless an explicit command crosses that boundary.
 - Subagents may produce typed proposals and investigation reports only; they must not directly mutate ledger, YAML, docs, policies, or waivers.
 - Do not persist raw source bodies, raw diffs, prompt/completion bodies, full CodeGraph output, secrets, credentials, or private keys in ledger artifacts.
+
+<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.architecture.context" sourceDigest="sha256:2fdaf1f14686c4feec98054c2256c93776f73bff7ec3d25cceef04c340bc3088" rendererVersion="archcontext.agent-context-renderer/v1" outputDigest="sha256:3e4fe25ceff548e583d76672a5e0f49cf8614bd3460273dcd340e7701ef5503d" -->
+# Agent Context: Architecture Context
+
+- id: `capability.architecture.context`
+- kind: `capability`
+- summary: Keeps product and architecture intent available to coding agents.
+- source.include: `packages/**/src/**`
+- source.exclude: `packages/**/test/**`
+- extensions digest: sha256:351dc5b26a520378d1e0766cda3dbba213f362971b4a90eff010d687db88111f
+<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.architecture.context" -->

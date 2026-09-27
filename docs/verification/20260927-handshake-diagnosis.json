@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "archcontext.handshake-diagnosis/v1",
+  "status": "not-reproduced-root-cause-unproven",
+  "sourceHead": "2576922dcd330f205c9682fb6d0fcccc703108aa",
+  "priorFailure": "docs/verification/20260927-final-acceptance-checkpoint.json",
+  "sourceHashes": {
+    "adapter": "sha256:13c4220534bd800b8ec07e85deda691f432e917ac5983e565bfa285c089fc6f4",
+    "cliTest": "sha256:d533354424892dd03dd6decc99960c3ee19e25a9a256fc67df6db5671cb64038"
+  },
+  "runtime": {
+    "bun": "1.4.0",
+    "TMPDIR": "/Users/kito/.cache/archctx-closeout-tmp"
+  },
+  "observations": [
+    {
+      "round": 1,
+      "exitCode": 0,
+      "testsPassed": 1,
+      "assertions": 61,
+      "runtime": {
+        "exit": 0,
+        "seconds": 27.83487105369568,
+        "originalSha256": "13c4220534bd800b8ec07e85deda691f432e917ac5983e565bfa285c089fc6f4"
+      },
+      "children": 110,
+      "failures": 0,
+      "timings": {
+        "--version": {
+          "count": 22,
+          "maxMs": 200.707,
+          "totalMs": 1821.298
+        },
+        "status": {
+          "count": 66,
+          "maxMs": 283.363,
+          "totalMs": 13326.715
+        },
+        "sync": {
+          "count": 22,
+          "maxMs": 630.234,
+          "totalMs": 4995.709
+        }
+      },
+      "trace": "/private/tmp/archctx-handshake-20260927/children.jsonl",
+      "traceSha256": "sha256:227cc976a1d4a3af4a2f04bb0b25a037b0c35753dc043a373b22c11f2082247f",
+      "log": "/private/tmp/archctx-handshake-20260927/round1.log",
+      "logSha256": "sha256:490427075078e0166d69638fbe1969f744da84f5be6920cc7a1ff1f79fd2fb1b"
+    },
+    {
+      "round": 2,
+      "exitCode": 0,
+      "testsPassed": 5,
+      "assertions": 209,
+      "runtime": {
+        "exit": 0,
+        "seconds": 95.09959506988525,
+        "originalSha256": "13c4220534bd800b8ec07e85deda691f432e917ac5983e565bfa285c089fc6f4"
+      },
+      "children": 407,
+      "failures": 0,
+      "timings": {
+        "--version": {
+          "count": 95,
+          "maxMs": 793.932,
+          "totalMs": 7963.998
+        },
+        "status": {
+          "count": 234,
+          "maxMs": 881.427,
+          "totalMs": 46124.42
+        },
+        "sync": {
+          "count": 78,
+          "maxMs": 874.432,
+          "totalMs": 16411.716
+        }
+      },
+      "trace": "/private/tmp/archctx-handshake-20260927/children-round2.jsonl",
+      "traceSha256": "sha256:ec7a3eba7438557f757371f842143bf0e2cba7724bacf4edc5746d6703ab88e4",
+      "log": "/private/tmp/archctx-handshake-20260927/round2.log",
+      "logSha256": "sha256:fad287b87b3cb3813aad36870f6f8daf3e1735f371cb10b7a7bf45c9639cf839"
+    }
+  ],
+  "restoredVerification": {
+    "exitCode": 0,
+    "testsPassed": 2,
+    "assertions": 62,
+    "durationSeconds": 25.3,
+    "log": "/private/tmp/archctx-handshake-20260927/restored.log",
+    "logSha256": "sha256:e021ff1edc72066d20e65f70b1eaece769a2be5cf20729d2c7f0a78c8016cf6e",
+    "adapterRestoredByteForByte": true
+  },
+  "instrumentation": {
+    "temporaryOnly": true,
+    "path": "/private/tmp/archctx-handshake-20260927/instrumentation.diff",
+    "sha256": "sha256:c330023968c34da4a7e16bc57cb06173525390ed9be79268a44eb61fc9ae87b9",
+    "fields": [
+      "command",
+      "args",
+      "root",
+      "timeout",
+      "elapsedMs",
+      "phase",
+      "ok",
+      "errorCode",
+      "signal",
+      "childPid"
+    ],
+    "changedDeadlines": false,
+    "changedAssertions": false
+  },
+  "conclusion": "All 517 observed child invocations succeeded. Neither isolated parity nor its four adjacent projection tests reproduced the failure. Original failure lacks command/elapsed metadata; its timed-out subcommand and causal delay remain unknown. Successful targeted runs do not clear failed full acceptance.",
+  "nextSlice": "Add bounded command/deadline/elapsed/error metadata to handshake failure diagnostics with no retry or timeout changes, so a future approved full gate can identify the failing child.",
+  "fullGateRepeated": false,
+  "receiptIssued": false,
+  "productChange": false
+}

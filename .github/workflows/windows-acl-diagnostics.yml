@@ -1,0 +1,45 @@
+name: Windows ACL Diagnostics
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/windows-acl-diagnostics.yml
+      - packages/local-runtime/control-file-security/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-acl-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  first-create:
+    name: Windows Node 24 first-create / fresh runner ${{ matrix.sample }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        sample: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      # No prewarm: the existing creation case must perform the first native ACL call.
+      - name: Existing first-create regression
+        run: bun test --timeout 60000 packages/local-runtime/control-file-security/test/control-file-security.test.ts --test-name-pattern 'control credentials are private at creation'
+      - name: Installed-bin ACL and lifecycle readback
+        if: matrix.sample == 1
+        run: node scripts/platform-ipc-permission-readback.mjs > native-acl-readback.json
+      - uses: actions/upload-artifact@v6
+        if: matrix.sample == 1
+        with:
+          name: native-acl-readback-windows-node-24
+          path: native-acl-readback.json

@@ -1,0 +1,6 @@
+id: "relation.architecture-context.external-documentation.session-writer-callback"
+intent: "Open repository sessions and execute approved pins under the daemon writer and recovery guard"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.external-documentation"
+target: "component.architecture-context.local-runtime.runtime-daemon"

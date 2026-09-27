@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "archcontext.restricted-writer-migration-evidence/v1",
+  "baseHead": "68b056857e8109ac53c0614518e32220659228af",
+  "modelChangeSet": {
+    "id": "changeset.issue225.capability-profile-v3",
+    "proposalDigest": "sha256:dbc8a27813af850903a97600434be34bf40bc818a77a11810c1cc8a6b126ff7d",
+    "previewWorktreeDigest": "sha256:66c3ba560f94ce7395aac7a52564c7c82d980e384bb754d35ca026b88540aea0",
+    "operationCount": 11,
+    "status": "applied",
+    "journalId": "changeset_66fe1df3-bef9-4983-9c60-597dad4a1a91"
+  },
+  "rootContractChangeSet": {
+    "id": "changeset.issue225.root-contract",
+    "status": "applied",
+    "journalId": "changeset_525e926f-0b96-4d4e-93a0-38e9ee9393d6",
+    "paths": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ]
+  },
+  "currentReadback": {
+    "oldNodeAbsent": true,
+    "newNodePresent": true,
+    "oldIdAbsentFromModelAndAdr": true,
+    "rootContractsByteAligned": true,
+    "sourceInclude": [
+      "packages/**/src/**"
+    ],
+    "sourceExclude": [
+      "packages/**/test/**"
+    ]
+  },
+  "verification": {
+    "focused": {
+      "pass": 180,
+      "fail": 0,
+      "assertions": 946,
+      "log": "_ops/remaining-issues/issue225/final-focused.log"
+    },
+    "typecheck": "passed",
+    "packageBoundaries": "passed (5 workspaces)",
+    "rollbackAndRecovery": "covered by ADR and root writer regressions",
+    "symlinkReader": "red before no-follow guard, green after"
+  },
+  "docsProjection": {
+    "profile": "repo-harness/v1",
+    "driftCount": 38,
+    "majorChange": {
+      "schemaVersion": "archcontext.major-change-classification/v1",
+      "mode": "human-action-required",
+      "cause": "unresolved-major-candidate",
+      "reasonCodes": [
+        "node-added",
+        "node-removed"
+      ],
+      "affectedNodeIds": [
+        "capability.architecture-context",
+        "capability.architecture.context"
+      ]
+    },
+    "adoptionAllowed": false,
+    "adoptionIssues": [
+      "projection-adoption-no-candidates"
+    ],
+    "status": "blocked-pending-real-accepted-change-event"
+  },
+  "scope": {
+    "harnessCandidate": "e7955bb5e1fa03a02ca6eaabd821884c3256ca3e",
+    "installedHarness": "unchanged",
+    "formalAcceptanceReceipt": "absent",
+    "mergeReleaseDeploy": "not-performed"
+  }
+}

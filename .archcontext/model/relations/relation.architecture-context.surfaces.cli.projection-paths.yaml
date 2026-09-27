@@ -1,0 +1,6 @@
+id: "relation.architecture-context.surfaces.cli.projection-paths"
+intent: "Use the same generated projection path guard"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.surfaces.cli"
+target: "component.architecture-context.local-runtime.projection-paths"

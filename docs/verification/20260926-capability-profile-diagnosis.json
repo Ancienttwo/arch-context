@@ -1,0 +1,208 @@
+{
+  "schemaVersion": "archcontext.capability-profile-diagnosis/v1",
+  "date": "2026-09-26",
+  "status": "partial-migration-blocked",
+  "archcontextBase": "819ec81a03dc18add8b7c1cd6f7dedce8e45ee7c",
+  "harnessBase": "6a0977924c4b9d23f503fe9e67a734b77e1b8f77",
+  "targetIdentity": "capability.architecture.context",
+  "workflowOwnershipAuthority": "registry",
+  "sourceHashes": {
+    "packages/local-runtime/model-store-yaml/src/index.ts": "sha256:4323f8c28bd6732765d2e79e7f71c77738d14f46d4c979e3fc68d119e945ae06",
+    "packages/local-runtime/model-store-yaml/test/initialize-model.test.ts": "sha256:9fe271b27bd368debcc614043906c9d48e98a944aa71d828e1a32bcd5eec0bfb"
+  },
+  "harnessSourceHash": "sha256:83969ad9759028d6956feda38c30de7b68e9c9198b7a7f84a01a4bd8e4174cd1",
+  "preFix": [
+    {
+      "subject": "initializer",
+      "pass": 0,
+      "fail": 1,
+      "logSha256": "sha256:ac4f18f6e451b68496f85d8cde3b5e702cffb04f084b6e3565988f1658ffc2bf"
+    },
+    {
+      "subject": "projection-target-discovery",
+      "pass": 0,
+      "fail": 3,
+      "logSha256": "sha256:ff014a815273351d61d9fcd71573ef659951dc31acc8ddd530dc5d5b9a6b864e"
+    }
+  ],
+  "verification": {
+    "initializerAndModelValidation": {
+      "pass": 29,
+      "fail": 0,
+      "assertions": 120
+    },
+    "seedConsumers": {
+      "pass": 108,
+      "fail": 0,
+      "assertions": 692,
+      "logSha256": "sha256:dd4178c4788ba6258ed18b2355e84f0311ea958604ade4cb5b92885ea13141ae"
+    },
+    "cliSeedConsumers": {
+      "pass": 8,
+      "fail": 0,
+      "assertions": 171,
+      "logSha256": "sha256:d4a4e7fb89f5cec475dc20b56e35505e6fbfe6da66df4a0af98af122400017e8"
+    },
+    "harnessProjectionProviderAndOrchestration": {
+      "pass": 72,
+      "fail": 0,
+      "assertions": 389
+    },
+    "archcontextTypecheck": "pass",
+    "harnessTypecheck": "pass",
+    "packageBoundaries": "pass",
+    "harnessIntegrity": [
+      {
+        "check": "hooks",
+        "command": [
+          "bun",
+          "run",
+          "check:hooks"
+        ],
+        "exitCode": 0
+      },
+      {
+        "check": "helpers",
+        "command": [
+          "bun",
+          "run",
+          "check:helpers"
+        ],
+        "exitCode": 0
+      },
+      {
+        "check": "reference-configs",
+        "command": [
+          "bun",
+          "run",
+          "check:reference-configs"
+        ],
+        "exitCode": 0
+      },
+      {
+        "check": "deploy-sql",
+        "command": [
+          "bash",
+          "scripts/check-deploy-sql-order.sh"
+        ],
+        "exitCode": 0
+      },
+      {
+        "check": "architecture-sync",
+        "command": [
+          "bash",
+          "scripts/check-architecture-sync.sh"
+        ],
+        "exitCode": 0
+      },
+      {
+        "check": "task-sync",
+        "command": [
+          "bash",
+          "scripts/check-task-sync.sh"
+        ],
+        "exitCode": 1
+      },
+      {
+        "check": "task-workflow",
+        "command": [
+          "bash",
+          "scripts/check-task-workflow.sh",
+          "--strict"
+        ],
+        "exitCode": 0
+      },
+      {
+        "check": "project-state",
+        "command": [
+          "bun",
+          "scripts/inspect-project-state.ts",
+          "--repo",
+          ".",
+          "--format",
+          "text"
+        ],
+        "exitCode": 0
+      },
+      {
+        "check": "init-dry-run",
+        "command": [
+          "bun",
+          "src/cli/index.ts",
+          "init",
+          "--repo",
+          ".",
+          "--dry-run"
+        ],
+        "exitCode": 0
+      }
+    ],
+    "harnessTaskSyncAfterBindingDigest": "pass",
+    "pairedInitializedModel": {
+      "freshInitializedModel": true,
+      "configurationWriter": "daemon ChangeSet",
+      "status": "pass",
+      "nodeId": "capability.architecture.context",
+      "targets": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "docs/architecture"
+      ],
+      "source": {
+        "include": [
+          "packages/**/src/**"
+        ],
+        "exclude": [
+          "packages/**/test/**"
+        ]
+      },
+      "missingOptionalMetadata": [
+        "responsibilities",
+        "lspProfile",
+        "verification"
+      ]
+    },
+    "securityReview": "pass-scoped-consumer-diff"
+  },
+  "migration": {
+    "attempt1": "rolled-back: ADR-0021 appliesTo references old node",
+    "attempt2": "rolled-back: docs/adr target outside write allowlist",
+    "proposalDigest": "sha256:282b0ac42d97805e800ac80aba7fe60fd82f3e1a2051cd6158ff81b8cc5ce5be",
+    "rollback": {
+      "status": "pass",
+      "checkedOperations": 11,
+      "originalFilesRestored": 10,
+      "newIdentityAbsent": true
+    },
+    "writeBoundaries": [
+      {
+        "path": "docs/adr/ADR-0021-first-party-skills-sop-only.md",
+        "denied": true,
+        "message": "Error: Path is outside ArchContext write allowlist: docs/adr/ADR-0021-first-party-skills-sop-only.md"
+      },
+      {
+        "path": "AGENTS.md",
+        "denied": true,
+        "message": "Error: Path is outside ArchContext write allowlist: AGENTS.md"
+      },
+      {
+        "path": "CLAUDE.md",
+        "denied": true,
+        "message": "Error: Path is outside ArchContext write allowlist: CLAUDE.md"
+      }
+    ],
+    "temporaryProposalHelperExtension": "removed-byte-identically; no allowlist change"
+  },
+  "notClaimed": [
+    "live model migration",
+    "projection regeneration",
+    "normal prepare-acceptance",
+    "AcceptanceReceipt",
+    "current-candidate hosted CI",
+    "merge",
+    "release",
+    "global installation"
+  ],
+  "harnessCandidateCommit": "e7955bb5e1fa03a02ca6eaabd821884c3256ca3e",
+  "harnessPublication": "local commit only"
+}

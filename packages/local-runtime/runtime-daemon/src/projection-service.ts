@@ -167,7 +167,7 @@ function withProjectionMetadata(
   };
 }
 
-function buildArchitectureDocsProjection(
+export function buildArchitectureDocsProjection(
   daemon: ProjectionServiceHost,
   root: string,
   generatedAt: string,

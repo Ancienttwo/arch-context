@@ -68,7 +68,7 @@ export async function runFg6LocalNoCloud(config: ReturnType<typeof buildFg6Local
   }
   const localEvidence = JSON.parse(child.stdout) as unknown;
   const recording = {
-    schemaVersion: "archcontext.fg6-local-no-cloud-readback/v1",
+    schemaVersion: "archcontext.fg6-local-no-cloud-readback/v2",
     acceptanceId: "AC-01",
     environment: "local-release-readback",
     status: "verified",
@@ -104,16 +104,30 @@ export function inspectFg6LocalNoCloud(recording: unknown): { ok: boolean; failu
   const assertions = readRecord(evidence.assertions);
   const local = readRecord(evidence.localEvidence);
   const egress = readRecord(local.egress);
+  const isolation = readRecord(local.networkIsolation);
   const mcp = readRecord(local.mcp);
   const taskLifecycle = readRecord(local.taskLifecycle);
   const practices = readRecord(local.practices);
   const review = readRecord(local.review);
 
-  if (record.schemaVersion !== "archcontext.fg6-local-no-cloud-readback/v1") failures.push("schemaVersion mismatch");
+  if (record.schemaVersion !== "archcontext.fg6-local-no-cloud-readback/v2") failures.push("schemaVersion mismatch");
   if (record.acceptanceId !== "AC-01") failures.push("acceptanceId must be AC-01");
   if (record.environment !== "local-release-readback") failures.push("environment must be local-release-readback");
   if (record.status !== "verified" || record.ok !== true) failures.push("status must be verified ok");
-  if (local.schemaVersion !== "archcontext.local-no-cloud-e2e/v1") failures.push("local evidence schema mismatch");
+  if (local.schemaVersion !== "archcontext.local-no-cloud-e2e/v2") failures.push("local evidence schema mismatch");
+
+  const platform = isolation.platform;
+  const expectedMechanism = platform === "darwin" ? "macos-seatbelt" : platform === "linux" ? "linux-network-namespace" : undefined;
+  if (!expectedMechanism || isolation.mechanism !== expectedMechanism) failures.push("kernel network isolation mechanism missing or unsupported");
+  if (isolation.nonLoopbackDenied !== true || isolation.descendantDenied !== true || isolation.loopbackAllowed !== true) failures.push("network deny/descendant/loopback controls must pass");
+  const probes = Array.isArray(isolation.probes) ? isolation.probes.map(readRecord) : [];
+  const codes = platform === "darwin" ? ["EPERM", "EACCES"] : platform === "linux" ? ["ENETUNREACH"] : [];
+  if (probes.length !== 2 || new Set(probes.map(probe => probe.family)).size !== 2 || !["ipv4", "ipv6"].every(family => probes.some(probe => probe.family === family && codes.includes(String(probe.directCode)) && codes.includes(String(probe.childCode))))) failures.push("IPv4/IPv6 OS denial evidence missing or invalid");
+  if (platform === "linux") {
+    const namespace = readRecord(isolation.namespace);
+    if (namespace.distinctFromParent !== true || JSON.stringify(namespace.interfaces) !== '["lo"]') failures.push("Linux namespace must be distinct with only loopback");
+  }
+  if (egress.policyMode !== "local-only" || egress.enforcement !== "application-admission" || egress.effectiveOutbound !== "local-only") failures.push("local-only admission policy proof missing");
 
   const commands = Array.isArray(local.commands) ? local.commands.map(String) : [];
   for (const command of REQUIRED_COMMANDS) {

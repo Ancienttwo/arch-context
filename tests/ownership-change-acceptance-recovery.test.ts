@@ -17,6 +17,8 @@ import { runCli } from "../packages/surfaces/cli/src/main";
 const codegraphCli = join(dirname(createRequire(import.meta.url).resolve("@colbymchenry/codegraph/package.json")), "npm-shim.js");
 
 const timeout = process.platform === "win32" ? 240_000 : 30_000;
+// The real-index scenario rebuilds CodeGraph proofs across adoption, races and recovery.
+const PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 120_000;
 
 function git(root: string, ...args: string[]): void {
   execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
@@ -76,7 +78,7 @@ function createFixture(): string {
 async function prepareAcceptedMajorChange(root: string, options: { codeGraphReady?: boolean } = {}) {
   const nodePath = join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml");
   const modulePath = join(root, "docs/architecture/modules/runtime-harness/hook-adapters.md");
-  rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+  rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
   writeFileSync(nodePath, stableYaml({
     schemaVersion: "archcontext.node/v2",
     id: "capability.runtime-harness.hook-adapters",
@@ -340,7 +342,7 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
     rmSync(stateRoot(root), { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
-}, timeout);
+}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
 test("semantic recovery rejects a committed receipt whose approved CodeGraph proof was unavailable", async () => {
   const root = createFixture();

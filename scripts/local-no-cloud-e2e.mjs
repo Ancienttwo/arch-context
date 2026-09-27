@@ -3,6 +3,11 @@ import { execFileSync, spawn } from "node:child_process";
 import { cpSync, existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { enterLocalNetworkSandbox, proveLocalNetworkIsolation } from "./local-network-sandbox.mjs";
+
+enterLocalNetworkSandbox(fileURLToPath(import.meta.url));
+const networkIsolation = await proveLocalNetworkIsolation();
 
 const ROOT = process.cwd();
 const BIN_DIR = join(ROOT, "node_modules", ".bin");
@@ -31,6 +36,8 @@ try {
 
   const doctor = await runArchctx(repo, "doctor");
   assert(doctor.ok === true, "doctor must succeed without cloud or LLM provider env");
+  assert(doctor.data?.egress?.policyMode === "local-only" && doctor.data?.egress?.enforcement === "application-admission", "doctor must report active local-only admission");
+  assert(doctor.data?.egress?.effectiveOutbound === "local-only", "doctor must report no effective non-local channel");
   assert(doctor.data?.egress?.defaultOutbound === "local-only", "doctor must report local-only default outbound");
   assert(doctor.data?.egress?.cloudContentUpload === "deny", "doctor must deny cloud content upload");
   assert(doctor.data?.egress?.secureMcpTunnel === "disabled-by-default", "doctor must keep secure MCP tunnel disabled by default");
@@ -115,7 +122,8 @@ try {
   assert(stopped.ok === true, "daemon stop must succeed");
 
   console.log(JSON.stringify({
-    schemaVersion: "archcontext.local-no-cloud-e2e/v1",
+    schemaVersion: "archcontext.local-no-cloud-e2e/v2",
+    networkIsolation,
     commands: ["doctor", "paths", "mcp install", "init", "sync", "practices validate", "context", "prepare", "status", "checkpoint", "complete", "review"],
     providerEnvRemoved: REMOVED_PROVIDER_ENV,
     git: {
@@ -166,6 +174,8 @@ function localOnlyEnv() {
   const env = { ...process.env };
   for (const key of REMOVED_PROVIDER_ENV) delete env[key];
   env.DO_NOT_TRACK = "1";
+  env.ARCHCONTEXT_EGRESS_MODE = "local-only";
+  for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) delete env[key];
   env.ARCHCONTEXT_STATE_DIR = join(workspace, "archcontext-state");
   env.PATH = `${BIN_DIR}${delimiter}${process.env.PATH ?? ""}`;
   return env;

@@ -1,3 +1,5 @@
+import { LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
+import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { runtimeRpcMethod, type RuntimeRpcMethodName } from "./rpc-methods";
 import { type AddressInfo } from "node:net";
 import { type Json, type JsonEnvelope, type ProductVersionManifest, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
@@ -6,7 +8,7 @@ import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcConnection } from "./rpc-protocol";
 import { acquireDaemonLock, defaultDaemonConnectionPath, defaultDaemonLockPath } from "./daemon-control";
-import { chmodSync, closeSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { isLoopbackRemote, writeJson } from "./loopback-http";
 import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
@@ -135,7 +137,7 @@ export class ArchctxRuntimeRpcServer {
     });
     this.server = server;
     const port = (server.address() as AddressInfo).port;
-    this.connection = {
+    const connection: RuntimeRpcConnection = {
       schemaVersion: RUNTIME_RPC_VERSION,
       protocol: "http-loopback",
       version: 1,
@@ -147,8 +149,8 @@ export class ArchctxRuntimeRpcServer {
       connectionPath,
       startedAt: (this.options.clock ?? (() => new Date().toISOString()))()
     };
-    writeFileSync(connectionPath, JSON.stringify(this.connection, null, 2), { mode: 0o600 });
-    chmodSync(connectionPath, 0o600);
+    createPrivateControlFile(connectionPath, JSON.stringify(connection, null, 2));
+    this.connection = connection;
     this.armIdleTimer();
     return this.connection;
   }
@@ -301,6 +303,7 @@ export class ArchctxRuntimeRpcServer {
       }
       const result = await this.dispatch(body.method ?? "", body.params ?? []).catch((error: unknown) => {
         // A write refused by the #172 recovery gate is a typed precondition failure, not a 500.
+        if (error instanceof LocalEgressPolicyError) return errorEnvelope(body.method ?? "rpc", "AC_POLICY_VIOLATION", error.message);
         if (error instanceof ChangeSetRecoveryUnresolvedError) return errorEnvelope(body.method ?? "rpc", "AC_PRECONDITION_FAILED", error.message);
         throw error;
       });

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "archcontext.practice-assets-s6-docs-ops-readback/v1",
+  "schemaVersion": "archcontext.practice-assets-s6-docs-ops-readback/v2",
   "taskIds": [
     "S6-34",
     "S6-35",
@@ -13,9 +13,10 @@
     "S6-EG7"
   ],
   "environment": "local-release-readback",
+  "evidenceScope": "current-docs-and-cli-contract-with-historical-fixtures",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-06-24T05:22:56.623Z",
+  "generatedAt": "2026-09-25T14:35:32.135Z",
   "sources": {
     "readme": "README.md",
     "practiceRunbook": "docs/runbooks/practice-assets-v1.md",
@@ -25,6 +26,7 @@
     "s5Context7Gate": "docs/verification/practice-assets-s5-context7-gate.md",
     "s6ReleaseGate": "docs/verification/practice-assets-s6-release-gate.md",
     "runtimeDaemonSource": "packages/local-runtime/runtime-daemon/src/index.ts",
+    "externalDocumentationSource": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
     "hookReadback": "docs/verification/practice-hook-egress-readback.json",
     "context7Readback": "docs/verification/practice-context7-readback.json",
     "catalogReadback": "docs/verification/practice-assets-s6-catalog-readback.json",
@@ -63,7 +65,9 @@
       "hookReadbackVerified": true,
       "codexHostCentralFirst": true,
       "adapterIsRepoHarnessHook": true,
-      "hookEntrypointArchctxCheckpoint": true,
+      "hookEntrypointArchctxEnqueue": true,
+      "checkpointFallbackLocalOnly": true,
+      "currentAdapterVerified": true,
       "hookZeroNetwork": true,
       "hookNoRawChangedPathBody": true,
       "hookReadmeCentralFirst": true
@@ -84,6 +88,112 @@
       "centralHookComplete": true,
       "operationsComplete": true,
       "noPrivateContent": true
+    }
+  },
+  "currentHookAdapter": {
+    "schemaVersion": "archcontext.envelope/v1",
+    "ok": true,
+    "requestId": "hooks.status",
+    "data": {
+      "schemaVersion": "archcontext.hook-adapter/v1",
+      "host": "codex",
+      "adapterName": "repo-harness-hook",
+      "ownership": "central-first",
+      "hookRuntime": "external-user-level",
+      "repoLocalRuntime": "not-vendored",
+      "entrypoint": {
+        "command": "archctx",
+        "args": [
+          "hook",
+          "enqueue"
+        ],
+        "timeoutMs": 5000,
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      "fallbackEntrypoint": {
+        "command": "archctx",
+        "args": [
+          "hook",
+          "checkpoint"
+        ],
+        "timeoutMs": 5000,
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      "acceptedInput": {
+        "eventFlag": "--event",
+        "changedPathFlags": [
+          "--path",
+          "--changed"
+        ],
+        "sourceFlag": "--source",
+        "generatedProjectionFlag": "--generated-projection",
+        "toolCallIdFlag": "--tool-call-id",
+        "taskSessionIdFlag": "--task-session-id"
+      },
+      "output": {
+        "successRequestId": "hook.enqueue",
+        "queueRequestId": "jobs.enqueueGitHook",
+        "successData": "runtime-agent-job-record",
+        "skipSchemaVersion": "archcontext.hook-enqueue-skipped/v1",
+        "failOpenSchemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "checkpointSchemaVersion": "archcontext.practice-checkpoint/v1",
+        "checkpointFailOpenSchemaVersion": "archcontext.hook-checkpoint-fail-open/v1"
+      },
+      "logContract": {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "allowedFields": [
+          "schemaVersion",
+          "event",
+          "elapsedMs",
+          "pathCount",
+          "changedPathDigest",
+          "reasonCode",
+          "failOpen",
+          "egress",
+          "network"
+        ],
+        "forbiddenContent": [
+          "source",
+          "diff",
+          "patch",
+          "symbolBody",
+          "architectureModelBody",
+          "secret"
+        ]
+      },
+      "installed": "config-ready",
+      "writes": "manual-host-config",
+      "configExample": {
+        "host": "codex",
+        "configPath": "~/.codex/hooks.json",
+        "writes": "manual-host-config",
+        "adapter": {
+          "command": "repo-harness-hook",
+          "args": [
+            "archcontext-enqueue"
+          ],
+          "invokes": {
+            "command": "archctx",
+            "args": [
+              "hook",
+              "enqueue",
+              "--event",
+              "post-edit"
+            ]
+          }
+        },
+        "eventMap": {
+          "postEdit": "archctx hook enqueue --event post-edit --path <changed-path>",
+          "postWrite": "archctx hook enqueue --event post-write --path <changed-path>",
+          "generatedProjection": "archctx hook enqueue --event post-write --generated-projection --path .archcontext/generated/<file>"
+        },
+        "centralFirst": true,
+        "repoHookSourceRequired": false
+      }
     }
   },
   "failures": []

@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.external-documentation"
+intent: "Compose external documentation operations using the existing provider, store and writer ports"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.external-documentation"

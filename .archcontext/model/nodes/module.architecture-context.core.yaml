@@ -3,7 +3,7 @@ id: module.architecture-context.core
 kind: module
 name: "Core Workspace"
 status: active
-parent: capability.architecture-context
+parent: capability.architecture.context
 summary: "Contains architecture analysis engines and filesystem-backed model, policy, and projection logic. ChangeSet filesystem mutation is invoked by daemon-owned write orchestration."
 source:
   exclude:

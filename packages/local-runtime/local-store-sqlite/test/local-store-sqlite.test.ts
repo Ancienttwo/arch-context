@@ -1,3 +1,4 @@
+import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { createCommittedGitRepo, git } from "./git-fixtures";
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -922,6 +923,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(result.readSet.rowsRead).toMatchObject({ entities: 2, relations: 1, constraints: 1 });
       expect(result.readSet.planDigest).toBe(plan.planDigest);
       expect(result.readSet.selectedGraphDigest).toBe(architectureLedgerStateDigest(result.graph));
+      expect(result.eventBacklinks.length).toBeGreaterThan(0);
       expect(result.eventBacklinks.every((event) => event.subjectIds.every((id) => ["entity.0", "entity.1", "relation.root-to-worker", "constraint.root-owned"].includes(id)))).toBe(true);
 
       const noncanonicalWithoutDigest = { ...plan, limits: { ...plan.limits, maxEntities: 1, maxGraphRows: plan.limits.maxGraphRows - 2 } };
@@ -1313,7 +1315,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       const paths = runtimeStatePaths(root, env);
       await writeIncompleteSqliteTarget(paths.localStorePath);
       const before = readFileSync(paths.localStorePath);
-      writeFileSync(paths.daemonConnectionPath, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+      createPrivateControlFile(paths.daemonConnectionPath, JSON.stringify({ pid: process.pid }));
       const inspection = inspectRuntimeStateRecovery(root, env);
       expect(inspection).toMatchObject({ status: "blocked", reasonCode: "daemon-running", daemonPid: process.pid });
       expect(() => recoverRuntimeStateTarget({
@@ -3899,6 +3901,9 @@ store.close();
         { path: "docs/architecture/.projection-manifest.json", operation: "write", hash: digestJson({ body: "manifest" }) },
         { path: "docs/architecture/index.md", operation: "delete", hash: "missing" }
       ]);
+      expect(await store.readCommittedChangeSet(root, matching)).toEqual(found[0]);
+      expect(await store.readCommittedChangeSet(otherRoot, matching)).toBeUndefined();
+      expect(await store.readCommittedChangeSet(root, pending)).toBeUndefined();
       expect(await store.listCommittedChangeSetsForTaskSession(root, "repo-harness.projection.job-3")).toEqual([]);
       expect((await store.listCommittedChangeSetsForTaskSession(otherRoot, "repo-harness.projection.job-1")).map((entry) => entry.changeSetId))
         .toEqual(["changeset.other-root"]);

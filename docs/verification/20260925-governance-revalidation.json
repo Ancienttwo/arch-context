@@ -1,0 +1,192 @@
+{
+  "schemaVersion": "archcontext.governance-revalidation/v1",
+  "scope": "Independent hosted Governance; does not execute or replace the prior nine-platform matrix",
+  "generatedAt": "2026-09-25T10:14:20.426771+00:00",
+  "sourceHeadSha": "405d6ca1bec1fe6ec603e9eb11ff9c7cc49e5ec8",
+  "workflow": {
+    "id": 36122160055,
+    "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36122160055",
+    "workflow_id": 298950178,
+    "path": ".github/workflows/verify.yml",
+    "event": "workflow_dispatch",
+    "head_branch": "codex/remaining-audit-issues",
+    "head_sha": "405d6ca1bec1fe6ec603e9eb11ff9c7cc49e5ec8",
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "governanceJob": {
+    "id": 108029917724,
+    "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36122160055/job/108029917724",
+    "name": "Governance Verify",
+    "head_sha": "405d6ca1bec1fe6ec603e9eb11ff9c7cc49e5ec8",
+    "run_id": 36122160055,
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "started_at": "2026-09-25T10:06:32Z",
+    "completed_at": "2026-09-25T10:12:12Z"
+  },
+  "matrixExecuted": false,
+  "skippedJobs": [
+    {
+      "id": 108029918828,
+      "name": "${{ matrix.os }} / Node ${{ matrix.node-version }}",
+      "status": "completed",
+      "conclusion": "skipped"
+    }
+  ],
+  "jobLogSha256": "sha256:e84a7b38bcc34b012abc7f4444041e2d27b82afe95e635ca5f6b8c2b284ade54",
+  "checkoutHeadConfirmed": true,
+  "commandSummary": {
+    "schemaVersion": "archcontext.verify-governance/v1",
+    "status": "verified",
+    "ok": true,
+    "commandCount": 24,
+    "skippedCount": 0,
+    "results": [
+      {
+        "command": "bun run verify",
+        "exitCode": 0,
+        "durationMs": 317841
+      },
+      {
+        "command": "bun scripts/fg3-real-pr-synchronize-e2e.ts inspect --evidence docs/verification/fg3-real-pr-synchronize-e2e.json --json",
+        "exitCode": 0,
+        "durationMs": 26
+      },
+      {
+        "command": "bun scripts/fg4-public-fork-adversarial-readback.ts inspect --evidence docs/verification/fg4-public-fork-adversarial-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 31
+      },
+      {
+        "command": "bun scripts/fg5-check-failure-readback.ts inspect --evidence docs/verification/fg5-check-failure-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 25
+      },
+      {
+        "command": "bun scripts/fg5-retention-staging-readback.ts inspect --evidence docs/verification/fg5-retention-staging-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 30
+      },
+      {
+        "command": "bun scripts/fg5-control-plane-incident-drill.ts inspect --evidence docs/verification/fg5-control-plane-incident-drill.json --json",
+        "exitCode": 0,
+        "durationMs": 29
+      },
+      {
+        "command": "bun scripts/fg5-full-plane-dlp-readback.ts inspect --evidence docs/verification/fg5-full-plane-dlp-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 29
+      },
+      {
+        "command": "bun scripts/fg6-local-no-cloud-readback.ts inspect --evidence docs/verification/fg6-local-no-cloud-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 24
+      },
+      {
+        "command": "bun scripts/fg6-developer-review-provenance-readback.ts inspect --evidence docs/verification/fg6-developer-review-provenance-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 191
+      },
+      {
+        "command": "bun scripts/fg6-new-commit-invalidation-readback.ts inspect --evidence docs/verification/fg6-new-commit-invalidation-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 28
+      },
+      {
+        "command": "bun scripts/fg6-organization-runner-no-llm-readback.ts inspect --evidence docs/verification/fg6-organization-runner-no-llm-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 34
+      },
+      {
+        "command": "bun scripts/fg6-privacy-dlp-readback.ts inspect --evidence docs/verification/fg6-privacy-dlp-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 34
+      },
+      {
+        "command": "bun scripts/fg6-no-provider-deterministic-readback.ts inspect --evidence docs/verification/fg6-no-provider-deterministic-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 44
+      },
+      {
+        "command": "bun scripts/fg6-platform-workflow-matrix-readback.ts inspect --evidence docs/verification/fg6-platform-workflow-matrix-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 40
+      },
+      {
+        "command": "bun scripts/fg6-adversarial-governance-matrix-readback.ts inspect --evidence docs/verification/fg6-adversarial-governance-matrix-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 40
+      },
+      {
+        "command": "bun scripts/fg6-chaos-fault-matrix-readback.ts inspect --evidence docs/verification/fg6-chaos-fault-matrix-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 32
+      },
+      {
+        "command": "bun scripts/fg6-security-release-readback.ts inspect --evidence docs/verification/fg6-security-release-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 25
+      },
+      {
+        "command": "bun scripts/fg6-external-security-review-readback.ts inspect --evidence docs/verification/fg6-external-security-review-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 42
+      },
+      {
+        "command": "bun scripts/fg6-representative-benchmark-readback.ts inspect --evidence docs/verification/fg6-representative-benchmark-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 25
+      },
+      {
+        "command": "bun scripts/fg6-slo-readback.ts inspect --evidence docs/verification/fg6-slo-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 30
+      },
+      {
+        "command": "bun scripts/fg6-retention-deletion-readback.ts inspect --evidence docs/verification/fg6-retention-deletion-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 33
+      },
+      {
+        "command": "bun scripts/fg6-ops-runbook-readback.ts inspect --evidence docs/verification/fg6-ops-runbook-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 30
+      },
+      {
+        "command": "bun scripts/fg6-feature-flag-readback.ts inspect --evidence docs/verification/fg6-feature-flag-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 29
+      },
+      {
+        "command": "bun scripts/fg6-rollback-compat-readback.ts inspect --evidence docs/verification/fg6-rollback-compat-readback.json --json",
+        "exitCode": 0,
+        "durationMs": 32
+      }
+    ]
+  },
+  "priorMatrix": {
+    "runId": 36117123203,
+    "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+    "evidence": "docs/verification/fg6-platform-workflow-matrix-readback.json",
+    "changedPaths": [
+      ".github/workflows/verify.yml",
+      "docs/researches/20260925-fg6-matrix-conclusions.md",
+      "docs/runbooks/governance-revalidation.md",
+      "docs/verification/20260925-fg6-hosted-matrix-artifacts.json",
+      "docs/verification/fg1-local-product-gate.md",
+      "docs/verification/fg6-platform-workflow-matrix-readback.json",
+      "plans/plan-20260925-1345-remaining-audit-issues.md",
+      "scripts/governance-verify-workflow.test.ts",
+      "tasks/contracts/20260925-1345-remaining-audit-issues.contract.md",
+      "tasks/notes/20260925-1345-remaining-audit-issues.notes.md"
+    ]
+  },
+  "limits": [
+    "Governance-only success is not a fresh nine-platform matrix execution.",
+    "Later record-only commits are not represented as having been executed by this run.",
+    "Draft PR and umbrella issue completion are separate gates."
+  ]
+}

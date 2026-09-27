@@ -1,3 +1,4 @@
+import { withLocalEgress } from "@archcontext/local-runtime/egress-admission";
 import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -134,7 +135,7 @@ function redactGithubSecrets(text: string, token: string): string {
 
 function runGh(args: string[], env: GithubIssueExecutorEnv, timeoutMs: number): Promise<string> {
   return new Promise((resolvePromise, rejectPromise) => {
-    execFile(
+    withLocalEgress("github-issue-publishing", () => execFile(
       "gh",
       args,
       {
@@ -155,7 +156,7 @@ function runGh(args: string[], env: GithubIssueExecutorEnv, timeoutMs: number): 
         }
         resolvePromise(stdout);
       }
-    );
+    ));
   });
 }
 

@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "archcontext.egress-local-checkpoint/v1",
+  "status": "verification-blocked",
+  "generatedAt": "2026-09-25T12:43:28.438510+00:00",
+  "baseHeadSha": "5cb265cf53d84eedebf776a62b530e7008a89064",
+  "uncommitted": true,
+  "sourceFiles": {
+    ".github/workflows/verify.yml": "sha256:ee5c0267fe83eff391da1c6e5ae754148bd5106b4b3221ef09c42f60f1e3b3b3",
+    "packages/contracts/src/ports.ts": "sha256:d7d35bb1bdfb6228e8f715df103b8fbc26ab341684dec8c64e5f8177b32bee61",
+    "packages/local-runtime/codegraph-adapter/src/index.ts": "sha256:13c4220534bd800b8ec07e85deda691f432e917ac5983e565bfa285c089fc6f4",
+    "packages/local-runtime/context7-adapter/src/index.ts": "sha256:d023221880dddeefbd53541c5e06b9adefcfdf5dedb272d0dfaaee62e96bab1a",
+    "packages/local-runtime/context7-adapter/test/egress-admission.test.ts": "sha256:06dadd88f7471a263f4619e11852d460f7ee1aaabd2320e8f3980c18475f9b03",
+    "packages/local-runtime/package.json": "sha256:30f8e56700e5968a87ee690325a92448ef06417f36907d1d55f39d1342ca571c",
+    "packages/local-runtime/runtime-daemon/src/audit.ts": "sha256:dc23c102f549cd1af72ce2b05600b9017b4b7bb89bef688130e86043722caf3f",
+    "packages/local-runtime/runtime-daemon/src/egress-admission.ts": "sha256:f64028deb0bcbbbcf4ef94aac6bbc28e8090ffc2e8634a8fa811c34fd1c5c3b4",
+    "packages/local-runtime/runtime-daemon/src/egress.ts": "sha256:63fbdcf8495357205f183d0b450a4faada7df14fc597de4ecd25b649ae53d3c8",
+    "packages/local-runtime/runtime-daemon/src/external-documentation.ts": "sha256:8b476f31008b3582376dcd49d76fbe5b24835924137000f20df1198189f8a88f",
+    "packages/local-runtime/runtime-daemon/src/github-issue-executor.ts": "sha256:bf11499976cf6a8ab539ea3cff0997540594618d146175276b5556e6a2f995dd",
+    "packages/local-runtime/runtime-daemon/src/investigation-transport.ts": "sha256:2441558252ea254c14e2ef25febe02d7e3aa67d7611a1cde7591cbacc69c057d",
+    "packages/local-runtime/runtime-daemon/src/rpc-server.ts": "sha256:1fe25231a6b00040d36ad231e5e61a7f6fff61fae633aadaee0bb79767439901",
+    "packages/local-runtime/runtime-daemon/test/audit.test.ts": "sha256:57941611f5e3fa930cb72b61805d5c5902c8040e602f84da0889f5805a2b5934",
+    "packages/local-runtime/runtime-daemon/test/egress-admission.test.ts": "sha256:8a298c7b8cd421e56e9b85eadf2cbe578348569712041b076e3700d6b03ccfee",
+    "packages/local-runtime/runtime-daemon/test/external-documentation.test.ts": "sha256:125dff8712956563c67ef33003b546b3fc20612f878238f945a764f4d7c21cd4",
+    "packages/local-runtime/src/index.ts": "sha256:d89d5268bed790567f6769759d03a9dc567b2cba6e8700a97d66b1aa08ca3e76",
+    "packages/surfaces/cli/src/main.ts": "sha256:3a827e3999b5827e9481bb0e77c46901029b922bb58ddea6617c6f807fcfb2ce",
+    "scripts/fg6-local-no-cloud-readback.test.ts": "sha256:596c02adbd503bfbeaffe284ebf00b5099ff640d40ca33ebac77ac83e7ca213d",
+    "scripts/fg6-local-no-cloud-readback.ts": "sha256:eb3184c1edcf1ac737872c97aaeaa4a9a3d704df9dece57b38b26bc8d7b46a08",
+    "scripts/local-network-sandbox.mjs": "sha256:f3a4ba336600ee530b0cc84a4fac87c7eec395f19077d2793e04c50d25d507d4",
+    "scripts/local-no-cloud-e2e.mjs": "sha256:fe5990893e5d8c586ad0365eaf8651fc247a8f6bf54654e1b2834ce9559ff0f3"
+  },
+  "logSha256": {
+    "pre-fix.log": "sha256:881a0486e01861ec4d3c81049ee840a3e378e185c7d8beb5c54a7f679e070cf0",
+    "related.log": "sha256:b656acc1e7bd50c4fc87549000a977c70d8c9ec60edd932de9289cd4ebbf08e1",
+    "cli-workflow.log": "sha256:7a86387c68740a239576fcf7d8475ad24fecaa8c3e7d32e61108fb6597977497",
+    "projection-isolated.log": "sha256:b79636d455b716db0cd59b65566e05dee7ba4a487f2ebe39f7900e3320af0a8d",
+    "final-local-readback.log": "sha256:2376806c0fe2d672acdaa33fd15aaa4fb3dc92dd538c238d7b34dbfcd4705765",
+    "typecheck-final.log": "sha256:8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+    "boundary.log": "sha256:65d50ef205239c6dd837801774c2615a8670519bec348c2b91e9c802cd83428f",
+    "architecture.log": "sha256:561b722242ae20f30f355b79f74bcbcde34376f22f9f7659bbbd09110beee0c3"
+  },
+  "checks": {
+    "relatedTests": {
+      "pass": 111,
+      "fail": 0,
+      "assertions": 643,
+      "files": 10
+    },
+    "cliAndWorkflowTests": {
+      "pass": 92,
+      "fail": 2,
+      "error": 1,
+      "assertions": 1507,
+      "total": 94,
+      "durationSeconds": 664.6,
+      "exitCode": 1
+    },
+    "typecheck": "pass",
+    "packageBoundary": "pass",
+    "architectureMermaid": "pass",
+    "localKernelE2E": "macOS Seatbelt: pass; canonical FG6 v2 record",
+    "linuxKernelE2E": "not run",
+    "currentCandidateHostedCI": "not run"
+  },
+  "failures": [
+    {
+      "test": "projection apply over real RPC ignores concurrent .ai/harness runtime churn",
+      "location": "packages/surfaces/cli/test/cli.test.ts:4448",
+      "observed": "fixture preparation unresolvedProtocol.ok was false; underlying envelope was not printed",
+      "durationMs": 64616.63
+    },
+    {
+      "test": "projection CLI and MCP share RPC results and single-use request-bound write approval",
+      "location": "packages/surfaces/cli/test/cli.test.ts:5035",
+      "observed": "120000 ms outer test timeout; later unhandled assertion at line 5087 expected one successful result and got zero",
+      "durationMs": 120006.11
+    }
+  ],
+  "isolatedRerun": {
+    "status": "interrupted",
+    "exitCode": 130,
+    "reason": "Stopped when the second out-of-scope verification failure triggered the user AGENTS hard-stop rule; no pass/fail inferred."
+  },
+  "causality": "Not established; no projection production/test source changed in response. No claim that these are known flakes or caused by egress.",
+  "publication": {
+    "committed": false,
+    "pushed": false,
+    "prUpdated": false,
+    "existingDraftPr": 223
+  },
+  "stopRule": "Second out-of-scope discovery is a hard stop; report and wait for instruction."
+}

@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "archcontext.de1-de3-predicate-repair/v1",
+  "generatedAt": "2026-09-25T13:54:30.016191+00:00",
+  "baseCommit": "317725da715c4669108f656921c87a0adbf41c33",
+  "scope": [
+    "DE1.indexedBacklinks",
+    "DE3.requiredDomainsFailClosed",
+    "DE3.explicitAuthorityBinding"
+  ],
+  "preFix": {
+    "sourceCommit": "317725da715c4669108f656921c87a0adbf41c33",
+    "invariants": {
+      "indexedBacklinks": false,
+      "requiredDomainsFailClosed": false,
+      "explicitAuthorityBinding": false
+    }
+  },
+  "currentInvariants": {
+    "indexedBacklinks": true,
+    "requiredDomainsFailClosed": true,
+    "explicitAuthorityBinding": true
+  },
+  "sourceDigests": {
+    "scripts/data-engine-de1-readback.ts": "sha256:42182c8d478774f5bfd0adeeb67862df108f7aefb97542ec53da6430f9e658ca",
+    "scripts/data-engine-de3-readback.ts": "sha256:de1e403b125b4dbf5ffbf7da80ee1c787cad88f30fa2a9582812d1b42ef2dbff",
+    "scripts/data-engine-source-invariants.ts": "sha256:4b0339d06a4bf4c3a55c800905077a9d504a0695b07ca8dd010fab8030cbd63d",
+    "scripts/data-engine-source-invariants.test.ts": "sha256:a43a8904c36b3cc19deb20323ce63fe20160f841a76e0a51b45026409b28145c",
+    "packages/local-runtime/runtime-daemon/src/index.ts": "sha256:cd3bc0ff6768b9fcf492a786d2db6d058cfb137e0acb91f496c3b8df3719f84d",
+    "packages/local-runtime/runtime-daemon/src/explorer-projection.ts": "sha256:939ab4efaf84ba3b37959e2bb7a0ea38fe7f39a65f9dc4b8f6df5b640c4d0284",
+    "packages/local-runtime/local-store-sqlite/src/index.ts": "sha256:bb192a8dd8d0a8842a8e77a51d39cda93ed513589acdf82b2c379e7d9bf6cbfe",
+    "packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts": "sha256:f990721fadefe6126352cf1a7d97107f1fa11204bacc452eecab03d2abef7407",
+    "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts": "sha256:ee387fc59e87a53194f321090e1e7000fe6dda9fa11fcd2495573ec3b05d28ad",
+    "packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts": "sha256:519d8dd8e939dc6328de0d311432a0a001d7923c03694591052a98336d60ca4c",
+    "packages/local-runtime/runtime-daemon/src/explorer-server.ts": "sha256:a37a6fafce652b72de0d5911c5c212b7488d962d97bbdd19126c0d7a1b07560d"
+  },
+  "verification": {
+    "restoredBehaviorAndSourceTests": {
+      "passed": 41,
+      "failed": 0,
+      "filteredOut": 187,
+      "assertions": 118
+    },
+    "scriptOwnership": {
+      "passed": 6,
+      "failed": 0,
+      "assertions": 52
+    },
+    "typecheck": {
+      "exitCode": 0
+    },
+    "packageBoundaries": {
+      "exitCode": 0,
+      "workspaces": 5
+    }
+  },
+  "mutations": [
+    {
+      "name": "backlinks",
+      "command": [
+        "bun",
+        "test",
+        "packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts",
+        "--test-name-pattern",
+        "bounded Explorer read plan selects a focused SQLite neighborhood and targeted metadata"
+      ],
+      "exitCode": 1,
+      "originalDigest": "sha256:bb192a8dd8d0a8842a8e77a51d39cda93ed513589acdf82b2c379e7d9bf6cbfe",
+      "replacement": {
+        "before": "eventBacklinks: backlinkRead.items",
+        "after": "eventBacklinks: []"
+      }
+    },
+    {
+      "name": "required-domain",
+      "command": [
+        "bun",
+        "test",
+        "packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts",
+        "--test-name-pattern",
+        "fails closed on required missing unavailable and mismatched domains"
+      ],
+      "exitCode": 1,
+      "originalDigest": "sha256:939ab4efaf84ba3b37959e2bb7a0ea38fe7f39a65f9dc4b8f6df5b640c4d0284",
+      "replacement": {
+        "before": "input.readSet.selectedGraphDigest !== selectedGraphDigest",
+        "after": "false"
+      }
+    },
+    {
+      "name": "authority",
+      "command": [
+        "bun",
+        "test",
+        "packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts",
+        "--test-name-pattern",
+        "fails closed on required missing unavailable and mismatched domains"
+      ],
+      "exitCode": 1,
+      "originalDigest": "sha256:939ab4efaf84ba3b37959e2bb7a0ea38fe7f39a65f9dc4b8f6df5b640c4d0284",
+      "replacement": {
+        "before": "digestJson(cursor.worktree as unknown as Json) !== digestJson(input.worktree as unknown as Json)",
+        "after": "false"
+      }
+    }
+  ],
+  "logDigests": {
+    "behavior.log": "sha256:9f7d2782af2005c8e8e1c139682804ab8524c8b295fe6dc9772d47f11ddc8550",
+    "typecheck.log": "sha256:8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+    "ownership.log": "sha256:6ae8b983e79503d03fd6f42fb957c89f8128d61beb5edd05a6d3fde9b7020e91",
+    "authority-mutation.log": "sha256:0291bb83135ed636f1b5b207a5d30440cc5af512d1154171a37b12a2bb032349",
+    "backlinks-mutation.log": "sha256:686e3e2cbac557d4ae41da989b7b2ada52bfeeca784e840d841e5b82e09bddd1",
+    "invariants.log": "sha256:a1fcf671eaecb40c2a704067c37041c8cf2ad2034e5ba20441560b1fffe7de67",
+    "boundaries.log": "sha256:65d50ef205239c6dd837801774c2615a8670519bec348c2b91e9c802cd83428f",
+    "required-domain-mutation.log": "sha256:f9170e2e4ed114d2909145ebc228c6a94c56ad18730a3ea5bc65d3193c4f76d3",
+    "restored.log": "sha256:c990403b0728ab18fb19eb320ad457f028796b6a637fe1828d9467da58ae45b5"
+  },
+  "limitations": [
+    "Source predicates are scoped textual wiring witnesses, not semantic proofs; independent behavior tests remain mandatory.",
+    "Original DE1/DE3 command matrices and contract preflights were not rerun; historical artifacts are unchanged.",
+    "The last full hosted Verify result is bound to 5117abd, not this new checker revision.",
+    "S6, remaining facade scope, optional cloud delivery and whole-plan acceptance remain open."
+  ],
+  "sourceCommit": "48a88cecbbc1906bdb1d75958d7423ed4170484a",
+  "sourceProbe": "All three inspectors passed against the same index.ts + explorer-server.ts corpus used by both readbacks."
+}

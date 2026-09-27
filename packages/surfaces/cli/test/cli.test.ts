@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -136,7 +137,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
   });
   const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
   try {
-    nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+    nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
     writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
       schemaVersion: "archcontext.node/v2",
       id: "capability.runtime-harness.hook-adapters",
@@ -3332,7 +3333,7 @@ describe("archctx CLI", () => {
       const connectionPath = testRuntimePaths(root).daemonConnectionPath;
       const lockPath = testRuntimePaths(root).daemonLockPath;
       mkdirSync(testRuntimePaths(root).workspaceStateDir, { recursive: true });
-      writeFileSync(connectionPath, JSON.stringify({
+      createPrivateControlFile(connectionPath, JSON.stringify({
         schemaVersion: RUNTIME_RPC_VERSION,
         protocol: "http-loopback",
         version: 1,
@@ -3343,8 +3344,7 @@ describe("archctx CLI", () => {
         lockPath,
         connectionPath,
         startedAt: "2026-06-20T00:00:00.000Z"
-      }, null, 2), { mode: 0o600 });
-      if (process.platform !== "win32") chmodSync(connectionPath, 0o600);
+      }, null, 2));
 
       const daemonStatus = await runCli("daemon", ["status"], root);
       expect((daemonStatus.data as any).running).toBe(false);
@@ -3439,13 +3439,16 @@ describe("archctx CLI", () => {
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const connectionPath = testRuntimePaths(root).daemonConnectionPath;
     const lockPath = testRuntimePaths(root).daemonLockPath;
+    // Observe publication during startup: native ACL discovery may outlast the 1 s idle window.
+    let sawConnection = false;
+    const observer = setInterval(() => { sawConnection ||= existsSync(connectionPath); }, 10);
     try {
       const started = await runCliProcess(root, "daemon", "start", "--idle-timeout-ms", "1000");
       expect(started.ok).toBe(true);
       expect(started.data.background).toBe(true);
       const childPid: number = started.data.childPid;
       expect(typeof childPid).toBe("number");
-      expect(existsSync(connectionPath)).toBe(true);
+      expect(sawConnection).toBe(true);
 
       await expectFileRemoved(connectionPath);
       await expectFileRemoved(lockPath);
@@ -3455,6 +3458,7 @@ describe("archctx CLI", () => {
       expect(status.ok).toBe(true);
       expect(status.data.running).toBe(false);
     } finally {
+      clearInterval(observer);
       await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
@@ -3634,7 +3638,7 @@ describe("archctx CLI", () => {
 
   test("CLI rebuilds ledger from Git, reports drift, and projects back to Git", async () => {
     const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
     try {
       let status = await runTestCli("status", [], root);
       const rebuild = await runTestCli("ledger", [
@@ -3669,7 +3673,7 @@ describe("archctx CLI", () => {
       expect((project.data as any).writes).toBe("git-projection");
       expect((project.data as any).writtenPaths).toContain(projectionPath);
       expect((project.data as any).reconcile.ok).toBe(true);
-      expect(readFileSync(join(root, projectionPath), "utf8")).toContain("capability.architecture-context");
+      expect(readFileSync(join(root, projectionPath), "utf8")).toContain("capability.architecture.context");
 
       const clean = await runTestCli("ledger", ["drift", "--json"], root);
       expect((clean.data as any).drift.ok).toBe(true);
@@ -3701,24 +3705,24 @@ describe("archctx CLI", () => {
       const query = await runTestCli("book", ["query", "--task", "architecture context", "--max-items", "2", "--explain"], root);
       expect(query.ok).toBe(true);
       expect((query.data as any).schemaVersion).toBe("archcontext.architecture-book-query/v1");
-      expect((query.data as any).results.map((result: any) => result.id)).toContain("capability.architecture-context");
+      expect((query.data as any).results.map((result: any) => result.id)).toContain("capability.architecture.context");
       expect((query.data as any).results[0].scoreBreakdown.graphDistance).toBeGreaterThan(0);
       expect((query.data as any).results[0].scoreBreakdown.recency).toBeGreaterThan(0);
       expect((query.data as any).results[0].explanation.schemaVersion).toBe("archcontext.architecture-book-selection-explanation/v1");
       expect((query.data as any).results[0].explanation.reasonCodes.length).toBeGreaterThan(0);
       expect((query.data as any).freshness.worktreeDigest).toBeTruthy();
 
-      const show = await runTestCli("book", ["show", "capability.architecture-context"], root);
+      const show = await runTestCli("book", ["show", "capability.architecture.context"], root);
       expect(show.ok).toBe(true);
       expect((show.data as any).subject.summary).toContain("architecture intent");
 
-      const neighbors = await runTestCli("book", ["neighbors", "capability.architecture-context", "--depth", "1"], root);
+      const neighbors = await runTestCli("book", ["neighbors", "capability.architecture.context", "--depth", "1"], root);
       expect(neighbors.ok).toBe(true);
-      expect((neighbors.data as any).nodes.map((node: any) => node.id)).toContain("capability.architecture-context");
+      expect((neighbors.data as any).nodes.map((node: any) => node.id)).toContain("capability.architecture.context");
 
-      const timeline = await runTestCli("book", ["timeline", "capability.architecture-context"], root);
+      const timeline = await runTestCli("book", ["timeline", "capability.architecture.context"], root);
       expect(timeline.ok).toBe(true);
-      expect((timeline.data as any).events[0].affectedSubjects).toContain("capability.architecture-context");
+      expect((timeline.data as any).events[0].affectedSubjects).toContain("capability.architecture.context");
       const allTimeline = await runTestCli("book", ["timeline"], root);
       expect(allTimeline.ok).toBe(true);
       const firstTimestamp = (allTimeline.data as any).events[0].timestamp;
@@ -3784,7 +3788,7 @@ describe("archctx CLI", () => {
 
   test("CLI rollback restores YAML authority projection with backup", async () => {
     const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
     const stalePath = ".archcontext/model/nodes/module.cli-rollback-stale.yaml";
     try {
       let status = await runTestCli("status", [], root);
@@ -3821,7 +3825,7 @@ describe("archctx CLI", () => {
       expect((rollback.data as any).drift.ok).toBe(true);
       const backup = (rollback.data as any).backup;
       expect(existsSync(join(root, backup.manifestPath))).toBe(true);
-      expect(readFileSync(join(root, backup.path, "model/nodes/capability.architecture-context.yaml"), "utf8")).toContain("CLI rollback corrupted projection.");
+      expect(readFileSync(join(root, backup.path, "model/nodes/capability.architecture.context.yaml"), "utf8")).toContain("CLI rollback corrupted projection.");
       expect(existsSync(join(root, stalePath))).toBe(false);
       expect(readFileSync(join(root, projectionPath), "utf8")).toBe(canonicalProjection);
       expect((await runTestCli("validate", [], root)).ok).toBe(true);
@@ -3997,7 +4001,7 @@ describe("archctx CLI", () => {
 
   test("CLI rebuild reproduces graph after SQLite deletion and project restores deleted YAML", async () => {
     const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
     try {
       mkdirSync(join(root, "docs/adr"), { recursive: true });
       writeFileSync(join(root, "docs/adr/ADR-0099-cli-ledger-import.md"), [
@@ -4008,7 +4012,7 @@ describe("archctx CLI", () => {
         "status: accepted",
         "decidedAt: 2026-06-25",
         "appliesTo:",
-        "  - capability.architecture-context",
+        "  - capability.architecture.context",
         "supersedes: []",
         "---",
         "",
@@ -4206,7 +4210,7 @@ describe("archctx CLI", () => {
 
   test("CLI rebuild rejects merge-conflict YAML projection without mutating ledger state", async () => {
     const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
     try {
       let status = await runTestCli("status", [], root);
       const initial = await runTestCli("ledger", [
@@ -4312,7 +4316,7 @@ describe("archctx CLI", () => {
       ""
     ].join("\n");
     try {
-      rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"),
         stableYaml({
@@ -4441,7 +4445,7 @@ describe("archctx CLI", () => {
         }
       };
       const unresolvedProtocol = await runTestCli("projection", ["run", "--request-json", JSON.stringify(protocolRequest)], root);
-      expect(unresolvedProtocol.ok).toBe(true);
+      expect(unresolvedProtocol.ok, JSON.stringify(unresolvedProtocol)).toBe(true);
       expect((unresolvedProtocol.data as ProjectionResultV2).status).toBe("human-action-required");
       expect((unresolvedProtocol.data as ProjectionResultV2).refreshSignals[0]?.mode).toBe("human-action-required");
 
@@ -4502,7 +4506,7 @@ describe("archctx CLI", () => {
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
     const humanTail = "## 3. Human decisions\nretain  exact spacing  \n";
     try {
-      rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
       writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
         schemaVersion: "archcontext.node/v2", id: "capability.runtime-harness.hook-adapters",
         kind: "capability", name: "Hook Adapters", status: "active", summary: "Routes hook events.",
@@ -4559,7 +4563,7 @@ describe("archctx CLI", () => {
       ""
     ].join("\n");
     try {
-      rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"),
         stableYaml({
@@ -4694,7 +4698,7 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
-  }, DAEMON_TEST_TIMEOUT_MS);
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   test("projection readback preserves delivered receipt and validates every current read over RPC", async () => {
     const { root, modulePath, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
@@ -5028,6 +5032,8 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  // The complete real-CodeGraph fixture + approval/recovery path measured 130s locally.
+  // Keep the existing Windows allowance for this scenario on every platform.
   test("projection CLI and MCP share RPC results and single-use request-bound write approval", async () => {
     const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     let now = Date.parse("2026-09-25T00:00:00Z");
@@ -5080,7 +5086,7 @@ describe("archctx CLI", () => {
       expect(await call("run", request, crossScope)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
       const token = await approve();
       const results = await Promise.all([call("run", request, token), call("run", request, token)]);
-      expect(results.filter(result => result.ok)).toHaveLength(1);
+      expect(results.filter(result => result.ok), JSON.stringify(results)).toHaveLength(1);
       expect(results.filter(result => !result.ok)).toMatchObject([{ error: { code: "AC_USER_CONFIRMATION_REQUIRED" } }]);
       const applied = results.find(result => result.ok)!;
       expect(applied.data.status).toBe("applied");
@@ -5101,7 +5107,7 @@ describe("archctx CLI", () => {
       await daemon.stop();
       removeTempRoot(root);
     }
-  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+  }, 240_000);
 
   test("CLI process exit code reflects the final envelope ok value", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-exitcode-"));

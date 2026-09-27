@@ -188,15 +188,16 @@ function shortDigest(digest: string): string {
 /**
  * Per-ChangeSet widening of the write allowlist, supplied by the caller that owns the operation.
  *
- * The base `ALLOWLIST` is unconditional and unchanged. The agent-context projection is the one
- * writer that must reach outside it — ADR-0043 puts a capability's contract file inside that
+ * The base `ALLOWLIST` is unconditional and unchanged. The agent-context projection reaches
+ * outside it — ADR-0043 puts a capability's contract file inside that
  * capability's own source directory — so instead of loosening the allowlist by file name (which
  * would put every `CLAUDE.md` anywhere in the repository on the write surface forever), the caller
  * passes the exact path set it derived from the model for this operation, and only that set is
- * widened, only for `render_agent_context` operations.
+ * widened, only for `render_agent_context` operations. The manifest scope grants exactly
+ * `.archcontext/manifest.yaml`; ChangeSetEngine restricts it to the typed field-update operation.
  */
 export interface ArchContextPathScope {
-  operation: "default" | "agent-context";
+  operation: "default" | "agent-context" | "manifest" | "adr-reference";
   /** The exact repo-relative paths the model's agent-context derivation produced. */
   agentContextPaths: ReadonlySet<string>;
 }
@@ -204,8 +205,8 @@ export interface ArchContextPathScope {
 /**
  * Re-asserted here rather than imported from the projection engine: this is a write boundary, so it
  * must hold even if the derivation that produced the path set is wrong. A scoped path still has to
- * be an agent-context contract file living inside a subdirectory — the repository-root `CLAUDE.md`
- * and `AGENTS.md` are the human-authored routing contract and never become machine-writable.
+ * be an agent-context contract file. Root contracts additionally require canonical marker-only
+ * validation and an existing-file hash in ChangeSetEngine; generic writes remain forbidden.
  */
 const AGENT_CONTEXT_FILE_NAMES = new Set(["CLAUDE.md", "AGENTS.md"]);
 
@@ -213,14 +214,17 @@ function isAgentContextScopedPath(relativePath: string, scope?: ArchContextPathS
   if (!scope || scope.operation !== "agent-context") return false;
   if (!scope.agentContextPaths.has(relativePath)) return false;
   const lastSlash = relativePath.lastIndexOf("/");
-  if (lastSlash <= 0) return false;
+  if (lastSlash < 0) return AGENT_CONTEXT_FILE_NAMES.has(relativePath);
+  if (lastSlash === 0) return false;
   return AGENT_CONTEXT_FILE_NAMES.has(relativePath.slice(lastSlash + 1));
 }
 
 export function assertAllowedArchContextPath(root: string, relativePath: string, scope?: ArchContextPathScope): void {
   assertRepoRelativePath(relativePath);
   const normalized = relativePath.endsWith("/") ? relativePath : relativePath;
-  if (!ALLOWLIST.some((prefix) => normalized.startsWith(prefix)) && !isAgentContextScopedPath(relativePath, scope)) {
+  if (!ALLOWLIST.some((prefix) => normalized.startsWith(prefix)) && !isAgentContextScopedPath(relativePath, scope)
+      && !(scope?.operation === "manifest" && relativePath === ".archcontext/manifest.yaml")
+      && !(scope?.operation === "adr-reference" && /^docs\/adr\/ADR-[0-9]{4}-[a-z0-9][a-z0-9-]*\.md$/.test(relativePath))) {
     throw new Error(`Path is outside ArchContext write allowlist: ${relativePath}`);
   }
   const absoluteRoot = resolve(root);

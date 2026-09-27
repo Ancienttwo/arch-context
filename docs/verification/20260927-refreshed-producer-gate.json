@@ -1,0 +1,143 @@
+{
+  "schemaVersion": "archcontext.pre-release-gate-checkpoint/v1",
+  "status": "verification-passed-formal-acceptance-pending",
+  "frozenSourceHead": "aadf04bf2beba902b3e652725099f87c7778e478",
+  "reviewSubjectSha256": "sha256:6aaa23a2bd45e79cac65b7ce7bf6ad20ad6a74596a634559e1943b25589dd0ce",
+  "packageDryRun": {
+    "status": "verified",
+    "readback": "/private/tmp/archctx-0512-aadf04b-readback.json",
+    "sha256": "sha256:959c87841a003eee0cafef2b905638afaebded46d81a2a34a2cc554ed9529220"
+  },
+  "packages": {
+    "archctx": {
+      "integrity": "sha512-3E9/iZMTAA+l1FAlGm7Yc2AulhFRQAeJLpZ99RX2e9Hj1evh4wPmIq0NesZSCL6/+xsTWuXrKl/PVKV/N6J6ng==",
+      "installedFilesMatched": 88,
+      "tarball": "/private/tmp/archctx-0512-aadf04b/archctx-0.5.12.tgz"
+    },
+    "archctx-contracts": {
+      "integrity": "sha512-p7BEb4AtbAPq5jVLec9G6VEs1Fk6PLtG0VIUYJblaB4bB8/G4o0XRUdwvMNmbJdHnkvhjDBcKTTdO5twDMbgXA==",
+      "installedFilesMatched": 180,
+      "tarball": "/private/tmp/archctx-0512-aadf04b/archctx-contracts-0.5.12.tgz"
+    }
+  },
+  "installedPrefix": "/private/tmp/archctx-0512-aadf04b-installed",
+  "dependencyTree": {
+    "name": "archctx-0512-aadf04b-installed",
+    "dependencies": {
+      "archctx-contracts": {
+        "version": "0.5.12",
+        "resolved": "file:/private/tmp/archctx-0512-aadf04b/archctx-contracts-0.5.12.tgz",
+        "overridden": true
+      },
+      "archctx": {
+        "version": "0.5.12",
+        "resolved": "file:/private/tmp/archctx-0512-aadf04b/archctx-0.5.12.tgz",
+        "overridden": true
+      },
+      "repo-harness": {
+        "version": "0.19.3",
+        "resolved": "file:/private/tmp/issue225-consumer-0512/repo-harness-0.19.3.tgz",
+        "overridden": true,
+        "dependencies": {
+          "archctx-contracts": {
+            "version": "0.5.12"
+          },
+          "archctx": {
+            "version": "0.5.12"
+          }
+        }
+      }
+    }
+  },
+  "runtime": {
+    "bun": "1.4.0",
+    "TMPDIR": "/Users/kito/.cache/archctx-closeout-tmp",
+    "supportedDaemonUpgrade": "pass",
+    "installedProjectionReadback": "noop",
+    "refreshSignals": []
+  },
+  "verification": {
+    "run": ".ai/harness/runs/run-20260927T023231-27958-20260925-1345-remaining-audit-issues.json",
+    "runSha256": "sha256:101b7841cfd14ffc6120f24907910da4bae32d5af3930602c8e9b95aaff86332",
+    "contractTotal": 9,
+    "contractFailed": 0,
+    "fullVerifyExitCode": 0,
+    "fullVerifyDurationMs": 409508,
+    "criteria": [
+      {
+        "cache_key": "sha256:5e244e0a814588768163bd6a50088b12980962e6b0cae04b4d789944a16042eb",
+        "command": "/bin/bash --noprofile --norc -c bun test sha256:8d38abc77470b23a1b2ddcd947c9d781fc9cfbc3e906a9d23f2646f169b3c763.test.ts",
+        "duration_ms": 663,
+        "execution": "executed",
+        "exit_code": 0,
+        "force_reason": "Owner approved one final acceptance run on frozen aadf04b after rebuilding and installing the producer tarball with handshake diagnostics; prior full gate failed and predates this source.",
+        "name": "criterion:command:current_exact",
+        "status": "pass"
+      },
+      {
+        "cache_key": "sha256:4566a0ebe8c04b4030f6f9b1a2cedc68c43fe130dfcd2dfa0aa7ca50f9617d5f",
+        "command": "/bin/bash --noprofile --norc -c bun run typecheck",
+        "duration_ms": 1200,
+        "execution": "executed",
+        "exit_code": 0,
+        "force_reason": "Owner approved one final acceptance run on frozen aadf04b after rebuilding and installing the producer tarball with handshake diagnostics; prior full gate failed and predates this source.",
+        "name": "criterion:command:current_exact",
+        "status": "pass"
+      },
+      {
+        "cache_key": "sha256:f8564dcc03c2347c28a2daa998ba5438207658c7ea344699d27ac3fe3d1e45c2",
+        "command": "/bin/bash --noprofile --norc -c node scripts/package-boundary-audit.mjs",
+        "duration_ms": 629,
+        "execution": "executed",
+        "exit_code": 0,
+        "force_reason": "Owner approved one final acceptance run on frozen aadf04b after rebuilding and installing the producer tarball with handshake diagnostics; prior full gate failed and predates this source.",
+        "name": "criterion:command:current_exact",
+        "status": "pass"
+      },
+      {
+        "cache_key": "sha256:6385ed95c08fa96f30f296687cef9b04eb48cda18903fc518cd206f94e8a3440",
+        "command": "/bin/bash --noprofile --norc -c bun run verify",
+        "duration_ms": 409508,
+        "execution": "executed",
+        "exit_code": 0,
+        "force_reason": "Owner approved one final acceptance run on frozen aadf04b after rebuilding and installing the producer tarball with handshake diagnostics; prior full gate failed and predates this source.",
+        "name": "criterion:command:current_exact",
+        "status": "pass"
+      }
+    ],
+    "prepareExitCode": 1,
+    "prepareBlocker": "Change Assessment declared no oracles; full integrated subject requires deterministic_test and runtime_readback",
+    "fullGateExecutionsThisSlice": 1
+  },
+  "contractRepair": {
+    "description": "Bind full-verify deterministic oracle and installed-projection-readback runtime oracle; add installed runtime readback preflight.",
+    "changeAssessment": "pass",
+    "requiredOracles": [
+      {
+        "id": "full-verify",
+        "kind": "deterministic_test",
+        "paths": [
+          "*"
+        ]
+      },
+      {
+        "id": "installed-projection-readback",
+        "kind": "runtime_readback",
+        "paths": [
+          "*"
+        ]
+      }
+    ],
+    "formalAcceptance": "pending fresh prepared evidence for changed contract",
+    "reason": "Verification cache binds the complete Git virtual tree and frozen plan/contract identity; do not re-label the prior pass as acceptance of the edited contract."
+  },
+  "boundaries": {
+    "acceptanceReceiptIssued": false,
+    "secondFullGateRun": false,
+    "timeoutRootCauseProven": false,
+    "sourceAfterPackChanged": false,
+    "merged": false,
+    "published": false,
+    "cloudDelivered": false
+  }
+}

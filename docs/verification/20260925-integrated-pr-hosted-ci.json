@@ -1,0 +1,712 @@
+{
+  "schemaVersion": "archcontext.integrated-pr-hosted-ci/v1",
+  "scope": "Frozen integrated PR 223 candidate; full Verify matrix, Governance and native security artifacts; formal harness acceptance remains blocked by issues 225 and 226",
+  "generatedAt": "2026-09-25T15:07:23.121732+00:00",
+  "sourceHeadSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+  "baseSha": "e3d807759e917b26c539f25c51edc31946feb740",
+  "ciMergeSha": "a63e1e09ac49f9b12e957e36fedab31a84834599",
+  "candidateAndMergeTree": "aee0e2c6422b84254cf9ce94456bf6787c624399",
+  "duplicateDiagnosticRun": {
+    "id": 36149270062,
+    "conclusion": "success",
+    "status": "completed"
+  },
+  "workflow": {
+    "id": 36149269956,
+    "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956",
+    "event": "pull_request",
+    "path": ".github/workflows/verify.yml",
+    "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+    "head_branch": "codex/remaining-audit-issues",
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "jobs": [
+    {
+      "id": 108118117333,
+      "name": "Governance Verify",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118117333",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:26Z",
+      "completed_at": "2026-09-25T14:48:03Z",
+      "jobLogSha256": "sha256:ba5af7c4ec8ae16486f6d2a0a394615f792b985a28c7c54b2ce4d0a0220f4cfa",
+      "fullTests": {
+        "pass": 2113,
+        "skip": 2,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "commandSummary": {
+        "schemaVersion": "archcontext.verify-governance/v1",
+        "status": "verified",
+        "ok": true,
+        "commandCount": 24,
+        "skippedCount": 0,
+        "results": [
+          {
+            "command": "bun run verify",
+            "exitCode": 0,
+            "durationMs": 312387
+          },
+          {
+            "command": "bun scripts/fg3-real-pr-synchronize-e2e.ts inspect --evidence docs/verification/fg3-real-pr-synchronize-e2e.json --json",
+            "exitCode": 0,
+            "durationMs": 25
+          },
+          {
+            "command": "bun scripts/fg4-public-fork-adversarial-readback.ts inspect --evidence docs/verification/fg4-public-fork-adversarial-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 31
+          },
+          {
+            "command": "bun scripts/fg5-check-failure-readback.ts inspect --evidence docs/verification/fg5-check-failure-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 23
+          },
+          {
+            "command": "bun scripts/fg5-retention-staging-readback.ts inspect --evidence docs/verification/fg5-retention-staging-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 28
+          },
+          {
+            "command": "bun scripts/fg5-control-plane-incident-drill.ts inspect --evidence docs/verification/fg5-control-plane-incident-drill.json --json",
+            "exitCode": 0,
+            "durationMs": 29
+          },
+          {
+            "command": "bun scripts/fg5-full-plane-dlp-readback.ts inspect --evidence docs/verification/fg5-full-plane-dlp-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 30
+          },
+          {
+            "command": "bun scripts/fg6-local-no-cloud-readback.ts inspect --evidence docs/verification/fg6-local-no-cloud-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 24
+          },
+          {
+            "command": "bun scripts/fg6-developer-review-provenance-readback.ts inspect --evidence docs/verification/fg6-developer-review-provenance-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 190
+          },
+          {
+            "command": "bun scripts/fg6-new-commit-invalidation-readback.ts inspect --evidence docs/verification/fg6-new-commit-invalidation-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 28
+          },
+          {
+            "command": "bun scripts/fg6-organization-runner-no-llm-readback.ts inspect --evidence docs/verification/fg6-organization-runner-no-llm-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 35
+          },
+          {
+            "command": "bun scripts/fg6-privacy-dlp-readback.ts inspect --evidence docs/verification/fg6-privacy-dlp-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 33
+          },
+          {
+            "command": "bun scripts/fg6-no-provider-deterministic-readback.ts inspect --evidence docs/verification/fg6-no-provider-deterministic-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 33
+          },
+          {
+            "command": "bun scripts/fg6-platform-workflow-matrix-readback.ts inspect --evidence docs/verification/fg6-platform-workflow-matrix-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 32
+          },
+          {
+            "command": "bun scripts/fg6-adversarial-governance-matrix-readback.ts inspect --evidence docs/verification/fg6-adversarial-governance-matrix-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 38
+          },
+          {
+            "command": "bun scripts/fg6-chaos-fault-matrix-readback.ts inspect --evidence docs/verification/fg6-chaos-fault-matrix-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 30
+          },
+          {
+            "command": "bun scripts/fg6-security-release-readback.ts inspect --evidence docs/verification/fg6-security-release-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 25
+          },
+          {
+            "command": "bun scripts/fg6-external-security-review-readback.ts inspect --evidence docs/verification/fg6-external-security-review-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 42
+          },
+          {
+            "command": "bun scripts/fg6-representative-benchmark-readback.ts inspect --evidence docs/verification/fg6-representative-benchmark-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 25
+          },
+          {
+            "command": "bun scripts/fg6-slo-readback.ts inspect --evidence docs/verification/fg6-slo-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 29
+          },
+          {
+            "command": "bun scripts/fg6-retention-deletion-readback.ts inspect --evidence docs/verification/fg6-retention-deletion-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 31
+          },
+          {
+            "command": "bun scripts/fg6-ops-runbook-readback.ts inspect --evidence docs/verification/fg6-ops-runbook-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 30
+          },
+          {
+            "command": "bun scripts/fg6-feature-flag-readback.ts inspect --evidence docs/verification/fg6-feature-flag-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 31
+          },
+          {
+            "command": "bun scripts/fg6-rollback-compat-readback.ts inspect --evidence docs/verification/fg6-rollback-compat-readback.json --json",
+            "exitCode": 0,
+            "durationMs": 32
+          }
+        ]
+      },
+      "networkIsolationStep": []
+    },
+    {
+      "id": 108118117915,
+      "name": "macos-15 / Node 22.22.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118117915",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:31Z",
+      "completed_at": "2026-09-25T14:47:43Z",
+      "jobLogSha256": "sha256:1965f9451c40bdfb879c8cd2cd6addb891ec2d8a39a099ccd2377f946234af57",
+      "fullTests": {
+        "pass": 2114,
+        "skip": 1,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T14:42:49Z",
+          "completed_at": "2026-09-25T14:42:49Z"
+        }
+      ]
+    },
+    {
+      "id": 108118117808,
+      "name": "macos-15 / Node 24.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118117808",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:32Z",
+      "completed_at": "2026-09-25T14:50:53Z",
+      "jobLogSha256": "sha256:1ebc6d49c16ab7d2c0f9e7cb78c868381f0dfea063b58bb10e2d5d3d611d2860",
+      "fullTests": {
+        "pass": 2114,
+        "skip": 1,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T14:42:51Z",
+          "completed_at": "2026-09-25T14:42:51Z"
+        }
+      ]
+    },
+    {
+      "id": 108118117930,
+      "name": "macos-15 / Node 25.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118117930",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:33Z",
+      "completed_at": "2026-09-25T14:48:56Z",
+      "jobLogSha256": "sha256:90d684b3d34176fb33d7b93dcb4f9b0c6d52ed45efedaf3569ed09117722d6f6",
+      "fullTests": {
+        "pass": 2114,
+        "skip": 1,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T14:42:57Z",
+          "completed_at": "2026-09-25T14:42:57Z"
+        }
+      ]
+    },
+    {
+      "id": 108118117657,
+      "name": "ubuntu-latest / Node 22.22.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118117657",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:26Z",
+      "completed_at": "2026-09-25T14:48:18Z",
+      "jobLogSha256": "sha256:573ceae3c1491eac32f178cc2a1e2b6a1363c5e1dd96dfb930c4812e5695a59b",
+      "fullTests": {
+        "pass": 2113,
+        "skip": 2,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-25T14:43:21Z",
+          "completed_at": "2026-09-25T14:43:27Z"
+        }
+      ]
+    },
+    {
+      "id": 108118117973,
+      "name": "ubuntu-latest / Node 24.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118117973",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:28Z",
+      "completed_at": "2026-09-25T14:47:59Z",
+      "jobLogSha256": "sha256:1f54dd4ffb9997279a02b0eb91783517bd458695f22a19cf2697766f4265c5d3",
+      "fullTests": {
+        "pass": 2113,
+        "skip": 2,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T14:42:42Z",
+          "completed_at": "2026-09-25T14:42:42Z"
+        }
+      ]
+    },
+    {
+      "id": 108118117911,
+      "name": "ubuntu-latest / Node 25.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118117911",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:27Z",
+      "completed_at": "2026-09-25T14:46:18Z",
+      "jobLogSha256": "sha256:ffa24693c1b3ff481629e895760138037557e5aabdffc94f684acb6e4aaa0cfc",
+      "fullTests": {
+        "pass": 2113,
+        "skip": 2,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T14:42:41Z",
+          "completed_at": "2026-09-25T14:42:41Z"
+        }
+      ]
+    },
+    {
+      "id": 108118118099,
+      "name": "windows-latest / Node 22.22.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118118099",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:27Z",
+      "completed_at": "2026-09-25T15:04:35Z",
+      "jobLogSha256": "sha256:415263ed63ab2f9dbee4fba6ad2db8d1fc0fb725528621a7d0800fbf7b680105",
+      "fullTests": {
+        "pass": 2114,
+        "skip": 1,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T14:43:27Z",
+          "completed_at": "2026-09-25T14:43:27Z"
+        }
+      ]
+    },
+    {
+      "id": 108118117846,
+      "name": "windows-latest / Node 24.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118117846",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:27Z",
+      "completed_at": "2026-09-25T15:05:25Z",
+      "jobLogSha256": "sha256:1eb52d9456f34777de65518ccd78d4f5bcc73ee379544751c833ff871eddb7f1",
+      "fullTests": {
+        "pass": 2114,
+        "skip": 1,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T14:43:44Z",
+          "completed_at": "2026-09-25T14:43:44Z"
+        }
+      ]
+    },
+    {
+      "id": 108118117731,
+      "name": "windows-latest / Node 25.x",
+      "html_url": "https://github.com/Ancienttwo/arch-context/actions/runs/36149269956/job/108118117731",
+      "head_sha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "run_id": 36149269956,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-25T14:42:27Z",
+      "completed_at": "2026-09-25T15:05:56Z",
+      "jobLogSha256": "sha256:47640f53d04a9626fedcb5b018906f4f6ffcf6930567d14ff90a89384f8ecb44",
+      "fullTests": {
+        "pass": 2114,
+        "skip": 1,
+        "fail": 0,
+        "total": 2115,
+        "files": 204
+      },
+      "checkoutMergeConfirmed": true,
+      "egressTestsPassed": true,
+      "networkIsolationStep": [
+        {
+          "name": "Network-isolated local first experience",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-25T14:43:29Z",
+          "completed_at": "2026-09-25T14:43:29Z"
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 10871295185,
+      "name": "local-no-cloud-network-linux-node-22",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:6571fb9437ae22d27811b43b08639587469bf4b3c2dd785397341b8f78e5aa5d",
+      "payloadSha256": "sha256:f1783ddf4004228752691347a51e8b23042ee21220bcd4a78feed6e6c659775b",
+      "networkIsolation": {
+        "mechanism": "linux-network-namespace",
+        "platform": "linux",
+        "nonLoopbackDenied": true,
+        "descendantDenied": true,
+        "loopbackAllowed": true,
+        "probes": [
+          {
+            "family": "ipv4",
+            "directCode": "ENETUNREACH",
+            "childCode": "ENETUNREACH"
+          },
+          {
+            "family": "ipv6",
+            "directCode": "ENETUNREACH",
+            "childCode": "ENETUNREACH"
+          }
+        ],
+        "namespace": {
+          "distinctFromParent": true,
+          "interfaces": [
+            "lo"
+          ]
+        }
+      },
+      "commands": [
+        "doctor",
+        "paths",
+        "mcp install",
+        "init",
+        "sync",
+        "practices validate",
+        "context",
+        "prepare",
+        "status",
+        "checkpoint",
+        "complete",
+        "review"
+      ],
+      "egress": {
+        "ok": true,
+        "policyMode": "local-only",
+        "enforcement": "application-admission",
+        "defaultOutbound": "local-only",
+        "effectiveOutbound": "local-only",
+        "nonLocalEgress": [],
+        "cloudContentUpload": "deny",
+        "secureMcpTunnel": "disabled-by-default",
+        "thirdPartyTelemetry": "disabled",
+        "codeGraph": {
+          "provider": "codegraph",
+          "telemetry": "disabled",
+          "envVar": "DO_NOT_TRACK",
+          "configuredValue": "1",
+          "effectiveValue": "1",
+          "source": "environment"
+        },
+        "warnings": [],
+        "source": "cli-environment"
+      },
+      "taskLifecycle": {
+        "preparePosture": "normal",
+        "checkpointFresh": true,
+        "completeSchemaVersion": "archcontext.review/v1",
+        "completeResult": "pass"
+      }
+    },
+    {
+      "id": 10869894599,
+      "name": "platform-ipc-permission-macos-15-node-22.22.x",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:1d4918c0bb1a49e3dfac4639e69ac370a861854373785a307046b01cda6b89e0",
+      "payloadSha256": "sha256:30cccd008490823da38673d954378dcbb1bfe73aa49516c00129c706414252d9",
+      "platform": "darwin",
+      "node": "v22.22.3",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10871125332,
+      "name": "platform-ipc-permission-macos-15-node-24.x",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:d0654e0f5080bb93a41573ed066ac443c5b3318a532ad18257d3215fb29d497b",
+      "payloadSha256": "sha256:b43dccdb65b0b8cd172dfec70611db4e1b51f993af8d5026082e5295cb3ab79b",
+      "platform": "darwin",
+      "node": "v24.20.0",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10869554644,
+      "name": "platform-ipc-permission-macos-15-node-25.x",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:f85377b05be2cb5f16b982a461773fc4c48f9817e1f760927d18181b925e1a49",
+      "payloadSha256": "sha256:b87f04f070385662aa41608382b077f39e1644837f13e0d97bd867930d1533b8",
+      "platform": "darwin",
+      "node": "v25.9.0",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10871245296,
+      "name": "platform-ipc-permission-ubuntu-latest-node-22.22.x",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:970aac92c2eed7615cf0168214b44ed9c5bbe1c75cac9c99f2ecf373b3666a6e",
+      "payloadSha256": "sha256:9d7eb8586c760910b841c6ac8dff81a226ff0b2dfcf63ad8655e58191ce02e7e",
+      "platform": "linux",
+      "node": "v22.22.3",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10870691400,
+      "name": "platform-ipc-permission-ubuntu-latest-node-24.x",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:b1142f4f6c7d53e55a596e6fe1fb37d8bd274e1cbfe0fb12cfd36e8c7e067036",
+      "payloadSha256": "sha256:d330c1021b1d81ca12753f4e8896423f5db9fe0d9b01822f9065fd229dcc5ae9",
+      "platform": "linux",
+      "node": "v24.21.0",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10870801583,
+      "name": "platform-ipc-permission-ubuntu-latest-node-25.x",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:a3e391468c50fcd5508bacdea28d5d2783b1c96cf03567fd965257e96c8c66c2",
+      "payloadSha256": "sha256:3b1c5e4c0e7b5dc136b9b552325f2055a1053a5abec40aa4973bf0ce9c5357be",
+      "platform": "linux",
+      "node": "v25.9.0",
+      "connectionMode": "600",
+      "lockMode": "600",
+      "tokenRedactedFromStatus": true
+    },
+    {
+      "id": 10870731868,
+      "name": "platform-ipc-permission-windows-latest-node-22.22.x",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:e14060d8a69e7f77e1a3d968ba61a98e778a4eb3a77aa3f0ed6c100145f97c96",
+      "payloadSha256": "sha256:12d4714585710554821edbb48f88c98aa5cc7a768ccba522a190929f4b56e3e2",
+      "platform": "win32",
+      "node": "v22.22.3",
+      "connectionMode": "win32-acl",
+      "lockMode": "win32-acl",
+      "tokenRedactedFromStatus": true,
+      "windowsAcl": {
+        "connection": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "lock": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "broadReadRejected": true
+      }
+    },
+    {
+      "id": 10870931285,
+      "name": "platform-ipc-permission-windows-latest-node-24.x",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:8e9b90b838c2d572f288810f9a0ad8fc87df2ab4ab79455b5b21d8d81b4ad7e7",
+      "payloadSha256": "sha256:fe065088ef85dfd3bb1eddb8fd8f1590fc8762c1bcd4241ee7805f0727023926",
+      "platform": "win32",
+      "node": "v24.20.0",
+      "connectionMode": "win32-acl",
+      "lockMode": "win32-acl",
+      "tokenRedactedFromStatus": true,
+      "windowsAcl": {
+        "connection": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "lock": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "broadReadRejected": true
+      }
+    },
+    {
+      "id": 10869449792,
+      "name": "platform-ipc-permission-windows-latest-node-25.x",
+      "runId": 36149269956,
+      "headSha": "18d2075be41a740000bfdf5b9d72961fcb1ef60f",
+      "archiveSha256": "sha256:92d1fc25ac1956438b8841ace086b569762eded91c5e9f6c1c1758870f4fbc0c",
+      "payloadSha256": "sha256:219cb2deccfe709392a840f848f0510b11193894b57162b3bebcce9f0fbdcc8e",
+      "platform": "win32",
+      "node": "v25.9.0",
+      "connectionMode": "win32-acl",
+      "lockMode": "win32-acl",
+      "tokenRedactedFromStatus": true,
+      "windowsAcl": {
+        "connection": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "lock": {
+          "inheritanceDisabled": true,
+          "accessRuleCount": 1,
+          "ownerMatchesCurrentUser": true,
+          "explicitOwnerFullControlOnly": true
+        },
+        "broadReadRejected": true
+      }
+    }
+  ],
+  "artifactInspector": {
+    "command": "bun scripts/fg6-platform-workflow-matrix-readback.ts run --hosted-run-source <run.json> --hosted-jobs-source <jobs.json> --hosted-artifact-dir <artifacts> --out <readback.json> --json",
+    "ok": true,
+    "status": "verified",
+    "outputSha256": "sha256:76b2273357c9cd8278c17c2b41ddafbe98e282c5a0abfaa157fbc092e7f28914",
+    "limitation": "Current matrix/native artifacts only; embedded FG4 organization-runner sources remain historical."
+  }
+}

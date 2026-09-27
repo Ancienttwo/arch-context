@@ -1,3 +1,5 @@
+import { createPrivateControlFile, readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
+import { grantEveryoneRead } from "../../control-file-security/test/windows-acl-fixtures";
 import { connect as netConnect } from "node:net";
 import { once } from "node:events";
 import { join, dirname } from "node:path";
@@ -92,7 +94,7 @@ test("an RPC server whose start fails after starting the daemon releases store o
       mkdirSync(dirname(lockPath), { recursive: true });
       // A live process (this one) already holds the daemon lock, so start() fails after it has
       // started the daemon and claimed store ownership.
-      writeFileSync(lockPath, occupiedLock, { mode: 0o600 });
+      createPrivateControlFile(lockPath, occupiedLock);
       const daemon = new ArchctxDaemon({
         codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
         codeGraphProviderFactory: () => new MockCodeGraphProvider(),
@@ -111,6 +113,24 @@ test("an RPC server whose start fails after starting the daemon releases store o
     }
   });
 
+test("failed connection publication preserves a pre-existing file and releases only its lock", async () => {
+  const root = tempRepo();
+  const daemon = await createStartedTestDaemon();
+  const connectionPath = defaultDaemonConnectionPath(root);
+  const lockPath = defaultDaemonLockPath(root);
+  mkdirSync(dirname(connectionPath), { recursive: true });
+  createPrivateControlFile(connectionPath, "pre-existing owner");
+  const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0 });
+  try {
+    await expect(rpc.start()).rejects.toThrow();
+    expect(readFileSync(connectionPath, "utf8")).toBe("pre-existing owner");
+    expect(existsSync(lockPath)).toBe(false);
+  } finally {
+    await rpc.stop();
+    removeTempRepo(root);
+  }
+}, 30_000);
+
 test("runtime RPC server is loopback, versioned, token-gated, and single-locked", async () => {
     const root = tempRepo();
     const daemon = await createStartedTestDaemon();
@@ -127,6 +147,8 @@ test("runtime RPC server is loopback, versioned, token-gated, and single-locked"
       expect(connection.schemaVersion).toBe(RUNTIME_RPC_VERSION);
       expect(existsSync(connection.connectionPath)).toBe(true);
       expect(existsSync(connection.lockPath)).toBe(true);
+      expect(readPrivateControlFile(connection.connectionPath)).toBeDefined();
+      expect(readPrivateControlFile(connection.lockPath)).toBeDefined();
       if (process.platform !== "win32") {
         expect(statSync(connection.connectionPath).mode & 0o777).toBe(0o600);
         expect(statSync(connection.lockPath).mode & 0o777).toBe(0o600);
@@ -447,7 +469,7 @@ test("runtime RPC ignores insecure connection files and recovers stale locks", a
     const connectionPath = defaultDaemonConnectionPath(root);
     const lockPath = defaultDaemonLockPath(root);
     mkdirSync(dirname(connectionPath), { recursive: true });
-    writeFileSync(connectionPath, JSON.stringify({
+    createPrivateControlFile(connectionPath, JSON.stringify({
       schemaVersion: RUNTIME_RPC_VERSION,
       protocol: "http-loopback",
       version: 1,
@@ -458,27 +480,20 @@ test("runtime RPC ignores insecure connection files and recovers stale locks", a
       lockPath,
       connectionPath,
       startedAt: "2026-06-20T00:00:00.000Z"
-    }, null, 2), { mode: 0o600 });
-    if (process.platform === "win32") {
-      expect(readRuntimeRpcConnection(root)?.token).toBe("leaky-token");
-    } else {
-      chmodSync(connectionPath, 0o644);
-      expect(readRuntimeRpcConnection(root)).toBeUndefined();
-    }
+    }, null, 2));
+    expect(readRuntimeRpcConnection(root)?.token).toBe("leaky-token");
+    if (process.platform === "win32") grantEveryoneRead(connectionPath);
+    else chmodSync(connectionPath, 0o644);
+    expect(readRuntimeRpcConnection(root)).toBeUndefined();
     const insecureRecovery = recoverStaleDaemonControlFiles(root);
-    if (process.platform !== "win32") {
-      expect(insecureRecovery.removed).toContain("insecure-connection-file");
-      expect(existsSync(connectionPath)).toBe(false);
-    } else {
-      expect(insecureRecovery.removed).not.toContain("insecure-connection-file");
-      rmSync(connectionPath, { force: true });
-    }
+    expect(insecureRecovery.removed).toContain("insecure-connection-file");
+    expect(existsSync(connectionPath)).toBe(false);
 
-    writeFileSync(lockPath, JSON.stringify({ pid: -1, root, startedAt: "2026-06-20T00:00:00.000Z" }, null, 2), { mode: 0o600 });
+    createPrivateControlFile(lockPath, JSON.stringify({ pid: -1, root, startedAt: "2026-06-20T00:00:00.000Z" }, null, 2));
     const staleLockRecovery = recoverStaleDaemonControlFiles(root);
     expect(staleLockRecovery.removed).toContain("stale-lock-file");
     expect(existsSync(lockPath)).toBe(false);
-    writeFileSync(lockPath, JSON.stringify({ pid: -1, root, startedAt: "2026-06-20T00:00:00.000Z" }, null, 2), { mode: 0o600 });
+    createPrivateControlFile(lockPath, JSON.stringify({ pid: -1, root, startedAt: "2026-06-20T00:00:00.000Z" }, null, 2));
     const daemon = await createStartedTestDaemon();
     const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "stale-lock-token" });
     let stopped = false;

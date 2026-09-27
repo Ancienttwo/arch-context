@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "archcontext.handshake-diagnostics-change/v1",
+  "baseHead": "5e8ba2784081efa10091e8f5d797a99623390dde",
+  "status": "scoped-checks-passed",
+  "rootCauseEvidence": {
+    "root_cause": "runProjectionCodeGraph preserved only generic child error text, omitting child subcommand, deadline and elapsed time required to distinguish handshake failures. This is an observability cause, not the original timeout cause.",
+    "repro": "new deadline/status/spawn diagnostics expectations on unchanged adapter fail because metadata is absent",
+    "regression_guard": "packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts",
+    "pre_fix_failure_artifact": {
+      "path": "/tmp/handshake-diagnostics-red.log",
+      "sha256": "sha256:5c6f3eb6319315765402462f0dae264cb0277faba1f200c03b2c1ee67968f287",
+      "exitCode": 1,
+      "failedTests": 2
+    }
+  },
+  "verification": {
+    "testsPassed": 16,
+    "testsFailed": 0,
+    "assertions": 74,
+    "typecheck": "pass",
+    "packageBoundaries": "pass",
+    "diffCheck": "pass"
+  },
+  "sourceHashes": {
+    "packages/local-runtime/codegraph-adapter/src/index.ts": "sha256:94219e7c07c2b1c1de2537e340ad74edf535081b243bcac0818c8ecb3e330b47",
+    "packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts": "sha256:ad5bf01dd5b4af0e5b14cbc9cebee544b522d4d6382ac4cb6021c3ae1b8abbd8"
+  },
+  "logs": {
+    "/tmp/handshake-diagnostics-green.log": "sha256:82b69439c0fe2674a13010c9b3b528bcc2a8e58c8ceea65362b33e57fa0df17f",
+    "/tmp/handshake-diagnostics-typecheck.log": "sha256:8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+  },
+  "fields": [
+    "subcommand",
+    "deadlineMs",
+    "elapsedMs",
+    "code",
+    "exitCode",
+    "signal"
+  ],
+  "boundaries": {
+    "timeoutsUnchanged": true,
+    "noRetry": true,
+    "existingErrorDetailPreserved": true,
+    "fullGateRun": false,
+    "timeoutRootCauseProven": false,
+    "oldTarballsRepresentCurrentSource": false,
+    "acceptanceReceiptIssued": false
+  }
+}

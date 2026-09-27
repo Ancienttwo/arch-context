@@ -15,7 +15,7 @@ describe("Explorer inline runtime", () => {
     const breadcrumb = element({ "data-breadcrumb-level": "context" });
     const view = element({ "data-view": "drift-pressure" });
     const harness = execute({
-      url: "http://127.0.0.1:7420/?token=secret&maxNodes=80&depth=2&expand=occurrence.group.one&expand=occurrence.group.two&expand=occurrence.group.two",
+      url: "http://127.0.0.1:7420/?maxNodes=80&depth=2&expand=occurrence.group.one&expand=occurrence.group.two&expand=occurrence.group.two",
       selectors: {
         "[data-expand]": [expand],
         "[data-focus]": [focus],
@@ -27,11 +27,11 @@ describe("Explorer inline runtime", () => {
     expand.dispatch("click");
     let url = new URL(harness.window.location.href);
     expect(url.searchParams.getAll("expand")).toEqual(["occurrence.group.two", "occurrence.group.two"]);
-    expect(url.searchParams.get("token")).toBe("secret");
+    expect(url.searchParams.has("token")).toBe(false);
     expect(url.searchParams.get("maxNodes")).toBe("80");
     expect(url.searchParams.get("depth")).toBe("2");
 
-    harness.window.location.href = "http://127.0.0.1:7420/?token=secret&expand=occurrence.group.two";
+    harness.window.location.href = "http://127.0.0.1:7420/?expand=occurrence.group.two";
     expand.dispatch("click");
     url = new URL(harness.window.location.href);
     expect(url.searchParams.getAll("expand")).toEqual(["occurrence.group.two", "occurrence.group.one"]);
@@ -46,7 +46,7 @@ describe("Explorer inline runtime", () => {
     url = new URL(harness.window.location.href);
     expect(url.searchParams.get("focus")).toBeNull();
     expect(url.searchParams.get("level")).toBe("context");
-    expect(url.searchParams.get("token")).toBe("secret");
+    expect(url.searchParams.has("token")).toBe(false);
 
     view.dispatch("click");
     url = new URL(harness.window.location.href);
@@ -54,35 +54,36 @@ describe("Explorer inline runtime", () => {
     expect(url.searchParams.get("level")).toBe("context");
   });
 
-  test("coalesces authority events and qualifies projection invalidation by both digests", () => {
+  test("coalesces authority events and qualifies projection invalidation by both digests", async () => {
     const live = element({}, "live-status");
     const harness = execute({ elementsById: { "live-status": live } });
     const source = harness.sources[0];
-    expect(source.url).toBe("/events?token=secret");
-    source.emit("open", {});
+    await source.ready;
+    expect(source.url).toBe("/events");
+    expect(source.headers).toEqual({ Authorization: "Bearer secret" });
     expect(live.textContent).toBe("live updates connected");
 
-    source.emit("authority-changed", { data: "" });
-    source.emit("authority-changed", { data: "not-used" });
+    await source.emit("authority-changed", { data: "" });
+    await source.emit("authority-changed", { data: "not-used" });
     expect(harness.pendingTimers()).toBe(1);
     harness.flushTimers();
     expect(harness.reloads()).toBe(1);
 
-    source.emit("projection-invalidated", { data: JSON.stringify({
+    await source.emit("projection-invalidated", { data: JSON.stringify({
       viewDefinitionDigest: projection.cursor.viewDefinitionDigest,
       projectionDigest: projection.projectionDigest
     }) });
-    source.emit("projection-invalidated", { data: JSON.stringify({
+    await source.emit("projection-invalidated", { data: JSON.stringify({
       viewDefinitionDigest: "sha256:different-view",
       projectionDigest: "sha256:new-projection"
     }) });
     expect(harness.pendingTimers()).toBe(0);
 
-    source.emit("projection-invalidated", { data: JSON.stringify({
+    await source.emit("projection-invalidated", { data: JSON.stringify({
       viewDefinitionDigest: projection.cursor.viewDefinitionDigest,
       projectionDigest: "sha256:new-projection"
     }) });
-    source.emit("projection-invalidated", { data: JSON.stringify({
+    await source.emit("projection-invalidated", { data: JSON.stringify({
       viewDefinitionDigest: projection.cursor.viewDefinitionDigest,
       projectionDigest: "sha256:newer-projection"
     }) });
@@ -91,11 +92,12 @@ describe("Explorer inline runtime", () => {
     expect(harness.reloads()).toBe(2);
   });
 
-  test("fails closed on malformed events, EventSource errors, or missing token", () => {
+  test("fails closed on malformed events, EventSource errors, without a session", async () => {
     const live = element({}, "live-status");
     const harness = execute({ elementsById: { "live-status": live } });
     const source = harness.sources[0];
-    source.emit("projection-invalidated", { data: "{" });
+    await source.ready;
+    await source.emit("projection-invalidated", { data: "{" });
     expect(source.closed).toBe(true);
     expect(live.textContent).toBe("live updates disconnected");
     expect(live.getAttribute("data-live-state")).toBe("disconnected");
@@ -103,9 +105,9 @@ describe("Explorer inline runtime", () => {
 
     const errorLive = element({}, "live-status");
     const onError = execute({ elementsById: { "live-status": errorLive } });
-    onError.sources[0].emit("authority-changed", { data: "" });
+    await onError.sources[0].emit("authority-changed", { data: "" });
     expect(onError.pendingTimers()).toBe(1);
-    onError.sources[0].emit("error", {});
+    await onError.sources[0].emit("error", {});
     expect(onError.sources[0].closed).toBe(true);
     expect(errorLive.textContent).toBe("live updates disconnected");
     expect(onError.pendingTimers()).toBe(0);
@@ -114,6 +116,7 @@ describe("Explorer inline runtime", () => {
 
     const missingTokenLive = element({}, "live-status");
     const missingToken = execute({
+      token: null,
       url: "http://127.0.0.1:7420/",
       elementsById: { "live-status": missingTokenLive }
     });
@@ -185,18 +188,33 @@ class FakeElement {
 }
 
 class FakeEventSource {
-  readonly listeners = new Map<string, Listener[]>();
   closed = false;
-  constructor(readonly url: string) {}
-  addEventListener(name: string, listener: Listener): void {
-    const listeners = this.listeners.get(name) ?? [];
-    listeners.push(listener);
-    this.listeners.set(name, listeners);
+  ready: Promise<void>;
+  private readyResolve!: () => void;
+  private waiting?: (value: ReadableStreamReadResult<Uint8Array>) => void;
+  private delivered?: () => void;
+  constructor(readonly url: string, readonly headers: unknown) {
+    this.ready = new Promise((resolve) => { this.readyResolve = resolve; });
   }
-  emit(name: string, event: Record<string, unknown>): void {
-    for (const listener of this.listeners.get(name) ?? []) listener(event);
+  read(): Promise<ReadableStreamReadResult<Uint8Array>> {
+    this.readyResolve();
+    this.delivered?.();
+    this.delivered = undefined;
+    return new Promise((resolve) => { this.waiting = resolve; });
   }
-  close(): void { this.closed = true; }
+  async emit(name: string, event: Record<string, unknown>): Promise<void> {
+    await this.ready;
+    const delivered = new Promise<void>((resolve) => { this.delivered = resolve; });
+    if(name === "error") this.waiting?.({ done: true, value: undefined });
+    else this.waiting?.({ done: false, value: new TextEncoder().encode(`event: ${name}\ndata: ${event.data ?? ""}\n\n`) });
+    await delivered;
+  }
+  close(): void {
+    this.closed = true;
+    this.delivered?.();
+    this.delivered = undefined;
+    this.waiting?.({ done: true, value: undefined });
+  }
 }
 
 function element(attributes: Record<string, string> = {}, id?: string): FakeElement {
@@ -205,6 +223,7 @@ function element(attributes: Record<string, string> = {}, id?: string): FakeElem
 
 function execute(options: {
   url?: string;
+  token?: string | null;
   selectors?: Record<string, FakeElement[]>;
   elementsById?: Record<string, FakeElement>;
 } = {}) {
@@ -223,13 +242,22 @@ function execute(options: {
   let reloadCount = 0;
   const windowListeners = new Map<string, Listener[]>();
   const location = {
-    href: options.url ?? "http://127.0.0.1:7420/?token=secret&maxNodes=80&maxRelations=160",
+    href: options.url ?? "http://127.0.0.1:7420/?maxNodes=80&maxRelations=160",
     reload() { reloadCount += 1; }
   };
   const window = {
     location,
-    EventSource: class extends FakeEventSource {
-      constructor(url: string) { super(url); sources.push(this); }
+    sessionStorage: {
+      getItem: () => options.token === null ? null : options.token ?? "secret",
+      removeItem() {}
+    },
+    async fetch(url: string, options: RequestInit) {
+      const source = new FakeEventSource(url, options.headers);
+      expect(options.credentials).toBe("omit");
+      expect(options.redirect).toBe("error");
+      sources.push(source);
+      options.signal!.addEventListener("abort", () => source.close());
+      return { ok: true, status: 200, body: { getReader: () => ({ read: () => source.read(), cancel: () => source.close() }) } };
     },
     setTimeout(callback: () => void, _delay: number): number {
       const id = nextTimer++;

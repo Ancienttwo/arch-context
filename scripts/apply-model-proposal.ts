@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
-import type { ChangeOperation } from "@archcontext/core/changeset-engine";
+import { assertAdrReferenceOperation, type AdrReferenceReplacement, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { canonicalize, type Json } from "@archcontext/contracts";
 import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
@@ -31,6 +31,11 @@ export interface ModelProposalV1 {
     entityId: string;
     expectedHash: "missing" | `sha256:${string}`;
     body?: string;
+  } | {
+    op: "update_adr_references";
+    path: string;
+    expectedHash: `sha256:${string}`;
+    references: AdrReferenceReplacement[];
   }>;
 }
 
@@ -56,6 +61,12 @@ export function parseModelProposal(value: unknown): ModelProposalV1 {
   const seen = new Set<string>();
   for (const operation of proposal.operations) {
     if (!operation || typeof operation !== "object") throw new Error("proposal operation must be an object");
+    if (operation.op === "update_adr_references") {
+      assertAdrReferenceOperation(operation);
+      if (seen.has(operation.path)) throw new Error(`duplicate model operation path: ${operation.path}`);
+      seen.add(operation.path);
+      continue;
+    }
     if (operation.op !== "create_entity" && operation.op !== "update_entity_fields" && operation.op !== "delete_entity") throw new Error(`unsupported model operation: ${String(operation.op)}`);
     if (!MODEL_PATH.test(operation.path)) throw new Error(`model operation path is outside the model authority: ${operation.path}`);
     if (seen.has(operation.path)) throw new Error(`duplicate model operation path: ${operation.path}`);
@@ -120,7 +131,8 @@ async function main(args: string[]) {
       operations: proposal.operations as ChangeOperation[]
     });
     if (!planned.ok) throw new Error(planned.error?.message ?? "ChangeSet plan failed");
-    const draft = planned.data as unknown as { draft: { base: { worktreeDigest: string; modelDigest: string }; status: string } };
+    const draft = planned.data as unknown as { draft: { base: { worktreeDigest: string; modelDigest: string }; status: string }; preview: { allowed: boolean; findings: string[] } };
+    if (!draft.preview.allowed) throw new Error(`ChangeSet preview rejected: ${draft.preview.findings.join("; ")}`);
     if (!approved) return modelProposalReceipt({ proposal, mode: "preview", ...draft.draft.base, status: draft.draft.status });
     const applied = await daemon.applyUpdate(repo, {
       id: proposal.changeSetId,

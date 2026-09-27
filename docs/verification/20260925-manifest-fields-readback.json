@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "archcontext.manifest-field-update-readback/v1",
+  "issue": 171,
+  "baseCommit": "2f806f9d1b1ee77085c75bbd07c88008aa63b21e",
+  "changeSetId": "changeset.manifest-decisions-171",
+  "changeSetDigest": "sha256:af2c4bc6e9a71bb5ab2ea4fa8322c5c163e21313c338a9fe71620c8eaeeffa2b",
+  "base": {
+    "headSha": "2f806f9d1b1ee77085c75bbd07c88008aa63b21e",
+    "worktreeDigest": "sha256:14f86f902650b2cf0e01d3786f83d5bddd90e04851b5a11e85d59089da2bad4b",
+    "modelDigest": "sha256:69aa3db8150295298d80ee48aac35f19e309cf1100982961a3ffd7f0ce7097b6"
+  },
+  "operation": {
+    "op": "update_manifest_fields",
+    "path": ".archcontext/manifest.yaml",
+    "expectedHash": "sha256:a42a7ed279428d11fc94cfccbf00738e5a4194f5c60fc849e8845d2cdb753977",
+    "fields": {
+      "content.decisions": "docs/adr"
+    }
+  },
+  "preview": {
+    "digest": "sha256:af2c4bc6e9a71bb5ab2ea4fa8322c5c163e21313c338a9fe71620c8eaeeffa2b",
+    "paths": [
+      ".archcontext/manifest.yaml"
+    ],
+    "allowed": true,
+    "findings": []
+  },
+  "result": {
+    "status": "applied",
+    "writeMode": "yaml",
+    "ledgerAppend": {
+      "status": "not-applicable"
+    },
+    "beforeSha256": "03078157b3451f071ca33d0981ce2dcc9c636657ee0f527c4ef9ce9cc3163c9f",
+    "afterSha256": "d99c51a929ae6866bf4405bd6ae794809bc1d6c61a13b09d71272175ecfa3fc8",
+    "exactSingleScalarChange": true,
+    "manualYamlEdit": false
+  },
+  "commands": [
+    "archctx manifest plan --id changeset.manifest-decisions-171 --decisions docs/adr",
+    "archctx apply --id changeset.manifest-decisions-171 --expected-worktree-digest sha256:14f86f902650b2cf0e01d3786f83d5bddd90e04851b5a11e85d59089da2bad4b --approved"
+  ],
+  "verification": {
+    "targetedTests": 21,
+    "assertions": 140,
+    "failures": 0,
+    "logSha256": "fec6f2f487e4bcbae5fa02de9686f0d36805ce458e1b1d16e88205bf3d70fdf0",
+    "dualLedgerAppend": "verified in RPC integration fixture; actual repository remains yaml mode"
+  }
+}

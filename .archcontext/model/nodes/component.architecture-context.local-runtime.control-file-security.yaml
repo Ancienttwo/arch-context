@@ -1,0 +1,10 @@
+schemaVersion: "archcontext.node/v2"
+id: "component.architecture-context.local-runtime.control-file-security"
+kind: "component"
+name: "Control File Security"
+parent: "module.architecture-context.local-runtime"
+status: "active"
+summary: "Creates private daemon control files and validates permissions on the same handle used to read credentials, shared by RPC, fast hook and state recovery."
+source:
+  include:
+    - "packages/local-runtime/control-file-security/src/**"

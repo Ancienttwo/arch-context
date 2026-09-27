@@ -1,5 +1,5 @@
 applicability: "required"
-capabilityId: "capability.architecture-context"
+capabilityId: "capability.architecture.context"
 id: "flow.architecture-context.projection-render"
 name: "Project the accepted architecture model into documentation"
 outcomes:
@@ -10,7 +10,7 @@ outcomes:
       - evidence:
           entrypointId: "entrypoint.architecture-context.projection-service"
           sinkId: "sink.architecture-context.render"
-          sourceSymbol: "runProjectionProtocolCommand"
+          sourceSymbol: "buildArchitectureDocsProjection"
         from: "trigger"
         id: "emit-plan"
         label: "Emit the projection plan and its per-target stamps"
@@ -25,7 +25,7 @@ outcomes:
       - evidence:
           entrypointId: "entrypoint.architecture-context.projection-service"
           sinkId: "sink.architecture-context.render"
-          sourceSymbol: "runProjectionProtocolCommand"
+          sourceSymbol: "buildArchitectureDocsProjection"
         from: "trigger"
         id: "fail-closed"
         label: "Refuse to project rather than print an unmeasured guess"
@@ -35,7 +35,7 @@ outcomes:
       participant: "trigger"
 participants:
   - id: "trigger"
-    nodeId: "capability.architecture-context"
+    nodeId: "capability.architecture.context"
   - id: "renderer"
     nodeId: "component.architecture-context.projection-renderer"
 schemaVersion: "archcontext.flow/v1"
@@ -43,7 +43,7 @@ steps:
   - evidence:
       entrypointId: "entrypoint.architecture-context.projection-service"
       sinkId: "sink.architecture-context.render"
-      sourceSymbol: "runProjectionProtocolCommand"
+      sourceSymbol: "buildArchitectureDocsProjection"
     from: "trigger"
     id: "render-from-projection-service"
     label: "Render a typed CLI or MCP projection request through the daemon service"

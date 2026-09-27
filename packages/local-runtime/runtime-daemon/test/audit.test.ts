@@ -21,6 +21,38 @@ afterAll(() => {
 });
 
 describe("daemon audit service", () => {
+  test("local-only denies audit before queue or publisher effects despite manifest and consent", async () => {
+    const root = createGitRepo();
+    enableAuditWithConsent(root);
+    const store = new TestLocalStore();
+    let transportCalls = 0;
+    let publisherCalls = 0;
+    const previousMode = process.env.ARCHCONTEXT_EGRESS_MODE;
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        investigationTransport: async () => { transportCalls++; throw new Error("unexpected investigator"); },
+        githubIssueExecutor: {
+          repoView: async () => { publisherCalls++; throw new Error("unexpected repo probe"); },
+          listRecentIssues: async () => { publisherCalls++; return []; },
+          createIssue: async () => { publisherCalls++; throw new Error("unexpected publish"); }
+        }
+      });
+      const eventCount = store.architectureEvents.length;
+      process.env.ARCHCONTEXT_EGRESS_MODE = "local-only";
+      await expect(daemon.auditRun(root, { wait: true })).rejects.toThrow("egress-denied: agent-audit");
+      await expect(daemon.auditApprove(root, { runId: "audit_run.not_enqueued" })).rejects.toThrow("egress-denied: github-issue-publishing");
+      expect(transportCalls).toBe(0);
+      expect(publisherCalls).toBe(0);
+      expect(store.architectureEvents.length).toBe(eventCount);
+      expect(((await daemon.auditList(root)).data as any).count).toBe(0);
+    } finally {
+      if (previousMode === undefined) delete process.env.ARCHCONTEXT_EGRESS_MODE;
+      else process.env.ARCHCONTEXT_EGRESS_MODE = previousMode;
+      removeTempRepo(root);
+    }
+  });
+
   test("audit run records pending drafts without external side-effect", async () => {
     const root = createGitRepo();
     enableAuditWithConsent(root);

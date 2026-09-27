@@ -1,8 +1,9 @@
+import { createPrivateControlFile, readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 export { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcCompatibilityIssue, type RuntimeRpcConnection, type RuntimeRpcConnectionFile } from "./rpc-protocol";
 import { RuntimeRpcClient } from "./rpc-client";
-import { existsSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, openSync, rmSync } from "node:fs";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 
 export type DaemonControlRecoveryReason =
@@ -37,8 +38,9 @@ export function defaultDaemonLockPath(root = process.cwd()): string {
 export function readRuntimeRpcConnectionFile(root = process.cwd()): RuntimeRpcConnectionFile | undefined {
   const path = defaultDaemonConnectionPath(root);
   try {
-    if (!isPrivateControlFile(path)) return undefined;
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as RuntimeRpcConnectionFile;
+    const body = readPrivateControlFile(path);
+    if (body === undefined) return undefined;
+    const parsed = JSON.parse(body) as RuntimeRpcConnectionFile;
     if (!parsed || typeof parsed !== "object") return undefined;
     return {
       ...parsed,
@@ -71,8 +73,9 @@ export function runtimeRpcCompatibilityIssue(root = process.cwd()): RuntimeRpcCo
 export function readRuntimeRpcConnection(root = process.cwd()): RuntimeRpcConnection | undefined {
   const path = defaultDaemonConnectionPath(root);
   try {
-    if (!isPrivateControlFile(path)) return undefined;
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as RuntimeRpcConnection;
+    const body = readPrivateControlFile(path);
+    if (body === undefined) return undefined;
+    const parsed = JSON.parse(body) as RuntimeRpcConnection;
     return isValidRuntimeRpcConnection(parsed) ? parsed : undefined;
   } catch {
     return undefined;
@@ -105,9 +108,8 @@ export function recoverStaleDaemonControlFiles(
 
 export function acquireDaemonLock(lockPath: string, root: string): number {
   try {
-    const fd = openSync(lockPath, "wx", 0o600);
-    writeFileSync(fd, JSON.stringify({ pid: process.pid, root, startedAt: new Date().toISOString() }, null, 2), "utf8");
-    return fd;
+    createPrivateControlFile(lockPath, JSON.stringify({ pid: process.pid, root, startedAt: new Date().toISOString() }, null, 2));
+    try { return openSync(lockPath, "r"); } catch (error) { rmSync(lockPath, { force: true }); throw error; }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== "EEXIST") throw error;
@@ -135,8 +137,9 @@ function isValidRuntimeRpcConnection(value: RuntimeRpcConnection): value is Runt
 function staleConnectionFileReason(path: string, removeUnhealthyConnection: boolean): DaemonControlRecoveryReason | undefined {
   if (!existsSync(path)) return undefined;
   try {
-    if (!isPrivateControlFile(path)) return "insecure-connection-file";
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as RuntimeRpcConnection;
+    const body = readPrivateControlFile(path);
+    if (body === undefined) return "insecure-connection-file";
+    const parsed = JSON.parse(body) as RuntimeRpcConnection;
     if (!isValidRuntimeRpcConnection(parsed)) return "invalid-connection-file";
     if (!isProcessAlive(parsed.pid)) return "dead-connection-pid";
     return removeUnhealthyConnection ? "unhealthy-connection-file" : undefined;
@@ -145,15 +148,11 @@ function staleConnectionFileReason(path: string, removeUnhealthyConnection: bool
   }
 }
 
-function isPrivateControlFile(path: string): boolean {
-  if (process.platform === "win32") return true;
-  const mode = statSync(path).mode & 0o777;
-  return (mode & 0o077) === 0;
-}
-
 function isStaleLock(lockPath: string): boolean {
+  const body = readPrivateControlFile(lockPath);
+  if (body === undefined) throw new Error("Refusing unverified daemon lock permissions");
   try {
-    const lock = JSON.parse(readFileSync(lockPath, "utf8")) as { pid?: number };
+    const lock = JSON.parse(body) as { pid?: number };
     if (typeof lock.pid !== "number" || lock.pid <= 0) return true;
     return !isProcessAlive(lock.pid);
   } catch {

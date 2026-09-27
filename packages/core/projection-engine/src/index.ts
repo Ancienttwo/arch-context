@@ -18,6 +18,7 @@ import {
   type ProjectionTargetV1
 } from "@archcontext/contracts";
 import { assertRepoRelativePath, computeWorktreeDigest, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
+import { assertPathHasNoSymlinkSegments } from "@archcontext/core/changeset-engine";
 import {
   agentContextTargetPaths,
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
@@ -2223,8 +2224,8 @@ export interface AgentContextProjectionTargetPath {
  * allowlist and the renderer can never drift apart.
  *
  * A capability whose primary source directory resolves to the repository root is rejected rather
- * than projected: the root `CLAUDE.md`/`AGENTS.md` are the human-authored routing contract, and no
- * derivation may put them on the machine write surface.
+ * than inferred. Explicit contractFiles may designate existing root contracts; ChangeSetEngine
+ * requires exact preimage hashes and canonical marker-only content for those writes.
  */
 export function agentContextProjectionTargetPaths(model: NativeModel): AgentContextProjectionTargetPath[] {
   return agentContextTargetPaths(model.nodes).map(({ nodeId, path }) => {
@@ -2239,7 +2240,7 @@ export function loadAgentContextProjectionFiles(root: string, model: NativeModel
     .sort((left, right) => left.localeCompare(right));
   return paths
     .filter((path) => existsSync(resolve(root, path)))
-    .map((path) => ({ path, body: readFileSync(resolve(root, path), "utf8") }));
+    .map((path) => ({ path, body: readFileSync(assertPathHasNoSymlinkSegments(root, path), "utf8") }));
 }
 
 export function renderAgentContextProjection(input: {
@@ -2348,7 +2349,12 @@ function wrapAgentContextRegion(target: AgentContextProjectionTarget, generatedB
 function mergeAgentContextRegion(target: AgentContextProjectionTarget, wrapped: string, existing?: string): string {
   if (!existing) return wrapped;
   const region = findAgentContextRegion(existing, target.scope.id);
-  if (!region) return `${existing.trimEnd()}\n\n${wrapped}`;
+  if (!region) {
+    if (target.path === "AGENTS.md" || target.path === "CLAUDE.md") {
+      return `${existing}${existing.endsWith("\n\n") ? "" : existing.endsWith("\n") ? "\n" : "\n\n"}${wrapped}`;
+    }
+    return `${existing.trimEnd()}\n\n${wrapped}`;
+  }
   const markerDigest = /\boutputDigest="([^"]+)"/.exec(region.startMarker)?.[1];
   if (!markerDigest) {
     throw new Error(`agent-context-marker-output-digest-missing: ${target.path} (node ${target.scope.id})`);
@@ -2372,10 +2378,16 @@ function findAgentContextRegion(body: string, nodeId: string): {
 } | undefined {
   const startPattern = new RegExp(`<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="${escapeRegExp(nodeId)}"[^>]*-->`);
   const startMatch = startPattern.exec(body);
-  if (!startMatch || startMatch.index === undefined) return undefined;
   const endMarker = agentContextEndMarker(nodeId);
+  if (!startMatch || startMatch.index === undefined) {
+    if (body.includes(endMarker) || body.includes(`${AGENT_CONTEXT_BEGIN_PREFIX} id="${nodeId}"`)) throw new Error(`agent-context-marker-malformed: ${nodeId}`);
+    return undefined;
+  }
+  if (startPattern.test(body.slice(startMatch.index + startMatch[0].length))) throw new Error(`agent-context-marker-duplicate: ${nodeId}`);
   const endIndex = body.indexOf(endMarker, startMatch.index + startMatch[0].length);
-  if (endIndex < 0) return undefined;
+  if (endIndex < 0 || body.indexOf(endMarker) !== endIndex || body.indexOf(endMarker, endIndex + endMarker.length) >= 0) throw new Error(`agent-context-marker-malformed: ${nodeId}`);
+  const interior = body.slice(startMatch.index + startMatch[0].length, endIndex);
+  if (interior.includes(AGENT_CONTEXT_BEGIN_PREFIX) || interior.includes(AGENT_CONTEXT_END_PREFIX)) throw new Error(`agent-context-marker-overlap: ${nodeId}`);
   const regionEnd = endIndex + endMarker.length + (body[endIndex + endMarker.length] === "\n" ? 1 : 0);
   const afterMarker = startMatch.index + startMatch[0].length;
   const contentStart = afterMarker + (body[afterMarker] === "\n" ? 1 : 0);

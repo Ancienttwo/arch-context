@@ -1,0 +1,6 @@
+id: "relation.architecture-context.audit.agent-jobs"
+intent: "Use the same job completion, ID, risk and proposal validation semantics through the existing daemon callbacks"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.audit"
+target: "component.architecture-context.local-runtime.agent-jobs"

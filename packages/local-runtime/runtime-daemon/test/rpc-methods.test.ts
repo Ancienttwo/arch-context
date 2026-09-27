@@ -21,7 +21,24 @@ const projectionCases = [
   if (method === "mcpProjection") samples.push({ method, variant: "projection-approved", args: [...args, "one-time-token"], params: [...args, "one-time-token"], timeout, response: "envelope" });
   return samples;
 });
-const cases = [...baseline.cases, ...projectionCases];
+const cases = [...baseline.cases, ...projectionCases, {
+  method: "acceptCommittedChange",
+  variant: "approved-yaml-journal",
+  args: ["/rpc/fixture/repo", {
+    journalId: "changeset_journal.fixture",
+    changeSetId: "changeset.fixture",
+    approved: true,
+    expectedWorktreeDigest: `sha256:${"a".repeat(64)}`
+  }],
+  params: ["/rpc/fixture/repo", {
+    journalId: "changeset_journal.fixture",
+    changeSetId: "changeset.fixture",
+    approved: true,
+    expectedWorktreeDigest: `sha256:${"a".repeat(64)}`
+  }],
+  timeout: "long",
+  response: "envelope"
+}];
 
 // Captured by exercising the pre-table client, including omitted and explicit arguments.
 // These are transport sentinels; domain validation remains covered by daemon integration tests.

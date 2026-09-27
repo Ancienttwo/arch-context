@@ -1,17 +1,18 @@
 {
-  "schemaVersion": "archcontext.fg6-platform-workflow-matrix-readback/v1",
+  "schemaVersion": "archcontext.fg6-platform-workflow-matrix-readback/v2",
   "taskId": "FG6-08",
   "environment": "staging-release-readback",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-09-02T00:10:00.345Z",
+  "generatedAt": "2026-09-25T09:36:17.494Z",
   "sources": {
     "workflowPath": ".github/workflows/verify.yml",
     "platformReadbackScript": "scripts/platform-ipc-permission-readback.mjs",
-    "fg1Gate": "docs/verification/fg1-local-product-gate.md",
+    "hostedRunSource": "fg6-frozen-run.json",
+    "hostedJobsSource": "fg6-frozen-jobs.json",
     "githubHostedRunnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
     "selfHostedRunnerSource": "docs/verification/fg4-self-hosted-runner-execution-readback.json",
-    "hostedArtifactDirectory": "fg6-matrix-artifacts"
+    "hostedArtifactDirectory": "fg6-frozen-artifacts"
   },
   "evidence": {
     "workflowMatrix": {
@@ -41,13 +42,104 @@
       "checksLoopback": true,
       "checksTokenRedaction": true,
       "checksPosixPermissions": true,
+      "checksWindowsAcl": true,
       "checksLifecycle": true
     },
     "hostedCi": {
-      "runId": 33573235102,
-      "headSha": "a1d34e414fcf08bbfaea30de854288c3e481d15d",
-      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/33573235102",
-      "runConclusion": "PASS",
+      "runId": 36117123203,
+      "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/36117123203",
+      "workflowName": "Verify",
+      "workflowPath": ".github/workflows/verify.yml",
+      "event": "pull_request",
+      "runAttempt": 1,
+      "workflowStatus": "completed",
+      "workflowConclusion": "failure",
+      "jobsComplete": true,
+      "matrixJobs": [
+        {
+          "id": 108013732216,
+          "runId": 36117123203,
+          "runAttempt": 1,
+          "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+          "name": "macos-15 / Node 25.x",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 108013732283,
+          "runId": 36117123203,
+          "runAttempt": 1,
+          "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+          "name": "macos-15 / Node 22.22.x",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 108013732323,
+          "runId": 36117123203,
+          "runAttempt": 1,
+          "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+          "name": "ubuntu-latest / Node 25.x",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 108013732349,
+          "runId": 36117123203,
+          "runAttempt": 1,
+          "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+          "name": "windows-latest / Node 24.x",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 108013732389,
+          "runId": 36117123203,
+          "runAttempt": 1,
+          "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+          "name": "windows-latest / Node 25.x",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 108013732407,
+          "runId": 36117123203,
+          "runAttempt": 1,
+          "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+          "name": "windows-latest / Node 22.22.x",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 108013732480,
+          "runId": 36117123203,
+          "runAttempt": 1,
+          "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+          "name": "ubuntu-latest / Node 24.x",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 108013732538,
+          "runId": 36117123203,
+          "runAttempt": 1,
+          "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+          "name": "ubuntu-latest / Node 22.22.x",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 108013732614,
+          "runId": 36117123203,
+          "runAttempt": 1,
+          "headSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
+          "name": "macos-15 / Node 24.x",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "matrixConclusion": "success",
       "downloadedArtifactsVerified": true,
       "artifactNames": [
         "platform-ipc-permission-ubuntu-latest-node-22.22.x",
@@ -64,91 +156,142 @@
       "artifacts": [
         {
           "name": "platform-ipc-permission-ubuntu-latest-node-22.22.x",
-          "sha256": "sha256:b5681027d6857ca509bca066d375d456e9520979be3de56bce5271c8246b3f8c",
+          "sha256": "sha256:23f0f5eab2ab34faca1ea3d6774461114677df30588e3999eb09b1f875567134",
           "platform": "linux",
           "node": "v22.22.3",
           "bun": "1.4.0",
           "connectionMode": "600",
-          "lockMode": "600"
+          "lockMode": "600",
+          "windowsAcl": null
         },
         {
           "name": "platform-ipc-permission-ubuntu-latest-node-24.x",
-          "sha256": "sha256:bfdedcea2dcfc4595a2c917b8c08a2b98ecdc967f8e8deba3612accd62e7f77c",
+          "sha256": "sha256:dab63fb868e93a8e78961f7f47e0a40a94e5936f639d4ed5ab48e148d12f26f8",
           "platform": "linux",
-          "node": "v24.19.0",
+          "node": "v24.21.0",
           "bun": "1.4.0",
           "connectionMode": "600",
-          "lockMode": "600"
+          "lockMode": "600",
+          "windowsAcl": null
         },
         {
           "name": "platform-ipc-permission-ubuntu-latest-node-25.x",
-          "sha256": "sha256:a1f4377cbb2693bc19757d3ab845b7a73017d424697e92cf919e1129f3975d42",
+          "sha256": "sha256:5ba62bc1d3c03a4d197d0b42dd355b8bc640de8861342552ce6ab4808f2a6436",
           "platform": "linux",
           "node": "v25.9.0",
           "bun": "1.4.0",
           "connectionMode": "600",
-          "lockMode": "600"
+          "lockMode": "600",
+          "windowsAcl": null
         },
         {
           "name": "platform-ipc-permission-macos-15-node-22.22.x",
-          "sha256": "sha256:8be0377b6def09a5b16c46552bed17ca72192cb59e1d971eb41c56c5dd669538",
+          "sha256": "sha256:f5ba6e94b726d310435223e2feb289730bea99bad30b383a8efa9cdad11c839a",
           "platform": "darwin",
           "node": "v22.22.3",
           "bun": "1.4.0",
           "connectionMode": "600",
-          "lockMode": "600"
+          "lockMode": "600",
+          "windowsAcl": null
         },
         {
           "name": "platform-ipc-permission-macos-15-node-24.x",
-          "sha256": "sha256:bb26c8e06f70fa825add5da69df4252901a5ca266f5feb7d5a8d58203e2d7357",
+          "sha256": "sha256:2df08483848885fd88bddb6d20979d0ec6f884da1c14bb5e8a8fbc8c6513c150",
           "platform": "darwin",
-          "node": "v24.18.0",
+          "node": "v24.20.0",
           "bun": "1.4.0",
           "connectionMode": "600",
-          "lockMode": "600"
+          "lockMode": "600",
+          "windowsAcl": null
         },
         {
           "name": "platform-ipc-permission-macos-15-node-25.x",
-          "sha256": "sha256:8992ef832e3c8bcd230a6d9c8b21557b54be0b50c92bc62d87b217b2a31de5f1",
+          "sha256": "sha256:1bfb75c6ab1dacfe06c56eddf2b9408525d5c71dff5d2c284df0fe7b11e4eba6",
           "platform": "darwin",
           "node": "v25.9.0",
           "bun": "1.4.0",
           "connectionMode": "600",
-          "lockMode": "600"
+          "lockMode": "600",
+          "windowsAcl": null
         },
         {
           "name": "platform-ipc-permission-windows-latest-node-22.22.x",
-          "sha256": "sha256:5444ee5465c560b79aa1d910b4dfff53c9e324cfd3f8f1560ac47888816c63f5",
+          "sha256": "sha256:1006cad6a67eb1cb960a62301188f502321d5e58a7608d5f2d6bfe277041d44b",
           "platform": "win32",
           "node": "v22.22.3",
           "bun": "1.4.0",
           "connectionMode": "win32-acl",
-          "lockMode": "win32-acl"
+          "lockMode": "win32-acl",
+          "windowsAcl": {
+            "connection": {
+              "inheritanceDisabled": true,
+              "accessRuleCount": 1,
+              "ownerMatchesCurrentUser": true,
+              "explicitOwnerFullControlOnly": true
+            },
+            "lock": {
+              "inheritanceDisabled": true,
+              "accessRuleCount": 1,
+              "ownerMatchesCurrentUser": true,
+              "explicitOwnerFullControlOnly": true
+            },
+            "broadReadRejected": true
+          }
         },
         {
           "name": "platform-ipc-permission-windows-latest-node-24.x",
-          "sha256": "sha256:1b68279129c407dd1c6a67764baa75a53272c2a5a9086b0e46cab4cb79ca0702",
+          "sha256": "sha256:a6e4d6bb604035ff8c5fa5524edb90515ec5887248ef7fddbb38e5320a77d04d",
           "platform": "win32",
-          "node": "v24.19.0",
+          "node": "v24.20.0",
           "bun": "1.4.0",
           "connectionMode": "win32-acl",
-          "lockMode": "win32-acl"
+          "lockMode": "win32-acl",
+          "windowsAcl": {
+            "connection": {
+              "inheritanceDisabled": true,
+              "accessRuleCount": 1,
+              "ownerMatchesCurrentUser": true,
+              "explicitOwnerFullControlOnly": true
+            },
+            "lock": {
+              "inheritanceDisabled": true,
+              "accessRuleCount": 1,
+              "ownerMatchesCurrentUser": true,
+              "explicitOwnerFullControlOnly": true
+            },
+            "broadReadRejected": true
+          }
         },
         {
           "name": "platform-ipc-permission-windows-latest-node-25.x",
-          "sha256": "sha256:972ac4ff251f297761b56b7612f1a221c0bf9af9d1b81000165e2871a218a33f",
+          "sha256": "sha256:25a239183d78bb861eb95741a9a4003e968bab50c8e1a4475bcef49b3fd49507",
           "platform": "win32",
           "node": "v25.9.0",
           "bun": "1.4.0",
           "connectionMode": "win32-acl",
-          "lockMode": "win32-acl"
+          "lockMode": "win32-acl",
+          "windowsAcl": {
+            "connection": {
+              "inheritanceDisabled": true,
+              "accessRuleCount": 1,
+              "ownerMatchesCurrentUser": true,
+              "explicitOwnerFullControlOnly": true
+            },
+            "lock": {
+              "inheritanceDisabled": true,
+              "accessRuleCount": 1,
+              "ownerMatchesCurrentUser": true,
+              "explicitOwnerFullControlOnly": true
+            },
+            "broadReadRejected": true
+          }
         }
       ],
       "artifactFailures": [],
       "posixModeVerified": true,
       "windowsAclVerified": true
     },
-    "currentHeadSha": "a1d34e414fcf08bbfaea30de854288c3e481d15d",
+    "currentHeadSha": "8f8777722d8c9ec338868c55d300e76de02628a8",
     "githubWorkflowRuns": {
       "githubHosted": {
         "workflow": {

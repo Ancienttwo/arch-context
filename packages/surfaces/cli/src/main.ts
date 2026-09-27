@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { LocalEgressPolicyError, localEgressAdmission, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
+import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, discardLegacyGithubDeveloperReviewState, readGithubDeveloperReviewState, sanitizeGithubDeveloperReviewState, writeGithubDeveloperReviewState, type GitHubDeveloperReviewState } from "./github-review-state";
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
 import { spawn, spawnSync } from "node:child_process";
@@ -7,6 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
+import { planManifestFieldsOperation } from "@archcontext/core/changeset-engine";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -215,6 +218,7 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
   try {
     return await runCliUnchecked(command, args, cwd, deps);
   } catch (error) {
+    if (error instanceof LocalEgressPolicyError) return errorEnvelope(command, "AC_POLICY_VIOLATION", error.message);
     if (error instanceof RuntimeVersionUnsupportedError) {
       return errorEnvelope(command ?? "cli", "AC_RUNTIME_VERSION_UNSUPPORTED", error.message);
     }
@@ -417,6 +421,28 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         expectedWorktreeDigest: requireFlag(args, "--expected-worktree-digest")
       });
     }
+    case "manifest": {
+      if (args.includes("--help") || args.includes("-h")) return okEnvelope("manifest", {
+        command: "archctx manifest plan --id <changeset.id> --decisions docs/adr",
+        supportedFields: { "content.decisions": "docs/adr" },
+        writes: "none; approve the returned ChangeSet with archctx apply"
+      });
+      if (args[0] !== "plan") return errorEnvelope("manifest", "AC_SCHEMA_INVALID", "manifest requires plan; use --help");
+      const seen = new Set<string>();
+      for (let index = 1; index < args.length; index += 2) {
+        const flag = args[index];
+        if (!["--id", "--decisions"].includes(flag) || seen.has(flag) || !args[index + 1] || args[index + 1].startsWith("--")) {
+          return errorEnvelope("manifest", "AC_SCHEMA_INVALID", "manifest plan accepts one --id and one --decisions value only");
+        }
+        seen.add(flag);
+      }
+      const id = requireFlag(args, "--id");
+      const decisions = requireFlag(args, "--decisions");
+      if (decisions !== "docs/adr") return errorEnvelope("manifest", "AC_SCHEMA_INVALID", "content.decisions supports only docs/adr");
+      const root = findRepositoryRoot(cwd);
+      const operation = planManifestFieldsOperation(root, { "content.decisions": decisions });
+      return (await runtime()).planUpdate(root, { id, operations: [operation] });
+    }
     case "config":
       return {
         schemaVersion: "archcontext.envelope/v1",
@@ -533,7 +559,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "approve", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "approve", "apply", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
           examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection approve --action run --request-json '{...}' --approved", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
         }
       };
@@ -635,6 +661,16 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
     const daemon = await requiredLedgerRuntime(runtime);
     return daemon.ledgerDrift(cwd);
   }
+  if (subcommand === "accept-committed") {
+    const journalId = readFlag(args, "--journal-id");
+    const changeSetId = readFlag(args, "--changeset-id");
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (!journalId || !changeSetId || !expectedWorktreeDigest || !args.includes("--approved")) {
+      return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", "ledger accept-committed requires --journal-id, --changeset-id, --expected-worktree-digest and --approved");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.acceptCommittedChange(cwd, { journalId, changeSetId, approved: true, expectedWorktreeDigest });
+  }
   if (subcommand === "promote") {
     if (args.includes("--write") || args.includes("--enable") || args.includes("--apply")) {
       return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote is preflight-only; it does not write runtime config or enable authority");
@@ -724,7 +760,7 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
       expectedWorktreeDigest
     });
   }
-  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, promote --mode authoritative --preflight --rollback-plan, migrate --from-yaml, migrate --recommendation-v3, rebuild --from-git, rollback --to-yaml, or project --to-git");
+  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, accept-committed, promote --mode authoritative --preflight --rollback-plan, migrate --from-yaml, migrate --recommendation-v3, rebuild --from-git, rollback --to-yaml, or project --to-git");
 }
 
 async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {
@@ -2496,10 +2532,6 @@ function shouldSkipGeneratedProjectionHook(args: string[], changedPaths: string[
   return changedPaths.length > 0 && changedPaths.every(isArchContextGeneratedProjectionPath);
 }
 
-function isArchContextGeneratedProjectionPath(path: string): boolean {
-  return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");
-}
-
 function hookEnqueueReasonCode(data: Record<string, Json>): string {
   if (data.reasonCode !== undefined) return String(data.reasonCode);
   if (data.skipped === true) return "skipped";
@@ -2557,7 +2589,8 @@ async function doctorReport(cwd: string, args: string[] = []) {
   const hardening = diagnostics(localEgressStatus(process.env, {
     auditEnabled: auditGithubIssuesEnabled(cwd),
     auditUserConsent: auditConsentGrantedForDoctor(auditRoot),
-    githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV
+    githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV,
+    updateCheckRequested: args.includes("--check-updates") || process.env[UPDATE_CHECK_ENV] === "1"
   }));
   const daemonEgress = "health" in daemon ? daemon.health?.egress : undefined;
   const egress = daemon.running
@@ -2602,7 +2635,9 @@ function updateCheckReport(opts: { checkUpdates: boolean; env?: NodeJS.ProcessEn
     installCommand,
     egress: {
       default: "none",
-      checkUpdates: "https://registry.npmjs.org/"
+      checkUpdates: "https://registry.npmjs.org/",
+      admission: localEgressAdmission("npm-update-check", env),
+      requested: opts.checkUpdates
     }
   };
 
@@ -2670,11 +2705,11 @@ function readLatestPackageVersion(env: NodeJS.ProcessEnv): { source: "env" | "np
     return { source: "env", version: env[LATEST_VERSION_ENV] };
   }
 
-  const result = spawnSync("npm", ["view", RELEASE_PACKAGE_NAME, "version", "--json"], {
+  const result = withLocalEgress("npm-update-check", () => spawnSync("npm", ["view", RELEASE_PACKAGE_NAME, "version", "--json"], {
     encoding: "utf8",
     timeout: NPM_VIEW_TIMEOUT_MS,
     shell: false
-  });
+  }), env);
   if (result.status !== 0 || result.error) {
     return {
       source: "npm",

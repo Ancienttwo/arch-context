@@ -1,0 +1,6 @@
+id: "relation.architecture-context.agent-jobs.scope-callback"
+intent: "Resolve repository sessions and ledger scope without moving store transactional ownership"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.agent-jobs"
+target: "component.architecture-context.local-runtime.runtime-daemon"

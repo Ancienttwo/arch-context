@@ -3,7 +3,7 @@ import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { renderExplorerHtml } from "@archcontext/local-runtime/explorer-html";
+import { renderExplorerHtml, renderExplorerConnectHtml } from "@archcontext/local-runtime/explorer-html";
 import { EXPLORER_VIEW_IDS, digestJson, errorEnvelope, okEnvelope, type ArchitectureChangeFeedRecordV1, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type Json, type JsonEnvelope } from "@archcontext/contracts";
 
 export interface ExplorerServerOptions {
@@ -98,7 +98,8 @@ export class ExplorerServerService {
     return okEnvelope("explorer.start", {
       ...this.explorerStatusData(),
       token,
-      tokenTtlSeconds: ttlSeconds
+      tokenTtlSeconds: ttlSeconds,
+      browserUrl: `http://${holder.host}:${holder.port}/connect#token=${token}`
     } as Json);
   }
 
@@ -148,15 +149,24 @@ export class ExplorerServerService {
   private async handleExplorerRequest(request: IncomingMessage, response: ServerResponse, session: ExplorerServerSession): Promise<void> {
     const url = new URL(request.url ?? "/", `http://${session.host}:${session.port}`);
     response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Referrer-Policy", "no-referrer");
     if (!isLoopbackRemote(request.socket.remoteAddress) || !matchesLoopbackAuthority(request, `http://${session.host}:${session.port}`)) {
       writeJson(response, 403, { ok: false, error: "explorer request authority rejected" });
+      return;
+    }
+    if (url.searchParams.has("token")) {
+      writeJson(response, 401, { ok: false, error: "query credentials are not accepted" });
+      return;
+    }
+    if (url.pathname === "/connect" && request.method === "GET") {
+      writeHtml(response, 200, renderExplorerConnectHtml());
       return;
     }
     if (request.method !== "GET") {
       writeJson(response, 405, { ok: false, error: "explorer is read-only" });
       return;
     }
-    if (!this.isExplorerAuthorized(request, url, session)) {
+    if (!this.isExplorerAuthorized(request, session)) {
       writeJson(response, 401, { ok: false, error: "explorer token required" });
       return;
     }
@@ -229,11 +239,11 @@ export class ExplorerServerService {
     writeJson(response, 404, { ok: false, error: "not found" });
   }
 
-  private isExplorerAuthorized(request: IncomingMessage, url: URL, session: ExplorerServerSession): boolean {
+  private isExplorerAuthorized(request: IncomingMessage, session: ExplorerServerSession): boolean {
     if (session.revoked || Date.parse(this.context.clock()) >= session.expiresAt) return false;
     const authorization = request.headers.authorization ?? "";
     const bearer = Array.isArray(authorization) ? authorization[0] : authorization;
-    return matchesSecret(bearer, `Bearer ${session.token}`) || matchesSecret(url.searchParams.get("token"), session.token);
+    return matchesSecret(bearer, `Bearer ${session.token}`);
   }
 
   private explorerStatusData(): ExplorerServerStatus {

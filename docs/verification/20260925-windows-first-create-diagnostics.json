@@ -1,0 +1,178 @@
+{
+  "scope": "Windows first-create child deadline; not full PR/issue acceptance",
+  "rootCause": {
+    "confirmed": "The 10000 ms child-process deadline terminates first creation on fresh Windows runners.",
+    "notEstablished": "Which OS/runtime startup subsystem accounts for the variable latency.",
+    "reproError": {
+      "operation": "create",
+      "code": "ETIMEDOUT",
+      "status": null,
+      "signal": "SIGTERM",
+      "elapsedMs": 10252
+    }
+  },
+  "before": {
+    "runId": 36114666871,
+    "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36114666871",
+    "head": "86e2e7d0fe7aa5381fe088a69e120f89f0f274c7",
+    "conclusion": "failure",
+    "samples": [
+      {
+        "sample": 1,
+        "jobId": 108005811738,
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36114666871/job/108005811738",
+        "conclusion": "failure",
+        "logSha256": "180552830b68c17a68795bfd4068aa5fc29eb28b0c07dc1c794b0c47f8af717d",
+        "firstCreate": {
+          "event": "native-acl-first-create",
+          "completed": false,
+          "elapsedMs": 10252
+        }
+      },
+      {
+        "sample": 2,
+        "jobId": 108005811725,
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36114666871/job/108005811725",
+        "conclusion": "success",
+        "logSha256": "f3287ac29a3525f860209f21113b41cc55b8ec61b3160b31de51547812002deb",
+        "firstCreate": {
+          "event": "native-acl-first-create",
+          "completed": true,
+          "elapsedMs": 3395
+        }
+      },
+      {
+        "sample": 3,
+        "jobId": 108005811621,
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36114666871/job/108005811621",
+        "conclusion": "success",
+        "logSha256": "f7267946c6348f6d145749b55d5d1e7addcb53377d8c11f4e18d6cb6fa9f324e",
+        "firstCreate": {
+          "event": "native-acl-first-create",
+          "completed": true,
+          "elapsedMs": 9885
+        }
+      }
+    ]
+  },
+  "after": {
+    "runId": 36115539255,
+    "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36115539255",
+    "head": "c6f73359bc2ec5e05355c4d0a2f6a972bec10132",
+    "merge": "6f739c1a12a2601329c00937d5d6b1a1b73376db",
+    "tree": "24780643fdbc2edfb898431c78ad4e6823dd2eea",
+    "conclusion": "success",
+    "samples": [
+      {
+        "sample": 1,
+        "jobId": 108008643393,
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36115539255/job/108008643393",
+        "conclusion": "success",
+        "logSha256": "47a0d1f71c784a6efdee67de6ec96a910f9e1868c1efd0dc3ada3ef71543d4bd",
+        "firstCreate": {
+          "event": "native-acl-first-create",
+          "completed": true,
+          "elapsedMs": 4437
+        }
+      },
+      {
+        "sample": 2,
+        "jobId": 108008643584,
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36115539255/job/108008643584",
+        "conclusion": "success",
+        "logSha256": "ae4fdf2858ef91bcffd20c0d40b88b06449be6b8f00dcd43853c65cb81689daf",
+        "firstCreate": {
+          "event": "native-acl-first-create",
+          "completed": true,
+          "elapsedMs": 5946
+        }
+      },
+      {
+        "sample": 3,
+        "jobId": 108008643813,
+        "url": "https://github.com/Ancienttwo/arch-context/actions/runs/36115539255/job/108008643813",
+        "conclusion": "success",
+        "logSha256": "83f3afddea20cfaf001aadb1293ff2bb2dc6240d0c28ff43753a40f53c7795bc",
+        "firstCreate": {
+          "event": "native-acl-first-create",
+          "completed": true,
+          "elapsedMs": 4428
+        }
+      }
+    ]
+  },
+  "policy": {
+    "createTimeoutMs": 30000,
+    "readTimeoutMs": 10000,
+    "existingWindowsDaemonStartupTimeoutMs": 150000,
+    "retriesAdded": false,
+    "aclPredicateChanged": false
+  },
+  "installedBinReadback": {
+    "artifactId": 10855092826,
+    "archiveDigest": "sha256:46a4a4661bf96dcdd69a3b5029c1d51af18b8ea0882e0d13b1e5511c206f322b",
+    "archiveDigestVerified": true,
+    "payloadSha256": "03eefabe929064879cd2e7e9202cac80ca98f3f104faf76d921c056cae021af5",
+    "remoteAndLocalBytesEqual": true,
+    "payload": {
+      "schemaVersion": "archcontext.platform-ipc-permission-readback/v2",
+      "platform": "win32",
+      "node": "v24.20.0",
+      "bun": "1.4.0",
+      "install": {
+        "binPath": "<workspace>\\node_modules\\.bin\\archctx.exe",
+        "binKind": "exe",
+        "helpOk": true,
+        "hasDaemonCommand": true,
+        "hasMcpCommand": true,
+        "hasDoctorCommand": true
+      },
+      "transport": {
+        "protocol": "http-loopback",
+        "bindHost": "127.0.0.1",
+        "loopbackOnly": true
+      },
+      "controlFiles": {
+        "connectionPath": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-SZvuRN\\repositories\\repo.0955e3c5a77abd99\\worktrees\\ws.0955e3c5a77abd99\\archctxd.json",
+        "lockPath": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-SZvuRN\\repositories\\repo.0955e3c5a77abd99\\worktrees\\ws.0955e3c5a77abd99\\archctxd.lock",
+        "runtimeStateRoot": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\archctx-platform-ipc-state-SZvuRN",
+        "storageRepositoryId": "repo.0955e3c5a77abd99",
+        "storageWorkspaceId": "ws.0955e3c5a77abd99",
+        "npmGlobalInstallState": "forbidden",
+        "connectionMode": "win32-acl",
+        "lockMode": "win32-acl",
+        "windowsAcl": {
+          "connection": {
+            "inheritanceDisabled": true,
+            "accessRuleCount": 1,
+            "ownerMatchesCurrentUser": true,
+            "explicitOwnerFullControlOnly": true
+          },
+          "lock": {
+            "inheritanceDisabled": true,
+            "accessRuleCount": 1,
+            "ownerMatchesCurrentUser": true,
+            "explicitOwnerFullControlOnly": true
+          },
+          "broadReadRejected": true
+        },
+        "tokenRedactedFromStatus": true
+      },
+      "lifecycle": {
+        "started": true,
+        "statusRunning": true,
+        "stopped": true
+      }
+    }
+  },
+  "localValidation": {
+    "testsPassed": 3,
+    "nativeTestsSkipped": 1,
+    "assertions": 22,
+    "typecheck": "pass",
+    "packageBoundaries": "pass",
+    "preFixDiagnosticRegressionExitCode": 1
+  },
+  "fullVerify": "intentionally cancelled for this bounded diagnostic; no whole-matrix pass claimed",
+  "historicalFg6Promoted": false
+}

@@ -310,3 +310,32 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     expect(plan.files).toHaveLength(0);
   });
 });
+
+test("root markers reject incomplete, duplicate and digest-valid overlapping regions", async () => {
+  const { digestJson } = await import("@archcontext/contracts");
+  const rootModel: NativeModel = { nodes: [{ id: "capability.test.root", kind: "capability", name: "Root", extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } } }], relations: [] };
+  const plan = renderAgentContextProjection({ model: rootModel, sourceDigest });
+  const file = plan.files.find(file => file.path === "AGENTS.md")!;
+  const end = '<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.test.root" -->';
+  const nestedBody = '# outer\n<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\nHuman region\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n';
+  const digest = digestJson({ id: "capability.test.root", body: nestedBody });
+  const overlap = `<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.test.root" outputDigest="${digest}" -->\n${nestedBody}${end}\n`;
+  for (const body of [file.body.replace(end, ""), `${file.body}${file.body}`, end, overlap]) {
+    expect(() => renderAgentContextProjection({ model: rootModel, sourceDigest, existingFiles: [{ path: "AGENTS.md", body }] })).toThrow("agent-context-marker");
+  }
+});
+
+test("agent-context existing-file loader refuses symlink targets before reading them", async () => {
+  const { mkdtempSync, symlinkSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { loadAgentContextProjectionFiles } = await import("../src/index");
+  const root = mkdtempSync(join(tmpdir(), "archctx-agent-context-read-"));
+  const external = mkdtempSync(join(tmpdir(), "archctx-agent-context-external-"));
+  const rootModel: NativeModel = { nodes: [{ id: "capability.test.root", kind: "capability", name: "Root", extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } } }], relations: [] };
+  try {
+    writeFileSync(join(external, "secret.md"), "outside repository\n");
+    symlinkSync(join(external, "secret.md"), join(root, "AGENTS.md"));
+    expect(() => loadAgentContextProjectionFiles(root, rootModel)).toThrow("symlink");
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(external, { recursive: true, force: true }); }
+});
