@@ -66,35 +66,8 @@ import {
   type RefactorResolutionEvidenceV1,
   type StructuralObservationPayloadV1
 } from "@archcontext/contracts";
-
-export interface RuntimeRecommendationInput {
-  command: "metrics" | RecommendationFeedbackAction;
-  recommendationId?: string;
-  reason?: string;
-  /**
-   * `resolve` on a non-practice category requires resolution evidence: the gate looks the digest
-   * up in the replayed evidence state and rejects it when unrecorded, verified at a different
-   * HEAD, verified over a different worktree digest, or carrying a disposition other than
-   * resolved. `refactor verify` writes those records.
-   */
-  evidenceDigest?: string;
-  actor?: string;
-  actorKind?: ArchitectureActorKind;
-  source?: RecommendationFeedbackSource;
-  expectedWorktreeDigest?: string;
-  agentJobId?: string;
-  now?: string;
-}
-
-export interface RuntimeRefactorScanInput {
-  /** Absent means the default repository-scope request; the daemon never invents a proposal. */
-  request?: RefactorRequestV1;
-}
-
-export interface RuntimeRefactorRecordInput {
-  assessmentDigest: string;
-  expectedWorktreeDigest: string;
-}
+import type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./rpc-types";
+export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./rpc-types";
 
 interface RecommendationsContext {
   assertRunning(): void;

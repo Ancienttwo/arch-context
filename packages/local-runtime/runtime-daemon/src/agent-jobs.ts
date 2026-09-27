@@ -5,65 +5,12 @@ import {
   architectureLedgerStateDigest,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import { buildInvestigationContextBundleFromLedgerQuery, createInvestigationAgentJob, investigationReportProposalValidationDigest, planRuntimeAgentQueueControls, type AgentInvestigationRunMetadata, type InvestigationReportProposalPlan } from "@archcontext/core/agent-orchestrator";
+import { buildInvestigationContextBundleFromLedgerQuery, createInvestigationAgentJob, investigationReportProposalValidationDigest, planRuntimeAgentQueueControls, type InvestigationReportProposalPlan } from "@archcontext/core/agent-orchestrator";
 import { digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, readCommitChangeMetadata, readStagedChangeMetadata, readWorktreeChangeMetadata, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-
-export interface RuntimeAgentJobEnqueueGitInput {
-  source?: GitChangeSource;
-  ref?: string;
-  baseRef?: string;
-  event?: string;
-  taskSessionId?: string;
-  analysisKind?: string;
-  risk?: InvestigationContextRisk;
-  uncertainty?: InvestigationContextUncertainty;
-  policyRequestedInvestigation?: boolean;
-  coalesceKey?: string;
-  contextMaxItems?: number;
-  cooldownMs?: number;
-  debounceUntil?: string;
-  maxAttempts?: number;
-  priority?: number;
-  maxQueuedJobs?: number;
-  runnerPort?: AgentJobV1["runnerPort"];
-  codeFactsDigest?: string;
-  generatedProjection?: boolean;
-  skipGeneratedProjection?: boolean;
-}
-
-export interface RuntimeAgentJobClaimRpcInput {
-  workerId: string;
-  leaseMs?: number;
-  now?: string;
-  maxRunningJobs?: number;
-}
-
-export interface RuntimeAgentJobCompleteRpcInput {
-  jobId: string;
-  status: Extract<AgentJobV1["status"], "succeeded" | "failed">;
-  workerId?: string;
-  outputDigest?: string;
-  runMetadata?: AgentInvestigationRunMetadata;
-  proposalPlan?: InvestigationReportProposalPlan;
-  error?: string;
-  now?: string;
-}
-
-export interface RuntimeAgentJobRetryRpcInput {
-  jobId: string;
-  reason?: string;
-  now?: string;
-}
-
-export interface RuntimeAgentJobCancelRpcInput {
-  jobId: string;
-  status?: Extract<AgentJobV1["status"], "cancelled" | "superseded" | "expired">;
-  reason?: string;
-  supersededByJobId?: string;
-  now?: string;
-}
+import type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./rpc-types";
+export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./rpc-types";
 
 const RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS = 32;
 const RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY = 0;

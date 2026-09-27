@@ -17,8 +17,7 @@ import {
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
   type RefactorExecutionEvidenceRefV1,
-  type RefactorResolutionEvidenceV1,
-  type RefactorVerificationRequestV1
+  type RefactorResolutionEvidenceV1
 } from "@archcontext/contracts";
 import { ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION } from "@archcontext/core/architecture-ledger";
 import type { ModuleStatisticsTrackedFileV1 } from "@archcontext/core/module-statistics";
@@ -30,13 +29,7 @@ export const REFACTOR_RESOLUTION_EVENT_TYPE = "architecture.refactor.resolution"
 export const REFACTOR_RESOLUTION_EVIDENCE_KIND = "refactor-resolution-evidence" as const;
 export const MODULE_STATISTICS_SNAPSHOT_EVIDENCE_KIND = "module-statistics-snapshot" as const;
 
-/**
- * The daemon's `refactor verify` ingress is the frozen contract type itself. RF5b gave the CLI a
- * `--request-json` flag, so the shape a caller sends over JSON and the shape the daemon accepts
- * over RPC are one declaration; a daemon-local twin would let the two drift while both claim to
- * describe the same request.
- */
-export type RuntimeRefactorVerifyInput = RefactorVerificationRequestV1;
+export type { RuntimeRefactorVerifyInput } from "./rpc-types";
 
 export interface RefactorVerifyInputV1 {
   recommendation: RecommendationV3;

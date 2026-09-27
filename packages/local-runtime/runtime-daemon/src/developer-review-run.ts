@@ -2,7 +2,7 @@ import {
   computeReviewWorktreeDigest
 } from "@archcontext/core/architecture-domain";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
-import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, productVersionManifest, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
 import { readTrackedTreeEntries, verifyDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { randomBytes } from "node:crypto";
@@ -13,64 +13,8 @@ import type { ReviewChallengeV2 } from "@archcontext/contracts";
 import { findRepositoryRoot, prepareDetachedReviewWorktree, removeDetachedReviewWorktree, removePathWithRetry, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultDeveloperReviewRunStateDir, isProcessAlive } from "./daemon-control";
 import { decodeDeveloperReviewRunManifest } from "./developer-review-codec";
-
-export type DeveloperReviewRunStatus = "preparing" | "running";
-
-export interface DeveloperReviewRunManifest {
-  schemaVersion: "archcontext.developer-review-run/v1";
-  runId: string;
-  challengeId: string;
-  repositoryId: number;
-  sourceRoot: string;
-  runRoot: string;
-  worktreeTempRoot: string;
-  manifestPath: string;
-  lockPath: string;
-  pid: number;
-  createdAt: string;
-  status: DeveloperReviewRunStatus;
-  codeGraphTemporaryState: {
-    root: string;
-    cleanup: "remove-run-root";
-  };
-  worktree?: DetachedReviewWorktree;
-}
-
-export interface DeveloperReviewRun extends DeveloperReviewRunManifest {
-  status: "running";
-  worktree: DetachedReviewWorktree;
-}
-
-export interface DeveloperReviewRunPreparation extends DetachedReviewWorktreePreparation {
-  run?: DeveloperReviewRun;
-  cleanup?: DeveloperReviewRunCleanup;
-}
-
-export interface DeveloperReviewRunCleanup {
-  schemaVersion: "archcontext.developer-review-run-cleanup/v1";
-  runId: string;
-  challengeId: string;
-  cleaned: boolean;
-  removed: Array<"worktree" | "run-root" | "manifest" | "lock">;
-  errors: string[];
-}
-
-export interface DeveloperReviewRunCleanupRequest {
-  repositoryRoot: string;
-  challengeId: string;
-  runId: string;
-}
-
-export interface DeveloperReviewRunRecovery {
-  schemaVersion: "archcontext.developer-review-run-recovery/v1";
-  sourceRoot: string;
-  stateDir: string;
-  recovered: DeveloperReviewRunCleanup[];
-  removedLocks: string[];
-  skippedActive: string[];
-  /** State-dir entries left untouched because they failed the daemon-ownership check. */
-  rejected: string[];
-}
+import type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery, DeveloperReviewDigestBundle, DeveloperReviewSession, DeveloperReviewAttestation } from "./developer-review-codec";
+export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery, DeveloperReviewDigestBundle, DeveloperReviewSession, DeveloperReviewAttestation } from "./developer-review-codec";
 
 export class DeveloperReviewRunService {
   constructor(private readonly assertRunning: () => void, private readonly clock: () => string) {}
@@ -547,44 +491,6 @@ function cleanupErrorMessage(kind: string, error: unknown): string {
   return `${kind}: ${error instanceof Error ? error.message : String(error)}`;
 }
 
-
-export interface DeveloperReviewDigestBundle {
-  schemaVersion: "archcontext.developer-review-digest-bundle/v1";
-  challengeId: string;
-  repositoryId: number;
-  headSha: string;
-  headTreeOid: string;
-  worktreeDigest: string;
-  modelDigest: string;
-  policyDigest: string;
-  codeFactsDigest: string;
-  runtime: AttestationV2["runtime"];
-}
-
-export interface DeveloperReviewSession {
-  schemaVersion: "archcontext.developer-review-session/v1";
-  challengeId: string;
-  taskSessionId: string;
-  reviewId: string;
-  reviewDigest: string;
-  reviewResult: "pass" | "pass_with_warnings" | "fail_action_required";
-  attestationResult: AttestationResult;
-  summary: {
-    errors: number;
-    warnings: number;
-    notices: number;
-  };
-  digests: DeveloperReviewDigestBundle;
-}
-
-export interface DeveloperReviewAttestation {
-  schemaVersion: "archcontext.developer-review-attestation/v1";
-  challengeId: string;
-  reviewSession: DeveloperReviewSession;
-  attestation: AttestationV2;
-  attestationDigest: string;
-  signingPayloadDigest: string;
-}
 
 interface DeveloperReviewSessionContext {
   assertRunning(): void;

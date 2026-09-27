@@ -16,22 +16,8 @@ import {
 import { errorEnvelope, okEnvelope, type ArchitectureEventV1, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import { type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-
-export interface RuntimeBookInput {
-  command?: "status" | "query" | "show" | "neighbors" | "timeline" | "diff" | "evidence" | "recommendations" | "export";
-  id?: string;
-  query?: string;
-  task?: string;
-  explain?: boolean;
-  depth?: number;
-  fromRef?: string;
-  toRef?: string;
-  sinceRef?: string;
-  openOnly?: boolean;
-  format?: "yaml" | "markdown" | "json";
-  maxItems?: number;
-  maxBytes?: number;
-}
+import type { RuntimeBookInput } from "./rpc-types";
+export type { RuntimeBookInput } from "./rpc-types";
 
 /**
  * Local structural subset of the daemon's architecture-ledger readback (`ArchctxDaemon`'s private

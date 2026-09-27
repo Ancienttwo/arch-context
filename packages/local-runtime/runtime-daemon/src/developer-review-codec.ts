@@ -1,7 +1,102 @@
-import { type DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
-import { type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunManifest } from "./developer-review-run";
-import { type ReviewChallengeV2 } from "@archcontext/contracts";
+import { type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { type AttestationResult, type AttestationV2, type ReviewChallengeV2 } from "@archcontext/contracts";
 import { rpcInputInvalid } from "./rpc-argument-codec";
+
+export type DeveloperReviewRunStatus = "preparing" | "running";
+
+export interface DeveloperReviewRunManifest {
+  schemaVersion: "archcontext.developer-review-run/v1";
+  runId: string;
+  challengeId: string;
+  repositoryId: number;
+  sourceRoot: string;
+  runRoot: string;
+  worktreeTempRoot: string;
+  manifestPath: string;
+  lockPath: string;
+  pid: number;
+  createdAt: string;
+  status: DeveloperReviewRunStatus;
+  codeGraphTemporaryState: {
+    root: string;
+    cleanup: "remove-run-root";
+  };
+  worktree?: DetachedReviewWorktree;
+}
+
+export interface DeveloperReviewRun extends DeveloperReviewRunManifest {
+  status: "running";
+  worktree: DetachedReviewWorktree;
+}
+
+export interface DeveloperReviewRunPreparation extends DetachedReviewWorktreePreparation {
+  run?: DeveloperReviewRun;
+  cleanup?: DeveloperReviewRunCleanup;
+}
+
+export interface DeveloperReviewRunCleanup {
+  schemaVersion: "archcontext.developer-review-run-cleanup/v1";
+  runId: string;
+  challengeId: string;
+  cleaned: boolean;
+  removed: Array<"worktree" | "run-root" | "manifest" | "lock">;
+  errors: string[];
+}
+
+export interface DeveloperReviewRunCleanupRequest {
+  repositoryRoot: string;
+  challengeId: string;
+  runId: string;
+}
+
+export interface DeveloperReviewRunRecovery {
+  schemaVersion: "archcontext.developer-review-run-recovery/v1";
+  sourceRoot: string;
+  stateDir: string;
+  recovered: DeveloperReviewRunCleanup[];
+  removedLocks: string[];
+  skippedActive: string[];
+  /** State-dir entries left untouched because they failed the daemon-ownership check. */
+  rejected: string[];
+}
+
+export interface DeveloperReviewDigestBundle {
+  schemaVersion: "archcontext.developer-review-digest-bundle/v1";
+  challengeId: string;
+  repositoryId: number;
+  headSha: string;
+  headTreeOid: string;
+  worktreeDigest: string;
+  modelDigest: string;
+  policyDigest: string;
+  codeFactsDigest: string;
+  runtime: AttestationV2["runtime"];
+}
+
+export interface DeveloperReviewSession {
+  schemaVersion: "archcontext.developer-review-session/v1";
+  challengeId: string;
+  taskSessionId: string;
+  reviewId: string;
+  reviewDigest: string;
+  reviewResult: "pass" | "pass_with_warnings" | "fail_action_required";
+  attestationResult: AttestationResult;
+  summary: {
+    errors: number;
+    warnings: number;
+    notices: number;
+  };
+  digests: DeveloperReviewDigestBundle;
+}
+
+export interface DeveloperReviewAttestation {
+  schemaVersion: "archcontext.developer-review-attestation/v1";
+  challengeId: string;
+  reviewSession: DeveloperReviewSession;
+  attestation: AttestationV2;
+  attestationDigest: string;
+  signingPayloadDigest: string;
+}
 
 function decodeRpcRecord(value: unknown, context: string, label: string, allowedKeys: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw rpcInputInvalid(context, `${label} must be an object`);
