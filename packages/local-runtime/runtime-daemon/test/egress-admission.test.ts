@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LOCAL_EGRESS_CHANNELS, localEgressAdmission, localEgressMode, withLocalEgress } from "../src/egress-admission";
+import { LOCAL_EGRESS_CHANNELS, localEgressAdmission, localEgressMode, withLocalEgress } from "../../egress-admission/src/index";
 import { localEgressStatus } from "../src/egress";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
 import { createNodeGithubIssueExecutor } from "../src/github-issue-executor";

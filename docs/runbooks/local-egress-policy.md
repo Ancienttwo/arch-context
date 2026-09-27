@@ -16,7 +16,7 @@ Manual `docs --allow-network` and enabled audit configuration cannot override de
 Optional prepare documentation keeps its existing cache/advisory behavior without
 calling the provider when denied.
 
-The authority is `packages/local-runtime/runtime-daemon/src/egress-admission.ts`.
+The authority is `packages/local-runtime/egress-admission/src/index.ts`.
 Real HTTP/process boundaries and service admission use the same decision; CLI/RPC
 errors use `AC_POLICY_VIOLATION`. Runtime reports label this as
 `enforcement: application-admission`. This is not an OS sandbox for arbitrary
