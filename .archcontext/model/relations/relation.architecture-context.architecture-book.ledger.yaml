@@ -1,0 +1,6 @@
+id: "relation.architecture-context.architecture-book.ledger"
+intent: "Query, diff and export Book subjects from replayed ledger state and events with shared ledger contracts"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.architecture-book"
+target: "component.architecture-context.core.architecture-ledger"

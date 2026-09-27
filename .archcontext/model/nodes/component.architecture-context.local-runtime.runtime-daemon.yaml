@@ -28,6 +28,7 @@ source:
     - "packages/local-runtime/runtime-daemon/src/audit-consent.ts"
     - "packages/local-runtime/runtime-daemon/src/github-issue-executor.ts"
     - "packages/local-runtime/runtime-daemon/src/investigation-transport.ts"
+    - "packages/local-runtime/runtime-daemon/src/architecture-book.ts"
   include:
     - "packages/local-runtime/runtime-daemon/src/**"
 status: "active"
