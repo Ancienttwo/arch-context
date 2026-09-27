@@ -11,4 +11,5 @@ source:
   include:
     - "packages/contracts/src/**"
     - "packages/contracts/package.json"
+    - "packages/contracts/fixtures/**"
     - "schemas/**"
