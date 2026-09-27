@@ -1,0 +1,6 @@
+id: "relation.architecture-context.recommendations.scope-callback"
+intent: "Resolve ledger scope, writer, clock, short digest and the non-journal append callback without moving writer or ledger scope ownership"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.recommendations"
+target: "component.architecture-context.local-runtime.runtime-daemon"

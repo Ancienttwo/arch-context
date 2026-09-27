@@ -1,0 +1,13 @@
+id: "component.architecture-context.local-runtime.recommendations"
+kind: "component"
+name: "Recommendations and Refactor Service"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/runtime-daemon/src/recommendations.ts"
+    - "packages/local-runtime/runtime-daemon/src/refactor-scan.ts"
+    - "packages/local-runtime/runtime-daemon/src/refactor-verify.ts"
+    - "packages/local-runtime/runtime-daemon/src/refactor-recording.ts"
+status: "active"
+summary: "Owns recommendation lifecycle feedback and metrics, and refactor scan, record and verify orchestration with the refactor assessment registry, under the daemon's shared ledger scope and writer."

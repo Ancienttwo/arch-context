@@ -64,7 +64,7 @@ class MutatingReplayLocalStore extends TestLocalStore {
 
 /** Reads the in-process registry a scan writes; nothing else can prove a scan registered nothing. */
 function registeredAssessmentCount(daemon: unknown): number {
-  return (daemon as { refactorAssessments: { size: number } }).refactorAssessments.size;
+  return (daemon as { recommendationsService: { refactorAssessments: { size: number } } }).recommendationsService.refactorAssessments.size;
 }
 
 /** Commits everything currently in the tree at a fixed committer date. */

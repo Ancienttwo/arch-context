@@ -29,7 +29,11 @@ source:
     - "packages/local-runtime/runtime-daemon/src/github-issue-executor.ts"
     - "packages/local-runtime/runtime-daemon/src/investigation-transport.ts"
     - "packages/local-runtime/runtime-daemon/src/architecture-book.ts"
+    - "packages/local-runtime/runtime-daemon/src/recommendations.ts"
+    - "packages/local-runtime/runtime-daemon/src/refactor-scan.ts"
+    - "packages/local-runtime/runtime-daemon/src/refactor-verify.ts"
+    - "packages/local-runtime/runtime-daemon/src/refactor-recording.ts"
   include:
     - "packages/local-runtime/runtime-daemon/src/**"
 status: "active"
-summary: "Composes the local daemon and public RPC facade, owning task gates, ChangeSet plan and apply, refactor scan and verify, and Explorer projections."
+summary: "Composes the local daemon and public RPC facade, owning task gates, ChangeSet plan and apply, and Explorer projections."

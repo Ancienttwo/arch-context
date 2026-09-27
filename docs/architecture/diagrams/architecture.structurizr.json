@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:3a6635faca59a7f833b136c3c4f8eb04956d501f4d448224b4bd072ecf0b0d96" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:44ba7205665588ae5b40a00bacc9a81c89c5e231f1dad2417afce5170c47523a" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:ee6e339157f82b830fc9215416fd7ed56b9fe4046151586464fa59641321ccd8" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:bf15dd2e25522433b838c935e43e67f11e5bfc4042bde44c2b65de43bfe9dd4c" -->
 {
   "schemaVersion": "archcontext.structurizr-export/v1",
   "name": "ArchContext Architecture",
@@ -277,6 +277,14 @@
         ]
       },
       {
+        "id": "component.architecture-context.local-runtime.recommendations",
+        "name": "Recommendations and Refactor Service",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
         "id": "component.architecture-context.local-runtime.rpc-client",
         "name": "Runtime RPC Client and Contract",
         "type": "Component",
@@ -523,6 +531,30 @@
         "description": "calls"
       },
       {
+        "id": "relation.architecture-context.recommendations.recommendation-engine",
+        "sourceId": "component.architecture-context.local-runtime.recommendations",
+        "destinationId": "component.architecture-context.core.recommendation-engine",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.recommendations.refactor-assessment",
+        "sourceId": "component.architecture-context.local-runtime.recommendations",
+        "destinationId": "component.architecture-context.core.refactor-assessment",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.recommendations.scope-callback",
+        "sourceId": "component.architecture-context.local-runtime.recommendations",
+        "destinationId": "component.architecture-context.local-runtime.runtime-daemon",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.rpc-client.recommendations",
+        "sourceId": "component.architecture-context.local-runtime.rpc-client",
+        "destinationId": "component.architecture-context.local-runtime.recommendations",
+        "description": "calls"
+      },
+      {
         "id": "relation.architecture-context.rpc-client.rpc-control",
         "sourceId": "component.architecture-context.local-runtime.rpc-client",
         "destinationId": "component.architecture-context.local-runtime.rpc-server",
@@ -607,6 +639,12 @@
         "description": "calls"
       },
       {
+        "id": "relation.architecture-context.runtime-daemon.recommendations",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.recommendations",
+        "description": "calls"
+      },
+      {
         "id": "relation.architecture-context.runtime-daemon.rpc-client",
         "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
         "destinationId": "component.architecture-context.local-runtime.rpc-client",
@@ -664,6 +702,7 @@
         "component.architecture-context.local-runtime.projection-apply",
         "component.architecture-context.local-runtime.projection-paths",
         "component.architecture-context.local-runtime.projection-service",
+        "component.architecture-context.local-runtime.recommendations",
         "component.architecture-context.local-runtime.rpc-client",
         "component.architecture-context.local-runtime.rpc-server",
         "component.architecture-context.local-runtime.runtime-daemon",

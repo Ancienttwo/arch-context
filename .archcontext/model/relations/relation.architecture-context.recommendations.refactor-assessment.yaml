@@ -1,0 +1,6 @@
+id: "relation.architecture-context.recommendations.refactor-assessment"
+intent: "Classify refactor scans and evaluate verify resolutions against the frozen refactor assessment engine"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.recommendations"
+target: "component.architecture-context.core.refactor-assessment"
