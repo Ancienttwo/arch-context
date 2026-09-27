@@ -22,7 +22,7 @@ Deliver PR-1 of the approved plan: (T1) egress-admission becomes a leaf director
 ## Scope
 
 - In scope: T1–T4 and verification in the plan's Task Breakdown; recording PR-2 (type relocation into rpc-client's rpc-methods.ts/developer-review-codec.ts) and scan precision (type-only vs value edges, re-export and `typeof import()` coverage) as deferred goals in tasks/todos.md.
-- Out of scope: PR-2 type relocation; any change to the scan/edge-derivation code; RPC method table, codecs, RUNTIME_RPC_VERSION or wire baseline; package.json subpath names; SQLite/runtime state; 0.5.12 publication.
+- Out of scope: PR-2 type relocation; any change to the scan/edge-derivation code; RPC method table, codecs, RUNTIME_RPC_VERSION or wire baseline; package.json subpath names; SQLite/runtime state; npm publication (this change ships in the unpublished 0.5.12, rebuilt from merged main after this PR); accepted-event receipt binding for docs projection (tooling supports renames only; deferred in tasks/todos.md).
 - Taste constraints: move code unchanged where possible; no new abstraction; model YAML only through `scripts/apply-model-proposal.ts` ChangeSet executed by the parent, never by a subagent.
 
 ## Stop Conditions
@@ -33,7 +33,7 @@ Deliver PR-1 of the approved plan: (T1) egress-admission becomes a leaf director
 
 ## Falsifier
 
-If the post-commit `archctx refactor scan --json` (same CodeGraph version, fresh index, complete coverage) does not shrink the SCC, or any removed edge cannot be mapped to a planned file move / re-ownership / removed import, or unowned / multiply-owned path counts increase, the direction is wrong. Cheapest proof point: after T1+T2 alone, the parent module `module.architecture-context.local-runtime` must leave the SCC.
+If the post-commit `archctx refactor scan --json` (same CodeGraph version, fresh index, complete coverage) does not shrink the SCC, or any removed edge cannot be mapped to a planned file move / re-ownership / removed import, or unowned source paths (excluding `.archcontext/` model YAML, which is never owned) or multiply-owned paths increase, the direction is wrong. Cheapest proof point: after T1+T2 alone, the parent module `module.architecture-context.local-runtime` must leave the SCC.
 
 ## Root Cause Evidence
 

@@ -15,6 +15,9 @@
 
 ## Deviations From Plan Or Spec
 
+- Re-gate follow-ups (gatekeeper FAIL on process, code PASS; peer Codex PASS-WITH-NOTES): rebased onto origin/main ab04e0b (#228; only `tasks/todos.md` Updated line conflicted); follow-up ChangeSet `changeset.local-runtime-scc-pr1-summary` (proposal `sha256:2f213e619fbe88ba76dba7503884c68458b7ddf64bb8187467c96c98564d9fe7`) lists every egress-admission consumer; golden test now pins exact serialized bytes for the single-record case (2791 B) and a new out-of-order duplicate-id case (5128 B), both byte-identical to the 331c526 pre-move implementation; generated docs reconciled via `docs apply --approved` (changesets `changeset.docs-local-runtime-scc-pr1` + `-fixpoint`, profile repo-harness/v1), `archctx docs drift --profile repo-harness/v1` ok after commit. Accepted-event binding deferred (tasks/todos.md) because `ledger accept-committed` supports renames only; the major-change affected list includes `capability.architecture.context` only because ancestor facet digests embed descendant node ids (projection-engine major-change.ts:74,259).
+- Release target changed by the user to the unpublished 0.5.12; 0.5.12 artifacts must be rebuilt from the final merged main.
+
 - Export fidelity probe: TypeScript 7.0.2 exposes no classic checker API, so the type-name probe used a syntactic top-level export extractor on the 331c526 baseline and the candidate, plus `git diff` proof that the 10 untouched re-exported sub-modules of the root barrel are byte-identical. Runtime `Object.keys` counts 34/133/5/7 and name sets are identical.
 - `egress-admission.test.ts` imports the leaf by relative path, matching that test file's existing sibling-package convention.
 - `tsconfig.json` added to allowed paths (precedent 081b2be) for the new subpath mapping.
