@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.changelog" sourceDigest="sha256:c48dda1d85f898118a94a29d853038d8d5b99422ff930aa479c01c1d7db34d70" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.changelog" sourceDigest="sha256:0bf0b1d7abda06414f237436f77793629970300dfb94b34e7d05604208a1dfa7" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6" -->
 # Architecture Changelog
 
 - No accepted architecture ledger events selected for this projection.
