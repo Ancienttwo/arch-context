@@ -233,6 +233,125 @@ describe("recommendation v2 to v3 migration", () => {
     expect(LOCAL_SQLITE_MIGRATIONS.length).toBe(20);
   });
 
+  /**
+   * Fixed-input regression guard for the planner's move from refactor-recording.ts into
+   * ledger-admin.ts: every field of the produced plan (upgraded recommendation, migration event
+   * -- eventId, inputDigest, idempotencyKey, provenance, ordering -- and the plan's own
+   * inputDigest) must stay byte-identical, captured from the pre-move implementation. This test
+   * must pass unchanged both before and after the move.
+   */
+  test("produces the exact pre-move migration event for a fixed input (regression guard for the ledger-admin move)", () => {
+    const fixedScope = {
+      repository: {
+        repositoryId: "repo.recommendation-v3-migration-fixed",
+        storageRepositoryId: "repo.storage.recommendation-v3-migration-fixed"
+      },
+      worktree: {
+        workspaceId: "workspace.recommendation-v3-migration-fixed",
+        storageWorkspaceId: "workspace.storage.recommendation-v3-migration-fixed",
+        branch: "main",
+        headSha: "1111111111111111111111111111111111111111",
+        worktreeDigest: digestJson({ worktree: "recommendation-v3-migration-fixed" } as unknown as Json)
+      }
+    };
+    const fixedV2: RecommendationV2 = {
+      schemaVersion: RECOMMENDATION_SCHEMA_VERSION,
+      recommendationId: "recommendation.v3fixedinput00001",
+      runId: "recommendation_run.v3fixedinput001",
+      fingerprint: digestJson({ fingerprint: "v3-fixed-input" } as unknown as Json),
+      subject: "module.fixed-input-subject",
+      practiceId: "practice.record-significant-change",
+      status: "open",
+      confidence: "high",
+      enforcement: "checkpoint",
+      risk: "medium",
+      uncertainty: "low",
+      evidenceBindingIds: [],
+      explanation: ["Fixed-input fixture for the pre-move migration event regression test."],
+      createdAt: "2026-01-01T00:00:01.000Z",
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      extensions: { baselineDigest: digestJson({ baseline: "v3-fixed-input" } as unknown as Json) }
+    };
+    const graphDigest = digestJson({ graph: "recommendation-v3-migration-fixed-input" } as unknown as Json);
+    const now = "2026-01-01T00:00:03.000Z";
+
+    const plan = planRecommendationV3Migration({
+      repository: fixedScope.repository,
+      worktree: fixedScope.worktree,
+      recommendations: [fixedV2],
+      graphDigest,
+      now
+    });
+
+    const upgradedV3 = {
+      schemaVersion: RECOMMENDATION_V3_SCHEMA_VERSION,
+      recommendationId: "recommendation.v3fixedinput00001",
+      runId: "recommendation_run.v3fixedinput001",
+      fingerprint: "sha256:6c11ecaf7a031d776a79531e3c91df0709306aaabdf27e132e405789e6ced03a",
+      subject: "module.fixed-input-subject",
+      practiceId: "practice.record-significant-change",
+      status: "open",
+      confidence: "high",
+      enforcement: "checkpoint",
+      risk: "medium",
+      uncertainty: "low",
+      evidenceBindingIds: [],
+      explanation: ["Fixed-input fixture for the pre-move migration event regression test."],
+      createdAt: "2026-01-01T00:00:01.000Z",
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      category: "practice",
+      payload: {
+        practiceId: "practice.record-significant-change",
+        baselineDigest: "sha256:a425e83545b7a25d1d0f4ccf7bd2b80ebadbde1f7c9f9e11566bbd1f9c4dab78"
+      },
+      authoredBy: { kind: "daemon", id: "archctxd", source: "daemon" },
+      subjectSelectorId: "subject.node.aca2ed9d1cdd842b",
+      relations: {},
+      extensions: {
+        baselineDigest: "sha256:a425e83545b7a25d1d0f4ccf7bd2b80ebadbde1f7c9f9e11566bbd1f9c4dab78",
+        recommendationV3Migration: {
+          previousSchemaVersion: RECOMMENDATION_SCHEMA_VERSION,
+          previousUpdatedAt: "2026-01-01T00:00:02.000Z",
+          migratedAt: "2026-01-01T00:00:03.000Z"
+        }
+      }
+    };
+
+    expect(plan).toEqual({
+      upgraded: [upgradedV3],
+      inputDigest: "sha256:846fc9bffd8a84170bea803e086043a98204e60d5b46a44f08e132f361e79118",
+      event: {
+        schemaVersion: "archcontext.architecture-event/v1",
+        eventId: "architecture_event.recommendation_v3_migration.846fc9bffd8a8417",
+        eventType: "architecture.recommendation.v3-migration",
+        payloadVersion: RECOMMENDATION_V3_SCHEMA_VERSION,
+        repository: fixedScope.repository,
+        worktree: fixedScope.worktree,
+        baseDigest: graphDigest,
+        resultingDigest: graphDigest,
+        headSha: fixedScope.worktree.headSha,
+        actor: { kind: "migration", id: "archctx-recommendation-v3-migration" },
+        source: "migration",
+        timestamp: now,
+        idempotencyKey: "architecture-ledger-recommendation-v3-migration:sha256:846fc9bffd8a84170bea803e086043a98204e60d5b46a44f08e132f361e79118",
+        provenance: {
+          producer: "runtime-daemon",
+          command: "archctx ledger migrate --recommendation-v3",
+          inputDigest: "sha256:846fc9bffd8a84170bea803e086043a98204e60d5b46a44f08e132f361e79118"
+        },
+        payload: {
+          recommendationRuns: [],
+          recommendations: [upgradedV3],
+          feedback: [],
+          waivers: [],
+          operations: [],
+          title: "Recommendation v2 to v3 migration",
+          summary: "Upgraded 1 recommendation(s) to archcontext.recommendation/v3."
+        }
+      }
+    } as unknown as typeof plan);
+  });
+
   test("upcasts the row to v3 while preserving identity, run and creation time", async () => {
     const v2 = v2Recommendation();
     const { store, dbPath } = await seedV2([v2]);
