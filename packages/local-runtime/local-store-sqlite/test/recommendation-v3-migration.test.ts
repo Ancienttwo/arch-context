@@ -13,7 +13,7 @@ import {
   type RecommendationV2,
   type RecommendationV3
 } from "@archcontext/contracts";
-import { planRecommendationV3Migration } from "../../runtime-daemon/src/refactor-recording";
+import { planRecommendationV3Migration } from "../../runtime-daemon/src/ledger-admin";
 import { LOCAL_SQLITE_MIGRATIONS, SqliteLocalStore } from "../src/index";
 
 const SCOPE = {

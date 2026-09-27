@@ -1,7 +1,5 @@
 import {
   ARCHITECTURE_MAJOR_CHANGE_REASON_CODES,
-  RECOMMENDATION_SCHEMA_VERSION,
-  RECOMMENDATION_V3_SCHEMA_VERSION,
   REFACTOR_OBSERVATION_KINDS,
   REFACTOR_PROPOSAL_AUTHOR_KINDS,
   REFACTOR_PROPOSAL_AUTHOR_PAIRS,
@@ -9,7 +7,6 @@ import {
   REFACTOR_SCALES,
   REFACTOR_SCALE_REASON_CODES,
   digestJson,
-  recommendationV3InvariantIssues,
   type ArchitectureEventV1,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
@@ -20,14 +17,12 @@ import {
   type Json,
   type ModuleStatisticsSnapshotV1,
   type RecommendationAuthorV1,
-  type RecommendationV2,
   type RecommendationV3,
   type RefactorAssessmentV1,
   type RefactorProposalAuthorKind,
   type RefactorProposalAuthorSource,
   type RefactorProposalV1
 } from "@archcontext/contracts";
-import { architectureSubjectSelectorId } from "@archcontext/core/architecture-delta";
 import {
   ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
   evidenceLifecycleValueDigest,
@@ -48,7 +43,6 @@ import { deriveObservationOutcomes } from "@archcontext/core/refactor-assessment
  */
 export const REFACTOR_ASSESSMENT_REGISTRY_CAPACITY = 8;
 export const REFACTOR_CLASSIFIER_RULESET_SCHEMA_VERSION = "archcontext.refactor-classifier-ruleset/v1" as const;
-export const RECOMMENDATION_V3_MIGRATION_EVENT_TYPE = "architecture.recommendation.v3-migration" as const;
 export const REFACTOR_SCAN_EVENT_TYPE = "architecture.refactor.scan" as const;
 
 export interface RegisteredRefactorAssessmentV1 {
@@ -201,126 +195,6 @@ export function buildRefactorRecordEvent(input: RefactorRecordEventInput): Refac
     } as unknown as Json
   };
   return { plan, event, evidenceOperations };
-}
-
-export interface RecommendationV3MigrationPlan {
-  upgraded: RecommendationV3[];
-  /** Absent when nothing needs upgrading; a second run therefore appends nothing. */
-  event?: ArchitectureEventV1;
-  inputDigest: string;
-}
-
-/**
- * Upcasts every v2 recommendation still latest for its id into v3 and appends the result as one
- * migration event. It never rewrites a row: the event stream is the authority, so an in-place
- * `UPDATE` would leave the log at v2. `operations` stays empty, so replay parity holds.
- */
-export function planRecommendationV3Migration(input: {
-  repository: ArchitectureRepositoryIdentityV1;
-  worktree: ArchitectureWorktreeIdentityV1;
-  recommendations: readonly RecommendationLedgerRecordV1[];
-  graphDigest: string;
-  now: string;
-}): RecommendationV3MigrationPlan {
-  const latest = latestRecommendationsById(input.recommendations);
-  const upgraded = latest
-    .filter((recommendation): recommendation is RecommendationV2 => recommendation.schemaVersion === RECOMMENDATION_SCHEMA_VERSION)
-    .sort((left, right) => left.recommendationId.localeCompare(right.recommendationId))
-    .map((recommendation) => upcastRecommendationToV3(recommendation, input.repository.repositoryId, input.now));
-  const inputDigest = digestJson({
-    schemaVersion: "archcontext.recommendation-v3-migration-input/v1",
-    graphDigest: input.graphDigest,
-    recommendationIds: upgraded.map((recommendation) => recommendation.recommendationId),
-    fingerprints: upgraded.map((recommendation) => recommendation.fingerprint)
-  } as unknown as Json);
-  if (upgraded.length === 0) return { upgraded, inputDigest };
-  const event: ArchitectureEventV1 = {
-    schemaVersion: "archcontext.architecture-event/v1",
-    eventId: `architecture_event.recommendation_v3_migration.${digestSuffix(inputDigest)}`,
-    eventType: RECOMMENDATION_V3_MIGRATION_EVENT_TYPE,
-    payloadVersion: RECOMMENDATION_V3_SCHEMA_VERSION,
-    repository: input.repository,
-    worktree: input.worktree,
-    baseDigest: input.graphDigest,
-    resultingDigest: input.graphDigest,
-    headSha: input.worktree.headSha,
-    actor: { kind: "migration", id: "archctx-recommendation-v3-migration" },
-    source: "migration",
-    timestamp: input.now,
-    idempotencyKey: `architecture-ledger-recommendation-v3-migration:${inputDigest}`,
-    provenance: {
-      producer: "runtime-daemon",
-      command: "archctx ledger migrate --recommendation-v3",
-      inputDigest
-    },
-    payload: {
-      recommendationRuns: [],
-      recommendations: upgraded as unknown as Json,
-      feedback: [],
-      waivers: [],
-      operations: [],
-      title: "Recommendation v2 to v3 migration",
-      summary: `Upgraded ${upgraded.length} recommendation(s) to ${RECOMMENDATION_V3_SCHEMA_VERSION}.`
-    } as unknown as Json
-  };
-  return { upgraded, event, inputDigest };
-}
-
-export function latestRecommendationsById(
-  recommendations: readonly RecommendationLedgerRecordV1[]
-): RecommendationLedgerRecordV1[] {
-  const latest = new Map<string, { recommendation: RecommendationLedgerRecordV1; index: number }>();
-  let index = 0;
-  for (const recommendation of recommendations) {
-    const current = latest.get(recommendation.recommendationId);
-    if (
-      !current
-      || recommendation.updatedAt.localeCompare(current.recommendation.updatedAt) > 0
-      || (recommendation.updatedAt === current.recommendation.updatedAt && index > current.index)
-    ) {
-      latest.set(recommendation.recommendationId, { recommendation, index });
-    }
-    index += 1;
-  }
-  return [...latest.values()].map((entry) => entry.recommendation);
-}
-
-/**
- * v2 carried no author, so the honest upcast names the daemon that wrote the record rather than
- * re-deriving a per-event actor the v2 row never bound. `practiceId` is never invented: a v2
- * practice recommendation without one is an unrepresentable record and fails closed.
- */
-function upcastRecommendationToV3(recommendation: RecommendationV2, repositoryId: string, now: string): RecommendationV3 {
-  if (!recommendation.practiceId) {
-    throw new Error(`AC_SCHEMA_INVALID: recommendation ${recommendation.recommendationId} has no practiceId to upgrade`);
-  }
-  const baselineDigest = recommendation.extensions?.baselineDigest ?? null;
-  if (baselineDigest !== null && typeof baselineDigest !== "string") {
-    throw new Error(`AC_SCHEMA_INVALID: recommendation ${recommendation.recommendationId} has a non-string baselineDigest`);
-  }
-  const { extensions, ...base } = recommendation;
-  const upgraded: RecommendationV3 = {
-    ...base,
-    schemaVersion: RECOMMENDATION_V3_SCHEMA_VERSION,
-    practiceId: recommendation.practiceId,
-    category: "practice",
-    payload: { practiceId: recommendation.practiceId, baselineDigest },
-    authoredBy: { kind: "daemon", id: "archctxd", source: "daemon" },
-    subjectSelectorId: architectureSubjectSelectorId("node", repositoryId, `node:${recommendation.subject}`),
-    relations: {},
-    updatedAt: now,
-    extensions: {
-      ...(extensions ?? {}),
-      recommendationV3Migration: {
-        previousSchemaVersion: RECOMMENDATION_SCHEMA_VERSION,
-        previousUpdatedAt: recommendation.updatedAt,
-        migratedAt: now
-      }
-    }
-  };
-  const issues = recommendationV3InvariantIssues(upgraded);
-  if (issues.length > 0) throw new Error(`AC_SCHEMA_INVALID: ${issues.join("; ")}`);
-  return upgraded;
 }
 
 function previousRecommendationsV3(recommendations: readonly RecommendationLedgerRecordV1[]): PreviousRecommendationV3[] {
