@@ -8,9 +8,9 @@
 > **Last Updated**: 2026-09-25 13:48
 > **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: sha256:d3df0790c362f8e13f76cce5c2a85212cebdc2ef84823e1d5b6f119e9c868eac
+> **Reviewed Subject SHA256**: sha256:d234e2f66fd7b513ddd6275f63eed6f6d59ec74849c6999854295f2ba03b802e
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: e3d807759e917b26c539f25c51edc31946feb740
+> **Reviewed Target Revision**: f4c7d4feaa9e7f5ac093ffa44dc91504e93473e4
 
 ## Human Review Card
 
@@ -53,13 +53,13 @@ screenshot/artifact path, or reviewer observation.
 > **Reviewer**: Codex
 > **Source**: codex-plugin
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: sha256:d3df0790c362f8e13f76cce5c2a85212cebdc2ef84823e1d5b6f119e9c868eac
+> **Reviewed Subject SHA256**: sha256:d234e2f66fd7b513ddd6275f63eed6f6d59ec74849c6999854295f2ba03b802e
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: e3d807759e917b26c539f25c51edc31946feb740
-> **Verification Evidence SHA256**: sha256:e98b9d121d913ba160c1993b3b889dbe581197b36399661474e2c484c0070e82
-> **Issued At**: 2026-09-26T19:26:11.103Z
+> **Reviewed Target Revision**: f4c7d4feaa9e7f5ac093ffa44dc91504e93473e4
+> **Verification Evidence SHA256**: sha256:96a8ebdd5402bf87fce67ac13a4f546812308b47aa5d21846c118a29dfc3baf7
+> **Issued At**: 2026-09-27T03:42:45.308Z
 
-- Summary: Accepted the bounded local integration subject: prior scoped source reviews cover Explorer auth, egress admission, ChangeSet writer restrictions, migration and projection; the final diagnostic-only change preserves child deadlines and failure semantics with red/green subprocess guards. Exact installed 0.5.12 producer readback and all five declared verification checks pass, including complete full verify. Change Assessment binds deterministic and runtime oracles. Remaining general RPC/facade work, cloud delivery, registry publication and consumer registry adoption remain outside this accepted scope; the historical intermittent timeout cause is not claimed solved.
+- Summary: Accepted current-main integration against f4c7d4f. Independent delta review confirms only records changed from accepted19e4999; product, package, schema, model and workflow parity pass. Six current checks pass, including installed projection and governance (whose nested full verify also ran). The declared full-verify criterion retains immutable historical baseline with current delta coverage. No P0/P1; publication and registry adoption remain separate.
 - Findings: none
 
 ## Behavior Diff Notes
