@@ -29,7 +29,7 @@ Script ownership and cleanup rules are frozen in
 - [ ] 2026-09-09T00:45:34+0800 [medium] `package.json` -> [root](requests/root.md)
 <!-- END ARCHITECTURE PENDING REQUESTS -->
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:3a6635faca59a7f833b136c3c4f8eb04956d501f4d448224b4bd072ecf0b0d96" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:f1d50709e5b2038a857a379927822ecf9f1dd98d38b3e40b20a02f6c12109f4f" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:ee6e339157f82b830fc9215416fd7ed56b9fe4046151586464fa59641321ccd8" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:b65b639a96eb1e15e0ca76023ecd625f4136dfde8762d9764d728a0b963bcc11" -->
 # Architecture Index
 
 Generated: 1970-01-01T00:00:00.000Z
@@ -62,6 +62,10 @@ Generated: 1970-01-01T00:00:00.000Z
 - component.architecture-context.local-runtime.projection-apply -> component.architecture-context.projection-renderer — calls
 - capability.architecture.context -> component.architecture-context.projection-renderer — calls
 - component.architecture-context.local-runtime.projection-service -> component.architecture-context.projection-renderer — calls
+- component.architecture-context.local-runtime.recommendations -> component.architecture-context.core.recommendation-engine — calls
+- component.architecture-context.local-runtime.recommendations -> component.architecture-context.core.refactor-assessment — calls
+- component.architecture-context.local-runtime.recommendations -> component.architecture-context.local-runtime.runtime-daemon — calls
+- component.architecture-context.local-runtime.rpc-client -> component.architecture-context.local-runtime.recommendations — calls
 - component.architecture-context.local-runtime.rpc-client -> component.architecture-context.local-runtime.rpc-server — calls
 - component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.runtime-state-paths — calls
 - component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.control-file-security — calls
@@ -76,6 +80,7 @@ Generated: 1970-01-01T00:00:00.000Z
 - component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.ledger-admin — calls
 - component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.projection-apply — calls
 - component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.projection-service — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.recommendations — calls
 - component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.rpc-client — calls
 - component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.rpc-server — calls
 - component.architecture-context.surfaces.cli -> component.architecture-context.local-runtime.projection-paths — calls
