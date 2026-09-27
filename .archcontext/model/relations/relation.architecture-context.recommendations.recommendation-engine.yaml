@@ -1,0 +1,6 @@
+id: "relation.architecture-context.recommendations.recommendation-engine"
+intent: "Transition recommendation lifecycle status, build feedback and aggregate lifecycle metrics from the frozen recommendation engine"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.recommendations"
+target: "component.architecture-context.core.recommendation-engine"

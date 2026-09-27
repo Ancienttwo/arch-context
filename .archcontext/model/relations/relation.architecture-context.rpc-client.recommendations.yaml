@@ -1,0 +1,6 @@
+id: "relation.architecture-context.rpc-client.recommendations"
+intent: "Type the refactorVerify RPC method from the recommendations service's verify request shape"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.rpc-client"
+target: "component.architecture-context.local-runtime.recommendations"

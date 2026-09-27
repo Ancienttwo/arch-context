@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.recommendations"
+intent: "Compose recommendation lifecycle and refactor scan/record/verify orchestration, and evaluate review dependency constraints in the completion gate"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.recommendations"
