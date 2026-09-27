@@ -482,30 +482,41 @@ describe("developer review run lifecycle", () => {
         return { status: response.status, body: await response.json() as any };
       };
 
+      // A malformed positional argument is now a typed AC_SCHEMA_INVALID envelope, HTTP 200, the
+      // same shape every handler's own input validation already answers with — not the raw HTTP
+      // 500 string error a decode failure used to produce.
       const recovered = await rpcCall("recoverDeveloperReviewRuns", [{ repositoryRoot: root, stateDir: outside, force: true }]);
+      expect(recovered.status).toBe(200);
       expect(recovered.body.ok).toBe(false);
-      expect(String(recovered.body.error)).toContain("runtime-rpc-input-invalid");
+      expect(recovered.body.error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String(recovered.body.error.message)).toContain("runtime-rpc-input-invalid");
       expect(existsSync(join(outside, "stale.json"))).toBe(true);
       expect(existsSync(join(outside, "stale.lock"))).toBe(true);
 
       const started = await rpcCall("startDeveloperReviewRun", [{ repositoryRoot: root, challenge, tempRoot: outside }]);
+      expect(started.status).toBe(200);
       expect(started.body.ok).toBe(false);
-      expect(String(started.body.error)).toContain("runtime-rpc-input-invalid");
+      expect(started.body.error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String(started.body.error.message)).toContain("runtime-rpc-input-invalid");
 
       const malformed = await rpcCall("cleanupDeveloperReviewRun", [{
         schemaVersion: "archcontext.developer-review-run/v1",
         runId: "forged",
         challengeId: challenge.challengeId
       }]);
+      expect(malformed.status).toBe(200);
       expect(malformed.body.ok).toBe(false);
-      expect(String(malformed.body.error)).toContain("runtime-rpc-input-invalid");
+      expect(malformed.body.error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String(malformed.body.error.message)).toContain("runtime-rpc-input-invalid");
 
       const wrongChallengeShape = await rpcCall("startDeveloperReviewRun", [{
         repositoryRoot: root,
         challenge: { ...challenge, status: "NOT_A_STATUS" }
       }]);
+      expect(wrongChallengeShape.status).toBe(200);
       expect(wrongChallengeShape.body.ok).toBe(false);
-      expect(String(wrongChallengeShape.body.error)).toContain("runtime-rpc-input-invalid");
+      expect(wrongChallengeShape.body.error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String(wrongChallengeShape.body.error.message)).toContain("runtime-rpc-input-invalid");
     } finally {
       await rpc.stop().catch(() => undefined);
       rmSync(outside, { recursive: true, force: true });

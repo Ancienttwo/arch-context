@@ -1,10 +1,7 @@
 import { type DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunManifest } from "./developer-review-run";
 import { type ReviewChallengeV2 } from "@archcontext/contracts";
-
-function rpcInputInvalid(context: string, detail: string): Error {
-  return new Error(`runtime-rpc-input-invalid: ${context} ${detail}`);
-}
+import { rpcInputInvalid } from "./rpc-argument-codec";
 
 function decodeRpcRecord(value: unknown, context: string, label: string, allowedKeys: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw rpcInputInvalid(context, `${label} must be an object`);
