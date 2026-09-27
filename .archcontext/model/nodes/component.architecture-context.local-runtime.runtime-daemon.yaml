@@ -23,7 +23,11 @@ source:
     - "packages/local-runtime/runtime-daemon/src/explorer-server.ts"
     - "packages/local-runtime/runtime-daemon/src/external-documentation.ts"
     - "packages/local-runtime/runtime-daemon/src/agent-jobs.ts"
+    - "packages/local-runtime/runtime-daemon/src/loopback-auth.ts"
+    - "packages/local-runtime/runtime-daemon/src/audit-consent.ts"
+    - "packages/local-runtime/runtime-daemon/src/github-issue-executor.ts"
+    - "packages/local-runtime/runtime-daemon/src/investigation-transport.ts"
   include:
     - "packages/local-runtime/runtime-daemon/src/**"
 status: "active"
-summary: "Composes the local daemon and public RPC facade, owning task gates, ChangeSet plan and apply, refactor scan and verify, audit consent, and Explorer projections."
+summary: "Composes the local daemon and public RPC facade, owning task gates, ChangeSet plan and apply, refactor scan and verify, and Explorer projections."

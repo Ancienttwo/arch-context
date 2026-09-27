@@ -9,7 +9,6 @@ import { buildInvestigationContextBundleFromLedgerQuery, createInvestigationAgen
 import { digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, readCommitChangeMetadata, readStagedChangeMetadata, readWorktreeChangeMetadata, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import type { ArchctxDaemon } from "./index";
 
 export interface RuntimeAgentJobEnqueueGitInput {
   source?: GitChangeSource;
@@ -71,7 +70,7 @@ const RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY = 0;
 const RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS = 1;
 interface AgentJobContext {
   assertRunning(): void;
-  openSession: ArchctxDaemon["openSession"];
+  openSession(root: string): Promise<{ codeFactsDigest?: string }>;
   architectureLedgerScope(root: string): Promise<ArchitectureLedgerScope>;
   clock(): string;
   localStore: Pick<RuntimeLocalStore, "readArchitectureLedgerState" | "cancelStaleRuntimeAgentJobs" | "enqueueRuntimeAgentJob" | "listRuntimeAgentJobs" | "queueStatsRuntimeAgentJobs" | "claimRuntimeAgentJob" | "cancelRuntimeAgentJob" | "completeRuntimeAgentJob" | "retryRuntimeAgentJob">;

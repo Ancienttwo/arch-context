@@ -1,6 +1,6 @@
 # architecture/context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:671ce59358672428f774bb159bddbf97754135fa6edc2f058befba28419f2b75" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:2ffe353528640d8d15c1130584d7ce0629c1d4b6e5eca286ad5b7c8ec654890e" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:bb3d21607d15865736d8a8ac82436de846519b141a8ce73006e8080d826f31e8" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:2f40ae2d7808a3f4aab344d8547219d368683ef52aee07bd56b7d0b4587a145f" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture.context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -39,6 +39,7 @@ flowchart LR
   p1_component_architecture_context_local_runtime_audit_eaeac660["Architecture Audit Service"]:::component
   p1_component_architecture_context_local_runtime_control_file_security_af51dbd4["Control File Security"]:::component
   p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce["Developer Review Runs and Attestations"]:::component
+  p1_component_architecture_context_local_runtime_egress_admission_279f8a51["Egress Admission"]:::component
   p1_component_architecture_context_local_runtime_explorer_server_52082528["Explorer Server and Session"]:::component
   p1_component_architecture_context_local_runtime_external_documentation_cb71400c["External Documentation Service"]:::component
   p1_component_architecture_context_local_runtime_ledger_admin_0c86ee18["Ledger Administration Service"]:::component
@@ -103,8 +104,8 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:5e1efb4708698994488a0761bbff49032d8ff5c0823307f2dc0b66bdf0c53b73`).
-- Semantic nodes: `46`; declared relations: `36`.
+- Proof: `proven` (`sha256:c2ab93c9abe9259c9ccc0d20b54925537b43f4727a96c1e05a3d8889ad559091`).
+- Semantic nodes: `47`; declared relations: `36`.
 
 ### 1.2 模組職責表
 
@@ -132,7 +133,7 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **Proof**: `proven` (`sha256:5e1efb4708698994488a0761bbff49032d8ff5c0823307f2dc0b66bdf0c53b73`); selectors `2/2`.
+> **Proof**: `proven` (`sha256:c2ab93c9abe9259c9ccc0d20b54925537b43f4727a96c1e05a3d8889ad559091`); selectors `2/2`.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%

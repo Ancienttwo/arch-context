@@ -6,7 +6,8 @@ import { DeveloperReviewSessionService, type DeveloperReviewDigestBundle, type D
 export type { DeveloperReviewDigestBundle, DeveloperReviewSession, DeveloperReviewAttestation } from "./developer-review-run";
 import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
 export type { ExplorerServerOptions, ExplorerServerStatus } from "./explorer-server";
-import { LedgerAdminService } from "./ledger-admin";
+import { LedgerAdminService, type RuntimeArchitectureLedgerRolloutMode, type RuntimeArchitectureLedgerReadMode, type RuntimeArchitectureLedgerWriteMode, type RuntimeArchitectureLedgerModes, type RuntimeArchitectureLedgerPhaseFlags } from "./ledger-admin";
+export type { RuntimeArchitectureLedgerRolloutMode, RuntimeArchitectureLedgerReadMode, RuntimeArchitectureLedgerWriteMode, RuntimeArchitectureLedgerModes, RuntimeArchitectureLedgerPhaseFlags } from "./ledger-admin";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
@@ -275,42 +276,6 @@ export interface RuntimeLedgerRollbackInput {
   toYaml?: boolean;
   dryRun?: boolean;
   expectedWorktreeDigest?: string;
-}
-
-export type RuntimeArchitectureLedgerRolloutMode = "yaml" | "dual" | "ledger-shadow" | "ledger-authoritative";
-export type RuntimeArchitectureLedgerReadMode = "yaml" | "dual-compare" | "ledger-shadow" | "ledger";
-export type RuntimeArchitectureLedgerWriteMode = "yaml" | "dual" | "ledger-with-projection";
-
-export interface RuntimeArchitectureLedgerModes {
-  schemaVersion: "archcontext.runtime-architecture-ledger-modes/v1";
-  rolloutMode: RuntimeArchitectureLedgerRolloutMode;
-  readMode: RuntimeArchitectureLedgerReadMode;
-  writeMode: RuntimeArchitectureLedgerWriteMode;
-  readAuthority: "yaml" | "ledger";
-  writeAuthority: "yaml" | "dual" | "ledger-with-projection";
-  phaseFlags: RuntimeArchitectureLedgerPhaseFlags;
-}
-
-export interface RuntimeArchitectureLedgerPhaseFlags {
-  schemaVersion: "archcontext.runtime-architecture-ledger-phase-flags/v1";
-  activePhase: RuntimeArchitectureLedgerRolloutMode;
-  supportedPhases: RuntimeArchitectureLedgerRolloutMode[];
-  environment: {
-    ARCHCONTEXT_LEDGER_MODE: RuntimeArchitectureLedgerRolloutMode;
-    ARCHCONTEXT_LEDGER_READ_MODE: RuntimeArchitectureLedgerReadMode;
-    ARCHCONTEXT_LEDGER_WRITE_MODE: RuntimeArchitectureLedgerWriteMode;
-  };
-  safeDowngrade: {
-    to: "yaml";
-    environment: {
-      ARCHCONTEXT_LEDGER_MODE: "yaml";
-      ARCHCONTEXT_LEDGER_READ_MODE: "yaml";
-      ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml";
-    };
-    command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>";
-  };
-  promotionPath: RuntimeArchitectureLedgerRolloutMode[];
-  downgradePath: RuntimeArchitectureLedgerRolloutMode[];
 }
 
 interface CheckpointCoalesceEntry {

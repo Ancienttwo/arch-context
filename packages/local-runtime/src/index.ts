@@ -10,4 +10,4 @@ export * from "../process-liveness/src/index";
 export * from "../projection-paths/src/index";
 export * from "../control-file-security/src/index";
 
-export * from "../runtime-daemon/src/egress-admission";
+export * from "../egress-admission/src/index";

@@ -3,7 +3,6 @@ import { createPrivateControlFile } from "@archcontext/local-runtime/control-fil
 import { runtimeRpcMethod, type RuntimeRpcMethodName } from "./rpc-methods";
 import { type AddressInfo } from "node:net";
 import { type Json, type JsonEnvelope, type ProductVersionManifest, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
-import { type ArchctxDaemon } from "./index";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcConnection } from "./rpc-protocol";
@@ -16,7 +15,14 @@ import { randomBytes } from "node:crypto";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 
 // Only the daemon operations used by this transport; no runtime import of the facade.
-type RuntimeRpcServerTarget = RuntimeDaemonClient & Pick<ArchctxDaemon, "start" | "stop" | "status" | "hasActiveBackgroundWork" | "compositionReport" | "egressReport">;
+type RuntimeRpcServerTarget = RuntimeDaemonClient & {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  status(): { running: boolean; changeSetRecovery?: unknown };
+  hasActiveBackgroundWork(): Promise<boolean>;
+  compositionReport(): unknown;
+  egressReport(root: string): Promise<unknown>;
+};
 
 // `archctxd` is spawned `detached`+`unref()`'d (see `startBackgroundDaemon` in the CLI) with no
 // other exit signal, so left alone it runs forever, accumulating cross-day zombie processes (see
