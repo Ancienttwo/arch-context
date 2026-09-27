@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:ac1cf5b590a237524feaae7fb3cff28811f807c08ff8dd0d70f41f238e7c18d9" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:2956063162b4e5ad8108b9d822795a90bc1f7bb470ee449a91d32d3f93f27a2c" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:3a6635faca59a7f833b136c3c4f8eb04956d501f4d448224b4bd072ecf0b0d96" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:44ba7205665588ae5b40a00bacc9a81c89c5e231f1dad2417afce5170c47523a" -->
 {
   "schemaVersion": "archcontext.structurizr-export/v1",
   "name": "ArchContext Architecture",
@@ -167,6 +167,14 @@
       {
         "id": "component.architecture-context.local-runtime.agent-jobs",
         "name": "Agent Job Service",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.architecture-book",
+        "name": "Architecture Book Service",
         "type": "Component",
         "tags": [
           "component"
@@ -389,6 +397,18 @@
         "description": "calls"
       },
       {
+        "id": "relation.architecture-context.architecture-book.ledger",
+        "sourceId": "component.architecture-context.local-runtime.architecture-book",
+        "destinationId": "component.architecture-context.core.architecture-ledger",
+        "description": "calls"
+      },
+      {
+        "id": "relation.architecture-context.architecture-book.ledger-readback-callback",
+        "sourceId": "component.architecture-context.local-runtime.architecture-book",
+        "destinationId": "component.architecture-context.local-runtime.runtime-daemon",
+        "description": "calls"
+      },
+      {
         "id": "relation.architecture-context.audit.agent-jobs",
         "sourceId": "component.architecture-context.local-runtime.audit",
         "destinationId": "component.architecture-context.local-runtime.agent-jobs",
@@ -539,6 +559,12 @@
         "description": "calls"
       },
       {
+        "id": "relation.architecture-context.runtime-daemon.architecture-book",
+        "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
+        "destinationId": "component.architecture-context.local-runtime.architecture-book",
+        "description": "calls"
+      },
+      {
         "id": "relation.architecture-context.runtime-daemon.audit",
         "sourceId": "component.architecture-context.local-runtime.runtime-daemon",
         "destinationId": "component.architecture-context.local-runtime.audit",
@@ -625,6 +651,7 @@
         "component.architecture-context.core.retrieval",
         "component.architecture-context.core.review-engine",
         "component.architecture-context.local-runtime.agent-jobs",
+        "component.architecture-context.local-runtime.architecture-book",
         "component.architecture-context.local-runtime.audit",
         "component.architecture-context.local-runtime.control-file-security",
         "component.architecture-context.local-runtime.developer-review-run",

@@ -29,7 +29,7 @@ Script ownership and cleanup rules are frozen in
 - [ ] 2026-09-09T00:45:34+0800 [medium] `package.json` -> [root](requests/root.md)
 <!-- END ARCHITECTURE PENDING REQUESTS -->
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:ac1cf5b590a237524feaae7fb3cff28811f807c08ff8dd0d70f41f238e7c18d9" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:38e9a2939c1e89f89c6fba262b1d1b7b48de2790cef87026620c445e8b914ff4" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:3a6635faca59a7f833b136c3c4f8eb04956d501f4d448224b4bd072ecf0b0d96" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:f1d50709e5b2038a857a379927822ecf9f1dd98d38b3e40b20a02f6c12109f4f" -->
 # Architecture Index
 
 Generated: 1970-01-01T00:00:00.000Z
@@ -41,6 +41,8 @@ Generated: 1970-01-01T00:00:00.000Z
 ## Relations
 
 - component.architecture-context.local-runtime.agent-jobs -> component.architecture-context.local-runtime.runtime-daemon — calls
+- component.architecture-context.local-runtime.architecture-book -> component.architecture-context.core.architecture-ledger — calls
+- component.architecture-context.local-runtime.architecture-book -> component.architecture-context.local-runtime.runtime-daemon — calls
 - component.architecture-context.local-runtime.audit -> component.architecture-context.local-runtime.agent-jobs — calls
 - component.architecture-context.local-runtime.audit -> component.architecture-context.core.agent-orchestrator — calls
 - component.architecture-context.surfaces.cli -> component.architecture-context.local-runtime.control-file-security — calls
@@ -66,6 +68,7 @@ Generated: 1970-01-01T00:00:00.000Z
 - component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.process-liveness — calls
 - component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.rpc-client — calls
 - component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.agent-jobs — calls
+- component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.architecture-book — calls
 - component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.audit — calls
 - component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.developer-review-run — calls
 - component.architecture-context.local-runtime.runtime-daemon -> component.architecture-context.local-runtime.explorer-server — calls

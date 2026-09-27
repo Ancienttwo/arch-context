@@ -1,0 +1,6 @@
+id: "relation.architecture-context.architecture-book.ledger-readback-callback"
+intent: "Resolve the architecture-ledger readback and Git scope without moving ledger readback ownership"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.architecture-book"
+target: "component.architecture-context.local-runtime.runtime-daemon"

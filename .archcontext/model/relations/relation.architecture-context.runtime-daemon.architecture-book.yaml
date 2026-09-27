@@ -1,0 +1,6 @@
+id: "relation.architecture-context.runtime-daemon.architecture-book"
+intent: "Compose Architecture Book reads and the task-context ledger query port using the shared ledger readback and local store"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.runtime-daemon"
+target: "component.architecture-context.local-runtime.architecture-book"
