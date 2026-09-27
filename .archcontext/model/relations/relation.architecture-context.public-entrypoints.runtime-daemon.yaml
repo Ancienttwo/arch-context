@@ -1,0 +1,6 @@
+id: "relation.architecture-context.public-entrypoints.runtime-daemon"
+intent: "Re-export the daemon facade and its egress status through the package root barrel"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.public-entrypoints"
+target: "component.architecture-context.local-runtime.runtime-daemon"

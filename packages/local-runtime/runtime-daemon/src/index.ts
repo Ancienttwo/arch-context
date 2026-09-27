@@ -1,3 +1,5 @@
+import type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeMcpApprovalInput, RuntimeMcpApplyInput, RuntimeApplyUpdateInput } from "./rpc-types";
+export type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeMcpApprovalInput, RuntimeMcpApplyInput, RuntimeApplyUpdateInput } from "./rpc-types";
 import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
@@ -79,7 +81,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AcceptedArchitectureChangeReferenceV1, type AgentJobV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AcceptedArchitectureChangeReferenceV1, type AgentJobV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type NormalizedCodeContext, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type CommittedChangeSetForTaskSession, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
@@ -126,59 +128,6 @@ export interface RepositorySession {
   startedAt: string;
 }
 
-export interface RuntimeCheckpointInput {
-  taskSessionId?: string;
-  task?: string;
-  event?: PracticeCheckpointEvent;
-  changedPaths?: string[];
-  toolCallId?: string;
-  expectedHeadSha?: string;
-  expectedWorktreeDigest?: string;
-  maxBytes?: number;
-  maxItems?: number;
-}
-
-export interface RuntimePracticeWaiverInput {
-  id?: string;
-  waiverId?: string;
-  taskSessionId?: string;
-  practiceId: string;
-  checkId?: string;
-  owner: string;
-  reason: string;
-  createdAt?: string;
-  reviewAt: string;
-  expiresAt: string;
-  evidenceDigest: string;
-  subjects?: string[];
-  pathGlobs?: string[];
-}
-
-export interface RuntimeLedgerProjectInput {
-  dryRun?: boolean;
-  expectedWorktreeDigest?: string;
-}
-
-export interface RuntimeAcceptCommittedChangeInput {
-  journalId: string;
-  changeSetId: string;
-  approved: true;
-  expectedWorktreeDigest: string;
-}
-
-export interface RuntimeLedgerRebuildInput {
-  fromGit?: boolean;
-  expectedWorktreeDigest?: string;
-  acceptExternalProjection?: boolean;
-}
-
-export interface RuntimeLedgerMigrateInput {
-  fromYaml?: boolean;
-  recommendationV3?: boolean;
-  dryRun?: boolean;
-  expectedWorktreeDigest?: string;
-}
-
 export type { RuntimeRefactorVerifyInput } from "./refactor-verify";
 export {
   AUDIT_CONSENT_GRANT_COMMAND,
@@ -192,28 +141,11 @@ export {
   type AuditConsentStatus
 } from "./audit-consent";
 
-export interface RuntimeLedgerRollbackInput {
-  toYaml?: boolean;
-  dryRun?: boolean;
-  expectedWorktreeDigest?: string;
-}
-
 interface CheckpointCoalesceEntry {
   repositoryId: string;
   taskSessionId: string;
   data: Json;
   eventCount: number;
-}
-
-export interface RuntimeCompleteTaskInput {
-  taskSessionId?: string;
-  task?: string;
-  posture?: CompleteTaskInput["posture"];
-  headSha?: string;
-  compatibilityContract?: CompleteTaskInput["compatibilityContract"];
-  compatibilityPathIntroduced?: boolean;
-  cleanupRequired?: number;
-  cleanupCompleted?: number;
 }
 
 export interface RuntimeDeps {
@@ -264,40 +196,6 @@ interface RuntimeConstructionOptions {
    * must never race the live owner's own migrations (#160).
    */
   legacyLocalStoreMigrationRoot?: string;
-}
-
-export type RuntimeWorktreeDigestProfile = "repository" | "architecture-documentation-projection";
-
-export interface RuntimePlanUpdateInput {
-  id: string;
-  approvalChannel?: "mcp";
-  operations: ChangeOperation[];
-  reason?: { taskSessionId: string; interventionId?: string };
-  worktreeDigestPrecondition?: {
-    profile: "architecture-documentation-projection";
-    expectedDigest: string;
-  };
-}
-
-/** Issued only by the explicit local CLI approval flow, never by an MCP tool. */
-export interface RuntimeMcpApprovalInput {
-  id: string;
-  expectedWorktreeDigest: string;
-  expectedChangeSetDigest: string;
-}
-
-export interface RuntimeMcpApplyInput {
-  id: string;
-  expectedWorktreeDigest: string;
-  approvalToken: string;
-}
-
-export interface RuntimeApplyUpdateInput {
-  id: string;
-  approved: boolean;
-  expectedWorktreeDigest: string;
-  worktreeDigestProfile?: RuntimeWorktreeDigestProfile;
-  projectionApplyReceipt?: ProjectionApplyReceiptV1;
 }
 
 class RuntimeUpdateInputError extends Error {}

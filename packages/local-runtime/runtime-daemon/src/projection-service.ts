@@ -8,28 +8,9 @@ import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionNotice, type ArchitectureDocumentationProjectionProvenanceV1, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
+import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
+export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
-export interface RuntimeDocsProjectionInput {
-  action: "plan" | "preview" | "apply" | "adopt" | "drift" | "clean";
-  profile?: ArchitectureProjectionProfile;
-  generatedAt?: string;
-  acceptedChange?: AcceptedArchitectureChangeReferenceV1;
-  id?: string;
-  taskSessionId?: string;
-  approved?: boolean;
-  expectedWorktreeDigest?: string;
-  adoptionPlanId?: string;
-}
-export interface RuntimeAgentContextProjectionInput {
-  action: "plan" | "preview" | "apply";
-  id?: string;
-  taskSessionId?: string;
-  approved?: boolean;
-  expectedWorktreeDigest?: string;
-}
-export type RuntimeProjectionInvocation =
-  | { action: "run" | "readback"; request: ProjectionRequestV1 }
-  | { action: "recover"; request: ProjectionApplyRecoveryIntentV1 };
 export type ProjectionServiceHost = Pick<RuntimeDaemonClient, "planUpdate" | "applyUpdate" | "listProjectionPriorCommittedApplies" | "inspectProjectionApplyReceipt" | "readbackProjectionApply" | "recoverProjectionApply"> & {
   loadCapabilitySourceChangesSinceStamps: (root: string, model: NativeModel) => CapabilitySourceChangeSinceStamp[];
 };

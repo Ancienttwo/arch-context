@@ -1,0 +1,11 @@
+id: "component.architecture-context.local-runtime.public-entrypoints"
+kind: "component"
+name: "Local Runtime Public Entrypoints"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/src/index.ts"
+    - "packages/local-runtime/runtime-daemon/src/rpc-client-entry.ts"
+status: "active"
+summary: "Owns the pure re-export entrypoints, the package root barrel and the client-only runtime-rpc-client subpath, which aggregate implementation owned by other components and hold no logic."

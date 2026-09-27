@@ -8,20 +8,8 @@ import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertCo
 import { finalizeContextBudgetMetadata } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, digestJson, errorEnvelope, okEnvelope, type Context7LibraryPinV1, type Context7LockfileV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type Json, type JsonEnvelope, type WorkspaceRef } from "@archcontext/contracts";
 import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-
-export interface RuntimeDocsInput {
-  command: "status" | "resolve" | "pin" | "fetch" | "purge";
-  provider?: ExternalDocumentationProvider;
-  libraryName?: string;
-  libraryId?: string;
-  version?: string;
-  query?: string;
-  intent?: string;
-  approved?: boolean;
-  allowNetwork?: boolean;
-  forceRefresh?: boolean;
-  all?: boolean;
-}
+import type { RuntimeDocsInput } from "./rpc-types";
+export type { RuntimeDocsInput } from "./rpc-types";
 
 export interface RuntimeResourceReadResult {
   schemaVersion: "archcontext.resource-read/v1";

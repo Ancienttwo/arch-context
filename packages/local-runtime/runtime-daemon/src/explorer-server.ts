@@ -5,11 +5,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { renderExplorerHtml, renderExplorerConnectHtml } from "@archcontext/local-runtime/explorer-html";
 import { EXPLORER_VIEW_IDS, digestJson, errorEnvelope, okEnvelope, type ArchitectureChangeFeedRecordV1, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type Json, type JsonEnvelope } from "@archcontext/contracts";
-
-export interface ExplorerServerOptions {
-  port?: number;
-  tokenTtlSeconds?: number;
-}
+import type { ExplorerServerOptions } from "./rpc-types";
+export type { ExplorerServerOptions } from "./rpc-types";
 
 export interface ExplorerServerStatus {
   running: boolean;

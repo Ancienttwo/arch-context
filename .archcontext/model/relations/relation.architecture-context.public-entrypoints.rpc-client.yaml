@@ -1,0 +1,6 @@
+id: "relation.architecture-context.public-entrypoints.rpc-client"
+intent: "Re-export the loopback RPC client, wire protocol, and shared RPC type contracts through the client-only subpath"
+kind: "calls"
+schemaVersion: "archcontext.relation/v1"
+source: "component.architecture-context.local-runtime.public-entrypoints"
+target: "component.architecture-context.local-runtime.rpc-client"

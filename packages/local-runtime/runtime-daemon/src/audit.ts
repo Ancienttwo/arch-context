@@ -10,7 +10,8 @@ import { findRepositoryRoot } from "@archcontext/local-runtime/git-adapter";
 import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
 import { findExistingGithubIssueByMarker, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueCreatedRecord, type GithubIssueExecutorPort, type GithubIssueListedRecord } from "./github-issue-executor";
-import type { RuntimeAgentJobCompleteRpcInput } from "./index";
+import type { RuntimeAgentJobCompleteRpcInput, RuntimeAuditRunInput, RuntimeAuditApproveInput } from "./rpc-types";
+export type { RuntimeAuditRunInput, RuntimeAuditApproveInput } from "./rpc-types";
 
 // Exported so the CLI can mirror the same default for its own audit-run polling deadline (the
 // same "how long is this audit allowed to take" budget governs both the daemon-side investigation
@@ -84,38 +85,6 @@ function auditGithubIssuesEnabledInManifestText(manifestText: string): boolean {
     }
   }
   return false;
-}
-
-export interface RuntimeAuditRunInput {
-  taskSessionId?: string;
-  reason?: string;
-  risk?: InvestigationContextRisk;
-  uncertainty?: InvestigationContextUncertainty;
-  contextMaxItems?: number;
-  modelId?: string;
-  timeoutMs?: number;
-  /**
-   * Defaults to false: `auditRun` enqueues and claims its job synchronously, then drives the
-   * (multi-minute, real-claude-subprocess) investigation to completion in a detached background
-   * task and returns `{status: "started", jobId}` immediately, so the RPC call itself never has to
-   * stay open longer than a real HTTP client's default timeout. Pass `wait: true` to keep the
-   * original fully-synchronous contract (the call does not resolve until the run reaches a
-   * terminal "pending"/"failed" status) — used by callers that already run in a context with no
-   * such timeout (tests, scripts that intentionally want to block).
-   */
-  wait?: boolean;
-}
-
-export interface RuntimeAuditApproveInput {
-  runId: string;
-  /**
-   * Required once, verbatim, when the run's repository resolves to non-private visibility.
-   * Expected shape: `public:<host>/<owner>/<repo>:<baseSha>:<runId>` (see `auditApprove`'s confirmation
-   * gate) — a re-run instruction, not a secret, so it is safe to print in error messages.
-   */
-  confirmPublicToken?: string;
-  /** Required to continue a run left in "issuing" status by a prior crashed/partial approve call. */
-  resume?: boolean;
 }
 
 interface AuditContext {

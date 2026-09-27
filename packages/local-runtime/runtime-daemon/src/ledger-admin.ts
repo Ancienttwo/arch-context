@@ -25,7 +25,7 @@ import { RECOMMENDATION_SCHEMA_VERSION, RECOMMENDATION_V3_SCHEMA_VERSION, baseMo
 import { findRepositoryRoot } from "@archcontext/local-runtime/git-adapter";
 import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { listModelFiles, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
-import type { RuntimeLedgerProjectInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeLedgerRebuildInput } from "./index";
+import type { RuntimeLedgerProjectInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeLedgerRebuildInput } from "./rpc-types";
 
 export type RuntimeArchitectureLedgerRolloutMode = "yaml" | "dual" | "ledger-shadow" | "ledger-authoritative";
 export type RuntimeArchitectureLedgerReadMode = "yaml" | "dual-compare" | "ledger-shadow" | "ledger";

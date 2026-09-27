@@ -29,7 +29,7 @@ Script ownership and cleanup rules are frozen in
 - [ ] 2026-09-09T00:45:34+0800 [medium] `package.json` -> [root](requests/root.md)
 <!-- END ARCHITECTURE PENDING REQUESTS -->
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:ee6e339157f82b830fc9215416fd7ed56b9fe4046151586464fa59641321ccd8" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:b65b639a96eb1e15e0ca76023ecd625f4136dfde8762d9764d728a0b963bcc11" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:64721018c4c3401a55b0a115a4f61e5f34072d69e958381c7fb1e6d2d1e07efc" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:01ff7e024eeb975610b75d506e5456a76484d0f4a30781d534ee0df96767ef46" -->
 # Architecture Index
 
 Generated: 1970-01-01T00:00:00.000Z
@@ -58,15 +58,16 @@ Generated: 1970-01-01T00:00:00.000Z
 - component.architecture-context.local-runtime.local-store-sqlite -> component.architecture-context.local-runtime.process-liveness — calls
 - component.architecture-context.local-runtime.local-store-sqlite -> component.architecture-context.local-runtime.control-file-security — calls
 - component.architecture-context.local-runtime.local-store-sqlite -> component.architecture-context.local-runtime.runtime-state-paths — calls
-- component.architecture-context.surfaces.mcp-local -> component.architecture-context.local-runtime.rpc-client — calls
+- component.architecture-context.surfaces.mcp-local -> component.architecture-context.local-runtime.public-entrypoints — calls
 - component.architecture-context.local-runtime.projection-apply -> component.architecture-context.projection-renderer — calls
 - capability.architecture.context -> component.architecture-context.projection-renderer — calls
 - component.architecture-context.local-runtime.projection-service -> component.architecture-context.projection-renderer — calls
+- component.architecture-context.local-runtime.public-entrypoints -> component.architecture-context.local-runtime.rpc-client — calls
+- component.architecture-context.local-runtime.public-entrypoints -> component.architecture-context.local-runtime.rpc-server — calls
+- component.architecture-context.local-runtime.public-entrypoints -> component.architecture-context.local-runtime.runtime-daemon — calls
 - component.architecture-context.local-runtime.recommendations -> component.architecture-context.core.recommendation-engine — calls
 - component.architecture-context.local-runtime.recommendations -> component.architecture-context.core.refactor-assessment — calls
 - component.architecture-context.local-runtime.recommendations -> component.architecture-context.local-runtime.runtime-daemon — calls
-- component.architecture-context.local-runtime.rpc-client -> component.architecture-context.local-runtime.recommendations — calls
-- component.architecture-context.local-runtime.rpc-client -> component.architecture-context.local-runtime.rpc-server — calls
 - component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.runtime-state-paths — calls
 - component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.control-file-security — calls
 - component.architecture-context.local-runtime.rpc-server -> component.architecture-context.local-runtime.process-liveness — calls
