@@ -241,3 +241,10 @@ P1: producer packaging/install, daemon-owned projection and harness evidence rem
 
 
 Final prepare schema validation rejected the runtime oracle preflight declaration of reserved REPO_HARNESS_CLI_BIN before executing tests. The command/input now uses task-scoped ARCHCTX_ACCEPTANCE_CONSUMER_BIN to select the same integrity-verified installed candidate. Harness internal runtime selection remains separate. Validate the plan before the expensive gate; no product source or package changes.
+
+
+## Approved release integration after target movement
+
+Main advanced to f4c7d4f through #227 while #223 was awaiting approval. Four overlapping files were resolved to the already accepted #223 bytes: the workflow retains manual Governance, network-isolation/native-ACL checks and the 30-minute Windows budget; FG4/FG6 retain their valid fixture evidence; the deferred ledger retains #164/#224/#225 scope. Net upstream integration adds only five release/workflow records. Product, package, schema, model and workflow inputs are checked byte-for-byte against accepted 19e4999.
+
+The final Verification Plan uses the supported baseline_with_delta policy for full-verify, referencing immutable vx-17bcdeb3c4e14afaa3af (422.215 seconds, PASS), with current parity, governance, installed projection, Explorer, typecheck and boundary checks. This avoids repeating unchanged implementation evidence while requiring a fresh target-bound acceptance. Owner approved merge/publication/adoption; cloud and remaining facade work stay deferred.

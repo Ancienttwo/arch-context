@@ -36,6 +36,10 @@ Repair Explorer credential transport; integrate existing #164 feature extraction
 - Approved handshake diagnostics continuation: preserve version/status/sync execution and deadlines; append subcommand, deadline, elapsed time and process exit facts to existing failure details, with bounded regression proof. This does not claim the aggregate timeout cause solved or authorize a full gate/release.
 - Taste constraints: <!-- advisory only, no run gate; default style/taste lives in AGENTS.md and the minimal-change policy, use this to record a per-task override -->
 
+## Approved delivery continuation
+
+Owner approved merge, package publication and downstream adoption on 2026-09-27. Integrate main f4c7d4f while preserving the accepted product/workflow bytes. Release only the merged candidate; no cloud deployment or #164 expansion. This supersedes older no-merge/no-publication statements for this bounded delivery.
+
 ## Stop Conditions
 
 - Stop and hand back to the parent if the change would require editing a path outside Allowed Paths.
@@ -264,12 +268,42 @@ exit_criteria:
       "command": "node scripts/package-boundary-audit.mjs"
     },
     {
+      "id": "merge-product-parity",
+      "command": "git diff --exit-code 19e499944288bead31c1d584d0da7ede5c3e3dd3 -- packages scripts schemas assets .github package.json bun.lock actions docs/examples .archcontext tsconfig.json",
+      "necessity": "Prove the accepted implementation, package inputs and CI workflow are byte-identical after integrating f4c7d4f.",
+      "cwd": ".",
+      "phase": "preflight",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "inputs": {
+        "env": [
+          "PATH"
+        ]
+      },
+      "kind": "command"
+    },
+    {
+      "id": "governance-current",
+      "command": "bun run verify:governance",
+      "necessity": "Validate the integrated release records and current governance evidence.",
+      "cwd": ".",
+      "phase": "preflight",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "inputs": {
+        "env": [
+          "PATH"
+        ]
+      },
+      "kind": "command"
+    },
+    {
       "id": "full-verify",
       "cwd": ".",
       "phase": "verification",
       "cost": "expensive",
-      "evidence_policy": "current_exact",
-      "necessity": "Preserve the full frozen-source test, packaging, privacy and evidence gate before acceptance.",
+      "evidence_policy": "baseline_with_delta",
+      "necessity": "Retain the immutable successful full verification on d1b24a5. The current-main integration adds only release records; exact product/workflow parity and current governance/runtime checks cover the delta. This does not label the new tree as a new full-suite execution.",
       "inputs": {
         "env": [
           "PATH",
@@ -277,7 +311,19 @@ exit_criteria:
         ]
       },
       "kind": "command",
-      "command": "bun run verify"
+      "command": "bun run verify",
+      "baseline": {
+        "run_file": ".ai/harness/runs/verification-vx-17bcdeb3c4e14afaa3af.json",
+        "execution_id": "vx-17bcdeb3c4e14afaa3af"
+      },
+      "delta_checks": [
+        "merge-product-parity",
+        "governance-current",
+        "installed-projection-readback",
+        "explorer-session",
+        "typecheck",
+        "package-boundaries"
+      ]
     }
   ]
 }
