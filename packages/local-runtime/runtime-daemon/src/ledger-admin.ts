@@ -27,7 +27,43 @@ import { baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type Ar
 import { findRepositoryRoot } from "@archcontext/local-runtime/git-adapter";
 import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { listModelFiles, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
-import type { RuntimeArchitectureLedgerModes, RuntimeLedgerProjectInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeLedgerRebuildInput } from "./index";
+import type { RuntimeLedgerProjectInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeLedgerRebuildInput } from "./index";
+
+export type RuntimeArchitectureLedgerRolloutMode = "yaml" | "dual" | "ledger-shadow" | "ledger-authoritative";
+export type RuntimeArchitectureLedgerReadMode = "yaml" | "dual-compare" | "ledger-shadow" | "ledger";
+export type RuntimeArchitectureLedgerWriteMode = "yaml" | "dual" | "ledger-with-projection";
+
+export interface RuntimeArchitectureLedgerModes {
+  schemaVersion: "archcontext.runtime-architecture-ledger-modes/v1";
+  rolloutMode: RuntimeArchitectureLedgerRolloutMode;
+  readMode: RuntimeArchitectureLedgerReadMode;
+  writeMode: RuntimeArchitectureLedgerWriteMode;
+  readAuthority: "yaml" | "ledger";
+  writeAuthority: "yaml" | "dual" | "ledger-with-projection";
+  phaseFlags: RuntimeArchitectureLedgerPhaseFlags;
+}
+
+export interface RuntimeArchitectureLedgerPhaseFlags {
+  schemaVersion: "archcontext.runtime-architecture-ledger-phase-flags/v1";
+  activePhase: RuntimeArchitectureLedgerRolloutMode;
+  supportedPhases: RuntimeArchitectureLedgerRolloutMode[];
+  environment: {
+    ARCHCONTEXT_LEDGER_MODE: RuntimeArchitectureLedgerRolloutMode;
+    ARCHCONTEXT_LEDGER_READ_MODE: RuntimeArchitectureLedgerReadMode;
+    ARCHCONTEXT_LEDGER_WRITE_MODE: RuntimeArchitectureLedgerWriteMode;
+  };
+  safeDowngrade: {
+    to: "yaml";
+    environment: {
+      ARCHCONTEXT_LEDGER_MODE: "yaml";
+      ARCHCONTEXT_LEDGER_READ_MODE: "yaml";
+      ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml";
+    };
+    command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>";
+  };
+  promotionPath: RuntimeArchitectureLedgerRolloutMode[];
+  downgradePath: RuntimeArchitectureLedgerRolloutMode[];
+}
 
 interface LedgerAdminContext {
   assertRunning(): void;

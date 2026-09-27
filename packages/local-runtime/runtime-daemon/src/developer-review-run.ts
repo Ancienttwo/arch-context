@@ -5,7 +5,6 @@ import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/revi
 import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
 import { readTrackedTreeEntries, verifyDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import type { ArchctxDaemon } from "./index";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, type Stats } from "node:fs";
 import { tmpdir } from "node:os";
@@ -594,10 +593,10 @@ interface DeveloperReviewSessionContext {
   codeFacts: Pick<CodeFactsPort, "sync">;
   localStore: Pick<RuntimeLocalStore, "saveReviewResult">;
   devicePrivateKeySigner?: DevicePrivateKeySignerPort;
-  composition: ReturnType<ArchctxDaemon["compositionReport"]>;
+  composition: { adapters: unknown };
   codeFactsDigest(snapshot: CodeFactsSnapshot): string;
-  computeDeveloperReviewDigestBundle: ArchctxDaemon["computeDeveloperReviewDigestBundle"];
-  runDeveloperReviewSession: ArchctxDaemon["runDeveloperReviewSession"];
+  computeDeveloperReviewDigestBundle: DeveloperReviewSessionService["computeDeveloperReviewDigestBundle"];
+  runDeveloperReviewSession: DeveloperReviewSessionService["runDeveloperReviewSession"];
 }
 
 export class DeveloperReviewSessionService {
@@ -780,7 +779,7 @@ function modelFileDigestSummary(value: unknown): { path: string; digest: string 
   return { path: record.path, digest: record.digest };
 }
 
-function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: ReturnType<ArchctxDaemon["compositionReport"]>): AttestationV2["runtime"] {
+function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: { adapters: unknown }): AttestationV2["runtime"] {
   const product = productVersionManifest();
   return {
     version: product.product.version,

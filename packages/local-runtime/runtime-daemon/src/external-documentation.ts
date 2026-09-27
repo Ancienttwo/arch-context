@@ -6,9 +6,8 @@ import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } fro
 import type { prepareTask } from "@archcontext/core/application";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { finalizeContextBudgetMetadata } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, digestJson, errorEnvelope, okEnvelope, type Context7LibraryPinV1, type Context7LockfileV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type Json, type JsonEnvelope } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, digestJson, errorEnvelope, okEnvelope, type Context7LibraryPinV1, type Context7LockfileV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type Json, type JsonEnvelope, type WorkspaceRef } from "@archcontext/contracts";
 import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import type { ArchctxDaemon, RepositorySession } from "./index";
 
 export interface RuntimeDocsInput {
   command: "status" | "resolve" | "pin" | "fetch" | "purge";
@@ -79,7 +78,7 @@ function parseExternalDocumentationResourceUri(uri: string): {
 
 interface ExternalDocumentationContext {
   assertRunning(): void;
-  openSession: ArchctxDaemon["openSession"];
+  openSession(root: string): Promise<{ workspace: WorkspaceRef }>;
   withWriter<T>(fn: () => Promise<T>): Promise<T>;
   clock(): string;
   externalDocumentation: ExternalDocumentationPort;
@@ -266,7 +265,7 @@ export class ExternalDocumentationService {
   }
 
   async augmentPrepareContextWithExternalDocs(
-    session: RepositorySession,
+    session: { workspace: WorkspaceRef },
     task: string,
     context: PreparedTaskContext,
     maxBytes: number
