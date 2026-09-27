@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:a903f3c6df97285edb0412806ef7ee91443567694338ca78e0439d5bb4db74e6" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:4a45d400ae2f799c32e5bc847d51b292f0e36709d6aa52999f43e2c5be883438" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:c48dda1d85f898118a94a29d853038d8d5b99422ff930aa479c01c1d7db34d70" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:2956063162b4e5ad8108b9d822795a90bc1f7bb470ee449a91d32d3f93f27a2c" -->
 {
   "schemaVersion": "archcontext.structurizr-export/v1",
   "name": "ArchContext Architecture",
@@ -191,6 +191,14 @@
       {
         "id": "component.architecture-context.local-runtime.developer-review-run",
         "name": "Developer Review Runs and Attestations",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.local-runtime.egress-admission",
+        "name": "Egress Admission",
         "type": "Component",
         "tags": [
           "component"
@@ -620,6 +628,7 @@
         "component.architecture-context.local-runtime.audit",
         "component.architecture-context.local-runtime.control-file-security",
         "component.architecture-context.local-runtime.developer-review-run",
+        "component.architecture-context.local-runtime.egress-admission",
         "component.architecture-context.local-runtime.explorer-server",
         "component.architecture-context.local-runtime.external-documentation",
         "component.architecture-context.local-runtime.ledger-admin",
