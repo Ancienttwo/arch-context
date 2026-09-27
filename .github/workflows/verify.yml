@@ -41,6 +41,35 @@ jobs:
       - name: Governance verify
         run: bun run verify:governance
 
+  linux-arm64-descriptor-write:
+    name: Linux arm64 descriptor writes
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify descriptor writes on Linux arm64
+        run: |
+          node -e "if (process.platform !== 'linux' || process.arch !== 'arm64') process.exit(1)"
+          bun test packages/core/changeset-engine/test/changeset-engine.test.ts
+
   verify:
     # Manual revalidation reruns Governance; PR/main events always retain the matrix.
     if: github.event_name != 'workflow_dispatch'

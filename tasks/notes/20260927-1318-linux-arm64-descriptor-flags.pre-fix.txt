@@ -1,0 +1,23 @@
+bun test v1.4.0 (34cbb9a40)
+
+packages/core/changeset-engine/test/changeset-engine.test.ts:
+203 |     offset += count;
+204 |   }
+205 | }
+206 |
+207 | function checkedFd(fd: number, action: string): number {
+208 |   if (fd < 0) throw posixError(action);
+                                           ^
+error: open trusted root failed with errno 22
+      at checkedFd (/tmp/source/packages/core/changeset-engine/src/descriptor-relative-write.ts:208:38)
+      at writeWithPosixDirectoryDescriptor (/tmp/source/packages/core/changeset-engine/src/descriptor-relative-write.ts:92:21)
+      at descriptorRelativeWrite (/tmp/source/packages/core/changeset-engine/src/descriptor-relative-write.ts:66:3)
+      at writeFileWithoutFollowingSymlinks (/tmp/source/packages/core/changeset-engine/src/index.ts:767:3)
+      at <anonymous> (/tmp/source/packages/core/changeset-engine/test/changeset-engine.test.ts:700:7)
+(fail) writeFileWithoutFollowingSymlinks > creates a private file and keeps the requested mode [1.20ms]
+
+ 0 pass
+ 24 filtered out
+ 1 fail
+Ran 1 test across 1 file. [77.00ms]
+PRE_FIX_EXIT=1
