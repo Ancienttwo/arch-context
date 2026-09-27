@@ -1,0 +1,10 @@
+id: "component.architecture-context.local-runtime.egress-admission"
+kind: "component"
+name: "Egress Admission"
+parent: "module.architecture-context.local-runtime"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/local-runtime/egress-admission/src/**"
+status: "active"
+summary: "Provides the dependency-free local egress admission policy shared by adapters, audit, external documentation and the RPC server."

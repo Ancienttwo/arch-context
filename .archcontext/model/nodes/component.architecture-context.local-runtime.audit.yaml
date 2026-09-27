@@ -6,5 +6,8 @@ schemaVersion: "archcontext.node/v2"
 source:
   include:
     - "packages/local-runtime/runtime-daemon/src/audit.ts"
+    - "packages/local-runtime/runtime-daemon/src/audit-consent.ts"
+    - "packages/local-runtime/runtime-daemon/src/github-issue-executor.ts"
+    - "packages/local-runtime/runtime-daemon/src/investigation-transport.ts"
 status: "active"
-summary: "Owns audit investigation, advisory run reads, explicitly approved issue publishing and resumable per-draft ledger progress."
+summary: "Owns audit investigation, consent, advisory run reads, explicitly approved issue publishing through the GitHub issue executor and resumable per-draft ledger progress."
