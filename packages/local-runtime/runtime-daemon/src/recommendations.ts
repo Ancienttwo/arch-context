@@ -14,8 +14,7 @@ import {
   createRecommendationFeedback,
   recommendationLifecycleLedgerPayload,
   transitionRecommendationLifecycle,
-  type RecommendationFeedbackAction,
-  type RecommendationFeedbackSource
+  type RecommendationFeedbackAction
 } from "@archcontext/core/recommendation-engine";
 import {
   RefactorAssessmentRegistry,
