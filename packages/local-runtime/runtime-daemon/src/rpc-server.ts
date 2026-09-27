@@ -1,6 +1,7 @@
 import { LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { runtimeRpcMethod, type RuntimeRpcMethodName } from "./rpc-methods";
+import { RuntimeRpcInputInvalidError } from "./rpc-argument-codec";
 import { type AddressInfo } from "node:net";
 import { type Json, type JsonEnvelope, type ProductVersionManifest, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
@@ -311,6 +312,10 @@ export class ArchctxRuntimeRpcServer {
         // A write refused by the #172 recovery gate is a typed precondition failure, not a 500.
         if (error instanceof LocalEgressPolicyError) return errorEnvelope(body.method ?? "rpc", "AC_POLICY_VIOLATION", error.message);
         if (error instanceof ChangeSetRecoveryUnresolvedError) return errorEnvelope(body.method ?? "rpc", "AC_PRECONDITION_FAILED", error.message);
+        // A malformed positional argument (rpc-argument-codec.ts's decoders, reused by the
+        // developer-review decoders) is a typed schema failure, not a 500: same structured shape
+        // every handler's own input validation already answers with.
+        if (error instanceof RuntimeRpcInputInvalidError) return errorEnvelope(body.method ?? "rpc", "AC_SCHEMA_INVALID", error.message);
         throw error;
       });
       writeJson(response, 200, result);
