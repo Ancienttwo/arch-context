@@ -10,7 +10,7 @@ import { computeWorktreeDigest, repositoryFingerprint, validateLandscape, type C
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
-import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
+import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
