@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants as fsConstants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { digestJson } from "@archcontext/contracts";
 import koffi from "koffi";
@@ -41,10 +41,11 @@ const POSIX_FLAGS: Record<"darwin" | "linux", PosixFlags> = {
   },
   linux: {
     create: 0x0040,
-    directory: 0x10000,
+    // Linux arm64 and x86_64 assign different values to these two flags.
+    directory: fsConstants.O_DIRECTORY,
     exclusive: 0x0080,
     closeOnExec: 0x80000,
-    noFollow: 0x20000,
+    noFollow: fsConstants.O_NOFOLLOW,
     readOnly: 0,
     writeOnly: 1
   }
@@ -63,7 +64,12 @@ export function descriptorRelativeWrite(request: DescriptorRelativeWriteRequest)
   if (process.platform !== "darwin" && process.platform !== "linux") {
     throw new Error(`Descriptor-relative writes are unsupported on ${process.platform}`);
   }
-  writeWithPosixDirectoryDescriptor(request, POSIX_FLAGS[process.platform]);
+  const flags = POSIX_FLAGS[process.platform];
+  if (!Number.isInteger(flags.directory) || flags.directory <= 0 ||
+      !Number.isInteger(flags.noFollow) || flags.noFollow <= 0) {
+    throw new Error(`Secure directory flags unavailable on ${process.platform}`);
+  }
+  writeWithPosixDirectoryDescriptor(request, flags);
 }
 
 function writeWithPosixDirectoryDescriptor(
