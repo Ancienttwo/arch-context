@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -27,6 +27,7 @@ import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { auditPacketCapture } from "./privacy-capture-lib.mjs";
 
 const DEFAULT_EVIDENCE = "docs/verification/practice-context7-readback.json";
+const HARD_GATE_SCAN_DIR = "packages/local-runtime/runtime-daemon/src";
 const DEFAULT_LIVE_EVIDENCE = "docs/verification/practice-context7-live-readback.json";
 const PACKET_SCHEMA_VERSION = "archcontext.practice-context7-readback/v1";
 const LIVE_PACKET_SCHEMA_VERSION = "archcontext.practice-context7-live-readback/v1";
@@ -41,6 +42,7 @@ const LIVE_PACKAGE_NAME = "next";
 const LIVE_INTENT = "app router metadata api";
 const FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429", "timeout", "malformed"] as const;
 type FailureMatrixCase = typeof FAILURE_MATRIX_CASES[number];
+type HardGateScanSource = { path: string; source: string };
 const FAILURE_MATRIX_EXPECTED_STATUS: Record<FailureMatrixCase, string> = {
   disabled: "disabled",
   "no-key": "http-error",
@@ -980,11 +982,31 @@ function captureDlpReadback() {
 }
 
 function captureHardGateScan(root: string) {
-  const source = readFileSync(resolve(root, "packages/local-runtime/runtime-daemon/src/index.ts"), "utf8");
+  const sources = readHardGateScanSources(root);
   return {
-    checkpointProviderReferences: countProviderReferences(methodBody(source, "checkpoint")),
-    completeProviderReferences: countProviderReferences(methodBody(source, "completeTask"))
+    checkpointProviderReferences: countHardGateProviderReferences(sources, "checkpoint"),
+    completeProviderReferences: countHardGateProviderReferences(sources, "completeTask")
   };
+}
+
+// Hard-gate methods may move out of the daemon facade; scan whichever runtime-daemon
+// source file declares them so a move or rename cannot silently pass as "zero calls".
+function readHardGateScanSources(root: string): HardGateScanSource[] {
+  const dir = resolve(root, HARD_GATE_SCAN_DIR);
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".ts") && !name.endsWith(".d.ts") && !name.endsWith(".test.ts"))
+    .sort()
+    .map((name) => ({ path: `${HARD_GATE_SCAN_DIR}/${name}`, source: readFileSync(join(dir, name), "utf8") }));
+}
+
+export function countHardGateProviderReferences(sources: HardGateScanSource[], name: string): number {
+  const bodies = sources
+    .map(({ source }) => methodBody(source, name))
+    .filter((body): body is string => body !== undefined);
+  if (bodies.length === 0) {
+    throw new Error(`hard-gate scan: no declaration of method ${name} found in ${sources.map(({ path }) => path).join(", ") || "(no sources)"}`);
+  }
+  return bodies.reduce((total, body) => total + countProviderReferences(body), 0);
 }
 
 function inspectDefaultHealth(health: any, failures: string[]) {
@@ -1552,11 +1574,16 @@ function initGitRepo(root: string) {
   runGit(root, ["-c", "user.email=context7-readback@example.invalid", "-c", "user.name=Context7 Readback", "commit", "-m", "init", "-q"]);
 }
 
-function methodBody(source: string, name: string): string {
-  const start = source.indexOf(`async ${name}(`);
-  if (start === -1) return "";
-  const candidates = ["\n  async ", "\n  private ", "\n  public "]
-    .map((marker) => source.indexOf(marker, start + 1))
+function methodBody(source: string, name: string): string | undefined {
+  const declaration = new RegExp(
+    `^([ \\t]*)(?:(?:export|public|private|protected|static|override)\\s+)*(?:async\\s+)?(?:function\\s*\\*?\\s*)?${name}\\s*\\(`,
+    "m"
+  ).exec(source);
+  if (!declaration) return undefined;
+  const start = declaration.index;
+  const indent = declaration[1];
+  const candidates = ["async ", "private ", "public ", "protected ", "static ", "export "]
+    .map((marker) => source.indexOf(`\n${indent}${marker}`, start + 1))
     .filter((index) => index !== -1);
   const next = candidates.length > 0 ? Math.min(...candidates) : -1;
   return source.slice(start, next === -1 ? source.length : next);

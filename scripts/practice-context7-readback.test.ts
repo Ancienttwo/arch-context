@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  countHardGateProviderReferences,
   inspectLivePracticeContext7Readback,
   inspectPracticeContext7Readback,
   verifiedLivePracticeContext7Fixture,
@@ -169,5 +170,52 @@ describe("practice-context7-readback", () => {
     expect(result.failures).toContain("assertions.exactVersionRecorded must be true");
     expect(result.failures).toContain("assertions.accuracyNotGuaranteed must be true");
     expect(result.failures).toContain("assertions.doesNotClaimEndToEndAuditable must be true");
+  });
+
+  test("hard-gate scan fails closed when a scanned method has no declaration", () => {
+    const facade = {
+      path: "runtime-daemon/src/index.ts",
+      source: "export class Daemon {\n  async prepare(root: string) {\n    return this.externalDocumentation.fetch(root);\n  }\n}\n"
+    };
+
+    expect(() => countHardGateProviderReferences([facade], "checkpoint")).toThrow("no declaration of method checkpoint");
+    expect(() => countHardGateProviderReferences([], "completeTask")).toThrow("no declaration of method completeTask");
+  });
+
+  test("hard-gate scan follows a method into the file that declares it", () => {
+    const facade = {
+      path: "runtime-daemon/src/index.ts",
+      source: [
+        "export class Daemon {",
+        "  async checkpoint(root: string, input: unknown) {",
+        "    return this.practice.checkpoint(root, input);",
+        "  }",
+        "",
+        "  private helper() {",
+        "    return this.externalDocumentation;",
+        "  }",
+        "}",
+        ""
+      ].join("\n")
+    };
+    const service = {
+      path: "runtime-daemon/src/practice-checkpoint.ts",
+      source: [
+        "export class PracticeCheckpointService {",
+        "  checkpoint(root: string, input: unknown) {",
+        "    return this.manualExternalDocumentation.fetch(root, input);",
+        "  }",
+        "",
+        "  async completeTask(root: string) {",
+        "    return root;",
+        "  }",
+        "}",
+        ""
+      ].join("\n")
+    };
+
+    expect(countHardGateProviderReferences([facade], "checkpoint")).toBe(0);
+    expect(countHardGateProviderReferences([facade, service], "checkpoint")).toBe(1);
+    expect(countHardGateProviderReferences([facade, service], "completeTask")).toBe(0);
   });
 });
