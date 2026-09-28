@@ -1,10 +1,11 @@
-import { lstatSync, readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import type { AcceptedCommittedChangeJournalV2, AcceptedCommittedChangePayloadV2, ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { assertPathHasNoSymlinkSegments, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
-import { classifyArchitectureMajorChange, loadNativeModelFromArchContext, type ArchitectureMajorChangeClassificationV1, type ArchitectureSemanticStateV1, type NativeModel } from "@archcontext/core/projection-engine";
-import { digestJson, type AcceptedArchitectureChangeReferenceV1, type ArchitectureEventV1, type ArchitectureRefreshSignalV1, type Json } from "@archcontext/contracts";
+import { classifyArchitectureMajorChange, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type ArchitectureSemanticStateV1, type NativeModel } from "@archcontext/core/projection-engine";
+import { digestJson, type AcceptedArchitectureChangeReferenceV1, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
 import { CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION, type ChangeSetModelTransitionV1, type CommittedChangeSetForTaskSession, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 
 /** Exactly the files `loadNativeModelFromArchContext` reads: direct YAML children of these directories. */
@@ -23,8 +24,8 @@ export interface ModelTransitionBase {
 
 /**
  * Captured under the writer lock before a ChangeSet touches any file. Returns undefined when the
- * draft writes no semantic model file or the current model cannot be loaded; either way the
- * journal simply carries no transition and can never be accepted later.
+ * draft writes no semantic model file or the current model cannot be read as one snapshot; either
+ * way the journal simply carries no transition and can never be accepted later.
  */
 export function captureModelTransitionBase(root: string, draft: ChangeSetDraft): ModelTransitionBase | undefined {
   const expectedWrites = new Map<string, string>();
@@ -40,7 +41,8 @@ export function captureModelTransitionBase(root: string, draft: ChangeSetDraft):
   }
   if (expectedWrites.size === 0) return undefined;
   try {
-    return { files: semanticModelFileHashes(root), before: digestJson(loadNativeModelFromArchContext(root) as unknown as Json), expectedWrites };
+    const snapshot = readSemanticModelSnapshot(root);
+    return { files: snapshot.hashes, before: snapshot.modelDigest, expectedWrites };
   } catch {
     return undefined;
   }
@@ -49,7 +51,9 @@ export function captureModelTransitionBase(root: string, draft: ChangeSetDraft):
 /**
  * Runs inside the pre-commit hook. The transition is recorded only when every semantic file the
  * draft did not write is byte-identical to the captured base and every file it wrote holds exactly
- * the operation body (or is absent for a delete). Evidence failure never alters the apply outcome.
+ * the operation body (or is absent for a delete). `after` is parsed from the same bytes that were
+ * hashed, so a concurrent edit can never reach the digest without failing the byte check.
+ * Evidence failure never alters the apply outcome.
  */
 export async function recordModelTransitionEvidence(
   store: Pick<RuntimeLocalStore, "recordChangeSetModelTransition">,
@@ -58,15 +62,15 @@ export async function recordModelTransitionEvidence(
   base: ModelTransitionBase
 ): Promise<boolean> {
   try {
-    const files = semanticModelFileHashes(root);
-    for (const path of new Set([...base.files.keys(), ...files.keys(), ...base.expectedWrites.keys()])) {
+    const snapshot = readSemanticModelSnapshot(root);
+    for (const path of new Set([...base.files.keys(), ...snapshot.hashes.keys(), ...base.expectedWrites.keys()])) {
       const expected = base.expectedWrites.get(path) ?? base.files.get(path) ?? "missing";
-      if ((files.get(path) ?? "missing") !== expected) return false;
+      if ((snapshot.hashes.get(path) ?? "missing") !== expected) return false;
     }
     const transition: ChangeSetModelTransitionV1 = {
       schemaVersion: CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION,
       before: base.before,
-      after: digestJson(loadNativeModelFromArchContext(root) as unknown as Json)
+      after: snapshot.modelDigest
     };
     await store.recordChangeSetModelTransition(journalId, transition);
     return true;
@@ -75,22 +79,41 @@ export async function recordModelTransitionEvidence(
   }
 }
 
-function semanticModelFileHashes(root: string): Map<string, string> {
-  const hashes = new Map<string, string>();
+/**
+ * Reads every semantic model file exactly once, then hashes and parses that one byte map. Any
+ * symlinked directory or non-regular entry (symlink, FIFO, directory) aborts the snapshot.
+ */
+function readSemanticModelSnapshot(root: string): { hashes: Map<string, string>; modelDigest: string } {
+  const bodies = new Map<string, string>();
   for (const directory of SEMANTIC_MODEL_DIRECTORIES) {
-    const absolute = resolve(root, ".archcontext/model", directory);
+    const relativeDirectory = `.archcontext/model/${directory}`;
+    const absolute = assertPathHasNoSymlinkSegments(root, relativeDirectory);
     let entries: string[];
     try {
+      if (!lstatSync(absolute).isDirectory()) throw new Error(`semantic-model-directory-invalid: ${relativeDirectory}`);
       entries = readdirSync(absolute);
     } catch (error) {
       if ((error as { code?: string }).code === "ENOENT") continue;
       throw error;
     }
     for (const entry of entries.filter((name) => /\.ya?ml$/.test(name)).sort()) {
-      hashes.set(`.archcontext/model/${directory}/${entry}`, digestJson({ body: readFileSync(resolve(absolute, entry), "utf8") } as unknown as Json));
+      bodies.set(`${relativeDirectory}/${entry}`, readRegularFile(resolve(absolute, entry), `${relativeDirectory}/${entry}`));
     }
   }
-  return hashes;
+  const hashes = new Map([...bodies].map(([path, body]) => [path, digestJson({ body } as unknown as Json)]));
+  return { hashes, modelDigest: digestJson(loadNativeModelFromModelFiles(bodies) as unknown as Json) };
+}
+
+function readRegularFile(absolute: string, path: string): string {
+  if (!lstatSync(absolute).isFile()) throw new Error(`semantic-model-entry-not-regular: ${path}`);
+  // O_NOFOLLOW/O_NONBLOCK close the lstat->open window: a swapped-in symlink fails, a FIFO never blocks.
+  const fd = openSync(absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
+  try {
+    if (!fstatSync(fd).isFile()) throw new Error(`semantic-model-entry-not-regular: ${path}`);
+    return readFileSync(fd, "utf8");
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export const ACCEPTED_COMMITTED_CHANGE_V2_SCHEMA_VERSION = "archcontext.accepted-committed-change/v2" as const;
@@ -222,8 +245,9 @@ export interface AcceptedNodeSets {
 }
 
 /**
- * Labels only. A written node file must be `nodes/<id>.yaml` for the id it declares; a deleted one
- * names its id by path, and that node must exist in the baseline and be gone now.
+ * Labels only. A written node file must be `nodes/<id>.yaml` (or `.yml`, which the loader also
+ * reads) for the id it declares; a deleted one names its id by path, and that node must exist in
+ * the baseline and be gone now.
  */
 export function labelAcceptedNodeSets(input: {
   lastWriters: readonly SemanticLastWriter[];
@@ -238,7 +262,7 @@ export function labelAcceptedNodeSets(input: {
   for (const writer of input.lastWriters) {
     if (!writer.path.startsWith(".archcontext/model/nodes/")) continue;
     if (writer.operation === "delete") {
-      const match = /^\.archcontext\/model\/nodes\/([^/]+)\.yaml$/.exec(writer.path);
+      const match = /^\.archcontext\/model\/nodes\/([^/]+)\.ya?ml$/.exec(writer.path);
       if (!match) throw new Error(`accepted-committed-change-node-path-nonstandard: ${writer.path}`);
       if (!baselineNodeIds.has(match[1]!) || input.currentNodeIds.has(match[1]!)) {
         throw new Error(`accepted-committed-change-deleted-node-unbound: ${match[1]}`);
@@ -247,7 +271,7 @@ export function labelAcceptedNodeSets(input: {
       continue;
     }
     const id = declaredId(input.writtenBodies.get(writer.path), writer.path);
-    if (writer.path !== `.archcontext/model/nodes/${id}.yaml`) throw new Error(`accepted-committed-change-node-path-nonstandard: ${writer.path}`);
+    if (writer.path !== `.archcontext/model/nodes/${id}.yaml` && writer.path !== `.archcontext/model/nodes/${id}.yml`) throw new Error(`accepted-committed-change-node-path-nonstandard: ${writer.path}`);
     direct.add(id);
   }
   const capabilityIds = new Set([...input.base.capabilities, ...input.resulting.capabilities].map((capability) => capability.capabilityId));
@@ -259,27 +283,57 @@ export function labelAcceptedNodeSets(input: {
   };
 }
 
+/** The recorded inputs, besides the model, that a capability's flow proof is computed from. */
+export interface ProofEvidenceDigests {
+  sourceTreeDigest: string;
+  codeGraphDigest: string;
+}
+
 /**
- * A capability whose semantic fingerprint held while its flow proof moved changed through
- * something the model does not declare (code evidence), unless a bound journal wrote its flow.
+ * A capability whose semantic fingerprint held while its flow proof moved is explained by the
+ * model (which the chain binds) only when the proof's other inputs, the declared source tree and
+ * the CodeGraph evidence, are the ones the baseline recorded. A journaled flow rewrite does not
+ * explain an evidence change.
  */
 export function assertProofChangesExplained(input: {
   base: ArchitectureSemanticStateV1;
   resulting: ArchitectureSemanticStateV1;
-  journaledFlowCapabilityIds: ReadonlySet<string>;
+  baselineEvidence: ProofEvidenceDigests | undefined;
+  currentEvidence: ProofEvidenceDigests;
 }): void {
+  const evidenceUnchanged = input.baselineEvidence !== undefined
+    && input.baselineEvidence.sourceTreeDigest === input.currentEvidence.sourceTreeDigest
+    && input.baselineEvidence.codeGraphDigest === input.currentEvidence.codeGraphDigest;
+  if (evidenceUnchanged) return;
   const baseById = new Map(input.base.capabilities.map((capability) => [capability.capabilityId, capability]));
   for (const capability of input.resulting.capabilities) {
     const before = baseById.get(capability.capabilityId);
     if (!before || before.semanticFingerprint !== capability.semanticFingerprint) continue;
-    if (before.flowProofFingerprint !== capability.flowProofFingerprint && !input.journaledFlowCapabilityIds.has(capability.capabilityId)) {
-      throw new Error(`accepted-committed-change-proof-change-unexplained: ${capability.capabilityId}`);
+    if (before.flowProofFingerprint !== capability.flowProofFingerprint) {
+      throw new Error(`accepted-committed-change-proof-change-unexplained: ${capability.capabilityId} proof moved while source or CodeGraph evidence changed since the baseline`);
     }
   }
 }
 
-export function acceptedCommittedChangeEventId(journalIds: readonly string[], baselineModelDigest: string, modelDigest: string): string {
-  return `architecture_event.changeset_accepted.${digestJson({ v: 2, journalIds, B: baselineModelDigest, C: modelDigest } as unknown as Json).slice(7, 31)}`;
+/** One event per (baseline, current model) at one ledger scope, whatever journal list proved it. */
+export function acceptedCommittedChangeEventId(baselineModelDigest: string, modelDigest: string, scope: ArchitectureLedgerScope): string {
+  return `architecture_event.changeset_accepted.${digestJson({ v: 2, B: baselineModelDigest, C: modelDigest, scope } as unknown as Json).slice(7, 31)}`;
+}
+
+/** Rebuilds the reference an earlier approval returned, from the stored event alone. */
+export function acceptedChangeFromEventV2(event: ArchitectureEventV1): { acceptancePlanId: string; acceptedChange: AcceptedArchitectureChangeReferenceV1 } | undefined {
+  const payload = (event.payload as { acceptedCommittedChange?: AcceptedCommittedChangePayloadV2 } | null)?.acceptedCommittedChange;
+  if (event.payloadVersion !== ACCEPTED_COMMITTED_CHANGE_V2_SCHEMA_VERSION || payload?.schemaVersion !== ACCEPTED_COMMITTED_CHANGE_V2_SCHEMA_VERSION
+    || !payload.journals?.[0]) return undefined;
+  return {
+    acceptancePlanId: payload.acceptancePlanId,
+    acceptedChange: {
+      changeSetId: payload.journals[0].changeSetId,
+      eventId: event.eventId,
+      reasonCodes: [...payload.reasonCodes] as AcceptedArchitectureChangeReferenceV1["reasonCodes"],
+      affectedNodeIds: [...payload.affectedNodeIds]
+    }
+  };
 }
 
 export interface CommittedChangeAcceptancePlanV1 extends AcceptedNodeSets {
@@ -290,6 +344,8 @@ export interface CommittedChangeAcceptancePlanV1 extends AcceptedNodeSets {
   reasonCodes: AcceptedArchitectureChangeReferenceV1["reasonCodes"];
   affectedNodeIds: string[];
   fileSetDigest: string;
+  /** How the projection manifest carrying the baseline was authenticated. */
+  baselineAnchor: "head" | "journal";
   projectionWorktreeDigest: string;
   headSha: string;
 }
@@ -315,18 +371,23 @@ export function planCommittedChangeAcceptance(root: string, input: {
   model: NativeModel;
   /** The projection's view of existing docs; the manifest's semantic baseline anchors the chain. */
   existingFiles: readonly { path: string; body: string }[];
+  /** `bodyHash` of the latest committed journal in this root that wrote the projection manifest. */
+  latestJournaledManifestHash: string | undefined;
   projection: {
     majorChange: ArchitectureMajorChangeClassificationV1;
     rejected: readonly unknown[];
-    refreshSignals: readonly ArchitectureRefreshSignalV1[];
     semanticState: ArchitectureSemanticStateV1;
     architectureDigests: { modelDigest: string };
   };
+  /** Freshly measured (never sticky) source-tree and CodeGraph evidence digests. */
+  currentEvidence: ProofEvidenceDigests;
   projectionWorktreeDigest: string;
-  headSha: string;
+  scope: ArchitectureLedgerScope;
 }): CommittedChangeAcceptance {
   const links = acceptedJournalLinks(input.requested, input.journals);
-  const baseline = projectionManifestBaseline(input.existingFiles.find((file) => file.path === PROJECTION_MANIFEST_PATH)?.body);
+  const manifestBody = input.existingFiles.find((file) => file.path === PROJECTION_MANIFEST_PATH)?.body;
+  const baselineAnchor = authenticateProjectionManifest(root, manifestBody, input.latestJournaledManifestHash);
+  const baseline = projectionManifestBaseline(manifestBody);
   const modelDigest = digestJson(input.model as unknown as Json);
   if (input.projection.architectureDigests.modelDigest !== modelDigest) throw new Error("accepted-committed-change-projection-model-mismatch");
   assertModelTransitionChain(baseline.modelDigest, modelDigest, links);
@@ -343,22 +404,12 @@ export function planCommittedChangeAcceptance(root: string, input: {
   if (majorChange.mode !== "human-action-required" || majorChange.reasonCodes.length === 0) {
     throw new Error(`accepted-committed-change-no-unresolved-major-change: ${majorChange.mode}`);
   }
-  if (input.projection.refreshSignals.length !== 1 || input.projection.refreshSignals[0]!.baseDigests.modelDigest !== baseline.modelDigest) {
-    throw new Error("accepted-committed-change-refresh-signal-baseline-mismatch");
-  }
   const observed = classifyArchitectureMajorChange({ base: baseline.semanticState, resulting: semanticState });
   if (!sameStrings(observed.reasonCodes, majorChange.reasonCodes) || !sameStrings(observed.affectedNodeIds, majorChange.affectedNodeIds)) {
     throw new Error("accepted-committed-change-observed-delta-mismatch");
   }
 
-  const journaledFlowCapabilityIds = new Set<string>();
-  for (const writer of lastWriters) {
-    if (writer.operation !== "write" || !writer.path.startsWith(".archcontext/model/flows/")) continue;
-    const flow = parseJsonOrStableYaml(writtenBodies.get(writer.path)!, writer.path);
-    const capabilityId = flow && typeof flow === "object" && !Array.isArray(flow) ? (flow as Record<string, Json>).capabilityId : undefined;
-    if (typeof capabilityId === "string") journaledFlowCapabilityIds.add(capabilityId);
-  }
-  assertProofChangesExplained({ base: baseline.semanticState, resulting: semanticState, journaledFlowCapabilityIds });
+  assertProofChangesExplained({ base: baseline.semanticState, resulting: semanticState, baselineEvidence: baseline.evidence, currentEvidence: input.currentEvidence });
 
   const nodeSets = labelAcceptedNodeSets({
     lastWriters,
@@ -377,12 +428,13 @@ export function planCommittedChangeAcceptance(root: string, input: {
     affectedNodeIds: [...majorChange.affectedNodeIds],
     ...nodeSets,
     fileSetDigest: digestJson(lastWriters as unknown as Json),
+    baselineAnchor,
     projectionWorktreeDigest: input.projectionWorktreeDigest,
-    headSha: input.headSha
+    headSha: input.scope.worktree.headSha
   };
   const acceptedChange: AcceptedArchitectureChangeReferenceV1 = {
     changeSetId: links[0]!.changeSetId,
-    eventId: acceptedCommittedChangeEventId(links.map((link) => link.journalId), baseline.modelDigest, modelDigest),
+    eventId: acceptedCommittedChangeEventId(baseline.modelDigest, modelDigest, input.scope),
     reasonCodes: [...majorChange.reasonCodes],
     affectedNodeIds: [...majorChange.affectedNodeIds]
   };
@@ -441,7 +493,25 @@ export function acceptedCommittedChangeEventV2(input: {
   } as ArchitectureEventV1;
 }
 
-function projectionManifestBaseline(body: string | undefined): { modelDigest: string; semanticState: ArchitectureSemanticStateV1 } {
+/**
+ * The manifest lives under `docs/architecture`, which the projection worktree digest ignores, so its
+ * bytes are trusted only when they are the committed HEAD copy or exactly what the latest journaled
+ * projection write produced in this root. A hand-edited baseline is refused.
+ */
+function authenticateProjectionManifest(root: string, body: string | undefined, latestJournaledHash: string | undefined): "head" | "journal" {
+  if (body === undefined) throw new Error("accepted-committed-change-baseline-missing: no projection manifest");
+  if (latestJournaledHash !== undefined && digestJson({ body } as unknown as Json) === latestJournaledHash) return "journal";
+  let headBody: string | undefined;
+  try {
+    headBody = execFileSync("git", ["cat-file", "blob", `HEAD:${PROJECTION_MANIFEST_PATH}`], { cwd: root, stdio: ["ignore", "pipe", "ignore"] }).toString("utf8");
+  } catch {
+    headBody = undefined;
+  }
+  if (headBody === body) return "head";
+  throw new Error(`accepted-committed-change-baseline-unanchored: ${PROJECTION_MANIFEST_PATH} matches neither HEAD nor the latest journaled projection write; commit it, or re-baseline with archctx docs apply --approved`);
+}
+
+function projectionManifestBaseline(body: string | undefined): { modelDigest: string; semanticState: ArchitectureSemanticStateV1; evidence: ProofEvidenceDigests | undefined } {
   if (body === undefined) throw new Error("accepted-committed-change-baseline-missing: no projection manifest");
   let parsed: unknown;
   try {
@@ -449,12 +519,30 @@ function projectionManifestBaseline(body: string | undefined): { modelDigest: st
   } catch {
     throw new Error("accepted-committed-change-baseline-missing: projection manifest is not JSON");
   }
-  const baseline = (parsed as { semanticBaseline?: { semanticState?: ArchitectureSemanticStateV1; digests?: { modelDigest?: unknown } } } | null)?.semanticBaseline;
+  const manifest = parsed as {
+    semanticBaseline?: { semanticState?: ArchitectureSemanticStateV1; digests?: { modelDigest?: unknown; flowProofDigest?: unknown } };
+    provenance?: { sourceTreeDigest?: unknown; codeGraphDigest?: unknown };
+  } | null;
+  const baseline = manifest?.semanticBaseline;
   const modelDigest = baseline?.digests?.modelDigest;
-  if (!baseline?.semanticState || typeof modelDigest !== "string" || !SHA256_DIGEST.test(modelDigest)) {
+  const state = baseline?.semanticState;
+  if (!state || !Array.isArray(state.capabilities) || typeof modelDigest !== "string" || !SHA256_DIGEST.test(modelDigest)) {
     throw new Error("accepted-committed-change-baseline-missing: projection manifest has no semantic baseline");
   }
-  return { modelDigest, semanticState: baseline.semanticState };
+  // The renderer writes digests.flowProofDigest = semanticState.flowProofFingerprint and both
+  // aggregates from the per-capability fingerprints; a baseline that disagrees with itself is refused.
+  const aggregate = (key: "semanticFingerprint" | "flowProofFingerprint") =>
+    digestJson(state.capabilities.map((capability) => ({ capabilityId: capability.capabilityId, [key]: capability[key] })) as unknown as Json);
+  if (baseline.digests?.flowProofDigest !== state.flowProofFingerprint
+    || state.flowProofFingerprint !== aggregate("flowProofFingerprint")
+    || state.semanticFingerprint !== aggregate("semanticFingerprint")) {
+    throw new Error("accepted-committed-change-baseline-inconsistent: semantic baseline digests do not match its capability fingerprints");
+  }
+  const provenance = manifest?.provenance;
+  const evidence = typeof provenance?.sourceTreeDigest === "string" && typeof provenance.codeGraphDigest === "string"
+    ? { sourceTreeDigest: provenance.sourceTreeDigest, codeGraphDigest: provenance.codeGraphDigest }
+    : undefined;
+  return { modelDigest, semanticState: state, evidence };
 }
 
 /** Rejects symlinked segments and re-proves every last writer's bytes; returns written bodies. */

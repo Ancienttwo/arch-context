@@ -1474,6 +1474,8 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined>;
   listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]>;
   readCommittedChangeSet(root: string, journalId: string): Promise<CommittedChangeSetForTaskSession | undefined>;
+  /** The most recently committed journal in this canonical root that wrote or deleted `path`. */
+  readLatestCommittedChangeSetFile(root: string, path: string): Promise<(CommittedChangeSetForTaskSessionFile & { journalId: string }) | undefined>;
   readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined>;
   consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
@@ -2311,6 +2313,24 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       files: committedChangeSetJournalFiles(String(row.files_json), journalId),
       ...(modelTransition ? { modelTransition } : {})
     };
+  }
+
+  async readLatestCommittedChangeSetFile(root: string, path: string): Promise<(CommittedChangeSetForTaskSessionFile & { journalId: string }) | undefined> {
+    const db = await this.database();
+    const canonicalRoot = canonicalRepositoryRoot(root);
+    // `instr` narrows by substring only; each candidate is still parsed and matched on exact path.
+    const rows = db.prepare(
+      `SELECT journal_id, root, files_json FROM changeset_journal
+        WHERE status = 'committed' AND instr(files_json, ?) > 0
+        ORDER BY completed_at DESC, journal_id DESC`
+    ).all(JSON.stringify(path));
+    for (const row of rows) {
+      if (canonicalRepositoryRoot(String(row.root)) !== canonicalRoot) continue;
+      const journalId = String(row.journal_id);
+      const file = committedChangeSetJournalFiles(String(row.files_json), journalId).find((entry) => entry.path === path);
+      if (file) return { ...file, journalId };
+    }
+    return undefined;
   }
 
   async readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined> {

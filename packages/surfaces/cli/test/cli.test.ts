@@ -293,6 +293,31 @@ test("CLI ledger accept-committed previews, approves, and drives an accepted pro
     });
     const shorthand = await cli("ledger", ["accept-committed", "--journal-id", journalId, "--changeset-id", "changeset.hook-adapters-summary"]);
     expect((shorthand.data as any).acceptancePlanId).toBe((preview.data as any).acceptancePlanId);
+
+    const docsPlan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
+    expect(docsPlan.ok, JSON.stringify(docsPlan)).toBe(true);
+    const projectionRequest = (acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined, requestId: string) => ({
+      schemaVersion: "archcontext.projection-request/v1",
+      requestId,
+      profile: "repo-harness/v1",
+      mode: "apply",
+      targets: ["agent-context", "architecture-docs"],
+      changedPaths: [nodePath],
+      ...(acceptedChange ? { acceptedChange } : {}),
+      expected: {
+        repositoryId: repositoryFingerprint(root),
+        workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+        headSha: gitOut(root, "rev-parse", "HEAD"),
+        worktreeDigest: (docsPlan.data as any).provenance.worktreeDigest
+      }
+    }) as ProjectionRequestV1;
+    // The preview is not an acceptance: nothing in it can drive an accepted projection run.
+    expect(Object.keys(preview.data as object).sort()).toEqual(["acceptancePlanId", "expectedWorktreeDigest", "plan", "status"]);
+    expect(JSON.stringify(preview.data)).not.toContain("architecture_event.");
+    const fromPreview = await cli("projection", ["run", "--request-json", JSON.stringify(projectionRequest((preview.data as any).acceptedChange, "projection_request.accept_committed_preview"))]);
+    expect(fromPreview.ok && (fromPreview.data as any).status === "applied", JSON.stringify(fromPreview)).toBe(false);
+    expect(((daemon as any).localStore.architectureEvents as unknown[]).length).toBe(0);
+
     const approved = await cli("ledger", [
       "accept-committed", "--journal", pair, "--approved",
       "--acceptance-plan-id", (preview.data as any).acceptancePlanId,
@@ -300,25 +325,9 @@ test("CLI ledger accept-committed previews, approves, and drives an accepted pro
     ]);
     expect(approved.ok, JSON.stringify(approved)).toBe(true);
     const acceptedChange = (approved.data as any).acceptedChange as AcceptedArchitectureChangeReferenceV1;
-    expect(acceptedChange).toEqual((preview.data as any).acceptedChange);
-
-    const docsPlan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
-    expect(docsPlan.ok, JSON.stringify(docsPlan)).toBe(true);
-    const request: ProjectionRequestV1 = {
-      schemaVersion: "archcontext.projection-request/v1",
-      requestId: "projection_request.accept_committed",
-      profile: "repo-harness/v1",
-      mode: "apply",
-      targets: ["agent-context", "architecture-docs"],
-      changedPaths: [nodePath],
-      acceptedChange,
-      expected: {
-        repositoryId: repositoryFingerprint(root),
-        workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
-        headSha: gitOut(root, "rev-parse", "HEAD"),
-        worktreeDigest: (docsPlan.data as any).provenance.worktreeDigest
-      }
-    };
+    expect(acceptedChange.eventId).toMatch(/^architecture_event\.changeset_accepted\./);
+    expect(((daemon as any).localStore.architectureEvents as unknown[]).length).toBe(1);
+    const request = projectionRequest(acceptedChange, "projection_request.accept_committed");
     const run = await cli("projection", ["run", "--request-json", JSON.stringify(request)]);
     expect(run.ok, JSON.stringify(run)).toBe(true);
     const result = run.data as unknown as ProjectionResultV2;

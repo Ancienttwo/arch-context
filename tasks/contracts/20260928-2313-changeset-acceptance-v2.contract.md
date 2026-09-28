@@ -109,6 +109,8 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 
 ## Allowed Paths
 
+`packages/core/projection-engine/{src,test}/` added 2026-09-29 (security review round 1): transition evidence must parse the exact bytes it hashes, which needs an in-memory NativeModel loader.
+
 ```yaml
 allowed_paths:
   - plans/
@@ -124,6 +126,8 @@ allowed_paths:
   - packages/core/architecture-ledger/test/
   - packages/core/changeset-engine/src/
   - packages/core/changeset-engine/test/
+  - packages/core/projection-engine/src/
+  - packages/core/projection-engine/test/
   - packages/surfaces/cli/src/
   - packages/surfaces/cli/test/
   - tests/

@@ -29,27 +29,31 @@ When `archctx docs drift` reports `majorChange.mode: human-action-required` afte
    archctx ledger accept-committed --journal <journalId>=<changeSetId> [--journal …]
    ```
    List the journals in commit order. One journal can also be passed as `--journal-id <id> --changeset-id <id>`. Leave out journals that wrote no semantic model file, such as waivers or docs.
+   The preview returns only `plan`, `acceptancePlanId` and `expectedWorktreeDigest`. It never returns an `acceptedChange` tuple, so nothing from a preview can drive a projection run.
 3. Review the plan before approving:
    - reason codes and affected node ids;
    - `directlyEditedNodeIds`, `affectedAncestorNodeIds` and `carriedNodeIds`;
-   - the journal chain from the projection manifest baseline to the current model.
+   - the journal chain from the projection manifest baseline to the current model;
+   - `baselineAnchor`: the manifest is trusted only when it is the committed HEAD copy (`head`) or exactly what the latest journaled projection write in this root produced (`journal`).
 4. Approve with the ids the preview returned:
    ```bash
    archctx ledger accept-committed --journal … --approved --acceptance-plan-id <acceptancePlanId> --expected-worktree-digest <expectedWorktreeDigest>
    ```
-   The daemon recomputes the plan under the writer lock. Any change since the preview, including a re-baseline of `docs/architecture`, changes the plan id and refuses the approval. The approval appends a record-only `architecture.changeset.accepted` event. The event carries payload `archcontext.accepted-committed-change/v2`, has `operations: []`, and does not change ledger graph authority.
+   The daemon recomputes the plan under the writer lock. Any change since the preview refuses the approval, because it changes the plan id. This includes a new HEAD commit and a re-baseline of `docs/architecture`. Only a successful approval returns the `acceptedChange` tuple. The approval appends a record-only `architecture.changeset.accepted` event. The event carries payload `archcontext.accepted-committed-change/v2`, has `operations: []`, and does not change ledger graph authority.
+   There is one event per baseline model, current model and ledger scope (repository, worktree, HEAD and worktree digest). Re-running an approval with the same `acceptancePlanId` returns the recorded tuple (`replayed: true`), for example after a crash past the append. A different journal list for the same models at the same snapshot is refused.
 5. Pass the returned `acceptedChange` tuple unchanged as `ProjectionRequestV1.acceptedChange` to `archctx projection run`. A successful run records the apply receipt and delivers one refresh signal. `archctx projection recover` with the same receipt then reports `already-delivered`.
 6. Run `archctx docs drift` again and confirm it is clean.
 
 Acceptance is refused when any of these is true:
 - the journal chain does not start at the manifest baseline or does not end at the current model;
 - a listed journal is pending, aborted, from another root, or out of order;
-- a node file is not stored as `nodes/<id>.yaml`;
+- the manifest matches neither HEAD nor the latest journaled projection write (commit it, or re-baseline with `archctx docs apply --approved`);
+- a node file is not stored as `nodes/<id>.yaml` or `nodes/<id>.yml`;
 - a path has a symlinked segment;
 - a capability proof is unprovable;
 - the projection has rejected (adoption or ownership) entries;
-- a flow proof changed without a journaled edit to that capability's flow;
-- an event already exists for the same snapshot.
+- a capability's flow proof changed while its semantic fingerprint did not, and the declared source tree or CodeGraph evidence recorded in the manifest provenance has also moved since the baseline;
+- a different acceptance event already exists for the same snapshot.
 
 In each case, fix the cause and preview again. A hand edit is fixed by reverting it, or by replaying it as a ChangeSet.
 

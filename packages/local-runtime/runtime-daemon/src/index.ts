@@ -27,7 +27,7 @@ import { RecommendationsService, recommendationArtifactsFromEvents, type Runtime
 export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./recommendations";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
-import { AcceptCommittedChangeInputError, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
+import { AcceptCommittedChangeInputError, acceptedChangeFromEventV2, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
 export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
 export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, recoverStaleDaemonControlFiles } from "./daemon-control";
 export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
@@ -73,7 +73,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type ArchitectureEventV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
@@ -1212,33 +1212,40 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(canonicalRoot, model);
         const projection = buildArchitectureDocsProjection(this.projectionHost(), canonicalRoot, new Date(0).toISOString(), "repo-harness/v1");
         const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest);
+        const manifestWrite = await this.localStore.readLatestCommittedChangeSetFile(canonicalRoot, "docs/architecture/.projection-manifest.json");
         const acceptance = planCommittedChangeAcceptance(canonicalRoot, {
-          requested: input.journals, journals, model, existingFiles: projection.loaded.existingFiles, projection: projection.plan,
-          projectionWorktreeDigest: worktreeDigest, headSha: scope.worktree.headSha
+          requested: input.journals, journals, model, existingFiles: projection.loaded.existingFiles, latestJournaledManifestHash: manifestWrite?.hash,
+          projection: projection.plan, currentEvidence: projection.snapshotProvenance, projectionWorktreeDigest: worktreeDigest, scope
         });
+        // The preview never carries the accepted-change tuple: only an appended event can issue it.
         if (!input.approved) {
-          return okEnvelope("ledger.accept-committed", { status: "preview", ...acceptance, expectedWorktreeDigest: worktreeDigest } as unknown as Json);
+          return okEnvelope("ledger.accept-committed", { status: "preview", plan: acceptance.plan, acceptancePlanId: acceptance.acceptancePlanId, expectedWorktreeDigest: worktreeDigest } as unknown as Json);
         }
         if (input.expectedWorktreeDigest !== worktreeDigest) throw new Error("accepted ChangeSet expected worktree digest mismatch");
         if (input.acceptancePlanId !== acceptance.acceptancePlanId) throw new Error("accepted ChangeSet acceptance plan changed since preview");
+        const accepted = (event: ArchitectureEventV1, replayed: boolean) => {
+          const recorded = acceptedChangeFromEventV2(event);
+          if (!recorded || !event.eventHash) throw new Error("committed ChangeSet acceptance readback failed");
+          return okEnvelope("ledger.accept-committed", {
+            status: "accepted", replayed, acceptedChange: recorded.acceptedChange, acceptancePlanId: recorded.acceptancePlanId,
+            journalIds: input.journals.map((journal) => journal.journalId), eventHash: event.eventHash, fileSetDigest: acceptance.plan.fileSetDigest
+          } as unknown as Json);
+        };
         const existing = await this.localStore.readArchitectureEvent({ ...scope, eventId: acceptance.acceptedChange.eventId });
-        if (existing) throw new Error(`committed ChangeSet already has an acceptance event at this snapshot: ${existing.eventId}`);
+        if (existing) {
+          // A retry of the same approved plan (for example after a crash past the append) gets the recorded tuple back.
+          if (acceptedChangeFromEventV2(existing)?.acceptancePlanId === acceptance.acceptancePlanId) return accepted(existing, true);
+          throw new Error(`committed ChangeSet already has a different acceptance event at this snapshot: ${existing.eventId}`);
+        }
         const ledgerGraphDigest = architectureLedgerStateDigest(await this.localStore.readArchitectureLedgerState(scope));
         const event = acceptedCommittedChangeEventV2({ acceptance, scope, ledgerGraphDigest, timestamp: this.clock() });
         const appended = await this.appendArchitectureEventsWithFeed(canonicalRoot, { writer: "runtime-daemon", events: [event] });
         if (appended.appendedEvents.length !== 1) throw new Error("committed ChangeSet acceptance event was not appended");
         const readback = await this.localStore.readArchitectureEvent({ ...scope, eventId: event.eventId });
-        if (!readback?.eventHash || readback.eventType !== event.eventType || readback.payloadVersion !== event.payloadVersion) {
+        if (!readback || readback.eventType !== event.eventType || readback.payloadVersion !== event.payloadVersion) {
           throw new Error("committed ChangeSet acceptance readback failed");
         }
-        return okEnvelope("ledger.accept-committed", {
-          status: "accepted",
-          acceptedChange: acceptance.acceptedChange,
-          acceptancePlanId: acceptance.acceptancePlanId,
-          journalIds: input.journals.map((journal) => journal.journalId),
-          eventHash: readback.eventHash,
-          fileSetDigest: acceptance.plan.fileSetDigest
-        } as unknown as Json);
+        return accepted(readback, false);
       } catch (error) {
         return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
       }

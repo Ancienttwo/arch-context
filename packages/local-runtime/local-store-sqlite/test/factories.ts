@@ -509,6 +509,20 @@ export class TestLocalStore implements RuntimeLocalStore {
     return found && record.modelTransition ? { ...found, modelTransition: { ...record.modelTransition } } : found;
   }
 
+  async readLatestCommittedChangeSetFile(root: string, path: string) {
+    const canonicalRoot = canonicalRepositoryRoot(root);
+    const candidates = [...this.changeSetJournals.entries()]
+      .filter(([, record]) => record.status === "committed" && canonicalRepositoryRoot(record.root) === canonicalRoot)
+      .sort(([leftId, left], [rightId, right]) => left.committedAt === right.committedAt
+        ? (leftId < rightId ? 1 : leftId > rightId ? -1 : 0)
+        : String(left.committedAt) < String(right.committedAt) ? 1 : -1);
+    for (const [journalId, record] of candidates) {
+      const file = record.files.filter((entry) => entry.path === path).at(-1);
+      if (file) return { path, operation: committedChangeSetFileOperation(file.operation, journalId, path), hash: file.bodyHash, journalId };
+    }
+    return undefined;
+  }
+
   async readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined> {
     return this.eventsForScope(input).find((event) => event.eventId === input.eventId);
   }

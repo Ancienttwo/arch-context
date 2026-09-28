@@ -4,14 +4,18 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, stableYaml, type Json } from "@archcontext/contracts";
-import type { ArchitectureSemanticStateV1 } from "@archcontext/core/projection-engine";
-import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import type { ArchitectureFlowV1 } from "@archcontext/contracts";
+import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, type ArchitectureSelectorEvidenceV1, type ArchitectureSemanticStateV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { SqliteLocalStore, type CommittedChangeSetForTaskSession } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
+import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
+import type { ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   acceptedJournalLinks,
+  captureModelTransitionBase,
+  recordModelTransitionEvidence,
   assertModelTransitionChain,
   assertProofChangesExplained,
   committedChangeAcceptancePlanId,
@@ -120,14 +124,68 @@ describe("committed change acceptance helpers", () => {
     }
   });
 
-  test("a proof-only change is accepted only when a bound journal wrote the capability's flow", () => {
+  test("a proof-only change is accepted only when the recorded source and CodeGraph evidence are unchanged", () => {
     const base = state(capability("capability.a", ["capability.a"], digest("5"), digest("6")));
     const proofOnly = state(capability("capability.a", ["capability.a"], digest("5"), digest("9")));
-    expect(() => assertProofChangesExplained({ base, resulting: proofOnly, journaledFlowCapabilityIds: new Set() }))
-      .toThrow(/proof-change-unexplained: capability.a/);
-    expect(() => assertProofChangesExplained({ base, resulting: proofOnly, journaledFlowCapabilityIds: new Set(["capability.a"]) })).not.toThrow();
+    const evidence = { sourceTreeDigest: digest("a"), codeGraphDigest: digest("b") };
+    expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence: { ...evidence } })).not.toThrow();
+    for (const currentEvidence of [{ ...evidence, sourceTreeDigest: digest("c") }, { ...evidence, codeGraphDigest: digest("c") }]) {
+      expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence }))
+        .toThrow(/proof-change-unexplained: capability.a/);
+    }
+    expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: undefined, currentEvidence: evidence }))
+      .toThrow(/proof-change-unexplained/);
     const semanticToo = state(capability("capability.a", ["capability.a"], digest("4"), digest("9")));
-    expect(() => assertProofChangesExplained({ base, resulting: semanticToo, journaledFlowCapabilityIds: new Set() })).not.toThrow();
+    expect(() => assertProofChangesExplained({ base, resulting: semanticToo, baselineEvidence: evidence, currentEvidence: { ...evidence, codeGraphDigest: digest("c") } })).not.toThrow();
+  });
+
+  test("renaming another capability's flow participant moves this capability's proof and is accepted when evidence held", () => {
+    const flow: ArchitectureFlowV1 = {
+      schemaVersion: "archcontext.flow/v1", id: "flow.a", capabilityId: "capability.a", name: "A flow", applicability: "required",
+      participants: [{ id: "hook", nodeId: "component.a-hook" }, { id: "journal", nodeId: "datastore.b-journal" }],
+      steps: [{ id: "persist", from: "hook", to: "journal", label: "Persist", evidence: { entrypointId: "entrypoint.a", sourceSymbol: "run", sinkId: "sink.a" } }],
+      outcomes: [
+        { id: "ok", kind: "success", label: "Stored", steps: [], terminal: { participant: "hook", label: "Done" } },
+        { id: "failed", kind: "error", label: "Failed", steps: [], terminal: { participant: "hook", label: "Retry" } }
+      ]
+    };
+    const evidence: ArchitectureSelectorEvidenceV1[] = [{
+      nodeId: "capability.a", entrypointId: "entrypoint.a", sourcePath: "src/a.ts", sourceSymbol: "run", sinkId: "sink.a",
+      sinkPath: "src/b.ts", sinkSymbol: "write", matched: true, truncated: false, callSites: [{ path: "src/a.ts", line: 1 }]
+    }];
+    const semanticState = (journalName: string) => {
+      const model = {
+        nodes: [
+          { schemaVersion: "archcontext.node/v2", id: "capability.a", kind: "capability", name: "A", status: "active",
+            source: { entrypoints: [{ id: "entrypoint.a", path: "src/a.ts", symbols: [{ name: "run", sinks: [{ id: "sink.a", path: "src/b.ts", symbol: "write" }] }] }] } },
+          { schemaVersion: "archcontext.node/v2", id: "component.a-hook", kind: "component", name: "Hook", status: "active", parent: "capability.a" },
+          { schemaVersion: "archcontext.node/v2", id: "capability.b", kind: "capability", name: "B", status: "active" },
+          { schemaVersion: "archcontext.node/v2", id: "datastore.b-journal", kind: "datastore", name: journalName, status: "active", parent: "capability.b" }
+        ],
+        relations: [
+          { id: "relation.hook-journal", kind: "writes", source: "component.a-hook", target: "datastore.b-journal", intent: "persists" },
+          { id: "relation.b-journal", kind: "owns", source: "capability.b", target: "datastore.b-journal", intent: "owns" }
+        ],
+        flows: [flow, { schemaVersion: "archcontext.flow/v1", id: "flow.b", capabilityId: "capability.b", name: "B flow", applicability: "not-applicable", rationale: "Fixture." }]
+      } as unknown as NativeModel;
+      const nodes = model.nodes.map((node) => ({ id: node.id, kind: node.kind, name: node.name, ...(node.parent ? { parent: node.parent } : {}), ...(node.source ? { source: node.source } : {}) })) as SemanticArchitectureNode[];
+      return compileArchitectureSemanticState({
+        model,
+        compilations: ["capability.a", "capability.b"].map((capabilityId) => compileSemanticCapabilityDiagrams({
+          capabilityId, nodes, relations: model.relations as SemanticArchitectureRelation[], flows: model.flows as ArchitectureFlowV1[], evidence
+        }))
+      });
+    };
+    const base = semanticState("Journal");
+    const resulting = semanticState("Event Journal");
+    const [baseA, resultA] = [base, resulting].map((entry) => entry.capabilities.find((capability) => capability.capabilityId === "capability.a")!);
+    expect(resultA!.proofStatus).toEqual({ p1: "proven", p2: "proven" });
+    expect(resultA!.semanticFingerprint).toBe(baseA!.semanticFingerprint);
+    expect(resultA!.flowProofFingerprint).not.toBe(baseA!.flowProofFingerprint);
+    const recorded = { sourceTreeDigest: digest("a"), codeGraphDigest: digest("b") };
+    expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded } })).not.toThrow();
+    expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded, codeGraphDigest: digest("c") } }))
+      .toThrow(/proof-change-unexplained: capability.a/);
   });
 
   test("a deleted node is named by its standard path, must exist in the baseline and be gone now", () => {
@@ -148,7 +206,15 @@ describe("committed change acceptance helpers", () => {
     });
     expect(() => label(".archcontext/model/nodes/component.gone.yaml", ["capability.a", "component.gone"])).toThrow(/deleted-node-unbound/);
     expect(() => label(".archcontext/model/nodes/component.gone.yaml", ["capability.a"], resulting)).toThrow(/deleted-node-unbound/);
-    expect(() => label(".archcontext/model/nodes/component.gone.yml", ["capability.a"])).toThrow(/node-path-nonstandard/);
+    expect(label(".archcontext/model/nodes/component.gone.yml", ["capability.a"]).directlyEditedNodeIds).toEqual(["component.gone"]);
+    expect(labelAcceptedNodeSets({
+      lastWriters: [write(".archcontext/model/nodes/component.real.yml")],
+      writtenBodies: new Map([[".archcontext/model/nodes/component.real.yml", "id: component.real\n"]]),
+      affectedNodeIds: ["capability.a", "component.real"],
+      base,
+      resulting,
+      currentNodeIds: new Set(["capability.a", "component.real"])
+    }).directlyEditedNodeIds).toEqual(["component.real"]);
     expect(() => labelAcceptedNodeSets({
       lastWriters: [write(".archcontext/model/nodes/misnamed.yaml")],
       writtenBodies: new Map([[".archcontext/model/nodes/misnamed.yaml", "id: component.real\n"]]),
@@ -171,6 +237,7 @@ describe("committed change acceptance helpers", () => {
       affectedAncestorNodeIds: ["capability.a"],
       carriedNodeIds: [],
       fileSetDigest: digest("3"),
+      baselineAnchor: "journal",
       projectionWorktreeDigest: digest("4"),
       headSha: "a".repeat(40)
     });
@@ -201,11 +268,18 @@ describe("committed change acceptance helpers", () => {
 
 const CAPABILITY_A = "capability.runtime-harness.hook-adapters";
 const CAPABILITY_B = "capability.runtime-harness.session-store";
+const MANIFEST = "docs/architecture/.projection-manifest.json";
 
 interface Fixture {
   root: string;
   store: SqliteLocalStore;
   daemon: Awaited<ReturnType<typeof createStartedDaemon>>;
+}
+
+interface FixtureOptions {
+  rolloutMode?: "yaml" | "dual";
+  /** Declared source for capability A, so its footprint (and the recorded source-tree evidence) can move. */
+  capabilityASource?: boolean;
 }
 
 function writeYaml(root: string, path: string, value: Record<string, Json>): void {
@@ -221,7 +295,7 @@ function nodeBody(id: string, fields: Record<string, Json> = {}): string {
   return stableYaml({ schemaVersion: "archcontext.node/v2", id, kind: "component", name: id, status: "active", ...fields });
 }
 
-function createAcceptanceRepo(): string {
+function createAcceptanceRepo(options: FixtureOptions = {}): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-accept-v2-"));
   writeFileSync(join(root, "README.md"), "# acceptance fixture\n", "utf8");
   initializeArchContextModel(root, "Acceptance Fixture");
@@ -229,7 +303,8 @@ function createAcceptanceRepo(): string {
   for (const [id, slug] of [[CAPABILITY_A, "hook-adapters"], [CAPABILITY_B, "session-store"]] as const) {
     writeYaml(root, nodePath(id), {
       schemaVersion: "archcontext.node/v2", id, kind: "capability", name: slug, status: "active", summary: `Owns ${slug}.`,
-      extensions: { contractFiles: { agents: `packages/${slug}/AGENTS.md`, claude: `packages/${slug}/CLAUDE.md` } }
+      extensions: { contractFiles: { agents: `packages/${slug}/AGENTS.md`, claude: `packages/${slug}/CLAUDE.md` } },
+      ...(options.capabilityASource && id === CAPABILITY_A ? { source: { include: ["README.md"] } } : {})
     });
     writeYaml(root, `.archcontext/model/relations/relation.${slug}.yaml`, {
       schemaVersion: "archcontext.relation/v1", id: `relation.${slug}`, kind: "writes", source: id, target: id, intent: `Persist ${slug} state`
@@ -257,8 +332,7 @@ async function baseline(fixture: Fixture): Promise<void> {
   expect(applied.ok, JSON.stringify(applied)).toBe(true);
 }
 
-async function withFixture(run: (fixture: Fixture) => Promise<void>, options: { rolloutMode?: "yaml" | "dual" } = {}): Promise<void> {
-  const root = createAcceptanceRepo();
+async function startDaemon(options: FixtureOptions = {}) {
   const store = new SqliteLocalStore(join(mkdtempSync(join(STATE_ROOT, "store-")), "local-store.sqlite"));
   const daemon = await createStartedDaemon({
     localStore: store,
@@ -266,6 +340,12 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>, options: { 
     codeGraphProviderFactory: () => new MockCodeGraphProvider(),
     ...(options.rolloutMode ? { architectureLedger: { rolloutMode: options.rolloutMode } } : {})
   });
+  return { store, daemon };
+}
+
+async function withFixture(run: (fixture: Fixture) => Promise<void>, options: FixtureOptions = {}): Promise<void> {
+  const root = createAcceptanceRepo(options);
+  const { store, daemon } = await startDaemon(options);
   const fixture = { root, store, daemon };
   try {
     await baseline(fixture);
@@ -284,7 +364,9 @@ function currentHash(root: string, path: string): string {
   }
 }
 
-async function change(fixture: Fixture, id: string, operations: { op: "create_entity" | "update_entity_fields" | "delete_entity"; path: string; body?: string }[], root = fixture.root): Promise<{ journalId: string; changeSetId: string }> {
+type Operation = { op: "create_entity" | "update_entity_fields" | "delete_entity"; path: string; body?: string };
+
+async function change(fixture: Pick<Fixture, "daemon" | "root">, id: string, operations: Operation[], root = fixture.root): Promise<{ journalId: string; changeSetId: string }> {
   const plan = await fixture.daemon.planUpdate(root, {
     id,
     operations: operations.map((operation) => ({ ...operation, expectedHash: currentHash(root, operation.path) }))
@@ -295,18 +377,27 @@ async function change(fixture: Fixture, id: string, operations: { op: "create_en
   return { journalId: (applied.data as any).journalId, changeSetId: id };
 }
 
-function editNode(root: string, id: string, fields: Record<string, Json>) {
-  return { op: "update_entity_fields" as const, path: nodePath(id), body: nodeBody(id, { ...nodeFields(root, id), ...fields }) };
+function editNode(root: string, id: string, fields: Record<string, Json>): Operation {
+  const { schemaVersion: _schemaVersion, id: _id, name, status, kind, ...rest } = loadNativeModelFromArchContext(root).nodes.find((node) => node.id === id)! as unknown as Record<string, Json>;
+  return { op: "update_entity_fields", path: nodePath(id), body: stableYaml({ schemaVersion: "archcontext.node/v2", id, kind, name, status, ...rest, ...fields }) };
 }
 
-function nodeFields(root: string, id: string): Record<string, Json> {
-  const model = loadNativeModelFromArchContext(root);
-  const { schemaVersion: _schemaVersion, id: _id, kind: _kind, name: _name, status: _status, ...rest } = model.nodes.find((node) => node.id === id)! as unknown as Record<string, Json>;
-  return rest;
+/** Rewrites a model file with different bytes but the same parsed content: a semantic no-op journal. */
+function noopRewrite(root: string, path: string): Operation {
+  const current = readFileSync(join(root, path), "utf8");
+  return { op: "update_entity_fields", path, body: `${JSON.stringify(parseJsonOrStableYaml(current, path), null, 2)}\n` };
 }
+
+const addComponent = (id = "component.added"): Operation => ({ op: "create_entity", path: nodePath(id), body: nodeBody(id, { parent: CAPABILITY_B }) });
 
 async function preview(fixture: Fixture, journals: { journalId: string; changeSetId: string }[]) {
   return fixture.daemon.acceptCommittedChange(fixture.root, { journals });
+}
+
+async function approve(fixture: Fixture, journals: { journalId: string; changeSetId: string }[], previewed: any, overrides: Record<string, string> = {}) {
+  return fixture.daemon.acceptCommittedChange(fixture.root, {
+    journals, approved: true, acceptancePlanId: previewed.acceptancePlanId, expectedWorktreeDigest: previewed.expectedWorktreeDigest, ...overrides
+  });
 }
 
 async function accept(fixture: Fixture, journals: { journalId: string; changeSetId: string }[]) {
@@ -314,13 +405,10 @@ async function accept(fixture: Fixture, journals: { journalId: string; changeSet
   expect(previewed.ok, JSON.stringify(previewed)).toBe(true);
   const data = previewed.data as any;
   expect(data.status).toBe("preview");
-  const approved = await fixture.daemon.acceptCommittedChange(fixture.root, {
-    journals,
-    approved: true,
-    acceptancePlanId: data.acceptancePlanId,
-    expectedWorktreeDigest: data.expectedWorktreeDigest
-  });
-  return { preview: data, approved };
+  // The preview is not an acceptance: it must not carry anything a projection run could consume.
+  expect(Object.keys(data).sort()).toEqual(["acceptancePlanId", "expectedWorktreeDigest", "plan", "status"]);
+  expect(JSON.stringify(data)).not.toContain("architecture_event.");
+  return { preview: data, approved: await approve(fixture, journals, data) };
 }
 
 async function expectRefused(fixture: Fixture, journals: { journalId: string; changeSetId: string }[], message: RegExp) {
@@ -330,33 +418,41 @@ async function expectRefused(fixture: Fixture, journals: { journalId: string; ch
   expect((previewed as any).error.message).toMatch(message);
 }
 
-async function acceptedEvent(fixture: Fixture, eventId: string) {
-  const rows = (fixture.store as any).requireOpenDatabase().prepare("SELECT event_json FROM architecture_events WHERE event_id LIKE ?").all(`%:${eventId}`) as { event_json: string }[];
+function acceptedEvents(fixture: Fixture) {
+  const rows = (fixture.store as any).requireOpenDatabase().prepare("SELECT event_json FROM architecture_events WHERE event_type = ?").all("architecture.changeset.accepted") as { event_json: string }[];
   return rows.map((row) => JSON.parse(row.event_json));
 }
 
 describe("committed change acceptance v2", () => {
-  test("accepts a node addition and records a record-only v2 event", async () => {
+  test("accepts a node addition; only the approval issues the tuple, backed by a record-only v2 event", async () => {
     await withFixture(async (fixture) => {
       const added = await change(fixture, "changeset.add-component", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B, summary: "Added." }) }]);
+      expect(acceptedEvents(fixture)).toHaveLength(0);
       const { preview: planned, approved } = await accept(fixture, [added]);
+      expect(acceptedEvents(fixture)).toHaveLength(1);
       expect(approved.ok, JSON.stringify(approved)).toBe(true);
       expect(planned.plan).toMatchObject({
         schemaVersion: "archcontext.accepted-committed-change-plan/v1",
         affectedNodeIds: [CAPABILITY_B, "component.added"],
         directlyEditedNodeIds: ["component.added"],
         affectedAncestorNodeIds: [CAPABILITY_B],
-        carriedNodeIds: []
+        carriedNodeIds: [],
+        baselineAnchor: "journal"
       });
       expect(planned.plan.reasonCodes).toContain("node-added");
       expect(planned.plan.baselineModelDigest).toBe(planned.plan.journals[0].before);
       expect(planned.plan.modelDigest).toBe(digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json));
       const data = approved.data as any;
-      expect(data).toMatchObject({ status: "accepted", acceptedChange: planned.acceptedChange, acceptancePlanId: planned.acceptancePlanId, journalIds: [added.journalId] });
-      expect(data.acceptedChange.eventId).toMatch(/^architecture_event\.changeset_accepted\.[a-f0-9]{24}$/);
-      const [event] = await acceptedEvent(fixture, data.acceptedChange.eventId);
+      expect(data).toMatchObject({ status: "accepted", replayed: false, acceptancePlanId: planned.acceptancePlanId, journalIds: [added.journalId] });
+      expect(data.acceptedChange).toEqual({
+        changeSetId: "changeset.add-component",
+        eventId: expect.stringMatching(/^architecture_event\.changeset_accepted\.[a-f0-9]{24}$/),
+        reasonCodes: planned.plan.reasonCodes,
+        affectedNodeIds: planned.plan.affectedNodeIds
+      });
+      const [event] = acceptedEvents(fixture);
       expect(event).toMatchObject({
-        eventType: "architecture.changeset.accepted",
+        eventId: data.acceptedChange.eventId,
         payloadVersion: "archcontext.accepted-committed-change/v2",
         payload: {
           operations: [],
@@ -393,7 +489,7 @@ describe("committed change acceptance v2", () => {
 
   test("accepts a main journal plus a follow-up, with a waiver journal in between", async () => {
     await withFixture(async (fixture) => {
-      const main = await change(fixture, "changeset.main", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
+      const main = await change(fixture, "changeset.main", [addComponent()]);
       const waiver = await fixture.daemon.planPracticeWaiver(fixture.root, {
         id: "changeset.waiver",
         waiverId: "accept-waiver",
@@ -419,7 +515,7 @@ describe("committed change acceptance v2", () => {
       expect(approved.ok, JSON.stringify(approved)).toBe(true);
       expect(planned.plan.journals.map((entry: any) => entry.journalId)).toEqual([main.journalId, followUp.journalId]);
       expect(planned.plan.journals[0].after).toBe(planned.plan.journals[1].before);
-      expect(planned.acceptedChange.changeSetId).toBe("changeset.main");
+      expect((approved.data as any).acceptedChange.changeSetId).toBe("changeset.main");
     });
   }, TIMEOUT);
 
@@ -447,52 +543,73 @@ describe("committed change acceptance v2", () => {
     });
   }, TIMEOUT);
 
-  test("the same transition at a new HEAD gets the same event id in a new scope, and a replay at the same snapshot is refused", async () => {
+  test("accepts a node stored as nodes/<id>.yml, which the model loader reads", async () => {
     await withFixture(async (fixture) => {
-      const added = await change(fixture, "changeset.add", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
+      const added = await change(fixture, "changeset.yml", [{ op: "create_entity", path: ".archcontext/model/nodes/component.yml-node.yml", body: nodeBody("component.yml-node", { parent: CAPABILITY_B }) }]);
+      const { preview: planned, approved } = await accept(fixture, [added]);
+      expect(approved.ok, JSON.stringify(approved)).toBe(true);
+      expect(planned.plan.directlyEditedNodeIds).toEqual(["component.yml-node"]);
+    });
+  }, TIMEOUT);
+
+  test("one event per baseline and model at a snapshot: a same-plan retry returns it, a padded journal list is refused", async () => {
+    await withFixture(async (fixture) => {
+      const added = await change(fixture, "changeset.add", [addComponent()]);
+      const noop = await change(fixture, "changeset.noop", [noopRewrite(fixture.root, nodePath("component.child"))]);
+      const noopJournal = await fixture.store.readCommittedChangeSet(fixture.root, noop.journalId);
+      expect(noopJournal?.modelTransition?.before).toBe(noopJournal?.modelTransition?.after);
+
       const first = await accept(fixture, [added]);
       expect(first.approved.ok, JSON.stringify(first.approved)).toBe(true);
-      const replay = await fixture.daemon.acceptCommittedChange(fixture.root, {
-        journals: [added], approved: true, acceptancePlanId: first.preview.acceptancePlanId, expectedWorktreeDigest: first.preview.expectedWorktreeDigest
-      });
-      expect(replay.ok).toBe(false);
-      expect((replay as any).error.message).toMatch(/already has an acceptance event at this snapshot/);
+      const retry = await approve(fixture, [added], first.preview);
+      expect(retry.ok, JSON.stringify(retry)).toBe(true);
+      expect(retry.data).toMatchObject({ status: "accepted", replayed: true, acceptedChange: (first.approved.data as any).acceptedChange, eventHash: (first.approved.data as any).eventHash });
+
+      // No-op semantic journals remain valid links, but cannot mint a second event for the same (B, C).
+      const padded = await preview(fixture, [added, noop]);
+      expect(padded.ok, JSON.stringify(padded)).toBe(true);
+      expect((padded.data as any).acceptancePlanId).not.toBe(first.preview.acceptancePlanId);
+      const paddedApproval = await approve(fixture, [added, noop], padded.data);
+      expect(paddedApproval.ok).toBe(false);
+      expect((paddedApproval as any).error.message).toMatch(/already has a different acceptance event at this snapshot/);
+      expect(acceptedEvents(fixture)).toHaveLength(1);
 
       commitAll(fixture.root, "commit accepted change");
-      const second = await accept(fixture, [added]);
+      const second = await accept(fixture, [added, noop]);
       expect(second.approved.ok, JSON.stringify(second.approved)).toBe(true);
-      expect((second.approved.data as any).acceptedChange.eventId).toBe((first.approved.data as any).acceptedChange.eventId);
       expect(second.preview.plan.headSha).not.toBe(first.preview.plan.headSha);
-      expect(await acceptedEvent(fixture, (first.approved.data as any).acceptedChange.eventId)).toHaveLength(2);
+      expect((second.approved.data as any).acceptedChange.eventId).not.toBe((first.approved.data as any).acceptedChange.eventId);
+      expect(acceptedEvents(fixture)).toHaveLength(2);
     });
   }, TIMEOUT);
 
   test("hand edits before, between or after the journals break the chain", async () => {
     await withFixture(async (fixture) => {
       writeFileSync(join(fixture.root, nodePath("component.child")), nodeBody("component.child", { parent: "component.container", summary: "Hand edit." }), "utf8");
-      const afterHandEdit = await change(fixture, "changeset.after-hand-edit", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
+      const afterHandEdit = await change(fixture, "changeset.after-hand-edit", [addComponent()]);
       await expectRefused(fixture, [afterHandEdit], /chain-baseline-mismatch/);
     });
     await withFixture(async (fixture) => {
-      const first = await change(fixture, "changeset.first", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
+      const first = await change(fixture, "changeset.first", [addComponent()]);
       writeFileSync(join(fixture.root, nodePath("component.child")), nodeBody("component.child", { parent: "component.container", summary: "Hand edit." }), "utf8");
       const second = await change(fixture, "changeset.second", [editNode(fixture.root, "component.added", { summary: "Second." })]);
       await expectRefused(fixture, [first, second], /chain-gap/);
-      writeFileSync(join(fixture.root, nodePath("component.added")), nodeBody("component.added", { parent: CAPABILITY_B, summary: "Trailing hand edit." }), "utf8");
-      await expectRefused(fixture, [first, second], /chain-gap|chain-current-mismatch/);
     });
     await withFixture(async (fixture) => {
-      const only = await change(fixture, "changeset.only", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
-      writeFileSync(join(fixture.root, nodePath("component.child")), nodeBody("component.child", { parent: "component.container", summary: "Hand edit." }), "utf8");
-      await expectRefused(fixture, [only], /chain-current-mismatch/);
+      const first = await change(fixture, "changeset.first", [addComponent()]);
+      const second = await change(fixture, "changeset.second", [editNode(fixture.root, "component.added", { summary: "Second." })]);
+      const unbroken = await preview(fixture, [first, second]);
+      expect(unbroken.ok, JSON.stringify(unbroken)).toBe(true);
+      writeFileSync(join(fixture.root, nodePath("component.added")), nodeBody("component.added", { parent: CAPABILITY_B, summary: "Trailing hand edit." }), "utf8");
+      await expectRefused(fixture, [first, second], /chain-current-mismatch/);
     });
   }, TIMEOUT * 3);
 
   test("refuses journals from before the baseline, other roots, pending, aborted, mismatched, out of order or without transitions", async () => {
     await withFixture(async (fixture) => {
-      const early = await change(fixture, "changeset.early", [{ op: "create_entity", path: nodePath("component.early"), body: nodeBody("component.early", { parent: CAPABILITY_B }) }]);
+      const early = await change(fixture, "changeset.early", [addComponent("component.early")]);
       await baseline(fixture);
-      const later = await change(fixture, "changeset.later", [{ op: "create_entity", path: nodePath("component.later"), body: nodeBody("component.later", { parent: CAPABILITY_B }) }]);
+      const later = await change(fixture, "changeset.later", [addComponent("component.later")]);
       await expectRefused(fixture, [early, later], /chain-baseline-mismatch/);
       await new Promise((resolveSleep) => setTimeout(resolveSleep, 5));
       const latest = await change(fixture, "changeset.latest", [editNode(fixture.root, "component.later", { summary: "Latest." })]);
@@ -501,7 +618,7 @@ describe("committed change acceptance v2", () => {
 
       const otherRoot = createAcceptanceRepo();
       try {
-        const foreign = await change(fixture, "changeset.foreign", [{ op: "create_entity", path: nodePath("component.foreign"), body: nodeBody("component.foreign", { parent: CAPABILITY_B }) }], otherRoot);
+        const foreign = await change(fixture, "changeset.foreign", [addComponent("component.foreign")], otherRoot);
         await expectRefused(fixture, [foreign], /journal-not-committed/);
       } finally {
         rmSync(otherRoot, { recursive: true, force: true });
@@ -537,7 +654,7 @@ describe("committed change acceptance v2", () => {
       await expectRefused(fixture, [misnamed], /node-path-nonstandard/);
     });
     await withFixture(async (fixture) => {
-      const added = await change(fixture, "changeset.add", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
+      const added = await change(fixture, "changeset.add", [addComponent()]);
       const outside = mkdtempSync(join(tmpdir(), "archctx-accept-v2-link-"));
       try {
         const target = join(outside, "component.added.yaml");
@@ -554,42 +671,184 @@ describe("committed change acceptance v2", () => {
       await expectRefused(fixture, [unprovable], /proof-unprovable/);
     });
     await withFixture(async (fixture) => {
-      const added = await change(fixture, "changeset.add", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
+      const added = await change(fixture, "changeset.add", [addComponent()]);
       writeFileSync(join(fixture.root, "docs/architecture/modules/runtime-harness/session-store.md"), "# hand written\n", "utf8");
       await expectRefused(fixture, [added], /projection-rejected/);
     });
   }, TIMEOUT * 4);
 
-  test("approval must match the previewed worktree digest and plan id; a re-baseline invalidates the preview", async () => {
+  test("the chain anchor must be the committed or latest journaled projection manifest", async () => {
+    // Probe P2: a hand edit rides a journal once the manifest's baseline digest is forged to match it.
     await withFixture(async (fixture) => {
-      const added = await change(fixture, "changeset.add", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
+      writeFileSync(join(fixture.root, nodePath("component.child")), nodeBody("component.child", { parent: "component.container", summary: "HAND EDIT NOT JOURNALED." }), "utf8");
+      const handDigest = digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json);
+      const journaled = await change(fixture, "changeset.after-hand", [addComponent()]);
+      await expectRefused(fixture, [journaled], /chain-baseline-mismatch/);
+      const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
+      manifest.semanticBaseline.digests.modelDigest = handDigest;
+      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+      await expectRefused(fixture, [journaled], /baseline-unanchored/);
+      expect(acceptedEvents(fixture)).toHaveLength(0);
+    });
+    // Restoring an older journaled baseline by hand is not the latest journaled write either.
+    await withFixture(async (fixture) => {
+      const olderManifest = readFileSync(join(fixture.root, MANIFEST), "utf8");
+      const first = await change(fixture, "changeset.first", [addComponent("component.first")]);
+      await baseline(fixture);
+      writeFileSync(join(fixture.root, MANIFEST), olderManifest, "utf8");
+      await expectRefused(fixture, [first], /baseline-unanchored/);
+    });
+    // A committed manifest anchors the chain for a store that never journaled it.
+    const root = createAcceptanceRepo();
+    const seeded = await startDaemon();
+    try {
+      await baseline({ root, ...seeded });
+      commitAll(root, "baseline projection");
+    } finally {
+      await seeded.daemon.stop();
+    }
+    const fresh = await startDaemon();
+    const fixture = { root, ...fresh };
+    try {
+      expect(await fresh.store.readLatestCommittedChangeSetFile(root, MANIFEST)).toBeUndefined();
+      const added = await change(fixture, "changeset.add", [addComponent()]);
+      const { preview: planned, approved } = await accept(fixture, [added]);
+      expect(approved.ok, JSON.stringify(approved)).toBe(true);
+      expect(planned.plan.baselineAnchor).toBe("head");
+    } finally {
+      await fresh.daemon.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, TIMEOUT * 3);
+
+  test("a proof-only model change is accepted while evidence holds, and refused once source evidence moved", async () => {
+    const toModule = (root: string) => editNode(root, "component.child", { kind: "module" });
+    await withFixture(async (fixture) => {
+      const kind = await change(fixture, "changeset.kind", [toModule(fixture.root)]);
+      const { preview: planned, approved } = await accept(fixture, [kind]);
+      expect(approved.ok, JSON.stringify(approved)).toBe(true);
+      expect(planned.plan).toMatchObject({ reasonCodes: ["verified-flow-proof-changed"], affectedNodeIds: [CAPABILITY_A], directlyEditedNodeIds: ["component.child"] });
+    }, { capabilityASource: true });
+    await withFixture(async (fixture) => {
+      const kind = await change(fixture, "changeset.kind", [toModule(fixture.root)]);
+      writeFileSync(join(fixture.root, "README.md"), "# acceptance fixture, source changed\n", "utf8");
+      await expectRefused(fixture, [kind], new RegExp(`proof-change-unexplained: ${CAPABILITY_A}`));
+      // A journaled rewrite of the capability's flow no longer explains an evidence change.
+      const flowPath = ".archcontext/model/flows/flow.hook-adapters.yaml";
+      const flowRewrite = await change(fixture, "changeset.flow-noop", [noopRewrite(fixture.root, flowPath)]);
+      await expectRefused(fixture, [kind, flowRewrite], new RegExp(`proof-change-unexplained: ${CAPABILITY_A}`));
+    }, { capabilityASource: true });
+  }, TIMEOUT * 2);
+
+  test("approval must match the previewed worktree digest and plan id; HEAD or baseline moves invalidate the preview", async () => {
+    await withFixture(async (fixture) => {
+      const added = await change(fixture, "changeset.add", [addComponent()]);
       const previewed = (await preview(fixture, [added])).data as any;
       expect(previewed.expectedWorktreeDigest).toBe(architectureDocumentationProjectionWorktreeDigest(fixture.root, loadNativeModelFromArchContext(fixture.root)));
-      const approve = (overrides: Record<string, string>) => fixture.daemon.acceptCommittedChange(fixture.root, {
-        journals: [added], approved: true, acceptancePlanId: previewed.acceptancePlanId, expectedWorktreeDigest: previewed.expectedWorktreeDigest, ...overrides
-      });
-      expect(((await approve({ expectedWorktreeDigest: digest("d") })) as any).error.message).toMatch(/expected worktree digest mismatch/);
-      expect(((await approve({ acceptancePlanId: digest("e") })) as any).error.message).toMatch(/acceptance plan changed since preview/);
+      expect(((await approve(fixture, [added], previewed, { expectedWorktreeDigest: digest("d") })) as any).error.message).toMatch(/expected worktree digest mismatch/);
+      expect(((await approve(fixture, [added], previewed, { acceptancePlanId: digest("e") })) as any).error.message).toMatch(/acceptance plan changed since preview/);
+
+      // HEAD is covered by the plan but not by the chain or the worktree digest.
+      commitAll(fixture.root, "move HEAD after preview");
+      const afterCommit = await approve(fixture, [added], previewed);
+      expect(afterCommit.ok).toBe(false);
+      expect((afterCommit as any).error.message).toMatch(/acceptance plan changed since preview/);
+
+      const current = (await preview(fixture, [added])).data as any;
       await baseline(fixture);
-      const stale = await approve({});
+      const stale = await approve(fixture, [added], current);
       expect(stale.ok).toBe(false);
       expect((stale as any).error.message).toMatch(/chain-baseline-mismatch|acceptance plan changed/);
-      expect(await acceptedEvent(fixture, previewed.acceptedChange.eventId)).toHaveLength(0);
+      expect(acceptedEvents(fixture)).toHaveLength(0);
     });
   }, TIMEOUT);
 
   test("refuses non-YAML ledger modes and the retired request shape", async () => {
     await withFixture(async (fixture) => {
-      const added = await change(fixture, "changeset.add", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
+      const added = await change(fixture, "changeset.add", [addComponent()]);
       const refused = await fixture.daemon.acceptCommittedChange(fixture.root, { journals: [added] });
       expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED", message: expect.stringMatching(/YAML read and write authority/) });
     }, { rolloutMode: "dual" });
     await withFixture(async (fixture) => {
-      const added = await change(fixture, "changeset.add", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B }) }]);
+      const added = await change(fixture, "changeset.add", [addComponent()]);
       const retired = await fixture.daemon.acceptCommittedChange(fixture.root, {
         journalId: added.journalId, changeSetId: added.changeSetId, approved: true, expectedWorktreeDigest: digest("a")
       } as any);
       expect((retired as any).error).toMatchObject({ code: "AC_SCHEMA_INVALID" });
     });
   }, TIMEOUT * 2);
+});
+
+describe("model transition evidence reads one snapshot", () => {
+  const draft = (path: string, body: string) => ({ operations: [{ op: "update_entity_fields", path, expectedHash: "unused", body }] }) as unknown as ChangeSetDraft;
+  const recorder = () => {
+    const recorded: unknown[] = [];
+    return { recorded, store: { recordChangeSetModelTransition: async (_journalId: string, transition: unknown) => { recorded.push(transition); } } };
+  };
+  const modelRoot = () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-transition-snapshot-"));
+    mkdirSync(join(root, ".archcontext/model/nodes"), { recursive: true });
+    writeFileSync(join(root, nodePath("component.a")), nodeBody("component.a", { summary: "A1." }));
+    writeFileSync(join(root, nodePath("component.b")), nodeBody("component.b", { summary: "B1." }));
+    return root;
+  };
+
+  test("the recorded after digest is the model parsed from the exact bytes that were checked", async () => {
+    const root = modelRoot();
+    try {
+      const a2 = nodeBody("component.a", { summary: "A2 journaled." });
+      const base = captureModelTransitionBase(root, draft(nodePath("component.a"), a2))!;
+      expect(base.before).toBe(digestJson(loadNativeModelFromArchContext(root) as unknown as Json));
+      writeFileSync(join(root, nodePath("component.a")), a2);
+      const { recorded, store } = recorder();
+      expect(await recordModelTransitionEvidence(store, root, "journal.snapshot", base)).toBe(true);
+      expect(recorded).toEqual([{ schemaVersion: "archcontext.changeset-model-transition/v1", before: base.before, after: digestJson(loadNativeModelFromArchContext(root) as unknown as Json) }]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Probe P3: a FIFO served one body to the hash pass and another to the model reload.
+  test.skipIf(process.platform === "win32")("a FIFO standing in for an unwritten model file records nothing", async () => {
+    const root = modelRoot();
+    try {
+      const a2 = nodeBody("component.a", { summary: "A2 journaled." });
+      const b1 = nodeBody("component.b", { summary: "B1." });
+      const base = captureModelTransitionBase(root, draft(nodePath("component.a"), a2))!;
+      writeFileSync(join(root, nodePath("component.a")), a2);
+      const fifo = join(root, nodePath("component.b"));
+      rmSync(fifo);
+      execFileSync("mkfifo", [fifo]);
+      const feeder = Bun.spawn(["sh", "-c", 'printf "%s" "$B1" > "$F"; printf "%s" "$B2" > "$F"'], {
+        env: { ...process.env, B1: b1, B2: nodeBody("component.b", { summary: "B2 HAND EDIT." }), F: fifo }
+      });
+      const { recorded, store } = recorder();
+      expect(await recordModelTransitionEvidence(store, root, "journal.fifo", base)).toBe(false);
+      expect(recorded).toEqual([]);
+      feeder.kill();
+      await feeder.exited;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a symlinked model entry records nothing and yields no base", async () => {
+    const root = modelRoot();
+    const outside = mkdtempSync(join(tmpdir(), "archctx-transition-link-"));
+    try {
+      const a2 = nodeBody("component.a", { summary: "A2 journaled." });
+      const base = captureModelTransitionBase(root, draft(nodePath("component.a"), a2))!;
+      writeFileSync(join(root, nodePath("component.a")), a2);
+      writeFileSync(join(outside, "component.b.yaml"), readFileSync(join(root, nodePath("component.b")), "utf8"));
+      rmSync(join(root, nodePath("component.b")));
+      symlinkSync(join(outside, "component.b.yaml"), join(root, nodePath("component.b")));
+      const { recorded, store } = recorder();
+      expect(await recordModelTransitionEvidence(store, root, "journal.symlink", base)).toBe(false);
+      expect(recorded).toEqual([]);
+      expect(captureModelTransitionBase(root, draft(nodePath("component.a"), nodeBody("component.a", { summary: "A3." })))).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });

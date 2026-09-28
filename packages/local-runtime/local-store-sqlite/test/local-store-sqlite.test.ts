@@ -3981,6 +3981,41 @@ store.close();
     }
   });
 
+  test("latest committed journaled write of a path is scoped by root and commit status", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-latest-journaled-"));
+    const otherRoot = mkdtempSync(join(tmpdir(), "archctx-latest-journaled-other-"));
+    const sqlite = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    const manifest = "docs/architecture/.projection-manifest.json";
+    const write = (bodyHash: string) => ({ path: manifest, existed: true, operation: "render_projection" as const, bodyHash });
+    try {
+      await sqlite.migrate();
+      for (const store of [sqlite, new TestLocalStore()]) {
+        expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toBeUndefined();
+        const older = await store.beginChangeSet(root, changeSetDraft("changeset.older", manifest));
+        await store.recordChangeSetFile(older, write(digestJson({ body: "older" })));
+        await store.commitChangeSet(older);
+        await new Promise((resolveSleep) => setTimeout(resolveSleep, 5));
+        const latest = await store.beginChangeSet(root, changeSetDraft("changeset.latest", manifest));
+        await store.recordChangeSetFile(latest, { path: "docs/architecture/index.md", existed: true, operation: "render_projection", bodyHash: digestJson({ body: "index" }) });
+        await store.recordChangeSetFile(latest, write(digestJson({ body: "latest" })));
+        await store.commitChangeSet(latest);
+        const pending = await store.beginChangeSet(root, changeSetDraft("changeset.pending", manifest));
+        await store.recordChangeSetFile(pending, write(digestJson({ body: "pending" })));
+        const foreign = await store.beginChangeSet(otherRoot, changeSetDraft("changeset.foreign", manifest));
+        await new Promise((resolveSleep) => setTimeout(resolveSleep, 5));
+        await store.recordChangeSetFile(foreign, write(digestJson({ body: "foreign" })));
+        await store.commitChangeSet(foreign);
+        expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toEqual({ path: manifest, operation: "write", hash: digestJson({ body: "latest" }), journalId: latest });
+        expect(await store.readLatestCommittedChangeSetFile(otherRoot, manifest)).toMatchObject({ hash: digestJson({ body: "foreign" }), journalId: foreign });
+        expect(await store.readLatestCommittedChangeSetFile(root, "docs/architecture/missing.md")).toBeUndefined();
+      }
+    } finally {
+      sqlite.close();
+      rmSync(root, { recursive: true, force: true });
+      rmSync(otherRoot, { recursive: true, force: true });
+    }
+  });
+
   test("one task session can commit the same changeSetId twice, which the wire contract alone rejects", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-task-session-duplicate-"));
     const store = new SqliteLocalStore(join(root, "runtime.sqlite"));

@@ -186,7 +186,9 @@ export function buildArchitectureDocsProjection(
     loaded,
     plan,
     manifest: plan.manifest,
-    files: [...plan.files, plan.manifest]
+    files: [...plan.files, plan.manifest],
+    /** This render's measured provenance; `plan.provenance` may be the sticky prior copy. */
+    snapshotProvenance: provenance
   };
 }
 
