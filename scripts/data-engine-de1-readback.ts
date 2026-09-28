@@ -29,7 +29,8 @@ if (mode === "run") {
   const storeSource = await source("packages/local-runtime/local-store-sqlite/src/index.ts");
   const daemonSource = (await Promise.all([
     source("packages/local-runtime/runtime-daemon/src/index.ts"),
-    source("packages/local-runtime/runtime-daemon/src/explorer-server.ts")
+    source("packages/local-runtime/runtime-daemon/src/explorer-server.ts"),
+    source("packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts")
   ])).join("\n");
   const storeTest = await source("packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts");
   const daemonTest = (await Promise.all([

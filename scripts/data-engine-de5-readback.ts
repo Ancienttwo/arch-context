@@ -18,6 +18,7 @@ const provenancePaths = [
   "packages/local-runtime/local-store-sqlite/src/index.ts",
   "packages/local-runtime/local-store-sqlite/test/factories.ts",
   "packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts",
+  "packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts",
   "packages/local-runtime/runtime-daemon/src/index.ts",
   "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
   "plans/plan-20260711-1328-data-engine-authority-incremental.md",
@@ -46,7 +47,10 @@ if (mode === "run") {
   const contractsSource = await source("packages/contracts/src/ports.ts");
   const storeSource = await source("packages/local-runtime/local-store-sqlite/src/index.ts");
   const storeTest = await source("packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts");
-  const daemonSource = await source("packages/local-runtime/runtime-daemon/src/index.ts");
+  const daemonSource = (await Promise.all([
+    source("packages/local-runtime/runtime-daemon/src/index.ts"),
+    source("packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts")
+  ])).join("\n");
   const runbook = await source("docs/runbooks/data-engine-cache-operations.md");
   const artifact = {
     schemaVersion: "archcontext.data-engine-de5-readback/v1",

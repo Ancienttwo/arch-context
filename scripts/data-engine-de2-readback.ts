@@ -27,7 +27,10 @@ if (mode === "run") {
   const contractsSource = await source("packages/contracts/src/ledger.ts");
   const coreSource = await source("packages/core/architecture-ledger/src/index.ts");
   const storeSource = await source("packages/local-runtime/local-store-sqlite/src/index.ts");
-  const daemonSource = await source("packages/local-runtime/runtime-daemon/src/index.ts");
+  const daemonSource = (await Promise.all([
+    source("packages/local-runtime/runtime-daemon/src/index.ts"),
+    source("packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts")
+  ])).join("\n");
   const storeTest = await source("packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts");
   const artifact = {
     schemaVersion: "archcontext.data-engine-de2-readback/v1",
