@@ -210,16 +210,16 @@ At 10x, preview/approve docs builds held under the writer lock fail first.
 
 ## Task Breakdown
 
-- [ ] Commit A: record the model-digest transition on pending semantic journals in every write mode; return `journalId` from `apply_update`; store + daemon tests (recorded, not recorded for non-semantic drafts, not recorded on a concurrent write, apply still succeeds).
-- [ ] Commit B: v2 multi-journal preview/approve acceptance with chain, exact-set, proof and baseline gates; v1|v2 payload union; RPC/CLI shape; pure helpers in their own module; positive and negative domain tests plus a CLI end-to-end preview→approve→`projection run` receipt test.
-- [ ] Update the runbook, close the todos row, and add a deferred row for opt-in consumer-side event verification.
+- [x] Commit A: record the model-digest transition on pending semantic journals in every write mode; return `journalId` from `apply_update`; store + daemon tests (recorded, not recorded for non-semantic drafts, not recorded on a concurrent write, apply still succeeds).
+- [x] Commit B: v2 multi-journal preview/approve acceptance with chain, exact-set, proof and baseline gates; v1|v2 payload union; RPC/CLI shape; pure helpers in their own module; positive and negative domain tests plus a CLI end-to-end preview→approve→`projection run` receipt test.
+- [x] Update the runbook, close the todos row, and add a deferred row for opt-in consumer-side event verification.
 - [ ] Full verification, dual-track security review, gatekeeper, PR.
 
 ## Annotations
 <!-- [NOTE]: prefixed inline. Claude processes all and revises. -->
 
 ## Task Breakdown
-- [ ] Commit A: record the model-digest transition on pending semantic journals in every write mode; return `journalId` from `apply_update`; store + daemon tests (recorded, not recorded for non-semantic drafts, not recorded on a concurrent write, apply still succeeds).
-- [ ] Commit B: v2 multi-journal preview/approve acceptance with chain, exact-set, proof and baseline gates; v1|v2 payload union; RPC/CLI shape; pure helpers in their own module; positive and negative domain tests plus a CLI end-to-end preview→approve→`projection run` receipt test.
-- [ ] Update the runbook, close the todos row, and add a deferred row for opt-in consumer-side event verification.
+- [x] Commit A: record the model-digest transition on pending semantic journals in every write mode; return `journalId` from `apply_update`; store + daemon tests (recorded, not recorded for non-semantic drafts, not recorded on a concurrent write, apply still succeeds).
+- [x] Commit B: v2 multi-journal preview/approve acceptance with chain, exact-set, proof and baseline gates; v1|v2 payload union; RPC/CLI shape; pure helpers in their own module; positive and negative domain tests plus a CLI end-to-end preview→approve→`projection run` receipt test.
+- [x] Update the runbook, close the todos row, and add a deferred row for opt-in consumer-side event verification.
 - [ ] Full verification, dual-track security review, gatekeeper, PR.

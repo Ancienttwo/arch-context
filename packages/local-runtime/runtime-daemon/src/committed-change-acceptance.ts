@@ -324,7 +324,7 @@ export function assertProofChangesExplained(input: {
     const before = baseById.get(capability.capabilityId);
     if (!before || before.semanticFingerprint !== capability.semanticFingerprint) continue;
     if (before.flowProofFingerprint !== capability.flowProofFingerprint) {
-      throw new Error(`accepted-committed-change-proof-change-unexplained: ${capability.capabilityId} proof moved while source or selector evidence changed since the baseline, or the baseline predates recorded evidence`);
+      throw new Error(`accepted-committed-change-proof-change-unexplained: ${capability.capabilityId} proof moved while source, selector evidence or renderer version changed since the baseline, or the baseline predates recorded evidence`);
     }
   }
 }
@@ -394,7 +394,7 @@ export function planCommittedChangeAcceptance(root: string, input: {
     semanticState: ArchitectureSemanticStateV1;
     architectureDigests: { modelDigest: string };
   };
-  /** Freshly measured (never sticky) source-tree and CodeGraph evidence digests. */
+  /** Freshly measured (never sticky) proof-relevant selector-evidence, source-tree and renderer-version digests. */
   currentEvidence: ProofEvidenceDigests;
   projectionWorktreeDigest: string;
   scope: ArchitectureLedgerScope;

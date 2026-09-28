@@ -98,7 +98,7 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 ## Change Assessment
 
 ```json
-{"protocol":1,"oracles":[]}
+{"protocol":1,"oracles":[{"id":"committed-change-acceptance-regressions","kind":"deterministic_test","paths":["*"]},{"id":"cli-accept-committed-projection-e2e","kind":"runtime_readback","paths":["*"]}]}
 ```
 
 ## Acceptance Policy
@@ -110,6 +110,8 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 ## Allowed Paths
 
 `packages/core/projection-engine/{src,test}/` added 2026-09-29 (security review round 1): transition evidence must parse the exact bytes it hashes, which needs an in-memory NativeModel loader.
+
+`docs/architecture/.projection-manifest.json` added 2026-09-29 (acceptance gate follow-up): the harness's automatic architecture-projection apply re-stamps it during `verify-sprint`.
 
 ```yaml
 allowed_paths:
@@ -132,6 +134,7 @@ allowed_paths:
   - packages/surfaces/cli/test/
   - tests/
   - docs/runbooks/architecture-documentation-projections.md
+  - docs/architecture/.projection-manifest.json
 ```
 
 ## Evidence Requirements
@@ -224,7 +227,7 @@ exit_criteria:
     {
       "id": "affected-tests",
       "kind": "command",
-      "command": "npm exec --yes --package bun@1.4.0 -- bun test --timeout 60000 packages/local-runtime/runtime-daemon packages/local-runtime/local-store-sqlite packages/core/architecture-ledger packages/core/changeset-engine packages/surfaces/cli tests",
+      "command": "npm exec --yes --package bun@1.4.0 -- bun test --timeout 60000 packages/local-runtime/runtime-daemon packages/local-runtime/local-store-sqlite packages/core/architecture-ledger packages/core/changeset-engine packages/core/projection-engine packages/surfaces/cli tests",
       "cwd": ".",
       "phase": "verification",
       "cost": "normal",

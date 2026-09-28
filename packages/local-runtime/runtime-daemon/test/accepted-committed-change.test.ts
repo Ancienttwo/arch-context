@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, stableYaml, type Json } from "@archcontext/contracts";
 import type { ArchitectureFlowV1 } from "@archcontext/contracts";
-import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureSelectorEvidenceV1, type ArchitectureSemanticStateV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
+import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type ArchitectureSelectorEvidenceV1, type ArchitectureSemanticStateV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
+import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { SqliteLocalStore, type CommittedChangeSetForTaskSession } from "@archcontext/local-runtime/local-store-sqlite";
@@ -22,6 +23,7 @@ import {
   committedChangeAcceptancePlanId,
   decodeAcceptCommittedChangeInput,
   labelAcceptedNodeSets,
+  planCommittedChangeAcceptance,
   semanticLastWriters,
   type CommittedChangeAcceptancePlanV1
 } from "../src/committed-change-acceptance";
@@ -455,6 +457,84 @@ function acceptedEvents(fixture: Fixture) {
   const rows = (fixture.store as any).requireOpenDatabase().prepare("SELECT event_json FROM architecture_events WHERE event_type = ?").all("architecture.changeset.accepted") as { event_json: string }[];
   return rows.map((row) => JSON.parse(row.event_json));
 }
+
+/**
+ * `planCommittedChangeAcceptance` takes one strict snapshot of the on-disk semantic model
+ * (`readSemanticModelSnapshot`) and refuses when the passed-in `model` digests to something else:
+ * a `model` captured before a concurrent, unjournaled edit must never be trusted for acceptance.
+ */
+test("planCommittedChangeAcceptance refuses a stale model that no longer matches the on-disk snapshot", () => {
+  const root = createAcceptanceRepo();
+  try {
+    // Captured before the disk changes again, so it is stale by the time acceptance runs.
+    const staleModel = loadNativeModelFromArchContext(root);
+    writeYaml(root, nodePath("component.added-after-capture"), {
+      schemaVersion: "archcontext.node/v2", id: "component.added-after-capture", kind: "component", name: "Added After Capture", status: "active", parent: CAPABILITY_B
+    });
+
+    const capabilityA = {
+      capabilityId: CAPABILITY_A,
+      memberNodeIds: [CAPABILITY_A],
+      semanticFingerprint: digest("5"),
+      flowProofFingerprint: digest("6"),
+      proofStatus: { p1: "proven" as const, p2: "not-applicable" as const },
+      facets: {} as never
+    };
+    const semanticState: ArchitectureSemanticStateV1 = {
+      schemaVersion: "archcontext.architecture-semantic-state/v1",
+      capabilities: [capabilityA],
+      semanticFingerprint: digestJson([{ capabilityId: capabilityA.capabilityId, semanticFingerprint: capabilityA.semanticFingerprint }] as unknown as Json),
+      flowProofFingerprint: digestJson([{ capabilityId: capabilityA.capabilityId, flowProofFingerprint: capabilityA.flowProofFingerprint }] as unknown as Json)
+    };
+    const manifestBody = JSON.stringify({
+      provenance: { sourceTreeDigest: digest("a"), codeGraphDigest: digest("c") },
+      semanticBaseline: {
+        semanticState,
+        digests: { modelDigest: digest("d"), flowProofDigest: semanticState.flowProofFingerprint }
+      }
+    });
+    mkdirSync(join(root, "docs/architecture"), { recursive: true });
+    writeFileSync(join(root, MANIFEST), manifestBody, "utf8");
+
+    const journalRef = { journalId: "j1", changeSetId: "changeset.j1" };
+    const journalEntry: CommittedChangeSetForTaskSession = {
+      journalId: "j1",
+      changeSetId: "changeset.j1",
+      committedAt: "2026-09-28T00:00:00.000Z",
+      files: [{ path: ".archcontext/model/nodes/component.container.yaml", operation: "write", hash: digest("a") }],
+      modelTransition: { schemaVersion: "archcontext.changeset-model-transition/v1", before: digest("1"), after: digest("2") }
+    };
+    const majorChange: ArchitectureMajorChangeClassificationV1 = {
+      schemaVersion: "archcontext.major-change-classification/v1",
+      mode: "human-action-required",
+      reasonCodes: ["node-added"],
+      affectedNodeIds: []
+    };
+    const scope: ArchitectureLedgerScope = {
+      repository: { repositoryId: "repo.fixture", storageRepositoryId: "storage.repo.fixture" },
+      worktree: { workspaceId: "workspace.fixture", storageWorkspaceId: "storage.workspace.fixture", branch: "main", headSha: "a".repeat(40), worktreeDigest: digest("wt") }
+    };
+
+    expect(() => planCommittedChangeAcceptance(root, {
+      requested: [journalRef],
+      journals: [journalEntry],
+      model: staleModel,
+      existingFiles: [{ path: MANIFEST, body: manifestBody }],
+      latestJournaledManifest: { journalId: "manifest-journal", hash: digestJson({ body: manifestBody } as unknown as Json) },
+      projection: {
+        majorChange,
+        rejected: [],
+        semanticState,
+        architectureDigests: { modelDigest: digest("d") }
+      },
+      currentEvidence: { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b"), rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION },
+      projectionWorktreeDigest: digest("wt"),
+      scope
+    })).toThrow(/accepted-committed-change-model-snapshot-mismatch/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 describe("committed change acceptance v2", () => {
   test("accepts a node addition; only the approval issues the tuple, backed by a record-only v2 event", async () => {
