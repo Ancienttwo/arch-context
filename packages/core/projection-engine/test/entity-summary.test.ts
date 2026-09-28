@@ -6,6 +6,7 @@ import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   architectureDocumentationProjectionProvenance,
+  architectureProofEvidenceDigests,
   assertArchitectureProjectionVerifiedAgainst,
   loadCapabilitySourceFootprints,
   loadCapabilitySourceScaleSignals,
@@ -406,6 +407,22 @@ describe("entity-summary capability documentation projection", () => {
     const modelDrift = render({ existingFiles, provenance: modelChanged });
     expect(modelDrift.drift.ok).toBe(false);
     expect(modelDrift.provenance).toEqual(modelChanged);
+  });
+
+  test("the semantic baseline records the evidence it was rendered from even when top-level provenance stays sticky", () => {
+    // Codex R2 P1: the sticky provenance reuse key excludes CodeGraph evidence, so it cannot
+    // attest what a re-baselined semantic state was compiled from; the baseline records that itself.
+    const e0 = render({ selectorEvidence: [] });
+    const reindexed = architectureDocumentationProjectionProvenance({
+      ...(({ schemaVersion: _schemaVersion, projectionInputDigest: _projectionInputDigest, ...payload }) => payload)(provenance),
+      codeGraphDigest: `sha256:${"b".repeat(64)}`
+    });
+    const e1 = render({ existingFiles: [...e0.files.map(({ path, body }) => ({ path, body })), e0.manifest], provenance: reindexed, selectorEvidence });
+    const manifest = (plan: ArchitectureDocumentationProjectionPlan) => JSON.parse(plan.manifest.body);
+    expect(manifest(e1).provenance).toEqual(manifest(e0).provenance);
+    expect(manifest(e0).semanticBaseline.evidence).toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence: [] }));
+    expect(manifest(e1).semanticBaseline.evidence).toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence }));
+    expect(manifest(e1).semanticBaseline.evidence).not.toEqual(manifest(e0).semanticBaseline.evidence);
   });
 
   test("a covered source change re-stamps in the manifest and leaves the document byte-identical", () => {

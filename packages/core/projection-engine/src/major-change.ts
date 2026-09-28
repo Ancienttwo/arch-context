@@ -9,7 +9,7 @@ import {
   type Sha256Digest
 } from "@archcontext/contracts";
 import type { NativeModel, NativeNode } from "./index";
-import type { SemanticCapabilityDiagramCompilation } from "./semantic-diagrams";
+import type { ArchitectureSelectorEvidenceV1, SemanticCapabilityDiagramCompilation } from "./semantic-diagrams";
 
 export const ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION = "archcontext.architecture-semantic-state/v1" as const;
 
@@ -61,6 +61,28 @@ export interface ArchitectureMajorChangeClassificationV1 {
 export interface ArchitectureProjectionSemanticBaselineV1 {
   semanticState: ArchitectureSemanticStateV1;
   digests: ArchitectureDigestSetV1;
+  /**
+   * The non-model proof inputs this baseline was rendered from, recorded fresh on every render and
+   * never reused from sticky provenance. Absent in manifests written before it existed.
+   */
+  evidence?: ArchitectureProofEvidenceDigestsV1;
+}
+
+export interface ArchitectureProofEvidenceDigestsV1 {
+  /** Declared source footprint identity; already a sticky-provenance key, so it cannot churn. */
+  sourceTreeDigest: string;
+  /** Digest of the exact selector evidence the P1/P2 compilation consumed. */
+  selectorEvidenceDigest: string;
+}
+
+export function architectureProofEvidenceDigests(input: {
+  sourceTreeDigest: string;
+  selectorEvidence: readonly ArchitectureSelectorEvidenceV1[];
+}): ArchitectureProofEvidenceDigestsV1 {
+  return {
+    sourceTreeDigest: input.sourceTreeDigest,
+    selectorEvidenceDigest: digestJson(input.selectorEvidence as unknown as Json)
+  };
 }
 
 export function compileArchitectureSemanticState(input: {

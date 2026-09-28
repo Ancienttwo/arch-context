@@ -511,11 +511,10 @@ export class TestLocalStore implements RuntimeLocalStore {
 
   async readLatestCommittedChangeSetFile(root: string, path: string) {
     const canonicalRoot = canonicalRepositoryRoot(root);
+    // Same contract as the SQLite store: newest by insertion order, last write within a journal.
     const candidates = [...this.changeSetJournals.entries()]
       .filter(([, record]) => record.status === "committed" && canonicalRepositoryRoot(record.root) === canonicalRoot)
-      .sort(([leftId, left], [rightId, right]) => left.committedAt === right.committedAt
-        ? (leftId < rightId ? 1 : leftId > rightId ? -1 : 0)
-        : String(left.committedAt) < String(right.committedAt) ? 1 : -1);
+      .reverse();
     for (const [journalId, record] of candidates) {
       const file = record.files.filter((entry) => entry.path === path).at(-1);
       if (file) return { path, operation: committedChangeSetFileOperation(file.operation, journalId, path), hash: file.bodyHash, journalId };

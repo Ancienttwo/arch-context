@@ -34,7 +34,7 @@ When `archctx docs drift` reports `majorChange.mode: human-action-required` afte
    - reason codes and affected node ids;
    - `directlyEditedNodeIds`, `affectedAncestorNodeIds` and `carriedNodeIds`;
    - the journal chain from the projection manifest baseline to the current model;
-   - `baselineAnchor`: the manifest is trusted only when it is the committed HEAD copy (`head`) or exactly what the latest journaled projection write in this root produced (`journal`).
+   - `baselineAnchor` and `baselineAnchorRef`: the manifest is trusted only when its bytes equal the blob committed at HEAD (`head`, with the commit sha), or exactly what the latest journaled projection write in this root produced (`journal`, with the journal id). Replace refs are ignored; the HEAD sha is resolved once and is also the scope HEAD of the event.
 4. Approve with the ids the preview returned:
    ```bash
    archctx ledger accept-committed --journal … --approved --acceptance-plan-id <acceptancePlanId> --expected-worktree-digest <expectedWorktreeDigest>
@@ -48,14 +48,17 @@ Acceptance is refused when any of these is true:
 - the journal chain does not start at the manifest baseline or does not end at the current model;
 - a listed journal is pending, aborted, from another root, or out of order;
 - the manifest matches neither HEAD nor the latest journaled projection write (commit it, or re-baseline with `archctx docs apply --approved`);
+- the manifest or a semantic model file is not valid UTF-8;
 - a node file is not stored as `nodes/<id>.yaml` or `nodes/<id>.yml`;
 - a path has a symlinked segment;
 - a capability proof is unprovable;
 - the projection has rejected (adoption or ownership) entries;
-- a capability's flow proof changed while its semantic fingerprint did not, and the declared source tree or CodeGraph evidence recorded in the manifest provenance has also moved since the baseline;
+- a capability's flow proof changed while its semantic fingerprint did not, and either the declared source tree or the selector evidence moved since the baseline was rendered (`semanticBaseline.evidence`), or the manifest predates that record (re-baseline first);
 - a different acceptance event already exists for the same snapshot.
 
 In each case, fix the cause and preview again. A hand edit is fixed by reverting it, or by replaying it as a ChangeSet.
+
+Trust boundary: the HEAD anchor trusts local git history. Anyone who can commit locally, including via `--amend` or on a detached HEAD, can anchor a manifest; the accepted event records which commit or journal anchored it. The event is an informational record, not an enforcement gate: `projection run` treats `acceptedChange` as opaque. Enforcement waits on the deferred consumer-side resolver in `tasks/todos.md`.
 
 ## Bad Projection Recovery
 

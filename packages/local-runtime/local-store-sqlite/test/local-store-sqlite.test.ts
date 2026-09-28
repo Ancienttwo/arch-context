@@ -3981,31 +3981,46 @@ store.close();
     }
   });
 
-  test("latest committed journaled write of a path is scoped by root and commit status", async () => {
+  test("latest committed journaled write of a path follows durable insertion order, not the commit clock", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-latest-journaled-"));
     const otherRoot = mkdtempSync(join(tmpdir(), "archctx-latest-journaled-other-"));
     const sqlite = new SqliteLocalStore(join(root, "runtime.sqlite"));
     const manifest = "docs/architecture/.projection-manifest.json";
     const write = (bodyHash: string) => ({ path: manifest, existed: true, operation: "render_projection" as const, bodyHash });
+    const memory = new TestLocalStore();
+    // Rewrites commit timestamps after the fact: ties and a rolled-back clock must not change the answer.
+    const setCommittedAt = (store: SqliteLocalStore | TestLocalStore, journalId: string, at: string) => {
+      if (store instanceof TestLocalStore) store.changeSetJournals.get(journalId)!.committedAt = at;
+      else {
+        const database = new Database(join(root, "runtime.sqlite"));
+        database.query("UPDATE changeset_journal SET completed_at = ? WHERE journal_id = ?").run(at, journalId);
+        database.close();
+      }
+    };
     try {
       await sqlite.migrate();
-      for (const store of [sqlite, new TestLocalStore()]) {
+      for (const store of [sqlite, memory]) {
         expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toBeUndefined();
         const older = await store.beginChangeSet(root, changeSetDraft("changeset.older", manifest));
         await store.recordChangeSetFile(older, write(digestJson({ body: "older" })));
         await store.commitChangeSet(older);
-        await new Promise((resolveSleep) => setTimeout(resolveSleep, 5));
         const latest = await store.beginChangeSet(root, changeSetDraft("changeset.latest", manifest));
+        await store.recordChangeSetFile(latest, write(digestJson({ body: "first write in journal" })));
         await store.recordChangeSetFile(latest, { path: "docs/architecture/index.md", existed: true, operation: "render_projection", bodyHash: digestJson({ body: "index" }) });
-        await store.recordChangeSetFile(latest, write(digestJson({ body: "latest" })));
+        await store.recordChangeSetFile(latest, write(digestJson({ body: "last write in journal" })));
         await store.commitChangeSet(latest);
         const pending = await store.beginChangeSet(root, changeSetDraft("changeset.pending", manifest));
         await store.recordChangeSetFile(pending, write(digestJson({ body: "pending" })));
         const foreign = await store.beginChangeSet(otherRoot, changeSetDraft("changeset.foreign", manifest));
-        await new Promise((resolveSleep) => setTimeout(resolveSleep, 5));
         await store.recordChangeSetFile(foreign, write(digestJson({ body: "foreign" })));
         await store.commitChangeSet(foreign);
-        expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toEqual({ path: manifest, operation: "write", hash: digestJson({ body: "latest" }), journalId: latest });
+        const expected = { path: manifest, operation: "write" as const, hash: digestJson({ body: "last write in journal" }), journalId: latest };
+        expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toEqual(expected);
+        setCommittedAt(store, older, "2026-09-29T00:00:00.000Z");
+        setCommittedAt(store, latest, "2026-09-29T00:00:00.000Z");
+        expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toEqual(expected);
+        setCommittedAt(store, latest, "2026-09-28T00:00:00.000Z");
+        expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toEqual(expected);
         expect(await store.readLatestCommittedChangeSetFile(otherRoot, manifest)).toMatchObject({ hash: digestJson({ body: "foreign" }), journalId: foreign });
         expect(await store.readLatestCommittedChangeSetFile(root, "docs/architecture/missing.md")).toBeUndefined();
       }

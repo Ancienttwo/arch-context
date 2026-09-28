@@ -2319,15 +2319,19 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const db = await this.database();
     const canonicalRoot = canonicalRepositoryRoot(root);
     // `instr` narrows by substring only; each candidate is still parsed and matched on exact path.
+    // Latest is the durable insertion order (rowid; journals are never deleted), not a wall-clock
+    // timestamp that can tie or roll back. Journals begin and commit one at a time under the
+    // daemon writer lock, so insertion order is commit order.
     const rows = db.prepare(
       `SELECT journal_id, root, files_json FROM changeset_journal
         WHERE status = 'committed' AND instr(files_json, ?) > 0
-        ORDER BY completed_at DESC, journal_id DESC`
+        ORDER BY rowid DESC`
     ).all(JSON.stringify(path));
     for (const row of rows) {
       if (canonicalRepositoryRoot(String(row.root)) !== canonicalRoot) continue;
       const journalId = String(row.journal_id);
-      const file = committedChangeSetJournalFiles(String(row.files_json), journalId).find((entry) => entry.path === path);
+      // A path written twice in one journal ends with its last write.
+      const file = committedChangeSetJournalFiles(String(row.files_json), journalId).filter((entry) => entry.path === path).at(-1);
       if (file) return { ...file, journalId };
     }
     return undefined;

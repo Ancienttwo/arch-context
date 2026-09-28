@@ -149,6 +149,9 @@ export interface AcceptedCommittedChangePayloadV2 {
   affectedAncestorNodeIds: string[];
   carriedNodeIds: string[];
   projectionWorktreeDigest: string;
+  /** Whether the baseline manifest matched the HEAD commit or the latest journaled write, and which one. */
+  baselineAnchor: "head" | "journal";
+  baselineAnchorRef: string;
   acceptancePlanId: string;
   authority: "yaml";
 }

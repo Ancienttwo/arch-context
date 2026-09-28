@@ -27,7 +27,7 @@ import { RecommendationsService, recommendationArtifactsFromEvents, type Runtime
 export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./recommendations";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
-import { AcceptCommittedChangeInputError, acceptedChangeFromEventV2, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
+import { AcceptCommittedChangeInputError, acceptedChangeFromEventV2, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, resolveAcceptanceHeadSha, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
 export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
 export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, recoverStaleDaemonControlFiles } from "./daemon-control";
 export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
@@ -1211,11 +1211,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         const model = loadNativeModelFromArchContext(canonicalRoot);
         const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(canonicalRoot, model);
         const projection = buildArchitectureDocsProjection(this.projectionHost(), canonicalRoot, new Date(0).toISOString(), "repo-harness/v1");
-        const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest);
+        const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest, resolveAcceptanceHeadSha(canonicalRoot));
         const manifestWrite = await this.localStore.readLatestCommittedChangeSetFile(canonicalRoot, "docs/architecture/.projection-manifest.json");
         const acceptance = planCommittedChangeAcceptance(canonicalRoot, {
-          requested: input.journals, journals, model, existingFiles: projection.loaded.existingFiles, latestJournaledManifestHash: manifestWrite?.hash,
-          projection: projection.plan, currentEvidence: projection.snapshotProvenance, projectionWorktreeDigest: worktreeDigest, scope
+          requested: input.journals, journals, model, existingFiles: projection.loaded.existingFiles, latestJournaledManifest: manifestWrite,
+          projection: projection.plan, currentEvidence: projection.snapshotEvidence, projectionWorktreeDigest: worktreeDigest, scope
         });
         // The preview never carries the accepted-change tuple: only an appended event can issue it.
         if (!input.approved) {
@@ -1721,9 +1721,8 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
   };
 }
 
-function acceptedCommittedChangeScope(root: string, worktreeDigest: string): ArchitectureLedgerScope {
+function acceptedCommittedChangeScope(root: string, worktreeDigest: string, headSha: string): ArchitectureLedgerScope {
   const paths = runtimeStatePaths(root);
-  const headSha = readHeadSha(root);
   return {
     repository: { repositoryId: repositoryFingerprint(root), storageRepositoryId: paths.storageRepositoryId },
     worktree: {

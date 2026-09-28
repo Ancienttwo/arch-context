@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, stableYaml, type Json } from "@archcontext/contracts";
 import type { ArchitectureFlowV1 } from "@archcontext/contracts";
-import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, type ArchitectureSelectorEvidenceV1, type ArchitectureSemanticStateV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
+import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureSelectorEvidenceV1, type ArchitectureSemanticStateV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { SqliteLocalStore, type CommittedChangeSetForTaskSession } from "@archcontext/local-runtime/local-store-sqlite";
@@ -15,6 +15,7 @@ import type { ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   acceptedJournalLinks,
   captureModelTransitionBase,
+  projectionManifestBaseline,
   recordModelTransitionEvidence,
   assertModelTransitionChain,
   assertProofChangesExplained,
@@ -124,19 +125,49 @@ describe("committed change acceptance helpers", () => {
     }
   });
 
-  test("a proof-only change is accepted only when the recorded source and CodeGraph evidence are unchanged", () => {
+  test("a proof-only change is accepted only when the recorded source and selector evidence are unchanged", () => {
     const base = state(capability("capability.a", ["capability.a"], digest("5"), digest("6")));
     const proofOnly = state(capability("capability.a", ["capability.a"], digest("5"), digest("9")));
-    const evidence = { sourceTreeDigest: digest("a"), codeGraphDigest: digest("b") };
+    const evidence = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b") };
     expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence: { ...evidence } })).not.toThrow();
-    for (const currentEvidence of [{ ...evidence, sourceTreeDigest: digest("c") }, { ...evidence, codeGraphDigest: digest("c") }]) {
+    for (const currentEvidence of [{ ...evidence, sourceTreeDigest: digest("c") }, { ...evidence, selectorEvidenceDigest: digest("c") }]) {
       expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence }))
         .toThrow(/proof-change-unexplained: capability.a/);
     }
     expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: undefined, currentEvidence: evidence }))
       .toThrow(/proof-change-unexplained/);
     const semanticToo = state(capability("capability.a", ["capability.a"], digest("4"), digest("9")));
-    expect(() => assertProofChangesExplained({ base, resulting: semanticToo, baselineEvidence: evidence, currentEvidence: { ...evidence, codeGraphDigest: digest("c") } })).not.toThrow();
+    expect(() => assertProofChangesExplained({ base, resulting: semanticToo, baselineEvidence: evidence, currentEvidence: { ...evidence, selectorEvidenceDigest: digest("c") } })).not.toThrow();
+  });
+
+  test("the proof gate reads baseline evidence from the semantic baseline, not sticky provenance, and refuses legacy baselines", () => {
+    // Codex R2 P1: render E0, re-baseline with E1 while the sticky top-level provenance keeps E0,
+    // then restore E0. The baseline's own evidence says E1, so the restored E0 proof is unexplained.
+    const cap = (flowProofFingerprint: string, semanticFingerprint = digest("5")) => capability("capability.a", ["capability.a"], semanticFingerprint, flowProofFingerprint);
+    const consistent = (...capabilities: ReturnType<typeof capability>[]): ArchitectureSemanticStateV1 => ({
+      schemaVersion: "archcontext.architecture-semantic-state/v1",
+      capabilities,
+      semanticFingerprint: digestJson(capabilities.map(({ capabilityId, semanticFingerprint }) => ({ capabilityId, semanticFingerprint })) as unknown as Json),
+      flowProofFingerprint: digestJson(capabilities.map(({ capabilityId, flowProofFingerprint }) => ({ capabilityId, flowProofFingerprint })) as unknown as Json)
+    });
+    const e0 = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("0") };
+    const e1 = { ...e0, selectorEvidenceDigest: digest("1") };
+    const base = consistent(cap(digest("6")));
+    const manifest = (evidence: typeof e0 | undefined) => JSON.stringify({
+      provenance: { sourceTreeDigest: e0.sourceTreeDigest, codeGraphDigest: digest("c") },
+      semanticBaseline: { semanticState: base, digests: { modelDigest: digest("d"), flowProofDigest: base.flowProofFingerprint }, ...(evidence ? { evidence } : {}) }
+    });
+    const rebaselinedOnE1 = projectionManifestBaseline(manifest(e1));
+    expect(rebaselinedOnE1.evidence).toEqual(e1);
+    const proofOnly = consistent(cap(digest("9")));
+    expect(() => assertProofChangesExplained({ base: rebaselinedOnE1.semanticState, resulting: proofOnly, baselineEvidence: rebaselinedOnE1.evidence, currentEvidence: e0 }))
+      .toThrow(/proof-change-unexplained: capability.a/);
+    const legacy = projectionManifestBaseline(manifest(undefined));
+    expect(legacy.evidence).toBeUndefined();
+    expect(() => assertProofChangesExplained({ base: legacy.semanticState, resulting: proofOnly, baselineEvidence: legacy.evidence, currentEvidence: e0 }))
+      .toThrow(/proof-change-unexplained/);
+    // Ordinary semantic acceptance does not depend on recorded evidence.
+    expect(() => assertProofChangesExplained({ base: legacy.semanticState, resulting: consistent(cap(digest("9"), digest("4"))), baselineEvidence: legacy.evidence, currentEvidence: e0 })).not.toThrow();
   });
 
   test("renaming another capability's flow participant moves this capability's proof and is accepted when evidence held", () => {
@@ -182,9 +213,9 @@ describe("committed change acceptance helpers", () => {
     expect(resultA!.proofStatus).toEqual({ p1: "proven", p2: "proven" });
     expect(resultA!.semanticFingerprint).toBe(baseA!.semanticFingerprint);
     expect(resultA!.flowProofFingerprint).not.toBe(baseA!.flowProofFingerprint);
-    const recorded = { sourceTreeDigest: digest("a"), codeGraphDigest: digest("b") };
+    const recorded = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b") };
     expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded } })).not.toThrow();
-    expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded, codeGraphDigest: digest("c") } }))
+    expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded, selectorEvidenceDigest: digest("c") } }))
       .toThrow(/proof-change-unexplained: capability.a/);
   });
 
@@ -238,6 +269,7 @@ describe("committed change acceptance helpers", () => {
       carriedNodeIds: [],
       fileSetDigest: digest("3"),
       baselineAnchor: "journal",
+      baselineAnchorRef: "changeset_journal.fixture",
       projectionWorktreeDigest: digest("4"),
       headSha: "a".repeat(40)
     });
@@ -440,6 +472,10 @@ describe("committed change acceptance v2", () => {
         baselineAnchor: "journal"
       });
       expect(planned.plan.reasonCodes).toContain("node-added");
+      expect(planned.plan.baselineAnchorRef).toBe((await fixture.store.readLatestCommittedChangeSetFile(fixture.root, MANIFEST))!.journalId);
+      expect(JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8")).semanticBaseline.evidence).toEqual({
+        sourceTreeDigest: expect.stringMatching(/^sha256:/), selectorEvidenceDigest: digestJson([])
+      });
       expect(planned.plan.baselineModelDigest).toBe(planned.plan.journals[0].before);
       expect(planned.plan.modelDigest).toBe(digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json));
       const data = approved.data as any;
@@ -462,6 +498,8 @@ describe("committed change acceptance v2", () => {
             baselineModelDigest: planned.plan.baselineModelDigest,
             modelDigest: planned.plan.modelDigest,
             acceptancePlanId: planned.acceptancePlanId,
+            baselineAnchor: "journal",
+            baselineAnchorRef: planned.plan.baselineAnchorRef,
             authority: "yaml"
           }
         }
@@ -690,6 +728,36 @@ describe("committed change acceptance v2", () => {
       await expectRefused(fixture, [journaled], /baseline-unanchored/);
       expect(acceptedEvents(fixture)).toHaveLength(0);
     });
+    // Opus R2-1: a replace ref that substitutes the forged blob for HEAD's committed one anchors nothing.
+    await withFixture(async (fixture) => {
+      commitAll(fixture.root, "commit baseline projection");
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: fixture.root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+      const committedBlob = git("rev-parse", `HEAD:${MANIFEST}`);
+      writeFileSync(join(fixture.root, nodePath("component.child")), nodeBody("component.child", { parent: "component.container", summary: "HAND EDIT NOT JOURNALED." }), "utf8");
+      const handDigest = digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json);
+      const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
+      manifest.semanticBaseline.digests.modelDigest = handDigest;
+      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+      const journaled = await change(fixture, "changeset.after-hand", [addComponent()]);
+      await expectRefused(fixture, [journaled], /baseline-unanchored/);
+      git("replace", committedBlob, git("hash-object", "-w", MANIFEST));
+      expect(execFileSync("git", ["cat-file", "blob", `HEAD:${MANIFEST}`], { cwd: fixture.root, encoding: "utf8" })).toBe(readFileSync(join(fixture.root, MANIFEST), "utf8"));
+      await expectRefused(fixture, [journaled], /baseline-unanchored/);
+      expect(acceptedEvents(fixture)).toHaveLength(0);
+    });
+    // Anchors compare raw bytes: invalid UTF-8 (0xff) never equals a committed U+FFFD.
+    await withFixture(async (fixture) => {
+      const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
+      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify({ ...manifest, note: "\uFFFD" }, null, 2)}\n`, "utf8");
+      commitAll(fixture.root, "commit manifest with U+FFFD");
+      const added = await change(fixture, "changeset.add", [addComponent()]);
+      const committed = readFileSync(join(fixture.root, MANIFEST));
+      const replacement = Buffer.from("\uFFFD", "utf8");
+      const at = committed.indexOf(replacement);
+      writeFileSync(join(fixture.root, MANIFEST), Buffer.concat([committed.subarray(0, at), Buffer.from([0xff]), committed.subarray(at + replacement.length)]));
+      expect(readFileSync(join(fixture.root, MANIFEST), "utf8")).toBe(committed.toString("utf8"));
+      await expectRefused(fixture, [added], /not-utf8/);
+    });
     // Restoring an older journaled baseline by hand is not the latest journaled write either.
     await withFixture(async (fixture) => {
       const olderManifest = readFileSync(join(fixture.root, MANIFEST), "utf8");
@@ -715,6 +783,9 @@ describe("committed change acceptance v2", () => {
       const { preview: planned, approved } = await accept(fixture, [added]);
       expect(approved.ok, JSON.stringify(approved)).toBe(true);
       expect(planned.plan.baselineAnchor).toBe("head");
+      expect(planned.plan.baselineAnchorRef).toBe(planned.plan.headSha);
+      expect(planned.plan.headSha).toBe(execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim());
+      expect(acceptedEvents(fixture)[0]).toMatchObject({ headSha: planned.plan.headSha, payload: { acceptedCommittedChange: { baselineAnchor: "head", baselineAnchorRef: planned.plan.headSha } } });
     } finally {
       await fresh.daemon.stop();
       rmSync(root, { recursive: true, force: true });
@@ -738,6 +809,26 @@ describe("committed change acceptance v2", () => {
       const flowRewrite = await change(fixture, "changeset.flow-noop", [noopRewrite(fixture.root, flowPath)]);
       await expectRefused(fixture, [kind, flowRewrite], new RegExp(`proof-change-unexplained: ${CAPABILITY_A}`));
     }, { capabilityASource: true });
+  }, TIMEOUT * 2);
+
+  test("a manifest written before recorded evidence refuses proof-only changes but still accepts semantic ones", async () => {
+    await withFixture(async (fixture) => {
+      const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
+      delete manifest.semanticBaseline.evidence;
+      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+      commitAll(fixture.root, "legacy manifest without recorded evidence");
+      const kind = await change(fixture, "changeset.kind", [editNode(fixture.root, "component.child", { kind: "module" })]);
+      await expectRefused(fixture, [kind], new RegExp(`proof-change-unexplained: ${CAPABILITY_A}`));
+    }, { capabilityASource: true });
+    await withFixture(async (fixture) => {
+      const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
+      delete manifest.semanticBaseline.evidence;
+      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+      commitAll(fixture.root, "legacy manifest without recorded evidence");
+      const owned = await change(fixture, "changeset.ownership", [editNode(fixture.root, "component.container", { source: { include: ["README.md"] } })]);
+      const { approved } = await accept(fixture, [owned]);
+      expect(approved.ok, JSON.stringify(approved)).toBe(true);
+    });
   }, TIMEOUT * 2);
 
   test("approval must match the previewed worktree digest and plan id; HEAD or baseline moves invalidate the preview", async () => {
@@ -827,6 +918,54 @@ describe("model transition evidence reads one snapshot", () => {
       expect(recorded).toEqual([]);
       feeder.kill();
       await feeder.exited;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("each model file is read exactly once per snapshot and the model is built from those bytes", async () => {
+    const root = modelRoot();
+    try {
+      const a2 = nodeBody("component.a", { summary: "A2 journaled." });
+      const substitute = nodeBody("component.b", { summary: "Bytes served by the reader, not on disk." });
+      const reads: string[] = [];
+      const reader = (absolute: string, path: string) => {
+        reads.push(path);
+        return path === nodePath("component.b") ? Buffer.from(substitute) : readFileSync(absolute);
+      };
+      const base = captureModelTransitionBase(root, draft(nodePath("component.a"), a2), reader)!;
+      expect(reads.sort()).toEqual([nodePath("component.a"), nodePath("component.b")]);
+      const served = (a: string) => new Map([[nodePath("component.a"), a], [nodePath("component.b"), substitute]]);
+      expect(base.before).toBe(digestJson(loadNativeModelFromModelFiles(served(nodeBody("component.a", { summary: "A1." }))) as unknown as Json));
+      expect(base.before).not.toBe(digestJson(loadNativeModelFromArchContext(root) as unknown as Json));
+      writeFileSync(join(root, nodePath("component.a")), a2);
+      reads.length = 0;
+      const { recorded, store } = recorder();
+      expect(await recordModelTransitionEvidence(store, root, "journal.seam", base, reader)).toBe(true);
+      expect(reads.sort()).toEqual([nodePath("component.a"), nodePath("component.b")]);
+      expect((recorded[0] as { after: string }).after).toBe(digestJson(loadNativeModelFromModelFiles(served(a2)) as unknown as Json));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a model file that is not valid UTF-8 yields no base and records nothing", async () => {
+    const root = modelRoot();
+    try {
+      const a2 = nodeBody("component.a", { summary: "A2 journaled." });
+      const base = captureModelTransitionBase(root, draft(nodePath("component.a"), a2))!;
+      writeFileSync(join(root, nodePath("component.a")), a2);
+      const valid = Buffer.from(nodeBody("component.b", { summary: "B \uFFFD." }), "utf8");
+      const replacement = Buffer.from("\uFFFD", "utf8");
+      const at = valid.indexOf(replacement);
+      const invalid = Buffer.concat([valid.subarray(0, at), Buffer.from([0xff]), valid.subarray(at + replacement.length)]);
+      writeFileSync(join(root, nodePath("component.b")), invalid);
+      // The lossy directory loader cannot tell the two apart; the evidence snapshot refuses.
+      expect(readFileSync(join(root, nodePath("component.b")), "utf8")).toBe(valid.toString("utf8"));
+      const { recorded, store } = recorder();
+      expect(await recordModelTransitionEvidence(store, root, "journal.utf8", base)).toBe(false);
+      expect(recorded).toEqual([]);
+      expect(captureModelTransitionBase(root, draft(nodePath("component.a"), nodeBody("component.a", { summary: "A3." })))).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
