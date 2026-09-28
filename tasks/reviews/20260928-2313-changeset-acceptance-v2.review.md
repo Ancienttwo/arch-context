@@ -1,16 +1,16 @@
 # Task Review: changeset-acceptance-v2
 
-> **Status**: Pending
+> **Status**: Accepted
 > **Plan**: plans/plan-20260928-2313-changeset-acceptance-v2.md
 > **Contract**: tasks/contracts/20260928-2313-changeset-acceptance-v2.contract.md
 > **Notes File**: tasks/notes/20260928-2313-changeset-acceptance-v2.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
 > **Last Updated**: 2026-09-28 23:13
-> **Recommendation**: fail
+> **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:78e9f26ec904a270a569fdbdc2959194c01dd684981a978a0414971996899be5
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
+> **Reviewed Target Revision**: a4cc94bf575a3cf0b67f2d435f5a9807072c3c77
 
 ## Human Review Card
 
@@ -54,17 +54,17 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Codex
+> **Source**: codex-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:78e9f26ec904a270a569fdbdc2959194c01dd684981a978a0414971996899be5
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: a4cc94bf575a3cf0b67f2d435f5a9807072c3c77
+> **Verification Evidence SHA256**: sha256:982a0f3481ce750f1626d5faef07e8c8f553a9cbfeb58f49c154bbfb079cd322
+> **Issued At**: 2026-09-28T20:50:10.222Z
 
-- Summary: No AcceptanceReceipt has been recorded.
+- Summary: Codex final review at e524b5b: prior blocker (acceptance-time strict reads) resolved; no P0-P3 findings in fe9bf67..e524b5b. Three dual-track security rounds (Opus + Codex) preceded this.
 - Findings: none
 
 ## Behavior Diff Notes
