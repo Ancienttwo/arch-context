@@ -4,7 +4,10 @@ import { resolve } from "node:path";
 import { inspectDataEngineIndexedBacklinks, inspectDataEngineRequiredDomains, inspectDataEngineAuthorityBinding } from "./data-engine-source-invariants";
 
 const root = resolve(import.meta.dir, "..");
-const daemon = readFileSync(resolve(root, "packages/local-runtime/runtime-daemon/src/index.ts"), "utf8");
+const daemon = [
+  "packages/local-runtime/runtime-daemon/src/index.ts",
+  "packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts"
+].map((path) => readFileSync(resolve(root, path), "utf8")).join("\n");
 const compiler = readFileSync(resolve(root, "packages/local-runtime/runtime-daemon/src/explorer-projection.ts"), "utf8");
 const store = readFileSync(resolve(root, "packages/local-runtime/local-store-sqlite/src/index.ts"), "utf8");
 function remove(source: string, witness: string): string {

@@ -27,7 +27,10 @@ const observed = { task: "Explorer bounded benchmark", symbols: [], edges: [], e
 
 const results = [10_000, 100_000].map(benchmark);
 const rendererResults = RENDERER_CASES.map(benchmarkRenderer);
-const runtimeSource = readFileSync(new URL("../packages/local-runtime/runtime-daemon/src/index.ts", import.meta.url), "utf8");
+const runtimeSource = [
+  readFileSync(new URL("../packages/local-runtime/runtime-daemon/src/index.ts", import.meta.url), "utf8"),
+  readFileSync(new URL("../packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts", import.meta.url), "utf8")
+].join("\n");
 const cliSource = readFileSync(new URL("../packages/surfaces/cli/src/main.ts", import.meta.url), "utf8");
 const htmlSource = readFileSync(new URL("../packages/local-runtime/explorer-html/src/index.ts", import.meta.url), "utf8");
 const v1RuntimeReferences = [runtimeSource, cliSource, htmlSource].flatMap((source, index) => {

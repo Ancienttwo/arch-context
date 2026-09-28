@@ -26,7 +26,10 @@ if (mode === "run") {
   ]);
   const contractsSource = await source("packages/contracts/src/ports.ts");
   const compilerSource = await source("packages/local-runtime/runtime-daemon/src/explorer-projection.ts");
-  const daemonSource = await source("packages/local-runtime/runtime-daemon/src/index.ts");
+  const daemonSource = (await Promise.all([
+    source("packages/local-runtime/runtime-daemon/src/index.ts"),
+    source("packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts")
+  ])).join("\n");
   const storeSource = await source("packages/local-runtime/local-store-sqlite/src/index.ts");
   const compilerTest = await source("packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts");
   const daemonTest = await source("packages/local-runtime/runtime-daemon/test/local-runtime.test.ts");
