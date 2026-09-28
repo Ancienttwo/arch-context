@@ -9,7 +9,7 @@ import {
   type Sha256Digest
 } from "@archcontext/contracts";
 import type { NativeModel, NativeNode } from "./index";
-import type { ArchitectureSelectorEvidenceV1, SemanticCapabilityDiagramCompilation } from "./semantic-diagrams";
+import { proofRelevantSelectorEvidence, type ArchitectureSelectorEvidenceV1, type SemanticCapabilityDiagramCompilation } from "./semantic-diagrams";
 
 export const ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION = "archcontext.architecture-semantic-state/v1" as const;
 
@@ -71,17 +71,21 @@ export interface ArchitectureProjectionSemanticBaselineV1 {
 export interface ArchitectureProofEvidenceDigestsV1 {
   /** Declared source footprint identity; already a sticky-provenance key, so it cannot churn. */
   sourceTreeDigest: string;
-  /** Digest of the exact selector evidence the P1/P2 compilation consumed. */
+  /** Digest of the selector-evidence facts the P1/P2 compilation reads (`proofRelevantSelectorEvidence`). */
   selectorEvidenceDigest: string;
+  /** The renderer version that compiled the proofs, so a compiler change is never credited to journals. */
+  rendererVersion: string;
 }
 
 export function architectureProofEvidenceDigests(input: {
   sourceTreeDigest: string;
   selectorEvidence: readonly ArchitectureSelectorEvidenceV1[];
+  rendererVersion: string;
 }): ArchitectureProofEvidenceDigestsV1 {
   return {
     sourceTreeDigest: input.sourceTreeDigest,
-    selectorEvidenceDigest: digestJson(input.selectorEvidence as unknown as Json)
+    selectorEvidenceDigest: digestJson(proofRelevantSelectorEvidence(input.selectorEvidence) as unknown as Json),
+    rendererVersion: input.rendererVersion
   };
 }
 

@@ -50,10 +50,10 @@ Acceptance is refused when any of these is true:
 - the manifest matches neither HEAD nor the latest journaled projection write (commit it, or re-baseline with `archctx docs apply --approved`);
 - the manifest or a semantic model file is not valid UTF-8;
 - a node file is not stored as `nodes/<id>.yaml` or `nodes/<id>.yml`;
-- a path has a symlinked segment;
+- a semantic model file or a path segment is a symlink or other non-regular file;
 - a capability proof is unprovable;
 - the projection has rejected (adoption or ownership) entries;
-- a capability's flow proof changed while its semantic fingerprint did not, and either the declared source tree or the selector evidence moved since the baseline was rendered (`semanticBaseline.evidence`), or the manifest predates that record (re-baseline first);
+- a capability's flow proof changed while its semantic fingerprint did not, and either the declared source tree, the proof-relevant selector evidence (call-site lines excluded) or the renderer version moved since the baseline was rendered (`semanticBaseline.evidence`), or the manifest predates that record (re-baseline first);
 - a different acceptance event already exists for the same snapshot.
 
 In each case, fix the cause and preview again. A hand edit is fixed by reverting it, or by replaying it as a ChangeSet.

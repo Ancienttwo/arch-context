@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, stableYaml, type Json } from "@archcontext/contracts";
 import type { ArchitectureFlowV1 } from "@archcontext/contracts";
-import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureSelectorEvidenceV1, type ArchitectureSemanticStateV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
+import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureSelectorEvidenceV1, type ArchitectureSemanticStateV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { SqliteLocalStore, type CommittedChangeSetForTaskSession } from "@archcontext/local-runtime/local-store-sqlite";
@@ -128,9 +128,10 @@ describe("committed change acceptance helpers", () => {
   test("a proof-only change is accepted only when the recorded source and selector evidence are unchanged", () => {
     const base = state(capability("capability.a", ["capability.a"], digest("5"), digest("6")));
     const proofOnly = state(capability("capability.a", ["capability.a"], digest("5"), digest("9")));
-    const evidence = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b") };
+    const evidence = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b"), rendererVersion: "renderer-v1" };
     expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence: { ...evidence } })).not.toThrow();
-    for (const currentEvidence of [{ ...evidence, sourceTreeDigest: digest("c") }, { ...evidence, selectorEvidenceDigest: digest("c") }]) {
+    // A compiler (renderer) change between baseline and acceptance is not credited to the journals either.
+    for (const currentEvidence of [{ ...evidence, sourceTreeDigest: digest("c") }, { ...evidence, selectorEvidenceDigest: digest("c") }, { ...evidence, rendererVersion: "renderer-v2" }]) {
       expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence }))
         .toThrow(/proof-change-unexplained: capability.a/);
     }
@@ -150,7 +151,7 @@ describe("committed change acceptance helpers", () => {
       semanticFingerprint: digestJson(capabilities.map(({ capabilityId, semanticFingerprint }) => ({ capabilityId, semanticFingerprint })) as unknown as Json),
       flowProofFingerprint: digestJson(capabilities.map(({ capabilityId, flowProofFingerprint }) => ({ capabilityId, flowProofFingerprint })) as unknown as Json)
     });
-    const e0 = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("0") };
+    const e0 = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("0"), rendererVersion: "renderer-v1" };
     const e1 = { ...e0, selectorEvidenceDigest: digest("1") };
     const base = consistent(cap(digest("6")));
     const manifest = (evidence: typeof e0 | undefined) => JSON.stringify({
@@ -213,7 +214,7 @@ describe("committed change acceptance helpers", () => {
     expect(resultA!.proofStatus).toEqual({ p1: "proven", p2: "proven" });
     expect(resultA!.semanticFingerprint).toBe(baseA!.semanticFingerprint);
     expect(resultA!.flowProofFingerprint).not.toBe(baseA!.flowProofFingerprint);
-    const recorded = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b") };
+    const recorded = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b"), rendererVersion: "renderer-v1" };
     expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded } })).not.toThrow();
     expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded, selectorEvidenceDigest: digest("c") } }))
       .toThrow(/proof-change-unexplained: capability.a/);
@@ -474,7 +475,7 @@ describe("committed change acceptance v2", () => {
       expect(planned.plan.reasonCodes).toContain("node-added");
       expect(planned.plan.baselineAnchorRef).toBe((await fixture.store.readLatestCommittedChangeSetFile(fixture.root, MANIFEST))!.journalId);
       expect(JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8")).semanticBaseline.evidence).toEqual({
-        sourceTreeDigest: expect.stringMatching(/^sha256:/), selectorEvidenceDigest: digestJson([])
+        sourceTreeDigest: expect.stringMatching(/^sha256:/), selectorEvidenceDigest: digestJson([]), rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION
       });
       expect(planned.plan.baselineModelDigest).toBe(planned.plan.journals[0].before);
       expect(planned.plan.modelDigest).toBe(digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json));
@@ -699,7 +700,7 @@ describe("committed change acceptance v2", () => {
         writeFileSync(target, readFileSync(join(fixture.root, nodePath("component.added")), "utf8"), "utf8");
         rmSync(join(fixture.root, nodePath("component.added")));
         symlinkSync(target, join(fixture.root, nodePath("component.added")));
-        await expectRefused(fixture, [added], /symlink/i);
+        await expectRefused(fixture, [added], /semantic-model-entry-not-regular/);
       } finally {
         rmSync(outside, { recursive: true, force: true });
       }
@@ -831,6 +832,54 @@ describe("committed change acceptance v2", () => {
     });
   }, TIMEOUT * 2);
 
+  test("after the journals commit, byte and symlink swaps in the semantic set refuse at preview and approve", async () => {
+    // Round-3 F2: every acceptance-side read is strict: regular files only, valid UTF-8 only.
+    const swapReplacementForFf = (file: string) => {
+      const valid = readFileSync(file);
+      const replacement = Buffer.from("\uFFFD", "utf8");
+      const at = valid.indexOf(replacement);
+      expect(at).toBeGreaterThanOrEqual(0);
+      writeFileSync(file, Buffer.concat([valid.subarray(0, at), Buffer.from([0xff]), valid.subarray(at + replacement.length)]));
+      expect(readFileSync(file, "utf8")).toBe(valid.toString("utf8"));
+    };
+    const refusesBothWays = async (fixture: Fixture, journals: { journalId: string; changeSetId: string }[], tamper: () => void, message: RegExp) => {
+      const previewed = await preview(fixture, journals);
+      expect(previewed.ok, JSON.stringify(previewed)).toBe(true);
+      tamper();
+      const approved = await approve(fixture, journals, previewed.data);
+      expect(approved.ok).toBe(false);
+      expect((approved as any).error.message).toMatch(message);
+      await expectRefused(fixture, journals, message);
+      expect(acceptedEvents(fixture)).toHaveLength(0);
+    };
+    await withFixture(async (fixture) => {
+      const edited = await change(fixture, "changeset.replacement-char", [editNode(fixture.root, "component.child", { summary: "Child \uFFFD marker." })]);
+      await refusesBothWays(fixture, [edited], () => swapReplacementForFf(join(fixture.root, nodePath("component.child"))), /not-utf8/);
+    });
+    await withFixture(async (fixture) => {
+      writeFileSync(join(fixture.root, nodePath("component.container")), nodeBody("component.container", {
+        parent: CAPABILITY_A, summary: "Container \uFFFD.", ownership: { lifecycle: ["team-architecture"] }
+      }), "utf8");
+      await baseline(fixture);
+      const added = await change(fixture, "changeset.add", [addComponent()]);
+      await refusesBothWays(fixture, [added], () => swapReplacementForFf(join(fixture.root, nodePath("component.container"))), /not-utf8/);
+    });
+    await withFixture(async (fixture) => {
+      const added = await change(fixture, "changeset.add", [addComponent()]);
+      const outside = mkdtempSync(join(tmpdir(), "archctx-accept-v2-unjournaled-link-"));
+      try {
+        await refusesBothWays(fixture, [added], () => {
+          const target = join(outside, "component.child.yaml");
+          writeFileSync(target, readFileSync(join(fixture.root, nodePath("component.child"))));
+          rmSync(join(fixture.root, nodePath("component.child")));
+          symlinkSync(target, join(fixture.root, nodePath("component.child")));
+        }, /not-regular/);
+      } finally {
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+  }, TIMEOUT * 3);
+
   test("approval must match the previewed worktree digest and plan id; HEAD or baseline moves invalidate the preview", async () => {
     await withFixture(async (fixture) => {
       const added = await change(fixture, "changeset.add", [addComponent()]);
@@ -938,12 +987,20 @@ describe("model transition evidence reads one snapshot", () => {
       const served = (a: string) => new Map([[nodePath("component.a"), a], [nodePath("component.b"), substitute]]);
       expect(base.before).toBe(digestJson(loadNativeModelFromModelFiles(served(nodeBody("component.a", { summary: "A1." }))) as unknown as Json));
       expect(base.before).not.toBe(digestJson(loadNativeModelFromArchContext(root) as unknown as Json));
+      // Capture side: the byte hashes come from the served bytes too, not from a second disk read.
+      const hash = (body: string) => digestJson({ body } as unknown as Json);
+      expect(base.files).toEqual(new Map([[nodePath("component.a"), hash(nodeBody("component.a", { summary: "A1." }))], [nodePath("component.b"), hash(substitute)]]));
       writeFileSync(join(root, nodePath("component.a")), a2);
       reads.length = 0;
       const { recorded, store } = recorder();
       expect(await recordModelTransitionEvidence(store, root, "journal.seam", base, reader)).toBe(true);
       expect(reads.sort()).toEqual([nodePath("component.a"), nodePath("component.b")]);
       expect((recorded[0] as { after: string }).after).toBe(digestJson(loadNativeModelFromModelFiles(served(a2)) as unknown as Json));
+      // Record side: an independently stated base that expects the served bytes, never the disk's.
+      const statedBase = { before: base.before, files: new Map([[nodePath("component.a"), hash(nodeBody("component.a", { summary: "A1." }))], [nodePath("component.b"), hash(substitute)]]), expectedWrites: base.expectedWrites };
+      const second = recorder();
+      expect(await recordModelTransitionEvidence(second.store, root, "journal.seam-stated", statedBase, reader)).toBe(true);
+      expect(await recordModelTransitionEvidence(second.store, root, "journal.seam-disk", statedBase)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

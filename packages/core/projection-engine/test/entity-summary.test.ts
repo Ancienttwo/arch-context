@@ -420,9 +420,45 @@ describe("entity-summary capability documentation projection", () => {
     const e1 = render({ existingFiles: [...e0.files.map(({ path, body }) => ({ path, body })), e0.manifest], provenance: reindexed, selectorEvidence });
     const manifest = (plan: ArchitectureDocumentationProjectionPlan) => JSON.parse(plan.manifest.body);
     expect(manifest(e1).provenance).toEqual(manifest(e0).provenance);
-    expect(manifest(e0).semanticBaseline.evidence).toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence: [] }));
-    expect(manifest(e1).semanticBaseline.evidence).toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence }));
+    expect(manifest(e0).semanticBaseline.evidence).toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence: [], rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION }));
+    expect(manifest(e1).semanticBaseline.evidence).toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence, rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION }));
     expect(manifest(e1).semanticBaseline.evidence).not.toEqual(manifest(e0).semanticBaseline.evidence);
+  });
+
+  test("a call-site line shift leaves the recorded evidence and the projection drift unchanged", () => {
+    // Round-3 F1: the baseline evidence digest must cover only what the proof compiler reads.
+    const first = render();
+    const existingFiles = [...first.files.map(({ path, body }) => ({ path, body })), first.manifest];
+    const shifted = selectorEvidence.map((entry) => ({ ...entry, callSites: entry.callSites.map((site) => ({ ...site, line: (site.line ?? 0) + 7 })) }));
+    const next = render({ existingFiles, selectorEvidence: shifted });
+    expect(next.semanticState.flowProofFingerprint).toBe(first.semanticState.flowProofFingerprint);
+    expect(JSON.parse(next.manifest.body).semanticBaseline.evidence).toEqual(JSON.parse(first.manifest.body).semanticBaseline.evidence);
+    expect(next.drift.ok, JSON.stringify(next.drift.reasonCodes)).toBe(true);
+  });
+
+  test("every selector-evidence fact the proof compiler reads moves the evidence digest", () => {
+    const entry: ArchitectureSelectorEvidenceV1 = {
+      nodeId: "capability.docs.projection", entrypointId: "entrypoint.a", sourcePath: "src/a.ts", sourceSymbol: "run",
+      sinkId: "sink.a", sinkPath: "src/b.ts", sinkSymbol: "write", matched: true, truncated: false, callSites: [{ path: "src/a.ts", line: 3 }]
+    };
+    const digestOf = (evidence: ArchitectureSelectorEvidenceV1[]) =>
+      architectureProofEvidenceDigests({ sourceTreeDigest: sourceDigest, selectorEvidence: evidence, rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION }).selectorEvidenceDigest;
+    const baseline = digestOf([entry]);
+    const consumed: Partial<ArchitectureSelectorEvidenceV1>[] = [
+      { nodeId: "module.other" }, { entrypointId: "entrypoint.b" }, { sourceSymbol: "other" }, { sinkId: "sink.b" },
+      { matched: false }, { ambiguous: true }, { truncated: true }, { callSites: [] }
+    ];
+    for (const change of consumed) expect(digestOf([{ ...entry, ...change }]), JSON.stringify(change)).not.toBe(baseline);
+    // Not read by the compiler: call-site paths and lines, source/sink paths and sink symbol.
+    for (const change of [
+      { callSites: [{ path: "src/other.ts", line: 99 }, { path: "src/a.ts" }] }, { sourcePath: "src/moved.ts" }, { sinkPath: "src/moved.ts" }, { sinkSymbol: "renamed" }
+    ] as Partial<ArchitectureSelectorEvidenceV1>[]) expect(digestOf([{ ...entry, ...change }]), JSON.stringify(change)).toBe(baseline);
+    // Order-insensitive, but a duplicate entry (which the compiler reads as ambiguous) counts.
+    const other = { ...entry, sinkId: "sink.b" };
+    expect(digestOf([entry, other])).toBe(digestOf([other, entry]));
+    expect(digestOf([entry, entry])).not.toBe(baseline);
+    expect(architectureProofEvidenceDigests({ sourceTreeDigest: sourceDigest, selectorEvidence: [entry], rendererVersion: "other-renderer" }))
+      .not.toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: sourceDigest, selectorEvidence: [entry], rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION }));
   });
 
   test("a covered source change re-stamps in the manifest and leaves the document byte-identical", () => {

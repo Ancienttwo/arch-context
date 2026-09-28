@@ -185,3 +185,20 @@ Where they diverged, the decisions were:
   6. **Audit fields.** The plan and the v2 payload carry `baselineAnchor` (`head` | `journal`) and `baselineAnchorRef` (commit sha or journalId).
   - **Trust boundary (documented in the runbook).** The HEAD anchor trusts local git history: anyone who can commit locally, including via amend or on a detached HEAD, can anchor a manifest. The event is an informational record, and enforcement waits on the deferred consumer-side resolver. That `tasks/todos.md` row now also covers binding `B` to HEAD's committed model digest (R2-1b) and attributing proof changes when evidence and semantics both moved (LOW-5).
   - **Persistence**: no schema change. The store read now orders by the existing implicit `rowid`.
+- 2026-09-29: Commit E, round-3 fixes (final review).
+  - **F1.** `semanticBaseline.evidence.selectorEvidenceDigest` now digests `proofRelevantSelectorEvidence(evidence)`, which lives in `semantic-diagrams.ts` next to `validateStep`. It keeps exactly the per-entry facts `validateStep` reads, verified against lines 322-339:
+    - `nodeId`, `entrypointId`, `sourceSymbol` and `sinkId` (the selector match);
+    - `Boolean(matched)`, `Boolean(ambiguous)` and `Boolean(truncated)`, since the compiler reads their truthiness;
+    - `hasCallSites = callSites.length > 0`.
+
+    Entries are sorted and duplicates kept, because the compiler treats duplicates as ambiguous. Call-site paths and lines, `sourcePath`, `sinkPath` and `sinkSymbol` are excluded; no compiler code reads them. This removes the fe9bf67 regression where a line-only shift in an entrypoint outside every footprint made the manifest stale.
+  - **F4.** `semanticBaseline.evidence.rendererVersion` records `ARCHITECTURE_DOCS_RENDERER_VERSION`, the existing renderer constant. The proof gate requires it to match, and a baseline without it counts as unrecorded.
+  - **F2.** `planCommittedChangeAcceptance` takes one strict snapshot of the whole semantic set (`readSemanticModelSnapshot` with `readRegularFileBytes`: regular files only, `O_NOFOLLOW`, fatal UTF-8) and requires its model digest to equal the projection's model. Last writers are re-proved from the snapshot's hashes and bodies instead of `readFileSync(path, "utf8")`. After this, the last-writer claim above ("every last writer's bytes are re-hashed against the journal") holds for raw bytes: with fatal decoding, bytes map one-to-one to the hashed text.
+  - **F3.** The seam test asserts that `base.files` equals the hashes of the bytes the reader served. On the record side it also checks a base stated independently: it records with the served bytes and records nothing with a plain disk read.
+  - **Mutation checks**, each run on a temporary edit, restored with `cmp`, never committed:
+    - F1, full-array digest: both new F1 tests fail.
+    - F2, lossy symlink-following snapshot: the F2 test fails.
+    - F2b, symlink-following but strict: fails on the unjournaled symlink.
+    - F2c, strict only for last writers, no model check: fails on the unjournaled byte swap.
+    - F3, hashes from a separate disk read: the seam test fails.
+  - **Persistence**: none. The manifest gains `semanticBaseline.evidence.rendererVersion`. It is written in the same place as the fe9bf67 field, so it causes no additional one-time staleness.

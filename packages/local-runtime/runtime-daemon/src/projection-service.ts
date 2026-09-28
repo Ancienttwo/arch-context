@@ -188,7 +188,7 @@ export function buildArchitectureDocsProjection(
     manifest: plan.manifest,
     files: [...plan.files, plan.manifest],
     /** This render's measured proof evidence; `plan.provenance` may be the sticky prior copy. */
-    snapshotEvidence: architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence: codeGraphInputs.selectorEvidence })
+    snapshotEvidence: architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence: codeGraphInputs.selectorEvidence, rendererVersion: plan.rendererVersion })
   };
 }
 

@@ -485,7 +485,7 @@ export function renderArchitectureDocumentationProjection(input: {
       digests: architectureDigests,
       // From this render's inputs, not the sticky `provenance` above: the reuse key of that copy
       // excludes CodeGraph evidence, so it cannot say what this baseline's proofs were built from.
-      evidence: architectureProofEvidenceDigests({ sourceTreeDigest: input.provenance.sourceTreeDigest, selectorEvidence: input.selectorEvidence })
+      evidence: architectureProofEvidenceDigests({ sourceTreeDigest: input.provenance.sourceTreeDigest, selectorEvidence: input.selectorEvidence, rendererVersion })
     },
     receiptDigest,
     targetCount: targets.length,

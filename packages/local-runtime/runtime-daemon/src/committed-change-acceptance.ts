@@ -89,7 +89,7 @@ export type SemanticModelEntryReader = (absolute: string, path: string) => Uint8
  * snapshot. Hashes are `digestJson({ body })` of the strictly decoded text, the same shape a
  * journal records as `bodyHash`, so they stay comparable with operation bodies.
  */
-function readSemanticModelSnapshot(root: string, readEntry: SemanticModelEntryReader): { hashes: Map<string, string>; modelDigest: string } {
+function readSemanticModelSnapshot(root: string, readEntry: SemanticModelEntryReader): { bodies: Map<string, string>; hashes: Map<string, string>; modelDigest: string } {
   const bodies = new Map<string, string>();
   for (const directory of SEMANTIC_MODEL_DIRECTORIES) {
     const relativeDirectory = `.archcontext/model/${directory}`;
@@ -108,7 +108,7 @@ function readSemanticModelSnapshot(root: string, readEntry: SemanticModelEntryRe
     }
   }
   const hashes = new Map([...bodies].map(([path, body]) => [path, digestJson({ body } as unknown as Json)]));
-  return { hashes, modelDigest: digestJson(loadNativeModelFromModelFiles(bodies) as unknown as Json) };
+  return { bodies, hashes, modelDigest: digestJson(loadNativeModelFromModelFiles(bodies) as unknown as Json) };
 }
 
 function readRegularFileBytes(absolute: string, path: string): Uint8Array {
@@ -316,7 +316,8 @@ export function assertProofChangesExplained(input: {
 }): void {
   const evidenceUnchanged = input.baselineEvidence !== undefined
     && input.baselineEvidence.sourceTreeDigest === input.currentEvidence.sourceTreeDigest
-    && input.baselineEvidence.selectorEvidenceDigest === input.currentEvidence.selectorEvidenceDigest;
+    && input.baselineEvidence.selectorEvidenceDigest === input.currentEvidence.selectorEvidenceDigest
+    && input.baselineEvidence.rendererVersion === input.currentEvidence.rendererVersion;
   if (evidenceUnchanged) return;
   const baseById = new Map(input.base.capabilities.map((capability) => [capability.capabilityId, capability]));
   for (const capability of input.resulting.capabilities) {
@@ -402,12 +403,16 @@ export function planCommittedChangeAcceptance(root: string, input: {
   const manifestBody = input.existingFiles.find((file) => file.path === PROJECTION_MANIFEST_PATH)?.body;
   const anchor = authenticateProjectionManifest(root, manifestBody, input.latestJournaledManifest, input.scope.worktree.headSha);
   const baseline = projectionManifestBaseline(manifestBody);
+  // One strict snapshot of every semantic file: regular files only, valid UTF-8 only. The
+  // (permissive) model the projection used must be exactly the model of these bytes.
+  const snapshot = readSemanticModelSnapshot(root, readRegularFileBytes);
   const modelDigest = digestJson(input.model as unknown as Json);
+  if (snapshot.modelDigest !== modelDigest) throw new Error("accepted-committed-change-model-snapshot-mismatch: the model changed during acceptance");
   if (input.projection.architectureDigests.modelDigest !== modelDigest) throw new Error("accepted-committed-change-projection-model-mismatch");
   assertModelTransitionChain(baseline.modelDigest, modelDigest, links);
 
   const lastWriters = semanticLastWriters(links);
-  const writtenBodies = readLastWriterBodies(root, lastWriters);
+  const writtenBodies = lastWriterBodies(lastWriters, snapshot);
 
   const { majorChange, semanticState } = input.projection;
   if (input.projection.rejected.length > 0) throw new Error("accepted-committed-change-projection-rejected: resolve adoption or ownership conflicts first");
@@ -562,7 +567,7 @@ export function projectionManifestBaseline(body: string | undefined): { modelDig
     semanticBaseline?: {
       semanticState?: ArchitectureSemanticStateV1;
       digests?: { modelDigest?: unknown; flowProofDigest?: unknown };
-      evidence?: { sourceTreeDigest?: unknown; selectorEvidenceDigest?: unknown };
+      evidence?: { sourceTreeDigest?: unknown; selectorEvidenceDigest?: unknown; rendererVersion?: unknown };
     };
   } | null;
   const baseline = manifest?.semanticBaseline;
@@ -582,30 +587,19 @@ export function projectionManifestBaseline(body: string | undefined): { modelDig
   }
   // Recorded fresh per render; older manifests lack it and can then justify no proof-only change.
   const recorded = baseline.evidence;
-  const evidence = typeof recorded?.sourceTreeDigest === "string" && typeof recorded.selectorEvidenceDigest === "string"
-    ? { sourceTreeDigest: recorded.sourceTreeDigest, selectorEvidenceDigest: recorded.selectorEvidenceDigest }
+  const evidence = typeof recorded?.sourceTreeDigest === "string" && typeof recorded.selectorEvidenceDigest === "string" && typeof recorded.rendererVersion === "string"
+    ? { sourceTreeDigest: recorded.sourceTreeDigest, selectorEvidenceDigest: recorded.selectorEvidenceDigest, rendererVersion: recorded.rendererVersion }
     : undefined;
   return { modelDigest, semanticState: state, evidence };
 }
 
-/** Rejects symlinked segments and re-proves every last writer's bytes; returns written bodies. */
-function readLastWriterBodies(root: string, lastWriters: readonly SemanticLastWriter[]): Map<string, string> {
+/** Re-proves every last writer against the strict snapshot; returns the written bodies. */
+function lastWriterBodies(lastWriters: readonly SemanticLastWriter[], snapshot: { bodies: ReadonlyMap<string, string>; hashes: ReadonlyMap<string, string> }): Map<string, string> {
   const bodies = new Map<string, string>();
   for (const writer of lastWriters) {
-    const absolute = assertPathHasNoSymlinkSegments(root, writer.path);
-    let stat: ReturnType<typeof lstatSync> | undefined;
-    try {
-      stat = lstatSync(absolute);
-    } catch (error) {
-      if ((error as { code?: string }).code !== "ENOENT") throw error;
-    }
-    if (writer.operation === "delete") {
-      if (stat || writer.hash !== "missing") throw new Error(`accepted-committed-change-file-mismatch: ${writer.path}`);
-      continue;
-    }
-    const body = stat?.isFile() ? readFileSync(absolute, "utf8") : undefined;
-    if (body === undefined || digestJson({ body } as unknown as Json) !== writer.hash) throw new Error(`accepted-committed-change-file-mismatch: ${writer.path}`);
-    bodies.set(writer.path, body);
+    const current = snapshot.hashes.get(writer.path) ?? "missing";
+    if (current !== writer.hash) throw new Error(`accepted-committed-change-file-mismatch: ${writer.path}`);
+    if (writer.operation === "write") bodies.set(writer.path, snapshot.bodies.get(writer.path)!);
   }
   return bodies;
 }
