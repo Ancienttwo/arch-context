@@ -92,6 +92,21 @@
     "helper_compat_dir": "scripts",
     "helper_package_dir": "assets/templates/helpers"
   },
+  "agent_runtime": {
+    "mode": "off",
+    "adapters": {
+      "codex-app-thread": {
+        "enabled": false
+      },
+      "herdr-cli-agent": {
+        "enabled": false
+      }
+    }
+  },
+  "development_campaign": {
+    "version": 1,
+    "mode": "off"
+  },
   "operations": {
     "dir": "deploy",
     "private_dir": "_ops",
@@ -112,6 +127,7 @@
   },
   "documentation": {
     "profile": "minimal-agentic",
+    "language": "en",
     "reference_source": "user-level-runtime-docs",
     "reference_stub_marker": "<!-- repo-harness: reference-config-stub v1 -->",
     "reference_resolver": "repo-harness docs path <doc-id>",
@@ -139,6 +155,15 @@
     "rule": "create optional docs only when the agent has concrete repo evidence or the user asks; docs/reference-configs contains repo-local pointer stubs while full generic runtime docs live in the user-level/package repo-harness install"
   },
   "external_tooling": {
+    "herdr": {
+      "min_version": "0.9.0",
+      "release_assets": {
+        "linux-x86_64": {
+          "url": "https://github.com/herdrdev/herdr/releases/download/v0.9.0/herdr-linux-x86_64",
+          "sha256": "4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f"
+        }
+      }
+    },
     "routing": {
       "simple": "waza"
     },
