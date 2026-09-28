@@ -3,6 +3,7 @@ export type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerP
 import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
+import { PracticeCheckpointService } from "./practice-checkpoint";
 export type { RuntimeDocsInput, RuntimeResourceReadResult } from "./external-documentation";
 import { DeveloperReviewSessionService, type DeveloperReviewDigestBundle, type DeveloperReviewSession, type DeveloperReviewAttestation } from "./developer-review-run";
 export type { DeveloperReviewDigestBundle, DeveloperReviewSession, DeveloperReviewAttestation } from "./developer-review-run";
@@ -67,9 +68,8 @@ import { compileArchitectureFactChanges, compileEvidenceStateChanges } from "@ar
 import { type RegisteredRefactorAssessmentV1 } from "./refactor-recording";
 import { evaluateReviewDependencyConstraints } from "./refactor-scan";
 import { type RuntimeRefactorVerifyInput } from "./refactor-verify";
-import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agent-orchestrator";
-import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
+import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
@@ -137,13 +137,6 @@ export {
   type AuditConsentRecordV1,
   type AuditConsentStatus
 } from "./audit-consent";
-
-interface CheckpointCoalesceEntry {
-  repositoryId: string;
-  taskSessionId: string;
-  data: Json;
-  eventCount: number;
-}
 
 export interface RuntimeDeps {
   codeFacts?: CodeFactsPort;
@@ -361,14 +354,6 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
   }
 }
 
-interface PersistedPracticeCheckpointBaseline {
-  schemaVersion: "archcontext.practice-checkpoint-baseline/v1";
-  repositoryId: string;
-  taskSessionId: string;
-  snapshot: PracticeCheckpointSnapshotV1;
-  updatedAt: string;
-}
-
 export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
@@ -377,6 +362,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly localStore: RuntimeLocalStore;
   private readonly changeSetEngine: ChangeSetEngine;
   private readonly externalDocumentationService: ExternalDocumentationService;
+  private readonly practiceCheckpoints: PracticeCheckpointService;
   private readonly externalDocumentation: ExternalDocumentationPort;
   private readonly externalDocumentationInjected: boolean;
   private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
@@ -395,8 +381,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
   private readonly sessions = new Map<string, RepositorySession>();
-  private readonly checkpointBaselines = new Map<string, PracticeCheckpointSnapshotV1>();
-  private readonly checkpointCoalesced = new Map<string, CheckpointCoalesceEntry>();
   private readonly changesets = new Map<string, ChangeSetDraft>();
   private readonly changeSetRoots = new Map<string, string>();
   private readonly mcpChangeSets = new Set<string>();
@@ -547,6 +531,16 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       externalDocumentationInjected: this.externalDocumentationInjected,
       localStore: this.localStore
     });
+    this.practiceCheckpoints = new PracticeCheckpointService({
+      assertRunning: () => this.assertRunning(),
+      clock: this.clock,
+      openSession: (root) => this.openSession(root),
+      codeFacts: this.codeFacts,
+      readModelStore: this.readModelStore,
+      localStore: this.localStore,
+      externalDocumentationService: this.externalDocumentationService,
+      runtimeArchitectureLedgerContextPort: (root) => this.runtimeArchitectureLedgerContextPort(root)
+    });
     this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded", this.architectureLedger);
     this.developerReviewSessions = new DeveloperReviewSessionService({
       assertRunning: () => this.assertRunning(),
@@ -608,8 +602,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       for (const controller of this.auditRunAbortControllers.values()) controller.abort();
       this.mcpApprovals.clear();
       this.sessions.clear();
-      this.checkpointBaselines.clear();
-      this.checkpointCoalesced.clear();
+      this.practiceCheckpoints.clear();
       this.deferredArchitectureChangeFeedFailures.clear();
     } finally {
       this.running = false;
@@ -731,90 +724,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId = "task_runtime"): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const session = await this.openSession(root);
-    const result = await prepareTask({
-      workspace: session.workspace,
-      task,
-      codeFacts: this.codeFacts,
-      modelStore: this.readModelStore,
-      architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
-      budget: { maxBytes, maxItems }
-    });
-    const context = await this.externalDocumentationService.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
-    const augmentedResult = context === result.context ? result : { ...result, context };
-    await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, {
-      schemaVersion: "archcontext.practice-checkpoint-snapshot/v1",
-      task,
-      headSha: session.workspace.headSha,
-      worktreeDigest: session.snapshot.worktreeDigest,
-      contextDigest: augmentedResult.context.extensions.digest,
-      practiceGuidanceDigest: augmentedResult.context.extensions.practiceGuidanceDigest,
-      catalogDigest: augmentedResult.context.practiceGuidance.catalogDigest,
-      matches: augmentedResult.context.practiceGuidance.matches
-    });
-    this.clearPracticeCheckpointCoalesced(session.workspace.repositoryId, taskSessionId);
-    return okEnvelope("prepare", augmentedResult as unknown as Json);
+    return this.practiceCheckpoints.prepare(root, task, maxBytes, maxItems, taskSessionId);
   }
 
   async checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const started = Date.now();
-    const session = await this.openSession(root);
-    const taskSessionId = input.taskSessionId ?? "task_runtime";
-    const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
-    const task = input.task ?? baseline?.task ?? "checkpoint";
-    const coalesceKey = this.practiceCheckpointCoalesceKey(session, taskSessionId, task, input, baseline);
-    const coalesced = this.checkpointCoalesced.get(coalesceKey);
-    if (coalesced) {
-      coalesced.eventCount += 1;
-      const cached = coalesced.data as Record<string, any>;
-      return okEnvelope("checkpoint", {
-        ...cached,
-        hook: {
-          ...cached.hook,
-          coalesced: true,
-          skippedAnalysis: true,
-          coalescedEventCount: coalesced.eventCount,
-          elapsedMs: Date.now() - started
-        }
-      } as Json);
-    }
-    const result = await checkpointTask({
-      workspace: session.workspace,
-      taskSessionId,
-      task,
-      event: input.event ?? "manual",
-      changedPaths: input.changedPaths ?? [],
-      toolCallId: input.toolCallId,
-      expectedHeadSha: input.expectedHeadSha,
-      expectedWorktreeDigest: input.expectedWorktreeDigest,
-      previous: baseline,
-      codeFacts: this.codeFacts,
-      modelStore: this.readModelStore,
-      architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
-      budget: { maxBytes: input.maxBytes ?? 12_288, maxItems: input.maxItems ?? 12 }
-    });
-    await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
-    const data = {
-      ...result,
-      hook: {
-        ...result.hook,
-        coalesced: false,
-        skippedAnalysis: false,
-        coalescedEventCount: 1,
-        coalesceKey,
-        elapsedMs: Date.now() - started
-      }
-    } as unknown as Json;
-    this.checkpointCoalesced.set(coalesceKey, {
-      repositoryId: session.workspace.repositoryId,
-      taskSessionId,
-      data,
-      eventCount: 1
-    });
-    this.pruneCheckpointCoalesced();
-    return okEnvelope("checkpoint", data);
+    return this.practiceCheckpoints.checkpoint(root, input);
   }
 
   async jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}): Promise<JsonEnvelope> {
@@ -862,27 +776,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
-    this.assertRunning();
-    return practiceCatalogEnvelope(root, input);
+    return this.practiceCheckpoints.practices(root, input);
   }
 
   practiceWaivers(root: string): JsonEnvelope {
-    this.assertRunning();
-    try {
-      const ownerRegistry = loadPracticeWaiverOwnerRegistry(root);
-      const waivers = loadPracticeWaivers(root);
-      return okEnvelope("practices.waivers", {
-        schemaVersion: "archcontext.practice-waiver-list/v1",
-        ownerRegistry,
-        count: waivers.length,
-        waivers: waivers.map((waiver) => ({
-          ...waiver,
-          waiverDigest: digestJson(waiver as unknown as Json)
-        }))
-      } as unknown as Json);
-    } catch (error) {
-      return errorEnvelope("practices.waivers", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
-    }
+    return this.practiceCheckpoints.practiceWaivers(root);
   }
 
   async planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> {
@@ -2116,67 +2014,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     }
   }
 
-  private async savePracticeCheckpointBaseline(repositoryId: string, taskSessionId: string, snapshot: PracticeCheckpointSnapshotV1): Promise<void> {
-    this.checkpointBaselines.set(this.practiceCheckpointKey(repositoryId, taskSessionId), snapshot);
-    await this.localStore.saveTaskState(this.practiceCheckpointStateKey(repositoryId, taskSessionId), {
-      schemaVersion: "archcontext.practice-checkpoint-baseline/v1",
-      repositoryId,
-      taskSessionId,
-      snapshot,
-      updatedAt: this.clock()
-    } satisfies PersistedPracticeCheckpointBaseline);
-  }
-
   private async readPracticeCheckpointBaseline(repositoryId: string, taskSessionId: string): Promise<PracticeCheckpointSnapshotV1 | undefined> {
-    const key = this.practiceCheckpointKey(repositoryId, taskSessionId);
-    const memory = this.checkpointBaselines.get(key);
-    if (memory) return memory;
-    const state = await this.localStore.readTaskState(this.practiceCheckpointStateKey(repositoryId, taskSessionId));
-    const persisted = parsePracticeCheckpointBaselineState(state, repositoryId, taskSessionId);
-    if (!persisted) return undefined;
-    this.checkpointBaselines.set(key, persisted.snapshot);
-    return persisted.snapshot;
-  }
-
-  private practiceCheckpointKey(repositoryId: string, taskSessionId: string): string {
-    return `${repositoryId}:${taskSessionId}`;
-  }
-
-  private practiceCheckpointStateKey(repositoryId: string, taskSessionId: string): string {
-    return `practice-checkpoint:${repositoryId}:${taskSessionId}`;
-  }
-
-  private practiceCheckpointCoalesceKey(session: RepositorySession, taskSessionId: string, task: string, input: RuntimeCheckpointInput, baseline?: PracticeCheckpointSnapshotV1): string {
-    return digestJson({
-      repositoryId: session.workspace.repositoryId,
-      headSha: session.workspace.headSha,
-      worktreeDigest: session.snapshot.worktreeDigest,
-      taskSessionId,
-      task,
-      previousContextDigest: baseline?.contextDigest,
-      previousPracticeGuidanceDigest: baseline?.practiceGuidanceDigest,
-      event: input.event ?? "manual",
-      changedPaths: normalizeCheckpointPaths(input.changedPaths ?? []),
-      toolCallId: input.toolCallId,
-      expectedHeadSha: input.expectedHeadSha,
-      expectedWorktreeDigest: input.expectedWorktreeDigest,
-      maxBytes: input.maxBytes ?? 12_288,
-      maxItems: input.maxItems ?? 12
-    } as Json);
-  }
-
-  private clearPracticeCheckpointCoalesced(repositoryId: string, taskSessionId: string): void {
-    for (const [key, entry] of this.checkpointCoalesced) {
-      if (entry.repositoryId === repositoryId && entry.taskSessionId === taskSessionId) this.checkpointCoalesced.delete(key);
-    }
-  }
-
-  private pruneCheckpointCoalesced(): void {
-    while (this.checkpointCoalesced.size > 128) {
-      const oldest = this.checkpointCoalesced.keys().next().value;
-      if (oldest === undefined) return;
-      this.checkpointCoalesced.delete(oldest);
-    }
+    return this.practiceCheckpoints.readPracticeCheckpointBaseline(repositoryId, taskSessionId);
   }
 
   private assertRunning(): void {
@@ -2732,38 +2571,6 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
     "investigationTransport",
     "githubIssueExecutor"
   ].filter((key) => key in deps);
-}
-
-function normalizeCheckpointPaths(paths: string[]): string[] {
-  return [...new Set(paths
-    .map((path) => path.trim().replaceAll("\\", "/"))
-    .filter((path) => path.length > 0 && !path.startsWith("/") && !path.includes(".."))
-  )].sort();
-}
-
-function parsePracticeCheckpointBaselineState(
-  state: unknown,
-  repositoryId: string,
-  taskSessionId: string
-): PersistedPracticeCheckpointBaseline | undefined {
-  if (!state || typeof state !== "object") return undefined;
-  const record = state as Partial<PersistedPracticeCheckpointBaseline>;
-  if (record.schemaVersion !== "archcontext.practice-checkpoint-baseline/v1") return undefined;
-  if (record.repositoryId !== repositoryId || record.taskSessionId !== taskSessionId) return undefined;
-  const snapshot = record.snapshot as Partial<PracticeCheckpointSnapshotV1> | undefined;
-  if (!snapshot || snapshot.schemaVersion !== "archcontext.practice-checkpoint-snapshot/v1") return undefined;
-  if (
-    typeof snapshot.task !== "string" ||
-    typeof snapshot.headSha !== "string" ||
-    typeof snapshot.worktreeDigest !== "string" ||
-    typeof snapshot.contextDigest !== "string" ||
-    typeof snapshot.practiceGuidanceDigest !== "string" ||
-    typeof snapshot.catalogDigest !== "string" ||
-    !Array.isArray(snapshot.matches)
-  ) {
-    return undefined;
-  }
-  return record as PersistedPracticeCheckpointBaseline;
 }
 
 function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
