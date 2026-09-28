@@ -12,7 +12,8 @@ import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRA
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
+import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
+import { ChangeSetEngine, type ApplyOptions, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
 import { createNodeGithubIssueExecutor, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueExecutorPort, type GithubIssuePreflightDraft } from "../src/github-issue-executor";
 import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
@@ -1402,6 +1403,138 @@ setInterval(() => undefined, 1 << 30);
           writeMode: "dual"
         }
       });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("semantic ChangeSets record a digest-only model transition on the journal in YAML and dual write modes", async () => {
+    for (const rolloutMode of ["yaml", "dual"] as const) {
+      const root = createInitializedGitRepo();
+      const store = new TestLocalStore();
+      try {
+        const daemon = await createStartedTestDaemon({ localStore: store, architectureLedger: { rolloutMode } });
+        const nodeBody = "schemaVersion: archcontext.node/v2\nid: component.transition\nkind: component\nname: Transition\nparent: capability.architecture.context\nstatus: active\nsummary: Transition evidence node\n";
+        const before = digestJson(loadNativeModelFromArchContext(root) as unknown as Json);
+        const plan = await daemon.planUpdate(root, {
+          id: `changeset.transition-${rolloutMode}`,
+          operations: [{ op: "create_entity", path: ".archcontext/model/nodes/component.transition.yaml", expectedHash: "missing", body: nodeBody }]
+        });
+        expect(plan.ok).toBe(true);
+        const apply = await daemon.applyUpdate(root, {
+          id: `changeset.transition-${rolloutMode}`,
+          approved: true,
+          expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+        });
+        expect(apply.ok, JSON.stringify(apply)).toBe(true);
+        const journalId = (apply.data as any).journalId as string;
+        expect(journalId).toMatch(/^changeset_/);
+        const journal = store.changeSetJournals.get(journalId)!;
+        expect(journal.status).toBe("committed");
+        expect(journal.modelTransition).toEqual({
+          schemaVersion: "archcontext.changeset-model-transition/v1",
+          before,
+          after: digestJson(loadNativeModelFromArchContext(root) as unknown as Json)
+        });
+        expect(journal.modelTransition!.before).not.toBe(journal.modelTransition!.after);
+        expect(JSON.stringify(journal.modelTransition)).not.toContain("Transition evidence node");
+        expect((await store.readCommittedChangeSet(root, journalId))?.modelTransition).toEqual(journal.modelTransition);
+        await daemon.stop();
+      } finally {
+        removeTempRepo(root);
+      }
+    }
+  });
+
+  test("projection-only and waiver ChangeSets record no model transition", async () => {
+    const root = createInitializedGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store });
+      await applyArchitectureDocsProjection(root, daemon, "changeset.transition-docs-only");
+      writeFileSync(join(root, ".archcontext/model/nodes/module.waiver-owner.yaml"), [
+        "schemaVersion: archcontext.node/v2",
+        "id: module.waiver-owner",
+        "kind: module",
+        "name: Waiver Owner",
+        "status: active",
+        "summary: Owns waiver governance fixtures.",
+        "ownership:",
+        "  lifecycle: [\"team-architecture\"]",
+        ""
+      ].join("\n"), "utf8");
+      const waiver = await daemon.planPracticeWaiver(root, {
+        id: "changeset.transition-waiver",
+        waiverId: "transition-waiver",
+        taskSessionId: "task_waiver",
+        practiceId: "modularity.no-new-cycle",
+        checkId: "no-new-cycle",
+        owner: "team-architecture",
+        reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
+        createdAt: "2026-06-24T00:00:00.000Z",
+        reviewAt: "2026-07-10T00:00:00.000Z",
+        expiresAt: "2026-07-24T00:00:00.000Z",
+        evidenceDigest: `sha256:${"1".repeat(64)}`,
+        subjects: ["module.a->module.b"]
+      });
+      expect(waiver.ok, JSON.stringify(waiver)).toBe(true);
+      const applied = await daemon.applyUpdate(root, {
+        id: (waiver.data as any).draft.id,
+        approved: true,
+        expectedWorktreeDigest: (waiver.data as any).draft.base.worktreeDigest
+      });
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
+      expect((applied.data as any).journalId).toMatch(/^changeset_/);
+      const journals = [...store.changeSetJournals.values()];
+      expect(journals.map((journal) => journal.draft.id)).toEqual(["changeset.transition-docs-only", "changeset.transition-waiver"]);
+      expect(journals.every((journal) => journal.status === "committed" && journal.modelTransition === undefined)).toBe(true);
+      await daemon.stop();
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("a semantic file written by anything but the draft mid-apply leaves no transition and does not fail the apply", async () => {
+    const root = createInitializedGitRepo();
+    const store = new TestLocalStore();
+    class MidApplyWriterEngine extends ChangeSetEngine {
+      override async apply(applyRoot: string, draft: ChangeSetDraft, options: ApplyOptions = {}) {
+        return super.apply(applyRoot, draft, {
+          ...options,
+          afterModelValidatedBeforeCommit: async (input) => {
+            writeFileSync(join(applyRoot, ".archcontext/model/nodes/component.hand-edit.yaml"),
+              "schemaVersion: archcontext.node/v2\nid: component.hand-edit\nkind: component\nname: Hand Edit\nparent: capability.architecture.context\nstatus: active\n", "utf8");
+            return options.afterModelValidatedBeforeCommit?.(input);
+          }
+        });
+      }
+    }
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        changeSetEngine: new MidApplyWriterEngine({ modelStore: new YamlModelStore(), projection: { planGeneratedProjection }, journal: store })
+      });
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.transition-raced",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/component.raced.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v2\nid: component.raced\nkind: component\nname: Raced\nparent: capability.architecture.context\nstatus: active\n"
+        }]
+      });
+      expect(plan.ok).toBe(true);
+      const apply = await daemon.applyUpdate(root, {
+        id: "changeset.transition-raced",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      expect(apply.ok, JSON.stringify(apply)).toBe(true);
+      const journal = store.changeSetJournals.get((apply.data as any).journalId)!;
+      expect(journal.status).toBe("committed");
+      expect(journal.modelTransition).toBeUndefined();
+      expect(existsSync(join(root, ".archcontext/model/nodes/component.raced.yaml"))).toBe(true);
+      await daemon.stop();
     } finally {
       removeTempRepo(root);
     }

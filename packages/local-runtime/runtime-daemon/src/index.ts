@@ -27,6 +27,7 @@ import { RecommendationsService, recommendationArtifactsFromEvents, type Runtime
 export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./recommendations";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
+import { captureModelTransitionBase, recordModelTransitionEvidence } from "./committed-change-acceptance";
 export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
 export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, recoverStaleDaemonControlFiles } from "./daemon-control";
 export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
@@ -1099,34 +1100,39 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         return errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", "committed projection receipt requires explicit projection recover");
       }
       const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
+      const transitionBase = captureModelTransitionBase(root, approved);
       let ledgerAppend: Json | undefined;
+      let appliedJournalId: string | undefined;
       const writesLedger = architectureLedgerWriteAppendsEvents(this.architectureLedger.writeMode);
       const result = await this.changeSetEngine.apply(root, approved, {
         approved: input.approved,
-        afterModelValidatedBeforeCommit: writesLedger || input.projectionApplyReceipt
-          ? async ({ journalId }) => {
-            if (input.projectionApplyReceipt) {
-              if (!journalId) throw new Error("projection apply receipt requires a durable ChangeSet journal");
-              await this.localStore.recordProjectionApplyReceipt(journalId, input.projectionApplyReceipt);
-            }
-            if (writesLedger) {
-              const appended = await this.appendAppliedChangeSetToArchitectureLedger(root, session, approved, journalId);
-              ledgerAppend = {
-                status: "appended",
-                appendedEventCount: appended.appendedEvents.length,
-                duplicateEventCount: appended.duplicateEvents.length,
-                graphDigest: appended.graphDigest,
-                entityCount: appended.entityCount,
-                relationCount: appended.relationCount,
-                constraintCount: appended.constraintCount
-              };
-            }
-            return { journalCommitted: writesLedger && Boolean(journalId) };
+        // Installed in every write mode; it keeps the pre-existing commit semantics exactly.
+        afterModelValidatedBeforeCommit: async ({ journalId }) => {
+          appliedJournalId = journalId;
+          // Recorded while the journal is still pending, before a ledger append can commit it.
+          if (transitionBase && journalId) await recordModelTransitionEvidence(this.localStore, root, journalId, transitionBase);
+          if (input.projectionApplyReceipt) {
+            if (!journalId) throw new Error("projection apply receipt requires a durable ChangeSet journal");
+            await this.localStore.recordProjectionApplyReceipt(journalId, input.projectionApplyReceipt);
           }
-          : undefined
+          if (writesLedger) {
+            const appended = await this.appendAppliedChangeSetToArchitectureLedger(root, session, approved, journalId);
+            ledgerAppend = {
+              status: "appended",
+              appendedEventCount: appended.appendedEvents.length,
+              duplicateEventCount: appended.duplicateEvents.length,
+              graphDigest: appended.graphDigest,
+              entityCount: appended.entityCount,
+              relationCount: appended.relationCount,
+              constraintCount: appended.constraintCount
+            };
+          }
+          return { journalCommitted: writesLedger && Boolean(journalId) };
+        }
       });
       return okEnvelope("apply_update", {
         ...result,
+        ...(appliedJournalId ? { journalId: appliedJournalId } : {}),
         architectureLedger: {
           ...this.architectureLedger,
           append: writesLedger ? ledgerAppend ?? { status: "not-appended" } : { status: "not-applicable" }

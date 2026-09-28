@@ -3921,6 +3921,66 @@ store.close();
     }
   });
 
+  test("model transition evidence is recorded only on a pending journal and read back only for its committed root", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-model-transition-"));
+    const otherRoot = mkdtempSync(join(tmpdir(), "archctx-model-transition-other-"));
+    const sqlite = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    const transition = {
+      schemaVersion: "archcontext.changeset-model-transition/v1" as const,
+      before: `sha256:${"1".repeat(64)}`,
+      after: `sha256:${"2".repeat(64)}`
+    };
+    try {
+      await sqlite.migrate();
+      for (const store of [sqlite, new TestLocalStore()]) {
+        const nodeFile = { path: ".archcontext/model/nodes/module.a.yaml", existed: false, operation: "create_entity" as const, bodyHash: digestJson({ body: "node" }) };
+        const journalId = await store.beginChangeSet(root, changeSetDraft("changeset.transition", nodeFile.path));
+        await store.recordChangeSetFile(journalId, nodeFile);
+        for (const malformed of [
+          { ...transition, schemaVersion: "archcontext.changeset-model-transition/v2" },
+          { ...transition, before: "sha256:short" },
+          { ...transition, body: "schemaVersion: archcontext.node/v2" },
+          { schemaVersion: transition.schemaVersion, before: transition.before }
+        ]) {
+          await expect(store.recordChangeSetModelTransition(journalId, malformed as any)).rejects.toThrow(/changeset-model-transition-invalid/);
+        }
+        await expect(store.recordChangeSetModelTransition("changeset_missing", transition)).rejects.toThrow(/not found/);
+        await store.recordChangeSetModelTransition(journalId, transition);
+        await store.commitChangeSet(journalId);
+        await expect(store.recordChangeSetModelTransition(journalId, { ...transition, after: `sha256:${"3".repeat(64)}` })).rejects.toThrow(/not pending/);
+
+        const committed = await store.readCommittedChangeSet(root, journalId);
+        expect(committed).toMatchObject({ journalId, changeSetId: "changeset.transition", modelTransition: transition });
+        expect(await store.readCommittedChangeSet(otherRoot, journalId)).toBeUndefined();
+        // Task-session lookups keep their existing shape; the transition is an acceptance-only readback.
+        const listed = (await store.listCommittedChangeSetsForTaskSession(root, "task.test")).find((entry) => entry.journalId === journalId);
+        expect(listed).toMatchObject({ journalId });
+        expect(listed).not.toHaveProperty("modelTransition");
+
+        const without = await store.beginChangeSet(root, changeSetDraft("changeset.no-transition", nodeFile.path));
+        await store.recordChangeSetFile(without, nodeFile);
+        await store.commitChangeSet(without);
+        expect(await store.readCommittedChangeSet(root, without)).not.toHaveProperty("modelTransition");
+        const aborted = await store.beginChangeSet(root, changeSetDraft("changeset.aborted", nodeFile.path));
+        await store.abortChangeSet(aborted, "fault");
+        await expect(store.recordChangeSetModelTransition(aborted, transition)).rejects.toThrow(/not pending/);
+      }
+
+      const database = new Database(join(root, "runtime.sqlite"));
+      const journalId = (database.query("SELECT journal_id FROM changeset_journal WHERE changeset_id = ?").get("changeset.transition") as { journal_id: string }).journal_id;
+      const metadata = JSON.parse((database.query("SELECT metadata_json FROM changeset_journal WHERE journal_id = ?").get(journalId) as { metadata_json: string }).metadata_json);
+      expect(metadata.modelTransition).toEqual(transition);
+      database.query("UPDATE changeset_journal SET metadata_json = ? WHERE journal_id = ?")
+        .run(JSON.stringify({ ...metadata, modelTransition: { ...transition, after: "not-a-digest" } }), journalId);
+      database.close();
+      await expect(sqlite.readCommittedChangeSet(root, journalId)).rejects.toThrow(/changeset-journal-model-transition-malformed/);
+    } finally {
+      sqlite.close();
+      rmSync(root, { recursive: true, force: true });
+      rmSync(otherRoot, { recursive: true, force: true });
+    }
+  });
+
   test("one task session can commit the same changeSetId twice, which the wire contract alone rejects", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-task-session-duplicate-"));
     const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
