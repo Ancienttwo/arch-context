@@ -222,6 +222,128 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
 
+test("CLI ledger accept-committed previews, approves, and drives an accepted projection run to a clean fixed point", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-accept-committed-"));
+  writeFileSync(join(root, "README.md"), "# accept-committed fixture\n", "utf8");
+  initializeArchContextModel(root, "Accept Committed App");
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const capabilityId = "capability.runtime-harness.hook-adapters";
+  const nodePath = `.archcontext/model/nodes/${capabilityId}.yaml`;
+  const capability = (summary: string) => stableYaml({
+    schemaVersion: "archcontext.node/v2",
+    id: capabilityId,
+    kind: "capability",
+    name: "Hook Adapters",
+    status: "active",
+    summary,
+    extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
+  });
+  try {
+    nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
+    writeFileSync(join(root, nodePath), capability("Routes runtime hook events."), "utf8");
+    mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/relations/relation.hook-journal.yaml"), stableYaml({
+      schemaVersion: "archcontext.relation/v1", id: "relation.hook-journal", kind: "writes", source: capabilityId, target: capabilityId, intent: "Persist hook events"
+    }), "utf8");
+    mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/flows/flow.hook-adapters.yaml"), stableYaml({
+      schemaVersion: "archcontext.flow/v1", id: "flow.hook-adapters", capabilityId, name: "Hook routing", applicability: "not-applicable", rationale: "Acceptance fixture."
+    }), "utf8");
+    writeFileSync(join(root, "AGENTS.md"), "# Agent context\n", "utf8");
+    writeFileSync(join(root, "CLAUDE.md"), "# Agent context\n", "utf8");
+    git(root, "init");
+    git(root, "add", ".");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "accept-committed fixture");
+    // Refresh-signal delivery re-proves the approved snapshot, which requires a ready CodeGraph index.
+    execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    const baseline = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
+
+    const current = readFileSync(join(root, nodePath), "utf8");
+    const planned = await daemon.planUpdate(root, {
+      id: "changeset.hook-adapters-summary",
+      operations: [{ op: "update_entity_fields", path: nodePath, expectedHash: digestJson({ body: current }), body: capability("Routes and validates runtime hook events.") }]
+    });
+    expect(planned.ok, JSON.stringify(planned)).toBe(true);
+    const applied = await daemon.applyUpdate(root, { id: "changeset.hook-adapters-summary", approved: true, expectedWorktreeDigest: (planned.data as any).draft.base.worktreeDigest });
+    expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    const journalId = (applied.data as any).journalId as string;
+    const pair = `${journalId}=changeset.hook-adapters-summary`;
+
+    for (const invalid of [
+      ["accept-committed"],
+      ["accept-committed", "--journal", pair, "--journal-id", journalId, "--changeset-id", "changeset.hook-adapters-summary"],
+      ["accept-committed", "--journal", "missing-separator"],
+      ["accept-committed", "--journal", pair, "--approved"],
+      ["accept-committed", "--journal", pair, "--acceptance-plan-id", `sha256:${"a".repeat(64)}`]
+    ]) {
+      const refused = await cli("ledger", invalid);
+      expect((refused as any).error?.code, JSON.stringify(refused)).toBe("AC_SCHEMA_INVALID");
+    }
+    const preview = await cli("ledger", ["accept-committed", "--journal", pair]);
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    expect(preview.data).toMatchObject({
+      status: "preview",
+      plan: { reasonCodes: ["responsibility-changed"], affectedNodeIds: [capabilityId], directlyEditedNodeIds: [capabilityId] }
+    });
+    const shorthand = await cli("ledger", ["accept-committed", "--journal-id", journalId, "--changeset-id", "changeset.hook-adapters-summary"]);
+    expect((shorthand.data as any).acceptancePlanId).toBe((preview.data as any).acceptancePlanId);
+    const approved = await cli("ledger", [
+      "accept-committed", "--journal", pair, "--approved",
+      "--acceptance-plan-id", (preview.data as any).acceptancePlanId,
+      "--expected-worktree-digest", (preview.data as any).expectedWorktreeDigest
+    ]);
+    expect(approved.ok, JSON.stringify(approved)).toBe(true);
+    const acceptedChange = (approved.data as any).acceptedChange as AcceptedArchitectureChangeReferenceV1;
+    expect(acceptedChange).toEqual((preview.data as any).acceptedChange);
+
+    const docsPlan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
+    expect(docsPlan.ok, JSON.stringify(docsPlan)).toBe(true);
+    const request: ProjectionRequestV1 = {
+      schemaVersion: "archcontext.projection-request/v1",
+      requestId: "projection_request.accept_committed",
+      profile: "repo-harness/v1",
+      mode: "apply",
+      targets: ["agent-context", "architecture-docs"],
+      changedPaths: [nodePath],
+      acceptedChange,
+      expected: {
+        repositoryId: repositoryFingerprint(root),
+        workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+        headSha: gitOut(root, "rev-parse", "HEAD"),
+        worktreeDigest: (docsPlan.data as any).provenance.worktreeDigest
+      }
+    };
+    const run = await cli("projection", ["run", "--request-json", JSON.stringify(request)]);
+    expect(run.ok, JSON.stringify(run)).toBe(true);
+    const result = run.data as unknown as ProjectionResultV2;
+    expect(result.status).toBe("applied");
+    expect(result.refreshSignals).toHaveLength(1);
+    expect(result.refreshSignals[0]).toMatchObject({ mode: "refresh-required", cause: "accepted-semantic-delta", acceptedChange });
+    const lookupKey = result.applyReceipt!.lookupKey;
+    expect(await daemon.inspectProjectionApplyReceipt(root, lookupKey)).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
+    const recovered = await cli("projection", ["recover", "--request-json", JSON.stringify({
+      schemaVersion: "archcontext.projection-apply-recovery-intent/v1",
+      requestId: "projection_request.accept_committed_recover",
+      profile: "repo-harness/v1",
+      receipt: { lookupKey, applyId: result.applyReceipt!.applyId }
+    })]);
+    expect(recovered.ok, JSON.stringify(recovered)).toBe(true);
+    expect(recovered.data).toMatchObject({ proof: { deliveryStatus: "already-delivered" }, refreshSignals: [] });
+    const drift = await cli("docs", ["drift", "--profile", "repo-harness/v1"]);
+    expect(drift.ok, JSON.stringify(drift)).toBe(true);
+    expect(drift.data).toMatchObject({ ok: true, majorChange: { mode: "none" }, refreshSignals: [] });
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+
 async function removeRuntimeSqliteFiles(localStorePath: string): Promise<void> {
   for (const path of [localStorePath, `${localStorePath}-wal`, `${localStorePath}-shm`]) {
     await removeFileWithTransientWindowsRetry(path);

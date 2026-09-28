@@ -52,11 +52,15 @@ export interface RuntimeLedgerProjectInput {
   expectedWorktreeDigest?: string;
 }
 
+/**
+ * Ordered 1-32 committed journals forming one model-transition chain. Without `approved` the daemon
+ * returns a preview; approval must echo the previewed `acceptancePlanId` and worktree digest.
+ */
 export interface RuntimeAcceptCommittedChangeInput {
-  journalId: string;
-  changeSetId: string;
-  approved: true;
-  expectedWorktreeDigest: string;
+  journals: { journalId: string; changeSetId: string }[];
+  approved?: boolean;
+  expectedWorktreeDigest?: string;
+  acceptancePlanId?: string;
 }
 
 export interface RuntimeLedgerRebuildInput {

@@ -19,6 +19,40 @@
 
 `complete_task` validates active documentation projections when `docs/architecture/.projection-manifest.json` exists. A successful completion must have projection drift count zero.
 
+## Accepting Committed Model Changes
+
+When `archctx docs drift` reports `majorChange.mode: human-action-required` after model edits, accept those edits through the committed ChangeSets that made them. Do not re-baseline with a manual `docs apply --approved`.
+
+1. Make every edit to `.archcontext/model/{nodes,relations,flows}/*.yaml` through ChangeSets (`archctx apply --approved …`). Each apply returns a `journalId`, and the journal records a digest-only model transition `{before, after}`. A hand edit records nothing, so it breaks the chain.
+2. Preview:
+   ```bash
+   archctx ledger accept-committed --journal <journalId>=<changeSetId> [--journal …]
+   ```
+   List the journals in commit order. One journal can also be passed as `--journal-id <id> --changeset-id <id>`. Leave out journals that wrote no semantic model file, such as waivers or docs.
+3. Review the plan before approving:
+   - reason codes and affected node ids;
+   - `directlyEditedNodeIds`, `affectedAncestorNodeIds` and `carriedNodeIds`;
+   - the journal chain from the projection manifest baseline to the current model.
+4. Approve with the ids the preview returned:
+   ```bash
+   archctx ledger accept-committed --journal … --approved --acceptance-plan-id <acceptancePlanId> --expected-worktree-digest <expectedWorktreeDigest>
+   ```
+   The daemon recomputes the plan under the writer lock. Any change since the preview, including a re-baseline of `docs/architecture`, changes the plan id and refuses the approval. The approval appends a record-only `architecture.changeset.accepted` event. The event carries payload `archcontext.accepted-committed-change/v2`, has `operations: []`, and does not change ledger graph authority.
+5. Pass the returned `acceptedChange` tuple unchanged as `ProjectionRequestV1.acceptedChange` to `archctx projection run`. A successful run records the apply receipt and delivers one refresh signal. `archctx projection recover` with the same receipt then reports `already-delivered`.
+6. Run `archctx docs drift` again and confirm it is clean.
+
+Acceptance is refused when any of these is true:
+- the journal chain does not start at the manifest baseline or does not end at the current model;
+- a listed journal is pending, aborted, from another root, or out of order;
+- a node file is not stored as `nodes/<id>.yaml`;
+- a path has a symlinked segment;
+- a capability proof is unprovable;
+- the projection has rejected (adoption or ownership) entries;
+- a flow proof changed without a journaled edit to that capability's flow;
+- an event already exists for the same snapshot.
+
+In each case, fix the cause and preview again. A hand edit is fixed by reverting it, or by replaying it as a ChangeSet.
+
 ## Bad Projection Recovery
 
 If generated content is wrong but human text is intact:

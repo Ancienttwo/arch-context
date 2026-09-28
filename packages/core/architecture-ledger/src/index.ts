@@ -108,17 +108,49 @@ export interface ArchitectureLedgerEventPayload {
   sourceCursors?: Record<string, Json>[];
   waivers?: Record<string, Json>[];
   feedback?: Record<string, Json>[];
-  /** Approval of a committed YAML ChangeSet; this does not materialize ledger graph operations. */
-  acceptedCommittedChange?: {
-    schemaVersion: "archcontext.accepted-committed-change/v1";
-    journalId: string;
-    changeSetId: string;
-    fileSetDigest: string;
-    modelDigest: string;
-    reasonCodes: string[];
-    affectedNodeIds: string[];
-    authority: "yaml";
-  };
+  /** Approval of committed YAML ChangeSets; this does not materialize ledger graph operations. */
+  acceptedCommittedChange?: AcceptedCommittedChangePayloadV1 | AcceptedCommittedChangePayloadV2;
+}
+
+/** Recorded single-journal node-rename acceptances; no longer issued, still valid in the ledger. */
+export interface AcceptedCommittedChangePayloadV1 {
+  schemaVersion: "archcontext.accepted-committed-change/v1";
+  journalId: string;
+  changeSetId: string;
+  fileSetDigest: string;
+  modelDigest: string;
+  reasonCodes: string[];
+  affectedNodeIds: string[];
+  authority: "yaml";
+}
+
+export interface AcceptedCommittedChangeJournalV2 {
+  journalId: string;
+  changeSetId: string;
+  committedAt: string;
+  /** NativeModel digests journaled around this ChangeSet's writes. */
+  before: string;
+  after: string;
+}
+
+/**
+ * Operator acceptance of an ordered journal chain from the projection manifest's baseline model
+ * digest to the current model digest. The node sets are labels only: the chain carries soundness.
+ */
+export interface AcceptedCommittedChangePayloadV2 {
+  schemaVersion: "archcontext.accepted-committed-change/v2";
+  journals: AcceptedCommittedChangeJournalV2[];
+  fileSetDigest: string;
+  baselineModelDigest: string;
+  modelDigest: string;
+  reasonCodes: string[];
+  affectedNodeIds: string[];
+  directlyEditedNodeIds: string[];
+  affectedAncestorNodeIds: string[];
+  carriedNodeIds: string[];
+  projectionWorktreeDigest: string;
+  acceptancePlanId: string;
+  authority: "yaml";
 }
 
 export interface ArchitectureLedgerGraphState {
