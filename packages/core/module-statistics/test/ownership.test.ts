@@ -51,9 +51,41 @@ describe("tracked file ownership under the PRD ancestor rule", () => {
     // Excluded by `packages/core/**/test/**` even though `packages/core/**` matches.
     expect(ownership.byPath.get("packages/core/test/core.test.ts")).toEqual({ owners: [], ambiguous: false });
     expect(ownership.byPath.get("docs/readme.md")).toEqual({ owners: [], ambiguous: false });
-    expect(ownership.unownedFileCount).toBe(2);
+    expect(ownership.byPath.get("packages/tools/gen.ts")).toEqual({ owners: [], ambiguous: false });
     expect(ownership.ownedFileCount).toBe(5);
-    expect(ownership.ownedFileCount + ownership.unownedFileCount).toBe(PATHS.length);
+    expect([...ownership.byPath.values()].filter((resolution) => resolution.owners.length === 0)).toHaveLength(3);
+  });
+
+  test("only unclaimed files under a declared source root that no node excludes count as unowned", () => {
+    const ownership = resolveOwnership(MODEL.nodes, PATHS);
+
+    // `packages/tools/gen.ts` sits under `packages/`, where the model declares source, so it is a
+    // gap. `docs/readme.md` is outside every declared root and the test file is excluded on
+    // purpose: neither is something a model change is meant to claim.
+    expect(ownership.unownedFileCount).toBe(1);
+  });
+
+  test("a glob spanning the repository root keeps every unclaimed, unexcluded file in scope", () => {
+    const nodes = [
+      { id: "module.src", kind: "module", name: "Src", source: { include: ["src/**"] } },
+      { id: "module.config", kind: "module", name: "Config", source: { include: ["*.json", "README.md"] } }
+    ];
+    expect(resolveOwnership(nodes, ["README.md", "docs/a.md", "package.json", "src/a.ts"]).unownedFileCount).toBe(1);
+  });
+
+  test("a literal root-level include declares only itself, not the repository root", () => {
+    const nodes = [
+      { id: "module.src", kind: "module", name: "Src", source: { include: ["src/app/**", "package.json"] } }
+    ];
+    const ownership = resolveOwnership(nodes, ["docs/a.md", "package.json", "src/app/a.ts", "src/util/b.ts"]);
+    // `src/util/b.ts` is a new directory beside a modeled one: an actionable gap.
+    expect(ownership.unownedFileCount).toBe(1);
+    expect(ownership.byPath.get("src/util/b.ts")).toEqual({ owners: [], ambiguous: false });
+  });
+
+  test("a model that declares no source keeps the whole repository in scope", () => {
+    const nodes = [{ id: "module.only", kind: "module", name: "Only" }];
+    expect(resolveOwnership(nodes, ["docs/a.md", "src/a.ts"]).unownedFileCount).toBe(2);
   });
 
   test("a node without source.include declares no footprint and owns nothing", () => {

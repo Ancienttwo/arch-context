@@ -12,6 +12,7 @@ export type { ExplorerServerOptions, ExplorerServerStatus } from "./explorer-ser
 import { LedgerAdminService, type RuntimeArchitectureLedgerRolloutMode, type RuntimeArchitectureLedgerReadMode, type RuntimeArchitectureLedgerWriteMode, type RuntimeArchitectureLedgerModes, type RuntimeArchitectureLedgerPhaseFlags } from "./ledger-admin";
 export type { RuntimeArchitectureLedgerRolloutMode, RuntimeArchitectureLedgerReadMode, RuntimeArchitectureLedgerWriteMode, RuntimeArchitectureLedgerModes, RuntimeArchitectureLedgerPhaseFlags } from "./ledger-admin";
 import { ArchitectureBookService, type RuntimeBookInput } from "./architecture-book";
+import { LandscapeService } from "./landscape";
 export type { RuntimeBookInput } from "./architecture-book";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
@@ -35,17 +36,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  addRepositoryToLandscape,
   bindRepository,
   canonicalRepositoryRoot,
   computeWorktreeDigest,
-  createLandscape,
-  landscapeDigest,
   readDependencyConstraints,
   readReviewPolicy,
   repositoryFingerprint,
   validateAdrAppliesTo,
-  validateLandscape,
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
@@ -72,9 +69,9 @@ import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPractic
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
 import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationProjectionWorktreeDigest, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, assertArchitectureProjectionVerifiedAgainst, capabilitySourceChangesSinceStamps, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestVerifiedAgainst, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection, type ArchitectureProjectionManifestVerifiedAgainstReadback, type ArchitectureProjectionVerifiedAgainst, type CapabilitySourceChangeSet, type CapabilitySourceChangeSetForCommit, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
-import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
+import { CodeGraphAdapter, CodeGraphCliProvider, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
-import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
+import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AcceptedArchitectureChangeReferenceV1, type AgentJobV1, type ArchitectureEventV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
@@ -393,7 +390,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   // background) investigation, keyed by jobId, so `stop()` can abort real `claude` subprocesses
   // rather than leaving them running orphaned past the daemon's own lifetime.
   private readonly auditRunAbortControllers = new Map<string, AbortController>();
-  private landscape?: Landscape;
+  private readonly landscapes: LandscapeService;
   private readonly explorerServer: ExplorerServerService;
   private readonly explorerProjections: ExplorerProjectionService;
   private running = false;
@@ -452,6 +449,14 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       readPracticeCheckpointBaseline: (repositoryId, taskSessionId) => this.readPracticeCheckpointBaseline(repositoryId, taskSessionId),
       notifyExplorerInvalidation: (projection, affectedOccurrenceIds) => this.explorerServer.notifyExplorerInvalidation(projection, affectedOccurrenceIds),
       notifyExplorerAuthorityInvalidation: (root, record, occurrenceIds) => this.explorerServer.notifyExplorerAuthorityInvalidation(root, record, occurrenceIds)
+    });
+    this.landscapes = new LandscapeService({
+      assertRunning: () => this.assertRunning(),
+      localStore: this.localStore,
+      sessions: this.sessions,
+      openSession: (root) => this.openSession(root),
+      codeGraphProviderFactory: this.codeGraphProviderFactory,
+      readModelStore: this.readModelStore
     });
     this.ledgerAdmin = new LedgerAdminService({
       assertRunning: () => this.assertRunning(),
@@ -565,7 +570,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       // Recovery gate (#172): a journal still pending here failed to recover. Its backups are kept
       // for the next start's retry, and nothing may write over them in the meantime.
       this.unresolvedChangeSetJournals = this.localStore.listUnresolvedChangeSetJournals();
-      await this.restoreLandscape();
+      await this.landscapes.restore();
       await this.restoreRepositorySessions();
     } catch (error) {
       this.localStore.close();
@@ -1614,122 +1619,23 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async repoAdd(root: string, name?: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const session = await this.openSession(root);
-    const repository: RepositoryRegistration = {
-      repositoryId: session.workspace.repositoryId,
-      numericRepositoryId: numericRepositoryId(session.workspace.repositoryId),
-      name: name ?? session.workspace.repositoryId,
-      role: "application",
-      root: session.workspace.root,
-      defaultBranch: "main"
-    };
-    this.landscape = this.landscape
-      ? addRepositoryToLandscape(this.landscape, repository)
-      : createLandscape({ id: "local", name: "Local Landscape", repositories: [repository] });
-    await this.localStore.saveLandscape(this.landscape);
-    return okEnvelope("repo.add", { repository, landscapeDigest: landscapeDigest(this.landscape) } as unknown as Json);
+    return this.landscapes.repoAdd(root, name);
   }
 
   async repoList(): Promise<JsonEnvelope> {
-    this.assertRunning();
-    return okEnvelope("repo.list", {
-      repositories: this.landscape?.repositories ?? [],
-      activeSessions: [...this.sessions.keys()].sort()
-    } as unknown as Json);
+    return this.landscapes.repoList();
   }
 
-  /**
-   * Removal is durable and leaves the saved landscape self-consistent. The persisted
-   * `repository_sessions` row is deleted (otherwise `restoreRepositorySessions` resurrects the
-   * repository on the next daemon start), the repository is dropped from `scope`'s default active
-   * set, and every stored cross-repo relation touching it is detached from `landscape.relations`.
-   * The `cross_repo_edges` rows themselves are kept: they are architectural history, and
-   * `listCrossRepoRelations(landscape)` already filters to the active landscape's relation IDs, so
-   * detaching is enough to keep them out of live context. Relation IDs that resolve to no stored
-   * relation are left alone — there is nothing to check them against.
-   *
-   * Every rejection is decided before the first write. The post-removal landscape can be invalid
-   * for reasons that have nothing to do with this repository (a relation pointing at an
-   * unregistered endpoint, say), and a removal that answers with an error must leave the in-memory
-   * session map, the persisted session row, and the saved landscape exactly as it found them —
-   * otherwise the daemon reports failure while already having dropped the session.
-   */
   async repoRemove(repositoryId: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const hadOpenSession = this.sessions.has(repositoryId);
-    const hadPersistedSession = (await this.localStore.listRepositorySessions())
-      .some((session) => session.repositoryId === repositoryId);
-    const registered = this.landscape?.repositories.some((repo) => repo.repositoryId === repositoryId) ?? false;
-    if (!registered && !hadOpenSession && !hadPersistedSession) {
-      return errorEnvelope("repo.remove", "AC_REPO_NOT_FOUND", `repository is not registered: ${repositoryId}`);
-    }
-    let detachedRelationIds: string[] = [];
-    let nextLandscape: Landscape | undefined;
-    if (this.landscape) {
-      detachedRelationIds = (await this.localStore.listCrossRepoRelations(this.landscape))
-        .filter((relation) => relation.source.repositoryId === repositoryId || relation.target.repositoryId === repositoryId)
-        .map((relation) => relation.id)
-        .sort();
-      const detached = new Set(detachedRelationIds);
-      const next: Landscape = {
-        ...this.landscape,
-        repositories: this.landscape.repositories.filter((repo) => repo.repositoryId !== repositoryId),
-        relations: this.landscape.relations.filter((relationId) => !detached.has(relationId)),
-        ...(this.landscape.scope === undefined ? {} : {
-          scope: {
-            ...this.landscape.scope,
-            defaultActiveRepositories: (this.landscape.scope.defaultActiveRepositories ?? [])
-              .filter((activeId) => activeId !== repositoryId)
-          }
-        })
-      };
-      const validation = validateLandscape(next, await this.localStore.listCrossRepoRelations(next));
-      if (!validation.valid) {
-        return errorEnvelope("repo.remove", "AC_SCHEMA_INVALID", validation.errors.join("; "));
-      }
-      nextLandscape = next;
-    }
-    await this.localStore.commitRepositoryRemoval(repositoryId, nextLandscape);
-    this.sessions.delete(repositoryId);
-    if (nextLandscape) this.landscape = nextLandscape;
-    return okEnvelope("repo.remove", {
-      repositoryId,
-      removed: true,
-      sessionRemoved: hadOpenSession || hadPersistedSession,
-      detachedRelationIds
-    } as unknown as Json);
+    return this.landscapes.repoRemove(repositoryId);
   }
 
   async loadLandscape(landscape: Landscape): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const validation = validateLandscape(landscape);
-    if (!validation.valid) {
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: false,
-        requestId: "landscape",
-        error: {
-          code: "AC_SCHEMA_INVALID",
-          message: validation.errors.join("; "),
-          severity: "error",
-          retryable: false,
-          action: "repair-model"
-        }
-      };
-    }
-    this.landscape = landscape;
-    await this.localStore.saveLandscape(landscape);
-    return okEnvelope("landscape", { id: landscape.id, repositories: landscape.repositories.length, digest: landscapeDigest(landscape) } as Json);
+    return this.landscapes.loadLandscape(landscape);
   }
 
   async landscapeStatus(): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const landscape = this.landscape ?? createLandscape({ id: "local", name: "Local Landscape", repositories: [] });
-    return okEnvelope("landscape", {
-      ...landscape,
-      digest: landscapeDigest(landscape)
-    } as unknown as Json);
+    return this.landscapes.landscapeStatus();
   }
 
   explorerServiceContract(tokenTtlSeconds = 900): JsonEnvelope {
@@ -1776,37 +1682,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async contextLandscape(task: string, maxSymbols = 12): Promise<JsonEnvelope> {
-    this.assertRunning();
-    if (!this.landscape || this.landscape.repositories.length === 0) {
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: false,
-        requestId: "context",
-        error: {
-          code: "AC_PRECONDITION_FAILED",
-          message: "landscape context requires registered repositories",
-          severity: "warning",
-          retryable: true,
-          action: "archctx repo add"
-        }
-      };
-    }
-    const workspaces = await Promise.all(
-      this.landscape.repositories.map(async (repo) => {
-        const session = repo.root ? await this.openSession(repo.root) : undefined;
-        return session?.workspace ?? { root: repo.root ?? repo.repositoryId, repositoryId: repo.repositoryId, headSha: "unknown" };
-      })
-    );
-    const context = await compileLandscapeTaskContext({
-      landscape: this.landscape,
-      relations: await this.localStore.listCrossRepoRelations(this.landscape),
-      workspaces,
-      task,
-      codeFacts: new MultiRepoCodeGraphAdapter(this.createLandscapeCodeGraphProviders()),
-      modelStore: this.readModelStore,
-      budget: { maxBytes: 12_288, maxItems: maxSymbols }
-    });
-    return okEnvelope("context", context as unknown as Json);
+    return this.landscapes.contextLandscape(task, maxSymbols);
   }
 
   async runtimeStatus(root?: string): Promise<JsonEnvelope> {
@@ -1876,16 +1752,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       });
       this.evictOldSessions();
     }
-  }
-
-  private async restoreLandscape(): Promise<void> {
-    const landscape = await this.localStore.readLandscape("landscape.local");
-    if (!landscape) return;
-    const validation = validateLandscape(landscape);
-    if (!validation.valid) {
-      throw new Error(`persisted-landscape-invalid: ${validation.errors.join("; ")}`);
-    }
-    this.landscape = landscape;
   }
 
   private evictOldSessions(): void {
@@ -1991,27 +1857,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return result;
   }
 
-  private createLandscapeCodeGraphProviders() {
-    if (!this.landscape) return {};
-    return Object.fromEntries(
-      this.landscape.repositories.map((repo) => [
-        repo.repositoryId,
-        this.codeGraphProviderFactory(repo)
-      ])
-    );
-  }
-
 
 }
 
 function shortDigest(digest: string): string {
   return digest.replace(/^sha256:/, "").slice(0, 16);
-}
-
-function numericRepositoryId(repositoryId: string): number {
-  let hash = 0;
-  for (const char of repositoryId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return Math.max(1, hash);
 }
 
 function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfile): string {

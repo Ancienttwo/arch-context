@@ -128,10 +128,10 @@ describe("S5 incomplete evidence", () => {
   });
 
   test("4. an unowned scope path yields model_adoption_required", () => {
-    const { assessment } = assessProposal(["src/m/a/x.ts", "tools/gen.ts"]);
+    const { assessment } = assessProposal(["src/gen.ts", "src/m/a/x.ts"]);
     expect(assessment.scale).toBe("model_adoption_required");
     expect(assessment.scaleReasonCodes).toContain("unowned-paths");
-    expect(assessment.confidence.unresolvedEvidence).toContain("unowned-path:tools/gen.ts");
+    expect(assessment.confidence.unresolvedEvidence).toContain("unowned-path:src/gen.ts");
   });
 
   test("5. a node scope on an undeclared footprint yields model_adoption_required", () => {
@@ -182,7 +182,7 @@ describe("S5 incomplete evidence", () => {
 
   test("an unresolved target outranks the model gate, as the frozen scan invariant requires", () => {
     const proposal = makeProposal({
-      scopePaths: ["tools/gen.ts"],
+      scopePaths: ["src/gen.ts"],
       targetDelta: makeTargetDelta({
         targetState: { owners: { primaryLifecycle: "module.absent" }, requiredRelations: [], removedConcepts: [] }
       })

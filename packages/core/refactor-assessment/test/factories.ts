@@ -67,8 +67,8 @@ export const TRACKED_FILES = [
   { path: "src/c/z.ts", lineCount: 6 },
   { path: "src/m/a/x.ts", lineCount: 8 },
   { path: "src/m/b/y.ts", lineCount: 4 },
-  { path: "src/m/root.ts", lineCount: 3 },
-  { path: "tools/gen.ts", lineCount: 2 }
+  { path: "src/gen.ts", lineCount: 2 },
+  { path: "src/m/root.ts", lineCount: 3 }
 ];
 
 export const TRACKED_PATHS: readonly string[] = TRACKED_FILES.map((file) => file.path);

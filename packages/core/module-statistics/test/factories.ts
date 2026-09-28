@@ -32,7 +32,8 @@ export const TRACKED_FILES = [
   { path: "packages/core/pressure-engine/engine.ts", lineCount: 10 },
   { path: "packages/core/shared/util.ts", lineCount: 7 },
   { path: "packages/core/test/core.test.ts", lineCount: 4 },
-  { path: "packages/runtime/main.ts", lineCount: 3 }
+  { path: "packages/runtime/main.ts", lineCount: 3 },
+  { path: "packages/tools/gen.ts", lineCount: 2 }
 ];
 
 /** Mirrors the real repository shape: one manifest per workspace, subpaths under `exports`. */
