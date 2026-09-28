@@ -66,7 +66,7 @@ describe("module statistics snapshot", () => {
       moduleCount: 5,
       undeclaredFootprintNodeCount: 1,
       ownedFileCount: 5,
-      unownedFileCount: 2,
+      unownedFileCount: 1,
       multiplyOwnedFileCount: 1,
       unresolvedImportCount: 1,
       dynamicInvocationRiskCount: 5
@@ -237,7 +237,7 @@ describe("module statistics snapshot", () => {
       moduleCount: 1,
       undeclaredFootprintNodeCount: 1,
       ownedFileCount: 0,
-      unownedFileCount: 7,
+      unownedFileCount: 8,
       multiplyOwnedFileCount: 0
     });
     expect(snapshot.codeFacts.reasonCodes).toContain("unowned-paths");

@@ -1,4 +1,4 @@
-import { matchesGlob, nativeNodeSource, type NativeNode } from "@archcontext/core/projection-engine";
+import { globLiteralPrefixLength, matchesGlob, nativeNodeSource, type NativeNode } from "@archcontext/core/projection-engine";
 
 export interface OwnershipResolution {
   /** Node ids that own this file. More than one id means the claim is contested. */
@@ -13,6 +13,10 @@ export interface OwnershipIndex {
   /** Sorted owned file paths per node id; a node that owns nothing is absent. */
   filesByNode: Map<string, string[]>;
   ownedFileCount: number;
+  /**
+   * Unclaimed files that sit under a declared source root and that no node excludes; see
+   * `countsAsUnowned`. Every unclaimed file still appears in `byPath` with no owners.
+   */
   unownedFileCount: number;
   multiplyOwnedFileCount: number;
 }
@@ -33,6 +37,8 @@ export function resolveOwnership(nodes: NativeNode[], paths: string[]): Ownershi
   const declaring = nodes.filter((node) => (nativeNodeSource(node)?.include ?? []).length > 0);
   const parents = new Map<string, string | undefined>(nodes.map((node) => [node.id, node.parent]));
   const depths = new Map(nodes.map((node) => [node.id, depthOf(node.id, parents)]));
+  const roots = declaredSourceRoots(declaring);
+  const excludes = declaring.flatMap((node) => nativeNodeSource(node)?.exclude ?? []);
   const byPath = new Map<string, OwnershipResolution>();
   const filesByNode = new Map<string, string[]>();
   let ownedFileCount = 0;
@@ -42,7 +48,7 @@ export function resolveOwnership(nodes: NativeNode[], paths: string[]): Ownershi
   for (const path of paths) {
     const candidates = declaring.filter((node) => claims(node, path));
     if (candidates.length === 0) {
-      unownedFileCount += 1;
+      if (countsAsUnowned(path, roots, excludes)) unownedFileCount += 1;
       byPath.set(path, { owners: [], ambiguous: false });
       continue;
     }
@@ -58,6 +64,39 @@ export function resolveOwnership(nodes: NativeNode[], paths: string[]): Ownershi
   }
   for (const files of filesByNode.values()) files.sort();
   return { byPath, filesByNode, ownedFileCount, unownedFileCount, multiplyOwnedFileCount };
+}
+
+/**
+ * Whether an unclaimed file is an actionable ownership gap.
+ *
+ * The universe is every git-tracked blob, so counting every unclaimed file would make docs, plans
+ * and task notes permanent "unowned" noise that no model change is meant to clear. A gap counts
+ * only under a top-level directory the model already declares source in, and a file some node
+ * explicitly excludes is a deliberate "not architecture" declaration rather than a gap. A model
+ * that declares no source at all keeps the whole repository in scope: nothing is modeled yet.
+ */
+function countsAsUnowned(path: string, roots: string[] | null, excludes: string[]): boolean {
+  if (roots !== null && !roots.some((root) => path.startsWith(root))) return false;
+  return !excludes.some((pattern) => matchesGlob(path, pattern));
+}
+
+/**
+ * The top-level directory each `include` glob declares source in, or `""` for a glob that spans
+ * the repository root (`**`, `*.ts`). A literal root-level file such as `package.json` declares
+ * only itself. `null` means no node declares any source.
+ */
+function declaredSourceRoots(declaring: NativeNode[]): string[] | null {
+  if (declaring.length === 0) return null;
+  const roots = new Set<string>();
+  for (const node of declaring) {
+    for (const pattern of nativeNodeSource(node)?.include ?? []) {
+      const literal = pattern.slice(0, globLiteralPrefixLength(pattern));
+      const slash = literal.indexOf("/");
+      if (slash !== -1) roots.add(literal.slice(0, slash + 1));
+      else if (literal.length < pattern.length) roots.add("");
+    }
+  }
+  return [...roots];
 }
 
 /** `source.exclude` is applied before `source.include`: an excluded path is never a candidate. */

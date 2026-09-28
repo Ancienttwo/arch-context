@@ -601,7 +601,8 @@ function nativeModelDigest(model: NativeModel): string {
  * A snapshot carries no repository-wide file-list digest, so the binding is the strongest one the
  * frozen shape allows: ownership resolved over these paths must reproduce every declared module's
  * `footprint.sourceFilesDigest` and the three ownership counts. A file that no declared module
- * claims is bound only by `unownedFileCount`.
+ * claims is bound only by `unownedFileCount`, and only when it sits under a declared source root
+ * and is not excluded (see `resolveOwnership`); files outside that scope are not bound at all.
  */
 function trackedFilesBindSnapshot(input: RefactorResolutionInputV1): boolean {
   const files = [...input.afterTrackedFiles].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
