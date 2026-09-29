@@ -386,8 +386,8 @@ export function planCommittedChangeAcceptance(root: string, input: {
   model: NativeModel;
   /** The projection's view of existing docs; the manifest's semantic baseline anchors the chain. */
   existingFiles: readonly { path: string; body: string }[];
-  /** The latest committed journal write of the projection manifest in this root. */
-  latestJournaledManifest: { journalId: string; hash: string } | undefined;
+  /** The latest committed journal write of the projection manifest in this root, and whether the projection owner made it. */
+  latestJournaledManifest: { journalId: string; hash: string; projectionOwned: boolean } | undefined;
   projection: {
     majorChange: ArchitectureMajorChangeClassificationV1;
     rejected: readonly unknown[];
@@ -532,19 +532,24 @@ export function resolveAcceptanceHeadSha(root: string): string {
 /**
  * The manifest lives under `docs/architecture`, which the projection worktree digest ignores, so its
  * bytes are trusted only when they equal the committed blob at the resolved HEAD, or exactly what the
- * latest journaled projection write produced in this root. The HEAD anchor trusts local git history.
+ * latest journaled write produced in this root AND that write carries the daemon's projection-owner
+ * marker. The marker is what makes the journal anchor sound: any approved ChangeSet, including a
+ * caller-authored `render_projection`, may journal manifest bytes of its own choosing, but only the
+ * daemon's projection commands render `semanticBaseline` from the model. The HEAD anchor trusts local
+ * git history. A journal from before the marker existed is refused here: commit the manifest, or
+ * re-baseline with `archctx docs apply --approved`.
  */
 function authenticateProjectionManifest(
   root: string,
   body: string | undefined,
-  latestJournaled: { journalId: string; hash: string } | undefined,
+  latestJournaled: { journalId: string; hash: string; projectionOwned: boolean } | undefined,
   headSha: string
 ): { kind: "head" | "journal"; ref: string } {
   if (body === undefined) throw new Error("accepted-committed-change-baseline-missing: no projection manifest");
   const bytes = readRegularFileBytes(assertPathHasNoSymlinkSegments(root, PROJECTION_MANIFEST_PATH), PROJECTION_MANIFEST_PATH);
   // The projection classified the text it read; the anchor must vouch for those same bytes.
   if (strictUtf8(bytes, PROJECTION_MANIFEST_PATH) !== body) throw new Error("accepted-committed-change-baseline-changed: projection manifest moved during acceptance");
-  if (latestJournaled && digestJson({ body } as unknown as Json) === latestJournaled.hash) return { kind: "journal", ref: latestJournaled.journalId };
+  if (latestJournaled?.projectionOwned && digestJson({ body } as unknown as Json) === latestJournaled.hash) return { kind: "journal", ref: latestJournaled.journalId };
   let headBytes: Buffer | undefined;
   try {
     headBytes = gitWithoutReplaceObjects(root, ["cat-file", "blob", `${headSha}:${PROJECTION_MANIFEST_PATH}`]);
@@ -552,7 +557,7 @@ function authenticateProjectionManifest(
     headBytes = undefined;
   }
   if (headBytes && Buffer.from(bytes).equals(headBytes)) return { kind: "head", ref: headSha };
-  throw new Error(`accepted-committed-change-baseline-unanchored: ${PROJECTION_MANIFEST_PATH} matches neither HEAD nor the latest journaled projection write; commit it, or re-baseline with archctx docs apply --approved`);
+  throw new Error(`accepted-committed-change-baseline-unanchored: ${PROJECTION_MANIFEST_PATH} matches neither HEAD nor the latest projection-owned journaled write; commit it, or re-baseline with archctx docs apply --approved`);
 }
 
 export function projectionManifestBaseline(body: string | undefined): { modelDigest: string; semanticState: ArchitectureSemanticStateV1; evidence: ProofEvidenceDigests | undefined } {

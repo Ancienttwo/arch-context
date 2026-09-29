@@ -520,7 +520,7 @@ test("planCommittedChangeAcceptance refuses a stale model that no longer matches
       journals: [journalEntry],
       model: staleModel,
       existingFiles: [{ path: MANIFEST, body: manifestBody }],
-      latestJournaledManifest: { journalId: "manifest-journal", hash: digestJson({ body: manifestBody } as unknown as Json) },
+      latestJournaledManifest: { journalId: "manifest-journal", hash: digestJson({ body: manifestBody } as unknown as Json), projectionOwned: true },
       projection: {
         majorChange,
         rejected: [],
@@ -872,6 +872,85 @@ describe("committed change acceptance v2", () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, TIMEOUT * 3);
+
+  test("a journaled manifest write that the projection owner did not make anchors nothing", async () => {
+    // Forgery: hand-edit a capability's model, then get an approved ChangeSet to journal a manifest that keeps
+    // the OLD semantic state but claims the hand-edited model digest, then journal one real change.
+    // `planUpdate` is the public entry: a caller-authored `render_projection` carries its own bytes verbatim,
+    // so an operation kind alone cannot tell the projection owner from a caller.
+    for (const via of ["update_entity_fields", "render_projection"] as const) {
+      await withFixture(async (fixture) => {
+        const hand = editNode(fixture.root, "component.container", { source: { include: ["README.md"] } });
+        writeFileSync(join(fixture.root, hand.path), hand.body!, "utf8");
+        const handDigest = digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json);
+        const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
+        manifest.semanticBaseline.digests.modelDigest = handDigest;
+        const forged = `${JSON.stringify(manifest, null, 2)}\n`;
+        const expectedHash = currentHash(fixture.root, MANIFEST);
+        const forgedId = `changeset.forged-manifest-${via}`;
+        const plan = await fixture.daemon.planUpdate(fixture.root, {
+          id: forgedId,
+          operations: [via === "render_projection"
+            ? { op: "render_projection", expectedHash: "missing", projectionFiles: [{ path: MANIFEST, expectedHash, body: forged }] }
+            : { op: "update_entity_fields", path: MANIFEST, expectedHash, body: forged }]
+        });
+        expect(plan.ok, JSON.stringify(plan)).toBe(true);
+        const applied = await fixture.daemon.applyUpdate(fixture.root, { id: forgedId, approved: true, expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest });
+        expect(applied.ok, JSON.stringify(applied)).toBe(true);
+        expect(readFileSync(join(fixture.root, MANIFEST), "utf8")).toBe(forged);
+        const journaled = await change(fixture, "changeset.after-forged-manifest", [addComponent()]);
+        await expectRefused(fixture, [journaled], /baseline-unanchored/);
+        expect(acceptedEvents(fixture)).toHaveLength(0);
+        // The forged write is the latest journaled manifest write, but it was not made by the projection owner.
+        expect(await fixture.store.readLatestCommittedChangeSetFile(fixture.root, MANIFEST)).toMatchObject({ journalId: (applied.data as any).journalId, hash: digestJson({ body: forged }), projectionOwned: false });
+      });
+    }
+  }, TIMEOUT * 2);
+
+  test("a projection-owned manifest write anchors, and a later forged write does not inherit that trust", async () => {
+    await withFixture(async (fixture) => {
+      const added = await change(fixture, "changeset.add", [addComponent()]);
+      const previewed = await preview(fixture, [added]);
+      expect(previewed.ok, JSON.stringify(previewed)).toBe(true);
+      expect((previewed.data as any).plan.baselineAnchor).toBe("journal");
+      expect(await fixture.store.readLatestCommittedChangeSetFile(fixture.root, MANIFEST)).toMatchObject({ journalId: (previewed.data as any).plan.baselineAnchorRef, projectionOwned: true });
+      // The same bytes re-journaled through a caller-planned ChangeSet are a new, unowned latest write.
+      const body = readFileSync(join(fixture.root, MANIFEST), "utf8");
+      const rewrite = await change(fixture, "changeset.rewrite-manifest", [{ op: "update_entity_fields", path: MANIFEST, body }]);
+      await expectRefused(fixture, [added], /baseline-unanchored/);
+      expect(await fixture.store.readLatestCommittedChangeSetFile(fixture.root, MANIFEST)).toMatchObject({ journalId: rewrite.journalId, projectionOwned: false });
+      // A committed manifest is still anchored by HEAD whoever journaled it last.
+      commitAll(fixture.root, "commit manifest");
+      const committedAdd = await change(fixture, "changeset.add-after-commit", [addComponent("component.after-commit")]);
+      const anchored = await preview(fixture, [added, committedAdd]);
+      expect(anchored.ok, JSON.stringify(anchored)).toBe(true);
+      expect((anchored.data as any).plan.baselineAnchor).toBe("head");
+    });
+  }, TIMEOUT * 2);
+
+  test("re-planning a projection draft's id through the public entry does not inherit the projection marker", async () => {
+    await withFixture(async (fixture) => {
+      const id = "changeset.replanned-projection";
+      const projected = await fixture.daemon.docsProjection(fixture.root, { action: "plan", profile: "repo-harness/v1", id });
+      expect(projected.ok, JSON.stringify(projected)).toBe(true);
+      const hand = editNode(fixture.root, "component.container", { source: { include: ["README.md"] } });
+      writeFileSync(join(fixture.root, hand.path), hand.body!, "utf8");
+      const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
+      manifest.semanticBaseline.digests.modelDigest = digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json);
+      const forged = `${JSON.stringify(manifest, null, 2)}\n`;
+      // Same id as the daemon-planned draft: the stored draft is replaced by a caller-authored object.
+      const plan = await fixture.daemon.planUpdate(fixture.root, {
+        id,
+        operations: [{ op: "render_projection", expectedHash: "missing", projectionFiles: [{ path: MANIFEST, expectedHash: currentHash(fixture.root, MANIFEST), body: forged }] }]
+      });
+      expect(plan.ok, JSON.stringify(plan)).toBe(true);
+      const applied = await fixture.daemon.applyUpdate(fixture.root, { id, approved: true, expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest });
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
+      const journaled = await change(fixture, "changeset.after-replanned", [addComponent()]);
+      await expectRefused(fixture, [journaled], /baseline-unanchored/);
+      expect(await fixture.store.readLatestCommittedChangeSetFile(fixture.root, MANIFEST)).toMatchObject({ journalId: (applied.data as any).journalId, projectionOwned: false });
+    });
+  }, TIMEOUT * 2);
 
   test("a proof-only model change is accepted while evidence holds, and refused once source evidence moved", async () => {
     const toModule = (root: string) => editNode(root, "component.child", { kind: "module" });
