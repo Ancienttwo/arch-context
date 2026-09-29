@@ -41,4 +41,16 @@ describe("apply-model-proposal", () => {
     }] });
     expect(parsed.operations[0].op).toBe("delete_entity");
   });
+
+  test("applied-mode receipt carries the ChangeSet journalId", () => {
+    const parsed = parseModelProposal(proposal);
+    const receipt = modelProposalReceipt({ proposal: parsed, mode: "applied", worktreeDigest: "sha256:worktree", modelDigest: "sha256:model", status: "applied", journalId: "journal.axr7.fixture" });
+    expect(receipt.journalId).toBe("journal.axr7.fixture");
+  });
+
+  test("preview-mode receipt omits the journalId key", () => {
+    const parsed = parseModelProposal(proposal);
+    const receipt = modelProposalReceipt({ proposal: parsed, mode: "preview", worktreeDigest: "sha256:worktree", modelDigest: "sha256:model", status: "proposed" });
+    expect("journalId" in receipt).toBe(false);
+  });
 });
