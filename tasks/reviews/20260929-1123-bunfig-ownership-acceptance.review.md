@@ -1,16 +1,16 @@
 # Task Review: bunfig-ownership-acceptance
 
-> **Status**: Pending
+> **Status**: Accepted
 > **Plan**: plans/plan-20260929-1123-bunfig-ownership-acceptance.md
 > **Contract**: tasks/contracts/20260929-1123-bunfig-ownership-acceptance.contract.md
 > **Notes File**: tasks/notes/20260929-1123-bunfig-ownership-acceptance.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
 > **Last Updated**: 2026-09-29 11:23
-> **Recommendation**: fail
+> **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:97ab0d6a6508d17e041df7e2bd3d0e47f3b3fd9c99234b7e8d480cec5bd1460a
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
+> **Reviewed Target Revision**: dadef1c1194b35c264838937766c01e1dcfb77f6
 
 ## Human Review Card
 
@@ -54,17 +54,17 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Codex
+> **Source**: codex-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:97ab0d6a6508d17e041df7e2bd3d0e47f3b3fd9c99234b7e8d480cec5bd1460a
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: dadef1c1194b35c264838937766c01e1dcfb77f6
+> **Verification Evidence SHA256**: sha256:b73dcca027e73bbcb90cf9c4e9cacd1040059e73e5df3790b2d42aba5dd2d7f0
+> **Issued At**: 2026-09-29T04:22:51.922Z
 
-- Summary: No AcceptanceReceipt has been recorded.
+- Summary: Codex round-2 review at bd00277: prior P1 (evidence-less manifest drift) resolved; no P0-P3 findings. 7804fcb is notes-only. Gatekeeper PASS at bd00277.
 - Findings: none
 
 ## Behavior Diff Notes
