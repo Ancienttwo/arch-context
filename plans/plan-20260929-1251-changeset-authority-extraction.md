@@ -200,7 +200,7 @@ Then the dual-track security review (Opus + Codex), gatekeeper, and hosted CI.
 
 - [x] Move-only extraction to `ChangeSetAuthorityService` with facade delegates, plus the verbatim-move evidence script output recorded in the notes.
 - [x] Adjust any source-reading readbacks or tests that must now also read `changeset-authority.ts`.
-- [ ] Full verification, dual-track security review, gatekeeper, and PR closing #238.
+- [x] Full verification, dual-track security review, gatekeeper, and PR closing #238.
 
 ## Annotations
 <!-- [NOTE]: prefixed inline. Claude processes all and revises. -->
@@ -208,4 +208,4 @@ Then the dual-track security review (Opus + Codex), gatekeeper, and hosted CI.
 ## Task Breakdown
 - [x] Move-only extraction to `ChangeSetAuthorityService` with facade delegates, plus the verbatim-move evidence script output recorded in the notes.
 - [x] Adjust any source-reading readbacks or tests that must now also read `changeset-authority.ts`.
-- [ ] Full verification, dual-track security review, gatekeeper, and PR closing #238.
+- [x] Full verification, dual-track security review, gatekeeper, and PR closing #238.

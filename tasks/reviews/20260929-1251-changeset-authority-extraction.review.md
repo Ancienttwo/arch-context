@@ -1,16 +1,16 @@
 # Task Review: changeset-authority-extraction
 
-> **Status**: Pending
+> **Status**: Accepted
 > **Plan**: plans/plan-20260929-1251-changeset-authority-extraction.md
 > **Contract**: tasks/contracts/20260929-1251-changeset-authority-extraction.contract.md
 > **Notes File**: tasks/notes/20260929-1251-changeset-authority-extraction.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
 > **Last Updated**: 2026-09-29 12:51
-> **Recommendation**: fail
+> **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:909a6a3cd0a3659d17e402c12050f3dec7df427aef3f7085c02abe733c645d4d
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
+> **Reviewed Target Revision**: dadef1c1194b35c264838937766c01e1dcfb77f6
 
 ## Human Review Card
 
@@ -54,18 +54,18 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Codex
+> **Source**: codex-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:909a6a3cd0a3659d17e402c12050f3dec7df427aef3f7085c02abe733c645d4d
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: dadef1c1194b35c264838937766c01e1dcfb77f6
+> **Verification Evidence SHA256**: sha256:652fc54959f37886d3d03efd2e059f657bc4e43179e01e49b101bae5176ac494
+> **Issued At**: 2026-09-29T07:34:03.926Z
 
-- Summary: No AcceptanceReceipt has been recorded.
-- Findings: none
+- Summary: Codex review at a8c1a1e: PASS, no P0/P1; P2 clock wiring and P3 mirrored snapshots recorded as LOW and left unchanged (Opus concurs, SHIP). Later commits are notes, contract path and manifest provenance re-stamp only. Gatekeeper PASS at 72d52fa.
+- Findings: P2: clock: this.clock wiring changes receiver/late binding; no observable effect (all clocks are arrows, field readonly); deferred to an all-services PR; P3: mirrored store/engine/ledger fields are construction-time snapshots; readonly, never reassigned
 
 ## Behavior Diff Notes
 
