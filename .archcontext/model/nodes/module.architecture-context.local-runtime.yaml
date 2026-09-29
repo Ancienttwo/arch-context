@@ -11,3 +11,4 @@ source:
   include:
     - "packages/local-runtime/**/src/**"
     - "packages/local-runtime/package.json"
+    - "packages/local-runtime/bunfig.toml"

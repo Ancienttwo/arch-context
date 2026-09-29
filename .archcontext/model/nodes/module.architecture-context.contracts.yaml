@@ -11,5 +11,6 @@ source:
   include:
     - "packages/contracts/src/**"
     - "packages/contracts/package.json"
+    - "packages/contracts/bunfig.toml"
     - "packages/contracts/fixtures/**"
     - "schemas/**"
