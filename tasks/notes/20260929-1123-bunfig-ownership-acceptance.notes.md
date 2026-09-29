@@ -64,3 +64,22 @@ A `docs drift` run earlier in this worktree left a background daemon holding the
   - Proof-only acceptance is refused, fail-closed, until evidence is re-rendered by archctx ≥ the #247 release.
   - Semantic acceptance, as used here, is unaffected.
 - Resolves when repo-harness bumps its archctx pin past the release that contains #247.
+
+## 2026-09-29: Correction to "Tool Version Skew"
+
+The earlier section says this repo's `docs drift --profile repo-harness/v1` stays clean against the harness re-stamp. That was wrong. The clean reading came from a stale background daemon. The same applies to the "End state" drift bullet above.
+
+**Observed.** With `archctx daemon stop` run first, drift on HEAD `46d6618` returned `ok: true`, `data.ok: false`, `data.drift.ok: false`. The only reason code was `projection-manifest-stale`, with `majorChange.mode: none`. Expected digest `sha256:b45694f9…`, actual digest `sha256:13f2f549…`. A field-by-field diff of the rendered manifest against the committed one, taken with a fresh CodeGraph index at the same tree, differed only in `semanticBaseline.evidence`. The committed manifest has no evidence key, because repo-harness renders it through the pinned `archctx@0.5.13`.
+
+**Fix.** `architectureDocumentationProjectionDrift` in `packages/core/projection-engine` compares the manifest through `comparableExpectedManifestDigest`. When the on-disk `semanticBaseline` has no `evidence` key, it drops that one subtree from the expected manifest before digesting. These cases still compare exactly and read stale:
+- an evidence value that is present but different, including `null`;
+- any other missing or altered field;
+- a missing `semanticBaseline`.
+
+The renderer still writes evidence. Acceptance still reads the manifest through `projectionManifestBaseline`, so it keeps refusing proof-only changes against an evidence-less baseline (`accepted-committed-change.test.ts`, legacy case).
+
+**New live result.** The daemon was stopped before and after each run. This worktree's CLI was run against a disposable clone of HEAD `46d6618` with a fresh CodeGraph index, where the source tree matches the committed manifest:
+- With the fix: `docs drift --profile repo-harness/v1` gives `.ok and .data.ok and .data.drift.ok` = `true`, reason codes `[]`, `majorChange.mode: none`. The committed manifest was unchanged (sha256 `e8928e7d…`).
+- With the fix reverted: `projection-manifest-stale`, the same as before.
+
+In this worktree, `refactor scan --json` reports `unownedFileCount: 0` and `validate` reports `valid: true`. The fix edits `packages/core/projection-engine/src`, which sits inside a declared capability footprint. That moves `sourceTreeDigest`, so drift in this worktree reads `projection-manifest-stale` until the manifest is re-stamped for the new tree, whether by the harness or by `docs apply`. That re-stamp is a projection write and is not part of this fix.

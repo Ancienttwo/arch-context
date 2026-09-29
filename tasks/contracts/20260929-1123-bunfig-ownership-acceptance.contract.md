@@ -81,6 +81,7 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 
 ## Allowed Paths
 
+<!-- projection-engine added 2026-09-29: the live proof exposed repo-harness (pinned archctx 0.5.13) and the #247 renderer re-stamping each other's manifest; the drift comparison must tolerate an absent semanticBaseline.evidence. -->
 ```yaml
 allowed_paths:
   - plans/
@@ -96,6 +97,8 @@ allowed_paths:
   - docs/architecture/
   - scripts/apply-model-proposal.ts
   - scripts/apply-model-proposal.test.ts
+  - packages/core/projection-engine/src/
+  - packages/core/projection-engine/test/
 ```
 
 ## Evidence Requirements
@@ -188,7 +191,7 @@ exit_criteria:
     {
       "id": "docs-drift",
       "kind": "command",
-      "command": "npm exec --yes --package bun@1.4.0 -- bun packages/surfaces/cli/src/main.ts docs drift --profile repo-harness/v1",
+      "command": "npm exec --yes --package bun@1.4.0 -- bun packages/surfaces/cli/src/main.ts docs drift --profile repo-harness/v1 | jq -e '.ok and .data.ok and .data.drift.ok'",
       "cwd": ".",
       "phase": "verification",
       "cost": "normal",
