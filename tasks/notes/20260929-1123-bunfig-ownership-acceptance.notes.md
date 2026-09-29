@@ -44,7 +44,7 @@
 - `projection recover` returned `already-delivered` with 0 signals.
 
 **End state**
-- `docs drift --profile repo-harness/v1`: ok, `majorChange: none`. This also clears the one-time `projection-manifest-stale` from #247's new `semanticBaseline.evidence` field.
+- `docs drift --profile repo-harness/v1`: ok, `majorChange: none`. This also clears the one-time `projection-manifest-stale` from #247's new `semanticBaseline.evidence` field. **Superseded by the 2026-09-29 correction below: this reading came from a stale daemon.**
 - `refactor scan`: `unownedFileCount` went from 5 to 0.
 - `archctx validate`: valid.
 
@@ -60,7 +60,7 @@ A `docs drift` run earlier in this worktree left a background daemon holding the
   - That renderer predates #247 and drops `semanticBaseline.evidence`.
   - The harness gate requires committing that re-stamp.
 - Consequences:
-  - This repo's own `docs drift --profile repo-harness/v1` stays clean with it (`majorChange: none`).
+  - This repo's own `docs drift --profile repo-harness/v1` stays clean with it (`majorChange: none`). **Superseded by the 2026-09-29 correction below: with a fresh daemon it read `projection-manifest-stale` until `3e015dd`.**
   - Proof-only acceptance is refused, fail-closed, until evidence is re-rendered by archctx ≥ the #247 release.
   - Semantic acceptance, as used here, is unaffected.
 - Resolves when repo-harness bumps its archctx pin past the release that contains #247.
@@ -82,4 +82,4 @@ The renderer still writes evidence. Acceptance still reads the manifest through 
 - With the fix: `docs drift --profile repo-harness/v1` gives `.ok and .data.ok and .data.drift.ok` = `true`, reason codes `[]`, `majorChange.mode: none`. The committed manifest was unchanged (sha256 `e8928e7d…`).
 - With the fix reverted: `projection-manifest-stale`, the same as before.
 
-In this worktree, `refactor scan --json` reports `unownedFileCount: 0` and `validate` reports `valid: true`. The fix edits `packages/core/projection-engine/src`, which sits inside a declared capability footprint. That moves `sourceTreeDigest`, so drift in this worktree reads `projection-manifest-stale` until the manifest is re-stamped for the new tree, whether by the harness or by `docs apply`. That re-stamp is a projection write and is not part of this fix.
+In this worktree, `refactor scan --json` reports `unownedFileCount: 0` and `validate` reports `valid: true`. The fix edits `packages/core/projection-engine/src`, which sits inside a declared capability footprint. That moves `sourceTreeDigest`, so drift in this worktree reads `projection-manifest-stale` until the manifest is re-stamped for the new tree, whether by the harness or by `docs apply`. That re-stamp is a projection write and is not part of this fix. **Resolved:** `bd00277` is that harness re-stamp. With a fresh daemon, `docs drift --profile repo-harness/v1` reads `ok`, `data.ok` and `data.drift.ok` all true (reasonCodes `[]`, majorChange none). Gatekeeper re-verified this independently.
