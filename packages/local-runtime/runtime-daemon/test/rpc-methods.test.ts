@@ -23,18 +23,18 @@ const projectionCases = [
 });
 const cases = [...baseline.cases, ...projectionCases, {
   method: "acceptCommittedChange",
-  variant: "approved-yaml-journal",
+  variant: "approved-yaml-journal-chain",
   args: ["/rpc/fixture/repo", {
-    journalId: "changeset_journal.fixture",
-    changeSetId: "changeset.fixture",
+    journals: [{ journalId: "changeset_journal.fixture", changeSetId: "changeset.fixture" }],
     approved: true,
-    expectedWorktreeDigest: `sha256:${"a".repeat(64)}`
+    expectedWorktreeDigest: `sha256:${"a".repeat(64)}`,
+    acceptancePlanId: `sha256:${"b".repeat(64)}`
   }],
   params: ["/rpc/fixture/repo", {
-    journalId: "changeset_journal.fixture",
-    changeSetId: "changeset.fixture",
+    journals: [{ journalId: "changeset_journal.fixture", changeSetId: "changeset.fixture" }],
     approved: true,
-    expectedWorktreeDigest: `sha256:${"a".repeat(64)}`
+    expectedWorktreeDigest: `sha256:${"a".repeat(64)}`,
+    acceptancePlanId: `sha256:${"b".repeat(64)}`
   }],
   timeout: "long",
   response: "envelope"

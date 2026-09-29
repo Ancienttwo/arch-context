@@ -343,6 +343,30 @@ function validateStep(input: {
   input.provenSelectorKeys.add(selectorKey);
 }
 
+/**
+ * Exactly the per-entry facts `validateStep` reads from selector evidence: identity (node, selector
+ * key parts), the truthiness of `matched`/`ambiguous`/`truncated`, and whether any call site exists.
+ * Call-site paths and lines never reach a proof, so they are excluded. Entries are sorted, and
+ * duplicates are kept because `validateStep` treats more than one matching entry as ambiguous.
+ * Keep this next to `validateStep`: a proof input added there must be added here.
+ */
+export function proofRelevantSelectorEvidence(evidence: readonly ArchitectureSelectorEvidenceV1[]): Json[] {
+  return evidence
+    .map((entry) => ({
+      nodeId: entry.nodeId,
+      entrypointId: entry.entrypointId,
+      sourceSymbol: entry.sourceSymbol,
+      sinkId: entry.sinkId,
+      matched: Boolean(entry.matched),
+      ambiguous: Boolean(entry.ambiguous),
+      truncated: Boolean(entry.truncated),
+      hasCallSites: entry.callSites.length > 0
+    }))
+    .map((entry) => ({ entry, key: JSON.stringify(entry) }))
+    .sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0)
+    .map(({ entry }) => entry as unknown as Json);
+}
+
 function architectureSelectorDeclarations(nodes: SemanticArchitectureNode[]): Array<{ key: string; nodeId: string }> {
   return nodes.flatMap((node) => (node.source?.entrypoints ?? []).flatMap((entrypoint) =>
     entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => ({

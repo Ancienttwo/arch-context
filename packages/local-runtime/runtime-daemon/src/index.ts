@@ -27,6 +27,7 @@ import { RecommendationsService, recommendationArtifactsFromEvents, type Runtime
 export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./recommendations";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
+import { AcceptCommittedChangeInputError, acceptedChangeFromEventV2, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, resolveAcceptanceHeadSha, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
 export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
 export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, recoverStaleDaemonControlFiles } from "./daemon-control";
 export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
@@ -34,7 +35,7 @@ export * from "./rpc-client";
 export * from "./rpc-protocol";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   bindRepository,
@@ -47,7 +48,7 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
-import { ChangeSetEngine, assertPathHasNoSymlinkSegments, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   architectureLedgerStateDigest,
   compareArchitectureLedgerStateToYaml,
@@ -72,10 +73,10 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AcceptedArchitectureChangeReferenceV1, type AgentJobV1, type ArchitectureEventV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type ArchitectureEventV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type CommittedChangeSetForTaskSession, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
@@ -1099,34 +1100,39 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         return errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", "committed projection receipt requires explicit projection recover");
       }
       const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
+      const transitionBase = captureModelTransitionBase(root, approved);
       let ledgerAppend: Json | undefined;
+      let appliedJournalId: string | undefined;
       const writesLedger = architectureLedgerWriteAppendsEvents(this.architectureLedger.writeMode);
       const result = await this.changeSetEngine.apply(root, approved, {
         approved: input.approved,
-        afterModelValidatedBeforeCommit: writesLedger || input.projectionApplyReceipt
-          ? async ({ journalId }) => {
-            if (input.projectionApplyReceipt) {
-              if (!journalId) throw new Error("projection apply receipt requires a durable ChangeSet journal");
-              await this.localStore.recordProjectionApplyReceipt(journalId, input.projectionApplyReceipt);
-            }
-            if (writesLedger) {
-              const appended = await this.appendAppliedChangeSetToArchitectureLedger(root, session, approved, journalId);
-              ledgerAppend = {
-                status: "appended",
-                appendedEventCount: appended.appendedEvents.length,
-                duplicateEventCount: appended.duplicateEvents.length,
-                graphDigest: appended.graphDigest,
-                entityCount: appended.entityCount,
-                relationCount: appended.relationCount,
-                constraintCount: appended.constraintCount
-              };
-            }
-            return { journalCommitted: writesLedger && Boolean(journalId) };
+        // Installed in every write mode; it keeps the pre-existing commit semantics exactly.
+        afterModelValidatedBeforeCommit: async ({ journalId }) => {
+          appliedJournalId = journalId;
+          // Recorded while the journal is still pending, before a ledger append can commit it.
+          if (transitionBase && journalId) await recordModelTransitionEvidence(this.localStore, root, journalId, transitionBase);
+          if (input.projectionApplyReceipt) {
+            if (!journalId) throw new Error("projection apply receipt requires a durable ChangeSet journal");
+            await this.localStore.recordProjectionApplyReceipt(journalId, input.projectionApplyReceipt);
           }
-          : undefined
+          if (writesLedger) {
+            const appended = await this.appendAppliedChangeSetToArchitectureLedger(root, session, approved, journalId);
+            ledgerAppend = {
+              status: "appended",
+              appendedEventCount: appended.appendedEvents.length,
+              duplicateEventCount: appended.duplicateEvents.length,
+              graphDigest: appended.graphDigest,
+              entityCount: appended.entityCount,
+              relationCount: appended.relationCount,
+              constraintCount: appended.constraintCount
+            };
+          }
+          return { journalCommitted: writesLedger && Boolean(journalId) };
+        }
       });
       return okEnvelope("apply_update", {
         ...result,
+        ...(appliedJournalId ? { journalId: appliedJournalId } : {}),
         architectureLedger: {
           ...this.architectureLedger,
           append: writesLedger ? ledgerAppend ?? { status: "not-appended" } : { status: "not-applicable" }
@@ -1181,14 +1187,18 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return result;
   }
 
-  /** Records an operator's acceptance of an already committed YAML ChangeSet, without promoting ledger graph authority. */
-  async acceptCommittedChange(root: string, input: RuntimeAcceptCommittedChangeInput): Promise<JsonEnvelope> {
+  /**
+   * Records an operator's acceptance of an ordered chain of committed YAML ChangeSets, without
+   * promoting ledger graph authority. Without `approved` it only previews the acceptance plan.
+   */
+  async acceptCommittedChange(root: string, rawInput: RuntimeAcceptCommittedChangeInput): Promise<JsonEnvelope> {
     this.assertRunning();
-    if (!input || Object.keys(input).sort().join(",") !== "approved,changeSetId,expectedWorktreeDigest,journalId"
-      || input.approved !== true || typeof input.journalId !== "string" || !input.journalId
-      || typeof input.changeSetId !== "string" || !input.changeSetId
-      || typeof input.expectedWorktreeDigest !== "string") {
-      return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", "journalId, changeSetId, approved: true and expectedWorktreeDigest are required");
+    let input: AcceptCommittedChangeRequest;
+    try {
+      input = decodeAcceptCommittedChangeInput(rawInput);
+    } catch (error) {
+      if (error instanceof AcceptCommittedChangeInputError) return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", error.message);
+      throw error;
     }
     if (this.architectureLedger.readMode !== "yaml" || this.architectureLedger.writeMode !== "yaml") {
       return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", "committed YAML acceptance requires YAML read and write authority");
@@ -1196,76 +1206,46 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return this.withWriter(async () => {
       try {
         const canonicalRoot = canonicalRepositoryRoot(root);
-        const journal = await this.localStore.readCommittedChangeSet(canonicalRoot, input.journalId);
-        if (!journal || journal.changeSetId !== input.changeSetId) throw new Error("committed ChangeSet journal missing or mismatched");
-        const binding = acceptedCommittedChangeBinding(canonicalRoot, journal);
+        const journals = [];
+        for (const ref of input.journals) journals.push(await this.localStore.readCommittedChangeSet(canonicalRoot, ref.journalId));
         const model = loadNativeModelFromArchContext(canonicalRoot);
         const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(canonicalRoot, model);
-        if (input.expectedWorktreeDigest !== worktreeDigest) throw new Error("accepted ChangeSet expected worktree digest mismatch");
         const projection = buildArchitectureDocsProjection(this.projectionHost(), canonicalRoot, new Date(0).toISOString(), "repo-harness/v1");
-        const major = projection.plan.majorChange;
-        if (major.mode !== "human-action-required"
-          || major.reasonCodes.join(",") !== "node-added,node-removed"
-          || major.affectedNodeIds.length !== 2
-          || projection.plan.rejected.length > 0) {
-          throw new Error("accepted ChangeSet requires one unresolved node rename without projection conflicts");
+        const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest, resolveAcceptanceHeadSha(canonicalRoot));
+        const manifestWrite = await this.localStore.readLatestCommittedChangeSetFile(canonicalRoot, "docs/architecture/.projection-manifest.json");
+        const acceptance = planCommittedChangeAcceptance(canonicalRoot, {
+          requested: input.journals, journals, model, existingFiles: projection.loaded.existingFiles, latestJournaledManifest: manifestWrite,
+          projection: projection.plan, currentEvidence: projection.snapshotEvidence, projectionWorktreeDigest: worktreeDigest, scope
+        });
+        // The preview never carries the accepted-change tuple: only an appended event can issue it.
+        if (!input.approved) {
+          return okEnvelope("ledger.accept-committed", { status: "preview", plan: acceptance.plan, acceptancePlanId: acceptance.acceptancePlanId, expectedWorktreeDigest: worktreeDigest } as unknown as Json);
         }
-        for (const nodeId of major.affectedNodeIds) {
-          const path = `.archcontext/model/nodes/${nodeId}.yaml`;
-          const file = journal.files.find((entry) => entry.path === path);
-          if (!file || file.operation !== (model.nodes.some((node) => node.id === nodeId) ? "write" : "delete")) {
-            throw new Error(`accepted ChangeSet journal does not bind affected node: ${nodeId}`);
-          }
-        }
-        const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest);
-        const modelDigest = digestJson(model as unknown as Json);
-        const acceptedChange: AcceptedArchitectureChangeReferenceV1 = {
-          changeSetId: journal.changeSetId,
-          eventId: `architecture_event.changeset_accepted.${digestJson({ journalId: journal.journalId } as unknown as Json).slice(7, 31)}`,
-          reasonCodes: major.reasonCodes,
-          affectedNodeIds: major.affectedNodeIds
+        if (input.expectedWorktreeDigest !== worktreeDigest) throw new Error("accepted ChangeSet expected worktree digest mismatch");
+        if (input.acceptancePlanId !== acceptance.acceptancePlanId) throw new Error("accepted ChangeSet acceptance plan changed since preview");
+        const accepted = (event: ArchitectureEventV1, replayed: boolean) => {
+          const recorded = acceptedChangeFromEventV2(event);
+          if (!recorded || !event.eventHash) throw new Error("committed ChangeSet acceptance readback failed");
+          return okEnvelope("ledger.accept-committed", {
+            status: "accepted", replayed, acceptedChange: recorded.acceptedChange, acceptancePlanId: recorded.acceptancePlanId,
+            journalIds: input.journals.map((journal) => journal.journalId), eventHash: event.eventHash, fileSetDigest: acceptance.plan.fileSetDigest
+          } as unknown as Json);
         };
-        const existing = await this.localStore.readArchitectureEvent({ ...scope, eventId: acceptedChange.eventId });
-        if (existing) throw new Error(`committed ChangeSet already has an acceptance event at this snapshot: ${existing.eventId}`);
+        const existing = await this.localStore.readArchitectureEvent({ ...scope, eventId: acceptance.acceptedChange.eventId });
+        if (existing) {
+          // A retry of the same approved plan (for example after a crash past the append) gets the recorded tuple back.
+          if (acceptedChangeFromEventV2(existing)?.acceptancePlanId === acceptance.acceptancePlanId) return accepted(existing, true);
+          throw new Error(`committed ChangeSet already has a different acceptance event at this snapshot: ${existing.eventId}`);
+        }
         const ledgerGraphDigest = architectureLedgerStateDigest(await this.localStore.readArchitectureLedgerState(scope));
-        const inputDigest = digestJson({
-          journalId: journal.journalId, changeSetId: journal.changeSetId, fileSetDigest: binding.fileSetDigest,
-          modelDigest, acceptedChange, repository: scope.repository, worktree: scope.worktree
-        } as unknown as Json);
-        const event: ArchitectureEventV1 = {
-          schemaVersion: "archcontext.architecture-event/v1",
-          eventId: acceptedChange.eventId,
-          eventType: "architecture.changeset.accepted",
-          payloadVersion: "archcontext.accepted-committed-change/v1",
-          repository: scope.repository,
-          worktree: scope.worktree,
-          baseDigest: ledgerGraphDigest,
-          resultingDigest: ledgerGraphDigest,
-          headSha: scope.worktree.headSha,
-          actor: { kind: "daemon", id: "archctxd" },
-          source: "manual",
-          timestamp: this.clock(),
-          idempotencyKey: `architecture-ledger-accepted-committed:${journal.journalId}`,
-          provenance: { producer: "runtime-daemon", command: "archctx ledger accept-committed", inputDigest },
-          payload: {
-            operations: [],
-            acceptedCommittedChange: {
-              schemaVersion: "archcontext.accepted-committed-change/v1",
-              journalId: journal.journalId,
-              changeSetId: journal.changeSetId,
-              fileSetDigest: binding.fileSetDigest,
-              modelDigest,
-              reasonCodes: acceptedChange.reasonCodes,
-              affectedNodeIds: acceptedChange.affectedNodeIds,
-              authority: "yaml"
-            }
-          } as unknown as Json
-        };
+        const event = acceptedCommittedChangeEventV2({ acceptance, scope, ledgerGraphDigest, timestamp: this.clock() });
         const appended = await this.appendArchitectureEventsWithFeed(canonicalRoot, { writer: "runtime-daemon", events: [event] });
         if (appended.appendedEvents.length !== 1) throw new Error("committed ChangeSet acceptance event was not appended");
         const readback = await this.localStore.readArchitectureEvent({ ...scope, eventId: event.eventId });
-        if (!readback?.eventHash || readback.eventType !== event.eventType) throw new Error("committed ChangeSet acceptance readback failed");
-        return okEnvelope("ledger.accept-committed", { acceptedChange, journalId: journal.journalId, eventHash: readback.eventHash, fileSetDigest: binding.fileSetDigest } as unknown as Json);
+        if (!readback || readback.eventType !== event.eventType || readback.payloadVersion !== event.payloadVersion) {
+          throw new Error("committed ChangeSet acceptance readback failed");
+        }
+        return accepted(readback, false);
       } catch (error) {
         return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
       }
@@ -1741,9 +1721,8 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
   };
 }
 
-function acceptedCommittedChangeScope(root: string, worktreeDigest: string): ArchitectureLedgerScope {
+function acceptedCommittedChangeScope(root: string, worktreeDigest: string, headSha: string): ArchitectureLedgerScope {
   const paths = runtimeStatePaths(root);
-  const headSha = readHeadSha(root);
   return {
     repository: { repositoryId: repositoryFingerprint(root), storageRepositoryId: paths.storageRepositoryId },
     worktree: {
@@ -1754,22 +1733,6 @@ function acceptedCommittedChangeScope(root: string, worktreeDigest: string): Arc
       worktreeDigest
     }
   };
-}
-
-function acceptedCommittedChangeBinding(root: string, journal: CommittedChangeSetForTaskSession): { fileSetDigest: string } {
-  if (journal.files.length === 0) throw new Error("accepted ChangeSet journal has no files");
-  for (const file of journal.files) {
-    const absolute = assertPathHasNoSymlinkSegments(root, file.path);
-    if (file.operation === "delete") {
-      if (existsSync(absolute) || file.hash !== "missing") throw new Error(`accepted ChangeSet deletion mismatch: ${file.path}`);
-    } else {
-      if (!existsSync(absolute) || !lstatSync(absolute).isFile()
-        || digestJson({ body: readFileSync(absolute, "utf8") } as unknown as Json) !== file.hash) {
-        throw new Error(`accepted ChangeSet file hash mismatch: ${file.path}`);
-      }
-    }
-  }
-  return { fileSetDigest: digestJson(journal.files as unknown as Json) };
 }
 
 function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[] } {

@@ -662,14 +662,29 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
     return daemon.ledgerDrift(cwd);
   }
   if (subcommand === "accept-committed") {
+    const usage = "ledger accept-committed requires --journal <journalId>=<changeSetId> (repeatable, in commit order) or --journal-id with --changeset-id; approve with --approved --acceptance-plan-id <id> --expected-worktree-digest <digest> from the preview";
+    const pairs = readRepeatedFlag(args, "--journal");
     const journalId = readFlag(args, "--journal-id");
     const changeSetId = readFlag(args, "--changeset-id");
+    if (args.filter((arg) => arg === "--journal").length !== pairs.length) return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", usage);
+    if (pairs.length > 0 ? journalId !== undefined || changeSetId !== undefined : !journalId || !changeSetId) {
+      return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", usage);
+    }
+    const journals = pairs.length > 0
+      ? pairs.map((pair) => {
+        const separator = pair.indexOf("=");
+        return separator <= 0 ? { journalId: "", changeSetId: "" } : { journalId: pair.slice(0, separator), changeSetId: pair.slice(separator + 1) };
+      })
+      : [{ journalId: journalId!, changeSetId: changeSetId! }];
+    if (journals.some((journal) => !journal.journalId || !journal.changeSetId)) return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", usage);
+    const approved = args.includes("--approved");
+    const acceptancePlanId = readFlag(args, "--acceptance-plan-id");
     const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
-    if (!journalId || !changeSetId || !expectedWorktreeDigest || !args.includes("--approved")) {
-      return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", "ledger accept-committed requires --journal-id, --changeset-id, --expected-worktree-digest and --approved");
+    if (approved ? !acceptancePlanId || !expectedWorktreeDigest : acceptancePlanId !== undefined || expectedWorktreeDigest !== undefined) {
+      return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", usage);
     }
     const daemon = await requiredLedgerRuntime(runtime);
-    return daemon.acceptCommittedChange(cwd, { journalId, changeSetId, approved: true, expectedWorktreeDigest });
+    return daemon.acceptCommittedChange(cwd, approved ? { journals, approved, acceptancePlanId, expectedWorktreeDigest } : { journals });
   }
   if (subcommand === "promote") {
     if (args.includes("--write") || args.includes("--enable") || args.includes("--apply")) {

@@ -1469,9 +1469,13 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recordChangeSetLedgerPlan(journalId: string, input: { event: ArchitectureEventV1 }): Promise<void>;
   recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void>;
   recordProjectionApplyReceipt(journalId: string, receipt: ProjectionApplyReceiptV1): Promise<void>;
+  /** Digest-only NativeModel evidence for a still-pending journal; throws on malformed input or a non-pending journal. */
+  recordChangeSetModelTransition(journalId: string, transition: ChangeSetModelTransitionV1): Promise<void>;
   inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined>;
   listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]>;
   readCommittedChangeSet(root: string, journalId: string): Promise<CommittedChangeSetForTaskSession | undefined>;
+  /** The most recently committed journal in this canonical root that wrote or deleted `path`. */
+  readLatestCommittedChangeSetFile(root: string, path: string): Promise<(CommittedChangeSetForTaskSessionFile & { journalId: string }) | undefined>;
   readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined>;
   consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
@@ -1554,6 +1558,32 @@ export interface CommittedChangeSetForTaskSession {
   applyId?: string;
   lookupKey?: string;
   files: CommittedChangeSetForTaskSessionFile[];
+  /** Present only on `readCommittedChangeSet`, and only when the apply recorded model-transition evidence. */
+  modelTransition?: ChangeSetModelTransitionV1;
+}
+
+export const CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION = "archcontext.changeset-model-transition/v1" as const;
+
+/**
+ * `digestJson(loadNativeModelFromArchContext(root))` immediately before and after one ChangeSet's
+ * writes, recorded by the daemon only after it re-proved that the draft was the sole writer of the
+ * semantic model files. Digests only: no bodies are persisted.
+ */
+export interface ChangeSetModelTransitionV1 {
+  schemaVersion: typeof CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION;
+  before: string;
+  after: string;
+}
+
+/** Closed shape on purpose: journal metadata is the only durable proof of this transition. */
+export function assertChangeSetModelTransition(value: unknown, label = "changeset-model-transition-invalid"): ChangeSetModelTransitionV1 {
+  if (!isJsonRecord(value) || Object.keys(value).sort().join(",") !== "after,before,schemaVersion"
+    || value.schemaVersion !== CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION
+    || typeof value.before !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value.before)
+    || typeof value.after !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value.after)) {
+    throw new Error(label);
+  }
+  return { schemaVersion: CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION, before: value.before, after: value.after };
 }
 
 export interface ProjectionApplyReceiptInspection {
@@ -2203,6 +2233,19 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     ).run(receipt.identity.lookupKey, receipt.identity.applyId, journalId, stableJson(receipt), createdAt, createdAt);
   }
 
+  async recordChangeSetModelTransition(journalId: string, transition: ChangeSetModelTransitionV1): Promise<void> {
+    const value = assertChangeSetModelTransition(transition);
+    const db = await this.database();
+    const row = db.prepare("SELECT status, metadata_json FROM changeset_journal WHERE journal_id = ?").get(journalId);
+    if (!row) throw new Error(`ChangeSet journal not found: ${journalId}`);
+    if (String(row.status) !== "pending") throw new Error(`ChangeSet journal is not pending: ${journalId}`);
+    const metadata = JSON.parse(String(row.metadata_json)) as Record<string, unknown>;
+    // Additive journal metadata: readers that predate this key ignore it; no schema migration.
+    const update = db.prepare("UPDATE changeset_journal SET metadata_json = ?, updated_at = ? WHERE journal_id = ? AND status = 'pending'")
+      .run(stableJson({ ...metadata, modelTransition: value }), nowIso(), journalId) as { changes: number };
+    if (update.changes !== 1) throw new Error(`ChangeSet journal is not pending: ${journalId}`);
+  }
+
   async inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined> {
     const db = await this.database();
     const row = db.prepare(
@@ -2258,16 +2301,40 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   async readCommittedChangeSet(root: string, journalId: string): Promise<CommittedChangeSetForTaskSession | undefined> {
     const db = await this.database();
     const row = db.prepare(
-      `SELECT journal_id, changeset_id, root, files_json, completed_at, updated_at
+      `SELECT journal_id, changeset_id, root, metadata_json, files_json, completed_at, updated_at
         FROM changeset_journal WHERE journal_id = ? AND status = 'committed'`
     ).get(journalId);
     if (!row || canonicalRepositoryRoot(String(row.root)) !== canonicalRepositoryRoot(root)) return undefined;
+    const modelTransition = committedChangeSetModelTransition(String(row.metadata_json), journalId);
     return {
       journalId: String(row.journal_id),
       changeSetId: String(row.changeset_id),
       committedAt: String(row.completed_at ?? row.updated_at),
-      files: committedChangeSetJournalFiles(String(row.files_json), journalId)
+      files: committedChangeSetJournalFiles(String(row.files_json), journalId),
+      ...(modelTransition ? { modelTransition } : {})
     };
+  }
+
+  async readLatestCommittedChangeSetFile(root: string, path: string): Promise<(CommittedChangeSetForTaskSessionFile & { journalId: string }) | undefined> {
+    const db = await this.database();
+    const canonicalRoot = canonicalRepositoryRoot(root);
+    // `instr` narrows by substring only; each candidate is still parsed and matched on exact path.
+    // Latest is the durable insertion order (rowid; journals are never deleted), not a wall-clock
+    // timestamp that can tie or roll back. Journals begin and commit one at a time under the
+    // daemon writer lock, so insertion order is commit order.
+    const rows = db.prepare(
+      `SELECT journal_id, root, files_json FROM changeset_journal
+        WHERE status = 'committed' AND instr(files_json, ?) > 0
+        ORDER BY rowid DESC`
+    ).all(JSON.stringify(path));
+    for (const row of rows) {
+      if (canonicalRepositoryRoot(String(row.root)) !== canonicalRoot) continue;
+      const journalId = String(row.journal_id);
+      // A path written twice in one journal ends with its last write.
+      const file = committedChangeSetJournalFiles(String(row.files_json), journalId).filter((entry) => entry.path === path).at(-1);
+      if (file) return { ...file, journalId };
+    }
+    return undefined;
   }
 
   async readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined> {
@@ -7787,6 +7854,18 @@ function committedChangeSetJournalFiles(filesJson: string, journalId: string): C
       };
     })
     .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+}
+
+function committedChangeSetModelTransition(metadataJson: string, journalId: string): ChangeSetModelTransitionV1 | undefined {
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(metadataJson);
+  } catch {
+    throw new Error(`changeset-journal-metadata-malformed: ${journalId}`);
+  }
+  if (!isJsonRecord(metadata)) throw new Error(`changeset-journal-metadata-malformed: ${journalId}`);
+  if (metadata.modelTransition === undefined) return undefined;
+  return assertChangeSetModelTransition(metadata.modelTransition, `changeset-journal-model-transition-malformed: ${journalId}`);
 }
 
 function readChangeSetJournalMetadata(db: SqliteDatabase, journalId: string): Record<string, unknown> {

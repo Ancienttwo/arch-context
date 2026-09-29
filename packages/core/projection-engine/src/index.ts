@@ -37,6 +37,7 @@ import {
   type SemanticCapabilityDiagramCompilation
 } from "./semantic-diagrams";
 import {
+  architectureProofEvidenceDigests,
   classifyArchitectureMajorChange,
   compileArchitectureSemanticState,
   produceArchitectureRefreshSignals,
@@ -481,7 +482,10 @@ export function renderArchitectureDocumentationProjection(input: {
     projectionDigest,
     semanticBaseline: {
       semanticState,
-      digests: architectureDigests
+      digests: architectureDigests,
+      // From this render's inputs, not the sticky `provenance` above: the reuse key of that copy
+      // excludes CodeGraph evidence, so it cannot say what this baseline's proofs were built from.
+      evidence: architectureProofEvidenceDigests({ sourceTreeDigest: input.provenance.sourceTreeDigest, selectorEvidence: input.selectorEvidence, rendererVersion })
     },
     receiptDigest,
     targetCount: targets.length,
@@ -1412,18 +1416,40 @@ export function exportDocumentationStructurizrWorkspace(model: NativeModel): Mod
 }
 
 export function loadNativeModelFromArchContext(root: string): NativeModel {
-  const nodes = readYamlObjects(resolve(root, ".archcontext/model/nodes")) as NativeNode[];
+  return nativeModelFromYamlObjects({
+    nodes: readYamlObjects(resolve(root, ".archcontext/model/nodes")),
+    relations: readYamlObjects(resolve(root, ".archcontext/model/relations")),
+    flows: readYamlObjects(resolve(root, ".archcontext/model/flows"))
+  });
+}
+
+/**
+ * The same model `loadNativeModelFromArchContext` builds, from bytes the caller already read: keys
+ * are repo-relative paths, and only direct YAML children of the model directories count. Lets a
+ * caller hash and parse one snapshot instead of re-reading the tree between the two.
+ */
+export function loadNativeModelFromModelFiles(files: ReadonlyMap<string, string>): NativeModel {
+  const objects = (directory: "nodes" | "relations" | "flows") => [...files.entries()]
+    .map(([path, body]) => ({ path, body, name: path.slice(`.archcontext/model/${directory}/`.length) }))
+    .filter((file) => file.path.startsWith(`.archcontext/model/${directory}/`) && !file.name.includes("/") && /\.ya?ml$/.test(file.name))
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    .map((file) => parseJsonOrStableYaml(file.body, file.path) as Record<string, Json>);
+  return nativeModelFromYamlObjects({ nodes: objects("nodes"), relations: objects("relations"), flows: objects("flows") });
+}
+
+function nativeModelFromYamlObjects(input: { nodes: Record<string, Json>[]; relations: Record<string, Json>[]; flows: Record<string, Json>[] }): NativeModel {
+  const nodes = input.nodes as NativeNode[];
   for (const node of nodes) {
     if (node.schemaVersion !== "archcontext.node/v2") {
       throw new Error(`architecture-node-schema-version-unsupported: ${node.id || "unknown"} (${String(node.schemaVersion)})`);
     }
     assertArchitectureNodeSourceV2(node);
   }
-  const flows = readYamlObjects(resolve(root, ".archcontext/model/flows"));
+  const flows = input.flows;
   for (const flow of flows) assertArchitectureFlowV1(flow);
   return {
     nodes,
-    relations: readYamlObjects(resolve(root, ".archcontext/model/relations")) as NativeRelation[],
+    relations: input.relations as unknown as NativeRelation[],
     flows: flows as unknown as ArchitectureFlowV1[]
   };
 }
