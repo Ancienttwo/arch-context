@@ -88,6 +88,7 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 
 ## Allowed Paths
 
+<!-- manifest added 2026-09-29: the harness acceptance step re-stamps its provenance because this PR changes packages/**/src (gatekeeper finding 1). -->
 ```yaml
 allowed_paths:
   - plans/
@@ -98,6 +99,7 @@ allowed_paths:
   - packages/local-runtime/runtime-daemon/src/
   - packages/local-runtime/runtime-daemon/test/
   - scripts/
+  - docs/architecture/.projection-manifest.json
 ```
 
 ## Evidence Requirements
