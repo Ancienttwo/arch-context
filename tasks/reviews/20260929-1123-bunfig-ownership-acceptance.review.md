@@ -8,9 +8,9 @@
 > **Last Updated**: 2026-09-29 11:23
 > **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: sha256:97ab0d6a6508d17e041df7e2bd3d0e47f3b3fd9c99234b7e8d480cec5bd1460a
+> **Reviewed Subject SHA256**: sha256:915aa9b36a82ddced0a8f2d969b4114831d16211b5ed283a3715a2dfc70da3d4
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: dadef1c1194b35c264838937766c01e1dcfb77f6
+> **Reviewed Target Revision**: 597a4161960c31685b3d3e360c9eb81314b582d7
 
 ## Human Review Card
 
@@ -58,13 +58,13 @@ screenshot/artifact path, or reviewer observation.
 > **Reviewer**: Codex
 > **Source**: codex-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: sha256:97ab0d6a6508d17e041df7e2bd3d0e47f3b3fd9c99234b7e8d480cec5bd1460a
+> **Reviewed Subject SHA256**: sha256:915aa9b36a82ddced0a8f2d969b4114831d16211b5ed283a3715a2dfc70da3d4
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: dadef1c1194b35c264838937766c01e1dcfb77f6
-> **Verification Evidence SHA256**: sha256:b73dcca027e73bbcb90cf9c4e9cacd1040059e73e5df3790b2d42aba5dd2d7f0
-> **Issued At**: 2026-09-29T04:22:51.922Z
+> **Reviewed Target Revision**: 597a4161960c31685b3d3e360c9eb81314b582d7
+> **Verification Evidence SHA256**: sha256:3e8cf9e3c45f9863b9c5a002c50e9d2c186d7ca7fc8b1489bf9318053f99a84a
+> **Issued At**: 2026-09-29T19:14:41.196Z
 
-- Summary: Codex round-2 review at bd00277: prior P1 (evidence-less manifest drift) resolved; no P0-P3 findings. 7804fcb is notes-only. Gatekeeper PASS at bd00277.
+- Summary: Codex PASS and gatekeeper PASS reviewed the ownership change at bd00277. Since then: main merged (0.6.0 release), accepted event re-issued for the same journal, projection re-applied, manifest re-stamped by archctx 0.6.0 (evidence restored). verify-sprint 7/7 Fulfilled.
 - Findings: none
 
 ## Behavior Diff Notes
