@@ -51,6 +51,7 @@ export class TestLocalStore implements RuntimeLocalStore {
     };
     projectionApplyReceipt?: ProjectionApplyReceiptV1;
     modelTransition?: ChangeSetModelTransitionV1;
+    projectionOwned?: boolean;
     projectionRefreshConsumed?: boolean;
     projectionRecoveryProof?: ProjectionApplyRecoveryProofV1;
   }>();
@@ -428,6 +429,13 @@ export class TestLocalStore implements RuntimeLocalStore {
     record.modelTransition = value;
   }
 
+  async recordChangeSetProjectionOwner(journalId: string): Promise<void> {
+    const record = this.changeSetJournals.get(journalId);
+    if (!record) throw new Error(`ChangeSet journal not found: ${journalId}`);
+    if (record.status !== "pending") throw new Error(`ChangeSet journal is not pending: ${journalId}`);
+    record.projectionOwned = true;
+  }
+
   async inspectProjectionApplyReceipt(lookupKey: string) {
     const record = [...this.changeSetJournals.values()].find((entry) =>
       entry.status === "committed" && entry.projectionApplyReceipt?.identity.lookupKey === lookupKey);
@@ -517,7 +525,7 @@ export class TestLocalStore implements RuntimeLocalStore {
       .reverse();
     for (const [journalId, record] of candidates) {
       const file = record.files.filter((entry) => entry.path === path).at(-1);
-      if (file) return { path, operation: committedChangeSetFileOperation(file.operation, journalId, path), hash: file.bodyHash, journalId };
+      if (file) return { path, operation: committedChangeSetFileOperation(file.operation, journalId, path), hash: file.bodyHash, journalId, projectionOwned: record.projectionOwned === true };
     }
     return undefined;
   }

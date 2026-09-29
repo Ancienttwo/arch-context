@@ -1471,11 +1471,21 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recordProjectionApplyReceipt(journalId: string, receipt: ProjectionApplyReceiptV1): Promise<void>;
   /** Digest-only NativeModel evidence for a still-pending journal; throws on malformed input or a non-pending journal. */
   recordChangeSetModelTransition(journalId: string, transition: ChangeSetModelTransitionV1): Promise<void>;
+  /**
+   * Daemon-issued marker for a still-pending journal whose whole write set was planned by the
+   * daemon's own projection commands (docs, projection, agent-context). Callers cannot mint it: it is not part of any ChangeSet
+   * operation. Throws on a missing or non-pending journal.
+   */
+  recordChangeSetProjectionOwner(journalId: string): Promise<void>;
   inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined>;
   listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]>;
   readCommittedChangeSet(root: string, journalId: string): Promise<CommittedChangeSetForTaskSession | undefined>;
-  /** The most recently committed journal in this canonical root that wrote or deleted `path`. */
-  readLatestCommittedChangeSetFile(root: string, path: string): Promise<(CommittedChangeSetForTaskSessionFile & { journalId: string }) | undefined>;
+  /**
+   * The most recently committed journal in this canonical root that wrote or deleted `path`.
+   * `projectionOwned` is true only for a journal carrying the daemon's projection-owner marker;
+   * journals from before the marker existed read as false.
+   */
+  readLatestCommittedChangeSetFile(root: string, path: string): Promise<(CommittedChangeSetForTaskSessionFile & { journalId: string; projectionOwned: boolean }) | undefined>;
   readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined>;
   consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
@@ -2246,6 +2256,18 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     if (update.changes !== 1) throw new Error(`ChangeSet journal is not pending: ${journalId}`);
   }
 
+  async recordChangeSetProjectionOwner(journalId: string): Promise<void> {
+    const db = await this.database();
+    const row = db.prepare("SELECT status, metadata_json FROM changeset_journal WHERE journal_id = ?").get(journalId);
+    if (!row) throw new Error(`ChangeSet journal not found: ${journalId}`);
+    if (String(row.status) !== "pending") throw new Error(`ChangeSet journal is not pending: ${journalId}`);
+    const metadata = JSON.parse(String(row.metadata_json)) as Record<string, unknown>;
+    // Additive journal metadata, like `modelTransition`: readers that predate this key ignore it; no schema migration.
+    const update = db.prepare("UPDATE changeset_journal SET metadata_json = ?, updated_at = ? WHERE journal_id = ? AND status = 'pending'")
+      .run(stableJson({ ...metadata, projectionOwned: true }), nowIso(), journalId) as { changes: number };
+    if (update.changes !== 1) throw new Error(`ChangeSet journal is not pending: ${journalId}`);
+  }
+
   async inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined> {
     const db = await this.database();
     const row = db.prepare(
@@ -2315,7 +2337,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     };
   }
 
-  async readLatestCommittedChangeSetFile(root: string, path: string): Promise<(CommittedChangeSetForTaskSessionFile & { journalId: string }) | undefined> {
+  async readLatestCommittedChangeSetFile(root: string, path: string): Promise<(CommittedChangeSetForTaskSessionFile & { journalId: string; projectionOwned: boolean }) | undefined> {
     const db = await this.database();
     const canonicalRoot = canonicalRepositoryRoot(root);
     // `instr` narrows by substring only; each candidate is still parsed and matched on exact path.
@@ -2323,7 +2345,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     // timestamp that can tie or roll back. Journals begin and commit one at a time under the
     // daemon writer lock, so insertion order is commit order.
     const rows = db.prepare(
-      `SELECT journal_id, root, files_json FROM changeset_journal
+      `SELECT journal_id, root, files_json, metadata_json FROM changeset_journal
         WHERE status = 'committed' AND instr(files_json, ?) > 0
         ORDER BY rowid DESC`
     ).all(JSON.stringify(path));
@@ -2332,7 +2354,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       const journalId = String(row.journal_id);
       // A path written twice in one journal ends with its last write.
       const file = committedChangeSetJournalFiles(String(row.files_json), journalId).filter((entry) => entry.path === path).at(-1);
-      if (file) return { ...file, journalId };
+      if (file) return { ...file, journalId, projectionOwned: committedChangeSetProjectionOwned(String(row.metadata_json), journalId) };
     }
     return undefined;
   }
@@ -7854,6 +7876,17 @@ function committedChangeSetJournalFiles(filesJson: string, journalId: string): C
       };
     })
     .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+}
+
+/** Only the exact daemon-written `true` counts; a missing marker (every journal from before it existed) or any other value reads as not owned. */
+function committedChangeSetProjectionOwned(metadataJson: string, journalId: string): boolean {
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(metadataJson);
+  } catch {
+    throw new Error(`changeset-journal-metadata-malformed: ${journalId}`);
+  }
+  return isJsonRecord(metadata) && metadata.projectionOwned === true;
 }
 
 function committedChangeSetModelTransition(metadataJson: string, journalId: string): ChangeSetModelTransitionV1 | undefined {
