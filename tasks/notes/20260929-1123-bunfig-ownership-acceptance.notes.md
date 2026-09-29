@@ -53,3 +53,14 @@
 ## Operational Note
 
 A `docs drift` run earlier in this worktree left a background daemon holding the worktree store writer lock. `scripts/apply-model-proposal.ts` then failed with `local-store-writer-owned` until `archctx daemon stop` was run. That is the expected single-writer behaviour, not a defect; stop the daemon before running the script.
+
+## Tool Version Skew (repo-harness pins archctx 0.5.13)
+
+- `verify-sprint --prepare-acceptance` re-renders the manifest through repo-harness's pinned, published `archctx@0.5.13` (`ARCHCTX_REQUIRED_VERSION` in `effects/architecture/archctx-provider`).
+  - That renderer predates #247 and drops `semanticBaseline.evidence`.
+  - The harness gate requires committing that re-stamp.
+- Consequences:
+  - This repo's own `docs drift --profile repo-harness/v1` stays clean with it (`majorChange: none`).
+  - Proof-only acceptance is refused, fail-closed, until evidence is re-rendered by archctx ≥ the #247 release.
+  - Semantic acceptance, as used here, is unaffected.
+- Resolves when repo-harness bumps its archctx pin past the release that contains #247.

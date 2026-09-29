@@ -108,11 +108,6 @@
       "sourceTreeDigest": "sha256:9f1634af2229004d4acf07b62cc3442d25497c6993a19bb18bf259fc109559a8",
       "flowProofDigest": "sha256:ffab0c6baf9554fe4e8bd83500e81ece04f9c6e2e8faad9d66be309172702185",
       "projectionDigest": "sha256:8c6d4333d4d680dcc92d774a0e595b70c3b5445abcdad2796cb0db5f1fafd3d8"
-    },
-    "evidence": {
-      "sourceTreeDigest": "sha256:9f1634af2229004d4acf07b62cc3442d25497c6993a19bb18bf259fc109559a8",
-      "selectorEvidenceDigest": "sha256:fdbe97147c64af2d165cf000f0a08183a87779d57f37d23831676dc7c0115f02",
-      "rendererVersion": "archcontext.docs-renderer/v4"
     }
   },
   "receiptDigest": "sha256:5f39454c401ca0263a4fc739b4e153a56a672cd0c59a71faf6decd9fa8a2753c",
