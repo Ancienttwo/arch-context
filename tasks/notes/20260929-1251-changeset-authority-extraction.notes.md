@@ -76,3 +76,14 @@ Promote a candidate to `tasks/lessons.md`, `docs/researches/`, or harness asset 
 - Promote to `tasks/lessons.md` only after a repeated correction or failure pattern.
 - Promote to `docs/researches/` only when it is durable repo knowledge with evidence.
 - Promote to harness asset files only after verification across more than one task or fixture.
+
+## 2026-09-29 Dual-Track Review
+
+- Codex: PASS, with no P0 or P1 findings.
+- Opus: SHIP. Items 1–6 are CLOSED (byte identity, same instances, binding, tokens, surface, behaviour). It ran a base-vs-head probe with 42 observations in each of the `yaml` and `dual` ledger modes and found 0 differences.
+- **`clock: this.clock` wiring (`index.ts:421`).** Codex graded this P2 and Opus graded it LOW; I've recorded it at LOW and deliberately not changed it.
+  - Every clock is an arrow function, and the field is `readonly` and assigned before the service is built, so there is no observable effect.
+  - Every other extracted service is wired the same way.
+  - If it is changed, change all services together in a separate PR, not in this move-only one.
+- **Mirrored store/engine/ledger fields are construction-time snapshots.** Both reviewers found this harmless: the fields are `private readonly`, assigned once, and nothing reassigns them after construction. Same pattern as `practice-checkpoint.ts` and `explorer-projection-service.ts`.
+- **Opus's load-induced failures.** Opus's `/tmp` run of `accepted-committed-change.test.ts` failed twice, both times with git reads returning empty under a load average of 9–14. A re-run on head `a8c1a1e` passed: that file together with `tests/ownership-change-acceptance-recovery.test.ts` gave 33 pass / 0 fail at a load average of about 5–7.
