@@ -3981,6 +3981,56 @@ store.close();
     }
   });
 
+  test("the projection-owner marker is daemon-issued on a pending journal and read back only on the latest committed writer", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-projection-owner-"));
+    const sqlite = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    const manifest = "docs/architecture/.projection-manifest.json";
+    const write = (body: string) => ({ path: manifest, existed: true, operation: "render_projection" as const, bodyHash: digestJson({ body }) });
+    try {
+      await sqlite.migrate();
+      for (const store of [sqlite, new TestLocalStore()]) {
+        await expect(store.recordChangeSetProjectionOwner("changeset_missing")).rejects.toThrow(/not found/);
+        // A journal written before the marker existed, or by any caller-planned ChangeSet, reads as not owned.
+        const unowned = await store.beginChangeSet(root, changeSetDraft("changeset.unowned", manifest));
+        await store.recordChangeSetFile(unowned, write("unowned"));
+        await store.commitChangeSet(unowned);
+        expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toMatchObject({ journalId: unowned, projectionOwned: false });
+
+        const owned = await store.beginChangeSet(root, changeSetDraft("changeset.owned", manifest));
+        await store.recordChangeSetFile(owned, write("owned"));
+        await store.recordChangeSetProjectionOwner(owned);
+        await store.recordChangeSetProjectionOwner(owned);
+        await store.commitChangeSet(owned);
+        await expect(store.recordChangeSetProjectionOwner(owned)).rejects.toThrow(/not pending/);
+        expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toMatchObject({ journalId: owned, hash: digestJson({ body: "owned" }), projectionOwned: true });
+
+        // Trust is per latest writer: a later unmarked write does not inherit the earlier marker.
+        const later = await store.beginChangeSet(root, changeSetDraft("changeset.later", manifest));
+        await store.recordChangeSetFile(later, write("later"));
+        await store.commitChangeSet(later);
+        expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toMatchObject({ journalId: later, projectionOwned: false });
+
+        const aborted = await store.beginChangeSet(root, changeSetDraft("changeset.aborted-owner", manifest));
+        await store.abortChangeSet(aborted, "fault");
+        await expect(store.recordChangeSetProjectionOwner(aborted)).rejects.toThrow(/not pending/);
+      }
+      const database = new Database(join(root, "runtime.sqlite"));
+      const ownedId = (database.query("SELECT journal_id FROM changeset_journal WHERE changeset_id = ?").get("changeset.owned") as { journal_id: string }).journal_id;
+      const metadata = JSON.parse((database.query("SELECT metadata_json FROM changeset_journal WHERE journal_id = ?").get(ownedId) as { metadata_json: string }).metadata_json);
+      // Additive metadata key, no schema change; only the exact boolean true counts.
+      expect(metadata.projectionOwned).toBe(true);
+      database.query("DELETE FROM changeset_journal WHERE changeset_id = ?").run("changeset.later");
+      for (const value of ["true", 1, null, { owned: true }]) {
+        database.query("UPDATE changeset_journal SET metadata_json = ? WHERE journal_id = ?").run(JSON.stringify({ ...metadata, projectionOwned: value }), ownedId);
+        expect(await sqlite.readLatestCommittedChangeSetFile(root, manifest)).toMatchObject({ journalId: ownedId, projectionOwned: false });
+      }
+      database.close();
+    } finally {
+      sqlite.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("latest committed journaled write of a path follows durable insertion order, not the commit clock", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-latest-journaled-"));
     const otherRoot = mkdtempSync(join(tmpdir(), "archctx-latest-journaled-other-"));
@@ -4014,7 +4064,7 @@ store.close();
         const foreign = await store.beginChangeSet(otherRoot, changeSetDraft("changeset.foreign", manifest));
         await store.recordChangeSetFile(foreign, write(digestJson({ body: "foreign" })));
         await store.commitChangeSet(foreign);
-        const expected = { path: manifest, operation: "write" as const, hash: digestJson({ body: "last write in journal" }), journalId: latest };
+        const expected = { path: manifest, operation: "write" as const, hash: digestJson({ body: "last write in journal" }), journalId: latest, projectionOwned: false };
         expect(await store.readLatestCommittedChangeSetFile(root, manifest)).toEqual(expected);
         setCommittedAt(store, older, "2026-09-29T00:00:00.000Z");
         setCommittedAt(store, latest, "2026-09-29T00:00:00.000Z");
