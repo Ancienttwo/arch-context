@@ -266,7 +266,7 @@ test("projection result contract denies raw bodies and keeps deterministic resul
       ...valid.inputSnapshot,
       generatedFrom: {
         codeGraphPackage: "@colbymchenry/codegraph",
-        codeGraphVersion: "1.5.0",
+        codeGraphVersion: "1.6.1",
         codeGraphBinaryDigest: valid.inputSnapshot.generatedFrom.codeGraphBinaryDigest
       }
     }
@@ -430,7 +430,7 @@ function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): Projecti
     layoutVersion: "archcontext.docs-layout/v1" as const,
     generatedFrom: {
       codeGraphPackage: "@colbymchenry/codegraph" as const,
-      codeGraphVersion: "1.5.0" as const,
+      codeGraphVersion: "1.6.1" as const,
       codeGraphBinaryDigest: digest,
       codeGraphStatus: "ready" as const
     }
