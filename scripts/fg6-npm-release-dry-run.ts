@@ -433,10 +433,13 @@ function buildReleaseStage(root: string, stageDir: string, packageJson: Record<s
     binDir,
     "--entry-naming",
     "archctx.mjs",
+    "--external=@colbymchenry/codegraph",
     "--external=@node-rs/jieba",
-    "--external=@node-rs/jieba/dict.js"
+    "--external=@node-rs/jieba/dict.js",
+    "--external=koffi"
   ], root);
   rewriteShebang(binPath, "#!/usr/bin/env node");
+  if (readFileSync(binPath, "utf8").includes(root)) throw new Error("release bin must not embed the build root");
   chmodSync(binPath, 0o755);
   if (!existsSync(binPath)) throw new Error(`missing built bin: ${binPath}`);
   copyReleaseSupportFiles(root, stageDir);

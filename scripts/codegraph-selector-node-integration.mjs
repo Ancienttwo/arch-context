@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const cacheRoot = join(repoRoot, "node_modules", ".cache");
+// The adapter imports core native dependencies; keep the Node fixture under their owning workspace.
+const cacheRoot = join(repoRoot, "packages", "core", "node_modules", ".cache");
 mkdirSync(cacheRoot, { recursive: true });
 const buildRoot = mkdtempSync(join(cacheRoot, "archctx-codegraph-selector-node-"));
 const fixtureRoot = mkdtempSync(join(tmpdir(), "archctx-codegraph-selector-node-"));
@@ -29,14 +30,15 @@ try {
     ""
   ].join("\n"));
 
-  const bundlePath = join(buildRoot, "codegraph-adapter.cjs");
+  const bundlePath = join(buildRoot, "codegraph-adapter.mjs");
   const built = spawnSync("bun", [
     "build",
     "packages/local-runtime/codegraph-adapter/src/index.ts",
     "--target=node",
-    "--format=cjs",
+    "--format=esm",
     "--external",
     "@colbymchenry/codegraph",
+    "--external=koffi",
     "--outfile",
     bundlePath
   ], {
@@ -46,6 +48,7 @@ try {
   });
   assert.equal(built.status, 0, built.stderr || built.stdout || "failed to bundle the CodeGraph adapter");
 
+  assert.equal(readFileSync(bundlePath, "utf8").includes(repoRoot), false, "Node adapter bundle must not embed the build root");
   const imported = await import(pathToFileURL(bundlePath).href);
   const adapter = imported.default ?? imported;
   const invocation = adapter.codeGraphCliInvocation("codegraph", fixtureRoot);

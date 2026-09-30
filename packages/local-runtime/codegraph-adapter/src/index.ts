@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, delimiter, dirname, isAbsolute, join, posix, resolve } from "node:path";
-import { CodeGraph, type Edge as CodeGraphEdge, type Node as CodeGraphNode } from "@colbymchenry/codegraph";
+import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import {
@@ -29,6 +29,8 @@ export const CODEGRAPH_TELEMETRY_ENV = "DO_NOT_TRACK";
 export const CODEGRAPH_TELEMETRY_DISABLED_VALUE = "1";
 const DEFAULT_CODEGRAPH_BINARY = "codegraph";
 const requireFromAdapter = createRequire(import.meta.url);
+// Keep the CommonJS SDK in its installed package so its platform/cache resolver stays relocatable.
+const { CodeGraph } = requireFromAdapter(REQUIRED_CODEGRAPH_PACKAGE) as typeof import("@colbymchenry/codegraph");
 
 type MutableEnv = Record<string, string | undefined>;
 const CODEGRAPH_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
