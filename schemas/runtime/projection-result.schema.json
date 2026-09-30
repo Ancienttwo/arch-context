@@ -59,7 +59,7 @@
           "required": ["codeGraphPackage", "codeGraphVersion", "codeGraphBinaryDigest", "codeGraphStatus"],
           "properties": {
             "codeGraphPackage": { "const": "@colbymchenry/codegraph" },
-            "codeGraphVersion": { "const": "1.5.0" },
+            "codeGraphVersion": { "const": "1.6.1" },
             "codeGraphBinaryDigest": { "$ref": "#/$defs/digest" },
             "codeGraphStatus": { "enum": ["ready", "unavailable"] }
           }
