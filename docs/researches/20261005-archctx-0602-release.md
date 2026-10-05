@@ -13,6 +13,10 @@ Schema-only widening. Existing flow and capability IDs remain valid. Consumers t
 
 Bump root and workspace package versions, `ARCHCONTEXT_PRODUCT_VERSION`, contracts fixtures, practice catalog `productVersion` / recomputed `catalogDigest`, review-action default, and organization-runner example pins from `0.6.1` to `0.6.2`.
 
+## Verification evidence
+
+Regenerated version-bound FG4/FG6 no-provider deterministic readbacks so `modelDigest` matches the 0.6.2 `REVIEW_ACTION_NO_LLM_MODEL_DIGEST`. Both inspect commands report `failures: []`.
+
 ## Publish
 
 Public artifact remains unscoped `archctx-contracts`, staged from private `@archcontext/contracts` plus root `schemas/` via `scripts/publish-archcontext-contracts.mjs`. Publish waits for release-prep CI, then Aimpact runs:
