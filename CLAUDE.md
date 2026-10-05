@@ -4,6 +4,8 @@ This is the root routing contract for Claude Code and Codex.
 
 ## Root Workflow Contract
 
+- Run npm publish in an interactive terminal. When npm shows an authentication URL, use web authentication. Do not request a code from `EOTP` alone.
+- If npm accepts an upload and reports processing, wait for registry visibility. Do not publish that version again.
 - Keep sibling `CLAUDE.md` and `AGENTS.md` files aligned. Claude Code consumes `CLAUDE.md`; Codex consumes `AGENTS.md`.
 - Treat `docs/spec.md` as stable product truth, `tasks/current.md` as a derived status snapshot, and `tasks/todos.md` as the deferred-goal ledger; current execution stays in the active plan's `## Task Breakdown`.
 - Treat `docs/researches/`, `tasks/lessons.md`, and `.ai/harness/policy.json` as durable workflow context.
