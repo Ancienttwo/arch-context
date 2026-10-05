@@ -1,4 +1,4 @@
-import type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeMcpApprovalInput, RuntimeMcpApplyInput, RuntimeApplyUpdateInput } from "./rpc-types";
+import type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeMcpApprovalInput, RuntimeMcpApplyInput, RuntimeApplyUpdateInput } from "./rpc-types";
 export type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeMcpApprovalInput, RuntimeMcpApplyInput, RuntimeApplyUpdateInput } from "./rpc-types";
 import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
@@ -18,8 +18,8 @@ export type { RuntimeBookInput } from "./architecture-book";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
-import { buildArchitectureDocsProjection, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, projectionInvocationWrites, assertProjectionInvocationSnapshot, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
-import { projectionWorkspaceId, readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
+import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
+import { readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type DeveloperReviewRunManifest, type DeveloperReviewRun, type DeveloperReviewRunPreparation, type DeveloperReviewRunCleanup, type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunRecovery } from "./developer-review-run";
 export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
@@ -27,19 +27,17 @@ import { RecommendationsService, recommendationArtifactsFromEvents, type Runtime
 export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./recommendations";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
-import { AcceptCommittedChangeInputError, acceptedChangeFromEventV2, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, resolveAcceptanceHeadSha, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
+import { ChangeSetAuthorityService, runtimeWorktreeDigest } from "./changeset-authority";
 export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
 export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, recoverStaleDaemonControlFiles } from "./daemon-control";
 export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 export * from "./rpc-client";
 export * from "./rpc-protocol";
-import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   bindRepository,
-  canonicalRepositoryRoot,
   computeWorktreeDigest,
   readDependencyConstraints,
   readReviewPolicy,
@@ -48,11 +46,10 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
-import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { ChangeSetEngine, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   architectureLedgerStateDigest,
   compareArchitectureLedgerStateToYaml,
-  planChangeSetApplyToArchitectureLedgerEvent,
   planYamlToArchitectureLedgerImport,
   projectArchitectureLedgerStateToYamlFiles,
   type ArchitectureAuditRunV1,
@@ -66,14 +63,14 @@ import { evaluateReviewDependencyConstraints } from "./refactor-scan";
 import { type RuntimeRefactorVerifyInput } from "./refactor-verify";
 import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agent-orchestrator";
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
-import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
+import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationProjectionWorktreeDigest, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, assertArchitectureProjectionVerifiedAgainst, capabilitySourceChangesSinceStamps, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestVerifiedAgainst, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection, type ArchitectureProjectionManifestVerifiedAgainstReadback, type ArchitectureProjectionVerifiedAgainst, type CapabilitySourceChangeSet, type CapabilitySourceChangeSetForCommit, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
+import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, assertArchitectureProjectionVerifiedAgainst, capabilitySourceChangesSinceStamps, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestVerifiedAgainst, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection, type ArchitectureProjectionManifestVerifiedAgainstReadback, type ArchitectureProjectionVerifiedAgainst, type CapabilitySourceChangeSet, type CapabilitySourceChangeSetForCommit, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type ArchitectureEventV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
@@ -171,94 +168,6 @@ interface RuntimeConstructionOptions {
    * must never race the live owner's own migrations (#160).
    */
   legacyLocalStoreMigrationRoot?: string;
-}
-
-class RuntimeUpdateInputError extends Error {}
-
-function decodeRuntimeWorktreeDigestProfile(value: unknown, field: string): RuntimeWorktreeDigestProfile {
-  switch (value) {
-    case "repository":
-    case "architecture-documentation-projection":
-      return value;
-    default:
-      throw new RuntimeUpdateInputError(`${field} must be repository or architecture-documentation-projection`);
-  }
-}
-
-function decodeRuntimePlanUpdateInput(value: unknown): RuntimePlanUpdateInput {
-  const input = runtimeUpdateInputRecord(value, "plan_update input");
-  if (typeof input.id !== "string" || input.id.length === 0) {
-    throw new RuntimeUpdateInputError("plan_update id must be a non-empty string");
-  }
-  if (!Array.isArray(input.operations)) {
-    throw new RuntimeUpdateInputError("plan_update operations must be an array");
-  }
-  if (input.approvalChannel !== undefined && input.approvalChannel !== "mcp") {
-    throw new RuntimeUpdateInputError("plan_update approvalChannel must be mcp");
-  }
-  let worktreeDigestPrecondition: RuntimePlanUpdateInput["worktreeDigestPrecondition"];
-  if (input.worktreeDigestPrecondition !== undefined) {
-    const precondition = runtimeUpdateInputRecord(
-      input.worktreeDigestPrecondition,
-      "plan_update worktreeDigestPrecondition"
-    );
-    const profile = decodeRuntimeWorktreeDigestProfile(
-      precondition.profile,
-      "plan_update worktreeDigestPrecondition.profile"
-    );
-    if (profile !== "architecture-documentation-projection") {
-      throw new RuntimeUpdateInputError(
-        "plan_update worktreeDigestPrecondition.profile must be architecture-documentation-projection"
-      );
-    }
-    if (typeof precondition.expectedDigest !== "string" || precondition.expectedDigest.length === 0) {
-      throw new RuntimeUpdateInputError(
-        "plan_update worktreeDigestPrecondition.expectedDigest must be a non-empty string"
-      );
-    }
-    worktreeDigestPrecondition = { profile, expectedDigest: precondition.expectedDigest };
-  }
-  return {
-    id: input.id,
-    operations: input.operations as ChangeOperation[],
-    ...(input.approvalChannel === "mcp" ? { approvalChannel: "mcp" as const } : {}),
-    ...(input.reason === undefined
-      ? {}
-      : { reason: input.reason as RuntimePlanUpdateInput["reason"] }),
-    ...(worktreeDigestPrecondition === undefined ? {} : { worktreeDigestPrecondition })
-  };
-}
-
-function decodeRuntimeApplyUpdateInput(value: unknown): RuntimeApplyUpdateInput {
-  const input = runtimeUpdateInputRecord(value, "apply_update input");
-  if (typeof input.id !== "string" || input.id.length === 0) {
-    throw new RuntimeUpdateInputError("apply_update id must be a non-empty string");
-  }
-  if (typeof input.approved !== "boolean") {
-    throw new RuntimeUpdateInputError("apply_update approved must be a boolean");
-  }
-  if (typeof input.expectedWorktreeDigest !== "string" || input.expectedWorktreeDigest.length === 0) {
-    throw new RuntimeUpdateInputError("apply_update expectedWorktreeDigest must be a non-empty string");
-  }
-  const worktreeDigestProfile = input.worktreeDigestProfile === undefined
-    ? undefined
-    : decodeRuntimeWorktreeDigestProfile(input.worktreeDigestProfile, "apply_update worktreeDigestProfile");
-  return {
-    id: input.id,
-    approved: input.approved,
-    expectedWorktreeDigest: input.expectedWorktreeDigest,
-    ...(worktreeDigestProfile === undefined ? {} : { worktreeDigestProfile }),
-    ...(input.projectionApplyReceipt === undefined
-      ? {}
-      : { projectionApplyReceipt: input.projectionApplyReceipt as ProjectionApplyReceiptV1 })
-  };
-}
-
-function runtimeUpdateInputRecord(value: unknown, field: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new RuntimeUpdateInputError(`${field} must be an object`);
-  }
-  return value as Record<string, unknown>;
 }
 
 interface ArchitectureLedgerReadModelValidation extends ModelValidationResult {
@@ -366,9 +275,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
   private readonly sessions = new Map<string, RepositorySession>();
-  private readonly changesets = new Map<string, ChangeSetDraft>();
-  private readonly changeSetRoots = new Map<string, string>();
-  private readonly mcpChangeSets = new Set<string>();
+  private readonly changeSetAuthority: ChangeSetAuthorityService;
   /**
    * Drafts planned by the daemon's own projection commands, by object identity: an id is caller
    * chosen and `planUpdate` replaces the stored draft, so only the exact draft object the projection
@@ -376,8 +283,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
    * `planUpdate` itself (RPC, MCP, CLI) never marks: every operation it receives is caller-authored.
    */
   private readonly projectionPlannedDrafts = new WeakSet<ChangeSetDraft>();
-  private readonly mcpApprovals = new Map<string, { scope: "changeset"; root: string; id: string; draftDigest: string; worktreeDigest: string; expiresAt: number } | { scope: "projection"; root: string; invocationDigest: string; expiresAt: number }>();
-  private readonly changeSetWorktreeDigestProfiles = new Map<string, RuntimeWorktreeDigestProfile>();
   // Tracks the AbortController for every audit job's in-flight (foreground or detached
   // background) investigation, keyed by jobId, so `stop()` can abort real `claude` subprocesses
   // rather than leaving them running orphaned past the daemon's own lifetime.
@@ -518,6 +423,20 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       worktreeDigest: runtimeWorktreeDigest,
       loadSourceChanges: loadCapabilitySourceChangesSinceStamps
     });
+    this.changeSetAuthority = new ChangeSetAuthorityService({
+      projectionPlannedDrafts: this.projectionPlannedDrafts,
+      assertRunning: () => this.assertRunning(),
+      clock: this.clock,
+      openSession: (root) => this.openSession(root),
+      withWriter: (run) => this.withWriter(run),
+      appendArchitectureEventsWithFeed: (root, input, journalId) => this.appendArchitectureEventsWithFeed(root, input, journalId),
+      projectionHost: () => this.projectionHost(),
+      projection: (root, input) => this.projection(root, input),
+      readModelStore: this.readModelStore,
+      localStore: this.localStore,
+      changeSetEngine: this.changeSetEngine,
+      architectureLedger: this.architectureLedger
+    });
     this.developerReviewRuns = new DeveloperReviewRunService(() => this.assertRunning(), this.clock);
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
       enabled: process.env[CONTEXT7_ENABLED_ENV] === "1",
@@ -604,7 +523,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     // record — never a crash or a silently corrupted state, just a missed observability record.
     try {
       for (const controller of this.auditRunAbortControllers.values()) controller.abort();
-      this.mcpApprovals.clear();
+      this.changeSetAuthority.clearApprovals();
       this.sessions.clear();
       this.practiceCheckpoints.clear();
       this.explorerProjections.clearDeferredChangeFeedFailures();
@@ -785,64 +704,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const session = await this.openSession(root);
-    const model = await this.readModelStore.validateModel(session.workspace);
-    let ownerRegistry: ReturnType<typeof loadPracticeWaiverOwnerRegistry>;
-    try {
-      ownerRegistry = loadPracticeWaiverOwnerRegistry(session.workspace.root);
-    } catch (error) {
-      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
-    }
-    const waiver: PracticeWaiverV1 = {
-      schemaVersion: "archcontext.practice-waiver/v1",
-      practiceId: input.practiceId,
-      ...(input.checkId === undefined ? {} : { checkId: input.checkId }),
-      scope: {
-        ...(input.pathGlobs && input.pathGlobs.length > 0 ? { pathGlobs: input.pathGlobs } : {}),
-        ...(input.subjects && input.subjects.length > 0 ? { subjects: input.subjects } : {})
-      },
-      owner: input.owner,
-      reason: input.reason,
-      createdAt: input.createdAt ?? this.clock(),
-      reviewAt: input.reviewAt,
-      expiresAt: input.expiresAt,
-      evidenceDigest: input.evidenceDigest
-    };
-    let waiverId: string;
-    try {
-      validatePracticeWaiver(waiver, "practice waiver input", { allowedOwners: ownerRegistry.owners });
-      waiverId = safePracticeWaiverId(input.waiverId, waiver);
-    } catch (error) {
-      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
-    }
-    const path = `.archcontext/waivers/${waiverId}.json`;
-    const absolute = resolve(session.workspace.root, path);
-    const body = `${JSON.stringify(waiver, null, 2)}\n`;
-    const expectedHash = existsSync(absolute) ? digestJson({ body: readFileSync(absolute, "utf8") }) : "missing";
-    const draft = this.changeSetEngine.plan({
-      id: input.id ?? `changeset.practice-waiver-${waiverId.replace(/[^A-Za-z0-9_-]/g, "-")}`,
-      base: {
-        headSha: session.workspace.headSha,
-        worktreeDigest: session.snapshot.worktreeDigest,
-        modelDigest: model.modelDigest
-      },
-      reason: { taskSessionId: input.taskSessionId ?? "task_runtime" },
-      operations: [{ op: "write_waiver", path, expectedHash, body }]
-    });
-    this.changesets.set(draft.id, draft);
-    this.changeSetRoots.set(draft.id, canonicalRepositoryRoot(root));
-    this.changeSetWorktreeDigestProfiles.set(draft.id, "repository");
-    this.mcpChangeSets.delete(draft.id);
-    return okEnvelope("practices.waive", {
-      schemaVersion: "archcontext.practice-waiver-plan/v1",
-      waiver,
-      waiverDigest: digestJson(waiver as unknown as Json),
-      ownerRegistry,
-      path,
-      draft,
-      preview: this.changeSetEngine.preview(session.workspace.root, draft)
-    } as unknown as Json);
+    return this.changeSetAuthority.planPracticeWaiver(root, input);
   }
 
   async docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> {
@@ -854,43 +716,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async planUpdate(root: string, rawInput: RuntimePlanUpdateInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    let input: RuntimePlanUpdateInput;
-    try {
-      input = decodeRuntimePlanUpdateInput(rawInput);
-    } catch (error) {
-      if (error instanceof RuntimeUpdateInputError) {
-        return errorEnvelope("plan_update", "AC_SCHEMA_INVALID", error.message);
-      }
-      throw error;
-    }
-    const session = await this.openSession(root);
-    const model = await this.readModelStore.validateModel(session.workspace);
-    const worktreeDigestProfile: RuntimeWorktreeDigestProfile = input.worktreeDigestPrecondition?.profile ?? "repository";
-    const worktreeDigest = runtimeWorktreeDigest(root, worktreeDigestProfile);
-    if (input.worktreeDigestPrecondition && input.worktreeDigestPrecondition.expectedDigest !== worktreeDigest) {
-      throw new Error("Worktree digest changed before plan");
-    }
-    const draft = this.changeSetEngine.plan({
-      id: input.id,
-      base: {
-        headSha: session.workspace.headSha,
-        worktreeDigest,
-        modelDigest: model.modelDigest
-      },
-      reason: input.reason ?? { taskSessionId: "task_runtime" },
-      operations: input.operations
-    });
-    this.changesets.set(draft.id, draft);
-    this.changeSetRoots.set(draft.id, canonicalRepositoryRoot(root));
-    this.changeSetWorktreeDigestProfiles.set(draft.id, worktreeDigestProfile);
-    if (input.approvalChannel === "mcp") this.mcpChangeSets.add(draft.id);
-    else this.mcpChangeSets.delete(draft.id);
-    return okEnvelope("plan_update", {
-      draft,
-      changeSetDigest: digestJson(draft as unknown as Json),
-      preview: this.changeSetEngine.preview(root, draft)
-    } as unknown as Json);
+    return this.changeSetAuthority.planUpdate(root, rawInput);
   }
 
   async completeTask(root: string, input: RuntimeCompleteTaskInput = {}): Promise<JsonEnvelope> {
@@ -999,161 +825,23 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async approveMcpProjection(root: string, input: RuntimeProjectionInvocation): Promise<JsonEnvelope> {
-    this.assertRunning();
-    try {
-      validateProjectionInvocation(input);
-      if (!projectionInvocationWrites(input)) throw new Error("Projection approval requires an apply, adopt or recover invocation");
-      assertProjectionInvocationSnapshot(root, input);
-    } catch (error) { return errorEnvelope("projection.approve", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error)); }
-    const now = Date.parse(this.clock());
-    if (!Number.isFinite(now)) return errorEnvelope("projection.approve", "AC_PRECONDITION_FAILED", "Approval clock is invalid");
-    for (const [key, grant] of this.mcpApprovals) if (grant.expiresAt <= now) this.mcpApprovals.delete(key);
-    if (this.mcpApprovals.size >= 256) return errorEnvelope("projection.approve", "AC_PRECONDITION_FAILED", "Too many outstanding approvals; consume an approval or wait for expiry");
-    const approvalToken = randomBytes(32).toString("hex");
-    const expiresAt = now + 5 * 60_000;
-    this.mcpApprovals.set(digestJson(approvalToken), { scope: "projection", root: canonicalRepositoryRoot(root), invocationDigest: digestJson(input as unknown as Json), expiresAt });
-    return okEnvelope("projection.approve", { approvalToken, expiresAt: new Date(expiresAt).toISOString() });
+    return this.changeSetAuthority.approveMcpProjection(root, input);
   }
 
   async mcpProjection(root: string, input: RuntimeProjectionInvocation, approvalToken?: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    try { validateProjectionInvocation(input); }
-    catch (error) { return errorEnvelope("projection", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)); }
-    if (projectionInvocationWrites(input)) {
-      const denied = () => errorEnvelope("projection", "AC_USER_CONFIRMATION_REQUIRED", "A fresh one-time token from archctx projection approve is required");
-      if (typeof approvalToken !== "string" || !/^[a-f0-9]{64}$/.test(approvalToken)) return denied();
-      const key = digestJson(approvalToken);
-      const grant = this.mcpApprovals.get(key);
-      this.mcpApprovals.delete(key);
-      const now = Date.parse(this.clock());
-      if (!grant || grant.scope !== "projection" || !Number.isFinite(now) || grant.expiresAt <= now ||
-          grant.root !== canonicalRepositoryRoot(root) || grant.invocationDigest !== digestJson(input as unknown as Json)) return denied();
-    }
-    return this.projection(root, input);
+    return this.changeSetAuthority.mcpProjection(root, input, approvalToken);
   }
 
   async approveMcpUpdate(root: string, input: RuntimeMcpApprovalInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const draft = this.changesets.get(input?.id);
-    const canonicalRoot = canonicalRepositoryRoot(root);
-    const now = Date.parse(this.clock());
-    if (!draft || this.changeSetRoots.get(input.id) !== canonicalRoot ||
-        this.changeSetWorktreeDigestProfiles.get(input.id) !== "repository" ||
-        input.expectedChangeSetDigest !== digestJson(draft as unknown as Json) ||
-        input.expectedWorktreeDigest !== draft.base.worktreeDigest ||
-        input.expectedWorktreeDigest !== runtimeWorktreeDigest(root, "repository") || !Number.isFinite(now)) {
-      return errorEnvelope("approve_mcp_update", "AC_PRECONDITION_FAILED", "Approval must match the current ChangeSet preview and repository");
-    }
-    for (const [key, grant] of this.mcpApprovals) if (grant.expiresAt <= now) this.mcpApprovals.delete(key);
-    if (this.mcpApprovals.size >= 256) return errorEnvelope("approve_mcp_update", "AC_PRECONDITION_FAILED", "Too many outstanding approvals; consume an approval or wait for expiry");
-    const approvalToken = randomBytes(32).toString("hex");
-    const expiresAt = now + 5 * 60_000;
-    this.mcpApprovals.set(digestJson(approvalToken), {
-      scope: "changeset", root: canonicalRoot, id: input.id, draftDigest: input.expectedChangeSetDigest,
-      worktreeDigest: input.expectedWorktreeDigest, expiresAt
-    });
-    return okEnvelope("approve_mcp_update", { approvalToken, expiresAt: new Date(expiresAt).toISOString() });
+    return this.changeSetAuthority.approveMcpUpdate(root, input);
   }
 
   async applyMcpUpdate(root: string, input: RuntimeMcpApplyInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const denied = () => errorEnvelope("apply_update", "AC_USER_CONFIRMATION_REQUIRED", "A fresh one-time token from archctx approve is required");
-    if (typeof input?.approvalToken !== "string" || !/^[a-f0-9]{64}$/.test(input.approvalToken)) return denied();
-    const key = digestJson(input.approvalToken);
-    const grant = this.mcpApprovals.get(key);
-    if (!grant) return denied();
-    // Consume before any asynchronous work: racing calls can never spend the same grant twice.
-    this.mcpApprovals.delete(key);
-    const draft = this.changesets.get(input.id);
-    const now = Date.parse(this.clock());
-    if (grant.scope !== "changeset" || !Number.isFinite(now) || grant.expiresAt <= now || grant.root !== canonicalRepositoryRoot(root) ||
-        grant.id !== input.id || grant.worktreeDigest !== input.expectedWorktreeDigest ||
-        !draft || grant.draftDigest !== digestJson(draft as unknown as Json)) return denied();
-    return this.applyAuthorizedUpdate(root, { id: input.id, expectedWorktreeDigest: input.expectedWorktreeDigest, approved: true });
+    return this.changeSetAuthority.applyMcpUpdate(root, input);
   }
 
   async applyUpdate(root: string, rawInput: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    if (this.mcpChangeSets.has(rawInput?.id)) {
-      return errorEnvelope("apply_update", "AC_USER_CONFIRMATION_REQUIRED", "MCP ChangeSets require a one-time approval token through applyMcpUpdate");
-    }
-    return this.applyAuthorizedUpdate(root, rawInput);
-  }
-
-  private async applyAuthorizedUpdate(root: string, rawInput: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    let input: RuntimeApplyUpdateInput;
-    try {
-      input = decodeRuntimeApplyUpdateInput(rawInput);
-    } catch (error) {
-      if (error instanceof RuntimeUpdateInputError) {
-        return errorEnvelope("apply_update", "AC_SCHEMA_INVALID", error.message);
-      }
-      throw error;
-    }
-    return this.withWriter(async () => {
-      const draft = this.changesets.get(input.id);
-      if (!draft) throw new Error(`Unknown ChangeSet: ${input.id}`);
-      const plannedProfile = this.changeSetWorktreeDigestProfiles.get(input.id);
-      if (!plannedProfile) throw new Error("ChangeSet worktree digest profile missing before apply");
-      const requestedProfile = input.worktreeDigestProfile ?? "repository";
-      if (requestedProfile !== plannedProfile) throw new Error("ChangeSet worktree digest profile changed before apply");
-      const current = runtimeWorktreeDigest(root, plannedProfile);
-      if (current !== input.expectedWorktreeDigest) throw new Error("Worktree digest changed before apply");
-      const session = await this.openSession(root);
-      if (draft.base.headSha !== session.workspace.headSha) throw new Error("ChangeSet HEAD changed before apply");
-      if (draft.base.worktreeDigest !== current) throw new Error("ChangeSet worktree digest changed before apply");
-      const currentModel = await this.readModelStore.validateModel(session.workspace);
-      const baseErrors = baseModelBlockingErrors(currentModel);
-      if (baseErrors.length > 0) {
-        throw new Error(`ChangeSet base model is invalid: ${baseErrors.join("; ")}`);
-      }
-      if (draft.base.modelDigest !== currentModel.modelDigest) throw new Error("ChangeSet model digest changed before apply");
-      if (input.projectionApplyReceipt && await this.localStore.inspectProjectionApplyReceipt(input.projectionApplyReceipt.identity.lookupKey)) {
-        return errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", "committed projection receipt requires explicit projection recover");
-      }
-      const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
-      const transitionBase = captureModelTransitionBase(root, approved);
-      let ledgerAppend: Json | undefined;
-      let appliedJournalId: string | undefined;
-      const writesLedger = architectureLedgerWriteAppendsEvents(this.architectureLedger.writeMode);
-      const result = await this.changeSetEngine.apply(root, approved, {
-        approved: input.approved,
-        // Installed in every write mode; it keeps the pre-existing commit semantics exactly.
-        afterModelValidatedBeforeCommit: async ({ journalId }) => {
-          appliedJournalId = journalId;
-          // Recorded while the journal is still pending, before a ledger append can commit it.
-          if (transitionBase && journalId) await recordModelTransitionEvidence(this.localStore, root, journalId, transitionBase);
-          // Checked on the stored draft, not the approved copy: `approve` spreads it into a fresh object.
-          if (journalId && this.projectionPlannedDrafts.has(draft)) await this.localStore.recordChangeSetProjectionOwner(journalId);
-          if (input.projectionApplyReceipt) {
-            if (!journalId) throw new Error("projection apply receipt requires a durable ChangeSet journal");
-            await this.localStore.recordProjectionApplyReceipt(journalId, input.projectionApplyReceipt);
-          }
-          if (writesLedger) {
-            const appended = await this.appendAppliedChangeSetToArchitectureLedger(root, session, approved, journalId);
-            ledgerAppend = {
-              status: "appended",
-              appendedEventCount: appended.appendedEvents.length,
-              duplicateEventCount: appended.duplicateEvents.length,
-              graphDigest: appended.graphDigest,
-              entityCount: appended.entityCount,
-              relationCount: appended.relationCount,
-              constraintCount: appended.constraintCount
-            };
-          }
-          return { journalCommitted: writesLedger && Boolean(journalId) };
-        }
-      });
-      return okEnvelope("apply_update", {
-        ...result,
-        ...(appliedJournalId ? { journalId: appliedJournalId } : {}),
-        architectureLedger: {
-          ...this.architectureLedger,
-          append: writesLedger ? ledgerAppend ?? { status: "not-appended" } : { status: "not-applicable" }
-        }
-      } as unknown as Json);
-    });
+    return this.changeSetAuthority.applyUpdate(root, rawInput);
   }
 
   async inspectProjectionApplyReceipt(root: string, lookupKey: string): Promise<JsonEnvelope> {
@@ -1172,99 +860,12 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return this.projectionApplies.recoverProjectionApply(root, intent);
   }
 
-  private async appendAppliedChangeSetToArchitectureLedger(root: string, session: RepositorySession, draft: ChangeSetDraft, journalId?: string) {
-    const paths = runtimeStatePaths(root);
-    const scope = {
-      repository: {
-        repositoryId: session.workspace.repositoryId,
-        storageRepositoryId: paths.storageRepositoryId
-      },
-      worktree: {
-        workspaceId: paths.workspaceId,
-        storageWorkspaceId: paths.storageWorkspaceId,
-        branch: readCurrentBranch(root),
-        headSha: session.workspace.headSha,
-        worktreeDigest: computeWorktreeDigest(root)
-      }
-    };
-    const plan = planChangeSetApplyToArchitectureLedgerEvent({
-      ...scope,
-      draft,
-      files: listModelFiles(root),
-      previousEvidenceState: await this.localStore.replayArchitectureLedgerEvidence(scope),
-      createdAt: this.clock(),
-      writeMode: this.architectureLedger.writeMode === "ledger-with-projection" ? "ledger-with-projection" : "dual",
-      command: "archctx apply"
-    });
-    if (journalId) await this.localStore.recordChangeSetLedgerPlan(journalId, { event: plan.event });
-    const appendInput = { writer: "runtime-daemon" as const, events: [plan.event] };
-    const result = await this.appendArchitectureEventsWithFeed(root, appendInput, journalId);
-    return result;
-  }
-
   /**
    * Records an operator's acceptance of an ordered chain of committed YAML ChangeSets, without
    * promoting ledger graph authority. Without `approved` it only previews the acceptance plan.
    */
   async acceptCommittedChange(root: string, rawInput: RuntimeAcceptCommittedChangeInput): Promise<JsonEnvelope> {
-    this.assertRunning();
-    let input: AcceptCommittedChangeRequest;
-    try {
-      input = decodeAcceptCommittedChangeInput(rawInput);
-    } catch (error) {
-      if (error instanceof AcceptCommittedChangeInputError) return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", error.message);
-      throw error;
-    }
-    if (this.architectureLedger.readMode !== "yaml" || this.architectureLedger.writeMode !== "yaml") {
-      return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", "committed YAML acceptance requires YAML read and write authority");
-    }
-    return this.withWriter(async () => {
-      try {
-        const canonicalRoot = canonicalRepositoryRoot(root);
-        const journals = [];
-        for (const ref of input.journals) journals.push(await this.localStore.readCommittedChangeSet(canonicalRoot, ref.journalId));
-        const model = loadNativeModelFromArchContext(canonicalRoot);
-        const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(canonicalRoot, model);
-        const projection = buildArchitectureDocsProjection(this.projectionHost(), canonicalRoot, new Date(0).toISOString(), "repo-harness/v1");
-        const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest, resolveAcceptanceHeadSha(canonicalRoot));
-        const manifestWrite = await this.localStore.readLatestCommittedChangeSetFile(canonicalRoot, "docs/architecture/.projection-manifest.json");
-        const acceptance = planCommittedChangeAcceptance(canonicalRoot, {
-          requested: input.journals, journals, model, existingFiles: projection.loaded.existingFiles, latestJournaledManifest: manifestWrite,
-          projection: projection.plan, currentEvidence: projection.snapshotEvidence, projectionWorktreeDigest: worktreeDigest, scope
-        });
-        // The preview never carries the accepted-change tuple: only an appended event can issue it.
-        if (!input.approved) {
-          return okEnvelope("ledger.accept-committed", { status: "preview", plan: acceptance.plan, acceptancePlanId: acceptance.acceptancePlanId, expectedWorktreeDigest: worktreeDigest } as unknown as Json);
-        }
-        if (input.expectedWorktreeDigest !== worktreeDigest) throw new Error("accepted ChangeSet expected worktree digest mismatch");
-        if (input.acceptancePlanId !== acceptance.acceptancePlanId) throw new Error("accepted ChangeSet acceptance plan changed since preview");
-        const accepted = (event: ArchitectureEventV1, replayed: boolean) => {
-          const recorded = acceptedChangeFromEventV2(event);
-          if (!recorded || !event.eventHash) throw new Error("committed ChangeSet acceptance readback failed");
-          return okEnvelope("ledger.accept-committed", {
-            status: "accepted", replayed, acceptedChange: recorded.acceptedChange, acceptancePlanId: recorded.acceptancePlanId,
-            journalIds: input.journals.map((journal) => journal.journalId), eventHash: event.eventHash, fileSetDigest: acceptance.plan.fileSetDigest
-          } as unknown as Json);
-        };
-        const existing = await this.localStore.readArchitectureEvent({ ...scope, eventId: acceptance.acceptedChange.eventId });
-        if (existing) {
-          // A retry of the same approved plan (for example after a crash past the append) gets the recorded tuple back.
-          if (acceptedChangeFromEventV2(existing)?.acceptancePlanId === acceptance.acceptancePlanId) return accepted(existing, true);
-          throw new Error(`committed ChangeSet already has a different acceptance event at this snapshot: ${existing.eventId}`);
-        }
-        const ledgerGraphDigest = architectureLedgerStateDigest(await this.localStore.readArchitectureLedgerState(scope));
-        const event = acceptedCommittedChangeEventV2({ acceptance, scope, ledgerGraphDigest, timestamp: this.clock() });
-        const appended = await this.appendArchitectureEventsWithFeed(canonicalRoot, { writer: "runtime-daemon", events: [event] });
-        if (appended.appendedEvents.length !== 1) throw new Error("committed ChangeSet acceptance event was not appended");
-        const readback = await this.localStore.readArchitectureEvent({ ...scope, eventId: event.eventId });
-        if (!readback || readback.eventType !== event.eventType || readback.payloadVersion !== event.payloadVersion) {
-          throw new Error("committed ChangeSet acceptance readback failed");
-        }
-        return accepted(readback, false);
-      } catch (error) {
-        return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
-      }
-    });
+    return this.changeSetAuthority.acceptCommittedChange(root, rawInput);
   }
 
 
@@ -1698,17 +1299,6 @@ function shortDigest(digest: string): string {
   return digest.replace(/^sha256:/, "").slice(0, 16);
 }
 
-function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfile): string {
-  switch (profile) {
-    case "repository":
-      return computeWorktreeDigest(root);
-    case "architecture-documentation-projection":
-      return architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root));
-    default:
-      throw new RuntimeUpdateInputError(`unsupported worktree digest profile: ${String(profile)}`);
-  }
-}
-
 function codeFactsDigest(snapshot: CodeFactsSnapshot): string {
   return digestJson({
     schemaVersion: "archcontext.code-facts-digest/v1",
@@ -1732,20 +1322,6 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
       branch: readCurrentBranch(workspace.root),
       headSha: workspace.headSha,
       worktreeDigest: computeWorktreeDigest(workspace.root)
-    }
-  };
-}
-
-function acceptedCommittedChangeScope(root: string, worktreeDigest: string, headSha: string): ArchitectureLedgerScope {
-  const paths = runtimeStatePaths(root);
-  return {
-    repository: { repositoryId: repositoryFingerprint(root), storageRepositoryId: paths.storageRepositoryId },
-    worktree: {
-      workspaceId: projectionWorkspaceId(root),
-      storageWorkspaceId: paths.storageWorkspaceId,
-      branch: readCurrentBranch(root),
-      headSha,
-      worktreeDigest
     }
   };
 }
@@ -1801,25 +1377,6 @@ function schemaVersionFromModelBody(body: string): string {
   return "";
 }
 
-
-function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiverV1): string {
-  const explicitTrimmed = explicit?.trim();
-  if (explicitTrimmed && (explicitTrimmed === "." || explicitTrimmed === ".." || explicitTrimmed.includes("/") || explicitTrimmed.includes("\\"))) {
-    throw new Error("practice-waiver-id-invalid");
-  }
-  const evidencePrefix = waiver.evidenceDigest.startsWith("sha256:")
-    ? waiver.evidenceDigest.slice("sha256:".length, "sha256:".length + 12)
-    : waiver.evidenceDigest.slice(0, 12);
-  const candidate = (explicitTrimmed || [waiver.practiceId.replace(/\./g, "-"), waiver.checkId ?? "all", evidencePrefix].join("-"))
-    .replace(/[^A-Za-z0-9_.-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 96);
-  if (!candidate || candidate === "." || candidate === ".." || candidate.includes("/") || candidate.includes("\\")) {
-    throw new Error("practice-waiver-id-invalid");
-  }
-  return candidate;
-}
 
 export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<ArchctxDaemon> {
   const daemon = new ArchctxDaemon(deps);
@@ -1971,10 +1528,6 @@ function readRuntimeArchitectureLedgerWriteMode(value: string): RuntimeArchitect
 
 function architectureLedgerReadAuthority(mode: RuntimeArchitectureLedgerReadMode): RuntimeArchitectureLedgerModes["readAuthority"] {
   return mode === "ledger" ? "ledger" : "yaml";
-}
-
-function architectureLedgerWriteAppendsEvents(mode: RuntimeArchitectureLedgerWriteMode): boolean {
-  return mode === "dual" || mode === "ledger-with-projection";
 }
 
 /** Same shape `assertArchitectureProjectionVerifiedAgainst` accepts for a stamp commit. */
