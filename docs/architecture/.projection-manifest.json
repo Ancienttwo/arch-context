@@ -148,8 +148,8 @@
       "outputDigest": "sha256:93fec0618c2b13431ef7e70d7d3217349e491e88b339b78eeb53ed8cd50ab37a",
       "verifiedAgainst": {
         "branch": "detached",
-        "commit": "679d11c8d2f44e80b1c2d128ee74747cdf456846",
-        "committedAt": "2026-10-05T19:01:37+08:00"
+        "commit": "06cf995ba4699a34675d79112827211bd0d1e35e",
+        "committedAt": "2026-10-05T19:04:27+08:00"
       }
     },
     {
