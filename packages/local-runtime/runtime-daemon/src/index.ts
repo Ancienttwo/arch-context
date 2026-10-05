@@ -46,7 +46,7 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
-import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
+import { ChangeSetEngine, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   architectureLedgerStateDigest,
   compareArchitectureLedgerStateToYaml,
