@@ -95,7 +95,7 @@
               "const": "@colbymchenry/codegraph"
             },
             "codeGraphVersion": {
-              "const": "1.5.0"
+              "const": "1.6.1"
             },
             "codeGraphBinaryDigest": {
               "$ref": "#/$defs/digest"
@@ -911,7 +911,7 @@
               "const": "@colbymchenry/codegraph"
             },
             "codeGraphVersion": {
-              "const": "1.5.0"
+              "const": "1.6.1"
             },
             "codeGraphBinaryDigest": {
               "$ref": "#/$defs/digest"

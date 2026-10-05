@@ -36,7 +36,7 @@ function projectionReadbackProvenance(sourceDigest: string) {
     baseHeadSha: "a".repeat(40), worktreeDigest: sourceDigest, sourceTreeDigest: sourceDigest,
     modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: null,
     rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.5.0", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "unavailable" }
+    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "unavailable" }
   });
 }
 

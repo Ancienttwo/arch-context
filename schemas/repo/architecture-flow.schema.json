@@ -7,8 +7,8 @@
   "required": ["schemaVersion", "id", "capabilityId", "name", "applicability"],
   "properties": {
     "schemaVersion": { "const": "archcontext.flow/v1" },
-    "id": { "type": "string", "pattern": "^flow\\.[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*$" },
-    "capabilityId": { "type": "string", "pattern": "^capability\\.[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+    "id": { "type": "string", "pattern": "^flow\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+    "capabilityId": { "type": "string", "pattern": "^capability\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
     "name": { "type": "string", "minLength": 1 },
     "applicability": { "type": "string", "enum": ["required", "not-applicable"] },
     "rationale": { "type": "string", "minLength": 1 },

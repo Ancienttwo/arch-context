@@ -18,7 +18,7 @@ describe("fg6 npm release dry-run", () => {
         name: "archcontext",
         version: "0.1.5",
         engines: { node: ARCHCONTEXT_NODE_RANGE },
-        dependencies: { "@colbymchenry/codegraph": "1.5.0" }
+        dependencies: { "@colbymchenry/codegraph": "1.6.1" }
       },
       packageJson: {
         name: "archctx",
@@ -29,7 +29,7 @@ describe("fg6 npm release dry-run", () => {
         engines: { node: ARCHCONTEXT_NODE_RANGE },
         bin: { archctx: "./bin/archctx.mjs" },
         dependencies: {
-          "@colbymchenry/codegraph": "1.5.0",
+          "@colbymchenry/codegraph": "1.6.1",
           "@node-rs/jieba": "^2.0.1",
           koffi: "3.1.6"
         },
@@ -90,7 +90,7 @@ describe("fg6 npm release dry-run", () => {
         name: "archctx",
         version: "0.1.5",
         engines: { node: ARCHCONTEXT_NODE_RANGE },
-        dependencies: { "@colbymchenry/codegraph": "1.5.0" }
+        dependencies: { "@colbymchenry/codegraph": "1.6.1" }
       },
       {
         dependencies: { "@node-rs/jieba": "^2.0.1", koffi: "3.1.6" }
@@ -166,7 +166,7 @@ describe("fg6 npm release dry-run", () => {
         name: "archcontext",
         version: "0.1.5",
         engines: { node: ARCHCONTEXT_NODE_RANGE },
-        dependencies: { "@colbymchenry/codegraph": "1.5.0" }
+        dependencies: { "@colbymchenry/codegraph": "1.6.1" }
       },
       packageJson: {
         name: "archcontext",
@@ -178,7 +178,7 @@ describe("fg6 npm release dry-run", () => {
         repository: { type: "git", url: "git+https://github.com/Ancienttwo/arch-context.git" },
         bin: { archctx: "./bin/archctx.mjs", codegraph: "./bin/codegraph.mjs" },
         dependencies: {
-          "@colbymchenry/codegraph": "1.5.0"
+          "@colbymchenry/codegraph": "1.6.1"
         },
         publishConfig: { registry: "https://registry.npmjs.org/" }
       },
@@ -221,7 +221,7 @@ describe("fg6 npm release dry-run", () => {
         name: "archcontext",
         version: "0.1.5",
         engines: { node: ARCHCONTEXT_NODE_RANGE },
-        dependencies: { "@colbymchenry/codegraph": "1.5.0" }
+        dependencies: { "@colbymchenry/codegraph": "1.6.1" }
       },
       packageJson: {
         name: "archctx",
@@ -232,7 +232,7 @@ describe("fg6 npm release dry-run", () => {
         engines: { node: ARCHCONTEXT_NODE_RANGE },
         bin: { archctx: "./bin/archctx.mjs" },
         dependencies: {
-          "@colbymchenry/codegraph": "1.5.0",
+          "@colbymchenry/codegraph": "1.6.1",
           "@mermaid-js/mermaid-cli": "11.16.0",
           "@node-rs/jieba": "^2.0.1"
         },
@@ -286,7 +286,7 @@ describe("fg6 npm release dry-run", () => {
       engines: { node: ARCHCONTEXT_NODE_RANGE },
       bin: { archctx: "./bin/archctx.mjs" },
       dependencies: {
-        "@colbymchenry/codegraph": "1.5.0",
+        "@colbymchenry/codegraph": "1.6.1",
         "@node-rs/jieba": "^2.0.1"
       },
       peerDependencies: { puppeteer: "24.16.0" },
@@ -298,7 +298,7 @@ describe("fg6 npm release dry-run", () => {
         name: "archcontext",
         version: "0.1.5",
         engines: { node: ARCHCONTEXT_NODE_RANGE },
-        dependencies: { "@colbymchenry/codegraph": "1.5.0" }
+        dependencies: { "@colbymchenry/codegraph": "1.6.1" }
       },
       packageJson: basePackage,
       stageDir,

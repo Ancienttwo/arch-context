@@ -214,6 +214,7 @@ async function buildLocalProductTarball(artifactDir) {
     binDir,
     "--entry-naming",
     "archctx.mjs",
+    "--external=@colbymchenry/codegraph",
     "--external=@node-rs/jieba",
     "--external=@node-rs/jieba/dict.js",
     "--external=koffi"
@@ -427,6 +428,7 @@ function rewriteShebang(path, shebang) {
 
 function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
   const bin = readFileSync(binPath, "utf8");
+  assert(!bin.includes(root), "release bin must not embed the build root");
   assert(bin.startsWith("#!/usr/bin/env node\n"), "release bin must use a node shebang");
   assert(!bin.startsWith("#!/usr/bin/env bun"), "release bin must not require bun");
   const manifest = JSON.parse(readFileSync(join(stageDir, "package.json"), "utf8"));

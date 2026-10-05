@@ -266,7 +266,7 @@ test("projection result contract denies raw bodies and keeps deterministic resul
       ...valid.inputSnapshot,
       generatedFrom: {
         codeGraphPackage: "@colbymchenry/codegraph",
-        codeGraphVersion: "1.5.0",
+        codeGraphVersion: "1.6.1",
         codeGraphBinaryDigest: valid.inputSnapshot.generatedFrom.codeGraphBinaryDigest
       }
     }
@@ -430,7 +430,7 @@ function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): Projecti
     layoutVersion: "archcontext.docs-layout/v1" as const,
     generatedFrom: {
       codeGraphPackage: "@colbymchenry/codegraph" as const,
-      codeGraphVersion: "1.5.0" as const,
+      codeGraphVersion: "1.6.1" as const,
       codeGraphBinaryDigest: digest,
       codeGraphStatus: "ready" as const
     }
@@ -595,6 +595,43 @@ describe("JSON schema contracts", () => {
       rationale: "No runtime data flow."
     } as Json).valid).toBe(false);
   });
+
+  for (const [id, capabilityId] of [
+    ["flow.action-commands.primary", "capability.public-surface.action-commands"],
+    ["flow.mcp-sidecar.primary", "capability.runtime-harness.mcp-sidecar"],
+    ["flow.action-commands.primary-route.final-step", "capability.public-surface.action-commands.runtime-path"]
+  ]) {
+    test(`architecture-flow accepts hyphens in every ID segment: ${id}`, () => {
+      const schema = readJson("schemas/repo/architecture-flow.schema.json");
+      const fixture = readJson("packages/contracts/fixtures/valid/architecture-flow.json") as Record<string, Json>;
+      const result = validateJsonSchema(schema as any, { ...fixture, id, capabilityId });
+      expect(result.issues).toEqual([]);
+      expect(result.valid).toBe(true);
+    });
+  }
+
+  for (const [field, values] of Object.entries({
+    id: [
+      "flow.Action.primary", "flow.action.Primary", "flow.-bad.primary", "flow.action.-bad",
+      "action-commands.primary", "flow..primary", "flow.action..primary", "flow.action commands.primary",
+      "flow.1action.primary"
+    ],
+    capabilityId: [
+      "capability.Public.primary", "capability.public.Action", "capability.-bad.primary", "capability.public.-bad",
+      "public-surface.action-commands", "capability..primary", "capability.public..primary",
+      "capability.public surface.primary", "flow.public-surface.action-commands", "capability.1public.primary"
+    ]
+  })) {
+    for (const value of values) {
+      test(`architecture-flow rejects invalid ${field}: ${value}`, () => {
+        const schema = readJson("schemas/repo/architecture-flow.schema.json");
+        const fixture = readJson("packages/contracts/fixtures/valid/architecture-flow.json") as Record<string, Json>;
+        const result = validateJsonSchema(schema as any, { ...fixture, [field]: value });
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((issue) => issue.path === `$.${field}` && issue.message.includes("does not match"))).toBe(true);
+      });
+    }
+  }
 
   test("all boundary fixtures are accepted by their schema", () => {
     const boundaryFixtures = readdirSync(join(root, "packages/contracts/fixtures/boundary"))

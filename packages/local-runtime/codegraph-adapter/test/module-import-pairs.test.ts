@@ -32,7 +32,7 @@ if (argv[0] === "query") {
 } else if (argv[0] === "status") {
   process.stdout.write(JSON.stringify({
     initialized: true,
-    version: "1.5.0",
+    version: "1.6.1",
     projectPath: process.cwd(),
     lastIndexed: "2026-09-03T00:00:00Z",
     pendingChanges: { added: ${pending}, modified: 0, removed: 0 }

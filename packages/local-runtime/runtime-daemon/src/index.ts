@@ -276,6 +276,13 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly composition: RuntimeCompositionReport;
   private readonly sessions = new Map<string, RepositorySession>();
   private readonly changeSetAuthority: ChangeSetAuthorityService;
+  /**
+   * Drafts planned by the daemon's own projection commands, by object identity: an id is caller
+   * chosen and `planUpdate` replaces the stored draft, so only the exact draft object the projection
+   * host planned is ever marked, and a re-plan under the same id is a different, unmarked object.
+   * `planUpdate` itself (RPC, MCP, CLI) never marks: every operation it receives is caller-authored.
+   */
+  private readonly projectionPlannedDrafts = new WeakSet<ChangeSetDraft>();
   // Tracks the AbortController for every audit job's in-flight (foreground or detached
   // background) investigation, keyed by jobId, so `stop()` can abort real `claude` subprocesses
   // rather than leaving them running orphaned past the daemon's own lifetime.
@@ -417,6 +424,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       loadSourceChanges: loadCapabilitySourceChangesSinceStamps
     });
     this.changeSetAuthority = new ChangeSetAuthorityService({
+      projectionPlannedDrafts: this.projectionPlannedDrafts,
       assertRunning: () => this.assertRunning(),
       clock: this.clock,
       openSession: (root) => this.openSession(root),
@@ -779,7 +787,13 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
 
   private projectionHost(): ProjectionServiceHost {
     return {
-      planUpdate: (...args) => this.planUpdate(...args),
+      planUpdate: async (root, input) => {
+        const planned = await this.planUpdate(root, input);
+        // The exact draft object planUpdate just stored and returned; a later re-plan under the same id is another object.
+        const draft = planned.ok ? (planned.data as unknown as { draft?: ChangeSetDraft } | undefined)?.draft : undefined;
+        if (draft) this.projectionPlannedDrafts.add(draft);
+        return planned;
+      },
       applyUpdate: (...args) => this.applyUpdate(...args),
       listProjectionPriorCommittedApplies: (...args) => this.listProjectionPriorCommittedApplies(...args),
       inspectProjectionApplyReceipt: (...args) => this.inspectProjectionApplyReceipt(...args),

@@ -1,6 +1,6 @@
 {
   "name": "@archcontext/surfaces",
-  "version": "0.5.13",
+  "version": "0.6.2",
   "private": true,
   "type": "module",
   "scripts": {

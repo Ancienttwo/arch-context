@@ -19,6 +19,7 @@ import type { RuntimeAcceptCommittedChangeInput, RuntimeApplyUpdateInput, Runtim
 type RepositorySession = { workspace: WorkspaceRef; snapshot: RepositorySnapshot };
 
 interface ChangeSetAuthorityContext {
+  projectionPlannedDrafts: WeakSet<ChangeSetDraft>;
   assertRunning(): void;
   clock(): string;
   openSession(root: string): Promise<RepositorySession>;
@@ -28,7 +29,7 @@ interface ChangeSetAuthorityContext {
   projectionHost(): ProjectionServiceHost;
   projection(root: string, input: RuntimeProjectionInvocation): Promise<JsonEnvelope>;
   readModelStore: ModelStorePort;
-  localStore: Pick<RuntimeLocalStore, "inspectProjectionApplyReceipt" | "recordProjectionApplyReceipt" | "recordChangeSetModelTransition" | "replayArchitectureLedgerEvidence" | "recordChangeSetLedgerPlan" | "readCommittedChangeSet" | "readLatestCommittedChangeSetFile" | "readArchitectureEvent" | "readArchitectureLedgerState">;
+  localStore: Pick<RuntimeLocalStore, "inspectProjectionApplyReceipt" | "recordProjectionApplyReceipt" | "recordChangeSetProjectionOwner" | "recordChangeSetModelTransition" | "replayArchitectureLedgerEvidence" | "recordChangeSetLedgerPlan" | "readCommittedChangeSet" | "readLatestCommittedChangeSetFile" | "readArchitectureEvent" | "readArchitectureLedgerState">;
   /** The daemon's single ChangeSet engine, shared with ledger-admin. */
   changeSetEngine: Pick<ChangeSetEngine, "plan" | "preview" | "approve" | "apply">;
   architectureLedger: RuntimeArchitectureLedgerModes;
@@ -380,6 +381,8 @@ export class ChangeSetAuthorityService {
           appliedJournalId = journalId;
           // Recorded while the journal is still pending, before a ledger append can commit it.
           if (transitionBase && journalId) await recordModelTransitionEvidence(this.localStore, root, journalId, transitionBase);
+          // Checked on the stored draft, not the approved copy: `approve` spreads it into a fresh object.
+          if (journalId && this.context.projectionPlannedDrafts.has(draft)) await this.localStore.recordChangeSetProjectionOwner(journalId);
           if (input.projectionApplyReceipt) {
             if (!journalId) throw new Error("projection apply receipt requires a durable ChangeSet journal");
             await this.localStore.recordProjectionApplyReceipt(journalId, input.projectionApplyReceipt);
