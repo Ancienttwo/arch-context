@@ -11,3 +11,4 @@ source:
   include:
     - "packages/cloud/**/src/**"
     - "packages/cloud/package.json"
+    - "packages/cloud/bunfig.toml"

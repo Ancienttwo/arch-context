@@ -436,6 +436,44 @@ describe("entity-summary capability documentation projection", () => {
     expect(next.drift.ok, JSON.stringify(next.drift.reasonCodes)).toBe(true);
   });
 
+  describe("a manifest from a renderer that predates semanticBaseline.evidence", () => {
+    const first = render();
+    const reproject = (mutate: (manifest: Record<string, any>) => void) => {
+      const manifest = JSON.parse(first.manifest.body);
+      mutate(manifest);
+      return render({ existingFiles: [...first.files.map(({ path, body }) => ({ path, body })), { path: first.manifest.path, body: `${JSON.stringify(manifest, null, 2)}\n` }] });
+    };
+    const staleManifest = [expect.objectContaining({ path: "docs/architecture/.projection-manifest.json", reasonCode: "projection-manifest-stale" })];
+
+    test("reads clean when the evidence key is absent and everything else matches", () => {
+      const legacy = reproject((manifest) => { delete manifest.semanticBaseline.evidence; });
+      expect(legacy.drift.ok, JSON.stringify(legacy.drift.reasonCodes)).toBe(true);
+      expect(legacy.drift.diffs).toEqual([]);
+      // Tolerated only when read: the renderer still writes the evidence.
+      expect(JSON.parse(legacy.manifest.body).semanticBaseline.evidence).toEqual(JSON.parse(first.manifest.body).semanticBaseline.evidence);
+    });
+
+    test("stays stale when evidence is present but any digest differs", () => {
+      const altered = reproject((manifest) => { manifest.semanticBaseline.evidence.selectorEvidenceDigest = `sha256:${"e".repeat(64)}`; });
+      expect(altered.drift.ok).toBe(false);
+      expect(altered.drift.diffs).toEqual(staleManifest);
+      const nulled = reproject((manifest) => { manifest.semanticBaseline.evidence = null; });
+      expect(nulled.drift.diffs).toEqual(staleManifest);
+    });
+
+    test("stays stale when evidence is absent and any other field is missing or altered", () => {
+      const withoutEvidence = (mutate: (manifest: Record<string, any>) => void) => reproject((manifest) => {
+        delete manifest.semanticBaseline.evidence;
+        mutate(manifest);
+      });
+      expect(withoutEvidence((manifest) => { delete manifest.receiptDigest; }).drift.diffs).toEqual(staleManifest);
+      expect(withoutEvidence((manifest) => { delete manifest.fileCount; }).drift.diffs).toEqual(staleManifest);
+      expect(withoutEvidence((manifest) => { manifest.semanticBaseline.digests.flowProofDigest = `sha256:${"f".repeat(64)}`; }).drift.diffs).toEqual(staleManifest);
+      expect(withoutEvidence((manifest) => { manifest.targetCount += 1; }).drift.diffs).toEqual(staleManifest);
+      expect(reproject((manifest) => { delete manifest.semanticBaseline; }).drift.diffs).toEqual(staleManifest);
+    });
+  });
+
   test("every selector-evidence fact the proof compiler reads moves the evidence digest", () => {
     const entry: ArchitectureSelectorEvidenceV1 = {
       nodeId: "capability.docs.projection", entrypointId: "entrypoint.a", sourcePath: "src/a.ts", sourceSymbol: "run",
