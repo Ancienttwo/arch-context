@@ -3,7 +3,7 @@
   "environment": "process-fixture",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-09-29T07:43:31.449Z",
+  "generatedAt": "2026-10-05T08:56:06.821Z",
   "evidence": {
     "processLevelFixture": true,
     "providerEnvCleared": {
@@ -14,7 +14,7 @@
     },
     "deterministicGate": {
       "llmProviderConfigured": false,
-      "modelDigest": "sha256:188a34eef37a13aa8e6906ad4c69897e3d4da6495378936e9bfddeb6715fb07d",
+      "modelDigest": "sha256:acda018530b0690f1cf5292db6b85631bc8b264197ec4169e9d2707380841eb2",
       "result": "pass",
       "reviewDigestMatchesAttestation": true
     },
