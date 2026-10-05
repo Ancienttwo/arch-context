@@ -75,8 +75,9 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     runs-on: ${{ matrix.os }}
-    # Native Windows ACL subprocesses make the measured full suite plus packaging exceed 20 min.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 30 || 20 }}
+    # Windows Node 22 completed its tests at 29 min, then hit the 30 min job limit.
+    # Give the full verification and packaging steps room to finish.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
 
     strategy:
       fail-fast: false
