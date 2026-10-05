@@ -1896,6 +1896,21 @@ function mergeGeneratedRegion(
   return `${existing.slice(0, region.start)}${wrapped}${existing.slice(region.end)}`;
 }
 
+/**
+ * Renderers that predate `semanticBaseline.evidence` (e.g. a pinned published archctx) write a
+ * manifest without it, and the two renderers would otherwise re-stamp each other forever. Only
+ * this staleness check tolerates the absent key: every other field, and any present evidence
+ * value, still compares exactly. Acceptance reads the manifest separately and keeps refusing
+ * proof-only changes against an evidence-less baseline.
+ */
+function comparableExpectedManifestDigest(expected: ArchitectureDocumentationExistingFile & { digest: string }, actual: Json): string {
+  const baseline = actual && typeof actual === "object" && !Array.isArray(actual) ? actual.semanticBaseline : undefined;
+  if (!baseline || typeof baseline !== "object" || Array.isArray(baseline) || "evidence" in baseline) return expected.digest;
+  const value = JSON.parse(expected.body) as { semanticBaseline: Record<string, Json> };
+  const { evidence: _evidence, ...semanticBaseline } = value.semanticBaseline;
+  return digestJson({ ...value, semanticBaseline } as unknown as Json);
+}
+
 function architectureDocumentationProjectionDrift(input: {
   targets: ProjectionTargetV1[];
   expectedFiles: ArchitectureDocumentationProjectionFile[];
@@ -1918,7 +1933,7 @@ function architectureDocumentationProjectionDrift(input: {
     try {
       const parsed = JSON.parse(existingManifest.body) as Json;
       const actualDigest = digestJson(parsed);
-      if (actualDigest !== input.expectedManifest.digest) {
+      if (actualDigest !== comparableExpectedManifestDigest(input.expectedManifest, parsed)) {
         diffs.push({
           path: input.expectedManifest.path,
           reasonCode: "projection-manifest-stale",

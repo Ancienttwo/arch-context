@@ -49,6 +49,7 @@ export interface ModelProposalReceiptV1 {
   operationCount: number;
   paths: string[];
   status: string;
+  journalId?: string;
 }
 
 export function parseModelProposal(value: unknown): ModelProposalV1 {
@@ -95,7 +96,9 @@ export function modelProposalReceipt(input: {
   worktreeDigest: string;
   modelDigest: string;
   status: string;
+  journalId?: string;
 }): ModelProposalReceiptV1 {
+  const includeJournalId = input.mode === "applied" && typeof input.journalId === "string" && input.journalId.length > 0;
   return {
     schemaVersion: MODEL_PROPOSAL_RECEIPT_SCHEMA_VERSION,
     mode: input.mode,
@@ -105,7 +108,8 @@ export function modelProposalReceipt(input: {
     modelDigest: input.modelDigest,
     operationCount: input.proposal.operations.length,
     paths: input.proposal.operations.map((operation) => operation.path).sort(),
-    status: input.status
+    status: input.status,
+    ...(includeJournalId ? { journalId: input.journalId } : {})
   };
 }
 
@@ -140,8 +144,8 @@ async function main(args: string[]) {
       expectedWorktreeDigest: expectedWorktreeDigest!
     });
     if (!applied.ok) throw new Error(applied.error?.message ?? "ChangeSet apply failed");
-    const result = applied.data as unknown as { status?: string };
-    return modelProposalReceipt({ proposal, mode: "applied", ...draft.draft.base, status: result.status ?? "applied" });
+    const result = applied.data as unknown as { status?: string; journalId?: string };
+    return modelProposalReceipt({ proposal, mode: "applied", ...draft.draft.base, status: result.status ?? "applied", journalId: result.journalId });
   } finally {
     await daemon.stop();
   }

@@ -11,3 +11,4 @@ source:
   include:
     - "packages/surfaces/**/src/**"
     - "packages/surfaces/package.json"
+    - "packages/surfaces/bunfig.toml"
