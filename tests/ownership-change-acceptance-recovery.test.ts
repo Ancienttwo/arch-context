@@ -208,7 +208,11 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
     })], root, racingClient);
 
     expect(retry.ok, "semantic recovery proof must reject drift before receipt consumption").toBe(false);
-    expect((retry as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
+    expect((retry as any).error).toMatchObject({
+      code: "AC_PROJECTION_APPLY_COMMITTED",
+      reasonCode: "projection-accepted-change-committed",
+      details: { requestId: request.requestId, lookupKey }
+    });
     expect(applyCalls).toBe(1);
 
     const semanticDrift = await runTestCli("projection", ["recover", "--request-json", JSON.stringify(recoveryIntent("projection_request.recovery_semantic_drift"))], root, racingClient);

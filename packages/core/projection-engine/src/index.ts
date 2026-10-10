@@ -143,6 +143,19 @@ export interface ArchitectureDocumentationProjectionDrift {
   actualDigest?: string;
 }
 
+/**
+ * A managed document whose generated region names a target the current model no longer renders.
+ * `delete`: the file holds only an intact generated region, so removing it loses nothing a human
+ * wrote and `apply` deletes it. `human-review`: text outside the region, or an edited region,
+ * may carry human content, so only a human may remove or move it (#268).
+ */
+export interface ArchitectureDocumentationProjectionOrphan {
+  path: string;
+  targetId: string;
+  actualDigest: string;
+  disposition: "delete" | "human-review";
+}
+
 export interface ArchitectureDocumentationProjectionPlan {
   schemaVersion: "archcontext.architecture-docs-projection-plan/v1";
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
@@ -165,6 +178,8 @@ export interface ArchitectureDocumentationProjectionPlan {
   };
   rejected: ArchitectureDocumentationProjectionDrift[];
   adoptionCandidates: ArchitectureDocumentationProjectionFile[];
+  /** Every `projection-orphaned` drift entry, sorted by path, with what may remove it. */
+  orphans: ArchitectureDocumentationProjectionOrphan[];
 }
 
 /**
@@ -181,10 +196,14 @@ export interface ArchitectureDocumentationProjectionProvenanceV2 {
   projectionInputDigest: string;
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   layoutVersion: typeof ARCHITECTURE_DOCS_LAYOUT_VERSION;
+  /**
+   * Reproducible CodeGraph identity only: package name and version. The digest of the installed
+   * binary differs between machines (platform, build, install method) running the same version,
+   * so it is a runtime diagnostic and never enters the committed manifest (#266).
+   */
   generatedFrom: {
     codeGraphPackage: string;
     codeGraphVersion: string;
-    codeGraphBinaryDigest: string;
     codeGraphStatus: "ready" | "unavailable";
   };
 }
@@ -504,7 +523,8 @@ export function renderArchitectureDocumentationProjection(input: {
       }))
     },
     rejected,
-    adoptionCandidates
+    adoptionCandidates,
+    orphans: drift.orphans
   };
 }
 
@@ -1663,11 +1683,17 @@ function architectureDocumentationProjectionDrift(input: {
   expectedFiles: ArchitectureDocumentationProjectionFile[];
   expectedManifest: ArchitectureDocumentationExistingFile & { digest: string };
   existingFiles: ArchitectureDocumentationExistingFile[];
-}): { ok: boolean; reasonCodes: ArchitectureDocumentationDriftReason[]; diffs: ArchitectureDocumentationProjectionDrift[] } {
+}): {
+  ok: boolean;
+  reasonCodes: ArchitectureDocumentationDriftReason[];
+  diffs: ArchitectureDocumentationProjectionDrift[];
+  orphans: ArchitectureDocumentationProjectionOrphan[];
+} {
   const existingByPath = new Map(input.existingFiles.map((file) => [file.path, file]));
   const expectedByPath = new Map(input.expectedFiles.map((file) => [file.path, file]));
   const targetIds = new Set(input.targets.map((target) => target.targetId));
   const diffs: ArchitectureDocumentationProjectionDrift[] = [];
+  const orphans: ArchitectureDocumentationProjectionOrphan[] = [];
 
   const existingManifest = existingByPath.get(input.expectedManifest.path);
   if (!existingManifest) {
@@ -1756,17 +1782,38 @@ function architectureDocumentationProjectionDrift(input: {
     if (!isManagedArchitectureDocumentationPath(existing.path) || expectedByPath.has(existing.path)) continue;
     const region = findAnyGeneratedRegion(existing.body);
     if (region && !targetIds.has(region.targetId)) {
-      diffs.push({
+      const actualDigest = digestJson({ path: existing.path, body: existing.body } as unknown as Json);
+      diffs.push({ path: existing.path, targetId: region.targetId, reasonCode: "projection-orphaned", actualDigest });
+      orphans.push({
         path: existing.path,
         targetId: region.targetId,
-        reasonCode: "projection-orphaned",
-        actualDigest: digestJson({ path: existing.path, body: existing.body } as unknown as Json)
+        actualDigest,
+        disposition: orphanHoldsOnlyIntactGeneratedRegion(existing.body, region.targetId) ? "delete" : "human-review"
       });
     }
   }
 
   const reasonCodes = [...new Set(diffs.map((diff) => diff.reasonCode))].sort() as ArchitectureDocumentationDriftReason[];
-  return { ok: diffs.length === 0, reasonCodes, diffs: diffs.sort((left, right) => left.path.localeCompare(right.path) || (left.targetId ?? "").localeCompare(right.targetId ?? "")) };
+  return {
+    ok: diffs.length === 0,
+    reasonCodes,
+    diffs: diffs.sort((left, right) => left.path.localeCompare(right.path) || (left.targetId ?? "").localeCompare(right.targetId ?? "")),
+    orphans: orphans.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+  };
+}
+
+/**
+ * True only when deleting the orphan cannot lose human text: everything outside its one generated
+ * region is whitespace, and the region still digests to the output its own marker records (an
+ * edited region is human content). Anything else, including a missing end marker, is human review.
+ */
+function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string): boolean {
+  const region = findGeneratedRegion(body, targetId);
+  if (!region) return false;
+  if (`${body.slice(0, region.start)}${body.slice(region.end)}`.trim() !== "") return false;
+  const metadata = parseGeneratedRegionMetadata(region.startMarker);
+  return metadata.outputDigest !== undefined
+    && digestJson({ targetId, body: `${region.body.trimEnd()}\n` } as unknown as Json) === metadata.outputDigest;
 }
 
 function findGeneratedRegion(body: string, targetId: string): { start: number; end: number; startMarker: string; body: string } | undefined {

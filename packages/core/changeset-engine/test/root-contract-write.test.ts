@@ -6,7 +6,7 @@ import { digestJson, type Json } from "@archcontext/contracts";
 import { initializeArchContextModel, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
 import { SqliteLocalStore } from "../../../local-runtime/local-store-sqlite/src/index";
 import { renderAgentContextProjection, loadAgentContextProjectionFiles, loadNativeModelFromArchContext, agentContextProjectionTargetPaths } from "../../projection-engine/src/index";
-import { ChangeSetEngine, type AgentContextScopePort, type ChangeOperation } from "../src/index";
+import { ChangeSetEngine, type AgentContextScopePort, type ChangeOperation, type ChangeSetProjectionFile } from "../src/index";
 
 const roots: string[] = [], stores: SqliteLocalStore[] = [];
 afterEach(() => { for (const store of stores.splice(0)) store.close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -39,7 +39,7 @@ test("root failure after the first file restores both human contracts and aborts
 
 for (const variant of ["human", "generated", "missing", "stale", "symlink", "undeclared", "validator", "wrong-kind"] as const) test(`root rejects ${variant} write`, async () => {
   const { root, human, scope, engine, operation, plan, nodePath } = await fixture();
-  const file = operation.projectionFiles![0]!;
+  const file = operation.projectionFiles![0]! as ChangeSetProjectionFile;
   if (variant === "human") file.body = file.body.replace("Human routing", "forged");
   if (variant === "generated") file.body = file.body.replace("Architecture Context", "forged");
   if (variant === "missing") { rmSync(join(root, file.path)); file.expectedHash = "missing"; }
