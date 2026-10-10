@@ -8,14 +8,14 @@ import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint }
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
+import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, grantAuditConsent, readAuditConsent, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { createFixtureGithubConnectionReader } from "./github-connection-fixture";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
@@ -130,6 +130,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
   initializeArchContextModel(root, "Projection App");
+  declareOptionalCodeFacts(root);
   const daemon = await createStartedDaemon({
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
     codeGraphProviderFactory: () => new MockCodeGraphProvider(),
@@ -381,10 +382,11 @@ function normalizeExistingPath(path: string): string {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-function createInitializedGitRepo(): string {
+function createInitializedGitRepo(options: { codeFacts?: "required" | "optional" } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-review-"));
   writeFileSync(join(root, "README.md"), "# review fixture\n", "utf8");
   initializeArchContextModel(root, "Review App");
+  if (options.codeFacts === "optional") declareOptionalCodeFacts(root);
   git(root, "init");
   configureGitFixtureIdentity(root);
   git(root, "add", ".");
@@ -4405,9 +4407,73 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("required code facts without a CodeGraph index fail projection with AC_CODE_FACTS_UNAVAILABLE", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      // The default manifest requires code facts; the fixture never runs `codegraph init`.
+      expect(readFileSync(join(root, ".archcontext/manifest.yaml"), "utf8")).toMatch(/^codeFacts:\n(?: {2}.*\n)*? {2}required: true$/m);
+      expect(existsSync(join(root, ".codegraph"))).toBe(false);
+      // A capability with a declared footprint and selector-bearing flow: without code facts every
+      // selector is unproven, which is what used to surface as a major change.
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
+      writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
+        schemaVersion: "archcontext.node/v2",
+        id: "capability.runtime-harness.hook-adapters",
+        kind: "capability",
+        name: "Hook Adapters",
+        status: "active",
+        summary: "Routes runtime hook events.",
+        source: { include: ["README.md"] },
+        extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
+      }), "utf8");
+      git(root, "add", "-A");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "hook adapters");
+      const expectUnavailable = (result: Awaited<ReturnType<typeof runTestCli>>, requestId: string) => {
+        const envelope = result as JsonEnvelope;
+        expect(envelope.ok, JSON.stringify(envelope)).toBe(false);
+        expect(envelope.requestId).toBe(requestId);
+        expect(envelope.error).toMatchObject({
+          code: "AC_CODE_FACTS_UNAVAILABLE",
+          reasonCode: "index-missing",
+          retryable: true,
+          action: "codegraph-init"
+        });
+        expect(envelope.error?.message).toContain("codegraph init");
+      };
+
+      expectUnavailable(await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root), "docs.plan");
+      const protocolRequest: ProjectionRequestV1 = {
+        schemaVersion: "archcontext.projection-request/v1",
+        requestId: "projection_request.code_facts_unavailable",
+        profile: "repo-harness/v1",
+        mode: "check",
+        targets: ["agent-context", "architecture-docs"],
+        changedPaths: [],
+        expected: {
+          repositoryId: repositoryFingerprint(root),
+          workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+          headSha: gitOut(root, "rev-parse", "HEAD"),
+          worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}`
+        }
+      };
+      expectUnavailable(await runTestCli("projection", ["run", "--request-json", JSON.stringify(protocolRequest)], root), "projection.run");
+      expectUnavailable(await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+        ...protocolRequest,
+        requestId: "projection_request.code_facts_unavailable_apply",
+        mode: "apply"
+      })], root), "projection.run");
+      // Nothing was classified, written, or signalled: the projection never reached the renderer.
+      expect(existsSync(join(root, "docs/architecture"))).toBe(false);
+      expect(existsSync(join(root, "AGENTS.md"))).toBe(false);
+      expect(gitOut(root, "status", "--porcelain")).toBe("");
+    } finally {
+      removeTempRoot(root);
+    }
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+
   test("docs apply and complete agree on projection digest for default", async () => {
     const profile = "default";
-    const root = createInitializedGitRepo();
+    const root = createInitializedGitRepo({ codeFacts: "optional" });
     try {
       const applied = await runTestCli("docs", ["apply", "--profile", profile, "--approved"], root);
       expect(applied.ok).toBe(true);
@@ -4428,7 +4494,7 @@ describe("archctx CLI", () => {
    * need that end state, so the scenario is driven once here and the caller owns cleanup.
    */
   async function runAdoptedHookAdaptersScenario(options: { codeGraphReady?: boolean } = {}) {
-    const root = createInitializedGitRepo();
+    const root = createInitializedGitRepo({ codeFacts: options.codeGraphReady ? "required" : "optional" });
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
     const original = [
       "# runtime-harness/hook-adapters",
@@ -4633,7 +4699,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("first docs adoption settles its manifest while preserving unresolved flow proof", async () => {
-    const root = createInitializedGitRepo();
+    const root = createInitializedGitRepo({ codeFacts: "optional" });
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
     const humanTail = "## 3. Human decisions\nretain  exact spacing  \n";
     try {

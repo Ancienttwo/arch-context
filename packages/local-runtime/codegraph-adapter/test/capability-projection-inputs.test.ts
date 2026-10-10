@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { digestJson } from "@archcontext/contracts";
-import { codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, type CodeGraphSelectorIndex } from "../src/index";
+import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
 
 const model: NativeModel = {
   nodes: [
@@ -256,4 +256,65 @@ describe("capability documentation projection inputs from the code index", () =>
     }
   });
 
+});
+
+describe("required projection code facts", () => {
+  function workspaceWithManifest(manifest: string | undefined): string {
+    const root = mkdtempSync(join(tmpdir(), "archctx-code-facts-required-"));
+    if (manifest !== undefined) {
+      mkdirSync(join(root, ".archcontext"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/manifest.yaml"), manifest, "utf8");
+    }
+    return root;
+  }
+
+  function prepared(availability: "ready" | "unavailable"): PreparedProjectionCodeFacts {
+    return {
+      importGraphs: [],
+      selectorEvidence: [],
+      handshake: {
+        availability,
+        ...(availability === "unavailable" ? { reasonCode: "index-missing" as const } : {})
+      }
+    } as unknown as PreparedProjectionCodeFacts;
+  }
+
+  test("only an explicit codeFacts.required: true requires code facts", () => {
+    const cases: Array<[string | undefined, boolean]> = [
+      ["codeFacts:\n  mode: \"embedded\"\n  provider: \"codegraph\"\n  required: true\n", true],
+      ["codeFacts:\n  provider: \"codegraph\"\n  required: false\n", false],
+      ["codeFacts:\n  provider: \"codegraph\"\n", false],
+      ["product:\n  id: \"product.x\"\n", false],
+      [undefined, false]
+    ];
+    for (const [manifest, required] of cases) {
+      const root = workspaceWithManifest(manifest);
+      try {
+        expect(projectionCodeFactsRequired(root), String(manifest)).toBe(required);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("an unavailable index fails a projection that requires code facts with a typed error", () => {
+    const required = workspaceWithManifest("codeFacts:\n  required: true\n");
+    const optional = workspaceWithManifest("codeFacts:\n  required: false\n");
+    try {
+      let thrown: unknown;
+      try {
+        assertProjectionCodeFactsAvailable(required, prepared("unavailable"));
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(ProjectionCodeFactsUnavailableError);
+      expect((thrown as ProjectionCodeFactsUnavailableError).code).toBe("AC_CODE_FACTS_UNAVAILABLE");
+      expect((thrown as ProjectionCodeFactsUnavailableError).reasonCode).toBe("index-missing");
+      expect(() => assertProjectionCodeFactsAvailable(required, prepared("ready"))).not.toThrow();
+      expect(() => assertProjectionCodeFactsAvailable(optional, prepared("unavailable"))).not.toThrow();
+    } finally {
+      rmSync(required, { recursive: true, force: true });
+      rmSync(optional, { recursive: true, force: true });
+    }
+  });
 });

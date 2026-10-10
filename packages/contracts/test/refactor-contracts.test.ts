@@ -1171,6 +1171,17 @@ describe("refactor verification request", () => {
   });
 });
 
+describe("code facts error catalog", () => {
+  test("missing required code facts is a typed, retryable error", () => {
+    expect(ERROR_CATALOG.AC_CODE_FACTS_UNAVAILABLE).toEqual({
+      code: "AC_CODE_FACTS_UNAVAILABLE",
+      severity: "error",
+      retryable: true,
+      action: "codegraph-init"
+    });
+  });
+});
+
 describe("refactor error catalog", () => {
   test("the four refactor error codes are catalogued", () => {
     const expected: Record<string, { severity: string; retryable: boolean; action: string }> = {

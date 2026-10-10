@@ -8,7 +8,7 @@ import { basename, dirname, join } from "node:path";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
+import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { digestJson, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
@@ -63,10 +63,11 @@ async function runTestCli(command: string, args: string[], root: string, runtime
   }));
 }
 
-function createFixture(): string {
+function createFixture(options: { codeFacts?: "required" | "optional" } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-recovery-race-"));
   writeFileSync(join(root, "README.md"), "# recovery fixture\n", "utf8");
   initializeArchContextModel(root, "Recovery Fixture");
+  if (options.codeFacts === "optional") declareOptionalCodeFacts(root);
   git(root, "init");
   git(root, "config", "user.name", "ArchContext Test");
   git(root, "config", "user.email", "archcontext@example.test");
@@ -345,7 +346,8 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
 }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
 test("semantic recovery rejects a committed receipt whose approved CodeGraph proof was unavailable", async () => {
-  const root = createFixture();
+  // Only a project that declares code facts optional can commit a receipt without them.
+  const root = createFixture({ codeFacts: "optional" });
   const paths = runtimePaths(root);
   const daemon = await createStartedDaemon({
     localStorePath: paths.localStorePath,

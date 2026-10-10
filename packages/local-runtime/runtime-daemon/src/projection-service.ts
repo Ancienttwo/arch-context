@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
-import { prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
+import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionWorkspaceId, readArchitectureProjectionVerifiedAgainst } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
@@ -27,7 +27,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     acceptedChange = input.acceptedChange;
     projection = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, undefined, acceptedChange);
   } catch (error) {
-    return errorEnvelope(`docs.${subcommand}`, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+    return projectionFailureEnvelope(`docs.${subcommand}`, error);
   }
   if (subcommand === "drift") {
     return okEnvelope("docs.drift", {
@@ -160,6 +160,7 @@ export function buildArchitectureDocsProjection(
   const loaded = { ...loadedFromDisk, existingFiles: existingFilesOverride ?? loadedFromDisk.existingFiles };
   const sourceDigest = architectureDocumentationSourceDigest({ model: loaded.model, profile, decisions: loaded.decisions });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
+  assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
@@ -440,7 +441,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     projection = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
-    return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+    return projectionFailureEnvelope("projection.run", error);
   }
 
   const blocked = projectionProtocolHumanStatus(request, projection);
@@ -476,13 +477,25 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
         return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "accepted projection did not produce a no-accepted-change semantic fixed point");
       }
     } catch (error) {
-      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+      return projectionFailureEnvelope("projection.run", error);
     }
     return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, changeSetId, root, daemon, priorCommittedApplies);
   }
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
   return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies);
+}
+
+/**
+ * A projection that cannot be built fails its precondition, except when required code facts are
+ * missing: that is an environment state with its own typed, retryable code, so a consumer can tell
+ * it apart from a real architecture change.
+ */
+export function projectionFailureEnvelope(requestId: string, error: unknown): JsonEnvelope {
+  if (error instanceof ProjectionCodeFactsUnavailableError) {
+    return errorEnvelope(requestId, "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
+  }
+  return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
 }
 
 /** Strict decoder for the daemon reply; an unreadable answer must fail the run, never omit the field. */

@@ -8,7 +8,7 @@ import type { ArchitectureFlowV1 } from "@archcontext/contracts";
 import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type ArchitectureSelectorEvidenceV1, type ArchitectureSemanticStateV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
 import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
+import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { SqliteLocalStore, type CommittedChangeSetForTaskSession } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
@@ -334,6 +334,7 @@ function createAcceptanceRepo(options: FixtureOptions = {}): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-accept-v2-"));
   writeFileSync(join(root, "README.md"), "# acceptance fixture\n", "utf8");
   initializeArchContextModel(root, "Acceptance Fixture");
+  declareOptionalCodeFacts(root);
   rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"));
   for (const [id, slug] of [[CAPABILITY_A, "hook-adapters"], [CAPABILITY_B, "session-store"]] as const) {
     writeYaml(root, nodePath(id), {

@@ -1,10 +1,11 @@
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, errorEnvelope, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, assertArchitectureProjectionVerifiedAgainst, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection, type NativeModel, type CapabilitySourceChangeSinceStamp } from "@archcontext/core/projection-engine";
-import { prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
+import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { projectionWorkspaceId as runtimeProjectionWorkspaceId, readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
+import { projectionFailureEnvelope } from "./projection-service";
 
 interface ProjectionApplyContext {
   assertRunning(): void;
@@ -138,7 +139,7 @@ export class ProjectionApplyService {
         // Reading original evidence never consumes or rewrites its delivery checkpoint.
         return okEnvelope("projection.readback", result as unknown as Json);
       } catch (error) {
-        return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+        return projectionFailureEnvelope("projection.readback", error);
       }
     });
   }
@@ -170,7 +171,7 @@ export class ProjectionApplyService {
       try {
         fixedPoint = buildRuntimeProjectionRecoveryFixedPoint(root, this.context.loadSourceChanges);
       } catch (error) {
-        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+        return projectionFailureEnvelope("projection.recover", error);
       }
       const issues = runtimeProjectionRecoveryFixedPointIssues(inspection.receipt, fixedPoint);
       if (issues.length > 0) {
@@ -208,6 +209,7 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string, loadSourceChange
     decisions: loaded.decisions
   });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
+  assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   const provenance = codeGraphInputs.provenance;
   const projection = renderArchitectureDocumentationProjection({
     model: loaded.model,
