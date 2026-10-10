@@ -1043,13 +1043,15 @@ export function loadArchitectureProjectionManifestStamps(
     if (typeof nodeId !== "string" || nodeId === "") continue;
     nodes.push({ nodeId, sourceFootprintDigest: record.sourceFootprintDigest });
   }
+  // Only a v3 provenance is read as one. A v1/v2 provenance is never translated, so it reads as
+  // absent and freshness fails closed with `projection-snapshot-provenance-missing` (#277).
   const provenance = (parsed as Record<string, unknown>).provenance;
+  const isV3Provenance = !!provenance && typeof provenance === "object" && !Array.isArray(provenance)
+    && (provenance as Record<string, unknown>).schemaVersion === "archcontext.architecture-docs-projection-provenance/v3";
   return {
     status: "present",
     nodes,
-    ...(provenance && typeof provenance === "object" && !Array.isArray(provenance)
-      ? { provenance: provenance as unknown as ArchitectureDocumentationProjectionProvenanceV3 }
-      : {})
+    ...(isV3Provenance ? { provenance: provenance as ArchitectureDocumentationProjectionProvenanceV3 } : {})
   };
 }
 
