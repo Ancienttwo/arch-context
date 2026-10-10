@@ -966,8 +966,19 @@ export interface RefactorRecommendationRunPlan {
   /** One binding per emitted recommendation, pointing at the baseline snapshot item. */
   evidenceBindings: EvidenceBindingV1[];
   suppressed: RecommendationSuppression[];
+  /** The one sample limit every observation's evidence was cut to in this plan. */
+  evidenceSampleLimit: number;
+  /** How the scheduler's `maxRecommendationsPerRun` cap applied to this run's candidates. */
+  candidateBudget: RefactorCandidateBudget;
   inputDigest: string;
   outputDigest: string;
+}
+
+export interface RefactorCandidateBudget {
+  maxRecommendationsPerRun: number;
+  candidateCount: number;
+  /** Candidates the cap cut before dedup; they are neither recorded nor reported as suppressed. */
+  omittedCandidateCount: number;
 }
 
 /**
@@ -1172,8 +1183,23 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
     }
   };
 
-  return { run, recommendations, evidenceItems, evidenceBindings, suppressed, inputDigest, outputDigest };
+  return {
+    run,
+    recommendations,
+    evidenceItems,
+    evidenceBindings,
+    suppressed,
+    evidenceSampleLimit,
+    candidateBudget: {
+      maxRecommendationsPerRun: schedulerPolicy.budgets.maxRecommendationsPerRun,
+      candidateCount: candidateDrafts.length,
+      omittedCandidateCount: Math.max(0, candidateDrafts.length - drafts.length)
+    },
+    inputDigest,
+    outputDigest
+  };
 }
+
 
 export function refactorRecommendationRunLedgerPayload(plan: RefactorRecommendationRunPlan): Record<string, Json> {
   return {

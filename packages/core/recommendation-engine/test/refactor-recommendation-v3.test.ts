@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   RECOMMENDATION_V3_SCHEMA_VERSION,
+  REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   recommendationV3InvariantIssues,
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
@@ -416,6 +417,14 @@ describe("scheduler policy", () => {
       selectedCandidateCount: 1,
       omittedCandidateCount: full.recommendations.length - 1
     } as never);
+    // The same cut, typed on the plan so a scan can report it without reading run extensions.
+    expect(capped.candidateBudget).toEqual({
+      maxRecommendationsPerRun: 1,
+      candidateCount: full.recommendations.length,
+      omittedCandidateCount: full.recommendations.length - 1
+    });
+    expect(full.candidateBudget.omittedCandidateCount).toBe(0);
+    expect(full.evidenceSampleLimit).toBe(REFACTOR_OBSERVATION_EVIDENCE_LIMIT);
     const repeat = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) }, {
       schedulerPolicy: { budgets: { maxRecommendationsPerRun: 1 } }
     });

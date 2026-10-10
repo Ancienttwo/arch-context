@@ -44,6 +44,7 @@ import {
 } from "../src/github-governance";
 import {
   LEDGER_AUTHORITY_MATRIX,
+  RECOMMENDATION_STATUSES,
   architectureEventHash,
   architectureSnapshotDigest
 } from "../src/ledger";
@@ -699,6 +700,11 @@ test("capabilities fixture is the exact static handshake advertised by contracts
 function readJson(path: string): Json {
   return JSON.parse(readFileSync(join(root, path), "utf8"));
 }
+
+test("RECOMMENDATION_STATUSES is the recommendation schema's status enum", () => {
+  const schema = readJson("schemas/runtime/recommendation.schema.json") as { properties: { status: { enum: string[] } } };
+  expect(schema.properties.status.enum).toEqual([...RECOMMENDATION_STATUSES]);
+});
 
 describe("JSON schema contracts", () => {
   for (const [fixtureName, schemaPath] of Object.entries(schemaByFixture)) {

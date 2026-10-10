@@ -238,43 +238,80 @@ function worstCaseRecordEventPayload(plan: RefactorRecommendationRunPlan, assess
 export const REFACTOR_RUN_PERSISTENCE_REASON_CODE = "refactor-run-exceeds-ledger-size-limit" as const;
 
 /**
+ * Whether the planned run fits one ledger event. `measuredBytes` is the worst-case persisted size
+ * of the recording event at the plan's evidence cut; when nothing fits, it is the size with every
+ * evidence sample empty, the smallest event the run can have.
+ */
+export interface RefactorRunRecordingV1 {
+  recordable: boolean;
+  reasonCode: typeof REFACTOR_RUN_PERSISTENCE_REASON_CODE | null;
+  measuredBytes: number;
+  limitBytes: number;
+}
+
+/**
  * The run cannot be recorded in one ledger event even with every evidence sample empty: what is
  * left (the baseline snapshot, the records' ids, affected nodes and outcomes) is itself over the
- * ceiling. Typed so the scan, the record and the one-step decision all refuse the same way.
+ * ceiling. Typed so the record, the one-step decision and a candidate `show` all refuse the same
+ * way; the read-only scan reports it as `recording.recordable: false` instead.
  */
-export class RefactorRunPersistenceError extends Error {
-  readonly code = "AC_SCHEMA_INVALID" as const;
+export class RefactorRunTooLargeError extends Error {
+  readonly code = "AC_REFACTOR_RUN_TOO_LARGE" as const;
   readonly reasonCode = REFACTOR_RUN_PERSISTENCE_REASON_CODE;
 
-  constructor(message: string) {
-    super(message);
-    this.name = "RefactorRunPersistenceError";
+  constructor(readonly recording: RefactorRunRecordingV1) {
+    super(refactorRunTooLargeMessage(recording));
+    this.name = "RefactorRunTooLargeError";
   }
+}
+
+export function refactorRunTooLargeMessage(recording: RefactorRunRecordingV1): string {
+  return `the refactor run event needs ${recording.measuredBytes} bytes with every evidence sample empty, over the ledger's ${recording.limitBytes}-byte persisted-JSON limit`;
 }
 
 /**
  * The one planning path a scan preview and a record share: the recommendation engine's plan with
  * every structural observation's acceptance test filled. A scan candidate therefore shows exactly
  * the `derivedOutcomes` its record will carry.
+ *
+ * Never throws for size: a run that no evidence cut can fit is returned at the empty cut with
+ * `recording.recordable: false`, so a read-only scan still answers. `planRefactorRun` is the
+ * recording entry point and refuses it.
  */
-export function planRefactorRun(input: PlanRefactorRecommendationRunInput): RefactorRecommendationRunPlan {
+export function planRefactorRunWithRecording(
+  input: PlanRefactorRecommendationRunInput
+): { plan: RefactorRecommendationRunPlan; recording: RefactorRunRecordingV1 } {
   // The per-run evidence byte budget is whatever the ledger ceiling leaves after the rest of the
   // run. Evidence is the only part that can be cut without changing a fact, so every sample is
   // cut to one shared limit, largest first, until the worst-case event fits. The plan is a pure
   // function of its input, so the same input always lands on the same limit.
-  let minimalBytes = 0;
-  for (let limit = REFACTOR_OBSERVATION_EVIDENCE_LIMIT; limit >= 0; limit -= 1) {
+  for (let limit = REFACTOR_OBSERVATION_EVIDENCE_LIMIT; ; limit -= 1) {
     const plan = withDerivedObservationOutcomes(planRefactorRecommendationRun({ ...input, evidenceSampleLimit: limit }));
-    const bytes = architectureLedgerPersistedJsonBytes(worstCaseRecordEventPayload(plan, input.assessment.assessmentDigest));
-    if (bytes <= ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES) return plan;
-    minimalBytes = bytes;
+    const measuredBytes = architectureLedgerPersistedJsonBytes(worstCaseRecordEventPayload(plan, input.assessment.assessmentDigest));
+    const recordable = measuredBytes <= ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES;
+    if (recordable || limit === 0) {
+      return {
+        plan,
+        recording: {
+          recordable,
+          reasonCode: recordable ? null : REFACTOR_RUN_PERSISTENCE_REASON_CODE,
+          measuredBytes,
+          limitBytes: ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES
+        }
+      };
+    }
   }
-  throw new RefactorRunPersistenceError(
-    `AC_SCHEMA_INVALID: the refactor run event needs ${minimalBytes} bytes with every evidence sample empty, over the ledger's ${ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES}-byte persisted-JSON limit`
-  );
 }
 
-function previousRecommendationsV3(recommendations: readonly RecommendationLedgerRecordV1[]): PreviousRecommendationV3[] {
+/** The recording plan: `planRefactorRunWithRecording`, refusing a run no evidence cut can fit. */
+export function planRefactorRun(input: PlanRefactorRecommendationRunInput): RefactorRecommendationRunPlan {
+  const { plan, recording } = planRefactorRunWithRecording(input);
+  if (!recording.recordable) throw new RefactorRunTooLargeError(recording);
+  return plan;
+}
+
+/** The planner's view of ledger records; shared by the scan preview and the record. */
+export function previousRecommendationsV3(recommendations: readonly RecommendationLedgerRecordV1[]): PreviousRecommendationV3[] {
   return recommendations.map((recommendation) => ({
     recommendationId: recommendation.recommendationId,
     fingerprint: recommendation.fingerprint,

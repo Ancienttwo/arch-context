@@ -94,6 +94,17 @@ partition. Reading lifecycle status never rebinds
 persisted resolution evidence or changes the ledger partition. Other book commands retain
 their ledger readback identity.
 
+### Refactor Suggestion Decisions and Limits
+
+`refactor scan` is read-only and never fails on the ledger event size limit. It returns
+`recording.recordable`, `recording.measuredBytes` and `recording.limitBytes`, plus `limits` with the
+shared `evidenceSampleLimit` and the candidates cut by `maxRecommendationsPerRun`. `refactor record`,
+a scan-candidate decision and a scan-candidate `recommendations show` refuse an unrecordable run with
+`AC_REFACTOR_RUN_TOO_LARGE` (not retryable; `error.details` carries the measured size and the
+limit). A stale `--expected-worktree-digest` on a decision returns `AC_REFACTOR_STALE`.
+`recommendations list --status <status>` returns the latest record of every recorded
+recommendation in that status with no item or byte budget; `book recommendations` keeps its budget.
+
 ## Release State
 
 `archctx@0.5.11` and `archctx-contracts@0.5.11` are the current published release on `latest`,

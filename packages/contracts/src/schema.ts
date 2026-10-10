@@ -34,7 +34,8 @@ export type ArchContextErrorCode =
   | "AC_MODEL_ADOPTION_REQUIRED"
   | "AC_REFACTOR_STALE"
   | "AC_REFACTOR_EVIDENCE_REQUIRED"
-  | "AC_REFACTOR_PROPOSAL_UNAUTHORED";
+  | "AC_REFACTOR_PROPOSAL_UNAUTHORED"
+  | "AC_REFACTOR_RUN_TOO_LARGE";
 
 export interface ArchContextError {
   code: ArchContextErrorCode;
@@ -79,7 +80,10 @@ export const ERROR_CATALOG: Record<ArchContextErrorCode, Omit<ArchContextError, 
   AC_MODEL_ADOPTION_REQUIRED: { code: "AC_MODEL_ADOPTION_REQUIRED", severity: "error", retryable: false, action: "adopt-architecture-model" },
   AC_REFACTOR_STALE: { code: "AC_REFACTOR_STALE", severity: "warning", retryable: true, action: "rerun-refactor-scan" },
   AC_REFACTOR_EVIDENCE_REQUIRED: { code: "AC_REFACTOR_EVIDENCE_REQUIRED", severity: "error", retryable: false, action: "run-refactor-verify" },
-  AC_REFACTOR_PROPOSAL_UNAUTHORED: { code: "AC_REFACTOR_PROPOSAL_UNAUTHORED", severity: "error", retryable: false, action: "attach-authoring-actor" }
+  AC_REFACTOR_PROPOSAL_UNAUTHORED: { code: "AC_REFACTOR_PROPOSAL_UNAUTHORED", severity: "error", retryable: false, action: "attach-authoring-actor" },
+  // Not retryable: the run's size is a pure function of the measured tree, so the same call at the
+  // same HEAD fails the same way. The read-only `refactor scan` still answers, with `recordable: false`.
+  AC_REFACTOR_RUN_TOO_LARGE: { code: "AC_REFACTOR_RUN_TOO_LARGE", severity: "error", retryable: false, action: "use-read-only-refactor-scan" }
 };
 
 export function okEnvelope<T extends Json>(requestId: string, data: T): JsonEnvelope<T> {
