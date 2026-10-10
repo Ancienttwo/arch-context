@@ -366,8 +366,21 @@ export class ChangeSetAuthorityService {
         throw new Error(`ChangeSet base model is invalid: ${baseErrors.join("; ")}`);
       }
       if (draft.base.modelDigest !== currentModel.modelDigest) throw new Error("ChangeSet model digest changed before apply");
-      if (input.projectionApplyReceipt && await this.localStore.inspectProjectionApplyReceipt(input.projectionApplyReceipt.identity.lookupKey)) {
-        return errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", "committed projection receipt requires explicit projection recover");
+      const committedReceipt = input.projectionApplyReceipt
+        ? await this.localStore.inspectProjectionApplyReceipt(input.projectionApplyReceipt.identity.lookupKey)
+        : undefined;
+      if (committedReceipt) {
+        return errorEnvelope(
+          "apply_update",
+          "AC_PROJECTION_APPLY_COMMITTED",
+          `projection apply already committed for requestId ${committedReceipt.receipt.result.requestId}; read it back with projection readback or deliver it with projection recover`,
+          "projection-accepted-change-committed",
+          {
+            requestId: committedReceipt.receipt.result.requestId,
+            lookupKey: committedReceipt.receipt.identity.lookupKey,
+            applyId: committedReceipt.receipt.identity.applyId
+          }
+        );
       }
       const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
       const transitionBase = captureModelTransitionBase(root, approved);

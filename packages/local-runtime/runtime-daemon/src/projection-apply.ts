@@ -259,7 +259,11 @@ function runtimeProjectionRecoveryFixedPointIssues(
   if (!binding) return ["committed projection receipt does not support semantic recovery"];
   const issues: string[] = [];
   const projection = fixedPoint.projection;
-  if (!projection.drift.ok || projection.rejected.length > 0) issues.push("projection owned outputs are not a clean fixed point");
+  // An orphan that may hold human text is not an output `apply` writes or deletes; it is reported
+  // as a human action and never makes a committed apply unprovable (#268).
+  const reviewOrphanPaths = new Set(projection.orphans.filter((orphan) => orphan.disposition === "human-review").map((orphan) => orphan.path));
+  const ownedDrift = projection.drift.diffs.filter((diff) => !(diff.reasonCode === "projection-orphaned" && reviewOrphanPaths.has(diff.path)));
+  if (ownedDrift.length > 0 || projection.rejected.length > 0) issues.push("projection owned outputs are not a clean fixed point");
   if (projection.majorChange.mode !== "none" || projection.majorChange.reasonCodes.length > 0 || projection.majorChange.affectedNodeIds.length > 0) {
     issues.push("current architecture state contains an unresolved major change");
   }

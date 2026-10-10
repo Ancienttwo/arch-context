@@ -746,7 +746,6 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
     generatedFrom: {
       codeGraphPackage: prepared.handshake.packageName,
       codeGraphVersion: prepared.handshake.actualVersion,
-      codeGraphBinaryDigest: prepared.handshake.binaryDigest,
       codeGraphStatus: prepared.handshake.availability
     }
   });

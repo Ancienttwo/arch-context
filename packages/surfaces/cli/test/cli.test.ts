@@ -5042,7 +5042,10 @@ describe("archctx CLI", () => {
       expect(pendingReadbacks).toBe(1);
       expect(appliedInput).toBeDefined();
       const duplicate = await rpcClient.applyUpdate(...appliedInput!);
-      expect(duplicate).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
+      expect(duplicate).toMatchObject({
+        ok: false,
+        error: { code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-accepted-change-committed", details: { requestId: request.requestId } }
+      });
       const original = applied.data as ProjectionResultV2;
       const before = await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey);
       expect(before).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
@@ -5144,6 +5147,12 @@ describe("archctx CLI", () => {
         expect(postRacePlan.ok, JSON.stringify(postRacePlan)).toBe(true);
         const receiptInspection = await daemon.inspectProjectionApplyReceipt(root, (raced.data as ProjectionResultV2).applyReceipt!.lookupKey);
         expect(receiptInspection).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "pending" } });
+        // The same request replays the committed result without applying again (#265). Its refresh
+        // signals were never delivered, so the replay still reports reconcile-required.
+        const replayed = await runCli("projection", ["run", "--request-json", JSON.stringify(firstApplyRequest)], root, { runtimeClient: racingClient });
+        expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
+        expect(replayed.data).toEqual({ ...(raced.data as object), replayed: true });
+        expect(applyCalls).toBe(1);
         const ordinaryRetry = await runCli("projection", ["run", "--request-json", JSON.stringify({
           ...firstApplyRequest,
           requestId: "projection_request.hook_adapters_major_ordinary_retry",
@@ -5153,7 +5162,11 @@ describe("archctx CLI", () => {
           }
         })], root, { runtimeClient: racingClient });
         expect(ordinaryRetry.ok).toBe(false);
-        expect((ordinaryRetry as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((ordinaryRetry as any).error).toMatchObject({
+          code: "AC_PROJECTION_APPLY_COMMITTED",
+          reasonCode: "projection-accepted-change-committed",
+          details: { requestId: firstApplyRequest.requestId, lookupKey: (raced.data as ProjectionResultV2).applyReceipt!.lookupKey }
+        });
         expect(applyCalls).toBe(1);
         expect(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).toBe(committedManifest);
 

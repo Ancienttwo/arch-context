@@ -22,6 +22,7 @@ export type ArchContextErrorCode =
   | "AC_POLICY_VIOLATION"
   | "AC_PATH_DENIED"
   | "AC_PRECONDITION_FAILED"
+  | "AC_PROJECTION_APPLY_COMMITTED"
   | "AC_CAPABILITY_UNSUPPORTED"
   | "AC_INTERVENTION_REQUIRED"
   | "AC_PROOF_REQUIRED"
@@ -42,6 +43,8 @@ export interface ArchContextError {
   retryable: boolean;
   action: string;
   reasonCode?: string;
+  /** Machine-readable facts a caller needs to act on this error, never parsed from `message`. */
+  details?: { [key: string]: Json };
 }
 
 export interface JsonEnvelope<T extends Json = Json> {
@@ -64,6 +67,7 @@ export const ERROR_CATALOG: Record<ArchContextErrorCode, Omit<ArchContextError, 
   AC_POLICY_VIOLATION: { code: "AC_POLICY_VIOLATION", severity: "error", retryable: false, action: "revise-plan" },
   AC_PATH_DENIED: { code: "AC_PATH_DENIED", severity: "critical", retryable: false, action: "do-not-bypass" },
   AC_PRECONDITION_FAILED: { code: "AC_PRECONDITION_FAILED", severity: "warning", retryable: true, action: "rebuild-plan" },
+  AC_PROJECTION_APPLY_COMMITTED: { code: "AC_PROJECTION_APPLY_COMMITTED", severity: "error", retryable: false, action: "readback-committed-projection-apply" },
   AC_CAPABILITY_UNSUPPORTED: { code: "AC_CAPABILITY_UNSUPPORTED", severity: "error", retryable: false, action: "stay-within-single-repository" },
   AC_INTERVENTION_REQUIRED: { code: "AC_INTERVENTION_REQUIRED", severity: "error", retryable: false, action: "enter-intervention-sop" },
   AC_PROOF_REQUIRED: { code: "AC_PROOF_REQUIRED", severity: "warning", retryable: false, action: "execute-proof-point" },
@@ -82,12 +86,18 @@ export function okEnvelope<T extends Json>(requestId: string, data: T): JsonEnve
   return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId, data };
 }
 
-export function errorEnvelope(requestId: string, code: ArchContextErrorCode, message: string, reasonCode?: string): JsonEnvelope {
+export function errorEnvelope(
+  requestId: string,
+  code: ArchContextErrorCode,
+  message: string,
+  reasonCode?: string,
+  details?: { [key: string]: Json }
+): JsonEnvelope {
   return {
     schemaVersion: "archcontext.envelope/v1",
     ok: false,
     requestId,
-    error: { ...ERROR_CATALOG[code], message, ...(reasonCode ? { reasonCode } : {}) }
+    error: { ...ERROR_CATALOG[code], message, ...(reasonCode ? { reasonCode } : {}), ...(details ? { details } : {}) }
   };
 }
 

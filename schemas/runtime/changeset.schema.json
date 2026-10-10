@@ -108,24 +108,50 @@
               "projectionFiles": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "path",
-                    "expectedHash",
-                    "body"
-                  ],
-                  "properties": {
-                    "path": {
-                      "type": "string"
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "path",
+                        "expectedHash",
+                        "body"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "expectedHash": {
+                          "type": "string"
+                        },
+                        "body": {
+                          "type": "string"
+                        }
+                      }
                     },
-                    "expectedHash": {
-                      "type": "string"
-                    },
-                    "body": {
-                      "type": "string"
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "description": "Removes one projection-owned file; accepted only by render_projection with the exact current body hash.",
+                      "required": [
+                        "path",
+                        "expectedHash",
+                        "delete"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "expectedHash": {
+                          "type": "string",
+                          "pattern": "^sha256:[a-f0-9]{64}$"
+                        },
+                        "delete": {
+                          "const": true
+                        }
+                      }
                     }
-                  }
+                  ]
                 }
               }
             }
