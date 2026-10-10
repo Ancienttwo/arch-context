@@ -630,7 +630,10 @@ export class RecommendationsService {
       suppressed: result.suppressed,
       recording: result.recording,
       limits: result.limits,
-      recordCommand: `archctx refactor record --assessment-digest ${result.assessment.assessmentDigest} --expected-worktree-digest ${gitScope.worktree.worktreeDigest}`,
+      // Only a run `refactor record` can append gets a command to record it.
+      ...(result.recording.recordable
+        ? { recordCommand: `archctx refactor record --assessment-digest ${result.assessment.assessmentDigest} --expected-worktree-digest ${gitScope.worktree.worktreeDigest}` }
+        : {}),
       privacy: {
         writes: "none",
         rawSourcePersisted: false,

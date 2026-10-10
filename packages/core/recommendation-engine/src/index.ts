@@ -38,6 +38,7 @@ import {
   type StructuralObservationPayloadV1
 } from "@archcontext/contracts";
 import { architectureSubjectSelectorId } from "@archcontext/core/architecture-delta";
+import { observationSeverityWorsened } from "@archcontext/core/refactor-assessment";
 
 export const RECOMMENDATION_SCHEDULER_ENGINE_VERSION = "archcontext.recommendation-scheduler/v1" as const;
 export const RECOMMENDATION_EXPLANATION_TREE_SCHEMA_VERSION = "archcontext.recommendation-explanation-tree/v1" as const;
@@ -103,7 +104,7 @@ export interface PreviousRecommendation {
 export interface RecommendationSuppression {
   /**
    * `decided-fingerprint` is refactor-only: the latest record for the fingerprint is `rejected` or
-   * `waived` and its measured fact has not changed since that decision.
+   * `waived` and none of its severity metrics got worse since that decision.
    */
   reasonCode: "duplicate-active-fingerprint" | "decided-fingerprint" | "cooldown-active";
   fingerprint: string;
@@ -266,8 +267,8 @@ export const REFACTOR_ACTIVE_RECOMMENDATION_STATUSES: ReadonlySet<Recommendation
 ]);
 /**
  * Refactor-category decisions that close a fingerprint without a fix. A re-detection of the same
- * fingerprint is suppressed while the measured fact is unchanged, so a user's rejection or waiver
- * outlives later runs; see `refactorObservationFactChanged` for what reopens it.
+ * fingerprint is suppressed unless the finding got worse, so a user's rejection or waiver outlives
+ * later runs; see `refactorObservationWorsened` for what reopens it.
  */
 export const REFACTOR_DECIDED_RECOMMENDATION_STATUSES: ReadonlySet<RecommendationStatus> = new Set<RecommendationStatus>([
   "rejected",
@@ -943,11 +944,10 @@ export interface PreviousRecommendationV3 {
   status: RecommendationStatus;
   updatedAt: string;
   /**
-   * The prior record's `payload.signalIds` when it is a `structural_observation`, otherwise `null`.
-   * A signal id digests the observation's kind, subject and metrics and never its evidence sample,
-   * so it names the measured fact a `rejected` or `waived` decision was taken against.
+   * The prior record's `payload.metrics` when it is a `structural_observation` that carries them,
+   * otherwise `null`: the measurement a `rejected` or `waived` decision was taken against.
    */
-  observationSignalIds: string[] | null;
+  observationMetrics: Record<string, number | null> | null;
 }
 
 export interface PlanRefactorRecommendationRunInput {
@@ -996,7 +996,10 @@ export interface RefactorRecommendationRunPlan {
 export interface RefactorCandidateBudget {
   maxRecommendationsPerRun: number;
   candidateCount: number;
-  /** Candidates the cap cut before dedup; they are neither recorded nor reported as suppressed. */
+  /**
+   * Candidates the cap cut, after active and decided suppression; they are neither recorded nor
+   * reported as suppressed.
+   */
   omittedCandidateCount: number;
 }
 
@@ -1042,9 +1045,39 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
   const baselineEvidence = baselineSnapshotEvidenceItem(input);
   const evidenceItems = [baselineEvidence, ...modelAdoptionEvidenceItems(input)];
   const candidateDrafts = [...observationDrafts(input, evidenceSampleLimit), ...proposalDrafts(input)];
-  const drafts = schedulerPolicy.enabled
-    ? budgetRefactorDrafts(candidateDrafts, schedulerPolicy.budgets.maxRecommendationsPerRun)
-    : [];
+
+  // Active and decided suppression run before the cap, so a fingerprint the ledger already holds
+  // never takes a slot from a new candidate; the cap then counts only what could be emitted.
+  const latestByFingerprint = latestRecommendationV3ByFingerprint(input.previousRecommendations ?? []);
+  const suppressed: RecommendationSuppression[] = [];
+  const eligible: { draft: RefactorRecommendationDraft; previous: PreviousRecommendationV3 | undefined }[] = [];
+  if (schedulerPolicy.enabled) {
+    for (const draft of rankRefactorDrafts(candidateDrafts)) {
+      const previous = latestByFingerprint.get(draft.fingerprint);
+      if (previous && REFACTOR_ACTIVE_RECOMMENDATION_STATUSES.has(previous.status)) {
+        suppressed.push({
+          reasonCode: "duplicate-active-fingerprint",
+          fingerprint: draft.fingerprint,
+          subject: draft.subjectSelectorId,
+          previousRecommendationId: previous.recommendationId
+        });
+        continue;
+      }
+      if (previous && REFACTOR_DECIDED_RECOMMENDATION_STATUSES.has(previous.status) && !refactorObservationWorsened(previous, draft)) {
+        suppressed.push({
+          reasonCode: "decided-fingerprint",
+          fingerprint: draft.fingerprint,
+          subject: draft.subjectSelectorId,
+          previousRecommendationId: previous.recommendationId
+        });
+        continue;
+      }
+      eligible.push({ draft, previous });
+    }
+  }
+  const selected = eligible.slice(0, Math.max(0, schedulerPolicy.budgets.maxRecommendationsPerRun));
+  // Disabled, nothing is evaluated and every candidate is omitted; enabled, only the cap omits.
+  const omittedCandidateCount = schedulerPolicy.enabled ? eligible.length - selected.length : candidateDrafts.length;
 
   const inputDigest = digestJson({
     schemaVersion: "archcontext.refactor-recommendation-run-input/v1",
@@ -1062,13 +1095,13 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       fingerprint: draft.fingerprint,
       score: draft.score
     })),
-    selectedFingerprints: drafts.map((draft) => draft.fingerprint),
+    selectedFingerprints: selected.map(({ draft }) => draft.fingerprint),
     evidenceItemIds: evidenceItems.map((item) => item.evidenceId),
     previousRecommendations: (input.previousRecommendations ?? []).map((recommendation) => ({
       fingerprint: recommendation.fingerprint,
       status: recommendation.status,
       updatedAt: recommendation.updatedAt,
-      observationSignalIds: recommendation.observationSignalIds
+      observationMetrics: recommendation.observationMetrics
     })),
     cooldowns: input.cooldowns ?? [],
     // The invocation clock is part of the run's identity. Without it two scans at the same HEAD
@@ -1079,32 +1112,10 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
   } as unknown as Json);
   const runId = `recommendation_run.${digestSuffix(inputDigest)}`;
 
-  const latestByFingerprint = latestRecommendationV3ByFingerprint(input.previousRecommendations ?? []);
   const recommendations: RecommendationV3[] = [];
   const evidenceBindings: EvidenceBindingV1[] = [];
-  const suppressed: RecommendationSuppression[] = [];
 
-  for (const draft of drafts) {
-    const previous = latestByFingerprint.get(draft.fingerprint);
-    if (previous && REFACTOR_ACTIVE_RECOMMENDATION_STATUSES.has(previous.status)) {
-      suppressed.push({
-        reasonCode: "duplicate-active-fingerprint",
-        fingerprint: draft.fingerprint,
-        subject: draft.subjectSelectorId,
-        previousRecommendationId: previous.recommendationId
-      });
-      continue;
-    }
-    const decided = previous !== undefined && REFACTOR_DECIDED_RECOMMENDATION_STATUSES.has(previous.status);
-    if (decided && !refactorObservationFactChanged(previous, draft)) {
-      suppressed.push({
-        reasonCode: "decided-fingerprint",
-        fingerprint: draft.fingerprint,
-        subject: draft.subjectSelectorId,
-        previousRecommendationId: previous.recommendationId
-      });
-      continue;
-    }
+  for (const { draft, previous } of selected) {
     const cooldown = findActiveCooldown(
       input.cooldowns ?? [],
       { subject: draft.subjectSelectorId },
@@ -1120,9 +1131,10 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       });
       continue;
     }
-    // A resolved prior, or a rejected/waived one whose measured fact changed, is never touched:
+    // A resolved prior, or a rejected/waived one that got worse, is never touched:
     // the re-detection is a new record that points back at it, never `open` under the old id.
-    const relations: RecommendationRelationsV1 = previous !== undefined && (previous.status === "resolved" || decided)
+    const relations: RecommendationRelationsV1 = previous !== undefined
+      && (previous.status === "resolved" || REFACTOR_DECIDED_RECOMMENDATION_STATUSES.has(previous.status))
       ? { regressesFrom: previous.recommendationId }
       : {};
     const recommendationId = refactorRecommendationId(draft.fingerprint, relations.regressesFrom ?? null);
@@ -1174,7 +1186,7 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       fingerprint: entry.fingerprint,
       subject: entry.subject
     })),
-    budget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, drafts.length)
+    budget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, selected.length, omittedCandidateCount)
   } as unknown as Json);
 
   const run: RecommendationRunV1 = {
@@ -1208,7 +1220,7 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       evidenceItemIds: evidenceItems.map((item) => item.evidenceId),
       evidenceBindingIds: evidenceBindings.map((binding) => binding.bindingId),
       schedulerPolicy: schedulerPolicy as unknown as Json,
-      schedulerBudget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, drafts.length),
+      schedulerBudget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, selected.length, omittedCandidateCount),
       // Recorded so a run whose evidence was cut to fit the ledger says so.
       evidenceSampleLimit
     }
@@ -1224,7 +1236,7 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
     candidateBudget: {
       maxRecommendationsPerRun: schedulerPolicy.budgets.maxRecommendationsPerRun,
       candidateCount: candidateDrafts.length,
-      omittedCandidateCount: Math.max(0, candidateDrafts.length - drafts.length)
+      omittedCandidateCount
     },
     inputDigest,
     outputDigest
@@ -1232,18 +1244,17 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
 }
 
 /**
- * Whether a `rejected` or `waived` fingerprint's measured fact changed since the decision. The
- * fact is the observation's `signalIds`: each digests kind, subject and metrics, and never the
- * evidence sample, the baseline snapshot or HEAD, so a re-scan of an unchanged problem at a new
- * commit, or under a different evidence cut, is not a change. A `refactor_proposal` fingerprints
- * every material field already (`proposalDigest`, scale, affected nodes, major-change reasons), so
- * its decided fingerprint never reopens; nor does a prior that carries no signal ids.
+ * Whether a `rejected` or `waived` observation got worse since the decision: a severity metric of
+ * its kind (`REFACTOR_OBSERVATION_SEVERITY_METRICS`) is now higher than in the decided record's
+ * `payload.metrics`. Module size, scan configuration, the evidence sample, the baseline and HEAD
+ * never reopen a decision. A `refactor_proposal` fingerprints every material field already
+ * (`proposalDigest`, scale, affected nodes, major-change reasons), so its decided fingerprint never
+ * reopens; nor does a prior that carries no metrics.
  */
-function refactorObservationFactChanged(previous: PreviousRecommendationV3, draft: RefactorRecommendationDraft): boolean {
-  if (draft.category !== "structural_observation" || previous.observationSignalIds === null) return false;
-  const current = [...(draft.payload as StructuralObservationPayloadV1).signalIds].sort();
-  const prior = [...previous.observationSignalIds].sort();
-  return current.length !== prior.length || current.some((signalId, index) => signalId !== prior[index]);
+function refactorObservationWorsened(previous: PreviousRecommendationV3, draft: RefactorRecommendationDraft): boolean {
+  if (draft.category !== "structural_observation" || previous.observationMetrics === null) return false;
+  const payload = draft.payload as StructuralObservationPayloadV1;
+  return observationSeverityWorsened(payload.kind, previous.observationMetrics, payload.metrics);
 }
 
 export function refactorRecommendationRunLedgerPayload(plan: RefactorRecommendationRunPlan): Record<string, Json> {
@@ -1282,34 +1293,30 @@ interface RefactorRecommendationDraft {
 }
 
 /**
- * Same shape as `budgetRecommendationCandidates`: highest score first, then stable tiebreakers so
+ * Same order as `budgetRecommendationCandidates`: highest score first, then stable tiebreakers so
  * truncation is deterministic. When the cap bites, the surviving drafts are the highest-scoring
- * ones, and within an equal score the lowest `subjectSelectorId`, then the lowest `fingerprint`.
+ * unsuppressed ones, and within an equal score the lowest `subjectSelectorId`, then the lowest
+ * `fingerprint`.
  */
-function budgetRefactorDrafts(
-  drafts: readonly RefactorRecommendationDraft[],
-  maxRecommendationsPerRun: number
-): RefactorRecommendationDraft[] {
-  if (maxRecommendationsPerRun <= 0) return [];
-  return [...drafts]
-    .sort((left, right) =>
-      right.score - left.score
-      || left.subjectSelectorId.localeCompare(right.subjectSelectorId)
-      || left.fingerprint.localeCompare(right.fingerprint)
-    )
-    .slice(0, maxRecommendationsPerRun);
+function rankRefactorDrafts(drafts: readonly RefactorRecommendationDraft[]): RefactorRecommendationDraft[] {
+  return [...drafts].sort((left, right) =>
+    right.score - left.score
+    || left.subjectSelectorId.localeCompare(right.subjectSelectorId)
+    || left.fingerprint.localeCompare(right.fingerprint)
+  );
 }
 
 function refactorSchedulerBudget(
   schedulerPolicy: NormalizedRecommendationSchedulerPolicy,
   candidateCount: number,
-  selectedCount: number
+  selectedCount: number,
+  omittedCount: number
 ): Json {
   return {
     maxRecommendationsPerRun: schedulerPolicy.budgets.maxRecommendationsPerRun,
     inputCandidateCount: candidateCount,
     selectedCandidateCount: selectedCount,
-    omittedCandidateCount: Math.max(0, candidateCount - selectedCount),
+    omittedCandidateCount: omittedCount,
     enabled: schedulerPolicy.enabled
   } as unknown as Json;
 }

@@ -878,6 +878,7 @@ describe("refactor scan limits", () => {
       expect(data.limits.candidateCount).toBeGreaterThanOrEqual(31);
       expect(data.recording).toMatchObject({ recordable: true, reasonCode: null, limitBytes: 262_144 });
       expect(data.recording.measuredBytes).toBeLessThanOrEqual(data.recording.limitBytes);
+      expect((data as { recordCommand?: string }).recordCommand).toStartWith("archctx refactor record --assessment-digest ");
     } finally {
       await daemon.stop();
     }
@@ -904,6 +905,8 @@ describe("refactor scan limits", () => {
       expect(data.recording.measuredBytes).toBeGreaterThan(data.recording.limitBytes);
       expect(data.limits.evidenceSampleLimit).toBe(0);
       expect(data.proposedRecommendations.length).toBeGreaterThan(0);
+      // A command that can only fail is not offered.
+      expect("recordCommand" in data).toBe(false);
 
       const expectTooLarge = (refused: JsonEnvelope) => {
         expect(refused.ok, JSON.stringify(refused)).toBe(false);

@@ -317,10 +317,20 @@ export function previousRecommendationsV3(recommendations: readonly Recommendati
     fingerprint: recommendation.fingerprint,
     status: recommendation.status,
     updatedAt: recommendation.updatedAt,
-    observationSignalIds: "category" in recommendation && recommendation.category === "structural_observation"
-      ? [...recommendation.payload.signalIds]
-      : null
+    observationMetrics: observationMetricsOf(recommendation)
   }));
+}
+
+/**
+ * The decided measurement a structural observation carries. A record written before observation
+ * payloads carried `metrics` has none, and is reported as `null` rather than filled in.
+ */
+function observationMetricsOf(recommendation: RecommendationLedgerRecordV1): Record<string, number | null> | null {
+  if (!("category" in recommendation) || recommendation.category !== "structural_observation") return null;
+  const metrics = (recommendation.payload as { metrics?: unknown }).metrics;
+  return metrics !== null && typeof metrics === "object" && !Array.isArray(metrics)
+    ? { ...(metrics as Record<string, number | null>) }
+    : null;
 }
 
 /**

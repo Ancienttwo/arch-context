@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
   RECOMMENDATION_V3_SCHEMA_VERSION,
+  REFACTOR_EVIDENCE_ID_LIST_LIMIT,
   REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   recommendationV3InvariantIssues,
+  refactorAssessmentDigest,
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
   type RefactorAssessmentV1,
+  type RefactorObservationEvidenceV1,
+  type RefactorObservationKind,
+  type RefactorObservationV1,
   type RefactorProposalV1,
   type RefactorScale
 } from "@archcontext/contracts";
@@ -74,8 +79,47 @@ function priorOf(
     fingerprint: record.fingerprint,
     status,
     updatedAt,
-    observationSignalIds: record.category === "structural_observation" ? [...record.payload.signalIds] : null
+    observationMetrics: record.category === "structural_observation" ? { ...record.payload.metrics } : null
   };
+}
+
+/** A contract-valid observation of `kind` with exactly `metrics`, its evidence sample left empty. */
+function observationOf(snapshot: ModuleStatisticsSnapshotV1, kind: RefactorObservationKind, metrics: Record<string, number>, subject?: string): RefactorObservationV1 {
+  const count = (value: number | undefined) => ({ totalCount: value ?? 0, truncated: (value ?? 0) > 0 });
+  const moduleId = snapshot.modules[0]!.nodeId;
+  const repository = `repository:${snapshot.repository.repositoryId}`;
+  const shapes: Record<RefactorObservationKind, { subjectSelectorId: string; evidence: RefactorObservationEvidenceV1 }> = {
+    cycle: {
+      subjectSelectorId: "scc:fixture",
+      evidence: {
+        kind: "cycle",
+        memberNodeIds: Array.from({ length: Math.min(metrics.memberCount ?? 0, REFACTOR_EVIDENCE_ID_LIST_LIMIT) }, (_, index) => `module.member-${String(index).padStart(3, "0")}`),
+        edges: [],
+        ...count(metrics.cycleEdgeCount)
+      }
+    },
+    "direction-violation": {
+      subjectSelectorId: moduleId,
+      evidence: { kind: "direction-violation", constraintIds: ["constraint.fixture"], constraintCount: 1, violations: [], ...count(metrics.directionViolationCount) }
+    },
+    "ownership-ambiguous": { subjectSelectorId: moduleId, evidence: { kind: "ownership-ambiguous", paths: [], ...count(3) } },
+    "undeclared-footprint": { subjectSelectorId: moduleId, evidence: { kind: "undeclared-footprint", paths: [], ...count(0) } },
+    "unowned-paths": { subjectSelectorId: repository, evidence: { kind: "unowned-paths", paths: [], ...count(metrics.unownedFileCount) } },
+    "evidence-gap": {
+      subjectSelectorId: repository,
+      evidence: { kind: "evidence-gap", coverage: "partial", reasonCodes: [], unresolvedImports: [], ...count(metrics.unresolvedImportCount) }
+    }
+  };
+  const shape = shapes[kind];
+  return { kind, subjectSelectorId: subject ?? shape.subjectSelectorId, signalIds: [`signal.${kind}.fixture`], metrics, evidence: shape.evidence };
+}
+
+/** The default fixture's assessment with its observations replaced, re-digested. */
+function assessmentWith(observations: RefactorObservationV1[]): { snapshot: ModuleStatisticsSnapshotV1; assessment: RefactorAssessmentV1 } {
+  const input = makeAssessmentInput();
+  const base = assessRefactor(input).assessment;
+  const draft: RefactorAssessmentV1 = { ...base, observations, assessmentDigest: "" };
+  return { snapshot: input.snapshot, assessment: { ...draft, assessmentDigest: refactorAssessmentDigest(draft) } };
 }
 
 /** Every emitted record must be one the ledger can trust without re-validating it. */
@@ -379,28 +423,92 @@ describe("dedup, cooldown and regression", () => {
       });
     });
 
-    test(`a ${status} prior reopens as a new related record only when its measured fact changed`, () => {
-      const first = planFor();
-      const record = first.recommendations.find((entry) => entry.category === "structural_observation")!;
-      // The decision was taken against a different measurement of the same fingerprint.
-      const decided = { ...priorOf(record, status), observationSignalIds: [`signal.${record.payload.kind}.0000000000000000`] };
-      const second = planFor({}, { previousRecommendations: [decided] });
-      const reopened = second.recommendations.find((entry) => entry.fingerprint === record.fingerprint);
+  }
 
-      expect(reopened).toBeDefined();
-      expect(reopened!.relations).toEqual({ regressesFrom: record.recommendationId });
-      expect(reopened!.recommendationId).not.toBe(record.recommendationId);
-      expect(second.suppressed.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
-      expectRecordsValid(second.recommendations);
+  /**
+   * One row per observation kind: the measurement the decision was taken against, the
+   * re-measurements that are worse on a severity metric, and the ones that are not.
+   */
+  const SEVERITY_CASES: { kind: RefactorObservationKind; decided: Record<string, number>; worse: Record<string, number>[]; notWorse: Record<string, number>[] }[] = [
+    {
+      kind: "cycle",
+      decided: { memberCount: 2, cycleEdgeCount: 3 },
+      worse: [{ memberCount: 3, cycleEdgeCount: 3 }, { memberCount: 2, cycleEdgeCount: 4 }],
+      notWorse: [{ memberCount: 2, cycleEdgeCount: 3 }, { memberCount: 2, cycleEdgeCount: 2 }]
+    },
+    {
+      kind: "direction-violation",
+      decided: { directionViolationCount: 2 },
+      worse: [{ directionViolationCount: 3 }],
+      notWorse: [{ directionViolationCount: 2 }, { directionViolationCount: 1 }]
+    },
+    {
+      kind: "unowned-paths",
+      decided: { unownedFileCount: 4 },
+      worse: [{ unownedFileCount: 5 }],
+      notWorse: [{ unownedFileCount: 4 }, { unownedFileCount: 1 }]
+    },
+    // `ownedFileCount` measures module size, not ambiguity: no change of it reopens.
+    {
+      kind: "ownership-ambiguous",
+      decided: { ownedFileCount: 10 },
+      worse: [],
+      notWorse: [{ ownedFileCount: 10 }, { ownedFileCount: 50 }, { ownedFileCount: 1 }]
+    },
+    // A gap in the code facts, not a finding: neither more unresolved imports nor a new edge limit reopens.
+    {
+      kind: "evidence-gap",
+      decided: { unresolvedImportCount: 2, edgeLimit: 5000 },
+      worse: [],
+      notWorse: [{ unresolvedImportCount: 2, edgeLimit: 5000 }, { unresolvedImportCount: 9, edgeLimit: 5000 }, { unresolvedImportCount: 2, edgeLimit: 10000 }]
+    },
+    { kind: "undeclared-footprint", decided: {}, worse: [], notWorse: [{}] }
+  ];
+
+  for (const { kind, decided, worse, notWorse } of SEVERITY_CASES) {
+    test(`a decided ${kind} reopens with regressesFrom only when a severity metric got worse`, () => {
+      const before = assessmentWith([observationOf(makeAssessmentInput().snapshot, kind, decided)]);
+      const record = planWith(before.snapshot, before.assessment, undefined).recommendations[0]!;
+      for (const status of ["rejected", "waived"] as const) {
+        const prior = priorOf(record, status);
+        for (const metrics of worse) {
+          const after = assessmentWith([observationOf(before.snapshot, kind, metrics)]);
+          const plan = planWith(after.snapshot, after.assessment, undefined, { previousRecommendations: [prior] });
+          expect(plan.recommendations, `${status} ${JSON.stringify(metrics)}`).toHaveLength(1);
+          const reopened = plan.recommendations[0]!;
+          expect(reopened.fingerprint).toBe(record.fingerprint);
+          expect(reopened.relations).toEqual({ regressesFrom: record.recommendationId });
+          expect(reopened.recommendationId).not.toBe(record.recommendationId);
+          expectRecordsValid(plan.recommendations);
+        }
+        for (const metrics of notWorse) {
+          const after = assessmentWith([observationOf(before.snapshot, kind, metrics)]);
+          const plan = planWith(after.snapshot, after.assessment, undefined, { previousRecommendations: [prior] });
+          expect(plan.recommendations, `${status} ${JSON.stringify(metrics)}`).toEqual([]);
+          expect(plan.suppressed).toEqual([expect.objectContaining({ reasonCode: "decided-fingerprint", previousRecommendationId: record.recommendationId })]);
+        }
+      }
     });
   }
+
+  test("a decided record that does not carry a severity metric never reopens", () => {
+    const before = assessmentWith([observationOf(makeAssessmentInput().snapshot, "direction-violation", { directionViolationCount: 2 })]);
+    const record = planWith(before.snapshot, before.assessment, undefined).recommendations[0]!;
+    const after = assessmentWith([observationOf(before.snapshot, "direction-violation", { directionViolationCount: 9 })]);
+    for (const observationMetrics of [null, {}, { directionViolationCount: null }] as PreviousRecommendationV3["observationMetrics"][]) {
+      const prior = { ...priorOf(record, "rejected"), observationMetrics };
+      const plan = planWith(after.snapshot, after.assessment, undefined, { previousRecommendations: [prior] });
+      expect(plan.recommendations, JSON.stringify(observationMetrics)).toEqual([]);
+      expect(plan.suppressed[0]).toMatchObject({ reasonCode: "decided-fingerprint" });
+    }
+  });
 
   test("a decided refactor proposal never reopens: every material field is in its fingerprint", () => {
     const { snapshot, assessment, proposal } = proposalFor("module");
     const first = planWith(snapshot, assessment, proposal);
     const record = first.recommendations.find((entry) => entry.category === "refactor_proposal")!;
     const prior = priorOf(record, "rejected");
-    expect(prior.observationSignalIds).toBeNull();
+    expect(prior.observationMetrics).toBeNull();
 
     const second = planWith(snapshot, assessment, proposal, { previousRecommendations: [prior] });
     expect(second.recommendations.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
@@ -409,6 +517,27 @@ describe("dedup, cooldown and regression", () => {
 });
 
 describe("scheduler policy", () => {
+  test("decided fingerprints do not take cap slots from a lower-scoring new candidate", () => {
+    const snapshot = makeAssessmentInput().snapshot;
+    const cycles = Array.from({ length: 26 }, (_, index) =>
+      observationOf(snapshot, "cycle", { memberCount: 2, cycleEdgeCount: 2 }, `scc:fixture-${String(index).padStart(2, "0")}`));
+    const unowned = observationOf(snapshot, "unowned-paths", { unownedFileCount: 1 });
+    const { assessment } = assessmentWith([...cycles, unowned]);
+    const all = planWith(snapshot, assessment, undefined, { schedulerPolicy: { budgets: { maxRecommendationsPerRun: 100 } } });
+    const cycleRecords = all.recommendations.filter((record) => record.category === "structural_observation" && record.payload.kind === "cycle");
+    const newcomer = all.recommendations.find((record) => record.category === "structural_observation" && record.payload.kind === "unowned-paths")!;
+    expect(cycleRecords).toHaveLength(26);
+    for (const record of cycleRecords) expect(record.extensions!.score as number).toBeGreaterThan(newcomer.extensions!.score as number);
+
+    const plan = planWith(snapshot, assessment, undefined, {
+      previousRecommendations: cycleRecords.map((record, index) => priorOf(record, index % 2 === 0 ? "rejected" : "waived"))
+    });
+    expect(plan.recommendations.map((record) => record.fingerprint)).toEqual([newcomer.fingerprint]);
+    expect(plan.suppressed.filter((entry) => entry.reasonCode === "decided-fingerprint")).toHaveLength(26);
+    // Only the cap omits, and nothing was left for it to cut.
+    expect(plan.candidateBudget).toEqual({ maxRecommendationsPerRun: 25, candidateCount: 27, omittedCandidateCount: 0 });
+  });
+
   test("a disabled scheduler records the run and emits nothing", () => {
     const plan = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) }, {
       schedulerPolicy: { enabled: false }
