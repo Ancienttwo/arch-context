@@ -68,13 +68,29 @@ With the flag, `projection run` classifies the major change at `expected` and ap
 
 When the run observes no major change, the flag does nothing and the request is a plain apply. When a capability proof (P1 or P2) is unprovable, the change cannot be accepted and the flag is declined: the result is `human-action-required` with `majorChangeAcceptance: "declined-unprovable-proof"`, and `humanActions[]` carries `reasonCode: "unprovable-required-flow"` with the ids of the capabilities whose proof is unprovable, in place of `unresolved-major-change`. Do not retry the flag; fix the named flows or relations first. `majorChangeAcceptance` is absent whenever the request did not send the flag. Without the flag, a major change still stops at `human-action-required`. Consumers detect the field through the `projection-observed-major-change-acceptance-v1` capability.
 
-To read back such an apply, send `projection readback` the original request with `acceptObservedMajorChange` replaced by the committed `applyReceipt.acceptedChange`.
+To read back such an apply, send `projection readback` the original request with `acceptObservedMajorChange` replaced by the committed `applyReceipt.acceptedChange`. A caller that lost the result never saw that `acceptedChange`; it gets the complete readback request from `AC_PROJECTION_APPLY_COMMITTED` (below).
 
 ### Repeating an accepted apply
 
 A caller that lost the response of an accepted `apply` or `adopt` (process kill, timeout, closed pipe) sends the same request again. If its `requestId` and request digest match a committed receipt, `projection run` returns the committed `ProjectionResultV2` with `replayed: true` and applies nothing. The replay key is the `requestId` plus the digest of the request exactly as the caller sent it, including `acceptObservedMajorChange`. It never includes provider-generated ids. `replayed` is excluded from `receiptDigest`, so the replay carries the committed receipt digest. If the first run committed but never delivered its refresh signals, the replay reports `applied-reconcile-required` with no signals; deliver them with `projection recover` and the `applyReceipt` `lookupKey` and `applyId`.
 
-A different request under a committed `requestId`, or a new request for an accepted change that is already applied, fails with `AC_PROJECTION_APPLY_COMMITTED` (not retryable, action `readback-committed-projection-apply`). `error.details` carries `requestId`, `lookupKey` and `applyId` of the committed apply, and `error.reasonCode` is `projection-apply-request-differs`, `projection-accepted-change-committed`, or `projection-apply-request-digest-unrecorded` (a receipt committed before request digests were recorded). Do not match the error message. `projection readback` still returns the committed receipt with its recovery proof. Consumers detect this behavior through the `projection-apply-replay-v1` capability.
+A different request under a committed `requestId`, or a new request for an accepted change that is already applied, fails with `AC_PROJECTION_APPLY_COMMITTED` (not retryable, action `readback-committed-projection-apply`). `error.reasonCode` is one of:
+
+- `projection-apply-request-differs`: the `requestId` already committed a different request. Send the new request under a new `requestId`.
+- `projection-accepted-change-committed`: the accepted change was already applied under the `requestId` in `error.details`.
+- `projection-apply-request-digest-unrecorded`: the receipt was committed before request digests were recorded, so no request can be proven equal to it. The `requestId` is never reused, not even for the same request. Send the request under a new `requestId`.
+
+`error.details` carries the committed apply's `requestId`, `lookupKey` and `applyId`, its original `requestDigest` when one was recorded, and `readbackRequest`: the committed apply's own readback request (`mode: "apply"`, the recorded `targets`, `changedPaths` and `expected` snapshot, and the committed `acceptedChange`). To read the committed result, send `error.details.readbackRequest` unchanged to `projection readback` (`archctx projection readback --request-json '<readbackRequest>'`, or MCP `archcontext_projection` with `action: "readback"`). This works also for an apply made with `acceptObservedMajorChange`. To deliver pending refresh signals, call `projection recover` with `requestId`, `lookupKey` and `applyId` from `error.details`. A receipt from before recovery bindings existed has no `readbackRequest` and cannot be read back or recovered. Do not match the error message. Consumers detect this behavior through the `projection-apply-replay-v1` capability.
+
+#### Choosing a requestId
+
+A `requestId` names one apply. Once an accepted apply commits under it, only that exact request (same request digest) replays; every other request under it fails with `AC_PROJECTION_APPLY_COMMITTED`. So:
+
+- Use a new `requestId` for every distinct apply: a different `mode`, `targets`, `changedPaths`, `expected` snapshot, `acceptedChange`, `acceptObservedMajorChange` or `adoptionPlanId`.
+- Keep the same `requestId` when you retry the same request, so a lost response replays instead of applying again.
+- Do not use fixed ids such as `<tool>.apply.accepted`; the first committed apply holds that id for good.
+
+Recommended derivation: hash every request field except `requestId` and use the hash in the id. For example, `projection_request.` plus the first 16 hex characters of SHA-256 over the canonical JSON of `{mode, targets, changedPaths, expected: {repositoryId, workspaceId, headSha, worktreeDigest}, acceptedChange or acceptObservedMajorChange, adoptionPlanId}`. `targets` and `changedPaths` are sorted already, because the request requires it. The id must match `^[a-zA-Z0-9_.:-]+$`.
 
 ## Bad Projection Recovery
 

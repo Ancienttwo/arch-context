@@ -5,7 +5,7 @@ import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
+import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionProvenanceV2, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -472,7 +472,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       if (existing.found === true) {
         if (!existing.receipt) throw new Error("committed projection apply receipt lookup returned no receipt");
         // Another request already applied this exact accepted change.
-        return projectionApplyCommittedEnvelope(existing.receipt, "projection-accepted-change-committed");
+        return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed");
       }
     } catch (error) {
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
@@ -565,6 +565,7 @@ async function replayCommittedProjectionApply(
   if (!match) {
     const latest = [...committed].sort((left, right) => left.committedAt < right.committedAt ? -1 : left.committedAt > right.committedAt ? 1 : 0).at(-1)!;
     return projectionApplyCommittedEnvelope(
+      "projection.run",
       latest.receipt,
       latest.receipt.recovery?.requestDigest === undefined ? "projection-apply-request-digest-unrecorded" : "projection-apply-request-differs"
     );
@@ -577,16 +578,41 @@ async function replayCommittedProjectionApply(
   return projectionProtocolResultEnvelope({ ...committedResult, replayed: true });
 }
 
-function projectionApplyCommittedEnvelope(receipt: ProjectionApplyReceiptV1, reasonCode: string): JsonEnvelope {
+/**
+ * AC_PROJECTION_APPLY_COMMITTED carries everything needed to read the committed apply back: the
+ * receipt's own readback request (`details.readbackRequest`, sent unchanged to `projection
+ * readback`) and, when recorded, the original request digest. A caller that applied with
+ * `acceptObservedMajorChange` never held the accepted change, so it cannot rebuild that request
+ * itself (#278). A receipt without a request digest cannot be proven equal to any request, so its
+ * requestId is never reused: the caller must pick a new one.
+ */
+export function projectionApplyCommittedEnvelope(
+  envelopeRequestId: string,
+  receipt: ProjectionApplyReceiptV1,
+  reasonCode: "projection-accepted-change-committed" | "projection-apply-request-differs" | "projection-apply-request-digest-unrecorded"
+): JsonEnvelope {
+  const requestId = receipt.result.requestId;
+  const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
+  const requestDigest = receipt.recovery?.requestDigest;
+  const cause = {
+    "projection-accepted-change-committed": `this accepted change was already applied under requestId ${requestId}`,
+    "projection-apply-request-differs": `requestId ${requestId} already committed an apply for a different request; send this request under a new requestId`,
+    "projection-apply-request-digest-unrecorded": `requestId ${requestId} committed an apply before request digests were recorded, so no request can be proven equal to it and the requestId cannot be reused; send this request under a new requestId`
+  }[reasonCode];
+  const readback = readbackRequest
+    ? "to read the committed result, send error.details.readbackRequest unchanged as the projection readback request (CLI: projection readback --request-json); deliver pending refresh signals with projection recover and error.details requestId, lookupKey and applyId"
+    : "the committed receipt has no recovery binding, so projection readback and projection recover cannot prove it";
   return errorEnvelope(
-    "projection.run",
+    envelopeRequestId,
     "AC_PROJECTION_APPLY_COMMITTED",
-    `projection apply already committed for requestId ${receipt.result.requestId}; read it back with projection readback or deliver it with projection recover`,
+    `${cause}; ${readback}`,
     reasonCode,
     {
-      requestId: receipt.result.requestId,
+      requestId,
       lookupKey: receipt.identity.lookupKey,
-      applyId: receipt.identity.applyId
+      applyId: receipt.identity.applyId,
+      ...(requestDigest === undefined ? {} : { requestDigest }),
+      ...(readbackRequest === undefined ? {} : { readbackRequest: readbackRequest as unknown as Json })
     }
   );
 }

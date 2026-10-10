@@ -63,6 +63,7 @@ import {
   archctxCapabilities,
   projectionApplyAbsenceInvariantIssues,
   projectionApplyLookupKey,
+  projectionApplyReadbackRequestFromReceipt,
   projectionApplyReadbackRequestInvariantIssues,
   projectionApplyRecoveryProofInvariantIssues,
   projectionApplyRecoveryProofDigest,
@@ -74,6 +75,7 @@ import {
   projectionResultInvariantIssues,
   type ArchitectureRefreshSignalV1,
   type ProjectionApplyRecoveryProofV1,
+  type ProjectionApplyReceiptV1,
   type ProjectionApplyRecoveryIntentV1,
   type ProjectionApplyRecoveryResultV1,
   type ProjectionFreshnessV1,
@@ -374,6 +376,27 @@ test("projection readback schema embeds canonical request and result contracts",
   expect(projectionApplyReadbackRequestInvariantIssues({ ...valid, expected: { ...valid.expected, extra: true } } as any)).toContain("readback expected snapshot is invalid");
   expect(projectionApplyReadbackRequestInvariantIssues({ ...valid, mode: "adopt", adoptionPlanId: "adoption_plan.test" }))
     .toContain("readback request contains unsupported fields");
+});
+
+test("a committed receipt yields the exact readback request its recovery binding approved (#278)", () => {
+  const fixture = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
+  const acceptedChange = { changeSetId: "changeset.observed", eventId: "event.observed", reasonCodes: ["responsibility-changed" as const], affectedNodeIds: ["capability.example"] };
+  const recovery = { targets: ["agent-context", "architecture-docs"], changedPaths: ["src/a.ts"], originalExpectedSnapshot: fixture.expected };
+  const receipt = { result: { requestId: "projection_request.observed" }, identity: { acceptedChange }, recovery } as unknown as ProjectionApplyReceiptV1;
+  const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
+  expect(readbackRequest).toEqual({
+    schemaVersion: "archcontext.projection-request/v1",
+    requestId: "projection_request.observed",
+    profile: "repo-harness/v1",
+    mode: "apply",
+    targets: ["agent-context", "architecture-docs"],
+    changedPaths: ["src/a.ts"],
+    expected: fixture.expected,
+    acceptedChange
+  });
+  expect(projectionApplyReadbackRequestInvariantIssues(readbackRequest!)).toEqual([]);
+  // Without a recovery binding readback cannot prove the receipt, so no request is offered.
+  expect(projectionApplyReadbackRequestFromReceipt({ ...receipt, recovery: undefined })).toBeUndefined();
 });
 
 test("projection absence binds the original request and exact current snapshot", () => {

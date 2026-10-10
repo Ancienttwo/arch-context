@@ -11,7 +11,7 @@ import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import { AcceptCommittedChangeInputError, acceptedChangeFromEventV2, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, resolveAcceptanceHeadSha, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
 import type { RuntimeArchitectureLedgerModes, RuntimeArchitectureLedgerWriteMode } from "./ledger-admin";
 import { projectionWorkspaceId, readCurrentBranch } from "./projection-inputs";
-import { assertProjectionInvocationSnapshot, buildArchitectureDocsProjection, projectionInvocationWrites, validateProjectionInvocation, type ProjectionServiceHost, type RuntimeProjectionInvocation } from "./projection-service";
+import { assertProjectionInvocationSnapshot, buildArchitectureDocsProjection, projectionApplyCommittedEnvelope, projectionInvocationWrites, validateProjectionInvocation, type ProjectionServiceHost, type RuntimeProjectionInvocation } from "./projection-service";
 import type { RuntimeAcceptCommittedChangeInput, RuntimeApplyUpdateInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeWorktreeDigestProfile } from "./rpc-types";
 
 /** The parts of the daemon's repository session this service reads. */
@@ -319,17 +319,7 @@ export class ChangeSetAuthorityService {
         ? await this.localStore.inspectProjectionApplyReceipt(input.projectionApplyReceipt.identity.lookupKey)
         : undefined;
       if (committedReceipt) {
-        return errorEnvelope(
-          "apply_update",
-          "AC_PROJECTION_APPLY_COMMITTED",
-          `projection apply already committed for requestId ${committedReceipt.receipt.result.requestId}; read it back with projection readback or deliver it with projection recover`,
-          "projection-accepted-change-committed",
-          {
-            requestId: committedReceipt.receipt.result.requestId,
-            lookupKey: committedReceipt.receipt.identity.lookupKey,
-            applyId: committedReceipt.receipt.identity.applyId
-          }
-        );
+        return projectionApplyCommittedEnvelope("apply_update", committedReceipt.receipt, "projection-accepted-change-committed");
       }
       const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
       const transitionBase = captureModelTransitionBase(root, approved);

@@ -727,6 +727,33 @@ export function projectionApplyReadbackRequestInvariantIssues(request: Projectio
   return issues;
 }
 
+/**
+ * The readback request for a committed apply receipt, built only from what the receipt recorded:
+ * its requestId, the recovery binding's targets, changedPaths and original expected snapshot, and
+ * the identity's accepted change. Readback always takes `mode: "apply"`, also for an adopt receipt,
+ * because the binding never records the mode. A caller that held only `acceptObservedMajorChange`
+ * never had the accepted change, so `AC_PROJECTION_APPLY_COMMITTED` hands it this request (#278).
+ * Undefined for a receipt without a recovery binding, which readback cannot prove.
+ */
+export function projectionApplyReadbackRequestFromReceipt(receipt: ProjectionApplyReceiptV1): ProjectionRequestV1 | undefined {
+  const binding = receipt.recovery;
+  if (!binding) return undefined;
+  return {
+    schemaVersion: PROJECTION_REQUEST_SCHEMA_VERSION,
+    requestId: receipt.result.requestId,
+    profile: "repo-harness/v1",
+    mode: "apply",
+    targets: [...binding.targets],
+    changedPaths: [...binding.changedPaths],
+    expected: { ...binding.originalExpectedSnapshot },
+    acceptedChange: {
+      ...receipt.identity.acceptedChange,
+      reasonCodes: [...receipt.identity.acceptedChange.reasonCodes],
+      affectedNodeIds: [...receipt.identity.acceptedChange.affectedNodeIds]
+    }
+  };
+}
+
 export function projectionApplyAbsenceInvariantIssues(input: ProjectionApplyAbsenceV1, request: ProjectionRequestV1): string[] {
   const issues = projectionApplyReadbackRequestInvariantIssues(request);
   if (input.schemaVersion !== "archcontext.projection-apply-absence/v1") issues.push("absence schemaVersion is invalid");
