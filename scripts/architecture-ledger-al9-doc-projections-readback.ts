@@ -17,6 +17,7 @@ import {
   renderArchitectureDocumentationProjection
 } from "@archcontext/surfaces/renderer";
 import { loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
+import { listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const DEFAULT_OUT = "docs/verification/architecture-ledger-al9-doc-projections-readback.json";
@@ -108,9 +109,9 @@ function currentRepoProjectionReadback() {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(REPO_ROOT, loaded.model),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(REPO_ROOT, loaded.model),
-    ...loadCapabilityCodeGraphProjectionInputs(REPO_ROOT, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(REPO_ROOT, loaded.model, listProjectionSourceFiles(REPO_ROOT)),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(REPO_ROOT, loaded.model, listProjectionSourceFiles(REPO_ROOT)),
+    ...loadCapabilityCodeGraphProjectionInputs(REPO_ROOT, loaded.model, { sourceFiles: listProjectionSourceFiles(REPO_ROOT) }),
     sourceDigest,
     provenance: projectionReadbackProvenance(sourceDigest)
   });
@@ -217,9 +218,9 @@ function ambiguousOwnershipIsRejected(root: string): boolean {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: withoutMarker,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root)),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listProjectionSourceFiles(root)),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listProjectionSourceFiles(root) }),
     sourceDigest: projectionSourceDigest(loaded),
     provenance: projectionReadbackProvenance(projectionSourceDigest(loaded))
   });

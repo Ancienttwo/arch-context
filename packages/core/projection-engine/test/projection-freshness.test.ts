@@ -17,6 +17,7 @@ import {
   type CapabilitySourceFootprintDigest,
   type NativeModel
 } from "../src/index";
+import { fixtureSourceFiles } from "./fixture-source-files";
 
 const sourceDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
 const docsDigest = `sha256:${"a".repeat(64)}`;
@@ -85,7 +86,7 @@ function withRepository(files: Record<string, string>, run: (root: string) => vo
 }
 
 function footprintDigest(root: string, nodeId: string): string {
-  const entry = loadCapabilitySourceFootprintDigests(root, model).find((footprint) => footprint.nodeId === nodeId);
+  const entry = loadCapabilitySourceFootprintDigests(root, model, fixtureSourceFiles(root)).find((footprint) => footprint.nodeId === nodeId);
   if (!entry) throw new Error(`no footprint for ${nodeId}`);
   return entry.digest;
 }
@@ -105,11 +106,11 @@ describe("capability source footprint digests", () => {
       "packages/docs-runtime/src/index.ts": "export const version = 1;\n",
       "docs/architecture/index.md": "# First projection\n"
     }, (root) => {
-      const initial = architectureDocumentationSourceTreeDigest(root, sourceModel);
+      const initial = architectureDocumentationSourceTreeDigest(root, sourceModel, fixtureSourceFiles(root));
       writeFileSync(join(root, "docs/architecture/index.md"), "# Edited projection\n");
-      expect(architectureDocumentationSourceTreeDigest(root, sourceModel)).toBe(initial);
+      expect(architectureDocumentationSourceTreeDigest(root, sourceModel, fixtureSourceFiles(root))).toBe(initial);
       writeFileSync(join(root, "packages/docs-runtime/src/index.ts"), "export const version = 2;\n");
-      expect(architectureDocumentationSourceTreeDigest(root, sourceModel)).not.toBe(initial);
+      expect(architectureDocumentationSourceTreeDigest(root, sourceModel, fixtureSourceFiles(root))).not.toBe(initial);
     });
   });
 
@@ -120,7 +121,7 @@ describe("capability source footprint digests", () => {
       "packages/core/review-engine/src/index.ts": "export const review = 1;\n",
       "README.md": "# repository\n"
     }, (root) => {
-      const footprints = loadCapabilitySourceFootprintDigests(root, model);
+      const footprints = loadCapabilitySourceFootprintDigests(root, model, fixtureSourceFiles(root));
       expect(footprints.map((entry) => [entry.nodeId, entry.fileCount])).toEqual([
         ["capability.docs.projection", 1],
         ["capability.review.gate", 1]
@@ -157,7 +158,7 @@ test("a CRLF checkout measures the same footprint as an LF one", () => {
   withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\nexport const gate = 2;\n" }, (lf) => {
     withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\r\nexport const gate = 2;\r\n" }, (crlf) => {
       expect(footprintDigest(crlf, "capability.review.gate")).toBe(footprintDigest(lf, "capability.review.gate"));
-      expect(architectureDocumentationSourceTreeDigest(crlf, model)).toBe(architectureDocumentationSourceTreeDigest(lf, model));
+      expect(architectureDocumentationSourceTreeDigest(crlf, model, fixtureSourceFiles(crlf))).toBe(architectureDocumentationSourceTreeDigest(lf, model, fixtureSourceFiles(lf)));
       // A lone CR is content, not a line ending, and still moves the digest.
       writeFileSync(join(crlf, "packages/core/review-engine/src/index.ts"), "export const review = 1;\rexport const gate = 2;\n");
       expect(footprintDigest(crlf, "capability.review.gate")).not.toBe(footprintDigest(lf, "capability.review.gate"));
