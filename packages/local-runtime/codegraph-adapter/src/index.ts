@@ -19,7 +19,7 @@ import {
   type ArchitectureSelectorEvidenceV1,
   type CapabilityImportEdge,
   type CapabilityImportGraph,
-  type ArchitectureDocumentationProjectionProvenanceV2,
+  type ArchitectureDocumentationProjectionProvenanceV3,
   type ArchitectureDocumentationProjectionRuntimeSnapshot,
   type NativeModel
 } from "@archcontext/core/projection-engine";
@@ -714,8 +714,8 @@ export interface PreparedProjectionCodeFacts extends CapabilityCodeGraphProjecti
 }
 
 export interface PreparedArchitectureDocumentationProjectionSnapshot extends PreparedProjectionCodeFacts {
-  provenance: ArchitectureDocumentationProjectionProvenanceV2;
-  /** HEAD and projection worktree digest this snapshot read; runtime receipts only, never committed. */
+  provenance: ArchitectureDocumentationProjectionProvenanceV3;
+  /** HEAD, projection worktree digest and local CodeGraph runtime digest; runtime receipts only, never committed. */
   runtimeSnapshot: ArchitectureDocumentationProjectionRuntimeSnapshot;
   /**
    * The Git-visible files (`listProjectionSourceFiles`) this snapshot measured footprints over.
@@ -754,11 +754,15 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
     generatedFrom: {
       codeGraphPackage: prepared.handshake.packageName,
       codeGraphVersion: prepared.handshake.actualVersion,
-      codeGraphBinaryDigest: prepared.handshake.binaryDigest,
       codeGraphStatus: prepared.handshake.availability
     }
   });
-  return { ...prepared, provenance, runtimeSnapshot: { headSha: baseHeadSha, worktreeDigest }, sourceFiles };
+  return {
+    ...prepared,
+    provenance,
+    runtimeSnapshot: { headSha: baseHeadSha, worktreeDigest, codeGraphBinaryDigest: prepared.handshake.binaryDigest },
+    sourceFiles
+  };
 }
 
 /**

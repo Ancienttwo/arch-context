@@ -3,11 +3,11 @@ import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { ProjectionSourceFilesUnavailableError, findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
-import { projectionWorkspaceId } from "./projection-inputs";
+import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionProvenanceV2, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionProvenanceV3, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -124,7 +124,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
  */
 function withProjectionMetadata(
   envelope: JsonEnvelope,
-  provenance: ArchitectureDocumentationProjectionProvenanceV2,
+  provenance: ArchitectureDocumentationProjectionProvenanceV3,
   runtimeSnapshot: ArchitectureDocumentationProjectionRuntimeSnapshot,
   majorChange: ArchitectureMajorChangeClassificationV1,
   refreshSignals: ArchitectureRefreshSignalV1[],
@@ -656,7 +656,7 @@ function createProjectionApplyRecoveryBinding(
     expectedResultingDigests: projection.plan.architectureDigests as ProjectionApplyRecoveryBindingV1["expectedResultingDigests"],
     rendererVersion: provenance.rendererVersion,
     layoutVersion: provenance.layoutVersion,
-    generatedFrom: provenance.generatedFrom as ProjectionApplyRecoveryBindingV1["generatedFrom"],
+    generatedFrom: projectionProtocolGeneratedFrom(provenance.generatedFrom, projection.runtimeSnapshot),
     ownedOutputDigest: projectionOwnedOutputDigest(projection),
     receiptDigest: result.receiptDigest
   };
@@ -906,7 +906,7 @@ function projectionProtocolSnapshot(
     projectionInputDigest: provenance.projectionInputDigest as Sha256Digest,
     rendererVersion: provenance.rendererVersion,
     layoutVersion: provenance.layoutVersion,
-    generatedFrom: provenance.generatedFrom as ProjectionSnapshotV1["generatedFrom"]
+    generatedFrom: projectionProtocolGeneratedFrom(provenance.generatedFrom, projection.runtimeSnapshot)
   };
 }
 
