@@ -838,6 +838,10 @@
         "freshness": {
           "$ref": "#/$defs/freshness"
         },
+        "replayed": {
+          "const": true,
+          "description": "A repeated apply for the same requestId and request digest returned the committed result without applying again. Excluded from receiptDigest."
+        },
         "receiptDigest": {
           "$ref": "#/$defs/digest"
         }
@@ -890,6 +894,26 @@
             "properties": {
               "refreshSignals": {
                 "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "replayed"
+            ]
+          },
+          "then": {
+            "required": [
+              "applyReceipt"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "applied",
+                  "applied-reconcile-required"
+                ]
               }
             }
           }
@@ -1018,6 +1042,9 @@
           "$ref": "#/$defs/digest"
         },
         "receiptDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "requestDigest": {
           "$ref": "#/$defs/digest"
         }
       }

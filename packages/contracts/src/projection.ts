@@ -65,6 +65,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-readback-v1",
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
+  "projection-apply-replay-v1",
   "projection-check-freshness-v1",
   "projection-observed-major-change-acceptance-v1",
   "projection-orphan-review-v1",
@@ -268,6 +269,12 @@ export interface ProjectionResultV2 {
    * Consumers gate on the `projection-check-freshness-v1` capability, not on field presence.
    */
   freshness?: ProjectionFreshnessV1;
+  /**
+   * Present, as `true`, only when this response returns an apply this requestId already committed
+   * for the same request digest, without applying again (#265). It is excluded from
+   * `receiptDigest`, so a replay carries the committed receipt digest unchanged.
+   */
+  replayed?: true;
   receiptDigest: Sha256Digest;
 }
 
@@ -295,6 +302,12 @@ export interface ProjectionApplyRecoveryBindingV1 {
   generatedFrom: ProjectionSnapshotV1["generatedFrom"];
   ownedOutputDigest: Sha256Digest;
   receiptDigest: Sha256Digest;
+  /**
+   * `digestJson` of the caller's ProjectionRequestV1 exactly as received. With the result's
+   * requestId it is the replay key of #265; it never includes provider-generated ids. Receipts
+   * committed before it existed lack it and are never replayed.
+   */
+  requestDigest?: Sha256Digest;
 }
 
 /**
@@ -489,6 +502,12 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     issues.push(...projectionPriorCommittedAppliesIssues(input.priorCommittedApplies, input.requestId));
   }
   if (input.freshness) issues.push(...projectionFreshnessIssues(input.freshness));
+  if (input.replayed !== undefined) {
+    if (input.replayed !== true) issues.push("replayed must be true when present");
+    if (!input.applyReceipt || (input.status !== "applied" && input.status !== "applied-reconcile-required")) {
+      issues.push("replayed is only allowed on a committed apply result with applyReceipt");
+    }
+  }
   const { receiptDigest, ...receiptPayload } = input;
   if (projectionResultReceiptDigest(receiptPayload) !== receiptDigest) issues.push("receiptDigest must match the canonical projection result payload");
   for (const [index, signal] of input.refreshSignals.entries()) {
@@ -562,8 +581,9 @@ export function projectionPriorCommittedAppliesIssues(
  * projectionReceiptDigest, which projectionResultInvariantIssues verifies.
  */
 export function projectionResultReceiptDigest(input: Omit<ProjectionResultV2, "receiptDigest">): Sha256Digest {
-  const refreshSignals = input.refreshSignals.map(({ projectionReceiptDigest: _projectionReceiptDigest, ...signal }) => signal);
-  return digestJson({ ...input, refreshSignals } as unknown as Json) as Sha256Digest;
+  const { replayed: _replayed, ...payload } = input;
+  const refreshSignals = payload.refreshSignals.map(({ projectionReceiptDigest: _projectionReceiptDigest, ...signal }) => signal);
+  return digestJson({ ...payload, refreshSignals } as unknown as Json) as Sha256Digest;
 }
 
 export function projectionApplyLookupKey(input: {
@@ -642,6 +662,7 @@ export function projectionApplyRecoveryBindingInvariantIssues(
     issues.push("recovery schemaVersion is invalid");
   }
   if (binding.targets.length === 0) issues.push("recovery targets must contain at least one projection target");
+  if (binding.requestDigest !== undefined && !SHA256_DIGEST.test(binding.requestDigest)) issues.push("recovery requestDigest must be a SHA-256 digest");
   if (receipt) {
     if (binding.receiptDigest !== receipt.result.receiptDigest) {
       issues.push("recovery receiptDigest must match the committed result receiptDigest");

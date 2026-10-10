@@ -70,6 +70,12 @@ When the run observes no major change, the flag does nothing and the request is 
 
 To read back such an apply, send `projection readback` the original request with `acceptObservedMajorChange` replaced by the committed `applyReceipt.acceptedChange`.
 
+### Repeating an accepted apply
+
+A caller that lost the response of an accepted `apply` or `adopt` (process kill, timeout, closed pipe) sends the same request again. If its `requestId` and request digest match a committed receipt, `projection run` returns the committed `ProjectionResultV2` with `replayed: true` and applies nothing. The replay key is the `requestId` plus the digest of the request exactly as the caller sent it, including `acceptObservedMajorChange`. It never includes provider-generated ids. `replayed` is excluded from `receiptDigest`, so the replay carries the committed receipt digest. If the first run committed but never delivered its refresh signals, the replay reports `applied-reconcile-required` with no signals; deliver them with `projection recover` and the `applyReceipt` `lookupKey` and `applyId`.
+
+A different request under a committed `requestId`, or a new request for an accepted change that is already applied, fails with `AC_PROJECTION_APPLY_COMMITTED` (not retryable, action `readback-committed-projection-apply`). `error.details` carries `requestId`, `lookupKey` and `applyId` of the committed apply, and `error.reasonCode` is `projection-apply-request-differs`, `projection-accepted-change-committed`, or `projection-apply-request-digest-unrecorded` (a receipt committed before request digests were recorded). Do not match the error message. `projection readback` still returns the committed receipt with its recovery proof. Consumers detect this behavior through the `projection-apply-replay-v1` capability.
+
 ## Bad Projection Recovery
 
 If generated content is wrong but human text is intact:

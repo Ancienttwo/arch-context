@@ -432,6 +432,15 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   } catch (error) {
     return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `projection prior committed apply lookup failed: ${error instanceof Error ? error.message : String(error)}`);
   }
+  if (request.mode === "apply" || request.mode === "adopt") {
+    let replay: JsonEnvelope | undefined;
+    try {
+      replay = await replayCommittedProjectionApply(request, root, daemon, priorCommittedApplies);
+    } catch (error) {
+      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `projection committed apply lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (replay) return replay;
+  }
   // With acceptObservedMajorChange the accepted change is the one this run observes at `expected`.
   // It is derived once, then authorizes exactly what a caller-supplied acceptedChange would: the
   // same render, fixed point and write, bound to the same expected snapshot that the daemon
@@ -456,8 +465,11 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
         acceptedChange
       }));
       if (!inspected.ok) return inspected;
-      if ((inspected.data as { found?: boolean }).found === true) {
-        return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "committed projection receipt requires explicit projection recover");
+      const existing = inspected.data as { found?: boolean; receipt?: ProjectionApplyReceiptV1 };
+      if (existing.found === true) {
+        if (!existing.receipt) throw new Error("committed projection apply receipt lookup returned no receipt");
+        // Another request already applied this exact accepted change.
+        return projectionApplyCommittedEnvelope(existing.receipt, "projection-accepted-change-committed");
       }
     } catch (error) {
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
@@ -514,6 +526,66 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
   return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies, freshness);
+}
+
+/**
+ * A repeated apply or adopt whose requestId already committed an accepted apply. The same request
+ * (requestId and request digest) gets the committed ProjectionResultV2 back, marked `replayed`,
+ * without applying again; a different request under that requestId is refused with
+ * AC_PROJECTION_APPLY_COMMITTED and the committed lookup key (#265). The key is the caller's
+ * requestId and request digest, never the accepted-change ids a provider may have generated.
+ * Undefined when this requestId committed no receipt-bearing apply.
+ */
+async function replayCommittedProjectionApply(
+  request: ProjectionRequestV1,
+  root: string,
+  daemon: ProjectionServiceHost,
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[]
+): Promise<JsonEnvelope | undefined> {
+  const committed: Array<{ committedAt: string; receipt: ProjectionApplyReceiptV1; delivered: boolean }> = [];
+  for (const entry of priorCommittedApplies) {
+    if (entry.lookupKey === undefined) continue;
+    const inspected = await daemon.inspectProjectionApplyReceipt(root, entry.lookupKey);
+    if (!inspected.ok) return inspected;
+    const data = inspected.data as { found?: boolean; receipt?: ProjectionApplyReceiptV1; deliveryStatus?: string };
+    if (data.found !== true || !data.receipt || (data.deliveryStatus !== "delivered" && data.deliveryStatus !== "pending")) {
+      throw new Error(`committed projection apply receipt is unreadable: ${entry.lookupKey}`);
+    }
+    committed.push({ committedAt: entry.committedAt, receipt: data.receipt, delivered: data.deliveryStatus === "delivered" });
+  }
+  if (committed.length === 0) return undefined;
+  const requestDigest = digestJson(request as unknown as Json);
+  const match = committed.find(({ receipt }) => receipt.recovery?.requestDigest === requestDigest
+    && receipt.result.requestId === request.requestId
+    && receipt.identity.repositoryId === request.expected.repositoryId
+    && receipt.identity.workspaceId === request.expected.workspaceId);
+  if (!match) {
+    const latest = [...committed].sort((left, right) => left.committedAt < right.committedAt ? -1 : left.committedAt > right.committedAt ? 1 : 0).at(-1)!;
+    return projectionApplyCommittedEnvelope(
+      latest.receipt,
+      latest.receipt.recovery?.requestDigest === undefined ? "projection-apply-request-digest-unrecorded" : "projection-apply-request-differs"
+    );
+  }
+  // A receipt whose refresh signals were never delivered answers as the first run would have
+  // without its delivery: applied, reconcile required, recover with the receipt to deliver.
+  const committedResult = match.delivered
+    ? match.receipt.result
+    : projectionResultDelivery(match.receipt.result, "applied-reconcile-required", []);
+  return projectionProtocolResultEnvelope({ ...committedResult, replayed: true });
+}
+
+function projectionApplyCommittedEnvelope(receipt: ProjectionApplyReceiptV1, reasonCode: string): JsonEnvelope {
+  return errorEnvelope(
+    "projection.run",
+    "AC_PROJECTION_APPLY_COMMITTED",
+    `projection apply already committed for requestId ${receipt.result.requestId}; read it back with projection readback or deliver it with projection recover`,
+    reasonCode,
+    {
+      requestId: receipt.result.requestId,
+      lookupKey: receipt.identity.lookupKey,
+      applyId: receipt.identity.applyId
+    }
+  );
 }
 
 /**
@@ -676,7 +748,8 @@ function createProjectionApplyRecoveryBinding(
     layoutVersion: provenance.layoutVersion,
     generatedFrom: provenance.generatedFrom as ProjectionApplyRecoveryBindingV1["generatedFrom"],
     ownedOutputDigest: projectionOwnedOutputDigest(projection),
-    receiptDigest: result.receiptDigest
+    receiptDigest: result.receiptDigest,
+    requestDigest: digestJson(request as unknown as Json) as Sha256Digest
   };
 }
 

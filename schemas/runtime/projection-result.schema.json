@@ -18,6 +18,7 @@
     "applyReceipt": { "$ref": "#/$defs/applyIdentity" },
     "priorCommittedApplies": { "type": "array", "minItems": 1, "description": "Omitted, never empty. Canonical wire order is by changeSetId and is enforced by projectionResultInvariantIssues.", "items": { "$ref": "#/$defs/priorCommittedApply" } },
     "freshness": { "$ref": "#/$defs/freshness" },
+    "replayed": { "const": true, "description": "A repeated apply for the same requestId and request digest returned the committed result without applying again. Excluded from receiptDigest." },
     "receiptDigest": { "$ref": "#/$defs/digest" }
   },
   "allOf": [
@@ -31,6 +32,13 @@
       "then": {
         "required": ["applyReceipt"],
         "properties": { "refreshSignals": { "maxItems": 0 } }
+      }
+    },
+    {
+      "if": { "required": ["replayed"] },
+      "then": {
+        "required": ["applyReceipt"],
+        "properties": { "status": { "enum": ["applied", "applied-reconcile-required"] } }
       }
     }
   ],

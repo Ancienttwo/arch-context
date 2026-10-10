@@ -54,7 +54,7 @@ import {
   LOCAL_RUNTIME_RPC_SCHEMA_VERSION,
   productVersionManifest
 } from "../src/product-version";
-import { digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
+import { ERROR_CATALOG, digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
 import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
 import {
@@ -601,6 +601,51 @@ test("orphaned-document-review human actions name exactly one reviewable path (#
   expect(projectionResultInvariantIssues(withActions([review(modulePath)], [
     { path: modulePath, action: "delete", preimageDigest: `sha256:${"b".repeat(64)}`, outputDigest: null }
   ]))).toContain("an orphaned-document-review path must not also be a files[] entry");
+});
+
+test("a replayed result keeps the committed receipt digest and needs a committed apply (#265)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const applyReceipt = {
+    schemaVersion: "archcontext.projection-apply-identity/v1" as const,
+    applyId: `sha256:${"a".repeat(64)}` as const,
+    lookupKey: `sha256:${"b".repeat(64)}` as const,
+    repositoryId: valid.inputSnapshot.repositoryId,
+    workspaceId: valid.inputSnapshot.workspaceId,
+    acceptedChange: { changeSetId: "changeset.accepted", eventId: "event.accepted", reasonCodes: ["node-added" as const], affectedNodeIds: ["capability.api"] },
+    semanticCommit: { changeSetId: "changeset.projection", idempotencyKey: "projection.apply" },
+    ownedFilesDigest: `sha256:${"c".repeat(64)}` as const,
+    refreshSignalsDigest: `sha256:${"d".repeat(64)}` as const
+  };
+  const { receiptDigest: _fixtureReceipt, ...payload } = valid;
+  const committedPayload = { ...payload, applyReceipt };
+  const committed: ProjectionResultV2 = { ...committedPayload, receiptDigest: projectionResultReceiptDigest(committedPayload) };
+  const replayed: ProjectionResultV2 = { ...committed, replayed: true };
+  expect(projectionResultReceiptDigest({ ...committedPayload, replayed: true })).toBe(committed.receiptDigest);
+  expect(projectionResultInvariantIssues(replayed)).toEqual([]);
+  expect(validateJsonSchema(schema as any, replayed as any).valid).toBe(true);
+
+  const withoutReceipt: ProjectionResultV2 = { ...valid, replayed: true };
+  expect(projectionResultInvariantIssues(withoutReceipt)).toContain("replayed is only allowed on a committed apply result with applyReceipt");
+  expect(validateJsonSchema(schema as any, withoutReceipt as any).valid).toBe(false);
+  const planned = { ...committedPayload, status: "planned" as const };
+  const plannedReplay: ProjectionResultV2 = { ...planned, receiptDigest: projectionResultReceiptDigest(planned), replayed: true };
+  expect(projectionResultInvariantIssues(plannedReplay)).toContain("replayed is only allowed on a committed apply result with applyReceipt");
+  expect(validateJsonSchema(schema as any, plannedReplay as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...replayed, replayed: false } as any).valid).toBe(false);
+});
+
+test("a committed projection apply is a distinct, non-retryable error code (#265)", () => {
+  expect(ERROR_CATALOG.AC_PROJECTION_APPLY_COMMITTED).toEqual({
+    code: "AC_PROJECTION_APPLY_COMMITTED",
+    severity: "error",
+    retryable: false,
+    action: "readback-committed-projection-apply"
+  });
+  const lookupKey = `sha256:${"b".repeat(64)}`;
+  expect(errorEnvelope("projection.run", "AC_PROJECTION_APPLY_COMMITTED", "committed", "projection-apply-request-differs", { lookupKey }).error)
+    .toMatchObject({ code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-apply-request-differs", details: { lookupKey } });
+  expect(errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "stale").error).not.toHaveProperty("details");
 });
 
 test("check freshness is schema-valid, receipt-bound and internally consistent (#259)", () => {

@@ -321,3 +321,48 @@ test("projection apply accepts the major change it observes in one request (#261
     expect(projectionResult(await projectionRun(request("apply", "projection_request.observed_noop", { acceptObservedMajorChange: true }))).status).toBe("noop");
   });
 }, TEST_TIMEOUT_MS);
+
+test("a repeated accepted apply returns the committed result without applying again (#265)", async () => {
+  await withProtocolFixture("archctx-projection-replay-", async ({ root, daemon, request, projectionRun }) => {
+    editKeptSummary(root);
+    const original = request("apply", "projection_request.replay", { acceptObservedMajorChange: true });
+    const first = projectionResult(await projectionRun(original));
+    expect(first.status).toBe("applied");
+    expect(first.replayed).toBeUndefined();
+    const docsAfterFirst = docsSnapshot(root);
+
+    // The same requestId and request digest — including the flag, never the generated ids —
+    // returns the committed result, marked replayed, with the committed receipt digest.
+    const replay = projectionResult(await projectionRun(original));
+    expect(replay.replayed).toBe(true);
+    const { replayed: _replayed, ...replayBody } = replay;
+    expect(replayBody).toEqual(first);
+    expect(docsSnapshot(root)).toEqual(docsAfterFirst);
+
+    // Another request under the same requestId gets a typed refusal that names the lookup key.
+    const different = await projectionRun({ ...original, changedPaths: [`.archcontext/model/nodes/${KEPT}.yaml`] });
+    expect(different.ok).toBe(false);
+    expect((different as any).error).toMatchObject({
+      code: "AC_PROJECTION_APPLY_COMMITTED",
+      reasonCode: "projection-apply-request-differs",
+      retryable: false,
+      details: { requestId: original.requestId, lookupKey: first.applyReceipt!.lookupKey, applyId: first.applyReceipt!.applyId }
+    });
+
+    // The same accepted change under a new requestId is refused with the same typed code.
+    const { acceptObservedMajorChange: _flag, ...withoutFlag } = original;
+    const sameChange = await projectionRun({ ...withoutFlag, requestId: "projection_request.replay_other", acceptedChange: first.applyReceipt!.acceptedChange });
+    expect(sameChange.ok).toBe(false);
+    expect((sameChange as any).error).toMatchObject({
+      code: "AC_PROJECTION_APPLY_COMMITTED",
+      reasonCode: "projection-accepted-change-committed",
+      details: { lookupKey: first.applyReceipt!.lookupKey }
+    });
+
+    // Readback stays available: the original request with the committed acceptedChange in place of the flag.
+    const readback = await daemon.readbackProjectionApply(root, { ...withoutFlag, acceptedChange: first.applyReceipt!.acceptedChange });
+    expect(readback.ok, JSON.stringify(readback)).toBe(true);
+    expect((readback.data as any).receipt.result.receiptDigest).toBe(first.receiptDigest);
+    expect((readback.data as any).receipt.recovery.requestDigest).toBe(digestJson(original as any));
+  });
+}, TEST_TIMEOUT_MS);
