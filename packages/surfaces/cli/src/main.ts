@@ -7,9 +7,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
-import { planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
+import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
+import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -19,7 +20,7 @@ import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-
 import { ArchctxRuntimeRpcServer, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, createRuntimeRpcClientFromConnectionFile, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps } from "@archcontext/local-runtime/runtime-daemon";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
-import { runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
+import { MCP_PLAN_OPERATIONS_SCHEMA, runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
 import { REPO_HARNESS_PROJECTION_PROFILE, exportMermaidModel, loadNativeModelFromArchContext, resolveArchitectureOwnerForPath, type ArchitectureProjectionProfile } from "@archcontext/surfaces/renderer";
 
 const [, , command, ...args] = process.argv;
@@ -149,6 +150,8 @@ async function* stdinLines(): AsyncIterable<string> {
 
 export interface CliRuntimeDeps extends RuntimeDeps {
   runtimeClient?: RuntimeDaemonClient;
+  /** Source of `plan --body -`; defaults to the process stdin. */
+  readStdin?: () => string | Promise<string>;
   disableRpcDiscovery?: boolean;
   devicePrivateKeyStore?: {
     provisionDevicePrivateKey(input: { accountId: string; publicKeyId: string; createdAt?: string }): { reference: DeviceKeyCredentialReference };
@@ -399,12 +402,17 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return { ...result, requestId: command };
     }
     case "plan": {
-      const operation = readCliEntityOperation(args);
-      if (typeof operation === "string") return errorEnvelope("plan", "AC_SCHEMA_INVALID", operation);
+      if (args.includes("--help") || args.includes("-h")) return okEnvelope("plan", CLI_PLAN_HELP as unknown as Json);
+      const operations = await readCliPlanOperations(args, cwd, deps);
+      if (typeof operations === "string") return errorEnvelope("plan", "AC_SCHEMA_INVALID", operations);
       return (await runtime()).planUpdate(cwd, {
         id: readFlag(args, "--id") ?? "changeset.cli",
-        operations: [operation]
+        operations
       });
+    }
+    case "hash": {
+      if (args.includes("--help") || args.includes("-h")) return okEnvelope("hash", CLI_HASH_HELP as unknown as Json);
+      return runHashCommand(args, cwd);
     }
     case "apply": {
       return (await runtime()).applyUpdate(cwd, {
@@ -551,8 +559,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
         }
       };
     }
@@ -3429,12 +3437,74 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
 }
 
 
+const CLI_PLAN_ENTITY_FLAGS = ["--op", "--path", "--expected-hash", "--body", "--body-file"] as const;
+
+const CLI_PLAN_HELP = {
+  command: "archctx plan --id <changeset.id> (--op <create_entity|update_entity_fields|delete_entity> --path <file> [--expected-hash sha256:<64-hex>] [--body <yaml> | --body - | --body-file <path>] | --operations-file <operations.json>)",
+  operations: "--operations-file takes a JSON array of operations in the archcontext_plan_update MCP shape and plans them as one ChangeSet; it cannot be combined with --op, --path, --expected-hash, --body or --body-file.",
+  body: "--body is the complete new YAML document, not a field patch. Give exactly one of --body <yaml>, --body - (stdin) or --body-file <path>. delete_entity accepts no body.",
+  expectedHash: "digestJson({ body }) of the file's current UTF-8 contents, not sha256sum of the file. Read it with `archctx hash --path <file>`; use `missing` (the create default) for a new file.",
+  drafts: "A draft lives in daemon memory. Planning the same --id again replaces it, and a daemon restart between plan and apply drops it: apply then fails with `Unknown ChangeSet`; plan again.",
+  next: "archctx apply --id <changeset.id> --approved --expected-worktree-digest <draft.base.worktreeDigest>"
+};
+
+const CLI_HASH_HELP = {
+  command: "archctx hash --path <repo-relative file>",
+  formula: "digestJson({ body: <file contents read as UTF-8> }); this is the expected hash a plan operation must carry. It is not sha256sum of the file.",
+  scope: "Read-only. The path must be inside the ChangeSet write allowlist (for example .archcontext/model/) and the file must exist; symlinks are refused."
+};
+
 /**
- * `archctx plan` operation shape: one entity file per ChangeSet, the same shape as the MCP
- * `archcontext_plan_update` entity operation. Update and delete name the exact current file hash;
- * create defaults to `missing`. Returns the schema problem as a string instead of guessing.
+ * `archctx hash`: prints the expected hash of one existing file exactly as the ChangeSet precondition
+ * computes it (`digestJson({ body })`), under the same path boundary a write would face.
  */
-function readCliEntityOperation(args: string[]): ChangeOperation | string {
+function runHashCommand(args: string[], cwd: string) {
+  const path = readFlag(args, "--path");
+  if (!path) return errorEnvelope("hash", "AC_SCHEMA_INVALID", "hash requires --path");
+  if (!isRepoRelativePosixPath(path)) return errorEnvelope("hash", "AC_SCHEMA_INVALID", "hash --path must be a repository-relative POSIX path");
+  let absolute: string;
+  try {
+    assertAllowedArchContextPath(cwd, path);
+    absolute = assertPathHasNoSymlinkSegments(cwd, path);
+  } catch (error) {
+    return errorEnvelope("hash", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  if (!existsSync(absolute) || !statSync(absolute).isFile()) {
+    return errorEnvelope("hash", "AC_SCHEMA_INVALID", `hash --path is not an existing file: ${path}`);
+  }
+  return okEnvelope("hash", { path, hash: digestJson({ body: readFileSync(absolute, "utf8") }) } as unknown as Json);
+}
+
+/**
+ * `archctx plan` operations: either `--operations-file` (a JSON array validated with the MCP
+ * `archcontext_plan_update` operations schema, so both routes accept the same shapes) or one entity
+ * operation from flags. Returns the schema problem as a string instead of guessing.
+ */
+async function readCliPlanOperations(args: string[], cwd: string, deps: CliRuntimeDeps): Promise<ChangeOperation[] | string> {
+  if (args.includes("--operations-file")) {
+    const conflicts = CLI_PLAN_ENTITY_FLAGS.filter((flag) => args.includes(flag));
+    if (conflicts.length > 0) return `plan --operations-file cannot be combined with ${conflicts.join(", ")}`;
+    const file = readFlag(args, "--operations-file");
+    if (!file) return "plan --operations-file requires a path";
+    let parsed: Json;
+    try {
+      parsed = JSON.parse(readFileSync(resolve(cwd, file), "utf8")) as Json;
+    } catch (error) {
+      return `plan --operations-file ${file} is not readable JSON: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    const validation = validateJsonSchema(MCP_PLAN_OPERATIONS_SCHEMA, parsed);
+    if (!validation.valid) return `plan --operations-file ${file} is not a valid operations array: ${validation.issues.map((issue) => `${issue.path} ${issue.message}`).join("; ")}`;
+    return parsed as unknown as ChangeOperation[];
+  }
+  const operation = await readCliEntityOperation(args, cwd, deps);
+  return typeof operation === "string" ? operation : [operation];
+}
+
+/**
+ * One entity file per flag-built ChangeSet, the same shape as the MCP `archcontext_plan_update`
+ * entity operation. Update and delete name the exact current file hash; create defaults to `missing`.
+ */
+async function readCliEntityOperation(args: string[], cwd: string, deps: CliRuntimeDeps): Promise<ChangeOperation | string> {
   // Local, not module-level: `import.meta.main` dispatch runs before later module constants initialize.
   const CLI_ENTITY_OPERATIONS = ["create_entity", "update_entity_fields", "delete_entity"] as const;
   const requested = readFlag(args, "--op") ?? "create_entity";
@@ -3443,15 +3513,37 @@ function readCliEntityOperation(args: string[]): ChangeOperation | string {
   const path = readFlag(args, "--path");
   if (!path) return "plan requires --path";
   const expectedHash = readFlag(args, "--expected-hash");
-  const body = readFlag(args, "--body");
+  const body = await readCliPlanBody(args, cwd, deps);
+  if (typeof body === "object") return body.problem;
   if (op === "create_entity") return { op, path, expectedHash: expectedHash ?? "missing", body: body ?? "" };
   if (!expectedHash || !/^sha256:[a-f0-9]{64}$/.test(expectedHash)) return `plan --op ${op} requires --expected-hash sha256:<64-hex> of the current file`;
   if (op === "delete_entity") {
-    if (body !== undefined) return "plan --op delete_entity does not accept --body";
+    if (body !== undefined) return "plan --op delete_entity does not accept --body or --body-file";
     return { op, path, expectedHash };
   }
-  if (body === undefined) return "plan --op update_entity_fields requires --body with the complete YAML document";
+  if (body === undefined) return "plan --op update_entity_fields requires --body, --body - or --body-file with the complete YAML document";
   return { op, path, expectedHash, body };
+}
+
+/** The single body source: `--body <yaml>`, `--body -` (stdin) or `--body-file <path>`; at most one is allowed. */
+async function readCliPlanBody(args: string[], cwd: string, deps: CliRuntimeDeps): Promise<string | undefined | { problem: string }> {
+  const hasBody = args.includes("--body");
+  const hasBodyFile = args.includes("--body-file");
+  if (hasBody && hasBodyFile) return { problem: "plan accepts exactly one body source: --body, --body - or --body-file" };
+  if (hasBodyFile) {
+    const file = readFlag(args, "--body-file");
+    if (!file) return { problem: "plan --body-file requires a path" };
+    try {
+      return readFileSync(resolve(cwd, file), "utf8");
+    } catch (error) {
+      return { problem: `plan --body-file ${file} is not readable: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+  if (!hasBody) return undefined;
+  const inline = readFlag(args, "--body");
+  if (inline === undefined) return { problem: "plan --body requires a value (use - to read stdin)" };
+  if (inline !== "-") return inline;
+  return deps.readStdin ? deps.readStdin() : readFileSync(0, "utf8");
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

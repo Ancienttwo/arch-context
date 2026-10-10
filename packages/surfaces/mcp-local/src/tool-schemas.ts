@@ -17,6 +17,9 @@ const entityOperation: Schema = {
 
 const operation: Schema = { oneOf: [entityOperation, MANIFEST_UPDATE_OPERATION_SCHEMA, ADR_REFERENCE_OPERATION_SCHEMA] };
 
+/** The `operations` argument of `archcontext_plan_update`; `archctx plan --operations-file` validates with the same schema. */
+export const MCP_PLAN_OPERATIONS_SCHEMA: Schema = { type: "array", items: operation };
+
 function argumentsSchema(properties: Record<string, Schema>, required: string[] = []) {
   return { type: "object" as const, properties: { root: text, ...properties }, required: ["root", ...required], additionalProperties: false };
 }
@@ -29,7 +32,7 @@ export const MCP_TOOL_INPUT_SCHEMAS = {
     toolCallId: text, expectedHeadSha: text, expectedWorktreeDigest: text, ...budget
   }),
   archcontext_plan_update: argumentsSchema({
-    id: text, taskSessionId: text, operations: { type: "array", items: operation },
+    id: text, taskSessionId: text, operations: MCP_PLAN_OPERATIONS_SCHEMA,
     reason: { type: "object", required: ["taskSessionId"], additionalProperties: false, properties: { taskSessionId: text, interventionId: text } }
   }, ["id", "operations"]),
   archcontext_apply_update: argumentsSchema({ id: text, approved: flag, expectedWorktreeDigest: text }, ["id", "expectedWorktreeDigest", "approved"]),
