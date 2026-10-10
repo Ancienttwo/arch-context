@@ -278,6 +278,14 @@ export interface ProjectionResultV2 {
    * `receiptDigest`, so a replay carries the committed receipt digest unchanged.
    */
   replayed?: true;
+  /**
+   * Present only on a `human-action-required` result whose request sent `acceptObservedMajorChange`
+   * and the provider declined it: `declined-unprovable-proof` means a capability's P1 or P2 proof is
+   * unprovable, so no observed change can be accepted. The result then carries an
+   * `unprovable-required-flow` action naming those capabilities, never `unresolved-major-change`,
+   * so a caller can tell a declined flag from an absent one (#275).
+   */
+  majorChangeAcceptance?: "declined-unprovable-proof";
   receiptDigest: Sha256Digest;
 }
 
@@ -505,6 +513,14 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     issues.push(...projectionPriorCommittedAppliesIssues(input.priorCommittedApplies, input.requestId));
   }
   if (input.freshness) issues.push(...projectionFreshnessIssues(input.freshness));
+  if (input.majorChangeAcceptance !== undefined) {
+    if (input.majorChangeAcceptance !== "declined-unprovable-proof") issues.push("majorChangeAcceptance is unsupported");
+    if (input.status !== "human-action-required"
+      || !input.humanActions.some((action) => action.reasonCode === "unprovable-required-flow")
+      || input.humanActions.some((action) => action.reasonCode === "unresolved-major-change")) {
+      issues.push("majorChangeAcceptance requires human-action-required with unprovable-required-flow in place of unresolved-major-change");
+    }
+  }
   if (input.replayed !== undefined) {
     if (input.replayed !== true) issues.push("replayed must be true when present");
     if (!input.applyReceipt || (input.status !== "applied" && input.status !== "applied-reconcile-required")) {

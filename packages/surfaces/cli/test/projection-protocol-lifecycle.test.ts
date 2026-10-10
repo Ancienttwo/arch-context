@@ -322,6 +322,35 @@ test("projection apply accepts the major change it observes in one request (#261
   });
 }, TEST_TIMEOUT_MS);
 
+test("acceptObservedMajorChange is declined, not ignored, when a capability proof is unprovable (#275)", async () => {
+  await withProtocolFixture("archctx-projection-declined-", async ({ root, request, projectionRun }) => {
+    editKeptSummary(root);
+    // A capability with no flow has an unprovable P2 proof, so no observed change can be accepted.
+    rmSync(join(root, ".archcontext/model/flows/flow.automation-budget.yaml"));
+    const docsBefore = docsSnapshot(root);
+
+    // Without the flag the result is unchanged: an unresolved major change, no acceptance field.
+    const withoutFlag = projectionResult(await projectionRun(request("apply", "projection_request.declined_without_flag")));
+    expect(withoutFlag.status).toBe("human-action-required");
+    expect(withoutFlag.humanActions.map((action) => action.reasonCode)).toEqual(["unresolved-major-change"]);
+    expect(withoutFlag.majorChangeAcceptance).toBeUndefined();
+
+    // With the flag, apply and adopt both say it was declined and name the unprovable capability.
+    // The adoption plan is never reached: the declined change stops adopt before adoption runs.
+    for (const declinedRequest of [
+      request("apply", "projection_request.declined_apply", { acceptObservedMajorChange: true }),
+      request("adopt", "projection_request.declined_adopt", { acceptObservedMajorChange: true, adoptionPlanId: "adoption_plan.not_reached" })
+    ]) {
+      const declined = projectionResult(await projectionRun(declinedRequest));
+      expect(declined.status, declinedRequest.mode).toBe("human-action-required");
+      expect(declined.majorChangeAcceptance).toBe("declined-unprovable-proof");
+      expect(declined.humanActions.map((action) => [action.reasonCode, action.affectedNodeIds])).toEqual([["unprovable-required-flow", [REMOVED]]]);
+      expect(declined.applyReceipt).toBeUndefined();
+    }
+    expect(docsSnapshot(root)).toEqual(docsBefore);
+  });
+}, TEST_TIMEOUT_MS);
+
 test("a repeated accepted apply returns the committed result without applying again (#265)", async () => {
   await withProtocolFixture("archctx-projection-replay-", async ({ root, daemon, request, projectionRun }) => {
     editKeptSummary(root);

@@ -635,6 +635,29 @@ test("a replayed result keeps the committed receipt digest and needs a committed
   expect(validateJsonSchema(schema as any, { ...replayed, replayed: false } as any).valid).toBe(false);
 });
 
+test("a declined acceptObservedMajorChange is explicit and replaces the unresolved major change (#275)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const requestPayloadDigest = `sha256:${"e".repeat(64)}` as const;
+  const result = (status: ProjectionResultV2["status"], humanActions: ProjectionResultV2["humanActions"], majorChangeAcceptance: unknown = "declined-unprovable-proof") => {
+    const { receiptDigest: _receiptDigest, ...payload } = valid;
+    const withoutReceipt = { ...payload, status, humanActions, majorChangeAcceptance } as Omit<ProjectionResultV2, "receiptDigest">;
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+  };
+  const unprovable = { reasonCode: "unprovable-required-flow" as const, affectedNodeIds: ["capability.api"], requestPayloadDigest };
+  const declined = result("human-action-required", [unprovable]);
+  expect(projectionResultInvariantIssues(declined)).toEqual([]);
+  expect(validateJsonSchema(schema as any, declined as any).valid).toBe(true);
+
+  const requirement = "majorChangeAcceptance requires human-action-required with unprovable-required-flow in place of unresolved-major-change";
+  expect(projectionResultInvariantIssues(result("planned", []))).toContain(requirement);
+  expect(validateJsonSchema(schema as any, result("planned", []) as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(result("human-action-required", [{ ...unprovable, reasonCode: "unresolved-major-change" }]))).toContain(requirement);
+  expect(projectionResultInvariantIssues(result("human-action-required", [unprovable, { ...unprovable, reasonCode: "unresolved-major-change" }]))).toContain(requirement);
+  expect(projectionResultInvariantIssues(result("human-action-required", [unprovable], "declined"))).toContain("majorChangeAcceptance is unsupported");
+  expect(validateJsonSchema(schema as any, result("human-action-required", [unprovable], "declined") as any).valid).toBe(false);
+});
+
 test("a committed projection apply is a distinct, non-retryable error code (#265)", () => {
   expect(ERROR_CATALOG.AC_PROJECTION_APPLY_COMMITTED).toEqual({
     code: "AC_PROJECTION_APPLY_COMMITTED",

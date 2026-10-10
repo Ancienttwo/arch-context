@@ -447,6 +447,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   // re-checks under its writer lock before the ChangeSet touches a file (#261).
   let observed: ReturnType<typeof buildArchitectureDocsProjection> | undefined;
   let acceptedChange = request.acceptedChange;
+  let declinedUnprovableNodeIds: string[] | undefined;
   if (request.acceptObservedMajorChange === true) {
     try {
       observed = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE);
@@ -454,7 +455,9 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     } catch (error) {
       return projectionFailureEnvelope("projection.run", error);
     }
-    acceptedChange = observedMajorChangeAcceptance(request, observed);
+    const acceptance = observedMajorChangeAcceptance(request, observed);
+    if (acceptance && "acceptedChange" in acceptance) acceptedChange = acceptance.acceptedChange;
+    else if (acceptance) declinedUnprovableNodeIds = acceptance.unprovableNodeIds;
   }
   if (request.mode === "apply" && acceptedChange) {
     try {
@@ -487,7 +490,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
 
   const freshness = request.mode === "check" ? projectionCheckFreshness(root, projection) : undefined;
   const blocked = projectionProtocolHumanStatus(request, projection);
-  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies, freshness);
+  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies, freshness, declinedUnprovableNodeIds);
 
   if (request.mode === "adopt") {
     const expectedWorktreeDigest = computeWorktreeDigest(root);
@@ -590,20 +593,24 @@ function projectionApplyCommittedEnvelope(receipt: ProjectionApplyReceiptV1, rea
 
 /**
  * The accepted change `acceptObservedMajorChange` authorizes: exactly the major change this run
- * classified. Undefined when there is none, or when it cannot be accepted because a capability
- * proof is unprovable; the request then reports the same `human-action-required` result it would
- * without the flag. The provider-generated ids are content-addressed over the expected snapshot
- * and the observed change, so one observation always yields one reference and one lookup key.
+ * classified. Undefined when there is none. When a capability proof is unprovable no observed
+ * change can be accepted, and the flag is declined with those capability ids: the result reports
+ * `unprovable-required-flow` and `majorChangeAcceptance: "declined-unprovable-proof"` instead of
+ * the `unresolved-major-change` an absent flag gets (#275). The provider-generated ids are
+ * content-addressed over the expected snapshot and the observed change, so one observation always
+ * yields one reference and one lookup key.
  */
 function observedMajorChangeAcceptance(
   request: ProjectionRequestV1,
   observed: ReturnType<typeof buildArchitectureDocsProjection>
-): AcceptedArchitectureChangeReferenceV1 | undefined {
+): { acceptedChange: AcceptedArchitectureChangeReferenceV1 } | { unprovableNodeIds: string[] } | undefined {
   const majorChange = observed.plan.majorChange;
   if (majorChange.mode !== "human-action-required") return undefined;
-  const unprovable = observed.plan.semanticState.capabilities.some((capability) =>
-    capability.proofStatus.p1 === "unprovable" || capability.proofStatus.p2 === "unprovable");
-  if (unprovable) return undefined;
+  const unprovableNodeIds = observed.plan.semanticState.capabilities
+    .filter((capability) => capability.proofStatus.p1 === "unprovable" || capability.proofStatus.p2 === "unprovable")
+    .map((capability) => capability.capabilityId)
+    .sort();
+  if (unprovableNodeIds.length > 0) return { unprovableNodeIds };
   const key = digestJson({
     schemaVersion: "archcontext.observed-major-change-acceptance/v1",
     expected: request.expected,
@@ -612,10 +619,12 @@ function observedMajorChangeAcceptance(
     resultingDigests: observed.plan.architectureDigests
   } as unknown as Json).replace(/^sha256:/, "").slice(0, 16);
   return {
-    changeSetId: `changeset.observed-major-change-${key}`,
-    eventId: `projection_event.observed_major_change.${key}`,
-    reasonCodes: [...majorChange.reasonCodes],
-    affectedNodeIds: [...majorChange.affectedNodeIds]
+    acceptedChange: {
+      changeSetId: `changeset.observed-major-change-${key}`,
+      eventId: `projection_event.observed_major_change.${key}`,
+      reasonCodes: [...majorChange.reasonCodes],
+      affectedNodeIds: [...majorChange.affectedNodeIds]
+    }
   };
 }
 
@@ -925,9 +934,10 @@ function projectionProtocolEnvelope(
   status: ProjectionResultV2["status"],
   output: ReturnType<typeof buildArchitectureDocsProjection>,
   priorCommittedApplies: ProjectionPriorCommittedApplyV1[],
-  freshness?: ProjectionFreshnessV1
+  freshness?: ProjectionFreshnessV1,
+  declinedUnprovableNodeIds?: string[]
 ): JsonEnvelope {
-  return projectionProtocolResultEnvelope(projectionProtocolResult(request, input, status, output, undefined, undefined, priorCommittedApplies, freshness));
+  return projectionProtocolResultEnvelope(projectionProtocolResult(request, input, status, output, undefined, undefined, priorCommittedApplies, freshness, declinedUnprovableNodeIds));
 }
 
 function projectionProtocolResult(
@@ -941,7 +951,8 @@ function projectionProtocolResult(
     refreshSignals: ArchitectureRefreshSignalV1[];
   },
   priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = [],
-  freshness?: ProjectionFreshnessV1
+  freshness?: ProjectionFreshnessV1,
+  declinedUnprovableNodeIds?: string[]
 ): ProjectionResultV2 {
   const inputSnapshot = projectionProtocolSnapshot(request, input);
   const outputSnapshot = projectionProtocolSnapshot(request, output);
@@ -952,7 +963,11 @@ function projectionProtocolResult(
   if (status === "adoption-required") {
     humanActions.push({ reasonCode: "adoption-required", affectedNodeIds, requestPayloadDigest });
   } else if (status === "human-action-required") {
-    if (input.plan.refreshSignals.some((signal) => signal.mode === "human-action-required")) {
+    if (declinedUnprovableNodeIds) {
+      // The flag was declined: name the capabilities whose proof blocks acceptance, so the caller
+      // does not retry the flag against the same unresolved change.
+      humanActions.push({ reasonCode: "unprovable-required-flow", affectedNodeIds: declinedUnprovableNodeIds, requestPayloadDigest });
+    } else if (input.plan.refreshSignals.some((signal) => signal.mode === "human-action-required")) {
       humanActions.push({ reasonCode: "unresolved-major-change", affectedNodeIds, requestPayloadDigest });
     } else if (input.plan.rejected.some((diff) => diff.reasonCode !== "projection-adoption-required")) {
       humanActions.push({ reasonCode: "manual-region-conflict", affectedNodeIds, requestPayloadDigest });
@@ -977,7 +992,8 @@ function projectionProtocolResult(
     refreshSignals,
     ...(applyReceipt ? { applyReceipt } : {}),
     ...(priorCommittedApplies.length > 0 ? { priorCommittedApplies } : {}),
-    ...(freshness ? { freshness } : {})
+    ...(freshness ? { freshness } : {}),
+    ...(declinedUnprovableNodeIds && status === "human-action-required" ? { majorChangeAcceptance: "declined-unprovable-proof" as const } : {})
   };
   const receiptDigest = projectionResultReceiptDigest(withoutReceipt);
   const result: ProjectionResultV2 = {

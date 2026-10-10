@@ -842,6 +842,10 @@
           "const": true,
           "description": "A repeated apply for the same requestId and request digest returned the committed result without applying again. Excluded from receiptDigest."
         },
+        "majorChangeAcceptance": {
+          "const": "declined-unprovable-proof",
+          "description": "Present only when the request sent acceptObservedMajorChange and the provider declined it because a capability proof is unprovable; humanActions then carries unprovable-required-flow instead of unresolved-major-change."
+        },
         "receiptDigest": {
           "$ref": "#/$defs/digest"
         }
@@ -894,6 +898,32 @@
             "properties": {
               "refreshSignals": {
                 "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "majorChangeAcceptance"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "human-action-required"
+              },
+              "humanActions": {
+                "contains": {
+                  "properties": {
+                    "reasonCode": {
+                      "const": "unprovable-required-flow"
+                    }
+                  },
+                  "required": [
+                    "reasonCode"
+                  ]
+                }
               }
             }
           }
