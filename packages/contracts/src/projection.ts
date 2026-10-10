@@ -11,7 +11,7 @@ export const PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION = "archcontext.proj
 export const PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-readback-result/v1" as const;
 export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v1" as const;
 export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
-export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v4" as const;
+export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v5" as const;
 export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v1" as const;
 
 export const PROJECTION_MODES = ["check", "plan", "apply", "adopt"] as const;
