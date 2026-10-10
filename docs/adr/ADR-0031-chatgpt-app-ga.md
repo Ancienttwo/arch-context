@@ -20,6 +20,10 @@ MVP proved ChatGPT access through a local Secure MCP Tunnel and a remote metadat
 
 Ship ChatGPT App GA as a Cloud Metadata App plus local runtime tunnel. Remote MCP exposes account, billing, installation, device, directory, and policy metadata only. Private repository content, architecture bodies, findings, and writes stay behind the local runtime. Write tools remain disabled by default and require explicit local confirmation when enabled.
 
+# Amendment (2026-10-11)
+
+The "explicit local confirmation" above is now the explicit-approval model: the caller sets `approved: true`, and apply is checked against the expected worktree digest and each operation's expected hash. See the ADR-0012 amendment and [the explicit-approval note](../researches/20261010-changeset-explicit-approval.md).
+
 # Consequences
 
 - GPT App Directory packaging can be published without proxying repository content through ArchContext SaaS.

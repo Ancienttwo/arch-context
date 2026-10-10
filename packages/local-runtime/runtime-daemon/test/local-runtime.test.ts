@@ -1312,8 +1312,7 @@ setInterval(() => undefined, 1 << 30);
 
       await daemon.planUpdate(root, {
         id: "changeset.practice-waiver-cycle",
-        operations: [],
-        approvalChannel: "mcp"
+        operations: []
       });
       const plan = await daemon.planPracticeWaiver(root, {
         id: "changeset.practice-waiver-cycle",

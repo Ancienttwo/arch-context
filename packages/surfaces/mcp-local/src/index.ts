@@ -69,13 +69,13 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "archcontext_apply_update",
     inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_apply_update,
-    description: "Apply an approved ChangeSet. Requires a one-time token from archctx approve and a fresh worktree digest.",
+    description: "Apply a reviewed ChangeSet. Requires explicit approved: true and the preview's worktree digest; every operation's expected hash is rechecked before it writes.",
     annotations: { safety: "destructive", requiresConfirmation: true }
   },
   {
     name: "archcontext_projection",
     inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_projection,
-    description: "Run, read back or recover the versioned architecture projection protocol. Apply, adopt and recover require a one-time token from archctx projection approve bound to this exact request.",
+    description: "Run, read back or recover the versioned architecture projection protocol. Apply, adopt and recover require explicit approved: true and a request whose expected snapshot matches the repository.",
     annotations: { safety: "destructive", requiresConfirmation: true }
   },
   {
@@ -207,7 +207,6 @@ export class McpLocalServer {
         const root = requiredArg(args, "root");
         try {
           const result = await (await this.runtime(root)).planUpdate(root, {
-            approvalChannel: "mcp",
             id: requiredArg(args, "id"),
             reason: args.reason ?? { taskSessionId: args.taskSessionId ?? "task_mcp" },
             operations: args.operations as ChangeOperation[]
@@ -220,9 +219,9 @@ export class McpLocalServer {
       case "archcontext_apply_update": {
         try {
           const root = requiredArg(args, "root");
-          const result = await (await this.runtime(root)).applyMcpUpdate(root, {
+          const result = await (await this.runtime(root)).applyUpdate(root, {
             id: requiredArg(args, "id"),
-            approvalToken: args.approvalToken,
+            approved: args.approved === true,
             expectedWorktreeDigest: requiredArg(args, "expectedWorktreeDigest")
           });
           return { content: result as unknown as Json, dataClassification: "local-architecture" };
@@ -233,7 +232,7 @@ export class McpLocalServer {
       case "archcontext_projection": {
         try {
           const root = requiredArg(args, "root");
-          const result = await (await this.runtime(root)).mcpProjection(root, { action: args.action, request: args.request }, args.approvalToken);
+          const result = await (await this.runtime(root)).mcpProjection(root, { action: args.action, request: args.request }, args.approved === true);
           return { content: result as unknown as Json, dataClassification: "local-architecture" };
         } catch (error) {
           return runtimeUnavailable("projection", error);
