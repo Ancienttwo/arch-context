@@ -96,8 +96,8 @@ If an obsolete generated projection exists:
 
 `archctx projection run` sorts an orphaned document (its target is no longer in the model, for example after a node is removed) by what it holds. `check`, `plan` and `apply` report the same action for it:
 
-- Only an intact generated region and nothing else: the result lists it in `files[]` as a `delete`, and `apply` deletes it in the same ChangeSet as the other projection writes.
-- Any other text, such as the human-owned title and section skeleton of a module document, or an edited generated region: the result status is `human-action-required`, and `humanActions[]` carries `reasonCode: "orphaned-document-review"` with the document `path`. The document is never a `files[]` entry. `apply` stops before writing anything, including with an `acceptedChange`. Review the document, move any text worth keeping, delete it, and run `apply` again with the same request fields.
+- An intact generated region with nothing else around it, or with exactly the skeleton the renderer wrote for that target (the title line and the empty §3, §4 and Optimization Backlog headings, as the committed manifest records the target): the result lists it in `files[]` as a `delete`, and `apply` deletes it in the same ChangeSet as the other projection writes.
+- Any other text, such as a human line in a skeleton section, an edited title, or an edited generated region: the result status is `human-action-required`, and `humanActions[]` carries `reasonCode: "orphaned-document-review"` with the document `path`. The document is never a `files[]` entry. `apply` stops before writing anything, including with an `acceptedChange`. Review the document, move any text worth keeping, delete it, and run `apply` again with the same request fields.
 
 Consumers detect this behavior through the `projection-orphan-review-v1` capability.
 

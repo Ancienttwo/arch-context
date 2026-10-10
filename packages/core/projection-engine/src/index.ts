@@ -1533,12 +1533,12 @@ function renderDiagnosticDetail(detail: string): string {
  * used rather than `node.name` because the title is the document's stable address, and ids are the
  * only part of the model guaranteed to be unique and path-shaped.
  */
-function entitySummaryTitle(node: NativeNode): string {
+function entitySummaryTitle(node: Pick<NativeNode, "id">): string {
   const segments = node.id.replace(/^capability\./, "").split(".").filter((segment) => segment !== "");
   return segments.length > 0 ? segments.join("/") : node.id;
 }
 
-function entitySummarySkeleton(node: NativeNode): { prefix: string; suffix: string } {
+function entitySummarySkeleton(node: Pick<NativeNode, "id">): { prefix: string; suffix: string } {
   return {
     prefix: `# ${entitySummaryTitle(node)} 架構文檔\n\n`,
     suffix: [
@@ -1652,6 +1652,7 @@ function architectureDocumentationProjectionDrift(input: {
   const orphans: ArchitectureDocumentationProjectionOrphan[] = [];
 
   const existingManifest = existingByPath.get(input.expectedManifest.path);
+  const committedEntityTargets = committedEntitySummaryTargets(existingManifest?.body);
   if (!existingManifest) {
     diffs.push({
       path: input.expectedManifest.path,
@@ -1744,7 +1745,7 @@ function architectureDocumentationProjectionDrift(input: {
         path: existing.path,
         targetId: region.targetId,
         actualDigest,
-        disposition: orphanHoldsOnlyIntactGeneratedRegion(existing.body, region.targetId) ? "delete" : "human-review"
+        disposition: orphanHoldsOnlyIntactGeneratedRegion(existing.body, region.targetId, orphanSkeleton(committedEntityTargets, existing.path, region.targetId)) ? "delete" : "human-review"
       });
     }
   }
@@ -1759,14 +1760,56 @@ function architectureDocumentationProjectionDrift(input: {
 }
 
 /**
- * True only when deleting the orphan cannot lose human text: everything outside its one generated
- * region is whitespace, and the region still digests to the output its own marker records (an
- * edited region is human content). Anything else, including a missing end marker, is human review.
+ * The entity-summary targets the committed manifest records, by targetId: their path and the node
+ * they document. A removed node is gone from the model, so this is where its skeleton is derived
+ * from. An absent or unreadable manifest records none.
  */
-function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string): boolean {
+function committedEntitySummaryTargets(manifestBody: string | undefined): Map<string, { path: string; nodeId: string }> {
+  const targets = new Map<string, { path: string; nodeId: string }>();
+  if (manifestBody === undefined) return targets;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(manifestBody);
+  } catch {
+    return targets;
+  }
+  const entries = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).targets : undefined;
+  if (!Array.isArray(entries)) return targets;
+  for (const entry of entries as unknown[]) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const scope = record.scope && typeof record.scope === "object" && !Array.isArray(record.scope) ? record.scope as Record<string, unknown> : undefined;
+    if (record.type !== "entity-summary" || typeof record.targetId !== "string" || typeof record.path !== "string" || typeof scope?.id !== "string") continue;
+    targets.set(record.targetId, { path: record.path, nodeId: scope.id });
+  }
+  return targets;
+}
+
+/** The skeleton the renderer wrote around an orphan's region, when the manifest records it as that path's entity summary. */
+function orphanSkeleton(
+  committedEntityTargets: Map<string, { path: string; nodeId: string }>,
+  path: string,
+  targetId: string
+): { prefix: string; suffix: string } | undefined {
+  const committed = committedEntityTargets.get(targetId);
+  return committed && committed.path === path ? entitySummarySkeleton({ id: committed.nodeId }) : undefined;
+}
+
+/**
+ * True only when deleting the orphan cannot lose human text: everything outside its one generated
+ * region is whitespace or exactly the renderer's own skeleton for that target (title and empty
+ * §3/§4/Backlog headings, #276), and the region still digests to the output its own marker records
+ * (an edited region is human content). Anything else, including a missing end marker or one human
+ * line in a skeleton section, is human review.
+ */
+function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string, skeleton: { prefix: string; suffix: string } | undefined): boolean {
   const region = findGeneratedRegion(body, targetId);
   if (!region) return false;
-  if (`${body.slice(0, region.start)}${body.slice(region.end)}`.trim() !== "") return false;
+  const before = body.slice(0, region.start);
+  const after = body.slice(region.end);
+  const generatedOnly = `${before}${after}`.trim() === ""
+    || (skeleton !== undefined && before === skeleton.prefix && after === skeleton.suffix);
+  if (!generatedOnly) return false;
   const metadata = parseGeneratedRegionMetadata(region.startMarker);
   return metadata.outputDigest !== undefined
     && digestJson({ targetId, body: `${region.body.trimEnd()}\n` } as unknown as Json) === metadata.outputDigest;

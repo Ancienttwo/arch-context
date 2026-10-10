@@ -2,7 +2,7 @@
 
 Status: unreleased. Fold this into the next versioned release note
 (`docs/researches/YYYYMMDD-archctx-XXXX-release.md`) during release prep. It covers PR #267
-(issues #257, #258, #259), #266, #277 and the follow-ups first proposed in PR #270.
+(issues #257, #258, #259), #266, #276, #277 and the follow-ups first proposed in PR #270.
 
 ## Breaking changes
 
@@ -80,3 +80,8 @@ local store, writes no runtime state and needs no task session. Its result carri
 - `projection run` and `docs` fail with `AC_CODE_FACTS_UNAVAILABLE` (reasonCode `index-missing`)
   when `codeFacts.required: true` and the CodeGraph index is missing, instead of reporting a major
   change for every capability (#258).
+- An orphaned module document of a removed node is deleted in the same ChangeSet when the text
+  outside its generated region is exactly the renderer's own skeleton for that target (title and
+  empty §3, §4 and Optimization Backlog headings, as the committed manifest records the target) and
+  the region digest is intact. Any human text there still reports `orphaned-document-review` and
+  blocks the apply (#276).

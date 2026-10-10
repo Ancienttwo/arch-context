@@ -66,3 +66,38 @@ test("orphaned documents are deletable only when they hold nothing but an intact
     .toBe(digestJson({ path: "docs/architecture/modules/intact.md", body: intact } as unknown as Json));
   expect(render(existing).orphans).toEqual([]);
 });
+
+test("an untouched renderer-written document of a removed node is deletable; one human line in a skeleton section needs review (#276)", () => {
+  const withBilling: NativeModel = { ...model, nodes: [...model.nodes, { id: "module.billing", kind: "module", name: "Billing" }] };
+  const written = renderArchitectureDocumentationProjection({
+    model: withBilling,
+    provenance,
+    sourceDigest,
+    sourceFootprints: [],
+    sourceScaleSignals: [],
+    importGraphs: [],
+    selectorEvidence: [],
+    generatedAt: "2026-06-26T00:00:00.000Z",
+    existingFiles: []
+  });
+  const existing = [...written.files.map(({ path, body }) => ({ path, body })), written.manifest];
+  const billing = written.files.find((file) => file.target.scope.id === "module.billing")!;
+  // The renderer writes a skeleton outside the region: the title and empty §3/§4/Backlog headings.
+  expect(billing.body).toStartWith("# module/billing 架構文檔\n\n<!-- BEGIN ARCHCONTEXT:generated");
+  expect(billing.body).toContain("## 3. P3:設計決策與不變量");
+
+  const untouched = render(existing);
+  expect(untouched.orphans.map((orphan) => [orphan.path, orphan.disposition])).toEqual([[billing.path, "delete"]]);
+
+  const section3 = "## 3. P3:設計決策與不變量\n";
+  const annotated = billing.body.replace(section3, `${section3}Billing retries are idempotent.\n`);
+  const retitled = billing.body.replace("# module/billing 架構文檔", "# Billing 架構文檔");
+  const review = render(existing.map((file) => file.path === billing.path ? { ...file, body: annotated } : file));
+  expect(review.orphans.map((orphan) => [orphan.path, orphan.disposition])).toEqual([[billing.path, "human-review"]]);
+  expect(render(existing.map((file) => file.path === billing.path ? { ...file, body: retitled } : file)).orphans
+    .map((orphan) => orphan.disposition)).toEqual(["human-review"]);
+
+  // The skeleton is the committed manifest's record of that path; without it only whitespace may surround the region.
+  const withoutManifest = render(existing.filter((file) => file.path !== written.manifest.path));
+  expect(withoutManifest.orphans.map((orphan) => [orphan.path, orphan.disposition])).toEqual([[billing.path, "human-review"]]);
+});
