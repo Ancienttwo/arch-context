@@ -60,6 +60,16 @@ In each case, fix the cause and preview again. A hand edit is fixed by reverting
 
 Trust boundary: the HEAD anchor trusts local git history. Anyone who can commit locally, including via `--amend` or on a detached HEAD, can anchor a manifest; the accepted event records which commit or journal anchored it. The event is an informational record, not an enforcement gate: `projection run` treats `acceptedChange` as opaque. Enforcement waits on the deferred consumer-side resolver in `tasks/todos.md`.
 
+### Accepting the observed major change in one request
+
+An agent that owns the decision, with the pull request review as the human gate, can skip the `ledger accept-committed` round trip. Set `acceptObservedMajorChange: true` on a `mode: "apply"` or `mode: "adopt"` request. The field is refused (`AC_SCHEMA_INVALID`) in `check` and `plan` mode, with any value other than `true`, and together with `acceptedChange`.
+
+With the flag, `projection run` classifies the major change at `expected` and applies it in the same run against the same expected snapshot. The daemon re-checks that snapshot under its writer lock before the ChangeSet writes, so a worktree that changed after classification fails the apply instead of committing an unreviewed change. The apply receipt records the observed change as `applyReceipt.acceptedChange`, with a `changeSetId` (`changeset.observed-major-change-<hash>`) and `eventId` (`projection_event.observed_major_change.<hash>`) that the provider derives from the snapshot and the change. No ledger event is appended.
+
+When the run observes no major change, the flag does nothing and the request is a plain apply. When a capability proof is unprovable, the change cannot be accepted, and the result is the same `human-action-required` it would be without the flag. Without the flag, a major change still stops at `human-action-required`. Consumers detect the field through the `projection-observed-major-change-acceptance-v1` capability.
+
+To read back such an apply, send `projection readback` the original request with `acceptObservedMajorChange` replaced by the committed `applyReceipt.acceptedChange`.
+
 ## Bad Projection Recovery
 
 If generated content is wrong but human text is intact:

@@ -66,6 +66,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
   "projection-check-freshness-v1",
+  "projection-observed-major-change-acceptance-v1",
   "projection-orphan-review-v1",
   "projection-prior-committed-applies-v1",
   "projection-protocol-v2",
@@ -116,6 +117,14 @@ export interface ProjectionRequestV1 {
   expected: ProjectionExpectedSnapshotV1;
   adoptionPlanId?: string;
   acceptedChange?: AcceptedArchitectureChangeReferenceV1;
+  /**
+   * `apply` and `adopt` only, never together with `acceptedChange`: accept the major change this
+   * run observes at `expected`. The provider classifies, derives the accepted change and applies
+   * it against the same expected snapshot, which the daemon re-checks under its writer lock before
+   * writing. The apply receipt records the observed change with provider-generated `changeSetId`
+   * and `eventId`. Absent, a major change still stops at `human-action-required` (#261).
+   */
+  acceptObservedMajorChange?: true;
 }
 
 export interface ProjectionSnapshotV1 extends ProjectionExpectedSnapshotV1 {
@@ -408,6 +417,11 @@ export function projectionRequestInvariantIssues(input: ProjectionRequestV1): st
   if (!/^[a-zA-Z0-9_.:-]+$/.test(input.requestId)) issues.push("requestId must use the stable identifier character set");
   if (input.mode === "adopt" && !input.adoptionPlanId) issues.push("adoptionPlanId is required when mode=adopt");
   if (input.mode !== "adopt" && input.adoptionPlanId !== undefined) issues.push("adoptionPlanId is only allowed when mode=adopt");
+  if (input.acceptObservedMajorChange !== undefined) {
+    if (input.acceptObservedMajorChange !== true) issues.push("acceptObservedMajorChange must be true when present");
+    if (input.mode !== "apply" && input.mode !== "adopt") issues.push("acceptObservedMajorChange is only allowed when mode=apply or mode=adopt");
+    if (input.acceptedChange !== undefined) issues.push("acceptObservedMajorChange and acceptedChange are mutually exclusive");
+  }
   if (input.acceptedChange) {
     if (input.acceptedChange.changeSetId.trim() === "") issues.push("acceptedChange.changeSetId must not be empty");
     if (input.acceptedChange.eventId.trim() === "") issues.push("acceptedChange.eventId must not be empty");

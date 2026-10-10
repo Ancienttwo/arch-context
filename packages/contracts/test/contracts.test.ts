@@ -208,6 +208,31 @@ test("projection request contract enforces adopt binding, unique arrays, and can
   })).toEqual(["acceptedChange.reasonCodes must be sorted and unique"]);
 });
 
+test("acceptObservedMajorChange is an apply/adopt-only literal that excludes acceptedChange (#261)", () => {
+  const schema = readJson("schemas/runtime/projection-request.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
+  const acceptedChange = {
+    changeSetId: "changeset.runtime-major",
+    eventId: "architecture_event.runtime-major",
+    reasonCodes: ["responsibility-changed" as const],
+    affectedNodeIds: ["capability.runtime-harness.hook-adapters"]
+  };
+  const apply = { ...valid, mode: "apply" as const, acceptObservedMajorChange: true as const };
+  const adopt = { ...apply, mode: "adopt" as const, adoptionPlanId: "adoption_plan.example" };
+  for (const accepted of [apply, adopt]) {
+    expect(projectionRequestInvariantIssues(accepted)).toEqual([]);
+    expect(validateJsonSchema(schema as any, accepted as any).valid).toBe(true);
+  }
+  for (const mode of ["check", "plan"] as const) {
+    expect(projectionRequestInvariantIssues({ ...apply, mode })).toContain("acceptObservedMajorChange is only allowed when mode=apply or mode=adopt");
+    expect(validateJsonSchema(schema as any, { ...apply, mode } as any).valid).toBe(false);
+  }
+  expect(projectionRequestInvariantIssues({ ...apply, acceptObservedMajorChange: false } as any)).toContain("acceptObservedMajorChange must be true when present");
+  expect(validateJsonSchema(schema as any, { ...apply, acceptObservedMajorChange: false } as any).valid).toBe(false);
+  expect(projectionRequestInvariantIssues({ ...apply, acceptedChange })).toContain("acceptObservedMajorChange and acceptedChange are mutually exclusive");
+  expect(validateJsonSchema(schema as any, { ...apply, acceptedChange } as any).valid).toBe(false);
+});
+
 test("JSON schema uniqueItems compares canonical JSON rather than object insertion order", () => {
   const result = validateJsonSchema(
     { type: "array", uniqueItems: true } as any,

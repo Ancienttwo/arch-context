@@ -203,7 +203,8 @@ async function runArchitectureDocsAdoptionCommand(
   profile: ArchitectureProjectionProfile,
   generatedAt: string,
   protocolRequest?: ProjectionRequestV1,
-  priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = []
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = [],
+  acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   if (profile !== REPO_HARNESS_PROJECTION_PROFILE) {
     return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", `docs adopt requires --profile ${REPO_HARNESS_PROJECTION_PROFILE}`);
@@ -260,7 +261,7 @@ async function runArchitectureDocsAdoptionCommand(
     return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", `projection-adoption-fixed-point-unproven: drift=${drift}; rejected=${reasons}; digest=${canonical.plan.projectionDigest === canonicalFirst.plan.projectionDigest ? "stable" : "changed"}`);
   }
   if (protocolRequest) {
-    return applyProjectionProtocolFixedPoint(protocolRequest, projection, canonical, adoption.changeSetId, root, daemon, priorCommittedApplies);
+    return applyProjectionProtocolFixedPoint(protocolRequest, projection, canonical, adoption.changeSetId, root, daemon, priorCommittedApplies, acceptedChange);
   }
   const filesByPath = new Map<string, { path: string; body: string }>();
   for (const file of canonical.files) filesByPath.set(file.path, file);
@@ -289,7 +290,9 @@ async function applyProjectionProtocolFixedPoint(
   changeSetId: string,
   root: string,
   daemon: ProjectionServiceHost,
-  priorCommittedApplies: ProjectionPriorCommittedApplyV1[]
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[],
+  /** The caller's `acceptedChange`, or the one derived for `acceptObservedMajorChange`. */
+  acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined
 ): Promise<JsonEnvelope> {
   // Generated-only orphans are deleted by this write; human-review orphans stopped the request
   // before it reached here (projectionProtocolHumanStatus), so `apply` never reports a delete it
@@ -299,17 +302,17 @@ async function applyProjectionProtocolFixedPoint(
     ...projectionProtocolFilesForExpectedOutput(root, fixedPoint),
     ...orphanDeletes.map((orphan) => orphan.result)
   ].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
-  const committedSignals = request.acceptedChange
+  const committedSignals = acceptedChange
     ? input.plan.refreshSignals.map((signal) => ({
         ...signal,
         resultingDigests: fixedPoint.plan.architectureDigests
       }))
     : fixedPoint.plan.refreshSignals;
-  const applyIdentity = request.acceptedChange
+  const applyIdentity = acceptedChange
     ? createProjectionApplyIdentity({
         repositoryId: request.expected.repositoryId,
         workspaceId: request.expected.workspaceId,
-        acceptedChange: request.acceptedChange,
+        acceptedChange,
         changeSetId,
         idempotencyKey: `idem_${changeSetId}`,
         files: committedFiles,
@@ -429,13 +432,28 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   } catch (error) {
     return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `projection prior committed apply lookup failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (request.mode === "apply" && request.acceptedChange) {
+  // With acceptObservedMajorChange the accepted change is the one this run observes at `expected`.
+  // It is derived once, then authorizes exactly what a caller-supplied acceptedChange would: the
+  // same render, fixed point and write, bound to the same expected snapshot that the daemon
+  // re-checks under its writer lock before the ChangeSet touches a file (#261).
+  let observed: ReturnType<typeof buildArchitectureDocsProjection> | undefined;
+  let acceptedChange = request.acceptedChange;
+  if (request.acceptObservedMajorChange === true) {
+    try {
+      observed = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE);
+      assertProjectionExpectedSnapshot(request, root, observed);
+    } catch (error) {
+      return projectionFailureEnvelope("projection.run", error);
+    }
+    acceptedChange = observedMajorChangeAcceptance(request, observed);
+  }
+  if (request.mode === "apply" && acceptedChange) {
     try {
       assertProjectionExpectedSnapshotAgainstModel(request, root, loadNativeModelFromArchContext(root));
       const inspected = await daemon.inspectProjectionApplyReceipt(root, projectionApplyLookupKey({
         repositoryId: request.expected.repositoryId,
         workspaceId: request.expected.workspaceId,
-        acceptedChange: request.acceptedChange
+        acceptedChange
       }));
       if (!inspected.ok) return inspected;
       if ((inspected.data as { found?: boolean }).found === true) {
@@ -447,7 +465,9 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   }
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
-    projection = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
+    projection = observed !== undefined && acceptedChange === undefined
+      ? observed
+      : buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return projectionFailureEnvelope("projection.run", error);
@@ -463,7 +483,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       action: "adopt", profile: REPO_HARNESS_PROJECTION_PROFILE, approved: true,
       adoptionPlanId: request.adoptionPlanId!, expectedWorktreeDigest,
       taskSessionId: request.requestId
-    }, root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request, priorCommittedApplies);
+    }, root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request, priorCommittedApplies, acceptedChange);
     if (!adopted.ok) return adopted;
     return adopted;
   }
@@ -476,10 +496,10 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     // committed receipt names a real clean fixed point rather than a one-shot approval view.
     let fixedPointProjection: ReturnType<typeof buildArchitectureDocsProjection>;
     try {
-      fixedPointProjection = request.acceptedChange
+      fixedPointProjection = acceptedChange
         ? buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, projection.files)
         : projection;
-      if (request.acceptedChange && (
+      if (acceptedChange && (
         fixedPointProjection.plan.rejected.length > 0
         || fixedPointProjection.plan.majorChange.mode !== "none"
         || fixedPointProjection.plan.refreshSignals.length > 0
@@ -489,11 +509,42 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     } catch (error) {
       return projectionFailureEnvelope("projection.run", error);
     }
-    return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, changeSetId, root, daemon, priorCommittedApplies);
+    return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, changeSetId, root, daemon, priorCommittedApplies, acceptedChange);
   }
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
   return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies, freshness);
+}
+
+/**
+ * The accepted change `acceptObservedMajorChange` authorizes: exactly the major change this run
+ * classified. Undefined when there is none, or when it cannot be accepted because a capability
+ * proof is unprovable; the request then reports the same `human-action-required` result it would
+ * without the flag. The provider-generated ids are content-addressed over the expected snapshot
+ * and the observed change, so one observation always yields one reference and one lookup key.
+ */
+function observedMajorChangeAcceptance(
+  request: ProjectionRequestV1,
+  observed: ReturnType<typeof buildArchitectureDocsProjection>
+): AcceptedArchitectureChangeReferenceV1 | undefined {
+  const majorChange = observed.plan.majorChange;
+  if (majorChange.mode !== "human-action-required") return undefined;
+  const unprovable = observed.plan.semanticState.capabilities.some((capability) =>
+    capability.proofStatus.p1 === "unprovable" || capability.proofStatus.p2 === "unprovable");
+  if (unprovable) return undefined;
+  const key = digestJson({
+    schemaVersion: "archcontext.observed-major-change-acceptance/v1",
+    expected: request.expected,
+    reasonCodes: majorChange.reasonCodes,
+    affectedNodeIds: majorChange.affectedNodeIds,
+    resultingDigests: observed.plan.architectureDigests
+  } as unknown as Json).replace(/^sha256:/, "").slice(0, 16);
+  return {
+    changeSetId: `changeset.observed-major-change-${key}`,
+    eventId: `projection_event.observed_major_change.${key}`,
+    reasonCodes: [...majorChange.reasonCodes],
+    affectedNodeIds: [...majorChange.affectedNodeIds]
+  };
 }
 
 /**

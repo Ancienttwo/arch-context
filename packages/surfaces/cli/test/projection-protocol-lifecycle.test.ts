@@ -230,3 +230,94 @@ test("check, plan and apply agree on orphaned module documents after a node is r
     rmSync(root, { recursive: true, force: true });
   }
 }, TEST_TIMEOUT_MS);
+
+async function withProtocolFixture(prefix: string, run: (context: {
+  root: string;
+  daemon: Awaited<ReturnType<typeof createStartedDaemon>>;
+  cli: (command: string, args: string[]) => ReturnType<typeof runCli>;
+  request: (mode: ProjectionRequestV1["mode"], requestId: string, extra?: Partial<ProjectionRequestV1>) => ProjectionRequestV1;
+  projectionRun: (request: unknown) => ReturnType<typeof runCli>;
+}) => Promise<void>): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  const stateRoot = join(dirname(root), `.archctx-state-${basename(root)}`);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const request = (mode: ProjectionRequestV1["mode"], requestId: string, extra: Partial<ProjectionRequestV1> = {}): ProjectionRequestV1 => ({
+    schemaVersion: "archcontext.projection-request/v1",
+    requestId,
+    profile: "repo-harness/v1",
+    mode,
+    targets: ["architecture-docs"],
+    changedPaths: [],
+    expected: expectedSnapshot(root),
+    ...extra
+  });
+  const projectionRun = (value: unknown) => cli("projection", ["run", "--request-json", JSON.stringify(value)]);
+  try {
+    seedTwoCapabilityFixture(root);
+    const baseline = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
+    commitAll(root, "project architecture documentation");
+    await run({ root, daemon, cli, request, projectionRun });
+  } finally {
+    await daemon.stop();
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/** A summary edit is a responsibility change: a major change that stops an unaccepted apply. */
+function editKeptSummary(root: string): void {
+  const nodePath = join(root, `.archcontext/model/nodes/${KEPT}.yaml`);
+  writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("Hook Adapters capability.", "Hook Adapters route and validate events."), "utf8");
+}
+
+test("projection apply accepts the major change it observes in one request (#261)", async () => {
+  await withProtocolFixture("archctx-projection-observed-", async ({ root, daemon, request, projectionRun }) => {
+    editKeptSummary(root);
+
+    // The flag is an apply/adopt-only request field, exclusive with a caller-supplied acceptedChange.
+    for (const invalid of [
+      request("check", "projection_request.observed_check", { acceptObservedMajorChange: true }),
+      request("plan", "projection_request.observed_plan", { acceptObservedMajorChange: true }),
+      { ...request("apply", "projection_request.observed_false"), acceptObservedMajorChange: false },
+      request("apply", "projection_request.observed_both", {
+        acceptObservedMajorChange: true,
+        acceptedChange: { changeSetId: "changeset.x", eventId: "event.x", reasonCodes: ["responsibility-changed"], affectedNodeIds: [KEPT] }
+      })
+    ]) {
+      const refused = await projectionRun(invalid);
+      expect(refused.ok, JSON.stringify(invalid)).toBe(false);
+      expect((refused as any).error?.code).toBe("AC_SCHEMA_INVALID");
+    }
+
+    // Without the flag the major change still stops the apply.
+    const docsBefore = docsSnapshot(root);
+    const stopped = projectionResult(await projectionRun(request("apply", "projection_request.observed_without_flag")));
+    expect(stopped.status).toBe("human-action-required");
+    expect(stopped.humanActions.map((action) => action.reasonCode)).toEqual(["unresolved-major-change"]);
+    expect(docsSnapshot(root)).toEqual(docsBefore);
+    const observedSignal = stopped.refreshSignals.find((signal) => signal.mode === "human-action-required")!;
+
+    const applied = projectionResult(await projectionRun(request("apply", "projection_request.observed_apply", { acceptObservedMajorChange: true })));
+    expect(applied.status).toBe("applied");
+    const acceptedChange = applied.applyReceipt!.acceptedChange;
+    expect(acceptedChange).toMatchObject({ reasonCodes: observedSignal.reasonCodes, affectedNodeIds: observedSignal.affectedNodeIds });
+    expect(acceptedChange.changeSetId).toMatch(/^changeset\.observed-major-change-[a-f0-9]{16}$/);
+    expect(acceptedChange.eventId).toMatch(/^projection_event\.observed_major_change\.[a-f0-9]{16}$/);
+    expect(applied.refreshSignals).toHaveLength(1);
+    expect(applied.refreshSignals[0]).toMatchObject({ mode: "refresh-required", cause: "accepted-semantic-delta", acceptedChange });
+    const inspected = await daemon.inspectProjectionApplyReceipt(root, applied.applyReceipt!.lookupKey);
+    expect(inspected).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered", receipt: { identity: { acceptedChange } } } });
+
+    // The observed change is now the baseline: the projection is a clean fixed point.
+    const after = projectionResult(await projectionRun(request("check", "projection_request.observed_after")));
+    expect(after.status).toBe("noop");
+    // With nothing left to accept, the flag is a plain apply.
+    expect(projectionResult(await projectionRun(request("apply", "projection_request.observed_noop", { acceptObservedMajorChange: true }))).status).toBe("noop");
+  });
+}, TEST_TIMEOUT_MS);
