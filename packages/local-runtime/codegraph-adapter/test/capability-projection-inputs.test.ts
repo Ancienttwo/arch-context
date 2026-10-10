@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,6 +98,8 @@ function seedWorkspace(options: { withIndex: boolean }): { root: string; log: st
   writeFileSync(log, "");
   const binary = join(root, "fake-codegraph.js");
   writeFileSync(binary, fakeCli(log));
+  // Footprints are measured over Git-visible files; untracked files count, so no commit is needed.
+  execFileSync("git", ["init", "-q"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   return { root, log, binary };
 }
 

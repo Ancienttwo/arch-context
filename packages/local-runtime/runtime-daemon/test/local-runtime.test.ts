@@ -9,6 +9,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
+import { listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -62,9 +63,9 @@ function writeArchitectureDocsProjection(root: string): void {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root)),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listProjectionSourceFiles(root)),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listProjectionSourceFiles(root) }),
     sourceDigest,
     provenance: projectionTestProvenance(root, loaded.model)
   });
@@ -85,9 +86,9 @@ function architectureDocsProjectionOperation(root: string) {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root)),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listProjectionSourceFiles(root)),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listProjectionSourceFiles(root) }),
     sourceDigest: architectureDocumentationSourceDigest({ model: loaded.model, decisions: loaded.decisions }),
     provenance: projectionTestProvenance(root, loaded.model)
   });
@@ -132,7 +133,7 @@ function projectionStampDigest(root: string, nodeId: string): string | undefined
 }
 
 function currentFootprintDigest(root: string, nodeId: string): string | undefined {
-  return loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root))
+  return loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root), listProjectionSourceFiles(root))
     .find((entry) => entry.nodeId === nodeId)?.digest;
 }
 
@@ -1073,7 +1074,7 @@ setInterval(() => undefined, 1 << 30);
       gitCommitAll(root, "add a non-ASCII source path");
 
       const loaded = loadArchitectureDocumentationInputs(root);
-      const footprint = loadCapabilitySourceFootprintDigests(root, loaded.model)
+      const footprint = loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root))
         .find((entry) => entry.nodeId === "capability.architecture.context")!;
       expect(footprint.fileCount).toBe(2);
       expect(footprint.digest).not.toBe(stamp);

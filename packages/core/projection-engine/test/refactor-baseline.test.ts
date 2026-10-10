@@ -25,6 +25,7 @@ import {
   renderArchitectureDocumentationProjection,
   type NativeModel
 } from "../src/index";
+import { fixtureSourceFiles } from "./fixture-source-files";
 
 interface BaselineFixture<TInput> {
   id: string;
@@ -63,8 +64,8 @@ describe("RF0 baseline: declared source footprints and scale signals", () => {
       try {
         expectFrozen(
           {
-            footprints: loadCapabilitySourceFootprints(root, fixture.input.model),
-            scaleSignals: loadCapabilitySourceScaleSignals(root, fixture.input.model)
+            footprints: loadCapabilitySourceFootprints(root, fixture.input.model, fixtureSourceFiles(root)),
+            scaleSignals: loadCapabilitySourceScaleSignals(root, fixture.input.model, fixtureSourceFiles(root))
           } as unknown as Json,
           fixture
         );
