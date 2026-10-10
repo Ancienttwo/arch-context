@@ -5,7 +5,7 @@
     "version": "0.6.3",
     "distribution": "one-package"
   },
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.3",
   "engines": {
     "node": ">=22.22 <26"
   },

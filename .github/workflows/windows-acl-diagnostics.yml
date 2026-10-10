@@ -30,7 +30,7 @@ jobs:
           node-version: 24.x
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.3
       - run: bun install --frozen-lockfile
       # No prewarm: the existing creation case must perform the first native ACL call.
       - name: Existing first-create regression
