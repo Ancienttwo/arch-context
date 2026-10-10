@@ -39,14 +39,11 @@ const graphField = "code" + "Graph";
 const projectionProvenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: "sha256:" + "2".repeat(64),
   modelDigest: "sha256:" + "3".repeat(64),
-  [graphField + "Digest"]: "sha256:" + "4".repeat(64),
-  indexedWorktreeDigest: null,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
   layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
   generatedFrom: {
     [graphField + "Package"]: "@colbymchenry/" + "code" + "graph",
-    [graphField + "Version"]: "1.6.1",
-    [graphField + "Status"]: "unavailable"
+    [graphField + "Version"]: "1.6.1"
   }
 } as Parameters<typeof architectureDocumentationProjectionProvenance>[0]);
 

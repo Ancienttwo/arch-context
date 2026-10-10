@@ -17,9 +17,9 @@ import {
 const sourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
-  modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: null,
+  modelDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "unavailable" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
 });
 
 const model: NativeModel = {

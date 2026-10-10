@@ -3,7 +3,7 @@
 ## Ownership
 
 - `.archcontext/projections/targets.json` declares placement rules.
-- `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests. It records only reproducible identity: CodeGraph appears as package name, version and status, never as the digest of the binary installed on the machine that ran the projection. Two machines with the same CodeGraph version write the same manifest.
+- `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests. It records only machine-independent values: content digests of the model, the declared sources and the rendered output, plus renderer, layout and CodeGraph package and version. The CodeGraph evidence digest, index state and status, HEAD and worktree digest are per-run facts returned as `runtimeSnapshot` and never committed, so two machines projecting the same commit write the same manifest.
 - Text inside `ARCHCONTEXT:generated` markers is generated projection output.
 - Text outside generated markers is human-owned and must be preserved.
 - Agent-authored rationale or ADR prose is advisory draft material until deterministic validation and explicit approval.

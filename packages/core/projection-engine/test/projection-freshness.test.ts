@@ -24,9 +24,9 @@ const reviewDigest = `sha256:${"b".repeat(64)}`;
 const movedDigest = `sha256:${"c".repeat(64)}`;
 const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
-  modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
+  modelDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "ready" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
 });
 
 const model: NativeModel = {
@@ -304,7 +304,7 @@ describe("projection manifest source-footprint stamps", () => {
   test("the rendered manifest stamps each declared node's footprint and records no commit", () => {
     const plan = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
     const manifest = JSON.parse(plan.manifest.body);
-    expect(manifest.provenance.schemaVersion).toBe("archcontext.architecture-docs-projection-provenance/v2");
+    expect(manifest.provenance.schemaVersion).toBe("archcontext.architecture-docs-projection-provenance/v3");
     for (const field of ["baseHeadSha", "worktreeDigest"]) expect(manifest.provenance).not.toHaveProperty(field);
     expect(plan.manifest.body).not.toContain("verifiedAgainst");
     const stamps = Object.fromEntries(manifest.targets

@@ -34,9 +34,9 @@ const DEFAULT_REPORT = "docs/verification/architecture-ledger-al9-complete-task-
 function projectionReadbackProvenance(sourceDigest: string) {
   return architectureDocumentationProjectionProvenance({
     sourceTreeDigest: sourceDigest,
-    modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: null,
+    modelDigest: sourceDigest,
     rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "unavailable" }
+    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
   });
 }
 

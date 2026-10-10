@@ -26,9 +26,9 @@ const movedStampDigest = `sha256:${"6".repeat(64)}`;
 const generatedAt = "2026-08-08T00:00:00.000Z";
 const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
-  modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
+  modelDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "ready" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
 });
 
 const model: NativeModel = {
@@ -365,46 +365,58 @@ describe("entity-summary capability documentation projection", () => {
     expectNoProvenanceInBody(entityFile(again, "capability.docs.projection").body);
   });
 
-  test("projection-owned CodeGraph reindex churn sticks, while source and model authority changes do not", () => {
+  test("committed provenance v3 carries no machine-dependent CodeGraph value; an older provenance is rewritten once (#277)", () => {
     const first = render();
-    const existingFiles = [...first.files.map(({ path, body }) => ({ path, body })), first.manifest];
-    const reproject = (base: typeof provenance, overrides: Partial<typeof provenance>) => {
-      const { schemaVersion: _schemaVersion, projectionInputDigest: _projectionInputDigest, ...payload } = base;
+    const committed = JSON.parse(first.manifest.body);
+    expect(committed.provenance.schemaVersion).toBe("archcontext.architecture-docs-projection-provenance/v3");
+    for (const field of ["codeGraphDigest", "indexedWorktreeDigest", "codeGraphBinaryDigest", "baseHeadSha", "worktreeDigest"]) {
+      expect(committed.provenance).not.toHaveProperty(field);
+    }
+    expect(committed.provenance.generatedFrom).toEqual({ codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" });
+
+    // A v2 manifest (machine-dependent CodeGraph fields) is never reused or translated: the next
+    // projection rewrites it to v3 once, and the rewritten manifest is a fixed point.
+    const v2Manifest = {
+      ...committed,
+      provenance: {
+        ...committed.provenance,
+        schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
+        codeGraphDigest: `sha256:${"b".repeat(64)}`,
+        indexedWorktreeDigest: `sha256:${"c".repeat(64)}`,
+        generatedFrom: { ...committed.provenance.generatedFrom, codeGraphStatus: "ready" }
+      }
+    };
+    const docs = first.files.map(({ path, body }) => ({ path, body }));
+    const fromV2 = render({ existingFiles: [...docs, { path: first.manifest.path, body: `${JSON.stringify(v2Manifest, null, 2)}\n` }] });
+    expect(fromV2.drift.ok).toBe(false);
+    expect(fromV2.drift.diffs.map((diff) => diff.path)).toEqual([first.manifest.path]);
+    expect(fromV2.provenance).toEqual(first.provenance);
+    expect(fromV2.manifest.body).toBe(first.manifest.body);
+    const again = render({ existingFiles: [...docs, fromV2.manifest] });
+    expect(again.drift.ok).toBe(true);
+    expect(again.manifest.body).toBe(first.manifest.body);
+
+    // Source and model authority changes still move the provenance and drift.
+    const existingFiles = [...docs, first.manifest];
+    const reproject = (overrides: Partial<typeof provenance>) => {
+      const { schemaVersion: _schemaVersion, projectionInputDigest: _projectionInputDigest, ...payload } = provenance;
       return architectureDocumentationProjectionProvenance({ ...payload, ...overrides });
     };
-    const reindexed = reproject(provenance, {
-      codeGraphDigest: `sha256:${"b".repeat(64)}`,
-      indexedWorktreeDigest: `sha256:${"c".repeat(64)}`
-    });
-    const projectionOwnedChurn = render({ existingFiles, provenance: reindexed });
-    expect(projectionOwnedChurn.drift.ok).toBe(true);
-    expect(projectionOwnedChurn.provenance).toEqual(first.provenance);
-    expect(projectionOwnedChurn.projectionDigest).toBe(first.projectionDigest);
-
-    const sourceChanged = reproject(reindexed, {
-      sourceTreeDigest: `sha256:${"e".repeat(64)}`
-    });
+    const sourceChanged = reproject({ sourceTreeDigest: `sha256:${"e".repeat(64)}` });
     const sourceDrift = render({ existingFiles, provenance: sourceChanged });
     expect(sourceDrift.drift.ok).toBe(false);
     expect(sourceDrift.provenance).toEqual(sourceChanged);
-
-    const modelChanged = reproject(reindexed, {
-      modelDigest: `sha256:${"0".repeat(64)}`
-    });
+    const modelChanged = reproject({ modelDigest: `sha256:${"0".repeat(64)}` });
     const modelDrift = render({ existingFiles, provenance: modelChanged });
     expect(modelDrift.drift.ok).toBe(false);
     expect(modelDrift.provenance).toEqual(modelChanged);
   });
 
-  test("the semantic baseline records the evidence it was rendered from even when top-level provenance stays sticky", () => {
-    // Codex R2 P1: the sticky provenance reuse key excludes CodeGraph evidence, so it cannot
+  test("the semantic baseline records the evidence it was rendered from; the committed provenance carries none", () => {
+    // Codex R2 P1: the committed provenance has no CodeGraph evidence identity, so it cannot
     // attest what a re-baselined semantic state was compiled from; the baseline records that itself.
     const e0 = render({ selectorEvidence: [] });
-    const reindexed = architectureDocumentationProjectionProvenance({
-      ...(({ schemaVersion: _schemaVersion, projectionInputDigest: _projectionInputDigest, ...payload }) => payload)(provenance),
-      codeGraphDigest: `sha256:${"b".repeat(64)}`
-    });
-    const e1 = render({ existingFiles: [...e0.files.map(({ path, body }) => ({ path, body })), e0.manifest], provenance: reindexed, selectorEvidence });
+    const e1 = render({ existingFiles: [...e0.files.map(({ path, body }) => ({ path, body })), e0.manifest], selectorEvidence });
     const manifest = (plan: ArchitectureDocumentationProjectionPlan) => JSON.parse(plan.manifest.body);
     expect(manifest(e1).provenance).toEqual(manifest(e0).provenance);
     expect(manifest(e0).semanticBaseline.evidence).toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence: [], rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION }));

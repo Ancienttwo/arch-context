@@ -4,7 +4,7 @@ import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest,
 import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import { projectionWorkspaceId as runtimeProjectionWorkspaceId } from "./projection-inputs";
+import { projectionProtocolGeneratedFrom, projectionWorkspaceId as runtimeProjectionWorkspaceId } from "./projection-inputs";
 import { projectionFailureEnvelope } from "./projection-service";
 
 interface ProjectionApplyContext {
@@ -237,12 +237,12 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
     baseHeadSha: codeGraphInputs.runtimeSnapshot.headSha,
     sourceTreeDigest: projection.provenance.sourceTreeDigest,
     modelDigest: projection.provenance.modelDigest,
-    codeGraphDigest: projection.provenance.codeGraphDigest,
-    indexedWorktreeDigest: projection.provenance.indexedWorktreeDigest,
+    codeGraphDigest: codeGraphInputs.runtimeSnapshot.codeGraphDigest,
+    indexedWorktreeDigest: codeGraphInputs.runtimeSnapshot.indexedWorktreeDigest,
     projectionInputDigest: projection.provenance.projectionInputDigest,
     rendererVersion: projection.provenance.rendererVersion,
     layoutVersion: projection.provenance.layoutVersion,
-    generatedFrom: projection.provenance.generatedFrom
+    generatedFrom: projectionProtocolGeneratedFrom(projection.provenance, codeGraphInputs.runtimeSnapshot)
   } as ProjectionApplyRecoveryProofV1["current"]["snapshot"];
   return {
     projection,
@@ -274,15 +274,15 @@ function runtimeProjectionRecoveryFixedPointIssues(
     }
   }
   if (binding.generatedFrom.codeGraphStatus !== "ready") issues.push("approved CodeGraph snapshot is unavailable");
-  if (projection.provenance.generatedFrom.codeGraphStatus !== "ready") issues.push("current CodeGraph snapshot is unavailable");
+  if (fixedPoint.snapshot.generatedFrom.codeGraphStatus !== "ready") issues.push("current CodeGraph snapshot is unavailable");
   if (digestJson(projection.architectureDigests as unknown as Json) !== digestJson(binding.expectedResultingDigests as unknown as Json)) {
     issues.push("current model, source, flow-proof, or projection digest differs from the approved result");
   }
   if (projection.provenance.projectionInputDigest !== receipt.result.outputSnapshot.projectionInputDigest
-    || projection.provenance.codeGraphDigest !== receipt.result.outputSnapshot.codeGraphDigest
+    || fixedPoint.snapshot.codeGraphDigest !== receipt.result.outputSnapshot.codeGraphDigest
     || projection.provenance.rendererVersion !== binding.rendererVersion
     || projection.provenance.layoutVersion !== binding.layoutVersion
-    || digestJson(projection.provenance.generatedFrom as unknown as Json) !== digestJson(binding.generatedFrom as unknown as Json)) {
+    || digestJson(fixedPoint.snapshot.generatedFrom as unknown as Json) !== digestJson(binding.generatedFrom as unknown as Json)) {
     issues.push("current renderer, layout, or CodeGraph provenance differs from the approved result");
   }
   if (fixedPoint.ownedOutputDigest !== binding.ownedOutputDigest) issues.push("current projection-owned output bytes differ from the approved result");
