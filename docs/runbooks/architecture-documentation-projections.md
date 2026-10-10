@@ -19,6 +19,16 @@
 
 `complete_task` validates active documentation projections when `docs/architecture/.projection-manifest.json` exists. A successful completion must have projection drift count zero.
 
+### Missing code facts
+
+When `.archcontext/manifest.yaml` declares `codeFacts.required: true` and the repository has no CodeGraph index (`.codegraph/`), the projection is not rendered at all. `complete_task` (CLI `archctx complete`), the `docs` commands and `projection run`, `readback` and `recover` all fail with `AC_CODE_FACTS_UNAVAILABLE`: retryable, `error.reasonCode: "index-missing"`, `error.action: "codegraph-init"`. This is an environment state, not projection drift or a major change. Map `error.action` to a command, never the message:
+
+| `error.action` | Do this |
+| --- | --- |
+| `codegraph-init` | Run `codegraph init` in the repository root, then retry the same call. |
+
+A repository that cannot build an index declares `codeFacts.required: false`; projections then render without code facts.
+
 ## Accepting Committed Model Changes
 
 When `archctx docs drift` reports `majorChange.mode: human-action-required` after model edits, accept those edits through the committed ChangeSets that made them. Do not re-baseline with a manual `docs apply --approved`.

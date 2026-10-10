@@ -9,7 +9,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
-import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
+import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
@@ -498,6 +498,8 @@ describe("local runtime foundation", () => {
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-06-26T10:40:00.000Z" });
       await daemon.init(root, "Projection Gate App");
+      // No CodeGraph index here: required code facts would refuse complete_task (#279).
+      declareOptionalCodeFacts(root);
 
       const beforeActivation = await daemon.completeTask(root, {
         taskSessionId: "task_projection_gate",
@@ -555,6 +557,35 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("complete_task refuses with AC_CODE_FACTS_UNAVAILABLE when required code facts have no index (#279)", async () => {
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-06-26T10:40:00.000Z" });
+      await daemon.init(root, "Projection Code Facts App");
+      // The default manifest requires code facts, and this fixture never runs `codegraph init`.
+      expect(readText(join(root, ".archcontext/manifest.yaml"))).toMatch(/^codeFacts:\n(?: {2}.*\n)*? {2}required: true$/m);
+      expect(existsSync(join(root, ".codegraph"))).toBe(false);
+      writeArchitectureDocsProjection(root);
+      const refused = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_code_facts",
+        task: "finish with an active projection and no CodeGraph index"
+      });
+      expect(refused.ok, JSON.stringify(refused)).toBe(false);
+      expect(refused.requestId).toBe("complete_task");
+      expect(refused.error).toMatchObject({
+        code: "AC_CODE_FACTS_UNAVAILABLE",
+        reasonCode: "index-missing",
+        retryable: true,
+        action: "codegraph-init"
+      });
+      expect(refused.error?.message).toContain("codegraph init");
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("complete_task blocks a projection whose declared source moved after it was verified", async () => {
     // Git-backed so the "outside the footprint" case is a real commit; the gate itself compares the
     // manifest's per-node footprint digest with the current one and reads no Git history.
@@ -563,6 +594,7 @@ describe("local runtime foundation", () => {
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Freshness Gate App");
+      declareOptionalCodeFacts(root);
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
         `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
@@ -638,6 +670,7 @@ describe("local runtime foundation", () => {
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Fixed Point App");
+      declareOptionalCodeFacts(root);
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
         `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
@@ -702,6 +735,7 @@ describe("local runtime foundation", () => {
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Deadlock App");
+      declareOptionalCodeFacts(root);
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
         `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
@@ -770,6 +804,7 @@ describe("local runtime foundation", () => {
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Squash App");
+      declareOptionalCodeFacts(root);
       // Windows runners default to `core.autocrlf=true`, which would rewrite the projected documents
       // with CRLF on checkout; this test is about squash merges, so keep the checkout byte-exact.
       execFileSync("git", ["config", "core.autocrlf", "false"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
@@ -1016,6 +1051,7 @@ setInterval(() => undefined, 1 << 30);
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Stamp Injection App");
+      declareOptionalCodeFacts(root);
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
         `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
@@ -1059,6 +1095,7 @@ setInterval(() => undefined, 1 << 30);
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Path Framing App");
+      declareOptionalCodeFacts(root);
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
         `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
@@ -1234,6 +1271,7 @@ setInterval(() => undefined, 1 << 30);
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Freshness Fail Closed App");
+      declareOptionalCodeFacts(root);
       // A declared capability footprint is what freshness grades, so the repository needs one
       // before a legacy stamp can fail closed against anything.
       writeFileSync(
