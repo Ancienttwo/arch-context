@@ -16,7 +16,7 @@ import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledg
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
-import { ArchctxRuntimeRpcServer, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, createRuntimeRpcClientFromConnectionFile, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, runProjectionCheckInvocation, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, createRuntimeRpcClientFromConnectionFile, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps } from "@archcontext/local-runtime/runtime-daemon";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
@@ -273,7 +273,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "status":
       return (await runtime()).runtimeStatus(cwd);
     case "projection":
-      return await runProjectionProtocolCommand(args, cwd, await runtime());
+      return await runProjectionProtocolCommand(args, cwd, runtime);
     case "repo": {
       const subcommand = args[0] ?? "list";
       if (subcommand === "add") {
@@ -1134,7 +1134,7 @@ async function runAgentContextProjectionCommand(args: string[], cwd: string, dae
   });
 }
 
-async function runProjectionProtocolCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient): Promise<JsonEnvelope> {
+async function runProjectionProtocolCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>): Promise<JsonEnvelope> {
   const action = args[0] ?? "run";
   if (!["run", "recover", "readback"].includes(action)) return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>");
   const raw = readFlag(args, "--request-json");
@@ -1142,7 +1142,12 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, daemon:
   let request: RuntimeProjectionInvocation["request"];
   try { request = JSON.parse(raw); }
   catch { return errorEnvelope(`projection.${action}`, "AC_SCHEMA_INVALID", "projection request is not valid JSON"); }
-  return daemon.projection(findRepositoryRoot(cwd), { action, request } as RuntimeProjectionInvocation);
+  // `check` is read-only: it is answered in-process, before any runtime client exists, so it can
+  // never start a daemon, open the local store or require a task session.
+  if (action === "run" && (request as { mode?: unknown } | null)?.mode === "check") {
+    return runProjectionCheckInvocation(request, cwd);
+  }
+  return (await runtime()).projection(findRepositoryRoot(cwd), { action, request } as RuntimeProjectionInvocation);
 }
 
 function acceptedArchitectureChange(args: string[]): AcceptedArchitectureChangeReferenceV1 | undefined {

@@ -316,6 +316,92 @@ test("CLI projection check reports per-node freshness read-only, from content st
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
 
+test("CLI projection check never starts a runtime, writes runtime state or needs a task session (#259)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-check-daemonless-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Daemonless Check App");
+  declareOptionalCodeFacts(root);
+  const nodeId = "capability.runtime-harness.hook-adapters";
+  const checkStateRoot = join(dirname(root), `.archctx-check-state-${basename(root)}`);
+  const checkRequest = (requestId: string): string => JSON.stringify({
+    schemaVersion: "archcontext.projection-request/v1",
+    requestId,
+    profile: "repo-harness/v1",
+    mode: "check",
+    targets: ["agent-context", "architecture-docs"],
+    changedPaths: [],
+    expected: projectionProtocolExpectedSnapshot(root)
+  } satisfies ProjectionRequestV1);
+  try {
+    seedProjectionProtocolFixture(root);
+    // Setup only: one daemon-backed projection is committed, then that daemon is gone.
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore()
+    });
+    try {
+      const applied = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root, { runtimeClient: daemon });
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    } finally {
+      await daemon.stop();
+    }
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "project architecture documentation");
+    writeFileSync(join(root, "README.md"), "# projection fixture\n\nChanged after projection.\n", "utf8");
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "change the declared footprint");
+
+    const worktreeBefore = gitOut(root, "status", "--porcelain", "--ignored");
+
+    // In-process: every runtime member access throws, so any daemon, store or session use fails the run.
+    let runtimeAccesses = 0;
+    const noRuntime = new Proxy({}, {
+      get(_target, property) {
+        if (property === "then") return undefined;
+        runtimeAccesses += 1;
+        throw new Error(`projection check reached the runtime: ${String(property)}`);
+      }
+    }) as unknown as RuntimeDaemonClient;
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    process.env.ARCHCONTEXT_STATE_DIR = checkStateRoot;
+    let inProcess: Awaited<ReturnType<typeof runCli>>;
+    try {
+      inProcess = await runCli("projection", ["run", "--request-json", checkRequest("projection_request.daemonless_in_process")], root, { runtimeClient: noRuntime });
+    } finally {
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+    }
+    expect(inProcess.ok, JSON.stringify(inProcess)).toBe(true);
+    expect(runtimeAccesses).toBe(0);
+    const inProcessResult = (inProcess as JsonEnvelope).data as unknown as ProjectionResultV2;
+    expect(projectionResultInvariantIssues(inProcessResult)).toEqual([]);
+    expect(inProcessResult.priorCommittedApplies).toBeUndefined();
+    expect(inProcessResult.freshness?.ok).toBe(false);
+    expect(inProcessResult.freshness?.staleNodes.map((entry) => entry.nodeId)).toEqual([nodeId]);
+
+    // Real process with no runtime client injected: no daemon is discovered or started.
+    const processOutput = execFileSync("bun", [CLI_ENTRY, "projection", "run", "--request-json", checkRequest("projection_request.daemonless_process"), "--json"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, ARCHCONTEXT_STATE_DIR: checkStateRoot },
+      timeout: CLI_PROCESS_TIMEOUT_MS
+    });
+    const processed = JSON.parse(processOutput);
+    expect(processed.ok, processOutput).toBe(true);
+    expect(processed.data.freshness).toEqual(inProcessResult.freshness);
+
+    // Neither run created runtime state (no store, no daemon lock or connection file), and the
+    // repository is untouched.
+    expect(existsSync(checkStateRoot)).toBe(false);
+    expect(existsSync(runtimeStatePaths(root, { ...process.env, ARCHCONTEXT_STATE_DIR: checkStateRoot }).stateRoot)).toBe(false);
+    expect(gitOut(root, "status", "--porcelain", "--ignored")).toBe(worktreeBefore);
+  } finally {
+    rmSync(checkStateRoot, { recursive: true, force: true });
+    removeTempRoot(root);
+  }
+}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+
 test("CLI ledger accept-committed previews, approves, and drives an accepted projection run to a clean fixed point", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-accept-committed-"));
   writeFileSync(join(root, "README.md"), "# accept-committed fixture\n", "utf8");
