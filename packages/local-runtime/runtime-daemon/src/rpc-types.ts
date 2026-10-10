@@ -97,26 +97,12 @@ export type RuntimeWorktreeDigestProfile = "repository" | "architecture-document
 
 export interface RuntimePlanUpdateInput {
   id: string;
-  approvalChannel?: "mcp";
   operations: ChangeOperation[];
   reason?: { taskSessionId: string; interventionId?: string };
   worktreeDigestPrecondition?: {
     profile: "architecture-documentation-projection";
     expectedDigest: string;
   };
-}
-
-/** Issued only by the explicit local CLI approval flow, never by an MCP tool. */
-export interface RuntimeMcpApprovalInput {
-  id: string;
-  expectedWorktreeDigest: string;
-  expectedChangeSetDigest: string;
-}
-
-export interface RuntimeMcpApplyInput {
-  id: string;
-  expectedWorktreeDigest: string;
-  approvalToken: string;
 }
 
 export interface RuntimeApplyUpdateInput {

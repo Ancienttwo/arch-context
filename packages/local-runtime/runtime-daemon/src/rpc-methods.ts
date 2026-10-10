@@ -2,11 +2,11 @@ import type { AgentJobV1, ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, Json,
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import type { DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import type { DeveloperReviewAttestation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunPreparation, DeveloperReviewRunRecovery } from "./developer-review-codec";
-import type { ExplorerServerOptions, RuntimeAcceptCommittedChangeInput, RuntimeAgentContextProjectionInput, RuntimeAgentJobCancelRpcInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobRetryRpcInput, RuntimeApplyUpdateInput, RuntimeAuditApproveInput, RuntimeAuditRunInput, RuntimeBookInput, RuntimeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeDocsProjectionInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimeMcpApplyInput, RuntimeMcpApprovalInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeProjectionInvocation, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput, RuntimeRefactorVerifyInput } from "./rpc-types";
+import type { ExplorerServerOptions, RuntimeAcceptCommittedChangeInput, RuntimeAgentContextProjectionInput, RuntimeAgentJobCancelRpcInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobRetryRpcInput, RuntimeApplyUpdateInput, RuntimeAuditApproveInput, RuntimeAuditRunInput, RuntimeBookInput, RuntimeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeDocsProjectionInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeProjectionInvocation, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput, RuntimeRefactorVerifyInput } from "./rpc-types";
 import type { PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { okEnvelope } from "@archcontext/contracts";
 import { decodeStartDeveloperReviewRunParams, decodeSignedDeveloperReviewAttestationParams, decodeDeveloperReviewRunCleanupRequest, decodeRecoverDeveloperReviewRunsParams } from "./developer-review-codec";
-import { rpcInputInvalid, rpcOptionalNumber, rpcOptionalObject, rpcOptionalString, rpcOptionalStringArray, rpcRequiredObject, rpcRequiredString } from "./rpc-argument-codec";
+import { rpcInputInvalid, rpcOptionalNumber, rpcOptionalObject, rpcOptionalString, rpcOptionalStringArray, rpcRequiredBoolean, rpcRequiredObject, rpcRequiredString } from "./rpc-argument-codec";
 
 export type RuntimeRpcTimeoutClass = "short" | "normal" | "long";
 
@@ -180,14 +180,10 @@ export const RUNTIME_RPC_METHODS = {
     rpcRequiredString(params, 0, "projection", "root"),
     rpcRequiredObject<RuntimeProjectionInvocation>(params, 1, "projection", "input")
   )),
-  approveMcpProjection: envelopeMethod("approveMcpProjection", "normal", (root: string, input: RuntimeProjectionInvocation) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "approveMcpProjection", "root"),
-    rpcRequiredObject<RuntimeProjectionInvocation>(params, 1, "approveMcpProjection", "input")
-  )),
-  mcpProjection: envelopeMethod("mcpProjection", "long", (root: string, input: RuntimeProjectionInvocation, approvalToken?: string) => [root, input, approvalToken] as const, (params) => rpcArgs(
+  mcpProjection: envelopeMethod("mcpProjection", "long", (root: string, input: RuntimeProjectionInvocation, approved: boolean) => [root, input, approved] as const, (params) => rpcArgs(
     rpcRequiredString(params, 0, "mcpProjection", "root"),
     rpcRequiredObject<RuntimeProjectionInvocation>(params, 1, "mcpProjection", "input"),
-    rpcOptionalString(params, 2, "mcpProjection", "approvalToken")
+    rpcRequiredBoolean(params, 2, "mcpProjection", "approved")
   )),
   docs: envelopeMethod("docs", "normal", (root: string, input: RuntimeDocsInput) => [root, input] as const, (params) => rpcArgs(
     rpcRequiredString(params, 0, "docs", "root"),
@@ -219,14 +215,6 @@ export const RUNTIME_RPC_METHODS = {
   applyUpdate: envelopeMethod("applyUpdate", "normal", (root: string, input: RuntimeApplyUpdateInput) => [root, input] as const, (params) => rpcArgs(
     rpcRequiredString(params, 0, "applyUpdate", "root"),
     rpcRequiredObject<RuntimeApplyUpdateInput>(params, 1, "applyUpdate", "input")
-  )),
-  approveMcpUpdate: envelopeMethod("approveMcpUpdate", "normal", (root: string, input: RuntimeMcpApprovalInput) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "approveMcpUpdate", "root"),
-    rpcRequiredObject<RuntimeMcpApprovalInput>(params, 1, "approveMcpUpdate", "input")
-  )),
-  applyMcpUpdate: envelopeMethod("applyMcpUpdate", "normal", (root: string, input: RuntimeMcpApplyInput) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "applyMcpUpdate", "root"),
-    rpcRequiredObject<RuntimeMcpApplyInput>(params, 1, "applyMcpUpdate", "input")
   )),
   inspectProjectionApplyReceipt: envelopeMethod("inspectProjectionApplyReceipt", "normal", (root: string, lookupKey: string) => [root, lookupKey] as const, (params) => rpcArgs(
     rpcRequiredString(params, 0, "inspectProjectionApplyReceipt", "root"),

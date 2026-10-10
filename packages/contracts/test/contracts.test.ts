@@ -583,6 +583,7 @@ test("capabilities fixture is the exact static handshake advertised by contracts
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
   expect(fixture.features).toContain("projection-prior-committed-applies-v1");
   expect(fixture.features).toContain("projection-check-freshness-v1");
+  expect(fixture.features).toContain("changeset-entity-operations-v1");
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
 });
