@@ -5033,7 +5033,10 @@ describe("archctx CLI", () => {
       expect(pendingReadbacks).toBe(1);
       expect(appliedInput).toBeDefined();
       const duplicate = await rpcClient.applyUpdate(...appliedInput!);
-      expect(duplicate).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
+      expect(duplicate).toMatchObject({
+        ok: false,
+        error: { code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-accepted-change-committed", details: { requestId: request.requestId } }
+      });
       const original = applied.data as ProjectionResultV2;
       const before = await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey);
       expect(before).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
@@ -5135,6 +5138,12 @@ describe("archctx CLI", () => {
         expect(postRacePlan.ok, JSON.stringify(postRacePlan)).toBe(true);
         const receiptInspection = await daemon.inspectProjectionApplyReceipt(root, (raced.data as ProjectionResultV2).applyReceipt!.lookupKey);
         expect(receiptInspection).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "pending" } });
+        // The same request replays the committed result without applying again (#265). Its refresh
+        // signals were never delivered, so the replay still reports reconcile-required.
+        const replayed = await runCli("projection", ["run", "--request-json", JSON.stringify(firstApplyRequest)], root, { runtimeClient: racingClient });
+        expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
+        expect(replayed.data).toEqual({ ...(raced.data as object), replayed: true });
+        expect(applyCalls).toBe(1);
         const ordinaryRetry = await runCli("projection", ["run", "--request-json", JSON.stringify({
           ...firstApplyRequest,
           requestId: "projection_request.hook_adapters_major_ordinary_retry",
@@ -5144,7 +5153,11 @@ describe("archctx CLI", () => {
           }
         })], root, { runtimeClient: racingClient });
         expect(ordinaryRetry.ok).toBe(false);
-        expect((ordinaryRetry as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((ordinaryRetry as any).error).toMatchObject({
+          code: "AC_PROJECTION_APPLY_COMMITTED",
+          reasonCode: "projection-accepted-change-committed",
+          details: { requestId: firstApplyRequest.requestId, lookupKey: (raced.data as ProjectionResultV2).applyReceipt!.lookupKey }
+        });
         expect(applyCalls).toBe(1);
         expect(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).toBe(committedManifest);
 
@@ -5362,13 +5375,15 @@ describe("archctx CLI", () => {
       expect(applied.data.status).toBe("applied");
       expect(projectionResultInvariantIssues(applied.data)).toEqual([]);
       expect(await call("readback", request)).toEqual(await cli("readback", request));
-      // Replaying the identical approved apply must not apply twice: the committed receipt demands an explicit recover.
+      // Replaying the identical approved apply must not apply twice: it returns the committed result, marked replayed.
       const readbackBeforeReplay = await call("readback", request);
-      expect(await call("run", request, true)).toMatchObject({
-        ok: false,
-        error: { code: "AC_PRECONDITION_FAILED", message: expect.stringContaining("requires explicit projection recover") }
-      });
+      const manifestPath = join(root, "docs", "architecture", ".projection-manifest.json");
+      const manifestBeforeReplay = readFileSync(manifestPath, "utf8");
+      const replayed = await call("run", request, true);
+      expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
+      expect(replayed.data).toEqual({ ...applied.data, replayed: true });
       expect(await call("readback", request)).toEqual(readbackBeforeReplay);
+      expect(readFileSync(manifestPath, "utf8")).toBe(manifestBeforeReplay);
       const intent = {
         schemaVersion: "archcontext.projection-apply-recovery-intent/v1", requestId: request.requestId, profile: request.profile,
         receipt: { lookupKey: applied.data.applyReceipt.lookupKey, applyId: applied.data.applyReceipt.applyId }

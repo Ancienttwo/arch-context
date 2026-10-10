@@ -36,7 +36,7 @@ export function captureModelTransitionBase(root: string, draft: ChangeSetDraft, 
     ];
     for (const write of writes) {
       if (!isSemanticModelPath(write.path)) continue;
-      expectedWrites.set(write.path, operation.op === "delete_entity" ? "missing" : digestJson({ body: write.body ?? "" } as unknown as Json));
+      expectedWrites.set(write.path, operation.op === "delete_entity" || "delete" in write ? "missing" : digestJson({ body: write.body ?? "" } as unknown as Json));
     }
   }
   if (expectedWrites.size === 0) return undefined;

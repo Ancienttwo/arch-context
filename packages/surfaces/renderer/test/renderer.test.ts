@@ -46,7 +46,6 @@ const projectionProvenance = architectureDocumentationProjectionProvenance({
   generatedFrom: {
     [graphField + "Package"]: "@colbymchenry/" + "code" + "graph",
     [graphField + "Version"]: "1.6.1",
-    [graphField + "BinaryDigest"]: "sha256:" + "5".repeat(64),
     [graphField + "Status"]: "unavailable"
   }
 } as Parameters<typeof architectureDocumentationProjectionProvenance>[0]);

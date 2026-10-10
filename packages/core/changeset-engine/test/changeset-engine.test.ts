@@ -524,6 +524,51 @@ describe("@archcontext/core/changeset-engine", () => {
     }
   });
 
+  test("render_projection deletes an exact-hash projection file inside the same write set", async () => {
+    const modelRoot = tempModelRoot();
+    try {
+      const orphanPath = "docs/architecture/modules/orphan.md";
+      const orphanBody = "<!-- BEGIN ARCHCONTEXT:generated target=\"projection_target.entity.orphan\" -->\n# Orphan\n<!-- END ARCHCONTEXT:generated target=\"projection_target.entity.orphan\" -->\n";
+      mkdirSync(join(modelRoot, "docs/architecture/modules"), { recursive: true });
+      writeFileSync(join(modelRoot, orphanPath), orphanBody, "utf8");
+      const journal = new RecordingChangeSetJournal();
+      const engine = yamlChangeSetEngine(journal);
+      const plan = (id: string, op: "render_projection" | "render_agent_context", expectedHash: string) => engine.approve(engine.plan({
+        id,
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.orphan" },
+        operations: [{
+          op,
+          expectedHash: "missing",
+          projectionFiles: [
+            { path: "docs/architecture/index.md", expectedHash: "missing", body: "# Architecture\n" },
+            { path: orphanPath, expectedHash, delete: true }
+          ]
+        }]
+      }));
+
+      // Only render_projection may delete, and only with the exact current hash.
+      expect(engine.preview(modelRoot, plan("changeset.orphan-agent", "render_agent_context", digestJson({ body: orphanBody }))).findings)
+        .toContain(`Projection file delete is only allowed in render_projection: ${orphanPath}`);
+      expect(engine.preview(modelRoot, plan("changeset.orphan-missing", "render_projection", "missing")).findings)
+        .toContain(`Projection file delete requires the exact current hash: ${orphanPath}`);
+      await expect(engine.apply(modelRoot, plan("changeset.orphan-stale", "render_projection", digestJson({ body: "stale" })))).rejects.toThrow();
+      expect(readFileSync(join(modelRoot, orphanPath), "utf8")).toBe(orphanBody);
+      expect(existsSync(join(modelRoot, "docs/architecture/index.md"))).toBe(false);
+
+      await expect(engine.apply(modelRoot, plan("changeset.orphan", "render_projection", digestJson({ body: orphanBody }))))
+        .resolves.toMatchObject({ status: "applied" });
+      expect(existsSync(join(modelRoot, orphanPath))).toBe(false);
+      const committed = journal.records.find((record) => record.status === "committed")!;
+      expect(committed.files.map((file) => [file.path, file.operation, file.bodyHash])).toEqual([
+        ["docs/architecture/index.md", "render_projection", digestJson({ body: "# Architecture\n" })],
+        [orphanPath, "delete_entity", "missing"]
+      ]);
+    } finally {
+      rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+
   test.each([
     ["missing", "render_projection"], ["drifted", "render_projection"],
     ["missing", "render_agent_context"], ["drifted", "render_agent_context"]

@@ -54,7 +54,7 @@ import {
   LOCAL_RUNTIME_RPC_SCHEMA_VERSION,
   productVersionManifest
 } from "../src/product-version";
-import { digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
+import { ERROR_CATALOG, digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
 import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
 import {
@@ -208,6 +208,31 @@ test("projection request contract enforces adopt binding, unique arrays, and can
   })).toEqual(["acceptedChange.reasonCodes must be sorted and unique"]);
 });
 
+test("acceptObservedMajorChange is an apply/adopt-only literal that excludes acceptedChange (#261)", () => {
+  const schema = readJson("schemas/runtime/projection-request.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
+  const acceptedChange = {
+    changeSetId: "changeset.runtime-major",
+    eventId: "architecture_event.runtime-major",
+    reasonCodes: ["responsibility-changed" as const],
+    affectedNodeIds: ["capability.runtime-harness.hook-adapters"]
+  };
+  const apply = { ...valid, mode: "apply" as const, acceptObservedMajorChange: true as const };
+  const adopt = { ...apply, mode: "adopt" as const, adoptionPlanId: "adoption_plan.example" };
+  for (const accepted of [apply, adopt]) {
+    expect(projectionRequestInvariantIssues(accepted)).toEqual([]);
+    expect(validateJsonSchema(schema as any, accepted as any).valid).toBe(true);
+  }
+  for (const mode of ["check", "plan"] as const) {
+    expect(projectionRequestInvariantIssues({ ...apply, mode })).toContain("acceptObservedMajorChange is only allowed when mode=apply or mode=adopt");
+    expect(validateJsonSchema(schema as any, { ...apply, mode } as any).valid).toBe(false);
+  }
+  expect(projectionRequestInvariantIssues({ ...apply, acceptObservedMajorChange: false } as any)).toContain("acceptObservedMajorChange must be true when present");
+  expect(validateJsonSchema(schema as any, { ...apply, acceptObservedMajorChange: false } as any).valid).toBe(false);
+  expect(projectionRequestInvariantIssues({ ...apply, acceptedChange })).toContain("acceptObservedMajorChange and acceptedChange are mutually exclusive");
+  expect(validateJsonSchema(schema as any, { ...apply, acceptedChange } as any).valid).toBe(false);
+});
+
 test("JSON schema uniqueItems compares canonical JSON rather than object insertion order", () => {
   const result = validateJsonSchema(
     { type: "array", uniqueItems: true } as any,
@@ -268,9 +293,16 @@ test("projection result contract denies raw bodies and keeps deterministic resul
       ...valid.inputSnapshot,
       generatedFrom: {
         codeGraphPackage: "@colbymchenry/codegraph",
-        codeGraphVersion: "1.6.1",
-        codeGraphBinaryDigest: valid.inputSnapshot.generatedFrom.codeGraphBinaryDigest
+        codeGraphVersion: "1.6.1"
       }
+    }
+  } as any).valid).toBe(false);
+  // Machine-specific runtime identity never rides the committed provenance (#266).
+  expect(validateJsonSchema(schema as any, {
+    ...valid,
+    inputSnapshot: {
+      ...valid.inputSnapshot,
+      generatedFrom: { ...valid.inputSnapshot.generatedFrom, codeGraphBinaryDigest: `sha256:${"4".repeat(64)}` }
     }
   } as any).valid).toBe(false);
   expect(validateJsonSchema(schema as any, {
@@ -433,7 +465,6 @@ function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): Projecti
     generatedFrom: {
       codeGraphPackage: "@colbymchenry/codegraph" as const,
       codeGraphVersion: "1.6.1" as const,
-      codeGraphBinaryDigest: digest,
       codeGraphStatus: "ready" as const
     }
   };
@@ -538,6 +569,83 @@ test("prior committed applies stay bound to the request, the digest and a both-o
     .toContain("priorCommittedApplies[0].files must name at least one committed file");
   expect(projectionResultInvariantIssues(withPrior([entry, { ...entry, changeSetId: "changeset.aaa" }])))
     .toContain("priorCommittedApplies.changeSetId must be sorted and unique");
+});
+
+test("orphaned-document-review human actions name exactly one reviewable path (#268)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const requestPayloadDigest = `sha256:${"e".repeat(64)}` as const;
+  const review = (path: string | undefined, reasonCode: ProjectionResultV2["humanActions"][number]["reasonCode"] = "orphaned-document-review") =>
+    ({ reasonCode, affectedNodeIds: [], ...(path === undefined ? {} : { path }), requestPayloadDigest });
+  const withActions = (humanActions: ProjectionResultV2["humanActions"], files = valid.files) => {
+    const { receiptDigest: _receiptDigest, ...payload } = valid;
+    const withoutReceipt = { ...payload, status: "human-action-required" as const, humanActions, files };
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+  };
+  const modulePath = "docs/architecture/modules/runtime-harness/automation-budget.md";
+  const accepted = withActions([review(modulePath)]);
+  expect(projectionResultInvariantIssues(accepted)).toEqual([]);
+  expect(validateJsonSchema(schema as any, accepted as any).valid).toBe(true);
+
+  expect(projectionResultInvariantIssues(withActions([review(undefined)])))
+    .toContain("humanActions[0].path must be present exactly when reasonCode=orphaned-document-review");
+  expect(validateJsonSchema(schema as any, withActions([review(undefined)]) as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(withActions([review(modulePath, "manual-region-conflict")])))
+    .toContain("humanActions[0].path must be present exactly when reasonCode=orphaned-document-review");
+  expect(validateJsonSchema(schema as any, withActions([review(modulePath, "manual-region-conflict")]) as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(withActions([review("../outside.md")])))
+    .toContain("humanActions[0].path must be a repository-relative POSIX path");
+  expect(projectionResultInvariantIssues(withActions([review("docs/b.md"), review("docs/a.md")])))
+    .toContain("humanActions[orphaned-document-review].path must be sorted and unique");
+  // A document a human must review is never also a file action apply would perform.
+  expect(projectionResultInvariantIssues(withActions([review(modulePath)], [
+    { path: modulePath, action: "delete", preimageDigest: `sha256:${"b".repeat(64)}`, outputDigest: null }
+  ]))).toContain("an orphaned-document-review path must not also be a files[] entry");
+});
+
+test("a replayed result keeps the committed receipt digest and needs a committed apply (#265)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const applyReceipt = {
+    schemaVersion: "archcontext.projection-apply-identity/v1" as const,
+    applyId: `sha256:${"a".repeat(64)}` as const,
+    lookupKey: `sha256:${"b".repeat(64)}` as const,
+    repositoryId: valid.inputSnapshot.repositoryId,
+    workspaceId: valid.inputSnapshot.workspaceId,
+    acceptedChange: { changeSetId: "changeset.accepted", eventId: "event.accepted", reasonCodes: ["node-added" as const], affectedNodeIds: ["capability.api"] },
+    semanticCommit: { changeSetId: "changeset.projection", idempotencyKey: "projection.apply" },
+    ownedFilesDigest: `sha256:${"c".repeat(64)}` as const,
+    refreshSignalsDigest: `sha256:${"d".repeat(64)}` as const
+  };
+  const { receiptDigest: _fixtureReceipt, ...payload } = valid;
+  const committedPayload = { ...payload, applyReceipt };
+  const committed: ProjectionResultV2 = { ...committedPayload, receiptDigest: projectionResultReceiptDigest(committedPayload) };
+  const replayed: ProjectionResultV2 = { ...committed, replayed: true };
+  expect(projectionResultReceiptDigest({ ...committedPayload, replayed: true })).toBe(committed.receiptDigest);
+  expect(projectionResultInvariantIssues(replayed)).toEqual([]);
+  expect(validateJsonSchema(schema as any, replayed as any).valid).toBe(true);
+
+  const withoutReceipt: ProjectionResultV2 = { ...valid, replayed: true };
+  expect(projectionResultInvariantIssues(withoutReceipt)).toContain("replayed is only allowed on a committed apply result with applyReceipt");
+  expect(validateJsonSchema(schema as any, withoutReceipt as any).valid).toBe(false);
+  const planned = { ...committedPayload, status: "planned" as const };
+  const plannedReplay: ProjectionResultV2 = { ...planned, receiptDigest: projectionResultReceiptDigest(planned), replayed: true };
+  expect(projectionResultInvariantIssues(plannedReplay)).toContain("replayed is only allowed on a committed apply result with applyReceipt");
+  expect(validateJsonSchema(schema as any, plannedReplay as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...replayed, replayed: false } as any).valid).toBe(false);
+});
+
+test("a committed projection apply is a distinct, non-retryable error code (#265)", () => {
+  expect(ERROR_CATALOG.AC_PROJECTION_APPLY_COMMITTED).toEqual({
+    code: "AC_PROJECTION_APPLY_COMMITTED",
+    severity: "error",
+    retryable: false,
+    action: "readback-committed-projection-apply"
+  });
+  const lookupKey = `sha256:${"b".repeat(64)}`;
+  expect(errorEnvelope("projection.run", "AC_PROJECTION_APPLY_COMMITTED", "committed", "projection-apply-request-differs", { lookupKey }).error)
+    .toMatchObject({ code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-apply-request-differs", details: { lookupKey } });
+  expect(errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "stale").error).not.toHaveProperty("details");
 });
 
 test("check freshness is schema-valid, receipt-bound and internally consistent (#259)", () => {
