@@ -10,14 +10,15 @@ const WORKTREE_DIGEST = `sha256:${"a".repeat(64)}`;
  * Fake index CLI. It answers the two query shapes this producer issues and fails loudly on
  * anything else, so an unexpected invocation surfaces as a failure rather than as an empty answer.
  */
-function fakeCli(logPath: string, pending: number): string {
+function fakeCli(logPath: string, pending: number, withLines = false): string {
   return `
 import { appendFileSync } from "node:fs";
 const argv = process.argv.slice(2);
 appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(argv) + "\\n");
+const withLines = ${withLines};
 const importNodes = [
-  { name: "./render", filePath: "packages/docs/src/main.ts" },
-  { name: "./render", filePath: "packages/docs/src/main.ts" },
+  { name: "./render", filePath: "packages/docs/src/main.ts", startLine: 4 },
+  { name: "./render", filePath: "packages/docs/src/main.ts", startLine: 2 },
   { name: "@archcontext/contracts", filePath: "packages/docs/src/main.ts" },
   { name: "node:fs", filePath: "packages/docs/src/main.ts" },
   { name: "./missing-target", filePath: "packages/docs/src/render.ts" },
@@ -27,7 +28,7 @@ const importNodes = [
 if (argv[0] === "query") {
   const limit = Number(argv[argv.indexOf("-l") + 1]);
   process.stdout.write(JSON.stringify(importNodes.slice(0, limit).map((node) => ({
-    node: { id: "import:" + node.filePath + ":" + node.name, kind: "import", name: node.name, filePath: node.filePath }
+    node: { id: "import:" + node.filePath + ":" + node.name, kind: "import", name: node.name, filePath: node.filePath, ...(withLines && node.startLine ? { startLine: node.startLine } : {}) }
   }))));
 } else if (argv[0] === "status") {
   process.stdout.write(JSON.stringify({
@@ -44,7 +45,7 @@ if (argv[0] === "query") {
 `;
 }
 
-function seedWorkspace(options: { withIndex?: boolean; pending?: number } = {}): { root: string; binary: string; log: string } {
+function seedWorkspace(options: { withIndex?: boolean; pending?: number; withLines?: boolean } = {}): { root: string; binary: string; log: string } {
   const root = mkdtempSync(join(tmpdir(), "archctx-module-import-pairs-"));
   if (options.withIndex !== false) mkdirSync(join(root, ".codegraph"));
   mkdirSync(join(root, "packages/docs/src"), { recursive: true });
@@ -58,11 +59,27 @@ function seedWorkspace(options: { withIndex?: boolean; pending?: number } = {}):
   const log = join(root, "invocations.log");
   writeFileSync(log, "");
   const binary = join(root, "fake-codegraph.js");
-  writeFileSync(binary, fakeCli(log, options.pending ?? 0));
+  writeFileSync(binary, fakeCli(log, options.pending ?? 0, options.withLines ?? false));
   return { root, binary, log };
 }
 
 describe("repository-wide import pairs", () => {
+  test("locates a repeated specifier at its first reported import line, and omits an unreported one", () => {
+    const { root, binary } = seedWorkspace({ withLines: true });
+    try {
+      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST);
+      expect(result.pairs.find((pair) => pair.specifier === "./render")).toEqual({
+        from: "packages/docs/src/main.ts",
+        specifier: "./render",
+        to: "packages/docs/src/render.ts",
+        line: 2
+      });
+      expect("line" in result.pairs.find((pair) => pair.specifier === "node:fs")!).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("keeps every unresolved specifier as its own record with the specifier retained", () => {
     const { root, binary, log } = seedWorkspace();
     try {

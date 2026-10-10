@@ -1,14 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { refactorAssessmentInvariantIssues, refactorScanInvariantIssues } from "@archcontext/contracts";
+import { REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH, REFACTOR_OBSERVATION_EVIDENCE_LIMIT, refactorAssessmentInvariantIssues, refactorScanInvariantIssues, type Json } from "@archcontext/contracts";
+import type { NativeModel } from "@archcontext/core/projection-engine";
 import { assessRefactor } from "../src/index";
 import {
   CONTESTED_MODEL,
   CYCLE_EDGES,
   MODEL,
+  TRACKED_FILES,
   UNDECLARED_MODEL,
   digestOf,
   makeAssessmentInput,
-  makeSnapshot
+  makeSnapshot,
+  structureOf
 } from "./factories";
 
 const SIGNAL_ID = /^signal\.[a-z-]+\.[a-f0-9]{16}$/;
@@ -170,5 +173,187 @@ describe("binding and determinism", () => {
     });
     expect(assessment.requestedScope).toEqual({ kind: "node", nodeId: "module.m" });
     expect(MODEL.nodes.some((node) => node.id === "module.m")).toBe(true);
+  });
+});
+
+describe("observation evidence", () => {
+  /** The cycle edges, located: the code index reports each import's line. */
+  const LOCATED_CYCLE_EDGES = [
+    { ...CYCLE_EDGES[0]!, line: 3 },
+    { ...CYCLE_EDGES[1]!, line: 5 }
+  ];
+
+  function evidenceOf(assessment: { observations: { kind: string; subjectSelectorId: string; evidence: unknown }[] }, kind: string, subject?: string) {
+    const observation = assessment.observations.find((entry) => entry.kind === kind && (subject === undefined || entry.subjectSelectorId === subject));
+    expect(observation, `${kind} ${subject ?? ""}`).toBeDefined();
+    return observation!.evidence as Record<string, unknown>;
+  }
+
+  test("a cycle lists the file edges that close it, located by path and line", () => {
+    const snapshot = makeSnapshot({ importEdges: LOCATED_CYCLE_EDGES });
+    const assessment = assessObservationOnly({ snapshot });
+    expect(evidenceOf(assessment, "cycle")).toEqual({
+      kind: "cycle",
+      memberNodeIds: ["component.a", "module.c"],
+      edges: [
+        { fromPath: "src/c/z.ts", fromLine: 5, toPath: "src/m/a/x.ts", specifier: "../m/a/x", fromNodeId: "module.c", toNodeId: "component.a" },
+        { fromPath: "src/m/a/x.ts", fromLine: 3, toPath: "src/c/z.ts", specifier: "../../c/z", fromNodeId: "component.a", toNodeId: "module.c" }
+      ],
+      totalCount: 2,
+      truncated: false
+    });
+  });
+
+  test("a line the index did not report is null, never invented", () => {
+    const assessment = assessObservationOnly({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) });
+    const edges = evidenceOf(assessment, "cycle").edges as { fromLine: number | null }[];
+    expect(edges.map((edge) => edge.fromLine)).toEqual([null, null]);
+  });
+
+  test("evidence never moves the signal id, which names the measured fact alone", () => {
+    const located = assessObservationOnly({ snapshot: makeSnapshot({ importEdges: LOCATED_CYCLE_EDGES }) });
+    const unlocated = assessObservationOnly({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) });
+    expect(located.observations.map((observation) => observation.signalIds)).toEqual(
+      unlocated.observations.map((observation) => observation.signalIds)
+    );
+    expect(located.assessmentDigest).not.toBe(unlocated.assessmentDigest);
+  });
+
+  test("a direction violation names the constraint and the edge that breaks it", () => {
+    const constraints = [{
+      id: "constraint.a-not-c",
+      severity: "error" as const,
+      scope: { nodes: ["component.a"] },
+      rule: { type: "forbid-dependency" as const, targets: ["module.c"] },
+      rationale: "fixture"
+    }];
+    const snapshot = makeSnapshot({ importEdges: LOCATED_CYCLE_EDGES, constraints });
+    const assessment = assessObservationOnly({ snapshot, constraints });
+    expect(evidenceOf(assessment, "direction-violation", "component.a")).toEqual({
+      kind: "direction-violation",
+      constraintIds: ["constraint.a-not-c"],
+      constraintCount: 1,
+      violations: [{
+        constraintId: "constraint.a-not-c",
+        fromPath: "src/m/a/x.ts",
+        fromLine: 3,
+        toPath: "src/c/z.ts",
+        specifier: "../../c/z",
+        fromNodeId: "component.a",
+        toNodeId: "module.c"
+      }],
+      totalCount: 1,
+      truncated: false
+    });
+  });
+
+  test("unowned paths are listed with the nodes that own their directory neighbours", () => {
+    const withModuleC = (source: Record<string, string[]>): NativeModel => ({
+      ...MODEL,
+      nodes: MODEL.nodes.map((node) => (node.id === "module.c" ? { ...node, source: { ...(node.source as Record<string, Json>), ...source } } : node))
+    });
+    const excluding = withModuleC({ exclude: ["src/c/*.gen"] });
+    const assessment = assessObservationOnly({
+      snapshot: makeSnapshot({ trackedFiles: [...TRACKED_FILES, { path: "src/c/orphan.gen", lineCount: 1 }], model: excluding }),
+      model: excluding
+    });
+    // `src/c/orphan.gen` is explicitly excluded, so it is a declaration, not a gap.
+    expect(evidenceOf(assessment, "unowned-paths")).toEqual({
+      kind: "unowned-paths",
+      paths: [{ path: "src/gen.ts", candidateOwnerNodeIds: [], candidateOwnerCount: 0 }],
+      totalCount: 1,
+      truncated: false
+    });
+
+    const narrowed = withModuleC({ include: ["src/c/z.ts"] });
+    const crowded = assessObservationOnly({
+      snapshot: makeSnapshot({ trackedFiles: [...TRACKED_FILES, { path: "src/c/loose.ts", lineCount: 1 }], model: narrowed }),
+      model: narrowed
+    });
+    expect(evidenceOf(crowded, "unowned-paths").paths as unknown[]).toContainEqual({ path: "src/c/loose.ts", candidateOwnerNodeIds: ["module.c"], candidateOwnerCount: 1 });
+  });
+
+  test("a sample past the fixed bound is truncated with the true population beside it", () => {
+    const extra = Array.from({ length: REFACTOR_OBSERVATION_EVIDENCE_LIMIT + 5 }, (_, index) => ({
+      path: `src/loose-${String(index).padStart(2, "0")}.ts`,
+      lineCount: 1
+    }));
+    const assessment = assessObservationOnly({ snapshot: makeSnapshot({ trackedFiles: [...TRACKED_FILES, ...extra] }) });
+    const evidence = evidenceOf(assessment, "unowned-paths");
+    expect(evidence.totalCount).toBe(extra.length + 1);
+    expect(evidence.truncated).toBe(true);
+    expect((evidence.paths as unknown[]).length).toBe(REFACTOR_OBSERVATION_EVIDENCE_LIMIT);
+  });
+
+  test("ownership ambiguity lists each contested file with every claimant", () => {
+    const snapshot = makeSnapshot({ model: CONTESTED_MODEL });
+    const assessment = assessObservationOnly({ snapshot, model: CONTESTED_MODEL });
+    expect(evidenceOf(assessment, "ownership-ambiguous", "component.shadow")).toEqual({
+      kind: "ownership-ambiguous",
+      paths: [{ path: "src/m/a/x.ts", candidateOwnerNodeIds: ["component.a", "component.shadow", "module.m"], candidateOwnerCount: 3 }],
+      totalCount: 1,
+      truncated: false
+    });
+  });
+
+  test("an undeclared footprint lists the entrypoint paths the node names and who owns them", () => {
+    const entrypointOnly = {
+      ...MODEL,
+      nodes: [
+        ...MODEL.nodes,
+        {
+          id: "module.cli",
+          kind: "module",
+          name: "CLI",
+          source: { entrypoints: [{ id: "entrypoint.cli", path: "src/c/z.ts", symbols: [] }] }
+        }
+      ]
+    };
+    const snapshot = makeSnapshot({ model: entrypointOnly });
+    const assessment = assessObservationOnly({ snapshot, model: entrypointOnly });
+    expect(evidenceOf(assessment, "undeclared-footprint", "module.cli")).toEqual({
+      kind: "undeclared-footprint",
+      paths: [{ path: "src/c/z.ts", candidateOwnerNodeIds: ["module.c"], candidateOwnerCount: 1 }],
+      totalCount: 1,
+      truncated: false
+    });
+  });
+
+  test("an evidence gap carries the coverage verdict and the specifiers left unresolved", () => {
+    const snapshot = makeSnapshot({
+      truncated: true,
+      importEdges: [...LOCATED_CYCLE_EDGES, { from: "src/m/b/y.ts", specifier: "./missing", to: null, line: 2 }]
+    });
+    const assessment = assessObservationOnly({ snapshot });
+    expect(evidenceOf(assessment, "evidence-gap")).toEqual({
+      kind: "evidence-gap",
+      coverage: "partial",
+      reasonCodes: snapshot.codeFacts.reasonCodes,
+      unresolvedImports: [{ fromPath: "src/m/b/y.ts", fromLine: 2, specifier: "./missing" }],
+      totalCount: 1,
+      truncated: false
+    });
+  });
+
+  test("a specifier past the contract bound fails the assessment closed instead of being rewritten", () => {
+    const unresolved = (specifier: string) => makeSnapshot({
+      truncated: true,
+      importEdges: [{ from: "src/m/b/y.ts", specifier, to: null, line: 2 }]
+    });
+    const atBound = assessObservationOnly({ snapshot: unresolved(`./${"s".repeat(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH - 2)}`) });
+    expect((evidenceOf(atBound, "evidence-gap").unresolvedImports as { specifier: string }[])[0]!.specifier).toHaveLength(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH);
+
+    const overLong = unresolved(`./${"s".repeat(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH - 1)}`);
+    expect(() => assessRefactor(makeAssessmentInput({ snapshot: overLong }))).toThrow(
+      new RegExp(`^AC_SCHEMA_INVALID: .*evidence\\.unresolvedImports\\.specifier must be a single-line specifier of 1-${REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH} characters`)
+    );
+  });
+
+  test("a structure measured for another snapshot is refused", () => {
+    const snapshot = makeSnapshot({ importEdges: CYCLE_EDGES });
+    const other = makeSnapshot();
+    expect(() => assessRefactor(makeAssessmentInput({ snapshot, structure: structureOf(other) }))).toThrow(
+      /structure does not bind snapshot\.snapshotDigest/
+    );
   });
 });

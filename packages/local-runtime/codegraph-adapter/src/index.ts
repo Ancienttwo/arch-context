@@ -1056,6 +1056,8 @@ export interface RepositoryImportPairV1 {
   specifier: string;
   /** Repo-relative target, or `null` when this producer could not resolve the specifier. */
   to: string | null;
+  /** 1-based line of the first such import in `from`, when the index reported one. */
+  line?: number;
 }
 
 export interface RepositoryImportPairsV1 {
@@ -1096,8 +1098,13 @@ export function repositoryImportPairs(
   for (const node of nodes.imports) {
     if (node.kind !== "import") continue;
     const to = resolveImportTarget(root, node.filePath, node.name) ?? null;
-    // Keyed on (file, specifier) so three distinct unresolved specifiers stay three records.
-    pairs.set(JSON.stringify([node.filePath, node.name]), { from: node.filePath, specifier: node.name, to });
+    // Keyed on (file, specifier) so three distinct unresolved specifiers stay three records. A
+    // specifier imported twice from one file is one edge, located at its first import line.
+    const key = JSON.stringify([node.filePath, node.name]);
+    const line = Number.isInteger(node.startLine) && node.startLine! >= 1 ? node.startLine! : undefined;
+    const previousLine = pairs.get(key)?.line;
+    const firstLine = line === undefined ? previousLine : previousLine === undefined ? line : Math.min(line, previousLine);
+    pairs.set(key, { from: node.filePath, specifier: node.name, to, ...(firstLine === undefined ? {} : { line: firstLine }) });
   }
   const status = readProjectionCodeGraphStatus(codeGraphCliInvocation(binary, root, ""), root, CODEGRAPH_QUERY_TIMEOUT_MS);
   const pending = status.pendingChanges;

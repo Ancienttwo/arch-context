@@ -2,6 +2,7 @@ import type { ArchitectureMajorChangeReasonCode } from "./projection";
 import type {
   ArchitectureTargetDeltaV1,
   RefactorKillListEntryV1,
+  RefactorObservationEvidenceV1,
   RefactorObservationKind,
   RefactorScale,
   RefactorTargetOutcomeV1
@@ -695,12 +696,20 @@ export interface PracticeRecommendationPayloadV1 {
   baselineDigest: string | null;
 }
 
+/**
+ * Self-contained: `metrics`, `signalIds` and `evidence` are copied verbatim from the assessed
+ * `RefactorObservationV1`, so a reader never has to join a recorded record back to an in-memory
+ * assessment by kind and subject. None of them is part of the fingerprint.
+ */
 export interface StructuralObservationPayloadV1 {
   assessmentDigest: string;
   kind: RefactorObservationKind;
   affectedNodeIds: string[];
   baselineSnapshotDigest: string;
   derivedOutcomes: RefactorTargetOutcomeV1[];
+  metrics: Record<string, number | null>;
+  signalIds: string[];
+  evidence: RefactorObservationEvidenceV1;
 }
 
 export interface RefactorProposalPayloadV1 {

@@ -11,7 +11,7 @@ import {
   type RefactorProposalV1,
   type RefactorRequestV1
 } from "@archcontext/contracts";
-import { buildModuleStatisticsSnapshot, type ModuleStatisticsInputV1 } from "@archcontext/core/module-statistics";
+import { measureModuleStatistics, type ModuleStatisticsInputV1, type ModuleStructureV1 } from "@archcontext/core/module-statistics";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import type { RefactorAssessmentInputV1 } from "../src/index";
 
@@ -106,8 +106,23 @@ export function makeSnapshotInput(overrides: Partial<ModuleStatisticsInputV1> = 
   };
 }
 
+/**
+ * The structure each fixture snapshot was measured with, keyed by the digest it binds, so a test
+ * that only overrides `snapshot` (or tampers one without resealing it) still hands
+ * `assessRefactor` the structure that measurement produced.
+ */
+const STRUCTURES = new Map<string, ModuleStructureV1>();
+
 export function makeSnapshot(overrides: Partial<ModuleStatisticsInputV1> = {}): ModuleStatisticsSnapshotV1 {
-  return buildModuleStatisticsSnapshot(makeSnapshotInput(overrides));
+  const { snapshot, structure } = measureModuleStatistics(makeSnapshotInput(overrides));
+  STRUCTURES.set(snapshot.snapshotDigest, structure);
+  return snapshot;
+}
+
+export function structureOf(snapshot: ModuleStatisticsSnapshotV1): ModuleStructureV1 {
+  const structure = STRUCTURES.get(snapshot.snapshotDigest);
+  if (!structure) throw new Error("fixture snapshot was not built by makeSnapshot");
+  return structure;
 }
 
 /**
@@ -126,7 +141,10 @@ export function withObservedEntrypoint(
     return { ...draft, moduleDigest: moduleStatisticsDigest(draft) };
   });
   const draft = { ...snapshot, modules, snapshotDigest: "" };
-  return { ...draft, snapshotDigest: moduleStatisticsSnapshotDigest(draft) };
+  const resealed = { ...draft, snapshotDigest: moduleStatisticsSnapshotDigest(draft) };
+  // The counted structure is unchanged; only the snapshot it binds to was resealed.
+  STRUCTURES.set(resealed.snapshotDigest, { ...structureOf(snapshot), snapshotDigest: resealed.snapshotDigest });
+  return resealed;
 }
 
 /** Seals an authored delta: `interventionId` is derived, `unresolvedTargets` starts empty. */
@@ -187,8 +205,10 @@ export function makeRequest(overrides: Partial<RefactorRequestV1> = {}): Refacto
 }
 
 export function makeAssessmentInput(overrides: Partial<RefactorAssessmentInputV1> = {}): RefactorAssessmentInputV1 {
+  const snapshot = overrides.snapshot ?? makeSnapshot();
   return {
-    snapshot: makeSnapshot(),
+    snapshot,
+    structure: overrides.structure ?? structureOf(snapshot),
     model: MODEL,
     trackedFiles: TRACKED_PATHS,
     request: makeRequest(),

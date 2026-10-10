@@ -104,7 +104,10 @@ function observationRecommendation(derivedOutcomes: RefactorTargetOutcomeV1[]): 
     kind: "cycle",
     affectedNodeIds: ["component.a"],
     baselineSnapshotDigest: BEFORE.snapshotDigest,
-    derivedOutcomes
+    derivedOutcomes,
+    metrics: { memberCount: 2, cycleEdgeCount: 2 },
+    signalIds: ["signal.cycle.rf4-fixture"],
+    evidence: { kind: "cycle", memberNodeIds: ["component.a", "module.c"], edges: [], totalCount: 0, truncated: false }
   };
   return {
     ...proposalRecommendation({ targetOutcomes: [] }),
