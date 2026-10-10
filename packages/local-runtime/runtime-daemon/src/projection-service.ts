@@ -243,6 +243,8 @@ async function runArchitectureDocsAdoptionCommand(
     return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-preview-mismatch");
   }
   const simulatedByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file]));
+  // The protocol write also deletes generated-only orphans, so the fixed point is proven without them.
+  if (protocolRequest) for (const orphan of projectionDeletableOrphans(projection)) simulatedByPath.delete(orphan.path);
   for (const file of [...projection.files, ...adoption.files]) simulatedByPath.set(file.path, file);
   const canonicalFirst = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...simulatedByPath.values()]);
   const canonicalExistingByPath = new Map(simulatedByPath);
@@ -289,7 +291,14 @@ async function applyProjectionProtocolFixedPoint(
   daemon: ProjectionServiceHost,
   priorCommittedApplies: ProjectionPriorCommittedApplyV1[]
 ): Promise<JsonEnvelope> {
-  const committedFiles = projectionProtocolFilesForExpectedOutput(root, fixedPoint);
+  // Generated-only orphans are deleted by this write; human-review orphans stopped the request
+  // before it reached here (projectionProtocolHumanStatus), so `apply` never reports a delete it
+  // does not perform (#268).
+  const orphanDeletes = projectionOrphanDeleteOperations(input);
+  const committedFiles = [
+    ...projectionProtocolFilesForExpectedOutput(root, fixedPoint),
+    ...orphanDeletes.map((orphan) => orphan.result)
+  ].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   const committedSignals = request.acceptedChange
     ? input.plan.refreshSignals.map((signal) => ({
         ...signal,
@@ -330,7 +339,7 @@ async function applyProjectionProtocolFixedPoint(
   const planned = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: request.requestId },
-    operations: [architectureDocsRenderProjectionOperation(root, fixedPoint.files)],
+    operations: [architectureDocsRenderProjectionOperation(root, fixedPoint.files, orphanDeletes.map((orphan) => orphan.operation))],
     worktreeDigestPrecondition: {
       profile: "architecture-documentation-projection",
       expectedDigest: request.expected.worktreeDigest
@@ -746,12 +755,44 @@ function projectionProtocolHumanStatus(
   const humanSignal = projection.plan.refreshSignals.some((signal) => signal.mode === "human-action-required");
   const adoption = projection.plan.rejected.some((diff) => diff.reasonCode === "projection-adoption-required");
   const otherRejection = projection.plan.rejected.some((diff) => diff.reasonCode !== "projection-adoption-required");
+  // An orphan that may hold human text stops every mode before any write, so `check`, `plan` and
+  // `apply` all describe the same human action instead of a delete `apply` would never perform.
+  const orphanReview = projectionReviewOrphans(projection).length > 0;
+  const human = otherRejection || humanSignal || orphanReview;
   if (request.mode === "adopt") {
-    if (!adoption) return projection.plan.drift.ok ? "noop" : otherRejection || humanSignal ? "human-action-required" : null;
-    return otherRejection || humanSignal ? "human-action-required" : null;
+    if (!adoption) return projection.plan.drift.ok ? "noop" : human ? "human-action-required" : null;
+    return human ? "human-action-required" : null;
   }
   if (adoption) return "adoption-required";
-  return otherRejection || humanSignal ? "human-action-required" : null;
+  return human ? "human-action-required" : null;
+}
+
+function projectionReviewOrphans(projection: ReturnType<typeof buildArchitectureDocsProjection>) {
+  return projection.plan.orphans.filter((orphan) => orphan.disposition === "human-review");
+}
+
+function projectionDeletableOrphans(projection: ReturnType<typeof buildArchitectureDocsProjection>) {
+  return projection.plan.orphans.filter((orphan) => orphan.disposition === "delete");
+}
+
+/**
+ * Binds each generated-only orphan delete to the exact bytes the projection classified, so a
+ * human edit made after classification fails the ChangeSet hash precondition instead of being
+ * deleted.
+ */
+function projectionOrphanDeleteOperations(projection: ReturnType<typeof buildArchitectureDocsProjection>): Array<{
+  operation: { path: string; expectedHash: string; delete: true };
+  result: ProjectionResultV2["files"][number];
+}> {
+  const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
+  return projectionDeletableOrphans(projection).map((orphan) => {
+    const body = existingByPath.get(orphan.path);
+    if (body === undefined) throw new Error(`projection orphan was classified without its body: ${orphan.path}`);
+    return {
+      operation: { path: orphan.path, expectedHash: digestJson({ body } as unknown as Json), delete: true as const },
+      result: { path: orphan.path, action: "delete" as const, preimageDigest: orphan.actualDigest as Sha256Digest, outputDigest: null }
+    };
+  });
 }
 
 function projectionProtocolEnvelope(
@@ -787,13 +828,16 @@ function projectionProtocolResult(
   if (status === "adoption-required") {
     humanActions.push({ reasonCode: "adoption-required", affectedNodeIds, requestPayloadDigest });
   } else if (status === "human-action-required") {
-    humanActions.push({
-      reasonCode: input.plan.refreshSignals.some((signal) => signal.mode === "human-action-required")
-        ? "unresolved-major-change"
-        : "manual-region-conflict",
-      affectedNodeIds,
-      requestPayloadDigest
-    });
+    if (input.plan.refreshSignals.some((signal) => signal.mode === "human-action-required")) {
+      humanActions.push({ reasonCode: "unresolved-major-change", affectedNodeIds, requestPayloadDigest });
+    } else if (input.plan.rejected.some((diff) => diff.reasonCode !== "projection-adoption-required")) {
+      humanActions.push({ reasonCode: "manual-region-conflict", affectedNodeIds, requestPayloadDigest });
+    }
+  }
+  if (status === "adoption-required" || status === "human-action-required") {
+    for (const orphan of projectionReviewOrphans(input)) {
+      humanActions.push({ reasonCode: "orphaned-document-review", affectedNodeIds: [], path: orphan.path, requestPayloadDigest });
+    }
   }
   const refreshSignals = [...(overrides?.refreshSignals ?? output.plan.refreshSignals)]
     .sort((left, right) => left.signalId < right.signalId ? -1 : left.signalId > right.signalId ? 1 : 0);
@@ -871,14 +915,18 @@ function projectionProtocolSnapshot(
 function projectionProtocolFiles(
   projection: ReturnType<typeof buildArchitectureDocsProjection>
 ): ProjectionResultV2["files"] {
+  const deletableOrphanPaths = new Set(projectionDeletableOrphans(projection).map((orphan) => orphan.path));
   return projection.plan.drift.diffs.flatMap<ProjectionResultV2["files"][number]>((diff) => {
     const expected = projectionDigestOrNull(diff.expectedDigest);
     const actual = projectionDigestOrNull(diff.actualDigest);
     if ((diff.reasonCode === "projection-file-missing" || diff.reasonCode === "projection-manifest-missing") && expected) {
       return [{ path: diff.path, action: "create", preimageDigest: null, outputDigest: expected }];
     }
-    if (diff.reasonCode === "projection-orphaned" && actual) {
-      return [{ path: diff.path, action: "delete", preimageDigest: actual, outputDigest: null }];
+    if (diff.reasonCode === "projection-orphaned") {
+      // Only a delete `apply` performs is a file action; a review orphan is a human action.
+      return deletableOrphanPaths.has(diff.path) && actual
+        ? [{ path: diff.path, action: "delete", preimageDigest: actual, outputDigest: null }]
+        : [];
     }
     if (expected && actual && expected !== actual) {
       return [{ path: diff.path, action: "update", preimageDigest: actual, outputDigest: expected }];
@@ -1003,15 +1051,22 @@ function buildAgentContextProjection(root: string) {
   };
 }
 
-function architectureDocsRenderProjectionOperation(root: string, files: { path: string; body: string }[]) {
+function architectureDocsRenderProjectionOperation(
+  root: string,
+  files: { path: string; body: string }[],
+  deletes: { path: string; expectedHash: string; delete: true }[] = []
+) {
   return {
     op: "render_projection" as const,
     expectedHash: "missing",
-    projectionFiles: files.map((file) => ({
-      path: file.path,
-      expectedHash: currentBodyHash(root, file.path),
-      body: file.body
-    }))
+    projectionFiles: [
+      ...files.map((file) => ({
+        path: file.path,
+        expectedHash: currentBodyHash(root, file.path),
+        body: file.body
+      })),
+      ...deletes
+    ]
   };
 }
 

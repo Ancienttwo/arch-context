@@ -31,6 +31,7 @@ export const PROJECTION_RESULT_STATUSES = [
 export const PROJECTION_HUMAN_ACTION_REASON_CODES = [
   "adoption-required",
   "manual-region-conflict",
+  "orphaned-document-review",
   "target-collision",
   "unprovable-required-flow",
   "unresolved-major-change"
@@ -65,6 +66,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
   "projection-check-freshness-v1",
+  "projection-orphan-review-v1",
   "projection-prior-committed-applies-v1",
   "projection-protocol-v2",
   "recommendation-v3",
@@ -142,6 +144,12 @@ export interface ProjectionFileResultV1 {
 export interface ProjectionHumanActionV1 {
   reasonCode: ProjectionHumanActionReasonCode;
   affectedNodeIds: string[];
+  /**
+   * Present exactly on `orphaned-document-review`: the managed document whose target the model no
+   * longer renders and which may hold human text. `apply` never deletes it; a human must review,
+   * move or remove it. A generated-only orphan is a `files[]` delete instead.
+   */
+  path?: string;
   requestPayloadDigest: Sha256Digest;
 }
 
@@ -434,6 +442,19 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
   if (input.status === "applied-reconcile-required") {
     if (!input.applyReceipt) issues.push("applied-reconcile-required status requires applyReceipt");
     if (input.refreshSignals.length > 0) issues.push("applied-reconcile-required status cannot deliver refreshSignals");
+  }
+  for (const [index, action] of input.humanActions.entries()) {
+    const prefix = `humanActions[${index}]`;
+    if (!(PROJECTION_HUMAN_ACTION_REASON_CODES as readonly string[]).includes(action.reasonCode)) issues.push(`${prefix}.reasonCode is unsupported`);
+    if ((action.reasonCode === "orphaned-document-review") !== (action.path !== undefined)) {
+      issues.push(`${prefix}.path must be present exactly when reasonCode=orphaned-document-review`);
+    }
+    if (action.path !== undefined && !isRepoRelativePosixPath(action.path)) issues.push(`${prefix}.path must be a repository-relative POSIX path`);
+  }
+  const orphanReviewPaths = input.humanActions.flatMap((action) => action.reasonCode === "orphaned-document-review" && action.path !== undefined ? [action.path] : []);
+  issues.push(...sortedUniqueIssues("humanActions[orphaned-document-review].path", orphanReviewPaths));
+  if (orphanReviewPaths.some((path) => input.files.some((file) => file.path === path))) {
+    issues.push("an orphaned-document-review path must not also be a files[] entry");
   }
   for (const [index, file] of input.files.entries()) {
     const prefix = `files[${index}]`;

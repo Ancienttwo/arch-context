@@ -100,10 +100,19 @@
       "additionalProperties": false,
       "required": ["reasonCode", "affectedNodeIds", "requestPayloadDigest"],
       "properties": {
-        "reasonCode": { "enum": ["adoption-required", "manual-region-conflict", "target-collision", "unprovable-required-flow", "unresolved-major-change"] },
+        "reasonCode": { "enum": ["adoption-required", "manual-region-conflict", "orphaned-document-review", "target-collision", "unprovable-required-flow", "unresolved-major-change"] },
         "affectedNodeIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The orphaned managed document a human must review. Present exactly when reasonCode is orphaned-document-review.",
+          "not": { "anyOf": [{ "pattern": "^/" }, { "pattern": "\\\\" }, { "pattern": "(^|/)\\.\\.(/|$)" }] }
+        },
         "requestPayloadDigest": { "$ref": "#/$defs/digest" }
-      }
+      },
+      "if": { "properties": { "reasonCode": { "const": "orphaned-document-review" } }, "required": ["reasonCode"] },
+      "then": { "required": ["path"] },
+      "else": { "not": { "required": ["path"] } }
     },
     "digestSet": {
       "type": "object",

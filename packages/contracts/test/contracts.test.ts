@@ -546,6 +546,38 @@ test("prior committed applies stay bound to the request, the digest and a both-o
     .toContain("priorCommittedApplies.changeSetId must be sorted and unique");
 });
 
+test("orphaned-document-review human actions name exactly one reviewable path (#268)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const requestPayloadDigest = `sha256:${"e".repeat(64)}` as const;
+  const review = (path: string | undefined, reasonCode: ProjectionResultV2["humanActions"][number]["reasonCode"] = "orphaned-document-review") =>
+    ({ reasonCode, affectedNodeIds: [], ...(path === undefined ? {} : { path }), requestPayloadDigest });
+  const withActions = (humanActions: ProjectionResultV2["humanActions"], files = valid.files) => {
+    const { receiptDigest: _receiptDigest, ...payload } = valid;
+    const withoutReceipt = { ...payload, status: "human-action-required" as const, humanActions, files };
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+  };
+  const modulePath = "docs/architecture/modules/runtime-harness/automation-budget.md";
+  const accepted = withActions([review(modulePath)]);
+  expect(projectionResultInvariantIssues(accepted)).toEqual([]);
+  expect(validateJsonSchema(schema as any, accepted as any).valid).toBe(true);
+
+  expect(projectionResultInvariantIssues(withActions([review(undefined)])))
+    .toContain("humanActions[0].path must be present exactly when reasonCode=orphaned-document-review");
+  expect(validateJsonSchema(schema as any, withActions([review(undefined)]) as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(withActions([review(modulePath, "manual-region-conflict")])))
+    .toContain("humanActions[0].path must be present exactly when reasonCode=orphaned-document-review");
+  expect(validateJsonSchema(schema as any, withActions([review(modulePath, "manual-region-conflict")]) as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(withActions([review("../outside.md")])))
+    .toContain("humanActions[0].path must be a repository-relative POSIX path");
+  expect(projectionResultInvariantIssues(withActions([review("docs/b.md"), review("docs/a.md")])))
+    .toContain("humanActions[orphaned-document-review].path must be sorted and unique");
+  // A document a human must review is never also a file action apply would perform.
+  expect(projectionResultInvariantIssues(withActions([review(modulePath)], [
+    { path: modulePath, action: "delete", preimageDigest: `sha256:${"b".repeat(64)}`, outputDigest: null }
+  ]))).toContain("an orphaned-document-review path must not also be a files[] entry");
+});
+
 test("check freshness is schema-valid, receipt-bound and internally consistent (#259)", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
   const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;

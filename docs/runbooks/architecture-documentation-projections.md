@@ -78,6 +78,15 @@ If human text was accidentally moved inside generated markers:
 
 If an obsolete generated projection exists:
 
+`archctx projection run` sorts an orphaned document (its target is no longer in the model, for example after a node is removed) by what it holds. `check`, `plan` and `apply` report the same action for it:
+
+- Only an intact generated region and nothing else: the result lists it in `files[]` as a `delete`, and `apply` deletes it in the same ChangeSet as the other projection writes.
+- Any other text, such as the human-owned title and section skeleton of a module document, or an edited generated region: the result status is `human-action-required`, and `humanActions[]` carries `reasonCode: "orphaned-document-review"` with the document `path`. The document is never a `files[]` entry. `apply` stops before writing anything, including with an `acceptedChange`. Review the document, move any text worth keeping, delete it, and run `apply` again with the same request fields.
+
+Consumers detect this behavior through the `projection-orphan-review-v1` capability.
+
+For the human-oriented `docs` commands:
+
 1. Run `archctx docs clean`.
 2. Treat `manual-review-required-before-tombstone` as a review task, not an automatic delete.
 3. Add any redirect/tombstone manually if links may exist.
