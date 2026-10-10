@@ -181,10 +181,14 @@ export interface ArchitectureDocumentationProjectionProvenanceV2 {
   projectionInputDigest: string;
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   layoutVersion: typeof ARCHITECTURE_DOCS_LAYOUT_VERSION;
+  /**
+   * Reproducible CodeGraph identity only: package name and version. The digest of the installed
+   * binary differs between machines (platform, build, install method) running the same version,
+   * so it is a runtime diagnostic and never enters the committed manifest (#266).
+   */
   generatedFrom: {
     codeGraphPackage: string;
     codeGraphVersion: string;
-    codeGraphBinaryDigest: string;
     codeGraphStatus: "ready" | "unavailable";
   };
 }

@@ -268,9 +268,16 @@ test("projection result contract denies raw bodies and keeps deterministic resul
       ...valid.inputSnapshot,
       generatedFrom: {
         codeGraphPackage: "@colbymchenry/codegraph",
-        codeGraphVersion: "1.6.1",
-        codeGraphBinaryDigest: valid.inputSnapshot.generatedFrom.codeGraphBinaryDigest
+        codeGraphVersion: "1.6.1"
       }
+    }
+  } as any).valid).toBe(false);
+  // Machine-specific runtime identity never rides the committed provenance (#266).
+  expect(validateJsonSchema(schema as any, {
+    ...valid,
+    inputSnapshot: {
+      ...valid.inputSnapshot,
+      generatedFrom: { ...valid.inputSnapshot.generatedFrom, codeGraphBinaryDigest: `sha256:${"4".repeat(64)}` }
     }
   } as any).valid).toBe(false);
   expect(validateJsonSchema(schema as any, {
@@ -433,7 +440,6 @@ function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): Projecti
     generatedFrom: {
       codeGraphPackage: "@colbymchenry/codegraph" as const,
       codeGraphVersion: "1.6.1" as const,
-      codeGraphBinaryDigest: digest,
       codeGraphStatus: "ready" as const
     }
   };

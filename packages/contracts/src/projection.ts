@@ -128,7 +128,6 @@ export interface ProjectionSnapshotV1 extends ProjectionExpectedSnapshotV1 {
   generatedFrom: {
     codeGraphPackage: "@colbymchenry/codegraph";
     codeGraphVersion: "1.6.1";
-    codeGraphBinaryDigest: Sha256Digest;
     codeGraphStatus: "ready" | "unavailable";
   };
 }

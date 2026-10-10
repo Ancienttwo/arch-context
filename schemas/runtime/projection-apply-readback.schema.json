@@ -87,7 +87,6 @@
           "required": [
             "codeGraphPackage",
             "codeGraphVersion",
-            "codeGraphBinaryDigest",
             "codeGraphStatus"
           ],
           "properties": {
@@ -96,9 +95,6 @@
             },
             "codeGraphVersion": {
               "const": "1.6.1"
-            },
-            "codeGraphBinaryDigest": {
-              "$ref": "#/$defs/digest"
             },
             "codeGraphStatus": {
               "enum": [
@@ -960,7 +956,6 @@
           "required": [
             "codeGraphPackage",
             "codeGraphVersion",
-            "codeGraphBinaryDigest",
             "codeGraphStatus"
           ],
           "properties": {
@@ -969,9 +964,6 @@
             },
             "codeGraphVersion": {
               "const": "1.6.1"
-            },
-            "codeGraphBinaryDigest": {
-              "$ref": "#/$defs/digest"
             },
             "codeGraphStatus": {
               "enum": [

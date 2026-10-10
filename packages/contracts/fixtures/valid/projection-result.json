@@ -15,7 +15,7 @@
     "projectionInputDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
     "rendererVersion": "archcontext.docs-renderer/v5",
     "layoutVersion": "archcontext.docs-layout/v1",
-    "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.1", "codeGraphBinaryDigest": "sha256:4646464646464646464646464646464646464646464646464646464646464646", "codeGraphStatus": "ready" }
+    "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.1", "codeGraphStatus": "ready" }
   },
   "outputSnapshot": {
     "repositoryId": "repo.example",
@@ -30,7 +30,7 @@
     "projectionInputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "rendererVersion": "archcontext.docs-renderer/v5",
     "layoutVersion": "archcontext.docs-layout/v1",
-    "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.1", "codeGraphBinaryDigest": "sha256:9797979797979797979797979797979797979797979797979797979797979797", "codeGraphStatus": "ready" }
+    "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.1", "codeGraphStatus": "ready" }
   },
   "affectedNodeIds": ["capability.api"],
   "files": [
@@ -43,5 +43,5 @@
   ],
   "humanActions": [],
   "refreshSignals": [],
-  "receiptDigest": "sha256:a2128370f073b508ba52856ff3a0ae9b22107ccac8e94cfdde3a6c5440615e60"
+  "receiptDigest": "sha256:efd5f90c12bb14cf64bfe2b5f244eac776ec7984dbbdfebc4bc89bc963818843"
 }

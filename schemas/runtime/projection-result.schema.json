@@ -57,11 +57,10 @@
         "generatedFrom": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["codeGraphPackage", "codeGraphVersion", "codeGraphBinaryDigest", "codeGraphStatus"],
+          "required": ["codeGraphPackage", "codeGraphVersion", "codeGraphStatus"],
           "properties": {
             "codeGraphPackage": { "const": "@colbymchenry/codegraph" },
             "codeGraphVersion": { "const": "1.6.1" },
-            "codeGraphBinaryDigest": { "$ref": "#/$defs/digest" },
             "codeGraphStatus": { "enum": ["ready", "unavailable"] }
           }
         }
