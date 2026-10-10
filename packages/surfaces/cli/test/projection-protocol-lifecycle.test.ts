@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { canonicalRepositoryRoot, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
@@ -10,7 +10,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { PROJECTION_FILE_PREVIEW_MAX_BYTES, architectureRefreshSignalInvariantIssues, digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { runCli } from "../src/main";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
@@ -106,7 +106,7 @@ function docsSnapshot(root: string): Record<string, string> {
     for (const entry of readdirSync(directory)) {
       const absolute = join(directory, entry);
       if (statSync(absolute).isDirectory()) walk(absolute);
-      else files[relative(root, absolute)] = readFileSync(absolute, "utf8");
+      else files[relative(root, absolute).split(sep).join("/")] = readFileSync(absolute, "utf8");
     }
   };
   walk(join(root, "docs/architecture"));
@@ -322,6 +322,84 @@ test("projection apply accepts the major change it observes in one request (#261
   });
 }, TEST_TIMEOUT_MS);
 
+/**
+ * Runs one write between classification and the ChangeSet write: the receipt lookup sits between
+ * the two. Returns the lookup key the request used, so the caller can prove no receipt landed.
+ */
+function editAfterClassification(daemon: Awaited<ReturnType<typeof createStartedDaemon>>, edit: () => void) {
+  const host = daemon as unknown as Record<"inspectProjectionApplyReceipt", (...args: unknown[]) => Promise<unknown>>;
+  const inspect = host.inspectProjectionApplyReceipt.bind(daemon);
+  const state: { lookupKey?: string } = {};
+  host.inspectProjectionApplyReceipt = async (...args: unknown[]) => {
+    const inspected = await inspect(...args);
+    if (state.lookupKey === undefined) {
+      state.lookupKey = args[1] as string;
+      edit();
+    }
+    return inspected;
+  };
+  return { state, inspect };
+}
+
+/** The apply failed its write precondition: typed refusal, no receipt, no prior committed apply. */
+async function expectApplyRefusedBeforeWrite(
+  daemon: Awaited<ReturnType<typeof createStartedDaemon>>,
+  root: string,
+  refused: { ok: boolean },
+  lookup: ReturnType<typeof editAfterClassification>,
+  requestId: string
+): Promise<void> {
+  expect(lookup.state.lookupKey).toBeString();
+  expect(refused.ok, JSON.stringify(refused)).toBe(false);
+  expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
+  expect((refused as any).error.message).toContain("Expected hash mismatch");
+  expect(await lookup.inspect(root, lookup.state.lookupKey)).toMatchObject({ ok: true, data: { found: false } });
+  const prior = await daemon.listProjectionPriorCommittedApplies(root, requestId) as any;
+  expect(prior.ok, JSON.stringify(prior)).toBe(true);
+  expect(JSON.stringify(prior.data)).not.toContain(lookup.state.lookupKey!);
+}
+
+test("an observed-change apply fails closed when the manifest moves mid-request", async () => {
+  await withProtocolFixture("archctx-projection-observed-baseline-", async ({ root, daemon, request, projectionRun }) => {
+    editKeptSummary(root);
+    const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+    const classifiedManifest = readFileSync(manifestPath, "utf8");
+
+    // The semantic baseline lives in the manifest, which the worktree digest does not cover. A
+    // moved baseline would also see REMOVED's responsibilities change; the write is bound to the
+    // bytes classification read, so the move fails the hash precondition before any file is written.
+    const tampered = JSON.parse(classifiedManifest);
+    const removedBaseline = tampered.semanticBaseline.semanticState.capabilities.find((entry: any) => entry.capabilityId === REMOVED);
+    removedBaseline.facets.responsibilities = `sha256:${"0".repeat(64)}`;
+    removedBaseline.semanticFingerprint = `sha256:${"1".repeat(64)}`;
+    const tamperedBody = `${JSON.stringify(tampered, null, 2)}\n`;
+    const docsBefore = docsSnapshot(root);
+    const lookup = editAfterClassification(daemon, () => writeFileSync(manifestPath, tamperedBody, "utf8"));
+
+    const requestId = "projection_request.observed_baseline";
+    const refused = await projectionRun(request("apply", requestId, { acceptObservedMajorChange: true }));
+    await expectApplyRefusedBeforeWrite(daemon, root, refused, lookup, requestId);
+    expect(docsSnapshot(root)).toEqual({ ...docsBefore, "docs/architecture/.projection-manifest.json": tamperedBody });
+  });
+}, TEST_TIMEOUT_MS);
+
+test("an observed-change apply never overwrites a human note added after classification", async () => {
+  await withProtocolFixture("archctx-projection-observed-human-note-", async ({ root, daemon, request, projectionRun }) => {
+    editKeptSummary(root);
+    // KEPT's module document is rewritten by this apply; the note sits outside its generated markers.
+    const modulePath = manifestTargetPath(root, KEPT);
+    const noted = `${readFileSync(join(root, modulePath), "utf8")}\nHuman hook adapter notes.\n`;
+    const docsBefore = docsSnapshot(root);
+    const lookup = editAfterClassification(daemon, () => writeFileSync(join(root, modulePath), noted, "utf8"));
+
+    const requestId = "projection_request.observed_human_note";
+    const refused = await projectionRun(request("apply", requestId, { acceptObservedMajorChange: true }));
+    await expectApplyRefusedBeforeWrite(daemon, root, refused, lookup, requestId);
+    expect(readFileSync(join(root, modulePath), "utf8")).toBe(noted);
+    expect(docsSnapshot(root)).toEqual({ ...docsBefore, [modulePath]: noted });
+  });
+}, TEST_TIMEOUT_MS);
+
 test("a repeated accepted apply returns the committed result without applying again (#265)", async () => {
   await withProtocolFixture("archctx-projection-replay-", async ({ root, daemon, request, projectionRun }) => {
     editKeptSummary(root);
@@ -364,5 +442,75 @@ test("a repeated accepted apply returns the committed result without applying ag
     expect(readback.ok, JSON.stringify(readback)).toBe(true);
     expect((readback.data as any).receipt.result.receiptDigest).toBe(first.receiptDigest);
     expect((readback.data as any).receipt.recovery.requestDigest).toBe(digestJson(original as any));
+  });
+}, TEST_TIMEOUT_MS);
+
+test("plan previews each file as a bounded body or unified diff and writes nothing (#264)", async () => {
+  await withProtocolFixture("archctx-projection-preview-", async ({ root, daemon, request, projectionRun }) => {
+    // A summary far larger than one preview bound turns the module document diff into a truncated one.
+    const nodePath = join(root, `.archcontext/model/nodes/${KEPT}.yaml`);
+    const summary = Array.from({ length: 3_000 }, (_, index) => `Hook adapters route event ${index} through the validated runtime boundary.`).join("\n");
+    writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("summary: \"Hook Adapters capability.\"", `summary: ${JSON.stringify(summary)}`), "utf8");
+    // A missing generated document becomes a create that previews its rendered body.
+    const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
+    const changelogPath: string = manifest.targets.find((target: any) => target.type === "architecture-changelog").path;
+    rmSync(join(root, changelogPath));
+    const modulePath = manifestTargetPath(root, KEPT);
+
+    const calls: string[] = [];
+    const host = daemon as unknown as Record<"planUpdate" | "applyUpdate", (...args: unknown[]) => unknown>;
+    for (const method of ["planUpdate", "applyUpdate"] as const) {
+      const original = host[method].bind(daemon);
+      host[method] = (...args: unknown[]) => {
+        calls.push(method);
+        return original(...args);
+      };
+    }
+    const docsBefore = docsSnapshot(root);
+    const planned = projectionResult(await projectionRun(request("plan", "projection_request.preview_plan", { expected: expectedSnapshot(root) })));
+    // Plan is read-only: no ChangeSet is planned or applied and no document moves.
+    expect(calls).toEqual([]);
+    expect(docsSnapshot(root)).toEqual(docsBefore);
+    expect(planned.status).toBe("human-action-required");
+
+    const byPath = new Map(planned.files.map((file) => [file.path, file]));
+    const created = byPath.get(changelogPath)!;
+    expect(created).toMatchObject({ action: "create", preview: { format: "body", truncated: false } });
+    expect(created.preview!.content).toContain("<!-- BEGIN ARCHCONTEXT:generated");
+    expect(created.preview!.byteLength).toBe(new TextEncoder().encode(created.preview!.content).length);
+
+    const moduleDoc = byPath.get(modulePath)!;
+    expect(moduleDoc).toMatchObject({ action: "update", preview: { format: "unified-diff", truncated: true } });
+    expect(moduleDoc.preview!.content.startsWith(`--- a/${modulePath}\n+++ b/${modulePath}\n@@ -`)).toBe(true);
+    expect(moduleDoc.preview!.content.endsWith("\n")).toBe(true);
+    expect(new TextEncoder().encode(moduleDoc.preview!.content).length).toBeLessThanOrEqual(PROJECTION_FILE_PREVIEW_MAX_BYTES);
+    expect(moduleDoc.preview!.byteLength).toBeGreaterThan(PROJECTION_FILE_PREVIEW_MAX_BYTES);
+    expect(byPath.get("docs/architecture/.projection-manifest.json")).toMatchObject({ action: "update", preview: { format: "unified-diff", truncated: false } });
+
+    // The unresolved major change names the capability and the facet that moved.
+    const signal = planned.refreshSignals.find((entry) => entry.mode === "human-action-required")!;
+    expect(architectureRefreshSignalInvariantIssues(signal)).toEqual([]);
+    expect(signal.capabilities).toEqual([{
+      capabilityId: KEPT,
+      reasonCodes: ["responsibility-changed"],
+      changedFacets: ["responsibilities"],
+      proofStatusBefore: expect.any(Object),
+      proofStatusAfter: expect.any(Object)
+    }]);
+
+    // Only plan previews: check reports the same files without bodies.
+    const checked = projectionResult(await projectionRun(request("check", "projection_request.preview_check")));
+    expect(checked.files.map(({ path, action }) => ({ path, action }))).toEqual(planned.files.map(({ path, action }) => ({ path, action })));
+    expect(checked.files.every((file) => file.preview === undefined)).toBe(true);
+
+    // The accepted apply writes the body the plan previewed, and its committed result carries no preview.
+    const applied = projectionResult(await projectionRun(request("apply", "projection_request.preview_apply", { acceptObservedMajorChange: true })));
+    expect(applied.status).toBe("applied");
+    // The spies see the apply's ChangeSet, so their silence during plan was real.
+    expect(calls).toEqual(["planUpdate", "applyUpdate"]);
+    expect(applied.files.every((file) => file.preview === undefined)).toBe(true);
+    expect(readFileSync(join(root, changelogPath), "utf8")).toBe(created.preview!.content);
+    const inspected = await daemon.inspectProjectionApplyReceipt(root, applied.applyReceipt!.lookupKey);
+    expect(JSON.stringify(inspected)).not.toContain("\"preview\"");
   });
 }, TEST_TIMEOUT_MS);

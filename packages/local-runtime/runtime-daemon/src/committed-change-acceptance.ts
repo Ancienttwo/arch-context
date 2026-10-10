@@ -4,8 +4,8 @@ import { resolve } from "node:path";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import type { AcceptedCommittedChangeJournalV2, AcceptedCommittedChangePayloadV2, ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { assertPathHasNoSymlinkSegments, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
-import { classifyArchitectureMajorChange, loadNativeModelFromModelFiles, type ArchitectureProofEvidenceDigestsV1, type ArchitectureMajorChangeClassificationV1, type ArchitectureSemanticStateV1, type NativeModel } from "@archcontext/core/projection-engine";
-import { digestJson, type AcceptedArchitectureChangeReferenceV1, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
+import { classifyArchitectureMajorChange, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type NativeModel } from "@archcontext/core/projection-engine";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, digestJson, type AcceptedArchitectureChangeReferenceV1, type ArchitectureDigestSetV1, type ArchitectureEventV1, type ArchitectureProofEvidenceDigestsV1, type ArchitectureSemanticStateV1, type Json } from "@archcontext/contracts";
 import { CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION, type ChangeSetModelTransitionV1, type CommittedChangeSetForTaskSession, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 
 /** Exactly the files `loadNativeModelFromArchContext` reads: direct YAML children of these directories. */
@@ -135,7 +135,7 @@ function strictUtf8(bytes: Uint8Array, path: string): string {
 export const ACCEPTED_COMMITTED_CHANGE_V2_SCHEMA_VERSION = "archcontext.accepted-committed-change/v2" as const;
 export const ACCEPTED_COMMITTED_CHANGE_PLAN_SCHEMA_VERSION = "archcontext.accepted-committed-change-plan/v1" as const;
 export const MAX_ACCEPTED_COMMITTED_JOURNALS = 32;
-const PROJECTION_MANIFEST_PATH = "docs/architecture/.projection-manifest.json";
+const PROJECTION_MANIFEST_PATH = ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH;
 const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
 
 export interface AcceptedCommittedJournalRef {
@@ -568,11 +568,12 @@ export function projectionManifestBaseline(body: string | undefined): { modelDig
   } catch {
     throw new Error("accepted-committed-change-baseline-missing: projection manifest is not JSON");
   }
+  // Only the fields this gate reads, typed from the published manifest contract and checked below.
   const manifest = parsed as {
     semanticBaseline?: {
       semanticState?: ArchitectureSemanticStateV1;
-      digests?: { modelDigest?: unknown; flowProofDigest?: unknown };
-      evidence?: { sourceTreeDigest?: unknown; selectorEvidenceDigest?: unknown; rendererVersion?: unknown };
+      digests?: Partial<Record<keyof ArchitectureDigestSetV1, unknown>>;
+      evidence?: Partial<Record<keyof ArchitectureProofEvidenceDigestsV1, unknown>>;
     };
   } | null;
   const baseline = manifest?.semanticBaseline;

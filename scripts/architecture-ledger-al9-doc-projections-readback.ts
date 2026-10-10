@@ -163,7 +163,7 @@ function runTempRepoProjectionReadback() {
     execFileSync("mkdir", ["-p", resolve(root, "docs/architecture")]);
     writeFileSync(resolve(root, "docs/architecture/index.md"), "# Architecture Index\n\nHuman note before generated region.\n", "utf8");
     const firstPlan = runCli(root, env, ["docs", "plan", "--id", "changeset.docs-projection-al9"]);
-    const secondPlan = runCli(root, env, ["docs", "preview", "--id", "changeset.docs-projection-al9-preview"]);
+    const secondPlan = runCli(root, env, ["docs", "plan", "--id", "changeset.docs-projection-al9-replan"]);
     const beforeApplyDrift = runCli(root, env, ["docs", "drift"]);
     const apply = runCli(root, env, ["docs", "apply", "--approved", "--id", "changeset.docs-projection-al9"]);
     const afterApplyDrift = runCli(root, env, ["docs", "drift"]);
@@ -194,7 +194,7 @@ function runTempRepoProjectionReadback() {
       ambiguousOwnershipRejected: ambiguousOwnershipIsRejected(root),
       cliCommands: [
         { command: "docs plan", ok: firstPlan.ok === true },
-        { command: "docs preview", ok: secondPlan.ok === true },
+        { command: "docs plan (repeat)", ok: secondPlan.ok === true },
         { command: "docs apply", ok: apply.ok === true },
         { command: "docs drift", ok: afterApplyDrift.ok === true },
         { command: "docs clean", ok: clean.ok === true }
