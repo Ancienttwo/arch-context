@@ -667,3 +667,126 @@ describe("deciding a scan candidate", () => {
     }
   });
 });
+
+describe("scan-time evidence and recommendations show", () => {
+  interface ScanCandidate {
+    recommendationId: string;
+    subject: string;
+    evidenceBindingIds: string[];
+    explanation: string[];
+    category: string;
+    payload: { kind: string; affectedNodeIds: string[]; derivedOutcomes: unknown[]; metrics: Record<string, number | null>; signalIds: string[]; evidence: { kind: string } };
+  }
+
+  function scanWithEvidence(envelope: JsonEnvelope): {
+    worktree: { headSha: string; worktreeDigest: string };
+    assessment: RefactorAssessmentV1;
+    proposedRecommendations: ScanCandidate[];
+    evidenceItems: { evidenceId: string; kind: string }[];
+    evidenceBindings: { bindingId: string; evidenceId: string; target: { kind: string; id: string } }[];
+  } {
+    expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
+    return envelope.data as never;
+  }
+
+  function showData(envelope: JsonEnvelope): {
+    recommendationId: string;
+    source: string;
+    status: string;
+    recommendation: ScanCandidate;
+    evidence: { items: { evidenceId: string; kind: string }[]; bindings: { bindingId: string; evidenceId: string }[] };
+    baseline: { status: string; snapshotDigest: string | null };
+    affectedModules: { nodeId: string }[];
+    decisions: { action: string; reason: string }[];
+    worktree: { worktreeDigest: string } | null;
+    privacy: { writes: string };
+  } {
+    expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
+    return envelope.data as never;
+  }
+
+  test("every scan candidate carries its evidence, outcomes and resolvable bindings", async () => {
+    const root = createFixtureRepo();
+    const daemon = await startDaemon(new TestLocalStore());
+    try {
+      const scan = scanWithEvidence(await daemon.refactorScan(root));
+      expect(scan.proposedRecommendations.length).toBeGreaterThan(0);
+      const bindingIds = new Set(scan.evidenceBindings.map((binding) => binding.bindingId));
+      const itemIds = new Set(scan.evidenceItems.map((item) => item.evidenceId));
+      for (const candidate of scan.proposedRecommendations) {
+        const observation = scan.assessment.observations.find((entry) => entry.kind === candidate.payload.kind && entry.subjectSelectorId === candidate.subject);
+        expect(observation).toBeDefined();
+        expect(candidate.payload.evidence).toEqual(observation!.evidence as never);
+        expect(candidate.payload.metrics).toEqual(observation!.metrics);
+        expect(candidate.payload.signalIds).toEqual(observation!.signalIds);
+        // The same acceptance test the record will carry, visible before anything is recorded.
+        expect(candidate.payload.derivedOutcomes.length).toBeGreaterThan(0);
+        expect(candidate.explanation.join("\n")).not.toContain("Structural observation");
+        for (const bindingId of candidate.evidenceBindingIds) {
+          expect(bindingIds.has(bindingId)).toBe(true);
+          const binding = scan.evidenceBindings.find((entry) => entry.bindingId === bindingId)!;
+          expect(binding.target).toEqual({ kind: "recommendation", id: candidate.recommendationId });
+          expect(itemIds.has(binding.evidenceId)).toBe(true);
+        }
+      }
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("show answers a scan candidate and, after a decision, the recorded record by the same id", async () => {
+    const root = createFixtureRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const scan = scanWithEvidence(await daemon.refactorScan(root));
+      const candidate = scan.proposedRecommendations[0]!;
+
+      const before = showData(await daemon.recommendations(root, { command: "show", recommendationId: candidate.recommendationId }));
+      expect(before).toMatchObject({
+        recommendationId: candidate.recommendationId,
+        source: "scan-candidate",
+        status: "open",
+        decisions: [],
+        worktree: { worktreeDigest: scan.worktree.worktreeDigest },
+        privacy: { writes: "none" }
+      });
+      expect(before.recommendation.payload.evidence).toEqual(candidate.payload.evidence);
+      expect(before.evidence.bindings.map((binding) => binding.bindingId)).toEqual([...candidate.evidenceBindingIds].sort());
+      expect(before.evidence.items.map((item) => item.kind)).toContain("module-statistics-snapshot");
+      expect(before.baseline.status).toBe("measured");
+      expect(before.affectedModules.map((module) => module.nodeId)).toEqual(candidate.payload.affectedNodeIds);
+      expect(store.architectureEventAppends).toHaveLength(0);
+
+      const decided = await daemon.recommendations(root, { command: "defer", recommendationId: candidate.recommendationId, reason: "Next quarter." });
+      expect(decided.ok, JSON.stringify(decided)).toBe(true);
+
+      const after = showData(await daemon.recommendations(root, { command: "show", recommendationId: candidate.recommendationId }));
+      expect(after).toMatchObject({ recommendationId: candidate.recommendationId, source: "ledger", status: "deferred", worktree: null });
+      expect(after.decisions.map((decision) => [decision.action, decision.reason])).toEqual([["defer", "Next quarter."]]);
+      expect(after.recommendation.payload.evidence).toEqual(candidate.payload.evidence);
+      expect(after.evidence.bindings.map((binding) => binding.bindingId)).toEqual(before.evidence.bindings.map((binding) => binding.bindingId));
+      expect(after.baseline).toEqual(before.baseline);
+      expect(after.affectedModules).toEqual(before.affectedModules);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("show on an id that is neither recorded nor scanned is a typed not-found and writes nothing", async () => {
+    const root = createFixtureRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const missing = await daemon.recommendations(root, { command: "show", recommendationId: "recommendation.ffffffffffffffff" });
+      expect(missing.ok).toBe(false);
+      expect(errorOf(missing).code).toBe("AC_REFACTOR_STALE");
+      const noId = await daemon.recommendations(root, { command: "show" });
+      expect(noId.ok).toBe(false);
+      expect(errorOf(noId).code).toBe("AC_SCHEMA_INVALID");
+      expect(store.architectureEventAppends).toHaveLength(0);
+    } finally {
+      await daemon.stop();
+    }
+  });
+});

@@ -133,6 +133,43 @@ describe("planRefactorRecommendationRun observations", () => {
     expect(cycle!.risk).toBe("high");
   });
 
+  test("each observation payload is self-contained: metrics, signals and evidence ride with it", () => {
+    const input = makeAssessmentInput({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES.map((edge, index) => ({ ...edge, line: index + 3 })) }) });
+    const assessment = assessRefactor(input).assessment;
+    const plan = planWith(input.snapshot, assessment, undefined);
+    for (const record of plan.recommendations) {
+      if (record.category !== "structural_observation") continue;
+      const observation = assessment.observations.find((entry) => entry.kind === record.payload.kind && entry.subjectSelectorId === record.subject);
+      expect(observation).toBeDefined();
+      expect(record.payload.metrics).toEqual(observation!.metrics);
+      expect(record.payload.signalIds).toEqual(observation!.signalIds);
+      expect(record.payload.evidence).toEqual(observation!.evidence);
+    }
+    expectRecordsValid(plan.recommendations);
+  });
+
+  test("the explanation is built from the observation's own evidence", () => {
+    const plan = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES.map((edge, index) => ({ ...edge, line: index + 3 })) }) });
+    const byKind = (kind: string) => plan.recommendations.find((record) => record.category === "structural_observation" && record.payload.kind === kind)!;
+    expect(byKind("cycle").explanation).toEqual([
+      "Import cycle between 2 modules (component.a, module.c): 2 file-level import edge(s) keep them mutually dependent.",
+      "src/c/z.ts:4 → src/m/a/x.ts via ../m/a/x (module.c → component.a).",
+      "src/m/a/x.ts:3 → src/c/z.ts via ../../c/z (component.a → module.c)."
+    ]);
+    expect(byKind("unowned-paths").explanation).toEqual([
+      "1 tracked file(s) under a declared source root are owned by no declared node.",
+      "src/gen.ts (no node owns a file in its directory)."
+    ]);
+  });
+
+  test("evidence is not identity: a relocated import keeps the recommendation id", () => {
+    const unlocated = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) });
+    const located = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES.map((edge) => ({ ...edge, line: 9 })) }) });
+    expect(located.recommendations.map((record) => record.recommendationId)).toEqual(
+      unlocated.recommendations.map((record) => record.recommendationId)
+    );
+  });
+
   test("the run trigger, catalogDigest and ledger payload are refactor_scan shaped", () => {
     const plan = planFor();
 

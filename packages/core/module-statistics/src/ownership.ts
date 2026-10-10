@@ -18,6 +18,8 @@ export interface OwnershipIndex {
    * `countsAsUnowned`. Every unclaimed file still appears in `byPath` with no owners.
    */
   unownedFileCount: number;
+  /** The sorted paths `unownedFileCount` counts: exactly the actionable ownership gaps. */
+  unownedPaths: string[];
   multiplyOwnedFileCount: number;
 }
 
@@ -44,11 +46,15 @@ export function resolveOwnership(nodes: NativeNode[], paths: string[]): Ownershi
   let ownedFileCount = 0;
   let unownedFileCount = 0;
   let multiplyOwnedFileCount = 0;
+  const unownedPaths: string[] = [];
 
   for (const path of paths) {
     const candidates = declaring.filter((node) => claims(node, path));
     if (candidates.length === 0) {
-      if (countsAsUnowned(path, roots, excludes)) unownedFileCount += 1;
+      if (countsAsUnowned(path, roots, excludes)) {
+        unownedFileCount += 1;
+        unownedPaths.push(path);
+      }
       byPath.set(path, { owners: [], ambiguous: false });
       continue;
     }
@@ -63,7 +69,7 @@ export function resolveOwnership(nodes: NativeNode[], paths: string[]): Ownershi
     }
   }
   for (const files of filesByNode.values()) files.sort();
-  return { byPath, filesByNode, ownedFileCount, unownedFileCount, multiplyOwnedFileCount };
+  return { byPath, filesByNode, ownedFileCount, unownedFileCount, unownedPaths: unownedPaths.sort(), multiplyOwnedFileCount };
 }
 
 /**

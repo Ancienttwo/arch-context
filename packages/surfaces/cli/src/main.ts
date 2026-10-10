@@ -962,8 +962,15 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
       ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! })
     });
   }
+  if (subcommand === "show") {
+    const recommendationId = readFlag(args, "--id") ?? readFlag(args, "--recommendation-id") ?? args[1];
+    if (!recommendationId || recommendationId.startsWith("--")) {
+      return errorEnvelope("recommendations.show", "AC_SCHEMA_INVALID", "recommendations show requires --id");
+    }
+    return daemon.recommendations(cwd, { command: "show", recommendationId });
+  }
   if (!["acknowledge", "accept", "reject", "defer", "waive", "resolve"].includes(subcommand)) {
-    return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics");
+    return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics|show");
   }
   const recommendationId = readFlag(args, "--id") ?? readFlag(args, "--recommendation-id") ?? args[1];
   if (!recommendationId || recommendationId.startsWith("--")) {

@@ -31,6 +31,7 @@ import {
 import {
   planRefactorRecommendationRun,
   refactorRecommendationRunLedgerPayload,
+  type PlanRefactorRecommendationRunInput,
   type PreviousRecommendationV3,
   type RefactorRecommendationRunPlan
 } from "@archcontext/core/recommendation-engine";
@@ -144,7 +145,7 @@ export interface RefactorRecordEventPlan {
  * to the same `graphDigest` with or without this event.
  */
 export function buildRefactorRecordEvent(input: RefactorRecordEventInput): RefactorRecordEventPlan {
-  const planned = planRefactorRecommendationRun({
+  const plan = planRefactorRun({
     repository: input.repository,
     worktree: input.worktree,
     snapshot: input.registered.snapshot,
@@ -154,7 +155,6 @@ export function buildRefactorRecordEvent(input: RefactorRecordEventInput): Refac
     catalogDigest: input.catalogDigest,
     now: input.now
   });
-  const plan = withDerivedObservationOutcomes(planned);
   const evidenceOperations = evidenceLifecycleOperations(input.evidenceState, plan.evidenceItems, plan.evidenceBindings);
   const inputDigest = digestJson({
     schemaVersion: "archcontext.refactor-record-event-input/v1",
@@ -195,6 +195,15 @@ export function buildRefactorRecordEvent(input: RefactorRecordEventInput): Refac
     } as unknown as Json
   };
   return { plan, event, evidenceOperations };
+}
+
+/**
+ * The one planning path a scan preview and a record share: the recommendation engine's plan with
+ * every structural observation's acceptance test filled. A scan candidate therefore shows exactly
+ * the `derivedOutcomes` its record will carry.
+ */
+export function planRefactorRun(input: PlanRefactorRecommendationRunInput): RefactorRecommendationRunPlan {
+  return withDerivedObservationOutcomes(planRefactorRecommendationRun(input));
 }
 
 function previousRecommendationsV3(recommendations: readonly RecommendationLedgerRecordV1[]): PreviousRecommendationV3[] {

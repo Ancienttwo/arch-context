@@ -37,6 +37,11 @@ export interface ModuleStatisticsImportEdgeV1 {
   specifier: string;
   /** Repo-relative target, or `null` when the producer could not resolve the specifier. */
   to: string | null;
+  /**
+   * 1-based line of the import in `from`, when the producer observed one. Evidence metadata only:
+   * no count, no digest and no snapshot field reads it, so it never perturbs snapshot identity.
+   */
+  line?: number;
 }
 
 export interface ModuleStatisticsWorkspacePackageV1 {
@@ -228,6 +233,26 @@ function compare(left: string, right: string): number {
 }
 
 /**
+ * The concrete structure a snapshot's counts were measured from, kept beside it rather than inside
+ * it: the snapshot is a digest-bound, persisted contract of counts, while this is the in-memory
+ * population (edges, owners, violations) a reader needs to see *which* files a count is about.
+ * `snapshotDigest` binds the pair; nothing here is persisted as-is.
+ */
+export interface ModuleStructureV1 {
+  snapshotDigest: string;
+  /** Resolved import edges the graph was measured over; empty when the index did not attest this tree. */
+  importEdges: ModuleStatisticsImportEdgeV1[];
+  ownership: OwnershipIndex;
+  /** The `forbid-dependency` violations each module's `directionViolationCount` counts. */
+  directionViolations: DependencyConstraintViolationV1[];
+}
+
+export interface ModuleStatisticsMeasurementV1 {
+  snapshot: ModuleStatisticsSnapshotV1;
+  structure: ModuleStructureV1;
+}
+
+/**
  * Measures one `ModuleStatisticsSnapshotV1` from a materialized input.
  *
  * Two calls on the same input produce byte-identical JSON: every collection is sorted with the
@@ -235,6 +260,11 @@ function compare(left: string, right: string): number {
  * helpers rather than being re-derived here.
  */
 export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): ModuleStatisticsSnapshotV1 {
+  return measureModuleStatistics(input).snapshot;
+}
+
+/** The snapshot plus the structure it counted, from one pass over one input. */
+export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleStatisticsMeasurementV1 {
   const nodes = [...input.model.nodes].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
   const trackedFiles = [...input.trackedFiles].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
   const linesByPath = new Map(trackedFiles.map((file) => [file.path, file.lineCount]));
@@ -245,9 +275,9 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
   // it produced describe some other tree, so they are dropped rather than reported as observations.
   const edges = measurable ? resolveEdges(input.importEdges, input.workspacePackages, new Set(linesByPath.keys())) : [];
   const constraints = input.constraints ?? [];
-  const directionViolations = constraints.length === 0
+  const directionEvaluation = constraints.length === 0
     ? undefined
-    : countViolationsByNode(evaluateDependencyConstraints({
+    : evaluateDependencyConstraints({
       nodes,
       constraints,
       worktreeDigest: input.worktree.worktreeDigest,
@@ -256,7 +286,8 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
       workspacePackages: input.workspacePackages,
       truncated: input.truncated,
       codeFacts: input.codeFacts
-    }));
+    });
+  const directionViolations = directionEvaluation === undefined ? undefined : countViolationsByNode(directionEvaluation);
 
   const ownersByPath = new Map([...ownership.byPath].map(([path, resolution]) => [path, resolution.owners]));
   const graph = buildModuleGraph(
@@ -313,7 +344,16 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
     createdAt: input.createdAt,
     snapshotDigest: ""
   };
-  return { ...draft, snapshotDigest: moduleStatisticsSnapshotDigest(draft) };
+  const snapshot = { ...draft, snapshotDigest: moduleStatisticsSnapshotDigest(draft) };
+  return {
+    snapshot,
+    structure: {
+      snapshotDigest: snapshot.snapshotDigest,
+      importEdges: edges,
+      ownership,
+      directionViolations: directionEvaluation?.violations ?? []
+    }
+  };
 }
 
 /**

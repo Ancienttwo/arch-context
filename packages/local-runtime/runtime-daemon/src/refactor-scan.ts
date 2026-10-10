@@ -11,6 +11,8 @@ import {
   type ArchitectureWorktreeIdentityV1,
   type DependencyConstraintEvaluationV1,
   type DependencyConstraintV1,
+  type EvidenceBindingV1,
+  type EvidenceItemV2,
   type Json,
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
@@ -21,15 +23,12 @@ import {
 import { parseJsonOrStableYaml, readDependencyConstraints } from "@archcontext/core/architecture-domain";
 import type { RecommendationLedgerRecordV1 } from "@archcontext/core/architecture-ledger";
 import {
-  buildModuleStatisticsSnapshot,
   evaluateDependencyConstraints,
+  measureModuleStatistics,
   type ModuleStatisticsIndexAvailability
 } from "@archcontext/core/module-statistics";
 import { loadNativeModelFromArchContext, type NativeNode } from "@archcontext/core/projection-engine";
-import {
-  planRefactorRecommendationRun,
-  type RecommendationSuppression
-} from "@archcontext/core/recommendation-engine";
+import type { RecommendationSuppression } from "@archcontext/core/recommendation-engine";
 import { assessRefactor } from "@archcontext/core/refactor-assessment";
 import {
   CODEGRAPH_IMPORT_NODE_QUERY_LIMIT,
@@ -39,6 +38,7 @@ import {
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadCommitterDate, readTrackedSourceFiles, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
+import { planRefactorRun } from "./refactor-recording";
 
 /** The CodeGraph CLI name the adapter resolves package-locally when PATH has no answer. */
 const CODEGRAPH_BINARY = "codegraph";
@@ -84,6 +84,12 @@ export interface RefactorScanResultV1 {
   proposal?: RefactorProposalV1;
   /** What `refactor record` would append at this HEAD. Not persisted by the scan. */
   proposedRecommendations: RecommendationV3[];
+  /**
+   * The evidence items and bindings `refactor record` would append beside them, so every
+   * `evidenceBindingIds` entry a candidate carries resolves inside the scan response itself.
+   */
+  evidenceItems: EvidenceItemV2[];
+  evidenceBindings: EvidenceBindingV1[];
   suppressed: RecommendationSuppression[];
   trackedFileCount: number;
 }
@@ -123,7 +129,7 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
   const trackedFiles = readTrackedSourceFiles(input.root);
   const codeFacts = readCodeFacts(input.root, input.worktree.worktreeDigest, edgeLimit);
 
-  const snapshot = buildModuleStatisticsSnapshot({
+  const { snapshot, structure } = measureModuleStatistics({
     model,
     repository: input.repository,
     worktree: input.worktree,
@@ -146,6 +152,7 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
   try {
     assessed = assessRefactor({
       snapshot,
+      structure,
       model,
       constraints,
       trackedFiles: trackedFiles.map((file) => file.path),
@@ -157,9 +164,9 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
     throw new RefactorScanError("AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
   }
 
-  let plan: ReturnType<typeof planRefactorRecommendationRun>;
+  let plan: ReturnType<typeof planRefactorRun>;
   try {
-    plan = planRefactorRecommendationRun({
+    plan = planRefactorRun({
       repository: input.repository,
       worktree: input.worktree,
       snapshot,
@@ -184,6 +191,8 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
     assessment: assessed.assessment,
     ...(assessed.proposal ? { proposal: assessed.proposal } : {}),
     proposedRecommendations: plan.recommendations,
+    evidenceItems: plan.evidenceItems,
+    evidenceBindings: plan.evidenceBindings,
     suppressed: plan.suppressed,
     trackedFileCount: trackedFiles.length
   };
@@ -357,7 +366,7 @@ function loadModel(root: string): ReturnType<typeof loadNativeModelFromArchConte
 }
 
 interface RefactorScanCodeFactsV1 {
-  pairs: { from: string; specifier: string; to: string | null }[];
+  pairs: { from: string; specifier: string; to: string | null; line?: number }[];
   truncated: boolean;
   availability: ModuleStatisticsIndexAvailability;
   indexedWorktreeDigest: string | null;

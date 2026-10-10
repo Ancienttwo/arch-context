@@ -2213,6 +2213,15 @@ describe("archctx CLI", () => {
       const missingReason = await runCli("recommendations", ["reject", "--id", "recommendation.cli_test"], root, { runtimeClient: runtimeClient as any });
       expect(missingReason.ok).toBe(false);
       expect((missingReason as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      // `show` is a read: an id and nothing else reaches the daemon.
+      const shown = await runCli("recommendations", ["show", "--id", "recommendation.cli_test", "--json"], root, { runtimeClient: runtimeClient as any });
+      expect(shown.ok).toBe(true);
+      expect(calls[2]).toEqual({ command: "show", recommendationId: "recommendation.cli_test" });
+      const missingId = await runCli("recommendations", ["show"], root, { runtimeClient: runtimeClient as any });
+      expect(missingId.ok).toBe(false);
+      expect((missingId as any).error.message).toBe("recommendations show requires --id");
+      expect(calls).toHaveLength(3);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

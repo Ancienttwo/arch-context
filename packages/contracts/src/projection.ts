@@ -70,6 +70,7 @@ export const ARCHCTX_FEATURES = [
   "recommendation-scan-decision-v1",
   "recommendation-v3",
   "refactor-assessment-v1",
+  "refactor-observation-evidence-v1",
   "refactor-resolution-v1"
 ] as const;
 

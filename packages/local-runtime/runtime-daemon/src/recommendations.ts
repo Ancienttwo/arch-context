@@ -44,9 +44,13 @@ import {
   type ArchContextErrorCode,
   type ArchitectureActorKind,
   type ArchitectureEventV1,
+  type EvidenceBindingV1,
+  type EvidenceItemV2,
   type EvidenceStateAtCursorV1,
   type Json,
   type JsonEnvelope,
+  type ModuleStatisticsSnapshotV1,
+  type RecommendationV2,
   type RecommendationFeedbackV1,
   type RecommendationRunV1
 } from "@archcontext/contracts";
@@ -115,8 +119,12 @@ export class RecommendationsService {
       } as unknown as Json);
     };
     if (command === "metrics") return readMetrics();
+    if (command === "show") {
+      if (!input.recommendationId) return errorEnvelope("recommendations.show", "AC_SCHEMA_INVALID", "recommendations show requires --id");
+      return this.showRecommendation(repositoryRoot, input.recommendationId);
+    }
     if (!isRecommendationLifecycleCliAction(command)) {
-      return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics");
+      return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics|show");
     }
     if (!input.recommendationId) {
       return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendations ${command} requires --id`);
@@ -302,6 +310,63 @@ export class RecommendationsService {
         evidenceItemIds: built.plan.evidenceItems.map((item) => item.evidenceId),
         eventId: built.event.eventId
       }
+    });
+  }
+
+  /**
+   * One read that answers "why does this recommendation exist and what happened to it": the
+   * record, the evidence items and bindings it resolves to, the measured statistics of the modules
+   * it names, and every explicit decision. Read-only; nothing is appended or registered.
+   *
+   * A recorded id is answered from the ledger alone. An id the ledger does not hold is answered
+   * from the repository scan at the tree that is here now, under the same identity a decision on
+   * it would record, so a UI can show a candidate and then decide it by the same id.
+   */
+  private async showRecommendation(repositoryRoot: string, recommendationId: string): Promise<JsonEnvelope> {
+    const scope = await this.context.architectureLedgerScope(repositoryRoot);
+    const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+    const artifacts = recommendationArtifactsFromEvents(replay.events);
+    const recorded = latestRecommendationById(artifacts.recommendations, recommendationId);
+    if (recorded) {
+      const bindings = replay.evidenceState.evidenceBindings
+        .filter((binding) => binding.target.kind === "recommendation" && binding.target.id === recommendationId)
+        .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
+      const baseline = baselineSnapshotForRecommendation(replay.evidenceState, recommendationId);
+      return recommendationShowEnvelope({
+        source: "ledger",
+        recommendation: recorded,
+        bindings,
+        items: evidenceItemsFor(replay.evidenceState.evidenceItems, bindings),
+        baseline: baseline === undefined
+          ? { status: "missing", snapshotDigest: null }
+          : baseline.snapshot
+            ? { status: "measured", snapshotDigest: baseline.snapshotDigest, snapshot: baseline.snapshot }
+            : { status: "unverifiable", snapshotDigest: baseline.snapshotDigest },
+        decisions: artifacts.feedback.filter((feedback) => feedback.recommendationId === recommendationId),
+        worktree: null
+      });
+    }
+    const measured = await this.measureRepository(repositoryRoot, REPOSITORY_REFACTOR_REQUEST, "recommendations show");
+    if (!measured.ok) {
+      return errorEnvelope(
+        "recommendations.show",
+        measured.code,
+        `recommendation ${recommendationId} is not recorded and the current refactor scan could not run: ${measured.message}`
+      );
+    }
+    const candidate = measured.result.proposedRecommendations.find((entry) => entry.recommendationId === recommendationId);
+    if (!candidate) return recommendationNotFound("show", recommendationId, "recorded-or-scanned");
+    const bindings = measured.result.evidenceBindings
+      .filter((binding) => binding.target.kind === "recommendation" && binding.target.id === recommendationId)
+      .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
+    return recommendationShowEnvelope({
+      source: "scan-candidate",
+      recommendation: candidate as RecommendationLedgerRecordV1,
+      bindings,
+      items: evidenceItemsFor(measured.result.evidenceItems, bindings),
+      baseline: { status: "measured", snapshotDigest: measured.result.snapshot.snapshotDigest, snapshot: measured.result.snapshot },
+      decisions: [],
+      worktree: { headSha: measured.gitScope.worktree.headSha, worktreeDigest: measured.gitScope.worktree.worktreeDigest }
     });
   }
 
@@ -502,6 +567,9 @@ export class RecommendationsService {
       assessment: result.assessment,
       ...(result.proposal ? { proposal: result.proposal } : {}),
       proposedRecommendations: result.proposedRecommendations,
+      // Every `evidenceBindingIds` entry a candidate carries resolves here, before any record.
+      evidenceItems: result.evidenceItems,
+      evidenceBindings: result.evidenceBindings,
       suppressed: result.suppressed,
       recordCommand: `archctx refactor record --assessment-digest ${result.assessment.assessmentDigest} --expected-worktree-digest ${gitScope.worktree.worktreeDigest}`,
       privacy: {
@@ -1022,7 +1090,7 @@ function latestRecommendationById(
  * current tree, and the action that fixes it is a fresh `refactor scan`, not a model repair.
  */
 function recommendationNotFound(
-  command: RecommendationFeedbackAction,
+  command: RecommendationFeedbackAction | "show",
   recommendationId: string,
   searched: "recorded" | "recorded-or-scanned"
 ): JsonEnvelope {
@@ -1034,6 +1102,53 @@ function recommendationNotFound(
       : `recommendation not found: ${recommendationId} is neither recorded nor a candidate of the current refactor scan; run refactor scan again`,
     "recommendation-not-found"
   );
+}
+
+function evidenceItemsFor(items: readonly EvidenceItemV2[], bindings: readonly EvidenceBindingV1[]): EvidenceItemV2[] {
+  const evidenceIds = new Set(bindings.map((binding) => binding.evidenceId));
+  return items.filter((item) => evidenceIds.has(item.evidenceId)).sort((left, right) => left.evidenceId.localeCompare(right.evidenceId));
+}
+
+function recommendationShowEnvelope(input: {
+  source: "ledger" | "scan-candidate";
+  recommendation: RecommendationLedgerRecordV1;
+  bindings: EvidenceBindingV1[];
+  items: EvidenceItemV2[];
+  baseline:
+    | { status: "measured"; snapshotDigest: string; snapshot: ModuleStatisticsSnapshotV1 }
+    | { status: "unverifiable"; snapshotDigest: string }
+    | { status: "missing"; snapshotDigest: null };
+  decisions: RecommendationFeedbackV1[];
+  /** The tree a scan candidate was measured at; `null` for a recorded recommendation. */
+  worktree: { headSha: string; worktreeDigest: string } | null;
+}): JsonEnvelope {
+  const recommendation = input.recommendation as RecommendationV2 | RecommendationV3;
+  const affectedNodeIds = "category" in recommendation && recommendation.category !== "practice"
+    ? new Set((recommendation.payload as StructuralObservationPayloadV1 | RefactorProposalPayloadV1).affectedNodeIds)
+    : new Set<string>();
+  // Statistics come only from a baseline body that still proves its own digest: an unverifiable
+  // or missing baseline reports its status and names no module numbers at all.
+  const affectedModules = input.baseline.status === "measured"
+    ? input.baseline.snapshot.modules.filter((module) => affectedNodeIds.has(module.nodeId))
+    : [];
+  return okEnvelope("recommendations.show", {
+    schemaVersion: "archcontext.runtime-recommendation-show/v1",
+    recommendationId: input.recommendation.recommendationId,
+    source: input.source,
+    status: input.recommendation.status,
+    recommendation: input.recommendation,
+    evidence: { items: input.items, bindings: input.bindings },
+    baseline: { status: input.baseline.status, snapshotDigest: input.baseline.snapshotDigest },
+    affectedModules,
+    decisions: input.decisions,
+    worktree: input.worktree,
+    privacy: {
+      writes: "none",
+      rawSourcePersisted: false,
+      rawDiffPersisted: false,
+      promptPersisted: false
+    }
+  } as unknown as Json);
 }
 
 function lifecycleEnvelope(input: {

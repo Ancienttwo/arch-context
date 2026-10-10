@@ -27,6 +27,8 @@ import {
   type RecommendationV2,
   type RecommendationV3,
   type RefactorAssessmentV1,
+  type RefactorEvidenceImportEdgeV1,
+  type RefactorObservationEvidenceV1,
   type RefactorObservationKind,
   type RefactorObservationV1,
   type RefactorProposalPayloadV1,
@@ -1289,7 +1291,11 @@ function observationDrafts(input: PlanRefactorRecommendationRunInput): RefactorR
       baselineSnapshotDigest: input.snapshot.snapshotDigest,
       // RF4 owns the kind-to-outcome derivation in refactor-assessment; RF3 records the fact, not
       // the acceptance test for it, so this stays empty rather than forking a second definition.
-      derivedOutcomes: []
+      derivedOutcomes: [],
+      // Copied verbatim so the record is self-contained; none of them is fingerprinted.
+      metrics: { ...observation.metrics },
+      signalIds: [...observation.signalIds],
+      evidence: observation.evidence
     };
     return sealDraft({
       category: "structural_observation" as const,
@@ -1302,14 +1308,101 @@ function observationDrafts(input: PlanRefactorRecommendationRunInput): RefactorR
       authoredBy: DAEMON_AUTHOR,
       enforcement: "advisory" as const,
       confidence: input.assessment.confidence.level,
-      explanation: [
-        `Structural observation ${observation.kind} on ${observation.subjectSelectorId}.`,
-        `Measured from module statistics snapshot ${input.snapshot.snapshotDigest}.`
-      ],
+      explanation: observationExplanation(observation, affectedNodeIds),
       riskSignals: [...OBSERVATION_RISK_SIGNALS[observation.kind]],
       uncertaintySignals: coverageUncertaintySignals(input.snapshot)
     }, baselineEvidenceId);
   });
+}
+
+/** How many evidence entries the explanation names inline; the payload carries the full sample. */
+const EXPLANATION_EXAMPLE_LIMIT = 3;
+
+/**
+ * Kind-specific prose built from the observation's own evidence: what was measured, how much of
+ * it, and the first few concrete locations. Paths, lines, specifiers and node ids only.
+ */
+export function observationExplanation(observation: RefactorObservationV1, affectedNodeIds: readonly string[]): string[] {
+  const evidence = observation.evidence;
+  const more = (shown: number): string[] => evidence.totalCount > shown
+    ? [`… and ${evidence.totalCount - shown} more (${evidence.truncated ? `evidence lists the first ${evidenceLength(evidence)}` : "listed in the evidence"}).`]
+    : [];
+  switch (evidence.kind) {
+    case "cycle": {
+      const examples = evidence.edges.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `Import cycle between ${evidence.memberNodeIds.length} modules (${evidence.memberNodeIds.join(", ")}): ${evidence.totalCount} file-level import edge(s) keep them mutually dependent.`,
+        ...examples.map((edge) => `${edgeText(edge)} (${edge.fromNodeId} → ${edge.toNodeId}).`),
+        ...more(examples.length)
+      ];
+    }
+    case "direction-violation": {
+      const examples = evidence.violations.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `${observation.subjectSelectorId} breaks ${evidence.totalCount} declared dependency direction rule edge(s) (${evidence.constraintIds.join(", ")}).`,
+        ...examples.map((violation) => `${violation.constraintId}: ${edgeText(violation)} (${violation.fromNodeId} → ${violation.toNodeId}).`),
+        ...more(examples.length)
+      ];
+    }
+    case "ownership-ambiguous": {
+      const examples = evidence.paths.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `${evidence.totalCount} file(s) owned by ${observation.subjectSelectorId} are also claimed by a node outside its parent chain.`,
+        ...examples.map((entry) => `${entry.path} is claimed by ${entry.candidateOwnerNodeIds.join(", ")}.`),
+        ...more(examples.length)
+      ];
+    }
+    case "undeclared-footprint": {
+      const examples = evidence.paths.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `${observation.subjectSelectorId} declares no source.include footprint, so none of its files or imports are measured.`,
+        ...(evidence.totalCount === 0
+          ? ["It declares no entrypoint paths either."]
+          : examples.map((entry) => `Declared entrypoint ${entry.path} is ${entry.candidateOwnerNodeIds.length === 0 ? "owned by no node" : `owned by ${entry.candidateOwnerNodeIds.join(", ")}`}.`)),
+        ...(evidence.totalCount === 0 ? [] : more(examples.length))
+      ];
+    }
+    case "unowned-paths": {
+      const examples = evidence.paths.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `${evidence.totalCount} tracked file(s) under a declared source root are owned by no declared node.`,
+        ...examples.map((entry) => entry.candidateOwnerNodeIds.length === 0
+          ? `${entry.path} (no node owns a file in its directory).`
+          : `${entry.path} (its directory also holds files owned by ${entry.candidateOwnerNodeIds.join(", ")}).`),
+        ...more(examples.length)
+      ];
+    }
+    case "evidence-gap": {
+      const examples = evidence.unresolvedImports.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `Code facts coverage is ${evidence.coverage} (${evidence.reasonCodes.join(", ")}), so structural metrics${affectedNodeIds.length > 0 ? ` for ${affectedNodeIds.join(", ")}` : ""} are incomplete.`,
+        ...(evidence.totalCount === 0
+          ? []
+          : [`${evidence.totalCount} import specifier(s) did not resolve to a tracked file.`, ...examples.map((entry) => `${locationText(entry.fromPath, entry.fromLine)} imports ${entry.specifier}.`), ...more(examples.length)])
+      ];
+    }
+  }
+}
+
+function evidenceLength(evidence: RefactorObservationEvidenceV1): number {
+  switch (evidence.kind) {
+    case "cycle":
+      return evidence.edges.length;
+    case "direction-violation":
+      return evidence.violations.length;
+    case "evidence-gap":
+      return evidence.unresolvedImports.length;
+    default:
+      return evidence.paths.length;
+  }
+}
+
+function edgeText(edge: RefactorEvidenceImportEdgeV1): string {
+  return `${locationText(edge.fromPath, edge.fromLine)} → ${edge.toPath} via ${edge.specifier}`;
+}
+
+function locationText(path: string, line: number | null): string {
+  return line === null ? path : `${path}:${line}`;
 }
 
 /**
