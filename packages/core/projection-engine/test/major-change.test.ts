@@ -6,7 +6,7 @@ import {
   type NativeModel,
   type SemanticCapabilityDiagramCompilation
 } from "../src/index";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDigestSetV1, ArchitectureMajorChangeReasonCode } from "@archcontext/contracts";
+import { architectureRefreshSignalInvariantIssues, type AcceptedArchitectureChangeReferenceV1, type ArchitectureDigestSetV1, type ArchitectureMajorChangeReasonCode } from "@archcontext/contracts";
 
 describe("AXR4 architecture major-change classifier", () => {
   test("maps every closed semantic facet to its reason code", () => {
@@ -86,7 +86,14 @@ describe("AXR4 architecture major-change classifier", () => {
       mode: "human-action-required",
       cause: "unresolved-major-candidate",
       reasonCodes: ["verified-flow-proof-changed"],
-      affectedNodeIds: ["capability.api"]
+      affectedNodeIds: ["capability.api"],
+      capabilities: [{
+        capabilityId: "capability.api",
+        reasonCodes: ["verified-flow-proof-changed"],
+        changedFacets: [],
+        proofStatusBefore: null,
+        proofStatusAfter: { p1: "proven", p2: "unprovable" }
+      }]
     });
     const [signal] = produceArchitectureRefreshSignals(signalInput(classification));
     expect(signal.mode).toBe("human-action-required");
@@ -108,6 +115,87 @@ describe("AXR4 architecture major-change classifier", () => {
     expect(() => produceArchitectureRefreshSignals(signalInput(classification, {
       expected: { repositoryId: "repo.test", workspaceId: "workspace.test", headSha: "b".repeat(40), worktreeDigest: digest("1") }
     }))).toThrow("architecture-refresh-signal-stale-worktree");
+  });
+
+  test("each changed capability carries its own reasons, facets and proof statuses (#264)", () => {
+    const withJobs = (model: NativeModel): NativeModel => ({
+      ...model,
+      nodes: [...model.nodes, { schemaVersion: "archcontext.node/v2", id: "capability.jobs", kind: "capability", name: "Jobs", status: "active", summary: "Runs jobs." }]
+    });
+    const base = compileArchitectureSemanticState({ model: baseModel(), compilations: [proof()] });
+    const renamed = mutateNode(baseModel(), "module.api", { name: "API Runtime", responsibilities: ["dispatch", "validate", "audit"] });
+    const resulting = compileArchitectureSemanticState({
+      model: withJobs(renamed),
+      compilations: [proof(), { ...proof(), capabilityId: "capability.jobs" }]
+    });
+    const classification = classifyArchitectureMajorChange({ base, resulting });
+    expect(classification.reasonCodes).toEqual(["node-added", "node-renamed", "responsibility-changed"]);
+    expect(classification.capabilities).toEqual([
+      {
+        capabilityId: "capability.api",
+        reasonCodes: ["node-renamed", "responsibility-changed"],
+        changedFacets: ["names", "responsibilities"],
+        proofStatusBefore: { p1: "proven", p2: "not-applicable" },
+        proofStatusAfter: { p1: "proven", p2: "not-applicable" }
+      },
+      {
+        capabilityId: "capability.jobs",
+        reasonCodes: ["node-added"],
+        changedFacets: [],
+        proofStatusBefore: null,
+        proofStatusAfter: { p1: "proven", p2: "not-applicable" }
+      }
+    ]);
+    const [signal] = produceArchitectureRefreshSignals(signalInput(classification));
+    expect(signal.capabilities).toEqual(classification.capabilities);
+    expect(architectureRefreshSignalInvariantIssues(signal)).toEqual([]);
+
+    // An accepted change keeps the observed breakdown; the signal identity binds it.
+    const acceptedChange: AcceptedArchitectureChangeReferenceV1 = {
+      changeSetId: "changeset.api-rename",
+      eventId: "architecture_event.api-rename",
+      reasonCodes: ["node-renamed"],
+      affectedNodeIds: ["capability.api"]
+    };
+    const accepted = classifyArchitectureMajorChange({ base, resulting, acceptedChange });
+    expect(accepted.mode).toBe("refresh-required");
+    expect(accepted.capabilities).toEqual(classification.capabilities);
+    const [acceptedSignal] = produceArchitectureRefreshSignals(signalInput(accepted));
+    const [withoutDetail] = produceArchitectureRefreshSignals(signalInput({ ...accepted, capabilities: accepted.capabilities.slice(0, 1) }));
+    expect(acceptedSignal.signalId).not.toBe(withoutDetail.signalId);
+
+    // A removed capability has no resulting proof status and no facets.
+    const removed = classifyArchitectureMajorChange({ base: resulting, resulting: compileArchitectureSemanticState({ model: renamed, compilations: [proof()] }) });
+    expect(removed.capabilities).toEqual([{
+      capabilityId: "capability.jobs",
+      reasonCodes: ["node-removed"],
+      changedFacets: [],
+      proofStatusBefore: { p1: "proven", p2: "not-applicable" },
+      proofStatusAfter: null
+    }]);
+  });
+
+  test("an unresolved capability the observed delta did not touch is listed without reasons", () => {
+    const withJobs = (model: NativeModel): NativeModel => ({
+      ...model,
+      nodes: [...model.nodes, { schemaVersion: "archcontext.node/v2", id: "capability.jobs", kind: "capability", name: "Jobs", status: "active" }]
+    });
+    const jobs = (p2Status: "not-applicable" | "unprovable") => ({ ...proof(undefined, p2Status), capabilityId: "capability.jobs" });
+    // Jobs was already unprovable in the baseline: nothing about it changed, yet it blocks acceptance.
+    const base = compileArchitectureSemanticState({ model: withJobs(baseModel()), compilations: [proof(), jobs("unprovable")] });
+    const resulting = compileArchitectureSemanticState({
+      model: withJobs(mutateNode(baseModel(), "module.api", { name: "API Runtime" })),
+      compilations: [proof(), jobs("unprovable")]
+    });
+    const classification = classifyArchitectureMajorChange({ base, resulting });
+    expect(classification.mode).toBe("human-action-required");
+    expect(classification.reasonCodes).toEqual(["node-renamed"]);
+    expect(classification.capabilities.map((entry) => [entry.capabilityId, entry.reasonCodes, entry.changedFacets, entry.proofStatusAfter?.p2])).toEqual([
+      ["capability.api", ["node-renamed"], ["names"], "not-applicable"],
+      ["capability.jobs", [], [], "unprovable"]
+    ]);
+    const [signal] = produceArchitectureRefreshSignals(signalInput(classification));
+    expect(architectureRefreshSignalInvariantIssues(signal)).toEqual([]);
   });
 
   test("signal wire payload contains no source body, diff, CodeGraph output or prompt", () => {

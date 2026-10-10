@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { architectureDocsProjectionManifestIssues } from "@archcontext/contracts";
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
@@ -318,11 +319,33 @@ describe("projection manifest source-footprint stamps", () => {
       .every((target: { sourceFootprintDigest?: unknown }) => target.sourceFootprintDigest === undefined)).toBe(true);
   });
 
+  test("the manifest publishes the scale buckets each module document prints, under the contract (#264)", () => {
+    const plan = renderArchitectureDocumentationProjection({
+      ...renderInput,
+      sourceScaleSignals: [{ ...renderInput.sourceScaleSignals[0]!, fileCount: 0, lineCount: 537 }, { ...renderInput.sourceScaleSignals[1]!, fileCount: 12, lineCount: 172_275 }],
+      sourceFootprints: currentFootprints
+    });
+    const manifest = JSON.parse(plan.manifest.body);
+    expect(architectureDocsProjectionManifestIssues(manifest)).toEqual([]);
+    const scales = Object.fromEntries(manifest.targets
+      .filter((target: { type: string }) => target.type === "entity-summary")
+      .map((target: { scope: { id: string }; scale?: unknown }) => [target.scope.id, target.scale]));
+    expect(scales).toEqual({
+      "capability.docs.projection": { fileCountBucket: { lower: 0, upper: 1 }, lineCountBucket: { lower: 500, upper: 1000 } },
+      "capability.review.gate": { fileCountBucket: { lower: 10, upper: 20 }, lineCountBucket: { lower: 100_000, upper: 200_000 } },
+      "module.no-source": undefined
+    });
+    // The rendered Markdown prints the same buckets.
+    const body = (nodeId: string) => plan.files.find((file) => file.target.type === "entity-summary" && file.target.scope.id === nodeId)!.body;
+    expect(body("capability.docs.projection")).toContain("- 規模量級:`0` 個文件 / `500–1000` 行");
+    expect(body("capability.review.gate")).toContain("- 規模量級:`10–20` 個文件 / `100k–200k` 行");
+  });
+
   test("an unchanged footprint re-renders a byte-identical manifest; a moved one changes only its stamp", () => {
     const first = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
     const existingFiles = [...first.files.map((file) => ({ path: file.path, body: file.body })), first.manifest];
     const again = renderArchitectureDocumentationProjection({ ...renderInput, existingFiles, sourceFootprints: currentFootprints });
-    expect(again.drift.ok).toBe(true);
+    expect(again.drift.diffs).toEqual([]);
     expect(again.manifest.body).toBe(first.manifest.body);
 
     const moved = renderArchitectureDocumentationProjection({

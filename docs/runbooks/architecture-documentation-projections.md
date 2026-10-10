@@ -4,6 +4,7 @@
 
 - `.archcontext/projections/targets.json` declares placement rules.
 - `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests. It records only reproducible identity: CodeGraph appears as package name, version and status, never as the digest of the binary installed on the machine that ran the projection. Two machines with the same CodeGraph version write the same manifest.
+- The manifest's shape is published in archctx-contracts: the `ArchitectureDocsProjectionManifestV1` type, the `architectureDocsProjectionManifestIssues` check, and `schemas/runtime/projection-manifest.schema.json`. The renderer validates every manifest it writes against that contract and reads the semantic baseline back through it. Each `entity-summary` target of a node that declares `source.include` carries `sourceFootprintDigest` and `scale: { fileCountBucket, lineCountBucket }`. A bucket is the half-open 1–2–5 range `{ lower, upper }` that contains the measured count (`{ lower: 0, upper: 1 }` holds only zero). The module document prints exactly these buckets, never the counts. Consumers detect the published contract and the scale field through the `projection-manifest-contract-v1` capability.
 - Text inside `ARCHCONTEXT:generated` markers is generated projection output.
 - Text outside generated markers is human-owned and must be preserved.
 - Agent-authored rationale or ADR prose is advisory draft material until deterministic validation and explicit approval.
@@ -75,6 +76,21 @@ To read back such an apply, send `projection readback` the original request with
 A caller that lost the response of an accepted `apply` or `adopt` (process kill, timeout, closed pipe) sends the same request again. If its `requestId` and request digest match a committed receipt, `projection run` returns the committed `ProjectionResultV2` with `replayed: true` and applies nothing. The replay key is the `requestId` plus the digest of the request exactly as the caller sent it, including `acceptObservedMajorChange`. It never includes provider-generated ids. `replayed` is excluded from `receiptDigest`, so the replay carries the committed receipt digest. If the first run committed but never delivered its refresh signals, the replay reports `applied-reconcile-required` with no signals; deliver them with `projection recover` and the `applyReceipt` `lookupKey` and `applyId`.
 
 A different request under a committed `requestId`, or a new request for an accepted change that is already applied, fails with `AC_PROJECTION_APPLY_COMMITTED` (not retryable, action `readback-committed-projection-apply`). `error.details` carries `requestId`, `lookupKey` and `applyId` of the committed apply, and `error.reasonCode` is `projection-apply-request-differs`, `projection-accepted-change-committed`, or `projection-apply-request-digest-unrecorded` (a receipt committed before request digests were recorded). Do not match the error message. `projection readback` still returns the committed receipt with its recovery proof. Consumers detect this behavior through the `projection-apply-replay-v1` capability.
+
+### Previewing a projection before apply
+
+`archctx projection run` in `mode: "plan"` is the only preview path. It plans no daemon ChangeSet and writes nothing; it renders and returns. Every `files[]` entry of a plan result carries `preview`:
+
+- `create`: `format: "body"`, the rendered document.
+- `update` and `delete`: `format: "unified-diff"`, a unified diff with three context lines from the bytes on disk to the rendered bytes (`+++ /dev/null` for a delete).
+- `content` is cut at a line boundary to at most 65,536 UTF-8 bytes per file, and the previews of one result share a 1,048,576-byte budget in path order, so a late file can show empty content. `byteLength` is the UTF-8 length of the complete content, and `truncated` is true exactly when `content` is shorter.
+- An entry whose path the projection rejected for adoption or ownership repair has no `preview`, because no apply writes that rendered body.
+
+`check`, `apply` and `adopt` results never carry `preview`, and a committed apply receipt is refused if it does, so document bodies never reach the ledger. The hidden `archctx docs preview` command is removed: it planned a daemon ChangeSet as a side effect and returned an unschematized draft. Use `projection run` `plan` to preview, or `archctx docs plan --id <changeset-id>` to stage a reviewable ChangeSet. Consumers detect previews through the `projection-preview-v1` capability.
+
+### Per-capability change details
+
+Every refresh signal a run produces carries `capabilities[]`, sorted by `capabilityId`: `{ capabilityId, reasonCodes, changedFacets, proofStatusBefore, proofStatusAfter }`. It breaks the signal's change down per capability: the reason codes and semantic facets (`constraints`, `entrypoints`, `interfaces`, `lifecycle`, `names`, `ownership`, `placement`, `relations`, `responsibilities`, `riskBoundaries`) that moved, and the P1/P2 proof status on each side. `proofStatusBefore` is null without a baseline entry (an added capability or a first projection), and `proofStatusAfter` is null for a removed capability; a one-sided capability lists no facets. A capability listed only because its proof is unprovable, while another capability carries the observed change, has no reason codes. For an accepted change the breakdown is the observed one, which can name more reasons than `acceptedChange.reasonCodes`. The breakdown is part of the signal identity. Signals committed before it existed lack the field. `archctx docs drift|plan` report the same breakdown as `majorChange.capabilities`. Consumers detect it through the `architecture-change-capabilities-v1` capability.
 
 ## Bad Projection Recovery
 

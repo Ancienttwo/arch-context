@@ -1060,11 +1060,11 @@ async function runRefactorCommand(args: string[], cwd: string, runtime: () => Pr
 
 async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "status";
-  if (["plan", "preview", "apply", "adopt", "drift", "clean"].includes(subcommand)) {
+  if (["plan", "apply", "adopt", "drift", "clean"].includes(subcommand)) {
     return runArchitectureDocsProjectionCommand(args, cwd, daemon);
   }
   if (!["status", "resolve", "pin", "fetch", "purge"].includes(subcommand)) {
-    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge|plan|preview|apply|adopt|drift|clean");
+    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge|plan|apply|adopt|drift|clean");
   }
   if (subcommand === "status") {
     return daemon.docs(cwd, { command: "status", provider: "context7" });

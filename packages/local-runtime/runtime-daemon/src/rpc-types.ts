@@ -250,7 +250,7 @@ export interface ExplorerServerOptions {
 }
 
 export interface RuntimeDocsProjectionInput {
-  action: "plan" | "preview" | "apply" | "adopt" | "drift" | "clean";
+  action: "plan" | "apply" | "adopt" | "drift" | "clean";
   profile?: ArchitectureProjectionProfile;
   generatedAt?: string;
   acceptedChange?: AcceptedArchitectureChangeReferenceV1;

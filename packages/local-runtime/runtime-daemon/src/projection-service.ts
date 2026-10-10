@@ -6,8 +6,8 @@ import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable
 import { projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionProvenanceV2, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV2, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -99,7 +99,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
       projection.plan.receiptDigest
     );
   }
-  return okEnvelope(subcommand === "preview" ? "docs.preview" : "docs.plan", {
+  return okEnvelope("docs.plan", {
     schemaVersion: "archcontext.docs-projection-change-set/v1",
     sourceDigest: projection.plan.sourceDigest,
     projectionDigest: projection.plan.projectionDigest,
@@ -945,7 +945,8 @@ function projectionProtocolResult(
 ): ProjectionResultV2 {
   const inputSnapshot = projectionProtocolSnapshot(request, input);
   const outputSnapshot = projectionProtocolSnapshot(request, output);
-  const files = overrides?.files ?? projectionProtocolFiles(input);
+  const plannedFiles = overrides?.files ?? projectionProtocolFiles(input);
+  const files = request.mode === "plan" ? withProjectionPlanPreviews(input, plannedFiles) : plannedFiles;
   const affectedNodeIds = projectionProtocolAffectedNodes(input);
   const requestPayloadDigest = digestJson(request as unknown as Json) as Sha256Digest;
   const humanActions: ProjectionResultV2["humanActions"] = [];
@@ -1057,6 +1058,35 @@ function projectionProtocolFiles(
     }
     return [];
   }).sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+}
+
+/**
+ * `plan` is the one preview authority (#264): every file entry gains the rendered body (`create`) or
+ * a unified diff from the bytes on disk (`update`, `delete`), bounded per file and per result. The
+ * bodies are generated architecture documents and travel in this response only; no ChangeSet is
+ * planned and nothing is persisted. An entry whose path the projection rejected for adoption or
+ * ownership repair carries none, because no apply writes that rendered body.
+ */
+function withProjectionPlanPreviews(
+  projection: ReturnType<typeof buildArchitectureDocsProjection>,
+  files: ProjectionResultV2["files"]
+): ProjectionResultV2["files"] {
+  const rendered = new Map(projection.files.map((file) => [file.path, file.body]));
+  const current = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
+  const rejected = new Set(projection.plan.rejected.map((diff) => diff.path));
+  const previewable = files.filter((file): file is ProjectionResultV2["files"][number] & { action: "create" | "delete" | "update" } =>
+    file.action !== "unchanged" && !rejected.has(file.path));
+  const previews = architectureProjectionFilePreviews(previewable.map((file) => ({
+    path: file.path,
+    action: file.action,
+    ...(file.action === "create" ? {} : { before: current.get(file.path) }),
+    ...(file.action === "delete" ? {} : { after: rendered.get(file.path) })
+  })));
+  const previewByPath = new Map(previewable.map((file, index) => [file.path, previews[index]!]));
+  return files.map((file) => {
+    const preview = previewByPath.get(file.path);
+    return preview ? { ...file, preview } : file;
+  });
 }
 
 /** Committed apply receipts bind the physical preimage and the exact fixed-point output bytes. */
@@ -1239,7 +1269,7 @@ function validateHumanProjectionInput(input: Record<string, unknown>, actions: r
 
 export function validateDocsProjectionInput(value: unknown): asserts value is RuntimeDocsProjectionInput {
   const input = projectionInputRecord(value, ["action", "profile", "generatedAt", "acceptedChange", "id", "taskSessionId", "approved", "expectedWorktreeDigest", "adoptionPlanId"]);
-  validateHumanProjectionInput(input, ["plan", "preview", "apply", "adopt", "drift", "clean"]);
+  validateHumanProjectionInput(input, ["plan", "apply", "adopt", "drift", "clean"]);
   if (input.profile !== undefined && input.profile !== "default" && input.profile !== REPO_HARNESS_PROJECTION_PROFILE) throw new Error("projection profile is invalid");
   if (input.acceptedChange !== undefined) validateProjectionAcceptedChange(input.acceptedChange);
 }

@@ -10,7 +10,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { PROJECTION_FILE_PREVIEW_MAX_BYTES, architectureRefreshSignalInvariantIssues, digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { runCli } from "../src/main";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
@@ -364,5 +364,75 @@ test("a repeated accepted apply returns the committed result without applying ag
     expect(readback.ok, JSON.stringify(readback)).toBe(true);
     expect((readback.data as any).receipt.result.receiptDigest).toBe(first.receiptDigest);
     expect((readback.data as any).receipt.recovery.requestDigest).toBe(digestJson(original as any));
+  });
+}, TEST_TIMEOUT_MS);
+
+test("plan previews each file as a bounded body or unified diff and writes nothing (#264)", async () => {
+  await withProtocolFixture("archctx-projection-preview-", async ({ root, daemon, request, projectionRun }) => {
+    // A summary far larger than one preview bound turns the module document diff into a truncated one.
+    const nodePath = join(root, `.archcontext/model/nodes/${KEPT}.yaml`);
+    const summary = Array.from({ length: 3_000 }, (_, index) => `Hook adapters route event ${index} through the validated runtime boundary.`).join("\n");
+    writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("summary: \"Hook Adapters capability.\"", `summary: ${JSON.stringify(summary)}`), "utf8");
+    // A missing generated document becomes a create that previews its rendered body.
+    const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
+    const changelogPath: string = manifest.targets.find((target: any) => target.type === "architecture-changelog").path;
+    rmSync(join(root, changelogPath));
+    const modulePath = manifestTargetPath(root, KEPT);
+
+    const calls: string[] = [];
+    const host = daemon as unknown as Record<"planUpdate" | "applyUpdate", (...args: unknown[]) => unknown>;
+    for (const method of ["planUpdate", "applyUpdate"] as const) {
+      const original = host[method].bind(daemon);
+      host[method] = (...args: unknown[]) => {
+        calls.push(method);
+        return original(...args);
+      };
+    }
+    const docsBefore = docsSnapshot(root);
+    const planned = projectionResult(await projectionRun(request("plan", "projection_request.preview_plan", { expected: expectedSnapshot(root) })));
+    // Plan is read-only: no ChangeSet is planned or applied and no document moves.
+    expect(calls).toEqual([]);
+    expect(docsSnapshot(root)).toEqual(docsBefore);
+    expect(planned.status).toBe("human-action-required");
+
+    const byPath = new Map(planned.files.map((file) => [file.path, file]));
+    const created = byPath.get(changelogPath)!;
+    expect(created).toMatchObject({ action: "create", preview: { format: "body", truncated: false } });
+    expect(created.preview!.content).toContain("<!-- BEGIN ARCHCONTEXT:generated");
+    expect(created.preview!.byteLength).toBe(new TextEncoder().encode(created.preview!.content).length);
+
+    const moduleDoc = byPath.get(modulePath)!;
+    expect(moduleDoc).toMatchObject({ action: "update", preview: { format: "unified-diff", truncated: true } });
+    expect(moduleDoc.preview!.content.startsWith(`--- a/${modulePath}\n+++ b/${modulePath}\n@@ -`)).toBe(true);
+    expect(moduleDoc.preview!.content.endsWith("\n")).toBe(true);
+    expect(new TextEncoder().encode(moduleDoc.preview!.content).length).toBeLessThanOrEqual(PROJECTION_FILE_PREVIEW_MAX_BYTES);
+    expect(moduleDoc.preview!.byteLength).toBeGreaterThan(PROJECTION_FILE_PREVIEW_MAX_BYTES);
+    expect(byPath.get("docs/architecture/.projection-manifest.json")).toMatchObject({ action: "update", preview: { format: "unified-diff", truncated: false } });
+
+    // The unresolved major change names the capability and the facet that moved.
+    const signal = planned.refreshSignals.find((entry) => entry.mode === "human-action-required")!;
+    expect(architectureRefreshSignalInvariantIssues(signal)).toEqual([]);
+    expect(signal.capabilities).toEqual([{
+      capabilityId: KEPT,
+      reasonCodes: ["responsibility-changed"],
+      changedFacets: ["responsibilities"],
+      proofStatusBefore: expect.any(Object),
+      proofStatusAfter: expect.any(Object)
+    }]);
+
+    // Only plan previews: check reports the same files without bodies.
+    const checked = projectionResult(await projectionRun(request("check", "projection_request.preview_check")));
+    expect(checked.files.map(({ path, action }) => ({ path, action }))).toEqual(planned.files.map(({ path, action }) => ({ path, action })));
+    expect(checked.files.every((file) => file.preview === undefined)).toBe(true);
+
+    // The accepted apply writes the body the plan previewed, and its committed result carries no preview.
+    const applied = projectionResult(await projectionRun(request("apply", "projection_request.preview_apply", { acceptObservedMajorChange: true })));
+    expect(applied.status).toBe("applied");
+    // The spies see the apply's ChangeSet, so their silence during plan was real.
+    expect(calls).toEqual(["planUpdate", "applyUpdate"]);
+    expect(applied.files.every((file) => file.preview === undefined)).toBe(true);
+    expect(readFileSync(join(root, changelogPath), "utf8")).toBe(created.preview!.content);
+    const inspected = await daemon.inspectProjectionApplyReceipt(root, applied.applyReceipt!.lookupKey);
+    expect(JSON.stringify(inspected)).not.toContain("\"preview\"");
   });
 }, TEST_TIMEOUT_MS);
