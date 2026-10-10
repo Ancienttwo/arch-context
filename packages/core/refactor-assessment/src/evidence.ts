@@ -1,4 +1,5 @@
 import {
+  REFACTOR_EVIDENCE_ID_LIST_LIMIT,
   REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   compareRefactorEvidenceDirectionViolations,
   compareRefactorEvidenceImportEdges,
@@ -16,9 +17,10 @@ import { nativeNodeSource, type NativeModel } from "@archcontext/core/projection
 /**
  * Builds each observation kind's evidence from the structure the snapshot counted.
  *
- * Every list is the population the observation's metric is about, sorted by the contract's one
- * comparator, then cut to `REFACTOR_OBSERVATION_EVIDENCE_LIMIT` with the true size beside it. The
- * entries are paths, lines, specifiers and node ids: bounded metadata, never a source body.
+ * Every sample is the population the observation's metric is about, sorted by the contract's one
+ * comparator, then cut to `REFACTOR_OBSERVATION_EVIDENCE_LIMIT` with the true size beside it; every
+ * id list is cut to `REFACTOR_EVIDENCE_ID_LIST_LIMIT` the same way. The entries are paths, lines,
+ * specifiers and node ids: bounded metadata, never a source body.
  */
 export class ObservationEvidenceBuilder {
   private readonly resolvedEdges: ModuleStatisticsImportEdgeV1[];
@@ -45,7 +47,8 @@ export class ObservationEvidenceBuilder {
       }
     }
     const sample = boundedSample(edges, compareRefactorEvidenceImportEdges);
-    return { kind: "cycle", memberNodeIds: [...members].sort(compareText), edges: sample.entries, totalCount: sample.totalCount, truncated: sample.truncated };
+    // The population size rides in the observation's `metrics.memberCount`.
+    return { kind: "cycle", memberNodeIds: boundedIds([...members]).ids, edges: sample.entries, totalCount: sample.totalCount, truncated: sample.truncated };
   }
 
   /** The `forbid-dependency` violations this module's own files commit. */
@@ -72,9 +75,11 @@ export class ObservationEvidenceBuilder {
         };
       });
     const sample = boundedSample(violations, compareRefactorEvidenceDirectionViolations);
+    const constraints = boundedIds(violations.map((violation) => violation.constraintId));
     return {
       kind: "direction-violation",
-      constraintIds: [...new Set(violations.map((violation) => violation.constraintId))].sort(compareText),
+      constraintIds: constraints.ids,
+      constraintCount: constraints.count,
       violations: sample.entries,
       totalCount: sample.totalCount,
       truncated: sample.truncated
@@ -85,7 +90,7 @@ export class ObservationEvidenceBuilder {
   ownershipAmbiguous(nodeId: string): RefactorObservationEvidenceV1 {
     const paths = (this.structure.ownership.filesByNode.get(nodeId) ?? []).flatMap((path): RefactorEvidencePathV1[] => {
       const resolution = this.structure.ownership.byPath.get(path);
-      return resolution?.ambiguous ? [{ path, candidateOwnerNodeIds: [...resolution.owners].sort(compareText) }] : [];
+      return resolution?.ambiguous ? [pathEntry(path, resolution.owners)] : [];
     });
     return pathEvidence("ownership-ambiguous", paths);
   }
@@ -94,7 +99,7 @@ export class ObservationEvidenceBuilder {
   undeclaredFootprint(nodeId: string): RefactorObservationEvidenceV1 {
     const node = this.model.nodes.find((candidate) => candidate.id === nodeId);
     const declared = [...new Set((node ? nativeNodeSource(node)?.entrypoints ?? [] : []).map((entrypoint) => entrypoint.path))];
-    return pathEvidence("undeclared-footprint", declared.map((path) => ({ path, candidateOwnerNodeIds: this.owners(path) })));
+    return pathEvidence("undeclared-footprint", declared.map((path) => pathEntry(path, this.owners(path))));
   }
 
   /**
@@ -110,10 +115,8 @@ export class ObservationEvidenceBuilder {
       for (const owner of resolution.owners) owners.add(owner);
       ownersByDirectory.set(directory, owners);
     }
-    return pathEvidence("unowned-paths", this.structure.ownership.unownedPaths.map((path) => ({
-      path,
-      candidateOwnerNodeIds: [...(ownersByDirectory.get(directoryOf(path)) ?? [])].sort(compareText)
-    })));
+    return pathEvidence("unowned-paths", this.structure.ownership.unownedPaths.map((path) =>
+      pathEntry(path, [...(ownersByDirectory.get(directoryOf(path)) ?? [])])));
   }
 
   /** What the index could not certify: the coverage verdict and the specifiers left unresolved. */
@@ -146,6 +149,17 @@ function pathEvidence(
 ): RefactorObservationEvidenceV1 {
   const sample = boundedSample(paths, (left, right) => compareText(left.path, right.path));
   return { kind, paths: sample.entries, totalCount: sample.totalCount, truncated: sample.truncated };
+}
+
+function pathEntry(path: string, owners: readonly string[]): RefactorEvidencePathV1 {
+  const bounded = boundedIds(owners);
+  return { path, candidateOwnerNodeIds: bounded.ids, candidateOwnerCount: bounded.count };
+}
+
+/** Sorted, de-duplicated ids cut to `REFACTOR_EVIDENCE_ID_LIST_LIMIT`, with the true count. */
+function boundedIds(ids: readonly string[]): { ids: string[]; count: number } {
+  const unique = [...new Set(ids)].sort(compareText);
+  return { ids: unique.slice(0, REFACTOR_EVIDENCE_ID_LIST_LIMIT), count: unique.length };
 }
 
 function importEdge(edge: ModuleStatisticsImportEdgeV1, fromNodeId: string, toNodeId: string): RefactorEvidenceImportEdgeV1 {

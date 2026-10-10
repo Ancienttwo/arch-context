@@ -3,6 +3,7 @@ import {
   digestJson,
   moduleStatisticsSnapshotInvariantIssues,
   refactorAssessmentDigest,
+  refactorAssessmentInvariantIssues,
   refactorRequestInvariantIssues,
   type ArchitectureMajorChangeReasonCode,
   type DependencyConstraintV1,
@@ -148,6 +149,11 @@ export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssess
     assessmentDigest: ""
   };
   const assessment = { ...draft, assessmentDigest: refactorAssessmentDigest(draft) };
+  // The assessment is digest-signed and handed to the recorder as-is: an observation whose
+  // evidence breaks the contract (an over-long or multi-line specifier, say) fails here, typed,
+  // rather than being rewritten into something the code index never reported.
+  const assessmentIssues = refactorAssessmentInvariantIssues(assessment);
+  if (assessmentIssues.length > 0) throw new Error(`AC_SCHEMA_INVALID: ${assessmentIssues.join("; ")}`);
   if (!proposal) return { assessment };
   return {
     assessment,

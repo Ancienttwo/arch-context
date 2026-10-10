@@ -18,6 +18,7 @@ import {
 } from "@archcontext/core/recommendation-engine";
 import {
   RefactorAssessmentRegistry,
+  RefactorRunPersistenceError,
   buildRefactorRecordEvent,
   refactorClassifierRulesetDigest,
   refactorProposalAuthorPairIssues,
@@ -220,7 +221,8 @@ export class RecommendationsService {
       return errorEnvelope(
         surface,
         measured.code,
-        `recommendation ${recommendationId} is not recorded and the current refactor scan could not run: ${measured.message}`
+        `recommendation ${recommendationId} is not recorded and the current refactor scan could not run: ${measured.message}`,
+        measured.reasonCode
       );
     }
     const { gitScope, storageScope, replay, artifacts, result } = measured;
@@ -250,7 +252,7 @@ export class RecommendationsService {
         now
       });
     } catch (error) {
-      return errorEnvelope(surface, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      return recordBuildErrorEnvelope(surface, error);
     }
     const recorded = built.plan.recommendations.find((recommendation) => recommendation.recommendationId === recommendationId);
     if (!recorded) {
@@ -351,7 +353,8 @@ export class RecommendationsService {
       return errorEnvelope(
         "recommendations.show",
         measured.code,
-        `recommendation ${recommendationId} is not recorded and the current refactor scan could not run: ${measured.message}`
+        `recommendation ${recommendationId} is not recorded and the current refactor scan could not run: ${measured.message}`,
+        measured.reasonCode
       );
     }
     const candidate = measured.result.proposedRecommendations.find((entry) => entry.recommendationId === recommendationId);
@@ -489,7 +492,7 @@ export class RecommendationsService {
       artifacts: ReturnType<typeof recommendationArtifactsFromEvents>;
       result: RefactorScanResultV1;
     }
-    | { ok: false; code: ArchContextErrorCode; message: string }
+    | { ok: false; code: ArchContextErrorCode; message: string; reasonCode?: string }
   > {
     const gitScope = await this.context.architectureLedgerGitScope(repositoryRoot);
     const storageScope = await this.context.localStore.resolveArchitectureLedgerScope(gitScope);
@@ -506,7 +509,9 @@ export class RecommendationsService {
         catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)
       });
     } catch (error) {
-      if (error instanceof RefactorScanError) return { ok: false, code: error.code, message: error.message };
+      if (error instanceof RefactorScanError) {
+        return { ok: false, code: error.code, message: error.message, ...(error.reasonCode ? { reasonCode: error.reasonCode } : {}) };
+      }
       return { ok: false, code: "AC_SCHEMA_INVALID", message: error instanceof Error ? error.message : String(error) };
     }
     // Every input above was read after `gitScope` was captured. If the tree moved while it was
@@ -547,7 +552,7 @@ export class RecommendationsService {
     const repositoryRoot = findRepositoryRoot(root);
     const request = input.request ?? REPOSITORY_REFACTOR_REQUEST;
     const measured = await this.measureRepository(repositoryRoot, request, "refactor scan");
-    if (!measured.ok) return errorEnvelope("refactor.scan", measured.code, measured.message);
+    if (!measured.ok) return errorEnvelope("refactor.scan", measured.code, measured.message, measured.reasonCode);
     const { gitScope, result } = measured;
     this.registerRefactorAssessment({
       snapshot: result.snapshot,
@@ -657,7 +662,7 @@ export class RecommendationsService {
           now: this.context.clock()
         });
       } catch (error) {
-        return errorEnvelope("refactor.record", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+        return recordBuildErrorEnvelope("refactor.record", error);
       }
       // The identity check above happened before the replay and the event build; the tree can
       // still move in between. Last look before anything is persisted, so a stale measurement
@@ -790,7 +795,7 @@ export class RecommendationsService {
           catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)
         });
       } catch (error) {
-        if (error instanceof RefactorScanError) return errorEnvelope("refactor.verify", error.code, error.message);
+        if (error instanceof RefactorScanError) return errorEnvelope("refactor.verify", error.code, error.message, error.reasonCode);
         return errorEnvelope("refactor.verify", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
       }
       const baseline = baselineSnapshotForRecommendation(replay.evidenceState, recommendation.recommendationId);
@@ -904,6 +909,12 @@ export class RecommendationsService {
 }
 
 class RuntimeRefactorInputError extends Error {}
+
+/** `buildRefactorRecordEvent` failures: an oversize run keeps its reason code, anything else is a defect. */
+function recordBuildErrorEnvelope(surface: string, error: unknown): JsonEnvelope {
+  if (error instanceof RefactorRunPersistenceError) return errorEnvelope(surface, error.code, error.message, error.reasonCode);
+  return errorEnvelope(surface, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+}
 
 /** Same shape check as `runtimeUpdateInputRecord`, reported under the refactor surface. */
 function runtimeRefactorInputRecord(value: unknown, field: string): Record<string, unknown> {

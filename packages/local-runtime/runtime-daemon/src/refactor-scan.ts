@@ -38,7 +38,7 @@ import {
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadCommitterDate, readTrackedSourceFiles, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
-import { planRefactorRun } from "./refactor-recording";
+import { RefactorRunPersistenceError, planRefactorRun } from "./refactor-recording";
 
 /** The CodeGraph CLI name the adapter resolves package-locally when PATH has no answer. */
 const CODEGRAPH_BINARY = "codegraph";
@@ -55,7 +55,7 @@ export const REPOSITORY_REFACTOR_REQUEST: RefactorRequestV1 = {
  * other throw is a defect and surfaces as `AC_SCHEMA_INVALID`.
  */
 export class RefactorScanError extends Error {
-  constructor(readonly code: ArchContextErrorCode, message: string) {
+  constructor(readonly code: ArchContextErrorCode, message: string, readonly reasonCode?: string) {
     super(message);
     this.name = "RefactorScanError";
   }
@@ -182,6 +182,7 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
       now: createdAt
     });
   } catch (error) {
+    if (error instanceof RefactorRunPersistenceError) throw new RefactorScanError(error.code, error.message, error.reasonCode);
     throw new RefactorScanError("AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
   }
 

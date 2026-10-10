@@ -5,6 +5,7 @@ import {
   RECOMMENDATION_RUN_SCHEMA_VERSION,
   RECOMMENDATION_SCHEMA_VERSION,
   RECOMMENDATION_V3_SCHEMA_VERSION,
+  REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   digestJson,
   recommendationV3FingerprintInput,
   recommendationV3InvariantIssues,
@@ -28,6 +29,7 @@ import {
   type RecommendationV3,
   type RefactorAssessmentV1,
   type RefactorEvidenceImportEdgeV1,
+  type RefactorEvidencePathV1,
   type RefactorObservationEvidenceV1,
   type RefactorObservationKind,
   type RefactorObservationV1,
@@ -943,6 +945,13 @@ export interface PlanRefactorRecommendationRunInput {
   policyMode?: RecommendationPolicyMode;
   schedulerPolicy?: PracticeRecommendationSchedulerPolicyV1;
   engineVersion?: string;
+  /**
+   * The one sample limit every recorded observation's evidence is cut to, 0..
+   * `REFACTOR_OBSERVATION_EVIDENCE_LIMIT` (the default). The recorder lowers it until the run's
+   * event fits the ledger's persisted-JSON ceiling. A cut keeps `totalCount` and sets `truncated`;
+   * it never reaches a fingerprint, an id or the assessment, which keeps its full evidence.
+   */
+  evidenceSampleLimit?: number;
 }
 
 export interface RefactorRecommendationRunPlan {
@@ -996,9 +1005,13 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
   const schedulerPolicy = normalizeRecommendationSchedulerPolicy(input.schedulerPolicy);
   const policyMode = input.policyMode ?? schedulerPolicy.policyMode;
   const now = input.now;
+  const evidenceSampleLimit = input.evidenceSampleLimit ?? REFACTOR_OBSERVATION_EVIDENCE_LIMIT;
+  if (!Number.isInteger(evidenceSampleLimit) || evidenceSampleLimit < 0 || evidenceSampleLimit > REFACTOR_OBSERVATION_EVIDENCE_LIMIT) {
+    throw new Error(`AC_SCHEMA_INVALID: evidenceSampleLimit must be an integer between 0 and ${REFACTOR_OBSERVATION_EVIDENCE_LIMIT}`);
+  }
   const baselineEvidence = baselineSnapshotEvidenceItem(input);
   const evidenceItems = [baselineEvidence, ...modelAdoptionEvidenceItems(input)];
-  const candidateDrafts = [...observationDrafts(input), ...proposalDrafts(input)];
+  const candidateDrafts = [...observationDrafts(input, evidenceSampleLimit), ...proposalDrafts(input)];
   const drafts = schedulerPolicy.enabled
     ? budgetRefactorDrafts(candidateDrafts, schedulerPolicy.budgets.maxRecommendationsPerRun)
     : [];
@@ -1153,7 +1166,9 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       evidenceItemIds: evidenceItems.map((item) => item.evidenceId),
       evidenceBindingIds: evidenceBindings.map((binding) => binding.bindingId),
       schedulerPolicy: schedulerPolicy as unknown as Json,
-      schedulerBudget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, drafts.length)
+      schedulerBudget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, drafts.length),
+      // Recorded so a run whose evidence was cut to fit the ledger says so.
+      evidenceSampleLimit
     }
   };
 
@@ -1280,9 +1295,10 @@ const MAJOR_CHANGE_RISK_SIGNALS: Readonly<Record<ArchitectureMajorChangeReasonCo
   "verified-flow-proof-changed": "external-contract-change"
 };
 
-function observationDrafts(input: PlanRefactorRecommendationRunInput): RefactorRecommendationDraft[] {
+function observationDrafts(input: PlanRefactorRecommendationRunInput, evidenceSampleLimit: number): RefactorRecommendationDraft[] {
   const baselineEvidenceId = baselineSnapshotEvidenceItem(input).evidenceId;
-  return input.assessment.observations.map((observation) => {
+  return input.assessment.observations.map((assessed) => {
+    const observation = { ...assessed, evidence: limitEvidenceSample(assessed.evidence, evidenceSampleLimit) };
     const affectedNodeIds = observationAffectedNodeIds(input.snapshot, observation);
     const payload: StructuralObservationPayloadV1 = {
       assessmentDigest: input.assessment.assessmentDigest,
@@ -1315,6 +1331,26 @@ function observationDrafts(input: PlanRefactorRecommendationRunInput): RefactorR
   });
 }
 
+/**
+ * Cuts one observation's evidence sample to its first `limit` entries. The sample is already in
+ * canonical order, so the cut is a prefix: deterministic, still sorted, `totalCount` unchanged and
+ * `truncated` true exactly when entries were left out. Id lists are bounded by the contract.
+ */
+function limitEvidenceSample(evidence: RefactorObservationEvidenceV1, limit: number): RefactorObservationEvidenceV1 {
+  if (evidenceLength(evidence) <= limit) return evidence;
+  const truncated = evidence.totalCount > limit;
+  switch (evidence.kind) {
+    case "cycle":
+      return { ...evidence, edges: evidence.edges.slice(0, limit), truncated };
+    case "direction-violation":
+      return { ...evidence, violations: evidence.violations.slice(0, limit), truncated };
+    case "evidence-gap":
+      return { ...evidence, unresolvedImports: evidence.unresolvedImports.slice(0, limit), truncated };
+    default:
+      return { ...evidence, paths: evidence.paths.slice(0, limit), truncated };
+  }
+}
+
 /** How many evidence entries the explanation names inline; the payload carries the full sample. */
 const EXPLANATION_EXAMPLE_LIMIT = 3;
 
@@ -1329,9 +1365,11 @@ export function observationExplanation(observation: RefactorObservationV1, affec
     : [];
   switch (evidence.kind) {
     case "cycle": {
+      // The contract requires it for a cycle; the record validator rejects one without it.
+      const memberCount = observation.metrics.memberCount as number;
       const examples = evidence.edges.slice(0, EXPLANATION_EXAMPLE_LIMIT);
       return [
-        `Import cycle between ${evidence.memberNodeIds.length} modules (${evidence.memberNodeIds.join(", ")}): ${evidence.totalCount} file-level import edge(s) keep them mutually dependent.`,
+        `Import cycle between ${memberCount} modules (${idListText(evidence.memberNodeIds, memberCount)}): ${evidence.totalCount} file-level import edge(s) keep them mutually dependent.`,
         ...examples.map((edge) => `${edgeText(edge)} (${edge.fromNodeId} → ${edge.toNodeId}).`),
         ...more(examples.length)
       ];
@@ -1339,7 +1377,7 @@ export function observationExplanation(observation: RefactorObservationV1, affec
     case "direction-violation": {
       const examples = evidence.violations.slice(0, EXPLANATION_EXAMPLE_LIMIT);
       return [
-        `${observation.subjectSelectorId} breaks ${evidence.totalCount} declared dependency direction rule edge(s) (${evidence.constraintIds.join(", ")}).`,
+        `${observation.subjectSelectorId} breaks ${evidence.totalCount} declared dependency direction rule edge(s) (${idListText(evidence.constraintIds, evidence.constraintCount)}).`,
         ...examples.map((violation) => `${violation.constraintId}: ${edgeText(violation)} (${violation.fromNodeId} → ${violation.toNodeId}).`),
         ...more(examples.length)
       ];
@@ -1348,7 +1386,7 @@ export function observationExplanation(observation: RefactorObservationV1, affec
       const examples = evidence.paths.slice(0, EXPLANATION_EXAMPLE_LIMIT);
       return [
         `${evidence.totalCount} file(s) owned by ${observation.subjectSelectorId} are also claimed by a node outside its parent chain.`,
-        ...examples.map((entry) => `${entry.path} is claimed by ${entry.candidateOwnerNodeIds.join(", ")}.`),
+        ...examples.map((entry) => `${entry.path} is claimed by ${ownerText(entry)}.`),
         ...more(examples.length)
       ];
     }
@@ -1358,7 +1396,7 @@ export function observationExplanation(observation: RefactorObservationV1, affec
         `${observation.subjectSelectorId} declares no source.include footprint, so none of its files or imports are measured.`,
         ...(evidence.totalCount === 0
           ? ["It declares no entrypoint paths either."]
-          : examples.map((entry) => `Declared entrypoint ${entry.path} is ${entry.candidateOwnerNodeIds.length === 0 ? "owned by no node" : `owned by ${entry.candidateOwnerNodeIds.join(", ")}`}.`)),
+          : examples.map((entry) => `Declared entrypoint ${entry.path} is ${entry.candidateOwnerNodeIds.length === 0 ? "owned by no node" : `owned by ${ownerText(entry)}`}.`)),
         ...(evidence.totalCount === 0 ? [] : more(examples.length))
       ];
     }
@@ -1368,7 +1406,7 @@ export function observationExplanation(observation: RefactorObservationV1, affec
         `${evidence.totalCount} tracked file(s) under a declared source root are owned by no declared node.`,
         ...examples.map((entry) => entry.candidateOwnerNodeIds.length === 0
           ? `${entry.path} (no node owns a file in its directory).`
-          : `${entry.path} (its directory also holds files owned by ${entry.candidateOwnerNodeIds.join(", ")}).`),
+          : `${entry.path} (its directory also holds files owned by ${ownerText(entry)}).`),
         ...more(examples.length)
       ];
     }
@@ -1395,6 +1433,15 @@ function evidenceLength(evidence: RefactorObservationEvidenceV1): number {
     default:
       return evidence.paths.length;
   }
+}
+
+/** A bounded id list as prose: the listed prefix, then how many the contract cap left out. */
+function idListText(ids: readonly string[], count: number): string {
+  return count > ids.length ? `${ids.join(", ")} and ${count - ids.length} more` : ids.join(", ");
+}
+
+function ownerText(entry: RefactorEvidencePathV1): string {
+  return idListText(entry.candidateOwnerNodeIds, entry.candidateOwnerCount);
 }
 
 function edgeText(edge: RefactorEvidenceImportEdgeV1): string {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { REFACTOR_OBSERVATION_EVIDENCE_LIMIT, refactorAssessmentInvariantIssues, refactorScanInvariantIssues, type Json } from "@archcontext/contracts";
+import { REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH, REFACTOR_OBSERVATION_EVIDENCE_LIMIT, refactorAssessmentInvariantIssues, refactorScanInvariantIssues, type Json } from "@archcontext/contracts";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { assessRefactor } from "../src/index";
 import {
@@ -232,6 +232,7 @@ describe("observation evidence", () => {
     expect(evidenceOf(assessment, "direction-violation", "component.a")).toEqual({
       kind: "direction-violation",
       constraintIds: ["constraint.a-not-c"],
+      constraintCount: 1,
       violations: [{
         constraintId: "constraint.a-not-c",
         fromPath: "src/m/a/x.ts",
@@ -259,7 +260,7 @@ describe("observation evidence", () => {
     // `src/c/orphan.gen` is explicitly excluded, so it is a declaration, not a gap.
     expect(evidenceOf(assessment, "unowned-paths")).toEqual({
       kind: "unowned-paths",
-      paths: [{ path: "src/gen.ts", candidateOwnerNodeIds: [] }],
+      paths: [{ path: "src/gen.ts", candidateOwnerNodeIds: [], candidateOwnerCount: 0 }],
       totalCount: 1,
       truncated: false
     });
@@ -269,7 +270,7 @@ describe("observation evidence", () => {
       snapshot: makeSnapshot({ trackedFiles: [...TRACKED_FILES, { path: "src/c/loose.ts", lineCount: 1 }], model: narrowed }),
       model: narrowed
     });
-    expect(evidenceOf(crowded, "unowned-paths").paths as unknown[]).toContainEqual({ path: "src/c/loose.ts", candidateOwnerNodeIds: ["module.c"] });
+    expect(evidenceOf(crowded, "unowned-paths").paths as unknown[]).toContainEqual({ path: "src/c/loose.ts", candidateOwnerNodeIds: ["module.c"], candidateOwnerCount: 1 });
   });
 
   test("a sample past the fixed bound is truncated with the true population beside it", () => {
@@ -289,7 +290,7 @@ describe("observation evidence", () => {
     const assessment = assessObservationOnly({ snapshot, model: CONTESTED_MODEL });
     expect(evidenceOf(assessment, "ownership-ambiguous", "component.shadow")).toEqual({
       kind: "ownership-ambiguous",
-      paths: [{ path: "src/m/a/x.ts", candidateOwnerNodeIds: ["component.a", "component.shadow", "module.m"] }],
+      paths: [{ path: "src/m/a/x.ts", candidateOwnerNodeIds: ["component.a", "component.shadow", "module.m"], candidateOwnerCount: 3 }],
       totalCount: 1,
       truncated: false
     });
@@ -312,7 +313,7 @@ describe("observation evidence", () => {
     const assessment = assessObservationOnly({ snapshot, model: entrypointOnly });
     expect(evidenceOf(assessment, "undeclared-footprint", "module.cli")).toEqual({
       kind: "undeclared-footprint",
-      paths: [{ path: "src/c/z.ts", candidateOwnerNodeIds: ["module.c"] }],
+      paths: [{ path: "src/c/z.ts", candidateOwnerNodeIds: ["module.c"], candidateOwnerCount: 1 }],
       totalCount: 1,
       truncated: false
     });
@@ -332,6 +333,20 @@ describe("observation evidence", () => {
       totalCount: 1,
       truncated: false
     });
+  });
+
+  test("a specifier past the contract bound fails the assessment closed instead of being rewritten", () => {
+    const unresolved = (specifier: string) => makeSnapshot({
+      truncated: true,
+      importEdges: [{ from: "src/m/b/y.ts", specifier, to: null, line: 2 }]
+    });
+    const atBound = assessObservationOnly({ snapshot: unresolved(`./${"s".repeat(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH - 2)}`) });
+    expect((evidenceOf(atBound, "evidence-gap").unresolvedImports as { specifier: string }[])[0]!.specifier).toHaveLength(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH);
+
+    const overLong = unresolved(`./${"s".repeat(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH - 1)}`);
+    expect(() => assessRefactor(makeAssessmentInput({ snapshot: overLong }))).toThrow(
+      new RegExp(`^AC_SCHEMA_INVALID: .*evidence\\.unresolvedImports\\.specifier must be a single-line specifier of 1-${REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH} characters`)
+    );
   });
 
   test("a structure measured for another snapshot is refused", () => {

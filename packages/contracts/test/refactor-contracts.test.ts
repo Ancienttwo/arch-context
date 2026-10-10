@@ -18,6 +18,7 @@ import {
   MODULE_STATISTICS_SCHEMA_VERSION,
   MODULE_TESTS_COVERAGE_STATUSES,
   REFACTOR_ASSESSMENT_SCHEMA_VERSION,
+  REFACTOR_EVIDENCE_ID_LIST_LIMIT,
   REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH,
   REFACTOR_EXECUTION_EVIDENCE_KINDS,
   REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
@@ -261,7 +262,7 @@ function makeObservation(overrides: Partial<RefactorObservationV1> = {}): Refact
     kind: "cycle",
     subjectSelectorId: "selector.node.core",
     signalIds: ["signal.cycle.core-runtime"],
-    metrics: { cycleCount: 1, instability: null },
+    metrics: { cycleCount: 1, instability: null, memberCount: 2 },
     evidence: makeCycleEvidence(),
     ...overrides
   };
@@ -274,7 +275,7 @@ function makeObservationPayload(overrides: Partial<StructuralObservationPayloadV
     affectedNodeIds: ["component.core", "component.local-runtime"],
     baselineSnapshotDigest: makeSnapshot().snapshotDigest,
     derivedOutcomes: [makeOutcome()],
-    metrics: { cycleCount: 1, instability: null },
+    metrics: { cycleCount: 1, instability: null, memberCount: 2 },
     signalIds: ["signal.cycle.core-runtime"],
     evidence: makeCycleEvidence(),
     ...overrides
@@ -870,12 +871,55 @@ describe("observation evidence validators", () => {
     expect(issues).toContain("observation.evidence.edges must stay inside the component's member nodes");
   });
 
+  test("every id list is a bounded prefix of its counted population", () => {
+    const ids = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => `${prefix}.${String(index).padStart(3, "0")}`);
+    const cycle = (memberCount: number, memberNodeIds: string[]) => refactorObservationEvidenceIssues(makeObservation({
+      metrics: { cycleCount: 1, instability: null, memberCount },
+      evidence: makeCycleEvidence({ memberNodeIds })
+    }));
+    const members = [...ids(REFACTOR_EVIDENCE_ID_LIST_LIMIT - 2, "component.a"), "component.core", "component.local-runtime"].sort();
+    expect(cycle(REFACTOR_EVIDENCE_ID_LIST_LIMIT, members)).toEqual([]);
+    // A truncated member list cannot vouch for edge membership, so it is not checked against it.
+    expect(cycle(REFACTOR_EVIDENCE_ID_LIST_LIMIT + 8, ids(REFACTOR_EVIDENCE_ID_LIST_LIMIT, "component.a"))).toEqual([]);
+    expect(cycle(REFACTOR_EVIDENCE_ID_LIST_LIMIT + 8, ids(REFACTOR_EVIDENCE_ID_LIST_LIMIT + 8, "component.a"))).toContain(
+      `observation.evidence.memberNodeIds must hold min(metrics.memberCount, ${REFACTOR_EVIDENCE_ID_LIST_LIMIT}) entries`
+    );
+    expect(cycle(3, ["component.core", "component.local-runtime"])).toContain(
+      `observation.evidence.memberNodeIds must hold min(metrics.memberCount, ${REFACTOR_EVIDENCE_ID_LIST_LIMIT}) entries`
+    );
+
+    const violation = { ...makeEdge(), constraintId: "constraint.a" };
+    const direction = (constraintIds: string[], constraintCount: number) => refactorObservationEvidenceIssues(makeObservation({
+      kind: "direction-violation",
+      metrics: { directionViolationCount: 1 },
+      evidence: { kind: "direction-violation", constraintIds, constraintCount, violations: [violation], totalCount: 1, truncated: false }
+    }));
+    expect(direction(["constraint.a", ...ids(REFACTOR_EVIDENCE_ID_LIST_LIMIT - 1, "constraint.b")], 50)).toEqual([]);
+    expect(direction(["constraint.a", ...ids(REFACTOR_EVIDENCE_ID_LIST_LIMIT, "constraint.b")], 50)).toContain(
+      `observation.evidence.constraintIds must hold min(constraintCount, ${REFACTOR_EVIDENCE_ID_LIST_LIMIT}) entries`
+    );
+    expect(direction(["constraint.a"], -1)).toContain("observation.evidence.constraintCount must be a non-negative integer");
+
+    const owners = (candidateOwnerNodeIds: string[], candidateOwnerCount: number) => refactorObservationEvidenceIssues(makeObservation({
+      kind: "unowned-paths",
+      metrics: { unownedFileCount: 1 },
+      evidence: { kind: "unowned-paths", paths: [{ path: "src/gen.ts", candidateOwnerNodeIds, candidateOwnerCount }], totalCount: 1, truncated: false }
+    }));
+    expect(owners(ids(REFACTOR_EVIDENCE_ID_LIST_LIMIT, "module"), 90)).toEqual([]);
+    expect(owners(ids(REFACTOR_EVIDENCE_ID_LIST_LIMIT + 1, "module"), 90)).toContain(
+      `observation.evidence.paths.candidateOwnerNodeIds must hold min(paths.candidateOwnerCount, ${REFACTOR_EVIDENCE_ID_LIST_LIMIT}) entries`
+    );
+    expect(owners(["module.a"], 2)).toContain(
+      `observation.evidence.paths.candidateOwnerNodeIds must hold min(paths.candidateOwnerCount, ${REFACTOR_EVIDENCE_ID_LIST_LIMIT}) entries`
+    );
+  });
+
   test("an exactly counted population must match its metric", () => {
     const violation = { ...makeEdge(), constraintId: "constraint.core-no-runtime" };
     const direction = (count: number): RefactorObservationV1 => makeObservation({
       kind: "direction-violation",
       metrics: { directionViolationCount: count },
-      evidence: { kind: "direction-violation", constraintIds: ["constraint.core-no-runtime"], violations: [violation], totalCount: 1, truncated: false }
+      evidence: { kind: "direction-violation", constraintIds: ["constraint.core-no-runtime"], constraintCount: 1, violations: [violation], totalCount: 1, truncated: false }
     });
     expect(refactorObservationEvidenceIssues(direction(1))).toEqual([]);
     expect(refactorObservationEvidenceIssues(direction(2))).toContain("observation.evidence.totalCount must equal metrics.directionViolationCount");
@@ -883,7 +927,7 @@ describe("observation evidence validators", () => {
     const unowned = (count: number): RefactorObservationV1 => makeObservation({
       kind: "unowned-paths",
       metrics: { unownedFileCount: count },
-      evidence: { kind: "unowned-paths", paths: [{ path: "src/gen.ts", candidateOwnerNodeIds: [] }], totalCount: 1, truncated: false }
+      evidence: { kind: "unowned-paths", paths: [{ path: "src/gen.ts", candidateOwnerNodeIds: [], candidateOwnerCount: 0 }], totalCount: 1, truncated: false }
     });
     expect(refactorObservationEvidenceIssues(unowned(1))).toEqual([]);
     expect(refactorObservationEvidenceIssues(unowned(3))).toContain("observation.evidence.totalCount must equal metrics.unownedFileCount");
