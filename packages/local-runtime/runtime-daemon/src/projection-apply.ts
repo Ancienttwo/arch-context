@@ -1,10 +1,11 @@
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, errorEnvelope, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, assertArchitectureProjectionVerifiedAgainst, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection, type NativeModel, type CapabilitySourceChangeSinceStamp } from "@archcontext/core/projection-engine";
-import { prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import { projectionWorkspaceId as runtimeProjectionWorkspaceId, readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
+import { projectionWorkspaceId as runtimeProjectionWorkspaceId } from "./projection-inputs";
+import { projectionFailureEnvelope } from "./projection-service";
 
 interface ProjectionApplyContext {
   assertRunning(): void;
@@ -12,7 +13,6 @@ interface ProjectionApplyContext {
   withWriter<T>(run: () => Promise<T>): Promise<T>;
   localStore: Pick<RuntimeLocalStore, "inspectProjectionApplyReceipt" | "listCommittedChangeSetsForTaskSession" | "consumeProjectionApplyReceiptRecovery">;
   worktreeDigest(root: string, profile: "architecture-documentation-projection"): string;
-  loadSourceChanges(root: string, model: NativeModel): CapabilitySourceChangeSinceStamp[];
 }
 
 export class ProjectionApplyService {
@@ -117,7 +117,7 @@ export class ProjectionApplyService {
             : errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", issues.join("; "));
         }
         const receipt = inspection.receipt;
-        const fixedPoint = buildRuntimeProjectionRecoveryFixedPoint(root, this.context.loadSourceChanges);
+        const fixedPoint = buildRuntimeProjectionRecoveryFixedPoint(root);
         const issues = runtimeProjectionRecoveryFixedPointIssues(receipt, fixedPoint);
         if (issues.length > 0) return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", `projection readback proof failed: ${issues.join("; ")}`);
         const body = {
@@ -138,7 +138,7 @@ export class ProjectionApplyService {
         // Reading original evidence never consumes or rewrites its delivery checkpoint.
         return okEnvelope("projection.readback", result as unknown as Json);
       } catch (error) {
-        return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+        return projectionFailureEnvelope("projection.readback", error);
       }
     });
   }
@@ -168,9 +168,9 @@ export class ProjectionApplyService {
       }
       let fixedPoint: RuntimeProjectionRecoveryFixedPoint;
       try {
-        fixedPoint = buildRuntimeProjectionRecoveryFixedPoint(root, this.context.loadSourceChanges);
+        fixedPoint = buildRuntimeProjectionRecoveryFixedPoint(root);
       } catch (error) {
-        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+        return projectionFailureEnvelope("projection.recover", error);
       }
       const issues = runtimeProjectionRecoveryFixedPointIssues(inspection.receipt, fixedPoint);
       if (issues.length > 0) {
@@ -200,7 +200,7 @@ type RuntimeProjectionRecoveryFixedPoint = {
 };
 
 /** Rebuilds recovery semantics from repository authority while the daemon owns the writer. */
-function buildRuntimeProjectionRecoveryFixedPoint(root: string, loadSourceChanges: ProjectionApplyContext["loadSourceChanges"]): RuntimeProjectionRecoveryFixedPoint {
+function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjectionRecoveryFixedPoint {
   const loaded = loadArchitectureDocumentationInputs(root, REPO_HARNESS_PROJECTION_PROFILE);
   const sourceDigest = architectureDocumentationSourceDigest({
     model: loaded.model,
@@ -208,18 +208,14 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string, loadSourceChange
     decisions: loaded.decisions
   });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
+  assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   const provenance = codeGraphInputs.provenance;
   const projection = renderArchitectureDocumentationProjection({
     model: loaded.model,
     profile: REPO_HARNESS_PROJECTION_PROFILE,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    verifiedAgainst: assertArchitectureProjectionVerifiedAgainst({
-      branch: readCurrentBranch(root),
-      commit: readHeadSha(root),
-      committedAt: readHeadCommittedAt(root)
-    }),
-    sourceChangesSinceStamp: loadSourceChanges(root, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
@@ -229,8 +225,8 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string, loadSourceChange
     refreshContext: {
       repositoryId: repositoryFingerprint(root),
       workspaceId: runtimeProjectionWorkspaceId(root),
-      headSha: provenance.baseHeadSha,
-      worktreeDigest: provenance.worktreeDigest
+      headSha: codeGraphInputs.runtimeSnapshot.headSha,
+      worktreeDigest: codeGraphInputs.runtimeSnapshot.worktreeDigest
     }
   });
   const snapshot = {
@@ -238,7 +234,7 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string, loadSourceChange
     workspaceId: runtimeProjectionWorkspaceId(root),
     headSha: readHeadSha(root),
     worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loaded.model),
-    baseHeadSha: projection.provenance.baseHeadSha,
+    baseHeadSha: codeGraphInputs.runtimeSnapshot.headSha,
     sourceTreeDigest: projection.provenance.sourceTreeDigest,
     modelDigest: projection.provenance.modelDigest,
     codeGraphDigest: projection.provenance.codeGraphDigest,

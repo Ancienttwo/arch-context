@@ -15,6 +15,7 @@ export type ArchContextErrorCode =
   | "AC_RUNTIME_UNAVAILABLE"
   | "AC_RUNTIME_VERSION_UNSUPPORTED"
   | "AC_CODEGRAPH_UNAVAILABLE"
+  | "AC_CODE_FACTS_UNAVAILABLE"
   | "AC_INDEX_STALE"
   | "AC_CONTEXT_STALE"
   | "AC_SCHEMA_INVALID"
@@ -56,6 +57,7 @@ export const ERROR_CATALOG: Record<ArchContextErrorCode, Omit<ArchContextError, 
   AC_RUNTIME_UNAVAILABLE: { code: "AC_RUNTIME_UNAVAILABLE", severity: "error", retryable: true, action: "start-or-reconnect-runtime" },
   AC_RUNTIME_VERSION_UNSUPPORTED: { code: "AC_RUNTIME_VERSION_UNSUPPORTED", severity: "error", retryable: true, action: "upgrade-archctx-runtime" },
   AC_CODEGRAPH_UNAVAILABLE: { code: "AC_CODEGRAPH_UNAVAILABLE", severity: "error", retryable: true, action: "run-diagnostics" },
+  AC_CODE_FACTS_UNAVAILABLE: { code: "AC_CODE_FACTS_UNAVAILABLE", severity: "error", retryable: true, action: "codegraph-init" },
   AC_INDEX_STALE: { code: "AC_INDEX_STALE", severity: "warning", retryable: true, action: "sync-codefacts" },
   AC_CONTEXT_STALE: { code: "AC_CONTEXT_STALE", severity: "warning", retryable: true, action: "prepare-task-again" },
   AC_SCHEMA_INVALID: { code: "AC_SCHEMA_INVALID", severity: "error", retryable: false, action: "repair-model" },

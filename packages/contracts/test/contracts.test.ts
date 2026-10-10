@@ -68,6 +68,7 @@ import {
   projectionApplyRecoveryProofDigest,
   projectionApplyRecoveryResultInvariantIssues,
   projectionApplyRecoveryIntentInvariantIssues,
+  projectionFreshnessIssues,
   projectionRequestInvariantIssues,
   projectionResultReceiptDigest,
   projectionResultInvariantIssues,
@@ -75,6 +76,7 @@ import {
   type ProjectionApplyRecoveryProofV1,
   type ProjectionApplyRecoveryIntentV1,
   type ProjectionApplyRecoveryResultV1,
+  type ProjectionFreshnessV1,
   type ProjectionRequestV1,
   type ProjectionResultV2
 } from "../src/projection";
@@ -538,11 +540,49 @@ test("prior committed applies stay bound to the request, the digest and a both-o
     .toContain("priorCommittedApplies.changeSetId must be sorted and unique");
 });
 
+test("check freshness is schema-valid, receipt-bound and internally consistent (#259)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const stale: ProjectionFreshnessV1 = {
+    ok: false,
+    reasonCodes: ["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"],
+    staleNodes: [
+      { nodeId: "capability.a", stampedDigest: `sha256:${"1".repeat(64)}`, currentDigest: `sha256:${"2".repeat(64)}` },
+      { nodeId: "capability.b", stampedDigest: `sha256:${"3".repeat(64)}`, currentDigest: `sha256:${"4".repeat(64)}` }
+    ]
+  };
+  const fresh: ProjectionFreshnessV1 = { ok: true, reasonCodes: [], staleNodes: [] };
+  for (const freshness of [stale, fresh]) {
+    expect(projectionFreshnessIssues(freshness)).toEqual([]);
+    expect(validateJsonSchema(schema as any, { ...valid, freshness } as any).issues).toEqual([]);
+  }
+  // The field is part of the receipt payload, so a result cannot drop or alter it after signing.
+  const { receiptDigest: _receiptDigest, ...payload } = valid;
+  expect(projectionResultReceiptDigest({ ...payload, freshness: stale })).not.toBe(projectionResultReceiptDigest(payload));
+  expect(projectionResultInvariantIssues({ ...valid, freshness: stale }))
+    .toContain("receiptDigest must match the canonical projection result payload");
+
+  expect(projectionFreshnessIssues({ ...stale, ok: true })).toContain("freshness.ok must be true exactly when reasonCodes is empty");
+  expect(projectionFreshnessIssues({ ...stale, reasonCodes: [...stale.reasonCodes].reverse() }))
+    .toContain("freshness.reasonCodes must be sorted and unique");
+  expect(projectionFreshnessIssues({ ...stale, staleNodes: [...stale.staleNodes].reverse() }))
+    .toContain("freshness.staleNodes.nodeId must be sorted and unique");
+  expect(projectionFreshnessIssues({ ...stale, staleNodes: [] }))
+    .toContain("freshness.staleNodes must be non-empty exactly when projection-source-changed-since-stamp is reported");
+  expect(projectionFreshnessIssues({ ...stale, staleNodes: [{ ...stale.staleNodes[0]!, currentDigest: stale.staleNodes[0]!.stampedDigest }, stale.staleNodes[1]!] }))
+    .toContain("freshness.staleNodes[0] must name two different digests");
+  expect(projectionFreshnessIssues({ ok: false, reasonCodes: ["projection-change-set-unavailable" as never], staleNodes: [] }))
+    .toContain("freshness.reasonCodes contains an unsupported code: projection-change-set-unavailable");
+  expect(validateJsonSchema(schema as any, { ...valid, freshness: { ...stale, extra: true } } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...valid, freshness: { ...fresh, reasonCodes: ["projection-change-set-unavailable"] } } as any).valid).toBe(false);
+});
+
 test("capabilities fixture is the exact static handshake advertised by contracts", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
   expect(archctxCapabilities(ARCHCONTEXT_PRODUCT_VERSION)).toEqual(fixture);
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
   expect(fixture.features).toContain("projection-prior-committed-applies-v1");
+  expect(fixture.features).toContain("projection-check-freshness-v1");
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
 });

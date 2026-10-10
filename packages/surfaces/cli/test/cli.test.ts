@@ -5,17 +5,17 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import { architectureDocumentationProjectionWorktreeDigest, loadCapabilitySourceFootprintDigests, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
+import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, grantAuditConsent, readAuditConsent, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { createFixtureGithubConnectionReader } from "./github-connection-fixture";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
@@ -126,10 +126,50 @@ test("CLI init help never calls the runtime, including with a product name", asy
   }
 });
 
+/** One capability whose declared footprint is `README.md`, committed on a fresh Git repository. */
+function seedProjectionProtocolFixture(root: string): void {
+  nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
+  writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
+    schemaVersion: "archcontext.node/v2",
+    id: "capability.runtime-harness.hook-adapters",
+    kind: "capability",
+    name: "Hook Adapters",
+    status: "active",
+    summary: "Routes runtime hook events.",
+    responsibilities: ["Own hook routing."],
+    source: { include: ["README.md"] },
+    extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
+  }), "utf8");
+  mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
+  writeFileSync(join(root, ".archcontext/model/flows/flow.hook-adapters.yaml"), stableYaml({
+    schemaVersion: "archcontext.flow/v1",
+    id: "flow.hook-adapters",
+    capabilityId: "capability.runtime-harness.hook-adapters",
+    name: "Hook routing",
+    applicability: "not-applicable",
+    rationale: "The protocol fixture only validates the projection transport."
+  }), "utf8");
+  writeFileSync(join(root, "AGENTS.md"), "# Agent context\n", "utf8");
+  writeFileSync(join(root, "CLAUDE.md"), "# Agent context\n", "utf8");
+  git(root, "init");
+  git(root, "add", ".");
+  git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "projection protocol fixture");
+}
+
+function projectionProtocolExpectedSnapshot(root: string): ProjectionRequestV1["expected"] {
+  return {
+    repositoryId: repositoryFingerprint(root),
+    workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+    headSha: gitOut(root, "rev-parse", "HEAD"),
+    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}`
+  };
+}
+
 test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-valid ProjectionResultV2", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
   initializeArchContextModel(root, "Projection App");
+  declareOptionalCodeFacts(root);
   const daemon = await createStartedDaemon({
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
     codeGraphProviderFactory: () => new MockCodeGraphProvider(),
@@ -137,35 +177,10 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
   });
   const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
   try {
-    nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
-    writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
-      schemaVersion: "archcontext.node/v2",
-      id: "capability.runtime-harness.hook-adapters",
-      kind: "capability",
-      name: "Hook Adapters",
-      status: "active",
-      summary: "Routes runtime hook events.",
-      responsibilities: ["Own hook routing."],
-      source: { include: ["README.md"] },
-      extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
-    }), "utf8");
-    mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
-    writeFileSync(join(root, ".archcontext/model/flows/flow.hook-adapters.yaml"), stableYaml({
-      schemaVersion: "archcontext.flow/v1",
-      id: "flow.hook-adapters",
-      capabilityId: "capability.runtime-harness.hook-adapters",
-      name: "Hook routing",
-      applicability: "not-applicable",
-      rationale: "The protocol fixture only validates the projection transport."
-    }), "utf8");
-    writeFileSync(join(root, "AGENTS.md"), "# Agent context\n", "utf8");
-    writeFileSync(join(root, "CLAUDE.md"), "# Agent context\n", "utf8");
-    git(root, "init");
-    git(root, "add", ".");
-    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "projection protocol fixture");
+    seedProjectionProtocolFixture(root);
     const plan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
     expect(plan.ok, JSON.stringify(plan)).toBe(true);
-    const provenance = (plan.data as any).provenance;
+    const runtimeSnapshot = (plan.data as any).runtimeSnapshot;
     const request = {
       schemaVersion: "archcontext.projection-request/v1",
       requestId: "projection_request.cli_contract",
@@ -177,7 +192,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
         repositoryId: repositoryFingerprint(root),
         workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
         headSha: gitOut(root, "rev-parse", "HEAD"),
-        worktreeDigest: provenance.worktreeDigest
+        worktreeDigest: runtimeSnapshot.worktreeDigest
       }
     };
     mkdirSync(join(root, ".ai/harness/journal/post-edit/pending"), { recursive: true });
@@ -189,6 +204,12 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     expect(projection.requestId).toBe(request.requestId);
     expect(projection.inputSnapshot).not.toBe(projection.outputSnapshot);
     expect(projectionResultInvariantIssues(projection)).toEqual([]);
+    // Nothing has been projected yet, so `check` reports that nothing records a verification.
+    expect(projection.freshness).toEqual({
+      ok: false,
+      reasonCodes: ["projection-manifest-missing", "projection-snapshot-provenance-missing"],
+      staleNodes: []
+    });
 
     const stale = await cli("projection", ["run", "--request-json", JSON.stringify({
       ...request,
@@ -216,6 +237,79 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     })]);
     expect(nonCanonicalAcceptance.ok).toBe(false);
     expect((nonCanonicalAcceptance as any).error?.message).toContain("sorted and unique");
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
+test("CLI projection check reports per-node freshness read-only, from content stamps (#259)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-freshness-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Freshness App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const nodeId = "capability.runtime-harness.hook-adapters";
+  const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  const run = async (mode: ProjectionRequestV1["mode"], requestId: string) => {
+    const result = await cli("projection", ["run", "--request-json", JSON.stringify({
+      schemaVersion: "archcontext.projection-request/v1",
+      requestId,
+      profile: "repo-harness/v1",
+      mode,
+      targets: ["agent-context", "architecture-docs"],
+      changedPaths: [],
+      expected: projectionProtocolExpectedSnapshot(root)
+    } satisfies ProjectionRequestV1)]);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const projection = result.data as unknown as ProjectionResultV2;
+    expect(projectionResultInvariantIssues(projection)).toEqual([]);
+    expect(validateJsonSchema(JSON.parse(readFileSync(resolve(import.meta.dir, "../../../../schemas/runtime/projection-result.schema.json"), "utf8")), projection as any).issues).toEqual([]);
+    return projection;
+  };
+  const applyDocs = async () => {
+    const applied = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "project architecture documentation");
+  };
+  try {
+    seedProjectionProtocolFixture(root);
+    await applyDocs();
+    const stamped = JSON.parse(readFileSync(manifestPath, "utf8")).targets
+      .find((target: any) => target.type === "entity-summary" && target.scope.id === nodeId).sourceFootprintDigest;
+    expect(stamped).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+    expect((await run("check", "projection_request.freshness_clean")).freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
+
+    // A committed change inside the node's footprint makes exactly that node stale.
+    writeFileSync(join(root, "README.md"), "# projection fixture\n\nNew hook routing notes.\n", "utf8");
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "change the declared footprint");
+    const manifestBefore = readFileSync(manifestPath, "utf8");
+    const stale = await run("check", "projection_request.freshness_stale");
+    const currentDigest = loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root))
+      .find((entry) => entry.nodeId === nodeId)!.digest as `sha256:${string}`;
+    expect(stale.freshness).toEqual({
+      ok: false,
+      reasonCodes: ["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"],
+      staleNodes: [{ nodeId, stampedDigest: stamped, currentDigest }]
+    });
+    // `check` is read-only: the committed projection and the worktree are untouched.
+    expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
+    expect(gitOut(root, "status", "--porcelain")).toBe("");
+
+    // Only `check` carries the field.
+    expect((await run("plan", "projection_request.freshness_plan")).freshness).toBeUndefined();
+
+    // Re-projecting re-stamps the node and the next check is fresh again.
+    await applyDocs();
+    expect((await run("check", "projection_request.freshness_restamped")).freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
   } finally {
     await daemon.stop();
     removeTempRoot(root);
@@ -308,7 +402,7 @@ test("CLI ledger accept-committed previews, approves, and drives an accepted pro
         repositoryId: repositoryFingerprint(root),
         workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
         headSha: gitOut(root, "rev-parse", "HEAD"),
-        worktreeDigest: (docsPlan.data as any).provenance.worktreeDigest
+        worktreeDigest: (docsPlan.data as any).runtimeSnapshot.worktreeDigest
       }
     }) as ProjectionRequestV1;
     // The preview is not an acceptance: nothing in it can drive an accepted projection run.
@@ -381,10 +475,11 @@ function normalizeExistingPath(path: string): string {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-function createInitializedGitRepo(): string {
+function createInitializedGitRepo(options: { codeFacts?: "required" | "optional" } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-review-"));
   writeFileSync(join(root, "README.md"), "# review fixture\n", "utf8");
   initializeArchContextModel(root, "Review App");
+  if (options.codeFacts === "optional") declareOptionalCodeFacts(root);
   git(root, "init");
   configureGitFixtureIdentity(root);
   git(root, "add", ".");
@@ -4405,9 +4500,73 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("required code facts without a CodeGraph index fail projection with AC_CODE_FACTS_UNAVAILABLE", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      // The default manifest requires code facts; the fixture never runs `codegraph init`.
+      expect(readFileSync(join(root, ".archcontext/manifest.yaml"), "utf8")).toMatch(/^codeFacts:\n(?: {2}.*\n)*? {2}required: true$/m);
+      expect(existsSync(join(root, ".codegraph"))).toBe(false);
+      // A capability with a declared footprint and selector-bearing flow: without code facts every
+      // selector is unproven, which is what used to surface as a major change.
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
+      writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
+        schemaVersion: "archcontext.node/v2",
+        id: "capability.runtime-harness.hook-adapters",
+        kind: "capability",
+        name: "Hook Adapters",
+        status: "active",
+        summary: "Routes runtime hook events.",
+        source: { include: ["README.md"] },
+        extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
+      }), "utf8");
+      git(root, "add", "-A");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "hook adapters");
+      const expectUnavailable = (result: Awaited<ReturnType<typeof runTestCli>>, requestId: string) => {
+        const envelope = result as JsonEnvelope;
+        expect(envelope.ok, JSON.stringify(envelope)).toBe(false);
+        expect(envelope.requestId).toBe(requestId);
+        expect(envelope.error).toMatchObject({
+          code: "AC_CODE_FACTS_UNAVAILABLE",
+          reasonCode: "index-missing",
+          retryable: true,
+          action: "codegraph-init"
+        });
+        expect(envelope.error?.message).toContain("codegraph init");
+      };
+
+      expectUnavailable(await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root), "docs.plan");
+      const protocolRequest: ProjectionRequestV1 = {
+        schemaVersion: "archcontext.projection-request/v1",
+        requestId: "projection_request.code_facts_unavailable",
+        profile: "repo-harness/v1",
+        mode: "check",
+        targets: ["agent-context", "architecture-docs"],
+        changedPaths: [],
+        expected: {
+          repositoryId: repositoryFingerprint(root),
+          workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+          headSha: gitOut(root, "rev-parse", "HEAD"),
+          worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}`
+        }
+      };
+      expectUnavailable(await runTestCli("projection", ["run", "--request-json", JSON.stringify(protocolRequest)], root), "projection.run");
+      expectUnavailable(await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+        ...protocolRequest,
+        requestId: "projection_request.code_facts_unavailable_apply",
+        mode: "apply"
+      })], root), "projection.run");
+      // Nothing was classified, written, or signalled: the projection never reached the renderer.
+      expect(existsSync(join(root, "docs/architecture"))).toBe(false);
+      expect(existsSync(join(root, "AGENTS.md"))).toBe(false);
+      expect(gitOut(root, "status", "--porcelain")).toBe("");
+    } finally {
+      removeTempRoot(root);
+    }
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+
   test("docs apply and complete agree on projection digest for default", async () => {
     const profile = "default";
-    const root = createInitializedGitRepo();
+    const root = createInitializedGitRepo({ codeFacts: "optional" });
     try {
       const applied = await runTestCli("docs", ["apply", "--profile", profile, "--approved"], root);
       expect(applied.ok).toBe(true);
@@ -4428,7 +4587,7 @@ describe("archctx CLI", () => {
    * need that end state, so the scenario is driven once here and the caller owns cleanup.
    */
   async function runAdoptedHookAdaptersScenario(options: { codeGraphReady?: boolean } = {}) {
-    const root = createInitializedGitRepo();
+    const root = createInitializedGitRepo({ codeFacts: options.codeGraphReady ? "required" : "optional" });
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
     const original = [
       "# runtime-harness/hook-adapters",
@@ -4538,8 +4697,7 @@ describe("archctx CLI", () => {
       expect(second.ok).toBe(true);
       expect((second.data as any).status).toBe("noop");
       expect((second.data as any).provenance).toMatchObject({
-        schemaVersion: "archcontext.architecture-docs-projection-provenance/v1",
-        baseHeadSha: expect.stringMatching(/^[a-f0-9]{40}$/),
+        schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
         rendererVersion: "archcontext.docs-renderer/v4",
         layoutVersion: "archcontext.docs-layout/v1",
         generatedFrom: {
@@ -4549,6 +4707,9 @@ describe("archctx CLI", () => {
         }
       });
       expect((second.data as any).provenance.projectionInputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      // HEAD and worktree identity are runtime facts; the committed provenance carries neither.
+      expect((second.data as any).provenance).not.toHaveProperty("baseHeadSha");
+      expect((second.data as any).provenance).not.toHaveProperty("worktreeDigest");
       const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
       expect(manifest.provenance).toEqual((second.data as any).provenance);
       const completed = await runTestCli("complete", ["--task", "verify adopted documentation"], root);
@@ -4560,7 +4721,6 @@ describe("archctx CLI", () => {
       const unresolvedPlan = await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root);
       expect(unresolvedPlan.ok).toBe(true);
       expect((unresolvedPlan.data as any).majorChange.mode).toBe("human-action-required");
-      const unresolvedProvenance = (unresolvedPlan.data as any).provenance;
       const protocolRequest: ProjectionRequestV1 = {
         schemaVersion: "archcontext.projection-request/v1",
         requestId: "projection_request.hook_adapters_major",
@@ -4572,7 +4732,7 @@ describe("archctx CLI", () => {
           repositoryId: repositoryFingerprint(root),
           workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
           headSha: gitOut(root, "rev-parse", "HEAD"),
-          worktreeDigest: unresolvedProvenance.worktreeDigest
+          worktreeDigest: (unresolvedPlan.data as any).runtimeSnapshot.worktreeDigest
         }
       };
       const unresolvedProtocol = await runTestCli("projection", ["run", "--request-json", JSON.stringify(protocolRequest)], root);
@@ -4633,7 +4793,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("first docs adoption settles its manifest while preserving unresolved flow proof", async () => {
-    const root = createInitializedGitRepo();
+    const root = createInitializedGitRepo({ codeFacts: "optional" });
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
     const humanTail = "## 3. Human decisions\nretain  exact spacing  \n";
     try {

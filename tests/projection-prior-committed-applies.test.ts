@@ -7,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
+import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { digestJson, projectionResultInvariantIssues, stableYaml, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
@@ -51,6 +51,7 @@ function createFixture(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-prior-applies-"));
   writeFileSync(join(root, "README.md"), "# prior applies fixture\n", "utf8");
   initializeArchContextModel(root, "Prior Applies Fixture");
+  declareOptionalCodeFacts(root);
   git(root, "init");
   git(root, "config", "user.name", "ArchContext Test");
   git(root, "config", "user.email", "archcontext@example.test");

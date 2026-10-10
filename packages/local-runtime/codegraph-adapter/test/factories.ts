@@ -1,5 +1,19 @@
 import { digestJson, type Json, type NormalizedCodeContext, type NormalizedImpact, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { type CodeGraphProvider, REQUIRED_CODEGRAPH_VERSION } from "../src/index";
+
+/**
+ * Projection fixtures that run without a CodeGraph index declare code facts optional; with the
+ * default `codeFacts.required: true` the projection refuses with `AC_CODE_FACTS_UNAVAILABLE`.
+ */
+export function declareOptionalCodeFacts(root: string): void {
+  const manifestPath = join(root, ".archcontext/manifest.yaml");
+  const manifest = readFileSync(manifestPath, "utf8");
+  const optional = manifest.replace(/^(codeFacts:\n(?: {2}.*\n)*? {2}required: )true$/m, "$1false");
+  if (optional === manifest) throw new Error("fixture manifest does not declare codeFacts.required: true");
+  writeFileSync(manifestPath, optional, "utf8");
+}
 
 export class MockCodeGraphProvider implements CodeGraphProvider {
   version = REQUIRED_CODEGRAPH_VERSION;

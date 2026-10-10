@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { basename, delimiter, dirname, isAbsolute, join, posix, resolve } from "node:path";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
-import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
+import { parseJsonOrStableYaml, repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
@@ -18,7 +18,8 @@ import {
   type ArchitectureSelectorEvidenceV1,
   type CapabilityImportEdge,
   type CapabilityImportGraph,
-  type ArchitectureDocumentationProjectionProvenanceV1,
+  type ArchitectureDocumentationProjectionProvenanceV2,
+  type ArchitectureDocumentationProjectionRuntimeSnapshot,
   type NativeModel
 } from "@archcontext/core/projection-engine";
 import { digestJson, productVersionManifest, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
@@ -712,7 +713,9 @@ export interface PreparedProjectionCodeFacts extends CapabilityCodeGraphProjecti
 }
 
 export interface PreparedArchitectureDocumentationProjectionSnapshot extends PreparedProjectionCodeFacts {
-  provenance: ArchitectureDocumentationProjectionProvenanceV1;
+  provenance: ArchitectureDocumentationProjectionProvenanceV2;
+  /** HEAD and projection worktree digest this snapshot read; runtime receipts only, never committed. */
+  runtimeSnapshot: ArchitectureDocumentationProjectionRuntimeSnapshot;
 }
 
 /** Single snapshot assembly shared by CLI, daemon completion gates, and verification tests. */
@@ -734,8 +737,6 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
     throw new Error("architecture-docs-projection-worktree-changed-during-codegraph-sync");
   }
   const provenance = architectureDocumentationProjectionProvenance({
-    baseHeadSha,
-    worktreeDigest,
     sourceTreeDigest,
     modelDigest,
     codeGraphDigest: prepared.handshake.graphDigest,
@@ -749,7 +750,46 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
       codeGraphStatus: prepared.handshake.availability
     }
   });
-  return { ...prepared, provenance };
+  return { ...prepared, provenance, runtimeSnapshot: { headSha: baseHeadSha, worktreeDigest } };
+}
+
+/**
+ * Thrown when `.archcontext/manifest.yaml` declares `codeFacts.required: true` and the projection
+ * snapshot has no code facts. Without them every selector is unproven, so the major-change
+ * classifier would report a flow-proof change for every capability; an environment failure must not
+ * read as an architecture change. Surfaces map it to `AC_CODE_FACTS_UNAVAILABLE`.
+ */
+export class ProjectionCodeFactsUnavailableError extends Error {
+  readonly code = "AC_CODE_FACTS_UNAVAILABLE" as const;
+  constructor(readonly reasonCode: NonNullable<CodeGraphProjectionHandshakeV1["reasonCode"]>) {
+    super(`code facts are required by .archcontext/manifest.yaml but unavailable (${reasonCode}); run \`codegraph init\` and retry`);
+    this.name = "ProjectionCodeFactsUnavailableError";
+  }
+}
+
+/** `codeFacts.required` from `.archcontext/manifest.yaml`; only an explicit `true` requires them. */
+export function projectionCodeFactsRequired(root: string): boolean {
+  const path = join(root, ".archcontext/manifest.yaml");
+  if (!existsSync(path)) return false;
+  let manifest: Json;
+  try {
+    manifest = parseJsonOrStableYaml(readFileSync(path, "utf8"), ".archcontext/manifest.yaml");
+  } catch {
+    // Manifest shape is validated by `archctx validate`; an unreadable file declares nothing here.
+    return false;
+  }
+  const codeFacts = manifest && typeof manifest === "object" && !Array.isArray(manifest) ? manifest.codeFacts : undefined;
+  return !!codeFacts && typeof codeFacts === "object" && !Array.isArray(codeFacts) && codeFacts.required === true;
+}
+
+/**
+ * Projection gate for required code facts. Runs before the snapshot reaches the renderer, so a
+ * missing index never classifies a major change, writes an acceptance candidate or emits a refresh
+ * signal.
+ */
+export function assertProjectionCodeFactsAvailable(root: string, prepared: PreparedProjectionCodeFacts): void {
+  if (prepared.handshake.availability === "ready" || !projectionCodeFactsRequired(root)) return;
+  throw new ProjectionCodeFactsUnavailableError(prepared.handshake.reasonCode ?? "index-missing");
 }
 
 /**

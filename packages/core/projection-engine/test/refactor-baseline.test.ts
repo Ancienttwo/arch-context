@@ -79,7 +79,7 @@ describe("RF0 baseline: declared source footprints and scale signals", () => {
 
 const sourceDigest = `sha256:${"1".repeat(64)}`;
 const provenance = architectureDocumentationProjectionProvenance({
-  baseHeadSha: "a".repeat(40), worktreeDigest: sourceDigest, sourceTreeDigest: sourceDigest,
+  sourceTreeDigest: sourceDigest,
   modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
   generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "ready" }
@@ -96,8 +96,7 @@ function renderScaleLine(fileCount: number, lineCount: number): string {
     model: bucketModel,
     sourceDigest,
     provenance,
-    verifiedAgainst: { branch: "main", commit: "7415329", committedAt: "2026-08-08T09:30:00+08:00" },
-    sourceChangesSinceStamp: [{ nodeId: "capability.scale", commit: "7415329", status: "unchanged" }],
+    sourceFootprints: [{ nodeId: "capability.scale", digest: `sha256:${"4".repeat(64)}`, fileCount }],
     sourceScaleSignals: [{ nodeId: "capability.scale", fileCount, lineCount, includePatterns: ["packages/scale/**"], excludePatterns: [] }],
     importGraphs: [],
     selectorEvidence: [],

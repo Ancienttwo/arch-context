@@ -600,6 +600,60 @@
         ]
       }
     },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Present on check results only. Canonical wire orders and the ok/reasonCodes/staleNodes coupling are enforced by projectionResultInvariantIssues.",
+      "required": [
+        "ok",
+        "reasonCodes",
+        "staleNodes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "reasonCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "projection-manifest-missing",
+              "projection-manifest-unreadable",
+              "projection-snapshot-provenance-missing",
+              "projection-source-changed-since-stamp",
+              "projection-source-stamp-invalid",
+              "projection-source-stamp-missing",
+              "projection-source-tree-digest-mismatch"
+            ]
+          }
+        },
+        "staleNodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "nodeId",
+              "stampedDigest",
+              "currentDigest"
+            ],
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "stampedDigest": {
+                "$ref": "#/$defs/digest"
+              },
+              "currentDigest": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        }
+      }
+    },
     "applyIdentity": {
       "type": "object",
       "additionalProperties": false,
@@ -743,6 +797,9 @@
           "items": {
             "$ref": "#/$defs/priorCommittedApply"
           }
+        },
+        "freshness": {
+          "$ref": "#/$defs/freshness"
         },
         "receiptDigest": {
           "$ref": "#/$defs/digest"

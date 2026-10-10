@@ -333,17 +333,14 @@ describe("@archcontext/core/review-engine", () => {
 
   test("a stale projection blocks complete_task through the stale-context failOn switch", () => {
     const freshness = {
-      schemaVersion: "archcontext.projection-freshness/v1" as const,
+      schemaVersion: "archcontext.projection-freshness/v2" as const,
       ok: false,
-      reasonCodes: ["projection-source-changed-since-verified-commit"],
-      detail: "1 node(s) changed after their verified commit: capability.docs.projection(2@7415329)",
-      changedPathCount: 5,
+      reasonCodes: ["projection-source-changed-since-stamp"],
+      detail: "1 node(s) changed after their document was verified: capability.docs.projection",
       staleNodes: [{
         nodeId: "capability.docs.projection",
-        verifiedAgainst: { branch: "main", commit: "7415329", committedAt: "2026-08-08T09:30:00+08:00" },
-        changedPathCount: 2,
-        changedPaths: ["packages/core/projection-engine/src/index.ts"],
-        changedPathsTruncated: true
+        stampedDigest: `sha256:${"1".repeat(64)}`,
+        currentDigest: `sha256:${"2".repeat(64)}`
       }]
     };
     const result = completeTaskGate({
@@ -363,10 +360,10 @@ describe("@archcontext/core/review-engine", () => {
     // `stale-context`; only the message and the gate extension name the trigger source.
     expect(finding.type).toBe("stale-context");
     expect(finding.severity).toBe("error");
-    expect(finding.message).toContain("projection-source-changed-since-verified-commit");
-    expect(finding.message).toContain("capability.docs.projection(2@7415329)");
+    expect(finding.message).toContain("projection-source-changed-since-stamp");
+    expect(finding.message).toContain("changed after their document was verified: capability.docs.projection");
     expect(finding.message).not.toContain("Task snapshot HEAD");
-    expect(result.extensions.projectionFreshnessGate).toMatchObject({ ok: false, changedPathCount: 5 });
+    expect(result.extensions.projectionFreshnessGate).toMatchObject({ ok: false, staleNodes: [{ nodeId: "capability.docs.projection" }] });
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
   });
 
@@ -380,11 +377,10 @@ describe("@archcontext/core/review-engine", () => {
       modelDigest: sha,
       codeFactsDigest: sha,
       projectionFreshness: {
-        schemaVersion: "archcontext.projection-freshness/v1",
+        schemaVersion: "archcontext.projection-freshness/v2",
         ok: true,
         reasonCodes: [],
-        detail: "no declared capability source changed since the commit its documentation was verified against",
-        changedPathCount: 3,
+        detail: "no declared capability source changed since its documentation was verified",
         staleNodes: []
       }
     });
@@ -404,11 +400,10 @@ describe("@archcontext/core/review-engine", () => {
       modelDigest: sha,
       codeFactsDigest: sha,
       projectionFreshness: {
-        schemaVersion: "archcontext.projection-freshness/v1",
+        schemaVersion: "archcontext.projection-freshness/v2",
         ok: false,
-        reasonCodes: ["projection-change-set-unavailable"],
-        detail: "changed-path set could not be measured: fatal: bad object 7415329",
-        changedPathCount: 0,
+        reasonCodes: ["projection-source-stamp-missing"],
+        detail: "projection manifest records no sourceFootprintDigest for capability.docs.projection; re-run the documentation projection",
         staleNodes: []
       }
     });

@@ -26,21 +26,17 @@ const model: NativeModel = {
 };
 
 // Fail-closed Git provenance required by renderArchitectureDocumentationProjection.
-const verifiedAgainst = { branch: "main", commit: "7415329", committedAt: "2026-08-08T00:00:00Z" };
 const sourceScaleSignals: never[] = [];
 // No node in this fixture declares source.include/entrypoints, so the P1/P2 diagram inputs are
 // empty measurements rather than missing ones.
 const importGraphs: never[] = [];
 const selectorEvidence: never[] = [];
-// No node declares source.include either, so no covered source change is possible and the stamp
-// lifecycle needs no measurement.
-const sourceChangesSinceStamp: never[] = [];
+// No node declares source.include either, so no node carries a source-footprint stamp.
+const sourceFootprints: never[] = [];
 // Keep the renderer surface's privacy-route audit free of provider-name literals while still
 // constructing the exact provenance contract exercised by the core factory.
 const graphField = "code" + "Graph";
 const projectionProvenance = architectureDocumentationProjectionProvenance({
-  baseHeadSha: "a".repeat(40),
-  worktreeDigest: "sha256:" + "1".repeat(64),
   sourceTreeDigest: "sha256:" + "2".repeat(64),
   modelDigest: "sha256:" + "3".repeat(64),
   [graphField + "Digest"]: "sha256:" + "4".repeat(64),
@@ -99,8 +95,7 @@ describe("@archcontext/surfaces/renderer", () => {
   test("renders deterministic architecture documentation projection targets", () => {
     const sourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
     const first = renderArchitectureDocumentationProjection({
-      verifiedAgainst,
-      sourceChangesSinceStamp,
+      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -112,8 +107,7 @@ describe("@archcontext/surfaces/renderer", () => {
       timeline: [{ eventId: "architecture_event.test", timestamp: "2026-06-26T00:00:00.000Z", title: "Added payment module", affectedSubjects: ["module.payment"] }]
     });
     const second = renderArchitectureDocumentationProjection({
-      verifiedAgainst,
-      sourceChangesSinceStamp,
+      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -150,8 +144,7 @@ describe("@archcontext/surfaces/renderer", () => {
   test("preserves human-authored regions and detects projection drift classes", () => {
     const sourceDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
     const markerFree = renderArchitectureDocumentationProjection({
-      verifiedAgainst,
-      sourceChangesSinceStamp,
+      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -168,8 +161,7 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(markerFree.drift.reasonCodes).toContain("projection-adoption-required");
 
     const seeded = renderArchitectureDocumentationProjection({
-      verifiedAgainst,
-      sourceChangesSinceStamp,
+      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -179,8 +171,7 @@ describe("@archcontext/surfaces/renderer", () => {
       generatedAt: "2026-06-26T00:00:00.000Z"
     });
     const preserved = renderArchitectureDocumentationProjection({
-      verifiedAgainst,
-      sourceChangesSinceStamp,
+      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -199,8 +190,7 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(preserved.files.find((file) => file.path === "docs/architecture/index.md")?.body).toStartWith("Human note.\n\n");
 
     const clean = renderArchitectureDocumentationProjection({
-      verifiedAgainst,
-      sourceChangesSinceStamp,
+      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -213,8 +203,7 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(clean.drift.ok).toBe(true);
 
     const stale = renderArchitectureDocumentationProjection({
-      verifiedAgainst,
-      sourceChangesSinceStamp,
+      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -227,8 +216,7 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(stale.drift.reasonCodes).toContain("projection-generated-region-stale");
 
     const edited = renderArchitectureDocumentationProjection({
-      verifiedAgainst,
-      sourceChangesSinceStamp,
+      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -247,8 +235,7 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(edited.drift.reasonCodes).toContain("projection-generated-region-manually-edited");
 
     const orphaned = renderArchitectureDocumentationProjection({
-      verifiedAgainst,
-      sourceChangesSinceStamp,
+      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
