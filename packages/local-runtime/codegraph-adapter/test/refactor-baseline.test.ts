@@ -13,6 +13,7 @@
  * its shape, because those digests hash the absolute project path and the fake binary's bytes.
  */
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -120,6 +121,8 @@ function seedWorkspace(): { root: string; binary: string } {
   }
   const binary = join(root, "fake-codegraph.js");
   writeFileSync(binary, IMPORT_DUMP_CLI, "utf8");
+  // Footprints are measured over Git-visible files; untracked files count, so no commit is needed.
+  execFileSync("git", ["init", "-q"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   return { root, binary };
 }
 

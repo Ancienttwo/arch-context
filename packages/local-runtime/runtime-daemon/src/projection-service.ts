@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { ProjectionSourceFilesUnavailableError, findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
@@ -145,7 +145,7 @@ function withProjectionMetadata(
 }
 
 export function buildArchitectureDocsProjection(
-  daemon: ProjectionServiceHost,
+  _host: ProjectionServiceHost | undefined,
   root: string,
   generatedAt: string,
   profile: ArchitectureProjectionProfile = "default",
@@ -158,14 +158,14 @@ export function buildArchitectureDocsProjection(
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   const provenance = codeGraphInputs.provenance;
-  const sourceFootprints = loadCapabilitySourceFootprintDigests(root, loaded.model);
+  const sourceFootprints = loadCapabilitySourceFootprintDigests(root, loaded.model, codeGraphInputs.sourceFiles);
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     sourceFootprints,
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.sourceFiles),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
@@ -418,6 +418,8 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
   }
 
+  if (request.mode === "check") return runProjectionCheckCommand(request, findRepositoryRoot(cwd));
+
   const root = findRepositoryRoot(cwd);
   const generatedAt = new Date(0).toISOString();
   // Snapshot the journal before this command can write anything: whatever is committed under this
@@ -485,9 +487,8 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     return projectionFailureEnvelope("projection.run", error);
   }
 
-  const freshness = request.mode === "check" ? projectionCheckFreshness(root, projection) : undefined;
   const blocked = projectionProtocolHumanStatus(request, projection);
-  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies, freshness);
+  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies);
 
   if (request.mode === "adopt") {
     const expectedWorktreeDigest = computeWorktreeDigest(root);
@@ -525,7 +526,44 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   }
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
-  return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies, freshness);
+  return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies);
+}
+
+/**
+ * `projection run` in `check` mode, computed in-process and read-only end to end: it reads
+ * repository files and the committed manifest, and never reaches the daemon. No runtime client is
+ * started, no journal is read, no runtime state is written and no task session is opened, so a CI
+ * job or a hook can ask "is the projection current?" without a daemon. A check never commits, so
+ * it has no prior committed applies to report; `apply` and `readback` own that journal.
+ */
+export function runProjectionCheckCommand(request: ProjectionRequestV1, root: string): JsonEnvelope {
+  if (request.mode !== "check") {
+    return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", `projection check requires mode check, got ${request.mode}`);
+  }
+  let projection: ReturnType<typeof buildArchitectureDocsProjection>;
+  try {
+    projection = buildArchitectureDocsProjection(undefined, root, new Date(0).toISOString(), REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
+    assertProjectionExpectedSnapshot(request, root, projection);
+  } catch (error) {
+    return projectionFailureEnvelope("projection.run", error);
+  }
+  const freshness = projectionCheckFreshness(root, projection);
+  const status = projectionProtocolHumanStatus(request, projection) ?? (projection.plan.drift.ok ? "noop" : "planned");
+  return projectionProtocolEnvelope(request, projection, status, projection, [], freshness);
+}
+
+/**
+ * The CLI's daemonless entry for `projection run --request-json` in `check` mode: the raw request
+ * is decoded and validated here, before any runtime client exists.
+ */
+export function runProjectionCheckInvocation(rawRequest: unknown, cwd: string): JsonEnvelope {
+  let request: ProjectionRequestV1;
+  try {
+    request = parseProjectionProtocolRequest(JSON.stringify(rawRequest));
+  } catch (error) {
+    return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  return runProjectionCheckCommand(request, findRepositoryRoot(cwd));
 }
 
 /**
@@ -620,13 +658,17 @@ function observedMajorChangeAcceptance(
 }
 
 /**
- * A projection that cannot be built fails its precondition, except when required code facts are
- * missing: that is an environment state with its own typed, retryable code, so a consumer can tell
- * it apart from a real architecture change.
+ * A projection that cannot be built fails its precondition, except for two environment states with
+ * their own typed codes, so a consumer can tell them apart from a real architecture change:
+ * required code facts are missing (`AC_CODE_FACTS_UNAVAILABLE`), or the root is not a Git worktree
+ * whose files footprints could be measured over (`AC_REPO_NOT_FOUND`, `git-worktree-required`).
  */
 export function projectionFailureEnvelope(requestId: string, error: unknown): JsonEnvelope {
   if (error instanceof ProjectionCodeFactsUnavailableError) {
     return errorEnvelope(requestId, "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
+  }
+  if (error instanceof ProjectionSourceFilesUnavailableError) {
+    return errorEnvelope(requestId, error.code, error.message, error.reasonCode);
   }
   return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
 }
