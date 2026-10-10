@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { canonicalRepositoryRoot, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
@@ -106,7 +106,7 @@ function docsSnapshot(root: string): Record<string, string> {
     for (const entry of readdirSync(directory)) {
       const absolute = join(directory, entry);
       if (statSync(absolute).isDirectory()) walk(absolute);
-      else files[relative(root, absolute)] = readFileSync(absolute, "utf8");
+      else files[relative(root, absolute).split(sep).join("/")] = readFileSync(absolute, "utf8");
     }
   };
   walk(join(root, "docs/architecture"));
