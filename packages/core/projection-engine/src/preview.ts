@@ -60,17 +60,12 @@ function utf8(value: string): Uint8Array {
 }
 
 /**
- * The longest prefix of whole lines within `limit` bytes; when the first line alone is longer, the
- * longest prefix that ends on a UTF-8 character boundary.
+ * The longest prefix of whole lines within `limit` bytes. When the first line alone is longer, the
+ * preview is empty: a cut always lands on a line boundary, never inside a line or a character.
  */
 function truncateUtf8(bytes: Uint8Array, limit: number): string {
   if (limit <= 0) return "";
-  let cut = bytes.lastIndexOf(0x0a, limit - 1) + 1;
-  if (cut === 0) {
-    cut = limit;
-    while (cut > 0 && (bytes[cut]! & 0xc0) === 0x80) cut -= 1;
-  }
-  return DECODER.decode(bytes.subarray(0, cut));
+  return DECODER.decode(bytes.subarray(0, bytes.lastIndexOf(0x0a, limit - 1) + 1));
 }
 
 type DiffOp = { kind: " " | "-" | "+"; line: string };

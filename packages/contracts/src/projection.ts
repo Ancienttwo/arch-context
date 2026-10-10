@@ -535,6 +535,17 @@ export function projectionRequestInvariantIssues(input: ProjectionRequestV1): st
   return issues;
 }
 
+/**
+ * Invariants that bind a result to the request mode that produced it, which the result itself does
+ * not carry: only a `plan` result previews what it would write (#264); `check`, `apply` and
+ * `adopt` results never carry `files[].preview`, whatever their status.
+ */
+export function projectionResultRequestModeIssues(input: ProjectionResultV2, mode: ProjectionMode): string[] {
+  return mode !== "plan" && input.files.some((file) => file.preview !== undefined)
+    ? [`files[].preview is only allowed on a plan result, never when mode=${mode}`]
+    : [];
+}
+
 export function projectionResultInvariantIssues(input: ProjectionResultV2): string[] {
   const issues = [
     ...sortedUniqueIssues("affectedNodeIds", input.affectedNodeIds),
@@ -587,6 +598,8 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
   if (previewBytes > PROJECTION_PREVIEW_TOTAL_MAX_BYTES) {
     issues.push(`files[].preview.content must not exceed ${PROJECTION_PREVIEW_TOTAL_MAX_BYTES} UTF-8 bytes in total`);
   }
+  // The result does not carry its request mode; projectionResultRequestModeIssues binds a preview
+  // to mode=plan. On the result alone, a committed apply (and so a persisted receipt) never carries one.
   if (input.files.some((file) => file.preview !== undefined)
     && (input.applyReceipt !== undefined || input.status === "applied" || input.status === "applied-reconcile-required")) {
     issues.push("files[].preview is only allowed on a plan result, never on a committed apply");

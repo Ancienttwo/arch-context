@@ -322,47 +322,81 @@ test("projection apply accepts the major change it observes in one request (#261
   });
 }, TEST_TIMEOUT_MS);
 
-test("an observed-change apply writes the change it classified when the manifest moves mid-request", async () => {
+/**
+ * Runs one write between classification and the ChangeSet write: the receipt lookup sits between
+ * the two. Returns the lookup key the request used, so the caller can prove no receipt landed.
+ */
+function editAfterClassification(daemon: Awaited<ReturnType<typeof createStartedDaemon>>, edit: () => void) {
+  const host = daemon as unknown as Record<"inspectProjectionApplyReceipt", (...args: unknown[]) => Promise<unknown>>;
+  const inspect = host.inspectProjectionApplyReceipt.bind(daemon);
+  const state: { lookupKey?: string } = {};
+  host.inspectProjectionApplyReceipt = async (...args: unknown[]) => {
+    const inspected = await inspect(...args);
+    if (state.lookupKey === undefined) {
+      state.lookupKey = args[1] as string;
+      edit();
+    }
+    return inspected;
+  };
+  return { state, inspect };
+}
+
+/** The apply failed its write precondition: typed refusal, no receipt, no prior committed apply. */
+async function expectApplyRefusedBeforeWrite(
+  daemon: Awaited<ReturnType<typeof createStartedDaemon>>,
+  root: string,
+  refused: { ok: boolean },
+  lookup: ReturnType<typeof editAfterClassification>,
+  requestId: string
+): Promise<void> {
+  expect(lookup.state.lookupKey).toBeString();
+  expect(refused.ok, JSON.stringify(refused)).toBe(false);
+  expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
+  expect((refused as any).error.message).toContain("Expected hash mismatch");
+  expect(await lookup.inspect(root, lookup.state.lookupKey)).toMatchObject({ ok: true, data: { found: false } });
+  const prior = await daemon.listProjectionPriorCommittedApplies(root, requestId) as any;
+  expect(prior.ok, JSON.stringify(prior)).toBe(true);
+  expect(JSON.stringify(prior.data)).not.toContain(lookup.state.lookupKey!);
+}
+
+test("an observed-change apply fails closed when the manifest moves mid-request", async () => {
   await withProtocolFixture("archctx-projection-observed-baseline-", async ({ root, daemon, request, projectionRun }) => {
     editKeptSummary(root);
     const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
     const classifiedManifest = readFileSync(manifestPath, "utf8");
 
-    // The semantic baseline lives in the manifest, which the worktree digest does not cover. Move
-    // it after classification (the receipt lookup runs between classification and the write) so
-    // that a re-read baseline would also see REMOVED's responsibilities change.
+    // The semantic baseline lives in the manifest, which the worktree digest does not cover. A
+    // moved baseline would also see REMOVED's responsibilities change; the write is bound to the
+    // bytes classification read, so the move fails the hash precondition before any file is written.
     const tampered = JSON.parse(classifiedManifest);
     const removedBaseline = tampered.semanticBaseline.semanticState.capabilities.find((entry: any) => entry.capabilityId === REMOVED);
     removedBaseline.facets.responsibilities = `sha256:${"0".repeat(64)}`;
     removedBaseline.semanticFingerprint = `sha256:${"1".repeat(64)}`;
-    const host = daemon as unknown as Record<"inspectProjectionApplyReceipt", (...args: unknown[]) => Promise<unknown>>;
-    const inspect = host.inspectProjectionApplyReceipt.bind(daemon);
-    let moved = false;
-    host.inspectProjectionApplyReceipt = async (...args: unknown[]) => {
-      const inspected = await inspect(...args);
-      if (!moved) {
-        moved = true;
-        writeFileSync(manifestPath, `${JSON.stringify(tampered, null, 2)}\n`, "utf8");
-      }
-      return inspected;
-    };
+    const tamperedBody = `${JSON.stringify(tampered, null, 2)}\n`;
+    const docsBefore = docsSnapshot(root);
+    const lookup = editAfterClassification(daemon, () => writeFileSync(manifestPath, tamperedBody, "utf8"));
 
-    const applied = projectionResult(await projectionRun(request("apply", "projection_request.observed_baseline", { acceptObservedMajorChange: true })));
-    expect(moved).toBe(true);
-    expect(applied.status).toBe("applied");
-    const acceptedChange = applied.applyReceipt!.acceptedChange;
-    expect(acceptedChange).toMatchObject({ reasonCodes: ["responsibility-changed"], affectedNodeIds: [KEPT] });
-    // What was applied is the change the receipt records: only KEPT moved, against the baseline
-    // that was classified, never REMOVED from the manifest written mid-request.
-    expect(applied.refreshSignals).toHaveLength(1);
-    expect(applied.refreshSignals[0]!.capabilities!.map((entry) => entry.capabilityId)).toEqual([KEPT]);
-    const inspected = await inspect(root, applied.applyReceipt!.lookupKey) as any;
-    expect(inspected.data.receipt.result.refreshSignals[0].capabilities.map((entry: any) => entry.capabilityId)).toEqual([KEPT]);
-    const written = JSON.parse(readFileSync(manifestPath, "utf8"));
-    const classified = JSON.parse(classifiedManifest);
-    const capabilityState = (manifest: any, id: string) => manifest.semanticBaseline.semanticState.capabilities.find((entry: any) => entry.capabilityId === id);
-    expect(capabilityState(written, REMOVED)).toEqual(capabilityState(classified, REMOVED));
-    expect(projectionResult(await projectionRun(request("check", "projection_request.observed_baseline_after"))).status).toBe("noop");
+    const requestId = "projection_request.observed_baseline";
+    const refused = await projectionRun(request("apply", requestId, { acceptObservedMajorChange: true }));
+    await expectApplyRefusedBeforeWrite(daemon, root, refused, lookup, requestId);
+    expect(docsSnapshot(root)).toEqual({ ...docsBefore, "docs/architecture/.projection-manifest.json": tamperedBody });
+  });
+}, TEST_TIMEOUT_MS);
+
+test("an observed-change apply never overwrites a human note added after classification", async () => {
+  await withProtocolFixture("archctx-projection-observed-human-note-", async ({ root, daemon, request, projectionRun }) => {
+    editKeptSummary(root);
+    // KEPT's module document is rewritten by this apply; the note sits outside its generated markers.
+    const modulePath = manifestTargetPath(root, KEPT);
+    const noted = `${readFileSync(join(root, modulePath), "utf8")}\nHuman hook adapter notes.\n`;
+    const docsBefore = docsSnapshot(root);
+    const lookup = editAfterClassification(daemon, () => writeFileSync(join(root, modulePath), noted, "utf8"));
+
+    const requestId = "projection_request.observed_human_note";
+    const refused = await projectionRun(request("apply", requestId, { acceptObservedMajorChange: true }));
+    await expectApplyRefusedBeforeWrite(daemon, root, refused, lookup, requestId);
+    expect(readFileSync(join(root, modulePath), "utf8")).toBe(noted);
+    expect(docsSnapshot(root)).toEqual({ ...docsBefore, [modulePath]: noted });
   });
 }, TEST_TIMEOUT_MS);
 

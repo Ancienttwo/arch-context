@@ -761,6 +761,34 @@ function entityPreimageFindings(root: string, operation: ChangeOperation): strin
   return current === operation.expectedHash ? [] : [`Expected hash mismatch: ${operation.path} (current ${current})`];
 }
 
+/**
+ * Every projection file write's preimage, checked as one pass before any file is touched. Apply
+ * rechecks each file again immediately before it writes; this pass lets a caller refuse a stale
+ * projection with nothing written instead of rolling back the files written before the stale one.
+ * A path an earlier operation of the same draft writes is left to that per-file recheck. Paths that
+ * fail containment or symlink checks are the path policy's to report, not a preimage finding.
+ */
+export function projectionPreimageFindings(root: string, draft: ChangeSetDraft): string[] {
+  const findings: string[] = [];
+  const written = new Set<string>();
+  for (const operation of draft.operations) {
+    if (operation.path) written.add(operation.path);
+    for (const file of operation.projectionFiles ?? []) {
+      if (written.has(file.path)) continue;
+      written.add(file.path);
+      let absolute: string;
+      try {
+        absolute = assertPathHasNoSymlinkSegments(root, file.path);
+      } catch {
+        continue;
+      }
+      const current = existsSync(absolute) && lstatSync(absolute).isFile() ? digestJson({ body: readFileSync(absolute, "utf8") }) : "missing";
+      if (current !== file.expectedHash) findings.push(`Expected hash mismatch: ${file.path} (current ${current})`);
+    }
+  }
+  return findings;
+}
+
 function assertProjectionDeleteAllowed(op: ChangeOperationKind, file: ChangeSetProjectionDelete): void {
   if (op !== "render_projection") throw new Error(`Projection file delete is only allowed in render_projection: ${file.path}`);
   if (file.delete !== true || "body" in file) throw new Error(`Projection file delete must carry delete: true and no body: ${file.path}`);

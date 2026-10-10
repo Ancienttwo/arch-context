@@ -290,9 +290,9 @@ function manifestTargetIssues(value: unknown, prefix: string): string[] {
   if (!target) return [`${prefix} must be an object`];
   const issues = exactKeys(target, ["targetId", "type", "scope", "path", "ownership", "rendererVersion", "format", "sourceDigest", "outputDigest"], ["sourceFootprintDigest", "scale"], prefix);
   if (!isNonEmptyString(target.targetId)) issues.push(`${prefix}.targetId must be a non-empty string`);
-  if (typeof target.type !== "string" || !(target.type in TARGET_TYPES)) issues.push(`${prefix}.type is unsupported`);
+  if (typeof target.type !== "string" || !Object.hasOwn(TARGET_TYPES, target.type)) issues.push(`${prefix}.type is unsupported`);
   const scope = record(target.scope);
-  if (!scope || typeof scope.kind !== "string" || !(scope.kind in SCOPE_KINDS)) issues.push(`${prefix}.scope.kind is unsupported`);
+  if (!scope || typeof scope.kind !== "string" || !Object.hasOwn(SCOPE_KINDS, scope.kind)) issues.push(`${prefix}.scope.kind is unsupported`);
   else {
     issues.push(...exactKeys(scope, ["kind"], ["id", "entityKind"], `${prefix}.scope`));
     for (const field of ["id", "entityKind"] as const) {
@@ -300,9 +300,9 @@ function manifestTargetIssues(value: unknown, prefix: string): string[] {
     }
   }
   if (typeof target.path !== "string" || !isRepoRelativePosixPath(target.path)) issues.push(`${prefix}.path must be a repository-relative POSIX path`);
-  if (typeof target.ownership !== "string" || !(target.ownership in OWNERSHIPS)) issues.push(`${prefix}.ownership is unsupported`);
+  if (typeof target.ownership !== "string" || !Object.hasOwn(OWNERSHIPS, target.ownership)) issues.push(`${prefix}.ownership is unsupported`);
   if (target.rendererVersion !== ARCHITECTURE_DOCS_RENDERER_VERSION) issues.push(`${prefix}.rendererVersion must be ${ARCHITECTURE_DOCS_RENDERER_VERSION}`);
-  if (typeof target.format !== "string" || !(target.format in FORMATS)) issues.push(`${prefix}.format is unsupported`);
+  if (typeof target.format !== "string" || !Object.hasOwn(FORMATS, target.format)) issues.push(`${prefix}.format is unsupported`);
   if (!isDigest(target.sourceDigest)) issues.push(`${prefix}.sourceDigest must be a SHA-256 digest`);
   if (!isDigest(target.outputDigest)) issues.push(`${prefix}.outputDigest must be a SHA-256 digest`);
   if (target.sourceFootprintDigest !== undefined && !isDigest(target.sourceFootprintDigest)) issues.push(`${prefix}.sourceFootprintDigest must be a SHA-256 digest`);

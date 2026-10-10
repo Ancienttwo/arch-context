@@ -75,6 +75,7 @@ import {
   projectionRequestInvariantIssues,
   projectionResultReceiptDigest,
   projectionResultInvariantIssues,
+  projectionResultRequestModeIssues,
   type ArchitectureRefreshSignalV1,
   type ProjectionApplyRecoveryProofV1,
   type ProjectionApplyRecoveryIntentV1,
@@ -397,6 +398,14 @@ test("plan previews are bounded, action-typed and never ride a committed apply (
 
   // A committed apply never carries bodies, so a persisted receipt cannot either.
   expect(projectionResultInvariantIssues(withFiles([created], { status: "applied" }))).toContain("files[].preview is only allowed on a plan result, never on a committed apply");
+
+  // Bound to its request mode, a preview is rejected on every non-plan result, whatever its status.
+  expect(projectionResultRequestModeIssues(valid, "plan")).toEqual([]);
+  for (const mode of ["check", "apply", "adopt"] as const) {
+    expect(projectionResultRequestModeIssues(valid, mode)).toEqual([`files[].preview is only allowed on a plan result, never when mode=${mode}`]);
+  }
+  const { preview: _preview, ...createdWithoutPreview } = created;
+  expect(projectionResultRequestModeIssues(withFiles([createdWithoutPreview]), "check")).toEqual([]);
 });
 
 test("refresh signals carry a per-capability change breakdown (#264)", () => {
@@ -448,6 +457,16 @@ test("the projection manifest contract matches the schema and the writer's curre
     const json = JSON.parse(JSON.stringify(value));
     expect(architectureDocsProjectionManifestIssues(json), label).not.toEqual([]);
     expect(validateJsonSchema(schema as any, json).valid, label).toBe(false);
+  }
+  // Enum lookups are own-key only: an inherited Object.prototype key is not a supported value.
+  const first = manifest.targets[0];
+  for (const [field, patch] of [
+    ["type", { type: "constructor" }],
+    ["scope.kind", { scope: { ...first.scope, kind: "constructor" } }],
+    ["ownership", { ownership: "constructor" }],
+    ["format", { format: "constructor" }]
+  ] as const) {
+    expect(architectureDocsProjectionManifestIssues(withTarget(patch, 0)), field).toContain(`manifest.targets[0].${field} is unsupported`);
   }
   // The 1-2-5 ladder is beyond JSON Schema; the contract function enforces it.
   for (const bucket of [{ lower: 0, upper: 1 }, { lower: 1, upper: 2 }, { lower: 2, upper: 5 }, { lower: 5, upper: 10 }, { lower: 100_000, upper: 200_000 }]) {
