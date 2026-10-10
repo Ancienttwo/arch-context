@@ -13,13 +13,13 @@ const projectionCases = [
   { method: "docsProjection", input: { action: "plan" }, timeout: "long" },
   { method: "agentContextProjection", input: { action: "preview" }, timeout: "long" },
   { method: "projection", input: { action: "run", request: {} }, timeout: "long" },
-  { method: "approveMcpProjection", input: { action: "recover", request: {} }, timeout: "normal" },
   { method: "mcpProjection", input: { action: "run", request: {} }, timeout: "long" }
 ].flatMap(({ method, input, timeout }) => {
   const args: unknown[] = ["/rpc/fixture/repo", input];
-  const samples = [{ method, variant: "projection", args, params: method === "mcpProjection" ? [...args, null] : args, timeout, response: "envelope" }];
-  if (method === "mcpProjection") samples.push({ method, variant: "projection-approved", args: [...args, "one-time-token"], params: [...args, "one-time-token"], timeout, response: "envelope" });
-  return samples;
+  if (method !== "mcpProjection") return [{ method, variant: "projection", args, params: args, timeout, response: "envelope" }];
+  return [false, true].map((approved) => ({
+    method, variant: approved ? "projection-approved" : "projection", args: [...args, approved], params: [...args, approved], timeout, response: "envelope"
+  }));
 });
 const cases = [...baseline.cases, ...projectionCases, {
   method: "acceptCommittedChange",

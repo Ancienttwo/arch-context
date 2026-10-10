@@ -54,13 +54,24 @@ export interface ChangeOperation {
   body?: string;
   fields?: ManifestUpdateFields;
   references?: AdrReferenceReplacement[];
-  projectionFiles?: ChangeSetProjectionFile[];
+  projectionFiles?: Array<ChangeSetProjectionFile | ChangeSetProjectionDelete>;
 }
 
 export interface ChangeSetProjectionFile {
   path: string;
   expectedHash: string;
   body: string;
+}
+
+/**
+ * Removes one projection-owned file inside the same explicit write set. Only `render_projection`
+ * accepts it, and only for a file that exists with exactly `expectedHash`; the journal records it
+ * as a delete, like a generated-projection delete.
+ */
+export interface ChangeSetProjectionDelete {
+  path: string;
+  expectedHash: string;
+  delete: true;
 }
 
 export const ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION = "archcontext.architecture-candidate-changeset-plan/v1" as const;
@@ -235,12 +246,16 @@ export class ChangeSetEngine {
     for (const operation of draft.operations) {
       try {
         if (operation.op === "update_adr_references") this.adrReferenceBody(root, operation);
-        if (operation.op === "render_agent_context") for (const file of operation.projectionFiles ?? []) this.validateRootContractWrite(root, file);
+        for (const file of operation.projectionFiles ?? []) {
+          if ("delete" in file) assertProjectionDeleteAllowed(operation.op, file);
+          else if (operation.op === "render_agent_context") this.validateRootContractWrite(root, file);
+        }
       } catch (error) { findings.push(error instanceof Error ? error.message : String(error)); }
       const operationPaths = operationTargetPaths(operation);
       paths.push(...operationPaths);
       findings.push(
-        ...evaluateChangeSetPaths(root, operationPaths, pathScope(operation.op, agentContextPaths)).map((finding) => finding.message)
+        ...evaluateChangeSetPaths(root, operationPaths, pathScope(operation.op, agentContextPaths)).map((finding) => finding.message),
+        ...entityPreimageFindings(root, operation)
       );
     }
     return { digest: digestJson(draft as unknown as Json), paths, allowed: findings.length === 0, findings };
@@ -279,7 +294,12 @@ export class ChangeSetEngine {
         if (operation.op === "render_projection" || operation.op === "render_agent_context") {
           if (operation.projectionFiles && operation.projectionFiles.length > 0) {
             for (const file of operation.projectionFiles) {
-              await this.applyFileOperation(root, file.path, file.expectedHash, file.body, operation.op, backups, journalId, applied + 1, agentContextPaths);
+              if ("delete" in file) {
+                assertProjectionDeleteAllowed(operation.op, file);
+                await this.applyFileOperation(root, file.path, file.expectedHash, "", "delete_entity", backups, journalId, applied + 1, agentContextPaths);
+              } else {
+                await this.applyFileOperation(root, file.path, file.expectedHash, file.body, operation.op, backups, journalId, applied + 1, agentContextPaths);
+              }
               applied += 1;
               if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
             }
@@ -716,6 +736,35 @@ export function planManifestFieldsOperation(root: string, fields: ManifestUpdate
   assertManifestUpdateOperation(operation);
   renderManifestFieldsUpdate(body, fields);
   return operation;
+}
+
+const ENTITY_FILE_OPERATIONS: ReadonlySet<ChangeOperationKind> = new Set(["create_entity", "update_entity_fields", "delete_entity"]);
+
+/**
+ * Preview-time view of the per-entity preimage: the expected hash must match the current file
+ * (`missing` for an absent one), and the preview reports update or delete of an absent target as
+ * a finding. A mismatch names the current hash so the caller can re-read and re-plan. Apply does
+ * not trust the preview and does not repeat the target-exists check: `applyFileOperation` only
+ * rechecks the expected hash immediately before it writes.
+ */
+function entityPreimageFindings(root: string, operation: ChangeOperation): string[] {
+  if (!ENTITY_FILE_OPERATIONS.has(operation.op) || !operation.path) return [];
+  let absolute: string;
+  try {
+    absolute = assertPathHasNoSymlinkSegments(root, operation.path);
+  } catch {
+    // Path containment and symlink findings are the path policy's to report, not a preimage finding.
+    return [];
+  }
+  const current = existsSync(absolute) && lstatSync(absolute).isFile() ? digestJson({ body: readFileSync(absolute, "utf8") }) : "missing";
+  if (current === "missing" && operation.op !== "create_entity") return [`${operation.op} target does not exist: ${operation.path}`];
+  return current === operation.expectedHash ? [] : [`Expected hash mismatch: ${operation.path} (current ${current})`];
+}
+
+function assertProjectionDeleteAllowed(op: ChangeOperationKind, file: ChangeSetProjectionDelete): void {
+  if (op !== "render_projection") throw new Error(`Projection file delete is only allowed in render_projection: ${file.path}`);
+  if (file.delete !== true || "body" in file) throw new Error(`Projection file delete must carry delete: true and no body: ${file.path}`);
+  if (!/^sha256:[a-f0-9]{64}$/.test(file.expectedHash)) throw new Error(`Projection file delete requires the exact current hash: ${file.path}`);
 }
 
 function operationTargetPaths(operation: ChangeOperation): string[] {

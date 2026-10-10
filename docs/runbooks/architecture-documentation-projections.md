@@ -3,7 +3,7 @@
 ## Ownership
 
 - `.archcontext/projections/targets.json` declares placement rules.
-- `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests.
+- `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests. It records only reproducible identity: CodeGraph appears as package name, version and status, never as the digest of the binary installed on the machine that ran the projection. Two machines with the same CodeGraph version write the same manifest.
 - Text inside `ARCHCONTEXT:generated` markers is generated projection output.
 - Text outside generated markers is human-owned and must be preserved.
 - Agent-authored rationale or ADR prose is advisory draft material until deterministic validation and explicit approval.
@@ -60,6 +60,22 @@ In each case, fix the cause and preview again. A hand edit is fixed by reverting
 
 Trust boundary: the HEAD anchor trusts local git history. Anyone who can commit locally, including via `--amend` or on a detached HEAD, can anchor a manifest; the accepted event records which commit or journal anchored it. The event is an informational record, not an enforcement gate: `projection run` treats `acceptedChange` as opaque. Enforcement waits on the deferred consumer-side resolver in `tasks/todos.md`.
 
+### Accepting the observed major change in one request
+
+An agent that owns the decision, with the pull request review as the human gate, can skip the `ledger accept-committed` round trip. Set `acceptObservedMajorChange: true` on a `mode: "apply"` or `mode: "adopt"` request. The field is refused (`AC_SCHEMA_INVALID`) in `check` and `plan` mode, with any value other than `true`, and together with `acceptedChange`.
+
+With the flag, `projection run` classifies the major change at `expected` and applies it in the same run against the same expected snapshot. The daemon re-checks that snapshot under its writer lock before the ChangeSet writes, so a worktree that changed after classification fails the apply instead of committing an unreviewed change. The apply receipt records the observed change as `applyReceipt.acceptedChange`, with a `changeSetId` (`changeset.observed-major-change-<hash>`) and `eventId` (`projection_event.observed_major_change.<hash>`) that the provider derives from the snapshot and the change. No ledger event is appended.
+
+When the run observes no major change, the flag does nothing and the request is a plain apply. When a capability proof is unprovable, the change cannot be accepted, and the result is the same `human-action-required` it would be without the flag. Without the flag, a major change still stops at `human-action-required`. Consumers detect the field through the `projection-observed-major-change-acceptance-v1` capability.
+
+To read back such an apply, send `projection readback` the original request with `acceptObservedMajorChange` replaced by the committed `applyReceipt.acceptedChange`.
+
+### Repeating an accepted apply
+
+A caller that lost the response of an accepted `apply` or `adopt` (process kill, timeout, closed pipe) sends the same request again. If its `requestId` and request digest match a committed receipt, `projection run` returns the committed `ProjectionResultV2` with `replayed: true` and applies nothing. The replay key is the `requestId` plus the digest of the request exactly as the caller sent it, including `acceptObservedMajorChange`. It never includes provider-generated ids. `replayed` is excluded from `receiptDigest`, so the replay carries the committed receipt digest. If the first run committed but never delivered its refresh signals, the replay reports `applied-reconcile-required` with no signals; deliver them with `projection recover` and the `applyReceipt` `lookupKey` and `applyId`.
+
+A different request under a committed `requestId`, or a new request for an accepted change that is already applied, fails with `AC_PROJECTION_APPLY_COMMITTED` (not retryable, action `readback-committed-projection-apply`). `error.details` carries `requestId`, `lookupKey` and `applyId` of the committed apply, and `error.reasonCode` is `projection-apply-request-differs`, `projection-accepted-change-committed`, or `projection-apply-request-digest-unrecorded` (a receipt committed before request digests were recorded). Do not match the error message. `projection readback` still returns the committed receipt with its recovery proof. Consumers detect this behavior through the `projection-apply-replay-v1` capability.
+
 ## Bad Projection Recovery
 
 If generated content is wrong but human text is intact:
@@ -77,6 +93,15 @@ If human text was accidentally moved inside generated markers:
 3. Re-apply projection output through `archctx docs apply --approved`.
 
 If an obsolete generated projection exists:
+
+`archctx projection run` sorts an orphaned document (its target is no longer in the model, for example after a node is removed) by what it holds. `check`, `plan` and `apply` report the same action for it:
+
+- Only an intact generated region and nothing else: the result lists it in `files[]` as a `delete`, and `apply` deletes it in the same ChangeSet as the other projection writes.
+- Any other text, such as the human-owned title and section skeleton of a module document, or an edited generated region: the result status is `human-action-required`, and `humanActions[]` carries `reasonCode: "orphaned-document-review"` with the document `path`. The document is never a `files[]` entry. `apply` stops before writing anything, including with an `acceptedChange`. Review the document, move any text worth keeping, delete it, and run `apply` again with the same request fields.
+
+Consumers detect this behavior through the `projection-orphan-review-v1` capability.
+
+For the human-oriented `docs` commands:
 
 1. Run `archctx docs clean`.
 2. Treat `manual-review-required-before-tombstone` as a review task, not an automatic delete.

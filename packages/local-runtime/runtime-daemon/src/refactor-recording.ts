@@ -1,5 +1,6 @@
 import {
   ARCHITECTURE_MAJOR_CHANGE_REASON_CODES,
+  REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   REFACTOR_OBSERVATION_KINDS,
   REFACTOR_PROPOSAL_AUTHOR_KINDS,
   REFACTOR_PROPOSAL_AUTHOR_PAIRS,
@@ -25,12 +26,15 @@ import {
 } from "@archcontext/contracts";
 import {
   ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
+  ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES,
+  architectureLedgerPersistedJsonBytes,
   evidenceLifecycleValueDigest,
   type RecommendationLedgerRecordV1
 } from "@archcontext/core/architecture-ledger";
 import {
   planRefactorRecommendationRun,
   refactorRecommendationRunLedgerPayload,
+  type PlanRefactorRecommendationRunInput,
   type PreviousRecommendationV3,
   type RefactorRecommendationRunPlan
 } from "@archcontext/core/recommendation-engine";
@@ -144,7 +148,7 @@ export interface RefactorRecordEventPlan {
  * to the same `graphDigest` with or without this event.
  */
 export function buildRefactorRecordEvent(input: RefactorRecordEventInput): RefactorRecordEventPlan {
-  const planned = planRefactorRecommendationRun({
+  const plan = planRefactorRun({
     repository: input.repository,
     worktree: input.worktree,
     snapshot: input.registered.snapshot,
@@ -154,7 +158,6 @@ export function buildRefactorRecordEvent(input: RefactorRecordEventInput): Refac
     catalogDigest: input.catalogDigest,
     now: input.now
   });
-  const plan = withDerivedObservationOutcomes(planned);
   const evidenceOperations = evidenceLifecycleOperations(input.evidenceState, plan.evidenceItems, plan.evidenceBindings);
   const inputDigest = digestJson({
     schemaVersion: "archcontext.refactor-record-event-input/v1",
@@ -186,15 +189,89 @@ export function buildRefactorRecordEvent(input: RefactorRecordEventInput): Refac
       command: "archctx refactor record",
       inputDigest
     },
-    payload: {
-      ...refactorRecommendationRunLedgerPayload(plan),
-      operations: [],
-      ...(evidenceOperations.length > 0 ? { evidenceOperations: evidenceOperations as unknown as Json } : {}),
-      title: "Refactor scan recording",
-      summary: `Recorded ${plan.recommendations.length} refactor recommendation(s) from assessment ${input.registered.assessment.assessmentDigest}.`
-    } as unknown as Json
+    payload: refactorRecordEventPayload(plan, evidenceOperations, input.registered.assessment.assessmentDigest)
   };
   return { plan, event, evidenceOperations };
+}
+
+/** The persisted payload of a refactor recording event; `planRefactorRun` sizes exactly this. */
+function refactorRecordEventPayload(
+  plan: RefactorRecommendationRunPlan,
+  evidenceOperations: readonly EvidenceLifecycleOperationV1[],
+  assessmentDigest: string
+): Json {
+  return {
+    ...refactorRecommendationRunLedgerPayload(plan),
+    operations: [],
+    ...(evidenceOperations.length > 0 ? { evidenceOperations: evidenceOperations as unknown as Json } : {}),
+    title: "Refactor scan recording",
+    summary: `Recorded ${plan.recommendations.length} refactor recommendation(s) from assessment ${assessmentDigest}.`
+  } as unknown as Json;
+}
+
+/**
+ * The largest payload `buildRefactorRecordEvent` can persist for `plan` under any ledger evidence
+ * state: every item and binding written as an `update`, the largest operation shape (a `create`
+ * is the same op without `previousDigest`; an unchanged one is omitted). Sizing this instead of
+ * the state at hand keeps a scan preview and the record it previews on the same evidence cut.
+ */
+function worstCaseRecordEventPayload(plan: RefactorRecommendationRunPlan, assessmentDigest: string): Json {
+  const operations: EvidenceLifecycleOperationV1[] = [
+    ...plan.evidenceItems.map((item): EvidenceLifecycleOperationV1 => ({
+      target: "item",
+      action: "update",
+      evidenceId: item.evidenceId,
+      previousDigest: evidenceLifecycleValueDigest(item),
+      value: item
+    })),
+    ...plan.evidenceBindings.map((binding): EvidenceLifecycleOperationV1 => ({
+      target: "binding",
+      action: "update",
+      bindingId: binding.bindingId,
+      previousDigest: evidenceLifecycleValueDigest(binding),
+      value: binding
+    }))
+  ];
+  return refactorRecordEventPayload(plan, operations, assessmentDigest);
+}
+
+export const REFACTOR_RUN_PERSISTENCE_REASON_CODE = "refactor-run-exceeds-ledger-size-limit" as const;
+
+/**
+ * The run cannot be recorded in one ledger event even with every evidence sample empty: what is
+ * left (the baseline snapshot, the records' ids, affected nodes and outcomes) is itself over the
+ * ceiling. Typed so the scan, the record and the one-step decision all refuse the same way.
+ */
+export class RefactorRunPersistenceError extends Error {
+  readonly code = "AC_SCHEMA_INVALID" as const;
+  readonly reasonCode = REFACTOR_RUN_PERSISTENCE_REASON_CODE;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "RefactorRunPersistenceError";
+  }
+}
+
+/**
+ * The one planning path a scan preview and a record share: the recommendation engine's plan with
+ * every structural observation's acceptance test filled. A scan candidate therefore shows exactly
+ * the `derivedOutcomes` its record will carry.
+ */
+export function planRefactorRun(input: PlanRefactorRecommendationRunInput): RefactorRecommendationRunPlan {
+  // The per-run evidence byte budget is whatever the ledger ceiling leaves after the rest of the
+  // run. Evidence is the only part that can be cut without changing a fact, so every sample is
+  // cut to one shared limit, largest first, until the worst-case event fits. The plan is a pure
+  // function of its input, so the same input always lands on the same limit.
+  let minimalBytes = 0;
+  for (let limit = REFACTOR_OBSERVATION_EVIDENCE_LIMIT; limit >= 0; limit -= 1) {
+    const plan = withDerivedObservationOutcomes(planRefactorRecommendationRun({ ...input, evidenceSampleLimit: limit }));
+    const bytes = architectureLedgerPersistedJsonBytes(worstCaseRecordEventPayload(plan, input.assessment.assessmentDigest));
+    if (bytes <= ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES) return plan;
+    minimalBytes = bytes;
+  }
+  throw new RefactorRunPersistenceError(
+    `AC_SCHEMA_INVALID: the refactor run event needs ${minimalBytes} bytes with every evidence sample empty, over the ledger's ${ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES}-byte persisted-JSON limit`
+  );
 }
 
 function previousRecommendationsV3(recommendations: readonly RecommendationLedgerRecordV1[]): PreviousRecommendationV3[] {

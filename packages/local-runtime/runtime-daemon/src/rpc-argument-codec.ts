@@ -52,6 +52,13 @@ export function rpcRequiredString(params: readonly unknown[], index: number, con
   return value;
 }
 
+/** Required positional boolean. Rejects missing/`null`/wrong-type; there is no truthy coercion. */
+export function rpcRequiredBoolean(params: readonly unknown[], index: number, context: string, label: string): boolean {
+  const value = params[index];
+  if (typeof value !== "boolean") throw rpcInputInvalid(context, `${label} must be a boolean`);
+  return value;
+}
+
 /**
  * Optional positional string. `undefined` and `null` both mean "omitted" on the wire (a JSON array
  * turns an `undefined` element into `null`, see `RuntimeRpcClient`'s `JSON.stringify` of `params`),

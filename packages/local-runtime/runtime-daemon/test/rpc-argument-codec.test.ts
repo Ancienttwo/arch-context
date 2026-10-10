@@ -192,9 +192,10 @@ describe("RPC method table: invalid positional input is a structured AC_SCHEMA_I
     // required string + optional object: present but malformed (not simply omitted)
     { method: "jobsEnqueueGitHook", params: ["/root", "bad"], expectSubstring: "jobsEnqueueGitHook input must be an object" },
     { method: "ledgerProject", params: ["/root", 7], expectSubstring: "ledgerProject input must be an object" },
-    // required string + required object + optional string
-    { method: "mcpProjection", params: ["/root", { action: "run", request: {} }, 42], expectSubstring: "mcpProjection approvalToken must be a string" },
-    { method: "mcpProjection", params: ["/root", "bad", "token"], expectSubstring: "mcpProjection input must be an object" },
+    // required string + required object + required boolean
+    { method: "mcpProjection", params: ["/root", { action: "run", request: {} }, "true"], expectSubstring: "mcpProjection approved must be a boolean" },
+    { method: "mcpProjection", params: ["/root", { action: "run", request: {} }], expectSubstring: "mcpProjection approved must be a boolean" },
+    { method: "mcpProjection", params: ["/root", "bad", true], expectSubstring: "mcpProjection input must be an object" },
     // bare required string with a non-"root" label
     { method: "repoRemove", params: [42], expectSubstring: "repoRemove repositoryId must be a string" },
     { method: "practiceWaivers", params: [null], expectSubstring: "practiceWaivers root must be a string" },
@@ -208,9 +209,9 @@ describe("RPC method table: invalid positional input is a structured AC_SCHEMA_I
     });
   }
 
-  test("a well-formed mcpProjection input still lets the later approvalToken slot fail on its own", async () => {
+  test("a well-formed mcpProjection input still lets the later approved slot fail on its own", async () => {
     const result = await rpcCall("mcpProjection", ["/root", { action: "run", request: {} }, 42]);
-    assertSchemaInvalid(result, "approvalToken must be a string");
+    assertSchemaInvalid(result, "approved must be a boolean");
     expect(result.body.error?.message).not.toContain("input must be an object");
   });
 
@@ -290,10 +291,16 @@ describe("RPC method table: well-formed objects still reach the handler's own va
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("applyMcpUpdate with an object missing approvalToken still answers AC_USER_CONFIRMATION_REQUIRED", async () => {
-    const result = await client.applyMcpUpdate(root, { id: "changeset.missing", expectedWorktreeDigest: "sha256:" + "0".repeat(64) } as never);
+  test("applyUpdate with approved: false answers AC_USER_CONFIRMATION_REQUIRED before touching the draft", async () => {
+    const result = await client.applyUpdate(root, { id: "changeset.missing", approved: false, expectedWorktreeDigest: "sha256:" + "0".repeat(64) });
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+  });
+
+  test("applyUpdate with a non-boolean approved answers AC_SCHEMA_INVALID", async () => {
+    const result = await client.applyUpdate(root, { id: "changeset.missing", approved: "true", expectedWorktreeDigest: "sha256:" + "0".repeat(64) } as never);
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
   });
 
   test("jobsClaim with an object missing workerId still answers AC_SCHEMA_INVALID from the handler itself", async () => {

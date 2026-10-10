@@ -26,7 +26,7 @@ const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
   modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "ready" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "ready" }
 });
 
 const model: NativeModel = {
@@ -148,6 +148,19 @@ describe("capability source footprint digests", () => {
       renameSync(join(root, "packages/core/projection-engine/src/extra.ts"), join(root, "packages/core/projection-engine/src/renamed.ts"));
       expect(footprintDigest(root, "capability.docs.projection")).not.toBe(added);
       expect(footprintDigest(root, "capability.review.gate")).toBe(review);
+    });
+  });
+});
+
+test("a CRLF checkout measures the same footprint as an LF one", () => {
+  // `core.autocrlf` checkouts (Windows) must not make a node look stale against an LF stamp.
+  withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\nexport const gate = 2;\n" }, (lf) => {
+    withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\r\nexport const gate = 2;\r\n" }, (crlf) => {
+      expect(footprintDigest(crlf, "capability.review.gate")).toBe(footprintDigest(lf, "capability.review.gate"));
+      expect(architectureDocumentationSourceTreeDigest(crlf, model, fixtureSourceFiles(crlf))).toBe(architectureDocumentationSourceTreeDigest(lf, model, fixtureSourceFiles(lf)));
+      // A lone CR is content, not a line ending, and still moves the digest.
+      writeFileSync(join(crlf, "packages/core/review-engine/src/index.ts"), "export const review = 1;\rexport const gate = 2;\n");
+      expect(footprintDigest(crlf, "capability.review.gate")).not.toBe(footprintDigest(lf, "capability.review.gate"));
     });
   });
 });

@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
-import { planManifestFieldsOperation } from "@archcontext/core/changeset-engine";
+import { planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -399,19 +399,11 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return { ...result, requestId: command };
     }
     case "plan": {
-      const path = readFlag(args, "--path");
-      if (!path) return errorEnvelope("plan", "AC_SCHEMA_INVALID", "plan requires --path");
+      const operation = readCliEntityOperation(args);
+      if (typeof operation === "string") return errorEnvelope("plan", "AC_SCHEMA_INVALID", operation);
       return (await runtime()).planUpdate(cwd, {
         id: readFlag(args, "--id") ?? "changeset.cli",
-        operations: [{ op: "create_entity", path, expectedHash: readFlag(args, "--expected-hash") ?? "missing", body: readFlag(args, "--body") ?? "" }]
-      });
-    }
-    case "approve": {
-      if (!args.includes("--approved")) return errorEnvelope("approve", "AC_USER_CONFIRMATION_REQUIRED", "Review the ChangeSet preview, then approve explicitly with --approved");
-      return (await runtime()).approveMcpUpdate(cwd, {
-        id: requireFlag(args, "--id"),
-        expectedWorktreeDigest: requireFlag(args, "--expected-worktree-digest"),
-        expectedChangeSetDigest: requireFlag(args, "--expected-changeset-digest")
+        operations: [operation]
       });
     }
     case "apply": {
@@ -559,8 +551,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "approve", "apply", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection approve --action run --request-json '{...}' --approved", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
         }
       };
     }
@@ -962,8 +954,15 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
       ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! })
     });
   }
+  if (subcommand === "show") {
+    const recommendationId = readFlag(args, "--id") ?? readFlag(args, "--recommendation-id") ?? args[1];
+    if (!recommendationId || recommendationId.startsWith("--")) {
+      return errorEnvelope("recommendations.show", "AC_SCHEMA_INVALID", "recommendations show requires --id");
+    }
+    return daemon.recommendations(cwd, { command: "show", recommendationId });
+  }
   if (!["acknowledge", "accept", "reject", "defer", "waive", "resolve"].includes(subcommand)) {
-    return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics");
+    return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics|show");
   }
   const recommendationId = readFlag(args, "--id") ?? readFlag(args, "--recommendation-id") ?? args[1];
   if (!recommendationId || recommendationId.startsWith("--")) {
@@ -1137,7 +1136,7 @@ async function runAgentContextProjectionCommand(args: string[], cwd: string, dae
 
 async function runProjectionProtocolCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>): Promise<JsonEnvelope> {
   const action = args[0] ?? "run";
-  if (!["run", "recover", "readback", "approve"].includes(action)) return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback|approve --request-json <request>");
+  if (!["run", "recover", "readback"].includes(action)) return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>");
   const raw = readFlag(args, "--request-json");
   if (!raw) return errorEnvelope(`projection.${action}`, "AC_SCHEMA_INVALID", `projection ${action} requires --request-json`);
   let request: RuntimeProjectionInvocation["request"];
@@ -1148,12 +1147,7 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, runtime
   if (action === "run" && (request as { mode?: unknown } | null)?.mode === "check") {
     return runProjectionCheckInvocation(request, cwd);
   }
-  const root = findRepositoryRoot(cwd);
-  if (action === "approve") {
-    if (!args.includes("--approved")) return errorEnvelope("projection.approve", "AC_USER_CONFIRMATION_REQUIRED", "Review the projection request, then approve explicitly with --approved");
-    return (await runtime()).approveMcpProjection(root, { action: readFlag(args, "--action") ?? "run", request } as RuntimeProjectionInvocation);
-  }
-  return (await runtime()).projection(root, { action, request } as RuntimeProjectionInvocation);
+  return (await runtime()).projection(findRepositoryRoot(cwd), { action, request } as RuntimeProjectionInvocation);
 }
 
 function acceptedArchitectureChange(args: string[]): AcceptedArchitectureChangeReferenceV1 | undefined {
@@ -3439,6 +3433,31 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
   return 1;
 }
 
+
+/**
+ * `archctx plan` operation shape: one entity file per ChangeSet, the same shape as the MCP
+ * `archcontext_plan_update` entity operation. Update and delete name the exact current file hash;
+ * create defaults to `missing`. Returns the schema problem as a string instead of guessing.
+ */
+function readCliEntityOperation(args: string[]): ChangeOperation | string {
+  // Local, not module-level: `import.meta.main` dispatch runs before later module constants initialize.
+  const CLI_ENTITY_OPERATIONS = ["create_entity", "update_entity_fields", "delete_entity"] as const;
+  const requested = readFlag(args, "--op") ?? "create_entity";
+  const op = CLI_ENTITY_OPERATIONS.find((candidate) => candidate === requested);
+  if (!op) return `plan --op must be one of ${CLI_ENTITY_OPERATIONS.join("|")}`;
+  const path = readFlag(args, "--path");
+  if (!path) return "plan requires --path";
+  const expectedHash = readFlag(args, "--expected-hash");
+  const body = readFlag(args, "--body");
+  if (op === "create_entity") return { op, path, expectedHash: expectedHash ?? "missing", body: body ?? "" };
+  if (!expectedHash || !/^sha256:[a-f0-9]{64}$/.test(expectedHash)) return `plan --op ${op} requires --expected-hash sha256:<64-hex> of the current file`;
+  if (op === "delete_entity") {
+    if (body !== undefined) return "plan --op delete_entity does not accept --body";
+    return { op, path, expectedHash };
+  }
+  if (body === undefined) return "plan --op update_entity_fields requires --body with the complete YAML document";
+  return { op, path, expectedHash, body };
+}
 
 function readFlag(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);

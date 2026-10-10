@@ -203,7 +203,8 @@ async function runArchitectureDocsAdoptionCommand(
   profile: ArchitectureProjectionProfile,
   generatedAt: string,
   protocolRequest?: ProjectionRequestV1,
-  priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = []
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = [],
+  acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   if (profile !== REPO_HARNESS_PROJECTION_PROFILE) {
     return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", `docs adopt requires --profile ${REPO_HARNESS_PROJECTION_PROFILE}`);
@@ -243,6 +244,8 @@ async function runArchitectureDocsAdoptionCommand(
     return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-preview-mismatch");
   }
   const simulatedByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file]));
+  // The protocol write also deletes generated-only orphans, so the fixed point is proven without them.
+  if (protocolRequest) for (const orphan of projectionDeletableOrphans(projection)) simulatedByPath.delete(orphan.path);
   for (const file of [...projection.files, ...adoption.files]) simulatedByPath.set(file.path, file);
   const canonicalFirst = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...simulatedByPath.values()]);
   const canonicalExistingByPath = new Map(simulatedByPath);
@@ -258,7 +261,7 @@ async function runArchitectureDocsAdoptionCommand(
     return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", `projection-adoption-fixed-point-unproven: drift=${drift}; rejected=${reasons}; digest=${canonical.plan.projectionDigest === canonicalFirst.plan.projectionDigest ? "stable" : "changed"}`);
   }
   if (protocolRequest) {
-    return applyProjectionProtocolFixedPoint(protocolRequest, projection, canonical, adoption.changeSetId, root, daemon, priorCommittedApplies);
+    return applyProjectionProtocolFixedPoint(protocolRequest, projection, canonical, adoption.changeSetId, root, daemon, priorCommittedApplies, acceptedChange);
   }
   const filesByPath = new Map<string, { path: string; body: string }>();
   for (const file of canonical.files) filesByPath.set(file.path, file);
@@ -287,20 +290,29 @@ async function applyProjectionProtocolFixedPoint(
   changeSetId: string,
   root: string,
   daemon: ProjectionServiceHost,
-  priorCommittedApplies: ProjectionPriorCommittedApplyV1[]
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[],
+  /** The caller's `acceptedChange`, or the one derived for `acceptObservedMajorChange`. */
+  acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined
 ): Promise<JsonEnvelope> {
-  const committedFiles = projectionProtocolFilesForExpectedOutput(root, fixedPoint);
-  const committedSignals = request.acceptedChange
+  // Generated-only orphans are deleted by this write; human-review orphans stopped the request
+  // before it reached here (projectionProtocolHumanStatus), so `apply` never reports a delete it
+  // does not perform (#268).
+  const orphanDeletes = projectionOrphanDeleteOperations(input);
+  const committedFiles = [
+    ...projectionProtocolFilesForExpectedOutput(root, fixedPoint),
+    ...orphanDeletes.map((orphan) => orphan.result)
+  ].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  const committedSignals = acceptedChange
     ? input.plan.refreshSignals.map((signal) => ({
         ...signal,
         resultingDigests: fixedPoint.plan.architectureDigests
       }))
     : fixedPoint.plan.refreshSignals;
-  const applyIdentity = request.acceptedChange
+  const applyIdentity = acceptedChange
     ? createProjectionApplyIdentity({
         repositoryId: request.expected.repositoryId,
         workspaceId: request.expected.workspaceId,
-        acceptedChange: request.acceptedChange,
+        acceptedChange,
         changeSetId,
         idempotencyKey: `idem_${changeSetId}`,
         files: committedFiles,
@@ -330,7 +342,7 @@ async function applyProjectionProtocolFixedPoint(
   const planned = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: request.requestId },
-    operations: [architectureDocsRenderProjectionOperation(root, fixedPoint.files)],
+    operations: [architectureDocsRenderProjectionOperation(root, fixedPoint.files, orphanDeletes.map((orphan) => orphan.operation))],
     worktreeDigestPrecondition: {
       profile: "architecture-documentation-projection",
       expectedDigest: request.expected.worktreeDigest
@@ -422,17 +434,44 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   } catch (error) {
     return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `projection prior committed apply lookup failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (request.mode === "apply" && request.acceptedChange) {
+  if (request.mode === "apply" || request.mode === "adopt") {
+    let replay: JsonEnvelope | undefined;
+    try {
+      replay = await replayCommittedProjectionApply(request, root, daemon, priorCommittedApplies);
+    } catch (error) {
+      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `projection committed apply lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (replay) return replay;
+  }
+  // With acceptObservedMajorChange the accepted change is the one this run observes at `expected`.
+  // It is derived once, then authorizes exactly what a caller-supplied acceptedChange would: the
+  // same render, fixed point and write, bound to the same expected snapshot that the daemon
+  // re-checks under its writer lock before the ChangeSet touches a file (#261).
+  let observed: ReturnType<typeof buildArchitectureDocsProjection> | undefined;
+  let acceptedChange = request.acceptedChange;
+  if (request.acceptObservedMajorChange === true) {
+    try {
+      observed = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE);
+      assertProjectionExpectedSnapshot(request, root, observed);
+    } catch (error) {
+      return projectionFailureEnvelope("projection.run", error);
+    }
+    acceptedChange = observedMajorChangeAcceptance(request, observed);
+  }
+  if (request.mode === "apply" && acceptedChange) {
     try {
       assertProjectionExpectedSnapshotAgainstModel(request, root, loadNativeModelFromArchContext(root));
       const inspected = await daemon.inspectProjectionApplyReceipt(root, projectionApplyLookupKey({
         repositoryId: request.expected.repositoryId,
         workspaceId: request.expected.workspaceId,
-        acceptedChange: request.acceptedChange
+        acceptedChange
       }));
       if (!inspected.ok) return inspected;
-      if ((inspected.data as { found?: boolean }).found === true) {
-        return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "committed projection receipt requires explicit projection recover");
+      const existing = inspected.data as { found?: boolean; receipt?: ProjectionApplyReceiptV1 };
+      if (existing.found === true) {
+        if (!existing.receipt) throw new Error("committed projection apply receipt lookup returned no receipt");
+        // Another request already applied this exact accepted change.
+        return projectionApplyCommittedEnvelope(existing.receipt, "projection-accepted-change-committed");
       }
     } catch (error) {
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
@@ -440,7 +479,9 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   }
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
-    projection = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
+    projection = observed !== undefined && acceptedChange === undefined
+      ? observed
+      : buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return projectionFailureEnvelope("projection.run", error);
@@ -455,7 +496,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       action: "adopt", profile: REPO_HARNESS_PROJECTION_PROFILE, approved: true,
       adoptionPlanId: request.adoptionPlanId!, expectedWorktreeDigest,
       taskSessionId: request.requestId
-    }, root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request, priorCommittedApplies);
+    }, root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request, priorCommittedApplies, acceptedChange);
     if (!adopted.ok) return adopted;
     return adopted;
   }
@@ -468,10 +509,10 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     // committed receipt names a real clean fixed point rather than a one-shot approval view.
     let fixedPointProjection: ReturnType<typeof buildArchitectureDocsProjection>;
     try {
-      fixedPointProjection = request.acceptedChange
+      fixedPointProjection = acceptedChange
         ? buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, projection.files)
         : projection;
-      if (request.acceptedChange && (
+      if (acceptedChange && (
         fixedPointProjection.plan.rejected.length > 0
         || fixedPointProjection.plan.majorChange.mode !== "none"
         || fixedPointProjection.plan.refreshSignals.length > 0
@@ -481,7 +522,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     } catch (error) {
       return projectionFailureEnvelope("projection.run", error);
     }
-    return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, changeSetId, root, daemon, priorCommittedApplies);
+    return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, changeSetId, root, daemon, priorCommittedApplies, acceptedChange);
   }
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
@@ -523,6 +564,97 @@ export function runProjectionCheckInvocation(rawRequest: unknown, cwd: string): 
     return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
   }
   return runProjectionCheckCommand(request, findRepositoryRoot(cwd));
+}
+
+/**
+ * A repeated apply or adopt whose requestId already committed an accepted apply. The same request
+ * (requestId and request digest) gets the committed ProjectionResultV2 back, marked `replayed`,
+ * without applying again; a different request under that requestId is refused with
+ * AC_PROJECTION_APPLY_COMMITTED and the committed lookup key (#265). The key is the caller's
+ * requestId and request digest, never the accepted-change ids a provider may have generated.
+ * Undefined when this requestId committed no receipt-bearing apply.
+ */
+async function replayCommittedProjectionApply(
+  request: ProjectionRequestV1,
+  root: string,
+  daemon: ProjectionServiceHost,
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[]
+): Promise<JsonEnvelope | undefined> {
+  const committed: Array<{ committedAt: string; receipt: ProjectionApplyReceiptV1; delivered: boolean }> = [];
+  for (const entry of priorCommittedApplies) {
+    if (entry.lookupKey === undefined) continue;
+    const inspected = await daemon.inspectProjectionApplyReceipt(root, entry.lookupKey);
+    if (!inspected.ok) return inspected;
+    const data = inspected.data as { found?: boolean; receipt?: ProjectionApplyReceiptV1; deliveryStatus?: string };
+    if (data.found !== true || !data.receipt || (data.deliveryStatus !== "delivered" && data.deliveryStatus !== "pending")) {
+      throw new Error(`committed projection apply receipt is unreadable: ${entry.lookupKey}`);
+    }
+    committed.push({ committedAt: entry.committedAt, receipt: data.receipt, delivered: data.deliveryStatus === "delivered" });
+  }
+  if (committed.length === 0) return undefined;
+  const requestDigest = digestJson(request as unknown as Json);
+  const match = committed.find(({ receipt }) => receipt.recovery?.requestDigest === requestDigest
+    && receipt.result.requestId === request.requestId
+    && receipt.identity.repositoryId === request.expected.repositoryId
+    && receipt.identity.workspaceId === request.expected.workspaceId);
+  if (!match) {
+    const latest = [...committed].sort((left, right) => left.committedAt < right.committedAt ? -1 : left.committedAt > right.committedAt ? 1 : 0).at(-1)!;
+    return projectionApplyCommittedEnvelope(
+      latest.receipt,
+      latest.receipt.recovery?.requestDigest === undefined ? "projection-apply-request-digest-unrecorded" : "projection-apply-request-differs"
+    );
+  }
+  // A receipt whose refresh signals were never delivered answers as the first run would have
+  // without its delivery: applied, reconcile required, recover with the receipt to deliver.
+  const committedResult = match.delivered
+    ? match.receipt.result
+    : projectionResultDelivery(match.receipt.result, "applied-reconcile-required", []);
+  return projectionProtocolResultEnvelope({ ...committedResult, replayed: true });
+}
+
+function projectionApplyCommittedEnvelope(receipt: ProjectionApplyReceiptV1, reasonCode: string): JsonEnvelope {
+  return errorEnvelope(
+    "projection.run",
+    "AC_PROJECTION_APPLY_COMMITTED",
+    `projection apply already committed for requestId ${receipt.result.requestId}; read it back with projection readback or deliver it with projection recover`,
+    reasonCode,
+    {
+      requestId: receipt.result.requestId,
+      lookupKey: receipt.identity.lookupKey,
+      applyId: receipt.identity.applyId
+    }
+  );
+}
+
+/**
+ * The accepted change `acceptObservedMajorChange` authorizes: exactly the major change this run
+ * classified. Undefined when there is none, or when it cannot be accepted because a capability
+ * proof is unprovable; the request then reports the same `human-action-required` result it would
+ * without the flag. The provider-generated ids are content-addressed over the expected snapshot
+ * and the observed change, so one observation always yields one reference and one lookup key.
+ */
+function observedMajorChangeAcceptance(
+  request: ProjectionRequestV1,
+  observed: ReturnType<typeof buildArchitectureDocsProjection>
+): AcceptedArchitectureChangeReferenceV1 | undefined {
+  const majorChange = observed.plan.majorChange;
+  if (majorChange.mode !== "human-action-required") return undefined;
+  const unprovable = observed.plan.semanticState.capabilities.some((capability) =>
+    capability.proofStatus.p1 === "unprovable" || capability.proofStatus.p2 === "unprovable");
+  if (unprovable) return undefined;
+  const key = digestJson({
+    schemaVersion: "archcontext.observed-major-change-acceptance/v1",
+    expected: request.expected,
+    reasonCodes: majorChange.reasonCodes,
+    affectedNodeIds: majorChange.affectedNodeIds,
+    resultingDigests: observed.plan.architectureDigests
+  } as unknown as Json).replace(/^sha256:/, "").slice(0, 16);
+  return {
+    changeSetId: `changeset.observed-major-change-${key}`,
+    eventId: `projection_event.observed_major_change.${key}`,
+    reasonCodes: [...majorChange.reasonCodes],
+    affectedNodeIds: [...majorChange.affectedNodeIds]
+  };
 }
 
 /**
@@ -658,7 +790,8 @@ function createProjectionApplyRecoveryBinding(
     layoutVersion: provenance.layoutVersion,
     generatedFrom: provenance.generatedFrom as ProjectionApplyRecoveryBindingV1["generatedFrom"],
     ownedOutputDigest: projectionOwnedOutputDigest(projection),
-    receiptDigest: result.receiptDigest
+    receiptDigest: result.receiptDigest,
+    requestDigest: digestJson(request as unknown as Json) as Sha256Digest
   };
 }
 
@@ -788,12 +921,44 @@ function projectionProtocolHumanStatus(
   const humanSignal = projection.plan.refreshSignals.some((signal) => signal.mode === "human-action-required");
   const adoption = projection.plan.rejected.some((diff) => diff.reasonCode === "projection-adoption-required");
   const otherRejection = projection.plan.rejected.some((diff) => diff.reasonCode !== "projection-adoption-required");
+  // An orphan that may hold human text stops every mode before any write, so `check`, `plan` and
+  // `apply` all describe the same human action instead of a delete `apply` would never perform.
+  const orphanReview = projectionReviewOrphans(projection).length > 0;
+  const human = otherRejection || humanSignal || orphanReview;
   if (request.mode === "adopt") {
-    if (!adoption) return projection.plan.drift.ok ? "noop" : otherRejection || humanSignal ? "human-action-required" : null;
-    return otherRejection || humanSignal ? "human-action-required" : null;
+    if (!adoption) return projection.plan.drift.ok ? "noop" : human ? "human-action-required" : null;
+    return human ? "human-action-required" : null;
   }
   if (adoption) return "adoption-required";
-  return otherRejection || humanSignal ? "human-action-required" : null;
+  return human ? "human-action-required" : null;
+}
+
+function projectionReviewOrphans(projection: ReturnType<typeof buildArchitectureDocsProjection>) {
+  return projection.plan.orphans.filter((orphan) => orphan.disposition === "human-review");
+}
+
+function projectionDeletableOrphans(projection: ReturnType<typeof buildArchitectureDocsProjection>) {
+  return projection.plan.orphans.filter((orphan) => orphan.disposition === "delete");
+}
+
+/**
+ * Binds each generated-only orphan delete to the exact bytes the projection classified, so a
+ * human edit made after classification fails the ChangeSet hash precondition instead of being
+ * deleted.
+ */
+function projectionOrphanDeleteOperations(projection: ReturnType<typeof buildArchitectureDocsProjection>): Array<{
+  operation: { path: string; expectedHash: string; delete: true };
+  result: ProjectionResultV2["files"][number];
+}> {
+  const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
+  return projectionDeletableOrphans(projection).map((orphan) => {
+    const body = existingByPath.get(orphan.path);
+    if (body === undefined) throw new Error(`projection orphan was classified without its body: ${orphan.path}`);
+    return {
+      operation: { path: orphan.path, expectedHash: digestJson({ body } as unknown as Json), delete: true as const },
+      result: { path: orphan.path, action: "delete" as const, preimageDigest: orphan.actualDigest as Sha256Digest, outputDigest: null }
+    };
+  });
 }
 
 function projectionProtocolEnvelope(
@@ -829,13 +994,16 @@ function projectionProtocolResult(
   if (status === "adoption-required") {
     humanActions.push({ reasonCode: "adoption-required", affectedNodeIds, requestPayloadDigest });
   } else if (status === "human-action-required") {
-    humanActions.push({
-      reasonCode: input.plan.refreshSignals.some((signal) => signal.mode === "human-action-required")
-        ? "unresolved-major-change"
-        : "manual-region-conflict",
-      affectedNodeIds,
-      requestPayloadDigest
-    });
+    if (input.plan.refreshSignals.some((signal) => signal.mode === "human-action-required")) {
+      humanActions.push({ reasonCode: "unresolved-major-change", affectedNodeIds, requestPayloadDigest });
+    } else if (input.plan.rejected.some((diff) => diff.reasonCode !== "projection-adoption-required")) {
+      humanActions.push({ reasonCode: "manual-region-conflict", affectedNodeIds, requestPayloadDigest });
+    }
+  }
+  if (status === "adoption-required" || status === "human-action-required") {
+    for (const orphan of projectionReviewOrphans(input)) {
+      humanActions.push({ reasonCode: "orphaned-document-review", affectedNodeIds: [], path: orphan.path, requestPayloadDigest });
+    }
   }
   const refreshSignals = [...(overrides?.refreshSignals ?? output.plan.refreshSignals)]
     .sort((left, right) => left.signalId < right.signalId ? -1 : left.signalId > right.signalId ? 1 : 0);
@@ -913,14 +1081,18 @@ function projectionProtocolSnapshot(
 function projectionProtocolFiles(
   projection: ReturnType<typeof buildArchitectureDocsProjection>
 ): ProjectionResultV2["files"] {
+  const deletableOrphanPaths = new Set(projectionDeletableOrphans(projection).map((orphan) => orphan.path));
   return projection.plan.drift.diffs.flatMap<ProjectionResultV2["files"][number]>((diff) => {
     const expected = projectionDigestOrNull(diff.expectedDigest);
     const actual = projectionDigestOrNull(diff.actualDigest);
     if ((diff.reasonCode === "projection-file-missing" || diff.reasonCode === "projection-manifest-missing") && expected) {
       return [{ path: diff.path, action: "create", preimageDigest: null, outputDigest: expected }];
     }
-    if (diff.reasonCode === "projection-orphaned" && actual) {
-      return [{ path: diff.path, action: "delete", preimageDigest: actual, outputDigest: null }];
+    if (diff.reasonCode === "projection-orphaned") {
+      // Only a delete `apply` performs is a file action; a review orphan is a human action.
+      return deletableOrphanPaths.has(diff.path) && actual
+        ? [{ path: diff.path, action: "delete", preimageDigest: actual, outputDigest: null }]
+        : [];
     }
     if (expected && actual && expected !== actual) {
       return [{ path: diff.path, action: "update", preimageDigest: actual, outputDigest: expected }];
@@ -1045,15 +1217,22 @@ function buildAgentContextProjection(root: string) {
   };
 }
 
-function architectureDocsRenderProjectionOperation(root: string, files: { path: string; body: string }[]) {
+function architectureDocsRenderProjectionOperation(
+  root: string,
+  files: { path: string; body: string }[],
+  deletes: { path: string; expectedHash: string; delete: true }[] = []
+) {
   return {
     op: "render_projection" as const,
     expectedHash: "missing",
-    projectionFiles: files.map((file) => ({
-      path: file.path,
-      expectedHash: currentBodyHash(root, file.path),
-      body: file.body
-    }))
+    projectionFiles: [
+      ...files.map((file) => ({
+        path: file.path,
+        expectedHash: currentBodyHash(root, file.path),
+        body: file.body
+      })),
+      ...deletes
+    ]
   };
 }
 

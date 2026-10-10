@@ -3,6 +3,7 @@ import {
   digestJson,
   moduleStatisticsSnapshotInvariantIssues,
   refactorAssessmentDigest,
+  refactorAssessmentInvariantIssues,
   refactorRequestInvariantIssues,
   type ArchitectureMajorChangeReasonCode,
   type DependencyConstraintV1,
@@ -11,6 +12,7 @@ import {
   type ModuleStatisticsSnapshotV1,
   type ModuleStatisticsV1,
   type RefactorAssessmentV1,
+  type RefactorObservationEvidenceV1,
   type RefactorObservationKind,
   type RefactorObservationV1,
   type RefactorProposalV1,
@@ -18,8 +20,9 @@ import {
   type RefactorScale,
   type RefactorScaleReasonCode
 } from "@archcontext/contracts";
-import { resolveOwnership } from "@archcontext/core/module-statistics";
+import { resolveOwnership, type ModuleStructureV1 } from "@archcontext/core/module-statistics";
 import type { NativeModel } from "@archcontext/core/projection-engine";
+import { ObservationEvidenceBuilder } from "./evidence";
 import { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaDerivationV1 } from "./target-delta";
 
 export { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaContextV1, type TargetDeltaDerivationV1 } from "./target-delta";
@@ -58,6 +61,11 @@ const PRESSURE_WEIGHTS: Readonly<Record<RefactorObservationKind, number>> = {
 
 export interface RefactorAssessmentInputV1 {
   snapshot: ModuleStatisticsSnapshotV1;
+  /**
+   * The structure the snapshot counted (`measureModuleStatistics`), bound to it by
+   * `snapshotDigest`. Observation evidence is drawn from it and from nothing else.
+   */
+  structure: ModuleStructureV1;
   /** The declared model the snapshot measured; bound to it through `snapshot.modelDigest`. */
   model: NativeModel;
   /** The constraints the snapshot evaluated; part of the same `snapshot.modelDigest` binding. */
@@ -100,12 +108,17 @@ export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssess
   if (modelDigest(input.model, input.constraints ?? []) !== input.snapshot.modelDigest) {
     throw new Error("AC_SCHEMA_INVALID: model does not bind snapshot.modelDigest");
   }
+  // Evidence read from a structure some other measurement produced would explain numbers it
+  // never counted.
+  if (input.structure.snapshotDigest !== input.snapshot.snapshotDigest) {
+    throw new Error("AC_SCHEMA_INVALID: structure does not bind snapshot.snapshotDigest");
+  }
   const declaredNodeIds = new Set(input.model.nodes.map((node) => node.id));
   if (input.request.scope.kind === "node" && !declaredNodeIds.has(input.request.scope.nodeId)) {
     throw new Error(`AC_SCHEMA_INVALID: request.scope.nodeId is not declared: ${input.request.scope.nodeId}`);
   }
 
-  const observations = buildObservations(input.snapshot);
+  const observations = buildObservations(input.snapshot, input.structure, input.model);
   const proposal = input.request.proposal;
   const classification = proposal
     ? classifyProposal({
@@ -136,6 +149,11 @@ export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssess
     assessmentDigest: ""
   };
   const assessment = { ...draft, assessmentDigest: refactorAssessmentDigest(draft) };
+  // The assessment is digest-signed and handed to the recorder as-is: an observation whose
+  // evidence breaks the contract (an over-long or multi-line specifier, say) fails here, typed,
+  // rather than being rewritten into something the code index never reported.
+  const assessmentIssues = refactorAssessmentInvariantIssues(assessment);
+  if (assessmentIssues.length > 0) throw new Error(`AC_SCHEMA_INVALID: ${assessmentIssues.join("; ")}`);
   if (!proposal) return { assessment };
   return {
     assessment,
@@ -149,6 +167,7 @@ interface ObservationDraft {
   kind: RefactorObservationKind;
   subjectSelectorId: string;
   metrics: Record<string, number | null>;
+  evidence: RefactorObservationEvidenceV1;
 }
 
 /**
@@ -158,8 +177,13 @@ interface ObservationDraft {
  * component is the fact, and one record per member would report a single cycle N times and weight
  * the pressure score by component size.
  */
-export function buildObservations(snapshot: ModuleStatisticsSnapshotV1): RefactorObservationV1[] {
+export function buildObservations(
+  snapshot: ModuleStatisticsSnapshotV1,
+  structure: ModuleStructureV1,
+  model: NativeModel
+): RefactorObservationV1[] {
   const repositorySubject = `repository:${snapshot.repository.repositoryId}`;
+  const evidence = new ObservationEvidenceBuilder(snapshot, structure, model);
   const drafts: ObservationDraft[] = [];
 
   const componentMembers = new Map<string, ModuleStatisticsV1[]>();
@@ -177,7 +201,8 @@ export function buildObservations(snapshot: ModuleStatisticsSnapshotV1): Refacto
       metrics: {
         memberCount: members.length,
         cycleEdgeCount: members.reduce((total, member) => total + (member.dependencyGraph?.cycleCount ?? 0), 0)
-      }
+      },
+      evidence: evidence.cycle(members.map((member) => member.nodeId))
     });
   }
 
@@ -187,29 +212,36 @@ export function buildObservations(snapshot: ModuleStatisticsSnapshotV1): Refacto
       drafts.push({
         kind: "ownership-ambiguous",
         subjectSelectorId: module.nodeId,
-        metrics: { ownedFileCount: module.footprint?.fileCount ?? null }
+        metrics: { ownedFileCount: module.footprint?.fileCount ?? null },
+        evidence: evidence.ownershipAmbiguous(module.nodeId)
       });
     }
     if (!module.footprintDeclared) {
-      drafts.push({ kind: "undeclared-footprint", subjectSelectorId: module.nodeId, metrics: {} });
+      drafts.push({
+        kind: "undeclared-footprint",
+        subjectSelectorId: module.nodeId,
+        metrics: {},
+        evidence: evidence.undeclaredFootprint(module.nodeId)
+      });
     }
     const violations = module.dependencyGraph?.directionViolationCount ?? null;
     if (violations !== null && violations > 0) {
       drafts.push({
         kind: "direction-violation",
         subjectSelectorId: module.nodeId,
-        metrics: { directionViolationCount: violations }
+        metrics: { directionViolationCount: violations },
+        evidence: evidence.directionViolation(module.nodeId)
       });
     }
   }
 
-  // `RefactorObservationV1.metrics` is numeric, so the unowned paths themselves cannot be carried
-  // here; the repository-scoped count is the whole observation.
+  // The metric is the repository-scoped count; the paths themselves ride in the bounded evidence.
   if (snapshot.repositorySummary.unownedFileCount > 0) {
     drafts.push({
       kind: "unowned-paths",
       subjectSelectorId: repositorySubject,
-      metrics: { unownedFileCount: snapshot.repositorySummary.unownedFileCount }
+      metrics: { unownedFileCount: snapshot.repositorySummary.unownedFileCount },
+      evidence: evidence.unownedPaths()
     });
   }
   if (snapshot.codeFacts.coverage !== "complete") {
@@ -219,7 +251,8 @@ export function buildObservations(snapshot: ModuleStatisticsSnapshotV1): Refacto
       metrics: {
         unresolvedImportCount: snapshot.repositorySummary.unresolvedImportCount,
         edgeLimit: snapshot.codeFacts.edgeLimit
-      }
+      },
+      evidence: evidence.evidenceGap()
     });
   }
 
@@ -443,8 +476,10 @@ function derivePressure(observations: RefactorObservationV1[]): RefactorAssessme
   };
 }
 
+/** The signal names the measured fact (kind, subject, metrics); its evidence sample is not part of it. */
 function signalIdFor(draft: ObservationDraft): string {
-  const digest = digestJson(draft as unknown as Json);
+  const { evidence: _evidence, ...fact } = draft;
+  const digest = digestJson(fact as unknown as Json);
   return `signal.${draft.kind}.${digest.slice(DIGEST_PREFIX_LENGTH, DIGEST_PREFIX_LENGTH + SIGNAL_ID_LENGTH)}`;
 }
 

@@ -28,7 +28,7 @@ const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
   modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "ready" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "ready" }
 });
 
 const model: NativeModel = {
@@ -766,22 +766,22 @@ describe("node-scoped sticky key", () => {
     expectNoProvenanceInBody(entityFile(run2, nodeB).body);
   });
 
-  test("documents carrying pre-v4 markers and the old digest shape re-render wholesale under v4", () => {
+  test("documents carrying older-renderer markers and the old digest shape re-render wholesale under the current renderer", () => {
     const current = render();
-    // Simulate files left behind by the previous renderer: v3 marker attributes (including the
-    // provenance attribute v4 drops) and the old plan-wide digest shape. The one-time full re-render
-    // is the accepted migration cost of moving the stamp out of every document.
+    // Simulate files left behind by an older renderer: v3 marker attributes (including the
+    // provenance attribute later renderers drop) and the old plan-wide digest shape. The one-time
+    // full re-render is the accepted migration cost of a renderer version bump.
     const legacyFiles = current.files.map(({ path, body }) => ({
       path,
       body: body
-        .replaceAll('rendererVersion="archcontext.docs-renderer/v4"', 'rendererVersion="archcontext.docs-renderer/v3" verifiedAgainst="main@7415329@2026-08-08T09:30:00+08:00"')
+        .replaceAll('rendererVersion="archcontext.docs-renderer/v5"', 'rendererVersion="archcontext.docs-renderer/v3" verifiedAgainst="main@7415329@2026-08-08T09:30:00+08:00"')
         .replace(/sourceDigest="sha256:[a-f0-9]+"/g, 'sourceDigest="sha256:0000000000000000000000000000000000000000000000000000000000000000"')
     }));
     const upgraded = render({ existingFiles: [...legacyFiles, current.manifest] });
 
     expect(upgraded.files).toHaveLength(current.files.length);
     for (const file of upgraded.files) {
-      expect(file.target.generatedRegion.startMarker).toContain('rendererVersion="archcontext.docs-renderer/v4"');
+      expect(file.target.generatedRegion.startMarker).toContain('rendererVersion="archcontext.docs-renderer/v5"');
       expect(file.target.generatedRegion.startMarker).not.toContain("verifiedAgainst=");
       expect(file.body).not.toBe(legacyFiles.find((entry) => entry.path === file.path)!.body);
     }

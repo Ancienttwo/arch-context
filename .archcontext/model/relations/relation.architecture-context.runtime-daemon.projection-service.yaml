@@ -1,5 +1,5 @@
 id: "relation.architecture-context.runtime-daemon.projection-service"
-intent: "Delegate typed projection operations after validating transport input and MCP one-time approval"
+intent: "Delegate typed projection operations after validating transport input and MCP explicit approval"
 kind: "calls"
 schemaVersion: "archcontext.relation/v1"
 source: "component.architecture-context.local-runtime.runtime-daemon"

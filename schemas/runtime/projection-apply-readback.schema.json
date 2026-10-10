@@ -76,7 +76,7 @@
           "$ref": "#/$defs/digest"
         },
         "rendererVersion": {
-          "const": "archcontext.docs-renderer/v4"
+          "const": "archcontext.docs-renderer/v5"
         },
         "layoutVersion": {
           "const": "archcontext.docs-layout/v1"
@@ -87,7 +87,6 @@
           "required": [
             "codeGraphPackage",
             "codeGraphVersion",
-            "codeGraphBinaryDigest",
             "codeGraphStatus"
           ],
           "properties": {
@@ -96,9 +95,6 @@
             },
             "codeGraphVersion": {
               "const": "1.6.1"
-            },
-            "codeGraphBinaryDigest": {
-              "$ref": "#/$defs/digest"
             },
             "codeGraphStatus": {
               "enum": [
@@ -237,6 +233,7 @@
           "enum": [
             "adoption-required",
             "manual-region-conflict",
+            "orphaned-document-review",
             "target-collision",
             "unprovable-required-flow",
             "unresolved-major-change"
@@ -250,8 +247,48 @@
             "minLength": 1
           }
         },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The orphaned managed document a human must review. Present exactly when reasonCode is orphaned-document-review.",
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "(^|/)\\.\\.(/|$)"
+              }
+            ]
+          }
+        },
         "requestPayloadDigest": {
           "$ref": "#/$defs/digest"
+        }
+      },
+      "if": {
+        "properties": {
+          "reasonCode": {
+            "const": "orphaned-document-review"
+          }
+        },
+        "required": [
+          "reasonCode"
+        ]
+      },
+      "then": {
+        "required": [
+          "path"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -801,6 +838,10 @@
         "freshness": {
           "$ref": "#/$defs/freshness"
         },
+        "replayed": {
+          "const": true,
+          "description": "A repeated apply for the same requestId and request digest returned the committed result without applying again. Excluded from receiptDigest."
+        },
         "receiptDigest": {
           "$ref": "#/$defs/digest"
         }
@@ -853,6 +894,26 @@
             "properties": {
               "refreshSignals": {
                 "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "replayed"
+            ]
+          },
+          "then": {
+            "required": [
+              "applyReceipt"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "applied",
+                  "applied-reconcile-required"
+                ]
               }
             }
           }
@@ -949,7 +1010,7 @@
           "$ref": "#/$defs/digestSet"
         },
         "rendererVersion": {
-          "const": "archcontext.docs-renderer/v4"
+          "const": "archcontext.docs-renderer/v5"
         },
         "layoutVersion": {
           "const": "archcontext.docs-layout/v1"
@@ -960,7 +1021,6 @@
           "required": [
             "codeGraphPackage",
             "codeGraphVersion",
-            "codeGraphBinaryDigest",
             "codeGraphStatus"
           ],
           "properties": {
@@ -969,9 +1029,6 @@
             },
             "codeGraphVersion": {
               "const": "1.6.1"
-            },
-            "codeGraphBinaryDigest": {
-              "$ref": "#/$defs/digest"
             },
             "codeGraphStatus": {
               "enum": [
@@ -985,6 +1042,9 @@
           "$ref": "#/$defs/digest"
         },
         "receiptDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "requestDigest": {
           "$ref": "#/$defs/digest"
         }
       }

@@ -38,11 +38,10 @@
     "generatedFrom": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["codeGraphPackage", "codeGraphVersion", "codeGraphBinaryDigest", "codeGraphStatus"],
+      "required": ["codeGraphPackage", "codeGraphVersion", "codeGraphStatus"],
       "properties": {
         "codeGraphPackage": { "const": "@colbymchenry/codegraph" },
         "codeGraphVersion": { "const": "1.6.1" },
-        "codeGraphBinaryDigest": { "$ref": "#/$defs/digest" },
         "codeGraphStatus": { "enum": ["ready", "unavailable"] }
       }
     },
@@ -112,7 +111,7 @@
         "codeGraphDigest": { "$ref": "#/$defs/digest" },
         "indexedWorktreeDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
         "projectionInputDigest": { "$ref": "#/$defs/digest" },
-        "rendererVersion": { "const": "archcontext.docs-renderer/v4" },
+        "rendererVersion": { "const": "archcontext.docs-renderer/v5" },
         "layoutVersion": { "const": "archcontext.docs-layout/v1" },
         "generatedFrom": { "$ref": "#/$defs/readyGeneratedFrom" }
       }

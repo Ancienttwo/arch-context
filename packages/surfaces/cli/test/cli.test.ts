@@ -101,7 +101,7 @@ test("CLI capabilities exposes the exact local protocol and renderer handshake w
   // Consumers gate on this handshake, not on field presence, because the result field is omitted
   // whenever no earlier attempt of the request committed.
   expect(capabilities.features).toContain("projection-prior-committed-applies-v1");
-  expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v4");
+  expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v5");
   const processOutput = execFileSync("bun", [CLI_ENTRY, "capabilities", "--json"], { encoding: "utf8" });
   expect(JSON.parse(processOutput)).toEqual(capabilities);
   expect(await runCli("capabilities", [], "/path/that/does/not/exist")).toEqual(capabilities);
@@ -2300,6 +2300,15 @@ describe("archctx CLI", () => {
       const missingReason = await runCli("recommendations", ["reject", "--id", "recommendation.cli_test"], root, { runtimeClient: runtimeClient as any });
       expect(missingReason.ok).toBe(false);
       expect((missingReason as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      // `show` is a read: an id and nothing else reaches the daemon.
+      const shown = await runCli("recommendations", ["show", "--id", "recommendation.cli_test", "--json"], root, { runtimeClient: runtimeClient as any });
+      expect(shown.ok).toBe(true);
+      expect(calls[2]).toEqual({ command: "show", recommendationId: "recommendation.cli_test" });
+      const missingId = await runCli("recommendations", ["show"], root, { runtimeClient: runtimeClient as any });
+      expect(missingId.ok).toBe(false);
+      expect((missingId as any).error.message).toBe("recommendations show requires --id");
+      expect(calls).toHaveLength(3);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -4785,7 +4794,7 @@ describe("archctx CLI", () => {
       expect((second.data as any).status).toBe("noop");
       expect((second.data as any).provenance).toMatchObject({
         schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
-        rendererVersion: "archcontext.docs-renderer/v4",
+        rendererVersion: "archcontext.docs-renderer/v5",
         layoutVersion: "archcontext.docs-layout/v1",
         generatedFrom: {
           codeGraphPackage: "@colbymchenry/codegraph",
@@ -5120,7 +5129,10 @@ describe("archctx CLI", () => {
       expect(pendingReadbacks).toBe(1);
       expect(appliedInput).toBeDefined();
       const duplicate = await rpcClient.applyUpdate(...appliedInput!);
-      expect(duplicate).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
+      expect(duplicate).toMatchObject({
+        ok: false,
+        error: { code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-accepted-change-committed", details: { requestId: request.requestId } }
+      });
       const original = applied.data as ProjectionResultV2;
       const before = await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey);
       expect(before).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
@@ -5222,6 +5234,12 @@ describe("archctx CLI", () => {
         expect(postRacePlan.ok, JSON.stringify(postRacePlan)).toBe(true);
         const receiptInspection = await daemon.inspectProjectionApplyReceipt(root, (raced.data as ProjectionResultV2).applyReceipt!.lookupKey);
         expect(receiptInspection).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "pending" } });
+        // The same request replays the committed result without applying again (#265). Its refresh
+        // signals were never delivered, so the replay still reports reconcile-required.
+        const replayed = await runCli("projection", ["run", "--request-json", JSON.stringify(firstApplyRequest)], root, { runtimeClient: racingClient });
+        expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
+        expect(replayed.data).toEqual({ ...(raced.data as object), replayed: true });
+        expect(applyCalls).toBe(1);
         const ordinaryRetry = await runCli("projection", ["run", "--request-json", JSON.stringify({
           ...firstApplyRequest,
           requestId: "projection_request.hook_adapters_major_ordinary_retry",
@@ -5231,7 +5249,11 @@ describe("archctx CLI", () => {
           }
         })], root, { runtimeClient: racingClient });
         expect(ordinaryRetry.ok).toBe(false);
-        expect((ordinaryRetry as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((ordinaryRetry as any).error).toMatchObject({
+          code: "AC_PROJECTION_APPLY_COMMITTED",
+          reasonCode: "projection-accepted-change-committed",
+          details: { requestId: firstApplyRequest.requestId, lookupKey: (raced.data as ProjectionResultV2).applyReceipt!.lookupKey }
+        });
         expect(applyCalls).toBe(1);
         expect(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).toBe(committedManifest);
 
@@ -5412,14 +5434,12 @@ describe("archctx CLI", () => {
 
   // The complete real-CodeGraph fixture + approval/recovery path measured 130s locally.
   // Keep the existing Windows allowance for this scenario on every platform.
-  test("projection CLI and MCP share RPC results and single-use request-bound write approval", async () => {
+  test("projection CLI and MCP share RPC results and MCP writes require explicit snapshot-bound approval", async () => {
     const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
-    let now = Date.parse("2026-09-25T00:00:00Z");
     const daemon = await createStartedDaemon({
       localStorePath: testRuntimePaths(root).localStorePath,
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
-      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
-      clock: () => new Date(now).toISOString()
+      codeGraphProviderFactory: () => new MockCodeGraphProvider()
     });
     const paths = testRuntimePaths(root);
     const rpc = new ArchctxRuntimeRpcServer(daemon, {
@@ -5430,56 +5450,43 @@ describe("archctx CLI", () => {
       const client = new RuntimeRpcClient(await rpc.start());
       const mcp = new McpLocalServer(client);
       const cli = (action: string, request: unknown, flags: string[] = []) => runCli("projection", [action, "--request-json", JSON.stringify(request), ...flags], root, { runtimeClient: client });
-      const call = async (action: string, request: unknown, approvalToken?: string, atRoot = root) =>
-        (await mcp.callTool("archcontext_projection", { root: atRoot, action, request, approvalToken })).content as any;
+      const call = async (action: string, request: unknown, approved?: unknown, atRoot = root) =>
+        (await mcp.callTool("archcontext_projection", { root: atRoot, action, request, ...(approved === undefined ? {} : { approved }) })).content as any;
       const request: ProjectionRequestV1 = { ...protocolRequest, mode: "apply", acceptedChange, requestId: "projection_request.mcp_parity" };
       const check = { ...request, mode: "check" };
       expect(await call("run", check)).toEqual(await cli("run", check));
       expect(await call("readback", request)).toEqual(await cli("readback", request));
-      expect(await call("run", request)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      expect(await cli("approve", request)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const approve = async (value: unknown = request, action = "run") => {
-        const result = await cli("approve", value, ["--action", action, "--approved"]);
-        expect(result.ok, JSON.stringify(result)).toBe(true);
-        return (result.data as any).approvalToken as string;
-      };
+      for (const approved of [undefined, false, "true"]) {
+        expect(await call("run", request, approved)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      }
+      expect(await cli("approve", request, ["--approved"])).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
       const malformed = { ...request, mode: "arbitrary-write" };
-      expect(await call("run", malformed)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+      expect(await call("run", malformed, true)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
       expect(await client.docsProjection(root, { action: "apply", approved: "true" } as any)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
       expect(await client.agentContextProjection(root, { action: "erase" } as any)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
-      expect(await cli("approve", { ...request, expected: { ...request.expected, worktreeDigest: `sha256:${"0".repeat(64)}` } }, ["--approved"])).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
-      for (const attack of [
-        { request: { ...request, requestId: "projection_request.changed" }, root },
-        { request, root: dirname(root) }
-      ]) {
-        const token = await approve();
-        expect(await call("run", attack.request, token, attack.root)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-        expect(await call("run", request, token)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      }
-      const expired = await approve();
-      now += 5 * 60_000;
-      expect(await call("run", request, expired)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const crossScope = await approve();
-      expect(await client.applyMcpUpdate(root, { id: "changeset.foreign", expectedWorktreeDigest: request.expected.worktreeDigest, approvalToken: crossScope })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      expect(await call("run", request, crossScope)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const token = await approve();
-      const results = await Promise.all([call("run", request, token), call("run", request, token)]);
-      expect(results.filter(result => result.ok), JSON.stringify(results)).toHaveLength(1);
-      expect(results.filter(result => !result.ok)).toMatchObject([{ error: { code: "AC_USER_CONFIRMATION_REQUIRED" } }]);
-      const applied = results.find(result => result.ok)!;
+      expect(await call("run", { ...request, expected: { ...request.expected, worktreeDigest: `sha256:${"0".repeat(64)}` } }, true)).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
+      expect(await call("run", request, true, dirname(root))).toMatchObject({ ok: false });
+      const applied = await call("run", request, true);
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
       expect(applied.data.status).toBe("applied");
       expect(projectionResultInvariantIssues(applied.data)).toEqual([]);
-      expect(await call("run", request, token)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
       expect(await call("readback", request)).toEqual(await cli("readback", request));
+      // Replaying the identical approved apply must not apply twice: it returns the committed result, marked replayed.
+      const readbackBeforeReplay = await call("readback", request);
+      const manifestPath = join(root, "docs", "architecture", ".projection-manifest.json");
+      const manifestBeforeReplay = readFileSync(manifestPath, "utf8");
+      const replayed = await call("run", request, true);
+      expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
+      expect(replayed.data).toEqual({ ...applied.data, replayed: true });
+      expect(await call("readback", request)).toEqual(readbackBeforeReplay);
+      expect(readFileSync(manifestPath, "utf8")).toBe(manifestBeforeReplay);
       const intent = {
         schemaVersion: "archcontext.projection-apply-recovery-intent/v1", requestId: request.requestId, profile: request.profile,
         receipt: { lookupKey: applied.data.applyReceipt.lookupKey, applyId: applied.data.applyReceipt.applyId }
       };
       expect(await call("recover", intent)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const recoveryToken = await approve(intent, "recover");
-      const recovered = await call("recover", intent, recoveryToken);
+      const recovered = await call("recover", intent, true);
       expect(recovered.ok, JSON.stringify(recovered)).toBe(true);
-      expect(await call("recover", intent, recoveryToken)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
     } finally {
       await rpc.stop();
       await daemon.stop();

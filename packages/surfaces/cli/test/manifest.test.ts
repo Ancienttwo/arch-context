@@ -66,7 +66,7 @@ test("manifest CLI plans over RPC without writes and applies once through daemon
   } finally { await f.close(); }
 }, 30_000);
 
-test("manifest MCP requires and consumes a CLI-confirmed one-time approval over RPC", async () => {
+test("manifest MCP applies only with explicit approval and the preview worktree digest over RPC", async () => {
   const f = await fixture();
   try {
     const mcp = new McpLocalServer(f.client);
@@ -76,17 +76,15 @@ test("manifest MCP requires and consumes a CLI-confirmed one-time approval over 
     expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
     const data = envelope.data;
     expect(data.preview.allowed).toBe(true);
-    const input = { id: data.draft.id, expectedWorktreeDigest: data.draft.base.worktreeDigest };
-    expect(await f.client.applyUpdate(f.root, { ...input, approved: true })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-    expect(await f.client.applyMcpUpdate(f.root, { ...input, approvalToken: "forged" })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-    const flags = ["--id", input.id, "--expected-worktree-digest", input.expectedWorktreeDigest, "--expected-changeset-digest", data.changeSetDigest];
-    expect((await runCli("approve", flags, f.root, { runtimeClient: f.client })).ok).toBe(false);
-    const approved = await runCli("approve", [...flags, "--approved"], f.root, { runtimeClient: f.client });
-    expect(approved.ok, JSON.stringify(approved)).toBe(true);
-    const approvalToken = (approved.data as any).approvalToken;
-    const applied = await mcp.callTool("archcontext_apply_update", { root: f.root, ...input, approvalToken });
+    const input = { root: f.root, id: data.draft.id, expectedWorktreeDigest: data.draft.base.worktreeDigest };
+    expect((await mcp.callTool("archcontext_apply_update", input)).content).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+    expect((await mcp.callTool("archcontext_apply_update", { ...input, approved: false })).content).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+    expect(readFileSync(f.path, "utf8")).toBe(f.before);
+    const applied = await mcp.callTool("archcontext_apply_update", { ...input, approved: true });
     expect((applied.content as any).ok, JSON.stringify(applied)).toBe(true);
-    expect(await f.client.applyMcpUpdate(f.root, { ...input, approvalToken })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+    const replay = (await mcp.callTool("archcontext_apply_update", { ...input, approved: true })).content as any;
+    expect(replay.ok).toBe(false);
+    expect(JSON.stringify(replay)).toContain("Worktree digest changed before apply");
     expect(readFileSync(f.path, "utf8")).toBe(f.before.replace('decisions: ".archcontext/decisions"', 'decisions: "docs/adr"'));
   } finally { await f.close(); }
 }, 30_000);

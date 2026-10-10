@@ -11,7 +11,7 @@ export const PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION = "archcontext.proj
 export const PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-readback-result/v1" as const;
 export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v1" as const;
 export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
-export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v4" as const;
+export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v5" as const;
 export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v1" as const;
 
 export const PROJECTION_MODES = ["check", "plan", "apply", "adopt"] as const;
@@ -31,6 +31,7 @@ export const PROJECTION_RESULT_STATUSES = [
 export const PROJECTION_HUMAN_ACTION_REASON_CODES = [
   "adoption-required",
   "manual-region-conflict",
+  "orphaned-document-review",
   "target-collision",
   "unprovable-required-flow",
   "unresolved-major-change"
@@ -60,15 +61,21 @@ export const ARCHITECTURE_REFRESH_TARGETS = [
 export const ARCHCTX_FEATURES = [
   "architecture-docs-renderer-v2",
   "architecture-refresh-signal-v1",
+  "changeset-entity-operations-v1",
   "module-statistics-v1",
   "projection-apply-readback-v1",
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
+  "projection-apply-replay-v1",
   "projection-check-freshness-v1",
+  "projection-observed-major-change-acceptance-v1",
+  "projection-orphan-review-v1",
   "projection-prior-committed-applies-v1",
   "projection-protocol-v2",
+  "recommendation-scan-decision-v1",
   "recommendation-v3",
   "refactor-assessment-v1",
+  "refactor-observation-evidence-v1",
   "refactor-resolution-v1"
 ] as const;
 
@@ -114,6 +121,14 @@ export interface ProjectionRequestV1 {
   expected: ProjectionExpectedSnapshotV1;
   adoptionPlanId?: string;
   acceptedChange?: AcceptedArchitectureChangeReferenceV1;
+  /**
+   * `apply` and `adopt` only, never together with `acceptedChange`: accept the major change this
+   * run observes at `expected`. The provider classifies, derives the accepted change and applies
+   * it against the same expected snapshot, which the daemon re-checks under its writer lock before
+   * writing. The apply receipt records the observed change with provider-generated `changeSetId`
+   * and `eventId`. Absent, a major change still stops at `human-action-required` (#261).
+   */
+  acceptObservedMajorChange?: true;
 }
 
 export interface ProjectionSnapshotV1 extends ProjectionExpectedSnapshotV1 {
@@ -128,7 +143,6 @@ export interface ProjectionSnapshotV1 extends ProjectionExpectedSnapshotV1 {
   generatedFrom: {
     codeGraphPackage: "@colbymchenry/codegraph";
     codeGraphVersion: "1.6.1";
-    codeGraphBinaryDigest: Sha256Digest;
     codeGraphStatus: "ready" | "unavailable";
   };
 }
@@ -143,6 +157,12 @@ export interface ProjectionFileResultV1 {
 export interface ProjectionHumanActionV1 {
   reasonCode: ProjectionHumanActionReasonCode;
   affectedNodeIds: string[];
+  /**
+   * Present exactly on `orphaned-document-review`: the managed document whose target the model no
+   * longer renders and which may hold human text. `apply` never deletes it; a human must review,
+   * move or remove it. A generated-only orphan is a `files[]` delete instead.
+   */
+  path?: string;
   requestPayloadDigest: Sha256Digest;
 }
 
@@ -252,6 +272,12 @@ export interface ProjectionResultV2 {
    * Consumers gate on the `projection-check-freshness-v1` capability, not on field presence.
    */
   freshness?: ProjectionFreshnessV1;
+  /**
+   * Present, as `true`, only when this response returns an apply this requestId already committed
+   * for the same request digest, without applying again (#265). It is excluded from
+   * `receiptDigest`, so a replay carries the committed receipt digest unchanged.
+   */
+  replayed?: true;
   receiptDigest: Sha256Digest;
 }
 
@@ -279,6 +305,12 @@ export interface ProjectionApplyRecoveryBindingV1 {
   generatedFrom: ProjectionSnapshotV1["generatedFrom"];
   ownedOutputDigest: Sha256Digest;
   receiptDigest: Sha256Digest;
+  /**
+   * `digestJson` of the caller's ProjectionRequestV1 exactly as received. With the result's
+   * requestId it is the replay key of #265; it never includes provider-generated ids. Receipts
+   * committed before it existed lack it and are never replayed.
+   */
+  requestDigest?: Sha256Digest;
 }
 
 /**
@@ -401,6 +433,11 @@ export function projectionRequestInvariantIssues(input: ProjectionRequestV1): st
   if (!/^[a-zA-Z0-9_.:-]+$/.test(input.requestId)) issues.push("requestId must use the stable identifier character set");
   if (input.mode === "adopt" && !input.adoptionPlanId) issues.push("adoptionPlanId is required when mode=adopt");
   if (input.mode !== "adopt" && input.adoptionPlanId !== undefined) issues.push("adoptionPlanId is only allowed when mode=adopt");
+  if (input.acceptObservedMajorChange !== undefined) {
+    if (input.acceptObservedMajorChange !== true) issues.push("acceptObservedMajorChange must be true when present");
+    if (input.mode !== "apply" && input.mode !== "adopt") issues.push("acceptObservedMajorChange is only allowed when mode=apply or mode=adopt");
+    if (input.acceptedChange !== undefined) issues.push("acceptObservedMajorChange and acceptedChange are mutually exclusive");
+  }
   if (input.acceptedChange) {
     if (input.acceptedChange.changeSetId.trim() === "") issues.push("acceptedChange.changeSetId must not be empty");
     if (input.acceptedChange.eventId.trim() === "") issues.push("acceptedChange.eventId must not be empty");
@@ -436,6 +473,19 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     if (!input.applyReceipt) issues.push("applied-reconcile-required status requires applyReceipt");
     if (input.refreshSignals.length > 0) issues.push("applied-reconcile-required status cannot deliver refreshSignals");
   }
+  for (const [index, action] of input.humanActions.entries()) {
+    const prefix = `humanActions[${index}]`;
+    if (!(PROJECTION_HUMAN_ACTION_REASON_CODES as readonly string[]).includes(action.reasonCode)) issues.push(`${prefix}.reasonCode is unsupported`);
+    if ((action.reasonCode === "orphaned-document-review") !== (action.path !== undefined)) {
+      issues.push(`${prefix}.path must be present exactly when reasonCode=orphaned-document-review`);
+    }
+    if (action.path !== undefined && !isRepoRelativePosixPath(action.path)) issues.push(`${prefix}.path must be a repository-relative POSIX path`);
+  }
+  const orphanReviewPaths = input.humanActions.flatMap((action) => action.reasonCode === "orphaned-document-review" && action.path !== undefined ? [action.path] : []);
+  issues.push(...sortedUniqueIssues("humanActions[orphaned-document-review].path", orphanReviewPaths));
+  if (orphanReviewPaths.some((path) => input.files.some((file) => file.path === path))) {
+    issues.push("an orphaned-document-review path must not also be a files[] entry");
+  }
   for (const [index, file] of input.files.entries()) {
     const prefix = `files[${index}]`;
     if (file.action === "create" && (file.preimageDigest !== null || file.outputDigest === null)) {
@@ -455,6 +505,12 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     issues.push(...projectionPriorCommittedAppliesIssues(input.priorCommittedApplies, input.requestId));
   }
   if (input.freshness) issues.push(...projectionFreshnessIssues(input.freshness));
+  if (input.replayed !== undefined) {
+    if (input.replayed !== true) issues.push("replayed must be true when present");
+    if (!input.applyReceipt || (input.status !== "applied" && input.status !== "applied-reconcile-required")) {
+      issues.push("replayed is only allowed on a committed apply result with applyReceipt");
+    }
+  }
   const { receiptDigest, ...receiptPayload } = input;
   if (projectionResultReceiptDigest(receiptPayload) !== receiptDigest) issues.push("receiptDigest must match the canonical projection result payload");
   for (const [index, signal] of input.refreshSignals.entries()) {
@@ -528,8 +584,9 @@ export function projectionPriorCommittedAppliesIssues(
  * projectionReceiptDigest, which projectionResultInvariantIssues verifies.
  */
 export function projectionResultReceiptDigest(input: Omit<ProjectionResultV2, "receiptDigest">): Sha256Digest {
-  const refreshSignals = input.refreshSignals.map(({ projectionReceiptDigest: _projectionReceiptDigest, ...signal }) => signal);
-  return digestJson({ ...input, refreshSignals } as unknown as Json) as Sha256Digest;
+  const { replayed: _replayed, ...payload } = input;
+  const refreshSignals = payload.refreshSignals.map(({ projectionReceiptDigest: _projectionReceiptDigest, ...signal }) => signal);
+  return digestJson({ ...payload, refreshSignals } as unknown as Json) as Sha256Digest;
 }
 
 export function projectionApplyLookupKey(input: {
@@ -608,6 +665,7 @@ export function projectionApplyRecoveryBindingInvariantIssues(
     issues.push("recovery schemaVersion is invalid");
   }
   if (binding.targets.length === 0) issues.push("recovery targets must contain at least one projection target");
+  if (binding.requestDigest !== undefined && !SHA256_DIGEST.test(binding.requestDigest)) issues.push("recovery requestDigest must be a SHA-256 digest");
   if (receipt) {
     if (binding.receiptDigest !== receipt.result.receiptDigest) {
       issues.push("recovery receiptDigest must match the committed result receiptDigest");

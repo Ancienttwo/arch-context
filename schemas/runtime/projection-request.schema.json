@@ -25,14 +25,23 @@
     },
     "expected": { "$ref": "#/$defs/expectedSnapshot" },
     "adoptionPlanId": { "type": "string", "pattern": "^adoption_plan\\.[a-zA-Z0-9_.-]+$" },
-    "acceptedChange": { "$ref": "#/$defs/acceptedChange" }
+    "acceptedChange": { "$ref": "#/$defs/acceptedChange" },
+    "acceptObservedMajorChange": {
+      "const": true,
+      "description": "apply and adopt only, never with acceptedChange: accept the major change observed at expected in the same run."
+    }
   },
   "allOf": [
     {
       "if": { "properties": { "mode": { "const": "adopt" } }, "required": ["mode"] },
       "then": { "required": ["adoptionPlanId"] },
       "else": { "not": { "required": ["adoptionPlanId"] } }
-    }
+    },
+    {
+      "if": { "properties": { "mode": { "enum": ["apply", "adopt"] } }, "required": ["mode"] },
+      "else": { "not": { "required": ["acceptObservedMajorChange"] } }
+    },
+    { "not": { "required": ["acceptedChange", "acceptObservedMajorChange"] } }
   ],
   "$defs": {
     "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
