@@ -149,7 +149,7 @@ export interface ArchitectureDocumentationProjectionPlan {
   sourceDigest: string;
   projectionDigest: string;
   profile: ArchitectureProjectionProfile;
-  provenance: ArchitectureDocumentationProjectionProvenanceV3;
+  provenance: ArchitectureDocumentationProjectionProvenanceV2;
   semanticState: ArchitectureSemanticStateV1;
   architectureDigests: ArchitectureDigestSetV1;
   majorChange: ArchitectureMajorChangeClassificationV1;
@@ -169,17 +169,11 @@ export interface ArchitectureDocumentationProjectionPlan {
 
 /**
  * Committed projection provenance. It records content identities only: the HEAD and full-worktree
- * snapshot a projection ran against, and the digest of the locally installed CodeGraph runtime, are
- * runtime facts (`ArchitectureDocumentationProjectionRuntimeSnapshot`) and never reach the committed
- * manifest — a branch commit would dangle after a squash merge, and the runtime digest differs per
- * machine, so committing it would produce manifest-only diffs.
- *
- * v3 drops `generatedFrom.codeGraphBinaryDigest` (v2 dropped `baseHeadSha` and `worktreeDigest`).
- * A manifest with an older provenance is never reused as the sticky prior; the next projection
- * rewrites it once.
+ * snapshot a projection ran against are runtime facts (`ArchitectureDocumentationProjectionRuntimeSnapshot`)
+ * and never reach the committed manifest, where a branch commit would dangle after a squash merge.
  */
-export interface ArchitectureDocumentationProjectionProvenanceV3 {
-  schemaVersion: "archcontext.architecture-docs-projection-provenance/v3";
+export interface ArchitectureDocumentationProjectionProvenanceV2 {
+  schemaVersion: "archcontext.architecture-docs-projection-provenance/v2";
   sourceTreeDigest: string;
   modelDigest: string;
   codeGraphDigest: string;
@@ -190,6 +184,7 @@ export interface ArchitectureDocumentationProjectionProvenanceV3 {
   generatedFrom: {
     codeGraphPackage: string;
     codeGraphVersion: string;
+    codeGraphBinaryDigest: string;
     codeGraphStatus: "ready" | "unavailable";
   };
 }
@@ -199,14 +194,13 @@ export const ARCHITECTURE_DOCS_GENERATED_BEGIN_PREFIX = "<!-- BEGIN ARCHCONTEXT:
 export const ARCHITECTURE_DOCS_GENERATED_END_PREFIX = "<!-- END ARCHCONTEXT:generated";
 
 /**
- * The local state one projection run read: the HEAD it ran on, the projection worktree digest and
- * the digest of the CodeGraph runtime installed on this machine. Runtime-only — refresh signals and
- * protocol receipts bind it, the committed manifest does not.
+ * The repository state one projection run read: the HEAD it ran on and the projection worktree
+ * digest. Runtime-only — refresh signals and protocol receipts bind it, the committed manifest
+ * does not.
  */
 export interface ArchitectureDocumentationProjectionRuntimeSnapshot {
   headSha: string;
   worktreeDigest: string;
-  codeGraphBinaryDigest: string;
 }
 
 /**
@@ -262,7 +256,7 @@ export function renderArchitectureDocumentationProjection(input: {
   model: NativeModel;
   profile?: ArchitectureProjectionProfile;
   sourceDigest: string;
-  provenance: ArchitectureDocumentationProjectionProvenanceV3;
+  provenance: ArchitectureDocumentationProjectionProvenanceV2;
   /**
    * Per node that declares `source.include`: the content digest of its footprint
    * (`loadCapabilitySourceFootprintDigests`). It becomes the node's stamp in the manifest; a node
@@ -561,16 +555,16 @@ export function architectureDocumentationProjectionWorktreeDigest(
 }
 
 export function architectureDocumentationProjectionInputDigest(
-  input: Omit<ArchitectureDocumentationProjectionProvenanceV3, "schemaVersion" | "projectionInputDigest">
+  input: Omit<ArchitectureDocumentationProjectionProvenanceV2, "schemaVersion" | "projectionInputDigest">
 ): string {
   return digestJson(input as unknown as Json);
 }
 
 export function architectureDocumentationProjectionProvenance(
-  input: Omit<ArchitectureDocumentationProjectionProvenanceV3, "schemaVersion" | "projectionInputDigest">
-): ArchitectureDocumentationProjectionProvenanceV3 {
+  input: Omit<ArchitectureDocumentationProjectionProvenanceV2, "schemaVersion" | "projectionInputDigest">
+): ArchitectureDocumentationProjectionProvenanceV2 {
   return {
-    schemaVersion: "archcontext.architecture-docs-projection-provenance/v3",
+    schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
     ...input,
     projectionInputDigest: architectureDocumentationProjectionInputDigest(input)
   };
@@ -578,20 +572,19 @@ export function architectureDocumentationProjectionProvenance(
 
 /**
  * Preserve the prior generation snapshot while the declared architecture source, model, CodeGraph
- * package version, and layout inputs are unchanged, so re-indexing alone — or running the same
- * CodeGraph version from a different local install — never rewrites the manifest. CodeGraph's
+ * runtime, and layout inputs are unchanged, so re-indexing alone never rewrites the manifest. CodeGraph's
  * indexed status digest can legitimately advance when it notices projection-owned docs; that is
  * not an architecture input and must not make the manifest chase its own output. A malformed or
  * internally inconsistent prior provenance is never reused and is surfaced by the ordinary
  * manifest drift check.
  */
 function stickyArchitectureDocumentationProjectionProvenance(
-  current: ArchitectureDocumentationProjectionProvenanceV3,
+  current: ArchitectureDocumentationProjectionProvenanceV2,
   existingManifestBody: string | undefined
-): ArchitectureDocumentationProjectionProvenanceV3 {
+): ArchitectureDocumentationProjectionProvenanceV2 {
   if (!existingManifestBody) return current;
   try {
-    const parsed = JSON.parse(existingManifestBody) as { provenance?: ArchitectureDocumentationProjectionProvenanceV3 };
+    const parsed = JSON.parse(existingManifestBody) as { provenance?: ArchitectureDocumentationProjectionProvenanceV2 };
     const prior = parsed.provenance;
     if (!prior) return current;
     assertArchitectureDocumentationProjectionProvenance(prior, current.rendererVersion);
@@ -604,7 +597,7 @@ function stickyArchitectureDocumentationProjectionProvenance(
 }
 
 function architectureDocumentationStickyProvenanceDigest(
-  provenance: ArchitectureDocumentationProjectionProvenanceV3
+  provenance: ArchitectureDocumentationProjectionProvenanceV2
 ): string {
   return digestJson({
     // `sourceTreeDigest` is the authoritative declared-source boundary. Do not use the full
@@ -619,10 +612,10 @@ function architectureDocumentationStickyProvenanceDigest(
 }
 
 function assertArchitectureDocumentationProjectionProvenance(
-  provenance: ArchitectureDocumentationProjectionProvenanceV3,
+  provenance: ArchitectureDocumentationProjectionProvenanceV2,
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION
 ): void {
-  if (provenance.schemaVersion !== "archcontext.architecture-docs-projection-provenance/v3") {
+  if (provenance.schemaVersion !== "archcontext.architecture-docs-projection-provenance/v2") {
     throw new Error("architecture-docs-projection-provenance-schema-invalid");
   }
   if (provenance.rendererVersion !== rendererVersion || provenance.layoutVersion !== ARCHITECTURE_DOCS_LAYOUT_VERSION) {
@@ -1019,7 +1012,7 @@ export type ArchitectureProjectionManifestStampReadback =
   | {
       status: "present";
       nodes: ArchitectureProjectionManifestNodeStamp[];
-      provenance?: ArchitectureDocumentationProjectionProvenanceV3;
+      provenance?: ArchitectureDocumentationProjectionProvenanceV2;
     };
 
 /**
@@ -1063,7 +1056,7 @@ export function loadArchitectureProjectionManifestStamps(
     status: "present",
     nodes,
     ...(provenance && typeof provenance === "object" && !Array.isArray(provenance)
-      ? { provenance: provenance as unknown as ArchitectureDocumentationProjectionProvenanceV3 }
+      ? { provenance: provenance as unknown as ArchitectureDocumentationProjectionProvenanceV2 }
       : {})
   };
 }

@@ -26,7 +26,7 @@ const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
   modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "ready" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "ready" }
 });
 
 const model: NativeModel = {
@@ -291,10 +291,8 @@ describe("projection manifest source-footprint stamps", () => {
   test("the rendered manifest stamps each declared node's footprint and records no commit", () => {
     const plan = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
     const manifest = JSON.parse(plan.manifest.body);
-    expect(manifest.provenance.schemaVersion).toBe("archcontext.architecture-docs-projection-provenance/v3");
+    expect(manifest.provenance.schemaVersion).toBe("archcontext.architecture-docs-projection-provenance/v2");
     for (const field of ["baseHeadSha", "worktreeDigest"]) expect(manifest.provenance).not.toHaveProperty(field);
-    expect(manifest.provenance.generatedFrom).not.toHaveProperty("codeGraphBinaryDigest");
-    expect(plan.manifest.body).not.toContain("codeGraphBinaryDigest");
     expect(plan.manifest.body).not.toContain("verifiedAgainst");
     const stamps = Object.fromEntries(manifest.targets
       .filter((target: { type: string }) => target.type === "entity-summary")
@@ -322,40 +320,6 @@ describe("projection manifest source-footprint stamps", () => {
     });
     expect(moved.drift.diffs.map((diff) => diff.path)).toEqual(["docs/architecture/.projection-manifest.json"]);
     expect(moved.files.map((file) => file.body)).toEqual(first.files.map((file) => file.body));
-  });
-
-  test("another machine's CodeGraph runtime leaves the manifest byte-identical; a v2 provenance is rewritten once", () => {
-    const first = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
-    const existingFiles = [...first.files.map((file) => ({ path: file.path, body: file.body })), first.manifest];
-
-    // A different local CodeGraph install changes the runtime-bound graph and index digests, but
-    // not the declared source, model, CodeGraph package version or layout: the prior is kept.
-    const otherRuntime = architectureDocumentationProjectionProvenance({
-      sourceTreeDigest: sourceDigest,
-      modelDigest: sourceDigest, codeGraphDigest: `sha256:${"d".repeat(64)}`, indexedWorktreeDigest: `sha256:${"e".repeat(64)}`,
-      rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "ready" }
-    });
-    const elsewhere = renderArchitectureDocumentationProjection({ ...renderInput, provenance: otherRuntime, existingFiles, sourceFootprints: currentFootprints });
-    expect(elsewhere.drift.ok).toBe(true);
-    expect(elsewhere.manifest.body).toBe(first.manifest.body);
-
-    // A manifest written before v3 still records the runtime digest; it is never reused as the
-    // sticky prior, and the next projection rewrites the provenance without it.
-    const legacyManifest = JSON.parse(first.manifest.body);
-    legacyManifest.provenance = {
-      ...legacyManifest.provenance,
-      schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
-      generatedFrom: { ...legacyManifest.provenance.generatedFrom, codeGraphBinaryDigest: `sha256:${"f".repeat(64)}` }
-    };
-    const legacyFiles = [
-      ...first.files.map((file) => ({ path: file.path, body: file.body })),
-      { path: first.manifest.path, body: `${JSON.stringify(legacyManifest, null, 2)}\n` }
-    ];
-    const migrated = renderArchitectureDocumentationProjection({ ...renderInput, existingFiles: legacyFiles, sourceFootprints: currentFootprints });
-    expect(migrated.drift.diffs.map((diff) => diff.path)).toEqual(["docs/architecture/.projection-manifest.json"]);
-    expect(migrated.provenance).toEqual(provenance);
-    expect(migrated.manifest.body).toBe(first.manifest.body);
   });
 
   test("a declared node without a measured footprint is refused, never stamped with a guess", () => {

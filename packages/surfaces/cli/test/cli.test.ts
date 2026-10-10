@@ -4784,7 +4784,7 @@ describe("archctx CLI", () => {
       expect(second.ok).toBe(true);
       expect((second.data as any).status).toBe("noop");
       expect((second.data as any).provenance).toMatchObject({
-        schemaVersion: "archcontext.architecture-docs-projection-provenance/v3",
+        schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
         rendererVersion: "archcontext.docs-renderer/v4",
         layoutVersion: "archcontext.docs-layout/v1",
         generatedFrom: {
@@ -4797,12 +4797,8 @@ describe("archctx CLI", () => {
       // HEAD and worktree identity are runtime facts; the committed provenance carries neither.
       expect((second.data as any).provenance).not.toHaveProperty("baseHeadSha");
       expect((second.data as any).provenance).not.toHaveProperty("worktreeDigest");
-      // So is the digest of the locally installed CodeGraph runtime: it differs per machine.
-      expect((second.data as any).provenance.generatedFrom).not.toHaveProperty("codeGraphBinaryDigest");
-      expect((second.data as any).runtimeSnapshot.codeGraphBinaryDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
       const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
       expect(manifest.provenance).toEqual((second.data as any).provenance);
-      expect(JSON.stringify(manifest)).not.toContain("codeGraphBinaryDigest");
       const completed = await runTestCli("complete", ["--task", "verify adopted documentation"], root);
       expect(completed.ok).toBe(true);
       expect((completed.data as any).findings.some((finding: any) => finding.id === "projection-drift")).toBe(false);

@@ -4,7 +4,7 @@ import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest,
 import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import { projectionProtocolGeneratedFrom, projectionWorkspaceId as runtimeProjectionWorkspaceId } from "./projection-inputs";
+import { projectionWorkspaceId as runtimeProjectionWorkspaceId } from "./projection-inputs";
 import { projectionFailureEnvelope } from "./projection-service";
 
 interface ProjectionApplyContext {
@@ -242,7 +242,7 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
     projectionInputDigest: projection.provenance.projectionInputDigest,
     rendererVersion: projection.provenance.rendererVersion,
     layoutVersion: projection.provenance.layoutVersion,
-    generatedFrom: projectionProtocolGeneratedFrom(projection.provenance.generatedFrom, codeGraphInputs.runtimeSnapshot)
+    generatedFrom: projection.provenance.generatedFrom
   } as ProjectionApplyRecoveryProofV1["current"]["snapshot"];
   return {
     projection,
@@ -278,7 +278,7 @@ function runtimeProjectionRecoveryFixedPointIssues(
     || projection.provenance.codeGraphDigest !== receipt.result.outputSnapshot.codeGraphDigest
     || projection.provenance.rendererVersion !== binding.rendererVersion
     || projection.provenance.layoutVersion !== binding.layoutVersion
-    || digestJson(fixedPoint.snapshot.generatedFrom as unknown as Json) !== digestJson(binding.generatedFrom as unknown as Json)) {
+    || digestJson(projection.provenance.generatedFrom as unknown as Json) !== digestJson(binding.generatedFrom as unknown as Json)) {
     issues.push("current renderer, layout, or CodeGraph provenance differs from the approved result");
   }
   if (fixedPoint.ownedOutputDigest !== binding.ownedOutputDigest) issues.push("current projection-owned output bytes differ from the approved result");
