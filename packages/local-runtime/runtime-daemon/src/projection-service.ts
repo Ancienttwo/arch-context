@@ -475,11 +475,14 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
     }
   }
+  // The flag path renders the accepted change against the documents it classified. The semantic
+  // baseline is in the projection manifest, which the expected worktree digest does not cover, so
+  // re-reading it here could apply a broader change than the one the receipt records.
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
     projection = observed !== undefined && acceptedChange === undefined
       ? observed
-      : buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange);
+      : buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, observed?.loaded.existingFiles, acceptedChange);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return projectionFailureEnvelope("projection.run", error);

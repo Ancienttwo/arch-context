@@ -322,6 +322,50 @@ test("projection apply accepts the major change it observes in one request (#261
   });
 }, TEST_TIMEOUT_MS);
 
+test("an observed-change apply writes the change it classified when the manifest moves mid-request", async () => {
+  await withProtocolFixture("archctx-projection-observed-baseline-", async ({ root, daemon, request, projectionRun }) => {
+    editKeptSummary(root);
+    const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+    const classifiedManifest = readFileSync(manifestPath, "utf8");
+
+    // The semantic baseline lives in the manifest, which the worktree digest does not cover. Move
+    // it after classification (the receipt lookup runs between classification and the write) so
+    // that a re-read baseline would also see REMOVED's responsibilities change.
+    const tampered = JSON.parse(classifiedManifest);
+    const removedBaseline = tampered.semanticBaseline.semanticState.capabilities.find((entry: any) => entry.capabilityId === REMOVED);
+    removedBaseline.facets.responsibilities = `sha256:${"0".repeat(64)}`;
+    removedBaseline.semanticFingerprint = `sha256:${"1".repeat(64)}`;
+    const host = daemon as unknown as Record<"inspectProjectionApplyReceipt", (...args: unknown[]) => Promise<unknown>>;
+    const inspect = host.inspectProjectionApplyReceipt.bind(daemon);
+    let moved = false;
+    host.inspectProjectionApplyReceipt = async (...args: unknown[]) => {
+      const inspected = await inspect(...args);
+      if (!moved) {
+        moved = true;
+        writeFileSync(manifestPath, `${JSON.stringify(tampered, null, 2)}\n`, "utf8");
+      }
+      return inspected;
+    };
+
+    const applied = projectionResult(await projectionRun(request("apply", "projection_request.observed_baseline", { acceptObservedMajorChange: true })));
+    expect(moved).toBe(true);
+    expect(applied.status).toBe("applied");
+    const acceptedChange = applied.applyReceipt!.acceptedChange;
+    expect(acceptedChange).toMatchObject({ reasonCodes: ["responsibility-changed"], affectedNodeIds: [KEPT] });
+    // What was applied is the change the receipt records: only KEPT moved, against the baseline
+    // that was classified, never REMOVED from the manifest written mid-request.
+    expect(applied.refreshSignals).toHaveLength(1);
+    expect(applied.refreshSignals[0]!.capabilities!.map((entry) => entry.capabilityId)).toEqual([KEPT]);
+    const inspected = await inspect(root, applied.applyReceipt!.lookupKey) as any;
+    expect(inspected.data.receipt.result.refreshSignals[0].capabilities.map((entry: any) => entry.capabilityId)).toEqual([KEPT]);
+    const written = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const classified = JSON.parse(classifiedManifest);
+    const capabilityState = (manifest: any, id: string) => manifest.semanticBaseline.semanticState.capabilities.find((entry: any) => entry.capabilityId === id);
+    expect(capabilityState(written, REMOVED)).toEqual(capabilityState(classified, REMOVED));
+    expect(projectionResult(await projectionRun(request("check", "projection_request.observed_baseline_after"))).status).toBe("noop");
+  });
+}, TEST_TIMEOUT_MS);
+
 test("a repeated accepted apply returns the committed result without applying again (#265)", async () => {
   await withProtocolFixture("archctx-projection-replay-", async ({ root, daemon, request, projectionRun }) => {
     editKeptSummary(root);
