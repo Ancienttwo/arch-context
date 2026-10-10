@@ -241,9 +241,10 @@ export class ChangeSetAuthorityService {
   }
 
   /**
-   * The MCP projection entrypoint. Writes (apply, adopt, recover) need the same confirmation as a
-   * ChangeSet apply: an explicit `approved: true` plus the request's own expected snapshot, checked
-   * here before any work so a stale request fails closed with a typed precondition error.
+   * The MCP projection entrypoint. Writes (`run` with apply or adopt, and `recover`) need an explicit
+   * `approved: true`. A `run` request's own expected snapshot is also checked here before any work,
+   * so a stale request fails closed with a typed precondition error. `recover` carries no expected
+   * snapshot: it takes a receipt-bound recovery intent and re-proves the current fixed point.
    */
   async mcpProjection(root: string, input: RuntimeProjectionInvocation, approved: boolean): Promise<JsonEnvelope> {
     this.assertRunning();

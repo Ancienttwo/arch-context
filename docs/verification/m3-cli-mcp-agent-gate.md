@@ -52,6 +52,6 @@ Observed result:
 ## Boundary Notes
 
 - The M3 baseline exposed five workflow tools. The current local surface exposes seven, including `archcontext_practices` and `archcontext_projection`; the authoritative list is `LOCAL_MCP_TOOLS`.
-- `archcontext_apply_update` and `archcontext_projection` are annotated destructive and require confirmation. MCP projection writes (apply/adopt/recover) require `approved: true` plus a matching `expected` snapshot in the request; the daemon rejects a missing or stale snapshot with `AC_PRECONDITION_FAILED`.
+- `archcontext_apply_update` and `archcontext_projection` are annotated destructive and require confirmation. MCP projection writes (`run` with apply or adopt, and `recover`) require `approved: true`, otherwise the daemon returns `AC_USER_CONFIRMATION_REQUIRED`. A `run` request's `expected` snapshot must match the repository: a missing or malformed snapshot is `AC_SCHEMA_INVALID`, a stale one is `AC_PRECONDITION_FAILED`. `recover` has no expected snapshot; it takes a receipt-bound recovery intent and re-proves the current fixed point.
 - stdio MCP writes protocol output to stdout and logs to stderr.
 - Skills are SOP-only and do not carry runtime business logic.
