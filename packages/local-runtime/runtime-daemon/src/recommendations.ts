@@ -41,6 +41,7 @@ import {
   digestJson,
   errorEnvelope,
   okEnvelope,
+  type ArchContextErrorCode,
   type ArchitectureActorKind,
   type ArchitectureEventV1,
   type EvidenceStateAtCursorV1,
@@ -134,7 +135,11 @@ export class RecommendationsService {
       const artifacts = recommendationArtifactsFromEvents(replay.events);
       const current = latestRecommendationById(artifacts.recommendations, input.recommendationId!);
       if (!current) {
-        return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendation not found: ${input.recommendationId}`);
+        // `resolve` closes a record against `refactor verify` evidence bound to that record, so an
+        // id the ledger has never held has nothing to resolve; every other decision is an opinion
+        // about one observation identity and may be taken on a current scan candidate directly.
+        if (command === "resolve") return recommendationNotFound(command, input.recommendationId!, "recorded");
+        return this.decideScanCandidate(root, repositoryRoot, input, command, now);
       }
       let gatedWorktree: { headSha: string; worktreeDigest: string } | undefined;
       if (command === "resolve") {
@@ -145,85 +150,9 @@ export class RecommendationsService {
         const gate = refactorResolveGate(current, input.evidenceDigest, replay.evidenceState, liveScope.worktree);
         if (gate) return errorEnvelope(`recommendations.${command}`, gate.code, gate.message, gate.reasonCode);
       }
-      let next: RecommendationLedgerRecordV1;
-      try {
-        next = transitionRecommendationLifecycle(current, {
-          action: command,
-          now,
-          actor: input.actor ?? "developer",
-          reason: input.reason
-        });
-      } catch (error) {
-        return errorEnvelope(
-          `recommendations.${command}`,
-          "AC_PRECONDITION_FAILED",
-          error instanceof Error ? error.message : String(error)
-        );
-      }
-      if (next.status === current.status) {
-        return errorEnvelope(
-          `recommendations.${command}`,
-          "AC_PRECONDITION_FAILED",
-          `recommendation lifecycle no-op: ${current.status}->${next.status}`
-        );
-      }
-      const feedback = createRecommendationFeedback({
-        repository: scope.repository,
-        worktree: scope.worktree,
-        previous: current,
-        next,
-        action: command,
-        now,
-        actorId: input.actor ?? "developer",
-        actorKind: recommendationActorKind(input),
-        source: input.source ?? "cli",
-        reason: input.reason!.trim(),
-        ...(input.agentJobId ? { agentJobId: input.agentJobId } : {})
-      });
-      const inputDigest = digestJson({
-        schemaVersion: "archcontext.recommendation-lifecycle-event-input/v1",
-        recommendationId: current.recommendationId,
-        runId: current.runId,
-        action: command,
-        previousStatus: current.status,
-        nextStatus: next.status,
-        feedbackId: feedback.feedbackId,
-        graphDigest: replay.graphDigest
-      } as unknown as Json);
-      const event: ArchitectureEventV1 = {
-        schemaVersion: "archcontext.architecture-event/v1",
-        eventId: `architecture_event.recommendation_lifecycle.${this.context.shortDigest(inputDigest)}`,
-        eventType: "architecture.recommendation.lifecycle",
-        payloadVersion: "archcontext.recommendation-feedback/v1",
-        repository: scope.repository,
-        worktree: scope.worktree,
-        baseDigest: replay.graphDigest,
-        resultingDigest: replay.graphDigest,
-        headSha: scope.worktree.headSha,
-        actor: { kind: feedback.actor.kind, id: feedback.actor.id },
-        source: "manual",
-        timestamp: now,
-        idempotencyKey: `architecture-ledger-recommendation-lifecycle:${feedback.feedbackId}:${current.status}:${next.status}`,
-        provenance: {
-          producer: "runtime-daemon",
-          command: `archctx recommendations ${command}`,
-          inputDigest
-        },
-        payload: {
-          ...recommendationLifecycleLedgerPayload({ recommendation: next, feedback }),
-          title: `Recommendation ${command}`,
-          summary: `Recommendation ${current.recommendationId} transitioned from ${current.status} to ${next.status}.`,
-          recommendationLifecycle: {
-            schemaVersion: "archcontext.recommendation-lifecycle-transition/v1",
-            recommendationId: current.recommendationId,
-            runId: current.runId,
-            action: command,
-            previousStatus: current.status,
-            nextStatus: next.status,
-            feedbackId: feedback.feedbackId
-          }
-        } as unknown as Json
-      };
+      const decision = this.lifecycleDecision({ scope, graphDigest: replay.graphDigest, current, command, input, now });
+      if ("error" in decision) return decision.error;
+      const { next, feedback, event } = decision;
       // The gate read the tree before the transition and the event were built. Resolving binds a
       // verdict to a HEAD *and* a worktree digest, so the tree is re-read here, inside the writer,
       // and a move between the two reads closes the record against a state nobody verified.
@@ -249,59 +178,254 @@ export class RecommendationsService {
         feedback: [...artifacts.feedback, feedback],
         generatedAt: now
       });
-      return okEnvelope(`recommendations.${command}`, {
-        schemaVersion: "archcontext.runtime-recommendation-lifecycle/v1",
-        action: command,
-        recommendationId: current.recommendationId,
-        previousStatus: current.status,
-        nextStatus: next.status,
-        recommendation: next,
-        feedback,
-        metrics,
-        append: {
-          status: "appended",
-          appendedEventCount: append.appendedEvents.length,
-          duplicateEventCount: append.duplicateEvents.length,
-          graphDigest: append.graphDigest,
-          entityCount: append.entityCount,
-          relationCount: append.relationCount,
-          constraintCount: append.constraintCount
-        },
-        privacy: {
-          writes: "architecture-ledger-event-only",
-          rawSourcePersisted: false,
-          rawDiffPersisted: false,
-          promptPersisted: false,
-          implicitAcceptance: false
-        }
-      } as unknown as Json);
+      return lifecycleEnvelope({ command, current, next, feedback, metrics, append, implicitRecord: null });
     });
   }
 
   /**
-   * Measures the repository and classifies one refactor request against it, then registers the
-   * pair so `refactorRecord` can append exactly what was measured here.
+   * Decides an id the ledger does not hold yet: a candidate of the repository scan at the tree
+   * that is here now.
    *
-   * Read-only and clock-free: no event is appended, and both `createdAt` fields come from the
-   * HEAD committer date, so two scans at the same HEAD return byte-identical envelopes. The
-   * proposed recommendations are a preview of what `refactor record` would write; `record`
-   * re-plans under the daemon clock and is the only path that persists anything.
+   * A decision is an opinion about one observation identity, and `recommendationId` is derived
+   * from that identity alone (`fingerprint` plus `regressesFrom`), never from a worktree digest.
+   * So the scan is re-run here under the writer instead of trusting an earlier caller's snapshot,
+   * and the candidate is recorded through the same `buildRefactorRecordEvent` path `refactor
+   * record` uses, then decided — both events in one append, one transaction. A later `refactor
+   * record` of the same observation re-derives the same id and is suppressed as an active
+   * duplicate, so nothing is recorded twice.
+   *
+   * Recording is the whole scan run, exactly as `refactor record` would write it: a run is the
+   * unit the ledger's run identity, output digest and evidence bindings are computed over, and
+   * recording a subset of it would persist a run whose digests describe records it never wrote.
    */
-  async refactorScan(root: string, rawInput: RuntimeRefactorScanInput = {}): Promise<JsonEnvelope> {
-    this.context.assertRunning();
-    let input: RuntimeRefactorScanInput;
-    try {
-      input = decodeRuntimeRefactorScanInput(rawInput);
-    } catch (error) {
-      if (error instanceof RuntimeRefactorInputError) return errorEnvelope("refactor.scan", "AC_SCHEMA_INVALID", error.message);
-      throw error;
+  private async decideScanCandidate(
+    root: string,
+    repositoryRoot: string,
+    input: RuntimeRecommendationInput,
+    command: Exclude<RecommendationFeedbackAction, "resolve">,
+    now: string
+  ): Promise<JsonEnvelope> {
+    const surface = `recommendations.${command}`;
+    const recommendationId = input.recommendationId!;
+    const measured = await this.measureRepository(repositoryRoot, REPOSITORY_REFACTOR_REQUEST, `recommendations ${command}`);
+    if (!measured.ok) {
+      return errorEnvelope(
+        surface,
+        measured.code,
+        `recommendation ${recommendationId} is not recorded and the current refactor scan could not run: ${measured.message}`
+      );
     }
-    const repositoryRoot = findRepositoryRoot(root);
-    const request = input.request ?? REPOSITORY_REFACTOR_REQUEST;
-    // Two different scopes, deliberately. `gitScope` is the tree as it is right now and is the
-    // only identity `refactor record` will accept, because that is the authority its freshness
-    // check reads. `storageScope` is where the ledger keeps this workspace's events, anchored to
-    // the last event's identity, and is the only key a replay can find them under.
+    const { gitScope, storageScope, replay, artifacts, result } = measured;
+    if (!result.proposedRecommendations.some((candidate) => candidate.recommendationId === recommendationId)) {
+      return recommendationNotFound(command, recommendationId, "recorded-or-scanned");
+    }
+    const registered: RegisteredRefactorAssessmentV1 = {
+      snapshot: result.snapshot,
+      assessment: result.assessment,
+      headSha: gitScope.worktree.headSha,
+      worktreeDigest: gitScope.worktree.worktreeDigest
+    };
+    const scanIssues = refactorScanInvariantIssues({ snapshot: registered.snapshot, assessment: registered.assessment });
+    if (scanIssues.length > 0) return errorEnvelope(surface, "AC_SCHEMA_INVALID", scanIssues.join("; "));
+    let built: ReturnType<typeof buildRefactorRecordEvent>;
+    try {
+      built = buildRefactorRecordEvent({
+        repository: storageScope.repository,
+        worktree: storageScope.worktree,
+        registered,
+        previousRecommendations: artifacts.recommendations,
+        evidenceState: replay.evidenceState,
+        graphDigest: replay.graphDigest,
+        catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
+        // One clock for the record and the decision: the decision must never sort before the
+        // record it decides, and an equal `updatedAt` resolves to the later event.
+        now
+      });
+    } catch (error) {
+      return errorEnvelope(surface, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+    const recorded = built.plan.recommendations.find((recommendation) => recommendation.recommendationId === recommendationId);
+    if (!recorded) {
+      // The scan and the record plan read the same ledger, so this is the planner disagreeing
+      // with itself; refusing is the only answer that does not decide something nobody saw.
+      return errorEnvelope(
+        surface,
+        "AC_REFACTOR_STALE",
+        `recommendation ${recommendationId} was a scan candidate but the record plan did not produce it; run refactor scan again`,
+        "scan-candidate-not-recorded"
+      );
+    }
+    const decision = this.lifecycleDecision({
+      scope: storageScope,
+      graphDigest: replay.graphDigest,
+      current: recorded as RecommendationLedgerRecordV1,
+      command,
+      input,
+      now
+    });
+    if ("error" in decision) return decision.error;
+    const { next, feedback, event } = decision;
+    // Same last look `refactor record` takes: the record binds the measurement to this tree.
+    const preAppendScope = await this.context.architectureLedgerGitScope(repositoryRoot);
+    const moved = movedWorktreeIdentityFields(gitScope.worktree, preAppendScope.worktree);
+    if (moved.length > 0) {
+      return errorEnvelope(
+        surface,
+        "AC_REFACTOR_STALE",
+        `worktree ${moved.join(" and ")} changed before the recommendations ${command} append; run it again`
+      );
+    }
+    const append = await this.context.appendArchitectureEventsWithFeed(root, {
+      writer: "runtime-daemon",
+      events: [built.event, event]
+    });
+    const metrics = aggregateRecommendationLifecycleMetrics({
+      recommendationRuns: [...artifacts.recommendationRuns, built.plan.run],
+      recommendations: [...artifacts.recommendations, ...built.plan.recommendations as RecommendationLedgerRecordV1[], next],
+      feedback: [...artifacts.feedback, feedback],
+      generatedAt: now
+    });
+    return lifecycleEnvelope({
+      command,
+      current: recorded as RecommendationLedgerRecordV1,
+      next,
+      feedback,
+      metrics,
+      append,
+      implicitRecord: {
+        schemaVersion: "archcontext.runtime-recommendation-implicit-record/v1",
+        assessmentDigest: result.assessment.assessmentDigest,
+        runId: built.plan.run.runId,
+        headSha: gitScope.worktree.headSha,
+        worktreeDigest: gitScope.worktree.worktreeDigest,
+        recommendationIds: built.plan.recommendations.map((recommendation) => recommendation.recommendationId),
+        evidenceItemIds: built.plan.evidenceItems.map((item) => item.evidenceId),
+        eventId: built.event.eventId
+      }
+    });
+  }
+
+  /** The transition, its explicit feedback and the lifecycle event, shared by both decide paths. */
+  private lifecycleDecision(input: {
+    scope: ArchitectureLedgerScope;
+    graphDigest: string;
+    current: RecommendationLedgerRecordV1;
+    command: RecommendationFeedbackAction;
+    input: RuntimeRecommendationInput;
+    now: string;
+  }): { next: RecommendationLedgerRecordV1; feedback: RecommendationFeedbackV1; event: ArchitectureEventV1 } | { error: JsonEnvelope } {
+    const { scope, graphDigest, current, command, now } = input;
+    const request = input.input;
+    let next: RecommendationLedgerRecordV1;
+    try {
+      next = transitionRecommendationLifecycle(current, {
+        action: command,
+        now,
+        actor: request.actor ?? "developer",
+        reason: request.reason
+      });
+    } catch (error) {
+      return {
+        error: errorEnvelope(
+          `recommendations.${command}`,
+          "AC_PRECONDITION_FAILED",
+          error instanceof Error ? error.message : String(error)
+        )
+      };
+    }
+    if (next.status === current.status) {
+      return {
+        error: errorEnvelope(
+          `recommendations.${command}`,
+          "AC_PRECONDITION_FAILED",
+          `recommendation lifecycle no-op: ${current.status}->${next.status}`
+        )
+      };
+    }
+    const feedback = createRecommendationFeedback({
+      repository: scope.repository,
+      worktree: scope.worktree,
+      previous: current,
+      next,
+      action: command,
+      now,
+      actorId: request.actor ?? "developer",
+      actorKind: recommendationActorKind(request),
+      source: request.source ?? "cli",
+      reason: request.reason!.trim(),
+      ...(request.agentJobId ? { agentJobId: request.agentJobId } : {})
+    });
+    const inputDigest = digestJson({
+      schemaVersion: "archcontext.recommendation-lifecycle-event-input/v1",
+      recommendationId: current.recommendationId,
+      runId: current.runId,
+      action: command,
+      previousStatus: current.status,
+      nextStatus: next.status,
+      feedbackId: feedback.feedbackId,
+      graphDigest
+    } as unknown as Json);
+    const event: ArchitectureEventV1 = {
+      schemaVersion: "archcontext.architecture-event/v1",
+      eventId: `architecture_event.recommendation_lifecycle.${this.context.shortDigest(inputDigest)}`,
+      eventType: "architecture.recommendation.lifecycle",
+      payloadVersion: "archcontext.recommendation-feedback/v1",
+      repository: scope.repository,
+      worktree: scope.worktree,
+      baseDigest: graphDigest,
+      resultingDigest: graphDigest,
+      headSha: scope.worktree.headSha,
+      actor: { kind: feedback.actor.kind, id: feedback.actor.id },
+      source: "manual",
+      timestamp: now,
+      idempotencyKey: `architecture-ledger-recommendation-lifecycle:${feedback.feedbackId}:${current.status}:${next.status}`,
+      provenance: {
+        producer: "runtime-daemon",
+        command: `archctx recommendations ${command}`,
+        inputDigest
+      },
+      payload: {
+        ...recommendationLifecycleLedgerPayload({ recommendation: next, feedback }),
+        title: `Recommendation ${command}`,
+        summary: `Recommendation ${current.recommendationId} transitioned from ${current.status} to ${next.status}.`,
+        recommendationLifecycle: {
+          schemaVersion: "archcontext.recommendation-lifecycle-transition/v1",
+          recommendationId: current.recommendationId,
+          runId: current.runId,
+          action: command,
+          previousStatus: current.status,
+          nextStatus: next.status,
+          feedbackId: feedback.feedbackId
+        }
+      } as unknown as Json
+    };
+    return { next, feedback, event };
+  }
+
+  /**
+   * One repository measurement at the tree that is here now, shared by `refactor scan` and the
+   * scan-candidate decision. Read-only: nothing is appended and nothing is registered here.
+   *
+   * Two different scopes, deliberately. `gitScope` is the tree as it is right now and is the only
+   * identity `refactor record` will accept, because that is the authority its freshness check
+   * reads. `storageScope` is where the ledger keeps this workspace's events, anchored to the last
+   * event's identity, and is the only key a replay can find them under.
+   */
+  private async measureRepository(
+    repositoryRoot: string,
+    request: RefactorRequestV1,
+    label: string
+  ): Promise<
+    | {
+      ok: true;
+      gitScope: ArchitectureLedgerScope;
+      storageScope: ArchitectureLedgerScope;
+      replay: Awaited<ReturnType<RecommendationsContext["localStore"]["replayArchitectureLedger"]>>;
+      artifacts: ReturnType<typeof recommendationArtifactsFromEvents>;
+      result: RefactorScanResultV1;
+    }
+    | { ok: false; code: ArchContextErrorCode; message: string }
+  > {
     const gitScope = await this.context.architectureLedgerGitScope(repositoryRoot);
     const storageScope = await this.context.localStore.resolveArchitectureLedgerScope(gitScope);
     const replay = await this.context.localStore.replayArchitectureLedger({ ...storageScope, mode: "genesis" });
@@ -317,8 +441,8 @@ export class RecommendationsService {
         catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)
       });
     } catch (error) {
-      if (error instanceof RefactorScanError) return errorEnvelope("refactor.scan", error.code, error.message);
-      return errorEnvelope("refactor.scan", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      if (error instanceof RefactorScanError) return { ok: false, code: error.code, message: error.message };
+      return { ok: false, code: "AC_SCHEMA_INVALID", message: error instanceof Error ? error.message : String(error) };
     }
     // Every input above was read after `gitScope` was captured. If the tree moved while it was
     // being read, the measurement belongs to no single state, so nothing is published and
@@ -326,12 +450,40 @@ export class RecommendationsService {
     const liveScope = await this.context.architectureLedgerGitScope(repositoryRoot);
     const movedDuringScan = movedWorktreeIdentityFields(gitScope.worktree, liveScope.worktree);
     if (movedDuringScan.length > 0) {
-      return errorEnvelope(
-        "refactor.scan",
-        "AC_REFACTOR_STALE",
-        `worktree ${movedDuringScan.join(" and ")} changed while refactor scan was reading the repository; run refactor scan again`
-      );
+      return {
+        ok: false,
+        code: "AC_REFACTOR_STALE",
+        message: `worktree ${movedDuringScan.join(" and ")} changed while ${label} was reading the repository; run ${label} again`
+      };
     }
+    return { ok: true, gitScope, storageScope, replay, artifacts, result };
+  }
+
+  /**
+   * Measures the repository and classifies one refactor request against it, then registers the
+   * pair so `refactorRecord` can append exactly what was measured here.
+   *
+   * Read-only and clock-free: no event is appended, and both `createdAt` fields come from the
+   * HEAD committer date, so two scans at the same HEAD return byte-identical envelopes. The
+   * proposed recommendations are a preview of what `refactor record` would write; `record`
+   * re-plans under the daemon clock and persists them. A proposed `recommendationId` is the id
+   * the record will carry, so `recommendations accept|defer|reject|acknowledge|waive --id` can
+   * decide a candidate directly: the daemon re-scans, records and decides in one append.
+   */
+  async refactorScan(root: string, rawInput: RuntimeRefactorScanInput = {}): Promise<JsonEnvelope> {
+    this.context.assertRunning();
+    let input: RuntimeRefactorScanInput;
+    try {
+      input = decodeRuntimeRefactorScanInput(rawInput);
+    } catch (error) {
+      if (error instanceof RuntimeRefactorInputError) return errorEnvelope("refactor.scan", "AC_SCHEMA_INVALID", error.message);
+      throw error;
+    }
+    const repositoryRoot = findRepositoryRoot(root);
+    const request = input.request ?? REPOSITORY_REFACTOR_REQUEST;
+    const measured = await this.measureRepository(repositoryRoot, request, "refactor scan");
+    if (!measured.ok) return errorEnvelope("refactor.scan", measured.code, measured.message);
+    const { gitScope, result } = measured;
     this.registerRefactorAssessment({
       snapshot: result.snapshot,
       assessment: result.assessment,
@@ -846,13 +998,81 @@ export function recommendationArtifactsFromEvents(events: readonly ArchitectureE
   return { recommendationRuns, recommendations, feedback };
 }
 
+/**
+ * The latest record for one id. `recommendations` arrive in ledger event order, and an equal
+ * `updatedAt` resolves to the later event — the order the SQLite projection upserts in and the
+ * order `aggregateRecommendationLifecycleMetrics` reads. A scan-candidate decision appends the
+ * record and its decision under one clock, and the decision is the later event.
+ */
 function latestRecommendationById(
   recommendations: readonly RecommendationLedgerRecordV1[],
   recommendationId: string
 ): RecommendationLedgerRecordV1 | undefined {
-  return recommendations
-    .filter((recommendation) => recommendation.recommendationId === recommendationId)
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+  let latest: RecommendationLedgerRecordV1 | undefined;
+  for (const recommendation of recommendations) {
+    if (recommendation.recommendationId !== recommendationId) continue;
+    if (!latest || recommendation.updatedAt.localeCompare(latest.updatedAt) >= 0) latest = recommendation;
+  }
+  return latest;
+}
+
+/**
+ * Typed not-found for a decision. `AC_REFACTOR_STALE` rather than `AC_SCHEMA_INVALID`: the id is
+ * well-formed, it just names neither a recorded recommendation nor a candidate of the scan at the
+ * current tree, and the action that fixes it is a fresh `refactor scan`, not a model repair.
+ */
+function recommendationNotFound(
+  command: RecommendationFeedbackAction,
+  recommendationId: string,
+  searched: "recorded" | "recorded-or-scanned"
+): JsonEnvelope {
+  return errorEnvelope(
+    `recommendations.${command}`,
+    "AC_REFACTOR_STALE",
+    searched === "recorded"
+      ? `recommendation not found: ${recommendationId} is not recorded; recommendations ${command} applies only to recorded recommendations`
+      : `recommendation not found: ${recommendationId} is neither recorded nor a candidate of the current refactor scan; run refactor scan again`,
+    "recommendation-not-found"
+  );
+}
+
+function lifecycleEnvelope(input: {
+  command: RecommendationFeedbackAction;
+  current: RecommendationLedgerRecordV1;
+  next: RecommendationLedgerRecordV1;
+  feedback: RecommendationFeedbackV1;
+  metrics: ReturnType<typeof aggregateRecommendationLifecycleMetrics>;
+  append: ArchitectureLedgerAppendResult;
+  /** Present exactly when the decided id was a scan candidate recorded in the same append. */
+  implicitRecord: Record<string, Json> | null;
+}): JsonEnvelope {
+  return okEnvelope(`recommendations.${input.command}`, {
+    schemaVersion: "archcontext.runtime-recommendation-lifecycle/v1",
+    action: input.command,
+    recommendationId: input.current.recommendationId,
+    previousStatus: input.current.status,
+    nextStatus: input.next.status,
+    recommendation: input.next,
+    feedback: input.feedback,
+    metrics: input.metrics,
+    implicitRecord: input.implicitRecord,
+    append: {
+      status: "appended",
+      appendedEventCount: input.append.appendedEvents.length,
+      duplicateEventCount: input.append.duplicateEvents.length,
+      graphDigest: input.append.graphDigest,
+      entityCount: input.append.entityCount,
+      relationCount: input.append.relationCount,
+      constraintCount: input.append.constraintCount
+    },
+    privacy: {
+      writes: "architecture-ledger-event-only",
+      rawSourcePersisted: false,
+      rawDiffPersisted: false,
+      promptPersisted: false,
+      implicitAcceptance: false
+    }
+  } as unknown as Json);
 }
 
 /**

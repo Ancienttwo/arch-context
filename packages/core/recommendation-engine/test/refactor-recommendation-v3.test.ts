@@ -296,6 +296,34 @@ describe("dedup, cooldown and regression", () => {
     expectRecordsValid(second.recommendations);
   });
 
+  test("an equal updatedAt on one id resolves to the later ledger entry", () => {
+    const first = planFor();
+    const record = first.recommendations[0]!;
+    const at = "2026-09-03T07:31:00.000Z";
+    // A record and its decision appended under one clock: the decision is the later entry.
+    const decidedLast = planFor({}, {
+      previousRecommendations: [
+        { recommendationId: record.recommendationId, fingerprint: record.fingerprint, status: "open", updatedAt: at },
+        { recommendationId: record.recommendationId, fingerprint: record.fingerprint, status: "rejected", updatedAt: at }
+      ]
+    });
+    expect(decidedLast.suppressed.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
+    expect(decidedLast.recommendations.map((entry) => entry.recommendationId)).toContain(record.recommendationId);
+
+    const openLast = planFor({}, {
+      previousRecommendations: [
+        { recommendationId: record.recommendationId, fingerprint: record.fingerprint, status: "rejected", updatedAt: at },
+        { recommendationId: record.recommendationId, fingerprint: record.fingerprint, status: "open", updatedAt: at }
+      ]
+    });
+    expect(openLast.suppressed).toContainEqual({
+      reasonCode: "duplicate-active-fingerprint",
+      fingerprint: record.fingerprint,
+      subject: record.subjectSelectorId,
+      previousRecommendationId: record.recommendationId
+    });
+  });
+
   test("a rejected prior yields a new record with no relation", () => {
     const first = planFor();
     const record = first.recommendations[0]!;

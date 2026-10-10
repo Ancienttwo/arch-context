@@ -1505,8 +1505,9 @@ function latestRecommendationV3ByFingerprint(
     if (
       !current
       || recommendation.updatedAt.localeCompare(current.updatedAt) > 0
+      // Same id at the same instant is one record decided in the same append: the later event wins.
       || (recommendation.updatedAt === current.updatedAt
-        && recommendation.recommendationId.localeCompare(current.recommendationId) > 0)
+        && recommendation.recommendationId.localeCompare(current.recommendationId) >= 0)
     ) {
       latest.set(recommendation.fingerprint, recommendation);
     }

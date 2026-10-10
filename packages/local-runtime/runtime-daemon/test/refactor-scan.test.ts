@@ -510,3 +510,160 @@ describe("daemon refactorScan", () => {
     expect(refactorRequestId({ ...base, scope: { kind: "node", nodeId: OWNER_NODE_ID } })).not.toBe(refactorRequestId(base));
   });
 });
+
+describe("deciding a scan candidate", () => {
+  function lifecycleData(envelope: JsonEnvelope): {
+    recommendationId: string;
+    previousStatus: string;
+    nextStatus: string;
+    implicitRecord: { runId: string; recommendationIds: string[]; worktreeDigest: string; eventId: string } | null;
+  } {
+    expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
+    return envelope.data as never;
+  }
+
+  test("records and decides a current candidate in one append, under the scan-time id", async () => {
+    const root = createFixtureRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const scan = scanData(await daemon.refactorScan(root));
+      expect(scan.proposedRecommendations.length).toBeGreaterThan(1);
+      const [first, second] = scan.proposedRecommendations.map((candidate) => candidate.recommendationId);
+
+      // No assessment digest, no expected worktree digest: the id alone names the observation.
+      const deferred = lifecycleData(await daemon.recommendations(root, {
+        command: "defer",
+        recommendationId: first!,
+        reason: "Not this sprint."
+      }));
+      expect(deferred).toMatchObject({ recommendationId: first, previousStatus: "open", nextStatus: "deferred" });
+      expect(deferred.implicitRecord).not.toBeNull();
+      expect(deferred.implicitRecord!.recommendationIds).toEqual(scan.proposedRecommendations.map((candidate) => candidate.recommendationId));
+      expect(deferred.implicitRecord!.worktreeDigest).toBe(scan.worktree.worktreeDigest);
+      // Record and decision are one transaction: one append carrying both events, record first.
+      expect(store.architectureEventAppends).toHaveLength(1);
+      expect(store.architectureEvents.map((event) => event.eventType)).toEqual([
+        "architecture.refactor.scan",
+        "architecture.recommendation.lifecycle"
+      ]);
+      expect(store.architectureEvents[0]!.eventId).toBe(deferred.implicitRecord!.eventId);
+
+      // The rest of the run is now recorded, so the next decision takes the ordinary path.
+      const accepted = lifecycleData(await daemon.recommendations(root, {
+        command: "accept",
+        recommendationId: second!,
+        reason: "Worth doing."
+      }));
+      expect(accepted).toMatchObject({ recommendationId: second, previousStatus: "open", nextStatus: "accepted", implicitRecord: null });
+      expect(store.architectureEventAppends).toHaveLength(2);
+
+      // The daemon clock is fixed, so the implicit record and its decision share one `updatedAt`;
+      // the decision is the later event and must be what the next transition starts from.
+      const revisited = lifecycleData(await daemon.recommendations(root, {
+        command: "accept",
+        recommendationId: first!,
+        reason: "Pulled into this sprint after all."
+      }));
+      expect(revisited).toMatchObject({ previousStatus: "deferred", nextStatus: "accepted", implicitRecord: null });
+
+      // A later explicit record of the same observations re-derives the same ids and is
+      // suppressed: nothing is recorded twice and neither decision is reopened.
+      const rescan = scanData(await daemon.refactorScan(root));
+      expect(rescan.proposedRecommendations).toEqual([]);
+      const recorded = await daemon.refactorRecord(root, {
+        assessmentDigest: rescan.assessment.assessmentDigest,
+        expectedWorktreeDigest: rescan.worktree.worktreeDigest
+      });
+      expect(recorded.ok, JSON.stringify(recorded)).toBe(true);
+      expect((recorded.data as { recommendationIds: string[] }).recommendationIds).toEqual([]);
+      const suppressed = (recorded.data as { suppressed: { reasonCode: string; previousRecommendationId: string }[] }).suppressed;
+      expect(suppressed.map((entry) => entry.previousRecommendationId).sort()).toEqual(
+        scan.proposedRecommendations.map((candidate) => candidate.recommendationId).sort()
+      );
+      expect(new Set(suppressed.map((entry) => entry.reasonCode))).toEqual(new Set(["duplicate-active-fingerprint"]));
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("decides against the tree that is here now, not the one an earlier scan saw", async () => {
+    const root = createFixtureRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const scan = scanData(await daemon.refactorScan(root));
+      const candidate = scan.proposedRecommendations[0]!.recommendationId;
+      // The tree moves between scan and decision; the observation does not.
+      writeFileSync(join(root, EXTRA_FILE), "export const extra = 1;\n", "utf8");
+      commitFixture(root, "extra tracked file", SECOND_COMMITTER_DATE);
+      const liveDigest = computeWorktreeDigest(root);
+      expect(liveDigest).not.toBe(scan.worktree.worktreeDigest);
+
+      const rejected = lifecycleData(await daemon.recommendations(root, {
+        command: "reject",
+        recommendationId: candidate,
+        reason: "Generated file; ownership is intentional."
+      }));
+      expect(rejected).toMatchObject({ recommendationId: candidate, nextStatus: "rejected" });
+      expect(rejected.implicitRecord!.worktreeDigest).toBe(liveDigest);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("an id that is neither recorded nor a current candidate is a typed not-found", async () => {
+    const root = createFixtureRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const missing = await daemon.recommendations(root, {
+        command: "accept",
+        recommendationId: "recommendation.0000000000000000",
+        reason: "Looks right."
+      });
+      expect(missing.ok).toBe(false);
+      expect(errorOf(missing)).toMatchObject({ code: "AC_REFACTOR_STALE" });
+      expect((missing as { error: { reasonCode?: string } }).error.reasonCode).toBe("recommendation-not-found");
+      expect(errorOf(missing).message).toContain("neither recorded nor a candidate");
+
+      // `resolve` needs verify evidence bound to a record, so it never reaches the scan.
+      const scan = scanData(await daemon.refactorScan(root));
+      const unrecordedResolve = await daemon.recommendations(root, {
+        command: "resolve",
+        recommendationId: scan.proposedRecommendations[0]!.recommendationId,
+        reason: "Done."
+      });
+      expect(unrecordedResolve.ok).toBe(false);
+      expect(errorOf(unrecordedResolve).code).toBe("AC_REFACTOR_STALE");
+      expect(errorOf(unrecordedResolve).message).toContain("is not recorded");
+      expect(store.architectureEventAppends).toHaveLength(0);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("appends nothing when the tree moves while the decision is measuring it", async () => {
+    const root = createFixtureRepo();
+    const store = new MutatingReplayLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const scan = scanData(await daemon.refactorScan(root));
+      const candidate = scan.proposedRecommendations[0]!.recommendationId;
+      // The first replay is the decision's own ledger read; the second runs after the scan
+      // captured the tree's identity and before it materializes any input.
+      store.mutateOnNextReplay = () => {
+        store.mutateOnNextReplay = () => {
+          writeFileSync(join(root, MOVED_FILE), "export const moved = 1;\n", "utf8");
+          commitFixture(root, "moved under the decision", SECOND_COMMITTER_DATE);
+        };
+      };
+      const decided = await daemon.recommendations(root, { command: "defer", recommendationId: candidate, reason: "Later." });
+      expect(decided.ok, JSON.stringify(decided)).toBe(false);
+      expect(errorOf(decided).code).toBe("AC_REFACTOR_STALE");
+      expect(store.architectureEventAppends).toHaveLength(0);
+    } finally {
+      await daemon.stop();
+    }
+  });
+});
