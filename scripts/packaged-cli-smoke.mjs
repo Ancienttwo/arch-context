@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -168,9 +168,20 @@ try {
   });
   assert(mcpEnvelope(planned)?.ok === true, "mcp plan_update must succeed through daemon RPC");
 
-  const applied = await approveAndApplyMcpPlan(planned);
-  assert(applied.ok === true, "MCP apply must consume the CLI-approved daemon ChangeSet draft");
+  const applied = await applyApprovedMcpPlan(planned);
+  assert(applied.ok === true, "explicitly approved MCP apply must apply the daemon ChangeSet draft");
   assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp.yaml")), "approved MCP apply must write the planned model file");
+
+  const packagedMcpPath = ".archcontext/model/nodes/module.packaged-mcp.yaml";
+  const updatedBody = readFileSync(join(repo, packagedMcpPath), "utf8").replace("summary: Packaged MCP smoke", "summary: Packaged MCP smoke updated by CLI");
+  const cliUpdate = await runArchctx(
+    "plan", "--id", "changeset.packaged-cli-update", "--op", "update_entity_fields", "--path", packagedMcpPath,
+    "--expected-hash", fileBodyDigest(join(repo, packagedMcpPath)), "--body", updatedBody
+  );
+  assert(cliUpdate.ok === true && cliUpdate.data?.preview?.allowed === true, "CLI plan must accept an update_entity_fields operation with the current file hash");
+  const cliUpdateApplied = await runArchctx("apply", "--id", "changeset.packaged-cli-update", "--approved", "--expected-worktree-digest", cliUpdate.data.draft.base.worktreeDigest);
+  assert(cliUpdateApplied.ok === true, "CLI apply must update an existing entity with --approved and the preview worktree digest");
+  assert(readFileSync(join(repo, packagedMcpPath), "utf8") === updatedBody, "CLI update must write the complete planned YAML body");
 
   const again = await runArchctx("daemon", "start");
   assert(again.ok === true, "second daemon start must succeed");
@@ -235,8 +246,8 @@ try {
   const restartDraftDigest = mcpEnvelope(plannedAfterRestart)?.data?.draft?.base?.worktreeDigest;
   assert(/^sha256:/.test(String(restartDraftDigest)), "mcp plan_update after restart must return a draft worktree digest");
 
-  const appliedAfterRestart = await approveAndApplyMcpPlan(plannedAfterRestart);
-  assert(appliedAfterRestart.ok === true, "approved MCP apply after restart must consume the MCP-created ChangeSet draft");
+  const appliedAfterRestart = await applyApprovedMcpPlan(plannedAfterRestart);
+  assert(appliedAfterRestart.ok === true, "approved MCP apply after restart must apply the MCP-created ChangeSet draft");
   assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp-restart.yaml")), "approved MCP apply after restart must write the MCP-planned model file");
 
   // `refactor scan` classifies a proposal against declared ownership: a scope path no node claims
@@ -280,7 +291,7 @@ try {
   const ownerDraftDigest = mcpEnvelope(plannedOwner)?.data?.draft?.base?.worktreeDigest;
   assert(/^sha256:/.test(String(ownerDraftDigest)), "mcp plan_update must return a draft worktree digest for the owner node");
 
-  const appliedOwner = await approveAndApplyMcpPlan(plannedOwner);
+  const appliedOwner = await applyApprovedMcpPlan(plannedOwner);
   assert(appliedOwner.ok === true, "approved MCP apply must write the kill-list owner node");
   assert(existsSync(join(repo, `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`)), "approved MCP apply must write the owner model file");
 
@@ -692,21 +703,22 @@ function cleanupRoot(path) {
   }
 }
 
-async function approveAndApplyMcpPlan(planned) {
+function fileBodyDigest(path) {
+  return `sha256:${createHash("sha256").update(JSON.stringify({ body: readFileSync(path, "utf8") }), "utf8").digest("hex")}`;
+}
+
+async function applyApprovedMcpPlan(planned) {
   const preview = mcpEnvelope(planned).data;
-  const approval = await runArchctx(
-    "approve", "--id", preview.draft.id, "--approved",
-    "--expected-worktree-digest", preview.draft.base.worktreeDigest,
-    "--expected-changeset-digest", preview.changeSetDigest
-  );
-  assert(approval.ok === true, "local CLI must issue a preview-bound approval token");
-  return mcpEnvelope(await runArchctxMcp({
-    jsonrpc: "2.0", id: 10, method: "tools/call",
+  const apply = async (id, approved) => mcpEnvelope(await runArchctxMcp({
+    jsonrpc: "2.0", id, method: "tools/call",
     params: {
       name: "archcontext_apply_update",
-      arguments: { root: repo, id: preview.draft.id, expectedWorktreeDigest: preview.draft.base.worktreeDigest, approvalToken: approval.data.approvalToken }
+      arguments: { root: repo, id: preview.draft.id, expectedWorktreeDigest: preview.draft.base.worktreeDigest, approved }
     }
   }));
+  const declined = await apply(9, false);
+  assert(declined.ok === false && declined.error?.code === "AC_USER_CONFIRMATION_REQUIRED", "MCP apply must refuse a ChangeSet without explicit approval");
+  return apply(10, true);
 }
 
 function mcpEnvelope(response) {

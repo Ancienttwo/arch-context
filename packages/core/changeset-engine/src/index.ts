@@ -254,7 +254,8 @@ export class ChangeSetEngine {
       const operationPaths = operationTargetPaths(operation);
       paths.push(...operationPaths);
       findings.push(
-        ...evaluateChangeSetPaths(root, operationPaths, pathScope(operation.op, agentContextPaths)).map((finding) => finding.message)
+        ...evaluateChangeSetPaths(root, operationPaths, pathScope(operation.op, agentContextPaths)).map((finding) => finding.message),
+        ...entityPreimageFindings(root, operation)
       );
     }
     return { digest: digestJson(draft as unknown as Json), paths, allowed: findings.length === 0, findings };
@@ -735,6 +736,29 @@ export function planManifestFieldsOperation(root: string, fields: ManifestUpdate
   assertManifestUpdateOperation(operation);
   renderManifestFieldsUpdate(body, fields);
   return operation;
+}
+
+const ENTITY_FILE_OPERATIONS: ReadonlySet<ChangeOperationKind> = new Set(["create_entity", "update_entity_fields", "delete_entity"]);
+
+/**
+ * Preview-time view of the per-entity preimage: the expected hash must match the current file
+ * (`missing` for an absent one), and the preview reports update or delete of an absent target as
+ * a finding. A mismatch names the current hash so the caller can re-read and re-plan. Apply does
+ * not trust the preview and does not repeat the target-exists check: `applyFileOperation` only
+ * rechecks the expected hash immediately before it writes.
+ */
+function entityPreimageFindings(root: string, operation: ChangeOperation): string[] {
+  if (!ENTITY_FILE_OPERATIONS.has(operation.op) || !operation.path) return [];
+  let absolute: string;
+  try {
+    absolute = assertPathHasNoSymlinkSegments(root, operation.path);
+  } catch {
+    // Path containment and symlink findings are the path policy's to report, not a preimage finding.
+    return [];
+  }
+  const current = existsSync(absolute) && lstatSync(absolute).isFile() ? digestJson({ body: readFileSync(absolute, "utf8") }) : "missing";
+  if (current === "missing" && operation.op !== "create_entity") return [`${operation.op} target does not exist: ${operation.path}`];
+  return current === operation.expectedHash ? [] : [`Expected hash mismatch: ${operation.path} (current ${current})`];
 }
 
 function assertProjectionDeleteAllowed(op: ChangeOperationKind, file: ChangeSetProjectionDelete): void {

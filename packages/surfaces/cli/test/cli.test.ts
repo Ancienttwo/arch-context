@@ -5338,14 +5338,12 @@ describe("archctx CLI", () => {
 
   // The complete real-CodeGraph fixture + approval/recovery path measured 130s locally.
   // Keep the existing Windows allowance for this scenario on every platform.
-  test("projection CLI and MCP share RPC results and single-use request-bound write approval", async () => {
+  test("projection CLI and MCP share RPC results and MCP writes require explicit snapshot-bound approval", async () => {
     const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
-    let now = Date.parse("2026-09-25T00:00:00Z");
     const daemon = await createStartedDaemon({
       localStorePath: testRuntimePaths(root).localStorePath,
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
-      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
-      clock: () => new Date(now).toISOString()
+      codeGraphProviderFactory: () => new MockCodeGraphProvider()
     });
     const paths = testRuntimePaths(root);
     const rpc = new ArchctxRuntimeRpcServer(daemon, {
@@ -5356,56 +5354,43 @@ describe("archctx CLI", () => {
       const client = new RuntimeRpcClient(await rpc.start());
       const mcp = new McpLocalServer(client);
       const cli = (action: string, request: unknown, flags: string[] = []) => runCli("projection", [action, "--request-json", JSON.stringify(request), ...flags], root, { runtimeClient: client });
-      const call = async (action: string, request: unknown, approvalToken?: string, atRoot = root) =>
-        (await mcp.callTool("archcontext_projection", { root: atRoot, action, request, approvalToken })).content as any;
+      const call = async (action: string, request: unknown, approved?: unknown, atRoot = root) =>
+        (await mcp.callTool("archcontext_projection", { root: atRoot, action, request, ...(approved === undefined ? {} : { approved }) })).content as any;
       const request: ProjectionRequestV1 = { ...protocolRequest, mode: "apply", acceptedChange, requestId: "projection_request.mcp_parity" };
       const check = { ...request, mode: "check" };
       expect(await call("run", check)).toEqual(await cli("run", check));
       expect(await call("readback", request)).toEqual(await cli("readback", request));
-      expect(await call("run", request)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      expect(await cli("approve", request)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const approve = async (value: unknown = request, action = "run") => {
-        const result = await cli("approve", value, ["--action", action, "--approved"]);
-        expect(result.ok, JSON.stringify(result)).toBe(true);
-        return (result.data as any).approvalToken as string;
-      };
+      for (const approved of [undefined, false, "true"]) {
+        expect(await call("run", request, approved)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      }
+      expect(await cli("approve", request, ["--approved"])).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
       const malformed = { ...request, mode: "arbitrary-write" };
-      expect(await call("run", malformed)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+      expect(await call("run", malformed, true)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
       expect(await client.docsProjection(root, { action: "apply", approved: "true" } as any)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
       expect(await client.agentContextProjection(root, { action: "erase" } as any)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
-      expect(await cli("approve", { ...request, expected: { ...request.expected, worktreeDigest: `sha256:${"0".repeat(64)}` } }, ["--approved"])).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
-      for (const attack of [
-        { request: { ...request, requestId: "projection_request.changed" }, root },
-        { request, root: dirname(root) }
-      ]) {
-        const token = await approve();
-        expect(await call("run", attack.request, token, attack.root)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-        expect(await call("run", request, token)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      }
-      const expired = await approve();
-      now += 5 * 60_000;
-      expect(await call("run", request, expired)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const crossScope = await approve();
-      expect(await client.applyMcpUpdate(root, { id: "changeset.foreign", expectedWorktreeDigest: request.expected.worktreeDigest, approvalToken: crossScope })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      expect(await call("run", request, crossScope)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const token = await approve();
-      const results = await Promise.all([call("run", request, token), call("run", request, token)]);
-      expect(results.filter(result => result.ok), JSON.stringify(results)).toHaveLength(1);
-      expect(results.filter(result => !result.ok)).toMatchObject([{ error: { code: "AC_USER_CONFIRMATION_REQUIRED" } }]);
-      const applied = results.find(result => result.ok)!;
+      expect(await call("run", { ...request, expected: { ...request.expected, worktreeDigest: `sha256:${"0".repeat(64)}` } }, true)).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
+      expect(await call("run", request, true, dirname(root))).toMatchObject({ ok: false });
+      const applied = await call("run", request, true);
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
       expect(applied.data.status).toBe("applied");
       expect(projectionResultInvariantIssues(applied.data)).toEqual([]);
-      expect(await call("run", request, token)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
       expect(await call("readback", request)).toEqual(await cli("readback", request));
+      // Replaying the identical approved apply must not apply twice: it returns the committed result, marked replayed.
+      const readbackBeforeReplay = await call("readback", request);
+      const manifestPath = join(root, "docs", "architecture", ".projection-manifest.json");
+      const manifestBeforeReplay = readFileSync(manifestPath, "utf8");
+      const replayed = await call("run", request, true);
+      expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
+      expect(replayed.data).toEqual({ ...applied.data, replayed: true });
+      expect(await call("readback", request)).toEqual(readbackBeforeReplay);
+      expect(readFileSync(manifestPath, "utf8")).toBe(manifestBeforeReplay);
       const intent = {
         schemaVersion: "archcontext.projection-apply-recovery-intent/v1", requestId: request.requestId, profile: request.profile,
         receipt: { lookupKey: applied.data.applyReceipt.lookupKey, applyId: applied.data.applyReceipt.applyId }
       };
       expect(await call("recover", intent)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const recoveryToken = await approve(intent, "recover");
-      const recovered = await call("recover", intent, recoveryToken);
+      const recovered = await call("recover", intent, true);
       expect(recovered.ok, JSON.stringify(recovered)).toBe(true);
-      expect(await call("recover", intent, recoveryToken)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
     } finally {
       await rpc.stop();
       await daemon.stop();

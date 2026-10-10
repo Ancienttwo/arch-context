@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
+import { digestJson } from "@archcontext/contracts";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
@@ -304,83 +305,98 @@ describe("local MCP server", () => {
       });
       const denied = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest });
       expect((denied.content as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
-      const forged = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest, approved: true });
-      expect((forged.content as any).ok).toBe(false);
-      expect((forged.content as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+      const declined = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest, approved: false });
+      expect((declined.content as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+      const coerced = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest, approved: "true" });
+      expect((coerced.content as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+      const stale = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest: `sha256:${"0".repeat(64)}`, approved: true });
+      expect(stale.content as any).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", message: "Worktree digest changed before apply" } });
       expect(existsSync(join(root, ".archcontext/model/nodes/module.mcp.yaml"))).toBe(false);
+      const applied = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest, approved: true });
+      expect((applied.content as any).ok, JSON.stringify(applied.content)).toBe(true);
+      expect(existsSync(join(root, ".archcontext/model/nodes/module.mcp.yaml"))).toBe(true);
+      const replay = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest, approved: true });
+      expect((replay.content as any).ok).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("MCP apply spends only a CLI-confirmed one-time preview token over RPC", async () => {
+  test("CLI and MCP share one explicit approval model to create, update and delete an entity over RPC", async () => {
     const root = tempModel();
     const daemon = await createStartedDaemon({ localStore: new TestLocalStore(), codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()) });
     const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "mcp-approval-test" });
+    const path = ".archcontext/model/nodes/module.approval.yaml";
+    const node = (summary: string) => `schemaVersion: archcontext.node/v2\nid: module.approval\nkind: module\nname: Approval\nstatus: active\nsummary: ${summary}\nresponsibilities:\n- approval\n`;
+    const currentHash = () => digestJson({ body: readFileSync(join(root, path), "utf8") });
     try {
       const client = new RuntimeRpcClient(await rpc.start());
       const mcp = new McpLocalServer(client);
-      const planned = await mcp.callTool("archcontext_plan_update", { root, id: "changeset.approval", operations: [{ op: "create_entity", path: ".archcontext/model/nodes/module.approval.yaml", expectedHash: "missing", body: "schemaVersion: archcontext.node/v2\nid: module.approval\nkind: module\nname: Approval\nstatus: active\nsummary: Approval\nresponsibilities:\n- approval\n" }] });
-      const preview = (planned.content as any).data;
-      const input = { id: "changeset.approval", expectedWorktreeDigest: preview.draft.base.worktreeDigest };
-      expect(await client.applyUpdate(root, { ...input, approved: true })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const forged = await client.applyMcpUpdate(root, { ...input, approved: true } as any);
-      expect(forged).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const flags = ["--id", input.id, "--expected-worktree-digest", input.expectedWorktreeDigest, "--expected-changeset-digest", preview.changeSetDigest];
-      const unconfirmed = await runCli("approve", flags, root, { runtimeClient: client });
-      expect(unconfirmed).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const approval = await runCli("approve", [...flags, "--approved"], root, { runtimeClient: client });
-      expect(approval.ok).toBe(true);
-      const approvalToken = (approval.data as any).approvalToken;
-      const results = await Promise.all([1, 2].map(() => mcp.callTool("archcontext_apply_update", { root, ...input, approvalToken })));
-      expect(results.filter((result) => (result.content as any).ok)).toHaveLength(1);
-      expect(results.filter((result) => (result.content as any).error?.code === "AC_USER_CONFIRMATION_REQUIRED")).toHaveLength(1);
-      expect(existsSync(join(root, ".archcontext/model/nodes/module.approval.yaml"))).toBe(true);
-      const replay = await client.applyMcpUpdate(root, { ...input, approvalToken });
-      expect(replay).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: client });
+
+      const created = await cli("plan", ["--id", "changeset.create", "--path", path, "--body", node("Created")]);
+      expect(created.ok, JSON.stringify(created)).toBe(true);
+      expect((created.data as any).preview).toMatchObject({ allowed: true, findings: [] });
+      const createFlags = ["--id", "changeset.create", "--expected-worktree-digest", (created.data as any).draft.base.worktreeDigest];
+      expect(await cli("apply", createFlags)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      expect(existsSync(join(root, path))).toBe(false);
+      expect((await cli("apply", [...createFlags, "--approved"])).ok).toBe(true);
+      expect(readFileSync(join(root, path), "utf8")).toBe(node("Created"));
+
+      const staleHash = `sha256:${"0".repeat(64)}`;
+      const stalePlan = (await mcp.callTool("archcontext_plan_update", { root, id: "changeset.stale", operations: [{ op: "update_entity_fields", path, expectedHash: staleHash, body: node("Stale") }] })).content as any;
+      expect(stalePlan.data.preview.allowed).toBe(false);
+      expect(stalePlan.data.preview.findings).toEqual([`Expected hash mismatch: ${path} (current ${currentHash()})`]);
+      const staleApply = await mcp.callTool("archcontext_apply_update", { root, id: "changeset.stale", expectedWorktreeDigest: stalePlan.data.draft.base.worktreeDigest, approved: true });
+      // Over RPC a daemon precondition failure arrives as the transport's failure body.
+      expect((staleApply.content as any).ok).toBe(false);
+      expect(JSON.stringify(staleApply.content)).toContain("Expected hash mismatch");
+      expect(readFileSync(join(root, path), "utf8")).toBe(node("Created"));
+
+      const updatePlan = (await mcp.callTool("archcontext_plan_update", { root, id: "changeset.update", operations: [{ op: "update_entity_fields", path, expectedHash: currentHash(), body: node("Updated") }] })).content as any;
+      expect(updatePlan.data.preview).toMatchObject({ allowed: true, findings: [] });
+      const updateInput = { root, id: "changeset.update", expectedWorktreeDigest: updatePlan.data.draft.base.worktreeDigest, approved: true };
+      const racing = await Promise.all([1, 2].map(() => mcp.callTool("archcontext_apply_update", updateInput)));
+      expect(racing.filter((result) => (result.content as any).ok)).toHaveLength(1);
+      expect(racing.filter((result) => JSON.stringify(result.content).includes("Worktree digest changed before apply"))).toHaveLength(1);
+      expect(readFileSync(join(root, path), "utf8")).toBe(node("Updated"));
+
+      const cliUpdate = await cli("plan", ["--id", "changeset.cli-update", "--op", "update_entity_fields", "--path", path, "--expected-hash", currentHash(), "--body", node("Updated by CLI")]);
+      expect((cliUpdate.data as any).preview).toMatchObject({ allowed: true, findings: [] });
+      const cliUpdateApplied = await cli("apply", ["--id", "changeset.cli-update", "--approved", "--expected-worktree-digest", (cliUpdate.data as any).draft.base.worktreeDigest]);
+      expect(cliUpdateApplied.ok, JSON.stringify(cliUpdateApplied)).toBe(true);
+      expect(readFileSync(join(root, path), "utf8")).toBe(node("Updated by CLI"));
+
+      const deletePlan = await cli("plan", ["--id", "changeset.delete", "--op", "delete_entity", "--path", path, "--expected-hash", currentHash()]);
+      expect((deletePlan.data as any).draft.operations).toEqual([{ op: "delete_entity", path, expectedHash: currentHash() }]);
+      const deleted = await cli("apply", ["--id", "changeset.delete", "--approved", "--expected-worktree-digest", (deletePlan.data as any).draft.base.worktreeDigest]);
+      expect(deleted.ok, JSON.stringify(deleted)).toBe(true);
+      expect(existsSync(join(root, path))).toBe(false);
+      const missingDelete = await cli("plan", ["--id", "changeset.delete-missing", "--op", "delete_entity", "--path", path, "--expected-hash", staleHash]);
+      expect((missingDelete.data as any).preview.findings).toEqual([`delete_entity target does not exist: ${path}`]);
     } finally {
       await rpc.stop();
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("MCP approval binds repository, draft, digest and expiry without trusting agent fields", async () => {
+  test("apply binds repository and worktree digest without a separate approval credential", async () => {
     const root = tempModel();
     const otherRoot = tempModel();
-    let now = Date.parse("2026-09-25T00:00:00Z");
-    const daemon = await createStartedDaemon({ localStore: new TestLocalStore(), codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()), clock: () => new Date(now).toISOString() });
+    const daemon = await createStartedDaemon({ localStore: new TestLocalStore(), codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()) });
     try {
       const planInput = { id: "changeset.bound", operations: [] };
       const plan = await daemon.planUpdate(root, planInput);
       const preview = plan.data as any;
-      const input = { id: planInput.id, expectedWorktreeDigest: preview.draft.base.worktreeDigest };
-      const approve = async () => {
-        const grant = await daemon.approveMcpUpdate(root, { ...input, expectedChangeSetDigest: preview.changeSetDigest });
-        expect(grant.ok).toBe(true);
-        return (grant.data as any).approvalToken as string;
-      };
-      expect(await daemon.approveMcpUpdate(root, { ...input, expectedChangeSetDigest: "forged" })).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
-      for (const attack of [
-        { root: otherRoot, input },
-        { root, input: { ...input, id: "changeset.other" } },
-        { root, input: { ...input, expectedWorktreeDigest: "forged" } }
-      ]) {
-        const approvalToken = await approve();
-        expect(await daemon.applyMcpUpdate(attack.root, { ...attack.input, approvalToken })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-        expect(await daemon.applyMcpUpdate(root, { ...input, approvalToken })).toMatchObject({ ok: false });
-      }
-      const expired = await approve();
-      now += 5 * 60_000;
-      expect(await daemon.applyMcpUpdate(root, { ...input, approvalToken: expired })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const stale = await approve();
-      writeFileSync(join(root, "README.md"), "changed after approval\n");
-      await expect(daemon.applyMcpUpdate(root, { ...input, approvalToken: stale })).rejects.toThrow("Worktree digest changed");
-      expect(await daemon.approveMcpUpdate(root, { ...input, expectedChangeSetDigest: preview.changeSetDigest })).toMatchObject({ ok: false });
+      const input = { id: planInput.id, expectedWorktreeDigest: preview.draft.base.worktreeDigest, approved: true };
+      expect(await daemon.applyUpdate(otherRoot, input)).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", message: "ChangeSet was planned for a different repository" } });
+      expect(await daemon.applyUpdate(root, { ...input, approved: false })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
+      await expect(daemon.applyUpdate(root, { ...input, id: "changeset.other" })).rejects.toThrow("Unknown ChangeSet: changeset.other");
+      await expect(daemon.applyUpdate(root, { ...input, expectedWorktreeDigest: "forged" })).rejects.toThrow("Worktree digest changed");
+      writeFileSync(join(root, "README.md"), "changed after preview\n");
+      await expect(daemon.applyUpdate(root, input)).rejects.toThrow("Worktree digest changed");
       writeFileSync(join(root, "README.md"), "# tmp\n");
-      const replaced = await approve();
-      await daemon.planUpdate(root, { ...planInput, reason: { taskSessionId: "replaced-preview" } });
-      expect(await daemon.applyMcpUpdate(root, { ...input, approvalToken: replaced })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      expect(await daemon.approveMcpUpdate(root, { ...input, expectedChangeSetDigest: preview.changeSetDigest })).toMatchObject({ ok: false });
+      expect((await daemon.applyUpdate(root, input)).ok).toBe(true);
     } finally {
       await daemon.stop();
       rmSync(root, { recursive: true, force: true });

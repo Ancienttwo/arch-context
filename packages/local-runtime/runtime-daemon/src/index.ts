@@ -1,5 +1,5 @@
-import type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeMcpApprovalInput, RuntimeMcpApplyInput, RuntimeApplyUpdateInput } from "./rpc-types";
-export type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeMcpApprovalInput, RuntimeMcpApplyInput, RuntimeApplyUpdateInput } from "./rpc-types";
+import type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
+export type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
 import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
@@ -522,7 +522,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     // record — never a crash or a silently corrupted state, just a missed observability record.
     try {
       for (const controller of this.auditRunAbortControllers.values()) controller.abort();
-      this.changeSetAuthority.clearApprovals();
       this.sessions.clear();
       this.practiceCheckpoints.clear();
       this.explorerProjections.clearDeferredChangeFeedFailures();
@@ -822,20 +821,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return runProjectionProtocolCommand(input, root, this.projectionHost());
   }
 
-  async approveMcpProjection(root: string, input: RuntimeProjectionInvocation): Promise<JsonEnvelope> {
-    return this.changeSetAuthority.approveMcpProjection(root, input);
-  }
-
-  async mcpProjection(root: string, input: RuntimeProjectionInvocation, approvalToken?: string): Promise<JsonEnvelope> {
-    return this.changeSetAuthority.mcpProjection(root, input, approvalToken);
-  }
-
-  async approveMcpUpdate(root: string, input: RuntimeMcpApprovalInput): Promise<JsonEnvelope> {
-    return this.changeSetAuthority.approveMcpUpdate(root, input);
-  }
-
-  async applyMcpUpdate(root: string, input: RuntimeMcpApplyInput): Promise<JsonEnvelope> {
-    return this.changeSetAuthority.applyMcpUpdate(root, input);
+  async mcpProjection(root: string, input: RuntimeProjectionInvocation, approved: boolean): Promise<JsonEnvelope> {
+    return this.changeSetAuthority.mcpProjection(root, input, approved);
   }
 
   async applyUpdate(root: string, rawInput: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
