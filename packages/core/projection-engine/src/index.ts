@@ -547,9 +547,9 @@ function architectureProjectionSemanticBaseline(body: string | undefined): Archi
   return value;
 }
 
-export function architectureDocumentationSourceTreeDigest(root: string, model: NativeModel): string {
+export function architectureDocumentationSourceTreeDigest(root: string, model: NativeModel, sourceFiles: readonly string[]): string {
   const agentContextOutputs = new Set(agentContextTargetPaths(model.nodes).map((target) => target.path));
-  const files = loadCapabilitySourceFootprints(root, model)
+  const files = loadCapabilitySourceFootprints(root, model, sourceFiles)
     .flatMap((footprint) => footprint.files)
     .filter((path) => path !== "docs/architecture" && !path.startsWith("docs/architecture/") && !agentContextOutputs.has(path))
     .filter((path, index, all) => all.indexOf(path) === index)
@@ -679,8 +679,8 @@ export function loadArchitectureDocumentationInputs(root: string, profile: Archi
  * Nodes without `source.include` are absent from the result on purpose: the renderer prints an
  * explicit "not derivable" note for them instead of a zero that reads like a measurement.
  */
-export function loadCapabilitySourceScaleSignals(root: string, model: NativeModel): CapabilitySourceScaleSignal[] {
-  return loadCapabilitySourceFootprints(root, model).map((footprint) => ({
+export function loadCapabilitySourceScaleSignals(root: string, model: NativeModel, sourceFiles: readonly string[]): CapabilitySourceScaleSignal[] {
+  return loadCapabilitySourceFootprints(root, model, sourceFiles).map((footprint) => ({
     nodeId: footprint.nodeId,
     fileCount: footprint.files.length,
     lineCount: footprint.files.reduce((total, path) => total + countFileLines(resolve(root, path)), 0),
@@ -688,6 +688,9 @@ export function loadCapabilitySourceScaleSignals(root: string, model: NativeMode
     excludePatterns: footprint.excludePatterns
   }));
 }
+
+/** Never capability source, even when tracked: Git metadata and vendored dependency trees. */
+const FOOTPRINT_SKIPPED_SEGMENTS = new Set([".git", "node_modules"]);
 
 /** One node's declared source footprint, resolved to repo-relative files. */
 export interface CapabilitySourceFootprint {
@@ -699,13 +702,22 @@ export interface CapabilitySourceFootprint {
 
 /**
  * Resolves every node's `source.include` minus `source.exclude` to the repo-relative files it
- * selects. Shared by the scale signal loader and by the code-index adapter that measures import
- * edges, so both answer "which files belong to this capability" the same way.
+ * selects. Shared by the scale signal loader, the footprint stamps, the source tree digest and the
+ * code-index adapter that measures import edges, so all of them answer "which files belong to this
+ * capability" the same way.
+ *
+ * `sourceFiles` is the universe the globs are matched against: the repository's Git-visible files
+ * (tracked plus untracked, non-ignored), listed by the local runtime's Git adapter
+ * (`listProjectionSourceFiles`). Core never walks the filesystem for it, so a gitignored file under
+ * a declared include — a build artifact, a cache, a local secret — can never enter a footprint, a
+ * stamp or a scale signal. Every listed path must be a readable regular file under `root`.
  */
-export function loadCapabilitySourceFootprints(root: string, model: NativeModel): CapabilitySourceFootprint[] {
+export function loadCapabilitySourceFootprints(root: string, model: NativeModel, sourceFiles: readonly string[]): CapabilitySourceFootprint[] {
   const nodes = model.nodes.filter((node) => (nativeNodeSource(node)?.include ?? []).length > 0);
   if (nodes.length === 0) return [];
-  const scanned = listScaleScanFiles(root);
+  const scanned = [...new Set(sourceFiles)]
+    .filter((path) => !path.split("/").some((segment) => FOOTPRINT_SKIPPED_SEGMENTS.has(segment)))
+    .sort((left, right) => left.localeCompare(right));
   return nodes
     .map((node) => {
       const source = nativeNodeSource(node)!;
@@ -720,23 +732,6 @@ export function loadCapabilitySourceFootprints(root: string, model: NativeModel)
       return { nodeId: node.id, files, includePatterns, excludePatterns };
     })
     .sort((left, right) => left.nodeId.localeCompare(right.nodeId));
-}
-
-const SCALE_SCAN_SKIPPED_DIRECTORIES = new Set([".git", "node_modules"]);
-
-function listScaleScanFiles(root: string, prefix = "", out: string[] = []): string[] {
-  const dir = prefix === "" ? resolve(root) : resolve(root, prefix);
-  if (!existsSync(dir)) return out;
-  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-    const path = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) {
-      if (SCALE_SCAN_SKIPPED_DIRECTORIES.has(entry.name)) continue;
-      listScaleScanFiles(root, path, out);
-      continue;
-    }
-    if (entry.isFile()) out.push(path);
-  }
-  return out;
 }
 
 function countFileLines(absolute: string): number {
@@ -909,10 +904,12 @@ export function projectionOwnedPaths(model: NativeModel): string[] {
  * the files it selects (the same include/exclude predicate `loadCapabilitySourceFootprints` feeds
  * the renderer) minus `projectionOwnedPaths`. Paths and bytes both enter the digest, so adding,
  * removing, renaming or editing a covered file moves it and nothing outside the footprint can.
+ * Only Git-visible files count (`sourceFiles`), so a gitignored build output under an include never
+ * moves a stamp; the digest reads file contents, never Git history.
  */
-export function loadCapabilitySourceFootprintDigests(root: string, model: NativeModel): CapabilitySourceFootprintDigest[] {
+export function loadCapabilitySourceFootprintDigests(root: string, model: NativeModel, sourceFiles: readonly string[]): CapabilitySourceFootprintDigest[] {
   const ownedPathPatterns = projectionOwnedPaths(model);
-  return loadCapabilitySourceFootprints(root, model).map((footprint) => {
+  return loadCapabilitySourceFootprints(root, model, sourceFiles).map((footprint) => {
     const files = footprint.files.filter((path) => !ownedPathPatterns.some((pattern) => matchesGlob(path, pattern)));
     return {
       nodeId: footprint.nodeId,

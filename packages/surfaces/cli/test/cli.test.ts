@@ -7,6 +7,7 @@ import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:c
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadCapabilitySourceFootprintDigests, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
+import { listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -293,7 +294,7 @@ test("CLI projection check reports per-node freshness read-only, from content st
     git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "change the declared footprint");
     const manifestBefore = readFileSync(manifestPath, "utf8");
     const stale = await run("check", "projection_request.freshness_stale");
-    const currentDigest = loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root))
+    const currentDigest = loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root), listProjectionSourceFiles(root))
       .find((entry) => entry.nodeId === nodeId)!.digest as `sha256:${string}`;
     expect(stale.freshness).toEqual({
       ok: false,

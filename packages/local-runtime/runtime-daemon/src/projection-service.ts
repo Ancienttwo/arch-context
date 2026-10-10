@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { ProjectionSourceFilesUnavailableError, findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
@@ -158,14 +158,14 @@ export function buildArchitectureDocsProjection(
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   const provenance = codeGraphInputs.provenance;
-  const sourceFootprints = loadCapabilitySourceFootprintDigests(root, loaded.model);
+  const sourceFootprints = loadCapabilitySourceFootprintDigests(root, loaded.model, codeGraphInputs.sourceFiles);
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     sourceFootprints,
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.sourceFiles),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
@@ -658,13 +658,17 @@ function observedMajorChangeAcceptance(
 }
 
 /**
- * A projection that cannot be built fails its precondition, except when required code facts are
- * missing: that is an environment state with its own typed, retryable code, so a consumer can tell
- * it apart from a real architecture change.
+ * A projection that cannot be built fails its precondition, except for two environment states with
+ * their own typed codes, so a consumer can tell them apart from a real architecture change:
+ * required code facts are missing (`AC_CODE_FACTS_UNAVAILABLE`), or the root is not a Git worktree
+ * whose files footprints could be measured over (`AC_REPO_NOT_FOUND`, `git-worktree-required`).
  */
 export function projectionFailureEnvelope(requestId: string, error: unknown): JsonEnvelope {
   if (error instanceof ProjectionCodeFactsUnavailableError) {
     return errorEnvelope(requestId, "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
+  }
+  if (error instanceof ProjectionSourceFilesUnavailableError) {
+    return errorEnvelope(requestId, error.code, error.message, error.reasonCode);
   }
   return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
 }
