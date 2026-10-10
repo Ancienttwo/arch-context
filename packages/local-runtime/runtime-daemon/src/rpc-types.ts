@@ -258,7 +258,8 @@ export type RuntimeProjectionInvocation =
   | { action: "recover"; request: ProjectionApplyRecoveryIntentV1 };
 
 export interface RuntimeRecommendationInput {
-  command: "metrics" | RecommendationFeedbackAction;
+  /** `show` is a read: one recommendation (recorded, or a current scan candidate) with its evidence. */
+  command: "metrics" | "show" | RecommendationFeedbackAction;
   recommendationId?: string;
   reason?: string;
   /**

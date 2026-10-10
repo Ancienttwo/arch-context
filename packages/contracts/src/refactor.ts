@@ -303,11 +303,100 @@ export interface ModuleStatisticsSnapshotV1 {
   extensions?: Record<string, Json>;
 }
 
+/**
+ * The fixed per-observation bound on sampled evidence entries (edges, violations, paths,
+ * unresolved imports). It bounds entry *count* only: a path or a specifier has no fixed byte
+ * size, so this bound alone does not keep a recording event under the ledger's persisted-JSON
+ * ceiling. The recording planner enforces that separately, by measuring the event it would
+ * persist and shrinking every sample to one shared smaller limit until the event fits.
+ */
+export const REFACTOR_OBSERVATION_EVIDENCE_LIMIT = 20;
+/**
+ * The fixed bound on every id list inside evidence (`memberNodeIds`, `constraintIds`,
+ * `candidateOwnerNodeIds`). Each list is the sorted prefix of its population and carries the true
+ * size beside it (`metrics.memberCount`, `constraintCount`, `candidateOwnerCount`). It is no
+ * smaller than `REFACTOR_OBSERVATION_EVIDENCE_LIMIT`, so the constraints named by a violation
+ * sample — the smallest ids, since violations sort by constraint first — are always listed.
+ */
+export const REFACTOR_EVIDENCE_ID_LIST_LIMIT = 32;
+/** An import specifier is a module reference, not code: one line, bounded like a locator. */
+export const REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH = 512;
+
+/**
+ * One observed file-level import edge, as bounded metadata only: two repo-relative paths, the
+ * line the import sits on, the specifier verbatim and the owning nodes. Never a source body.
+ * `toPath` carries no line: an import names a module, not a position inside it.
+ */
+export interface RefactorEvidenceImportEdgeV1 {
+  fromPath: string;
+  /** 1-based line of the import statement in `fromPath`; `null` when the code index reported none. */
+  fromLine: number | null;
+  toPath: string;
+  specifier: string;
+  fromNodeId: string;
+  toNodeId: string;
+}
+
+export interface RefactorEvidenceDirectionViolationV1 extends RefactorEvidenceImportEdgeV1 {
+  constraintId: string;
+}
+
+export interface RefactorEvidencePathV1 {
+  path: string;
+  /**
+   * Declared nodes that bear on this path, per kind: for `ownership-ambiguous` every node that
+   * claims it; for `unowned-paths` the nodes that own another tracked file in the same directory;
+   * for `undeclared-footprint` the nodes that currently own the entrypoint path the node declares.
+   */
+  candidateOwnerNodeIds: string[];
+  /** How many candidate owners exist; `candidateOwnerNodeIds` is its sorted, bounded prefix. */
+  candidateOwnerCount: number;
+}
+
+export interface RefactorEvidenceUnresolvedImportV1 {
+  fromPath: string;
+  fromLine: number | null;
+  specifier: string;
+}
+
+/** A bounded sample: `totalCount` is the population, `truncated` says the list is a prefix of it. */
+interface RefactorEvidenceSampleV1 {
+  totalCount: number;
+  truncated: boolean;
+}
+
+/**
+ * Typed evidence per observation kind: the concrete items behind the observation's metrics, so a
+ * reader can see *why* it exists without re-running the measurement. Samples are sorted, bounded
+ * by `REFACTOR_OBSERVATION_EVIDENCE_LIMIT`, and derived from the same measurement as the snapshot;
+ * id lists are sorted prefixes bounded by `REFACTOR_EVIDENCE_ID_LIST_LIMIT`.
+ *
+ * `memberNodeIds` is the prefix of the component's members; its population is the observation's
+ * `metrics.memberCount`.
+ */
+export type RefactorObservationEvidenceV1 =
+  | ({ kind: "cycle"; memberNodeIds: string[]; edges: RefactorEvidenceImportEdgeV1[] } & RefactorEvidenceSampleV1)
+  | ({
+    kind: "direction-violation";
+    constraintIds: string[];
+    /** How many distinct constraints the module violates; `constraintIds` is its bounded prefix. */
+    constraintCount: number;
+    violations: RefactorEvidenceDirectionViolationV1[];
+  } & RefactorEvidenceSampleV1)
+  | ({ kind: "ownership-ambiguous" | "undeclared-footprint" | "unowned-paths"; paths: RefactorEvidencePathV1[] } & RefactorEvidenceSampleV1)
+  | ({
+    kind: "evidence-gap";
+    coverage: EvidenceCoverageLevelV2;
+    reasonCodes: RefactorScaleReasonCode[];
+    unresolvedImports: RefactorEvidenceUnresolvedImportV1[];
+  } & RefactorEvidenceSampleV1);
+
 export interface RefactorObservationV1 {
   kind: RefactorObservationKind;
   subjectSelectorId: string;
   signalIds: string[];
   metrics: Record<string, number | null>;
+  evidence: RefactorObservationEvidenceV1;
 }
 
 export interface RefactorAssessmentV1 {
@@ -674,6 +763,7 @@ export function refactorAssessmentInvariantIssues(assessment: RefactorAssessment
   for (const [index, observation] of assessment.observations.entries()) {
     if (observation.subjectSelectorId.trim() === "") issues.push(`${prefix}.observations[${index}].subjectSelectorId must not be empty`);
     issues.push(...sortedUniqueIssues(`${prefix}.observations[${index}].signalIds`, observation.signalIds));
+    issues.push(...refactorObservationEvidenceIssues(observation, `${prefix}.observations[${index}]`));
   }
   issues.push(...ratioIssues(`${prefix}.confidence.callerCoverage`, assessment.confidence.callerCoverage));
   if (!Number.isInteger(assessment.pressure.score) || assessment.pressure.score < 0 || assessment.pressure.score > 100) {
@@ -684,6 +774,136 @@ export function refactorAssessmentInvariantIssues(assessment: RefactorAssessment
     issues.push(`${prefix}.assessmentDigest must bind the assessed payload`);
   }
   return issues;
+}
+
+/** The one ordering for evidence edges: path, line, target, specifier, then owners. */
+export function compareRefactorEvidenceImportEdges(left: RefactorEvidenceImportEdgeV1, right: RefactorEvidenceImportEdgeV1): number {
+  return compareText(left.fromPath, right.fromPath)
+    || compareLine(left.fromLine, right.fromLine)
+    || compareText(left.toPath, right.toPath)
+    || compareText(left.specifier, right.specifier)
+    || compareText(left.fromNodeId, right.fromNodeId)
+    || compareText(left.toNodeId, right.toNodeId);
+}
+
+export function compareRefactorEvidenceDirectionViolations(
+  left: RefactorEvidenceDirectionViolationV1,
+  right: RefactorEvidenceDirectionViolationV1
+): number {
+  return compareText(left.constraintId, right.constraintId) || compareRefactorEvidenceImportEdges(left, right);
+}
+
+export function compareRefactorEvidenceUnresolvedImports(
+  left: RefactorEvidenceUnresolvedImportV1,
+  right: RefactorEvidenceUnresolvedImportV1
+): number {
+  return compareText(left.fromPath, right.fromPath)
+    || compareLine(left.fromLine, right.fromLine)
+    || compareText(left.specifier, right.specifier);
+}
+
+/**
+ * Validates one observation's evidence against the observation it explains: matching kind, the
+ * fixed sample and id-list bounds, an honest `truncated` flag and id-list counts, the canonical
+ * order, repo-relative paths, positive lines and one-line bounded specifiers. Where a metric counts exactly the evidence population,
+ * `totalCount` must equal it, so the sample can never describe a different measurement.
+ */
+export function refactorObservationEvidenceIssues(observation: RefactorObservationV1, prefix = "observation"): string[] {
+  const evidence = observation.evidence as RefactorObservationEvidenceV1 | undefined;
+  const label = `${prefix}.evidence`;
+  if (!evidence || typeof evidence !== "object") return [`${label} is required`];
+  if (evidence.kind !== observation.kind) return [`${label}.kind must equal the observation kind ${observation.kind}`];
+  const issues: string[] = [];
+  const sample = (entries: readonly unknown[], field: string): void => {
+    if (entries.length > REFACTOR_OBSERVATION_EVIDENCE_LIMIT) {
+      issues.push(`${label}.${field} must hold at most ${REFACTOR_OBSERVATION_EVIDENCE_LIMIT} entries`);
+    }
+    if (!Number.isInteger(evidence.totalCount) || evidence.totalCount < entries.length) {
+      issues.push(`${label}.totalCount must be an integer no smaller than the ${field} length`);
+    }
+    if (evidence.truncated !== evidence.totalCount > entries.length) {
+      issues.push(`${label}.truncated must be true exactly when totalCount exceeds the ${field} length`);
+    }
+  };
+  const ordered = <T>(entries: readonly T[], field: string, compare: (left: T, right: T) => number): void => {
+    for (let index = 1; index < entries.length; index += 1) {
+      if (compare(entries[index - 1]!, entries[index]!) >= 0) {
+        issues.push(`${label}.${field} must be sorted and unique`);
+        return;
+      }
+    }
+  };
+  const edgeIssues = (edge: RefactorEvidenceImportEdgeV1, field: string): void => {
+    issues.push(...repoPathIssues(`${label}.${field}.fromPath`, edge.fromPath), ...repoPathIssues(`${label}.${field}.toPath`, edge.toPath));
+    issues.push(...lineIssues(`${label}.${field}.fromLine`, edge.fromLine), ...specifierIssues(`${label}.${field}.specifier`, edge.specifier));
+    if (edge.fromNodeId.trim() === "" || edge.toNodeId.trim() === "") issues.push(`${label}.${field} node ids must not be empty`);
+  };
+  // An id list is the sorted prefix of a population of `count`: exactly min(count, limit) long.
+  const idList = (ids: readonly string[], count: unknown, field: string, countField: string): void => {
+    issues.push(...sortedUniqueIssues(`${label}.${field}`, ids));
+    if (!Number.isInteger(count) || (count as number) < 0) {
+      issues.push(`${label}.${countField} must be a non-negative integer`);
+    } else if (ids.length !== Math.min(count as number, REFACTOR_EVIDENCE_ID_LIST_LIMIT)) {
+      issues.push(`${label}.${field} must hold min(${countField}, ${REFACTOR_EVIDENCE_ID_LIST_LIMIT}) entries`);
+    }
+  };
+  switch (evidence.kind) {
+    case "cycle": {
+      sample(evidence.edges, "edges");
+      ordered(evidence.edges, "edges", compareRefactorEvidenceImportEdges);
+      idList(evidence.memberNodeIds, observation.metrics.memberCount, "memberNodeIds", "metrics.memberCount");
+      // Membership is checkable only against the complete member list.
+      const complete = evidence.memberNodeIds.length === observation.metrics.memberCount;
+      for (const edge of evidence.edges) {
+        edgeIssues(edge, "edges");
+        if (complete && (!evidence.memberNodeIds.includes(edge.fromNodeId) || !evidence.memberNodeIds.includes(edge.toNodeId))) {
+          issues.push(`${label}.edges must stay inside the component's member nodes`);
+        }
+      }
+      break;
+    }
+    case "direction-violation":
+      sample(evidence.violations, "violations");
+      ordered(evidence.violations, "violations", compareRefactorEvidenceDirectionViolations);
+      idList(evidence.constraintIds, evidence.constraintCount, "constraintIds", "constraintCount");
+      for (const violation of evidence.violations) {
+        edgeIssues(violation, "violations");
+        if (!evidence.constraintIds.includes(violation.constraintId)) issues.push(`${label}.violations must name a listed constraintId`);
+      }
+      if (evidence.totalCount !== observation.metrics.directionViolationCount) {
+        issues.push(`${label}.totalCount must equal metrics.directionViolationCount`);
+      }
+      break;
+    case "ownership-ambiguous":
+    case "undeclared-footprint":
+    case "unowned-paths":
+      sample(evidence.paths, "paths");
+      ordered(evidence.paths, "paths", (left, right) => compareText(left.path, right.path));
+      for (const entry of evidence.paths) {
+        issues.push(...repoPathIssues(`${label}.paths.path`, entry.path));
+        idList(entry.candidateOwnerNodeIds, entry.candidateOwnerCount, "paths.candidateOwnerNodeIds", "paths.candidateOwnerCount");
+      }
+      if (evidence.kind === "unowned-paths" && evidence.totalCount !== observation.metrics.unownedFileCount) {
+        issues.push(`${label}.totalCount must equal metrics.unownedFileCount`);
+      }
+      break;
+    case "evidence-gap":
+      sample(evidence.unresolvedImports, "unresolvedImports");
+      ordered(evidence.unresolvedImports, "unresolvedImports", compareRefactorEvidenceUnresolvedImports);
+      issues.push(...sortedUniqueIssues(`${label}.reasonCodes`, evidence.reasonCodes));
+      for (const entry of evidence.unresolvedImports) {
+        issues.push(...repoPathIssues(`${label}.unresolvedImports.fromPath`, entry.fromPath));
+        issues.push(...lineIssues(`${label}.unresolvedImports.fromLine`, entry.fromLine));
+        issues.push(...specifierIssues(`${label}.unresolvedImports.specifier`, entry.specifier));
+      }
+      if (evidence.totalCount !== observation.metrics.unresolvedImportCount) {
+        issues.push(`${label}.totalCount must equal metrics.unresolvedImportCount`);
+      }
+      break;
+    default:
+      issues.push(`${label}.kind is unsupported`);
+  }
+  return [...new Set(issues)];
 }
 
 export function refactorResolutionEvidenceInvariantIssues(
@@ -786,6 +1006,18 @@ export function recommendationV3InvariantIssues(recommendation: RecommendationV3
     }
     if (recommendation.enforcement !== "advisory") {
       issues.push(`${prefix}.structural_observation enforcement must be advisory`);
+    }
+    if (shapeIssues.length === 0) {
+      // The payload is self-contained: the observation's metrics, signals and evidence travel with
+      // it, so the same evidence rules bind a recorded record and a fresh assessment.
+      const payload = recommendation.payload as StructuralObservationPayloadV1;
+      issues.push(
+        ...sortedUniqueIssues(`${prefix}.payload.signalIds`, payload.signalIds),
+        ...refactorObservationEvidenceIssues(
+          { kind: payload.kind, subjectSelectorId: recommendation.subject, signalIds: payload.signalIds, metrics: payload.metrics, evidence: payload.evidence },
+          `${prefix}.payload`
+        )
+      );
     }
   }
   if (recommendation.category === "refactor_proposal") {
@@ -953,7 +1185,16 @@ const REQUIRED_PAYLOAD_FIELDS: Readonly<Record<RecommendationCategory, readonly 
     "scale",
     "targetOutcomes"
   ],
-  structural_observation: ["affectedNodeIds", "assessmentDigest", "baselineSnapshotDigest", "derivedOutcomes", "kind"]
+  structural_observation: [
+    "affectedNodeIds",
+    "assessmentDigest",
+    "baselineSnapshotDigest",
+    "derivedOutcomes",
+    "evidence",
+    "kind",
+    "metrics",
+    "signalIds"
+  ]
 };
 
 function fingerprintPayloadSubset(category: RecommendationCategory, payload: RecommendationPayloadV1): Record<string, Json> {
@@ -982,6 +1223,32 @@ function outcomeIssues(label: string, outcomes: readonly RefactorTargetOutcomeV1
     if (outcome.metric.trim() === "") issues.push(`${label} metric must not be empty`);
   }
   return issues;
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** An unknown line sorts before every known one, so the order is total. */
+function compareLine(left: number | null, right: number | null): number {
+  return (left ?? 0) - (right ?? 0);
+}
+
+function repoPathIssues(label: string, path: string): string[] {
+  return typeof path === "string" && isRepoRelativePosixPath(path) ? [] : [`${label} must be a repo-relative POSIX path`];
+}
+
+function lineIssues(label: string, line: number | null): string[] {
+  return line === null || (Number.isInteger(line) && line >= 1) ? [] : [`${label} must be null or a positive integer`];
+}
+
+function specifierIssues(label: string, specifier: string): string[] {
+  return typeof specifier === "string"
+    && specifier.length > 0
+    && specifier.length <= REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH
+    && !/[\u0000-\u001f\u007f]/.test(specifier)
+    ? []
+    : [`${label} must be a single-line specifier of 1-${REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH} characters`];
 }
 
 function digestIssues(label: string, value: string): string[] {

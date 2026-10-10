@@ -72,8 +72,10 @@ export const ARCHCTX_FEATURES = [
   "projection-orphan-review-v1",
   "projection-prior-committed-applies-v1",
   "projection-protocol-v2",
+  "recommendation-scan-decision-v1",
   "recommendation-v3",
   "refactor-assessment-v1",
+  "refactor-observation-evidence-v1",
   "refactor-resolution-v1"
 ] as const;
 

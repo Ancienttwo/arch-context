@@ -2606,7 +2606,7 @@ export function validateArchitectureLedgerEvent(event: ArchitectureEventV1): voi
   for (const operation of payload.evidenceOperations ?? []) validateEvidenceLifecycleOperation(operation, event.eventId);
 }
 
-const ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES = 262_144;
+export const ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES = 262_144;
 const ARCHITECTURE_LEDGER_MAX_PERSISTED_STRING_BYTES = 8_192;
 const ARCHITECTURE_LEDGER_MAX_PERSISTED_DEPTH = 32;
 export const ARCHITECTURE_LEDGER_FORBIDDEN_RAW_KEYS: ReadonlySet<string> = new Set([
@@ -2649,9 +2649,13 @@ const ARCHITECTURE_LEDGER_FORBIDDEN_STRING_PATTERNS = [
   /\b(?:api[_-]?key|secret|token|password|private[_-]?key)\s*[:=]\s*["']?[^\s"',;]{8,}/i
 ];
 
+/** The size `assertArchitectureLedgerPersistenceSafe` holds against its persisted-JSON ceiling. */
+export function architectureLedgerPersistedJsonBytes(value: Json): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
 export function assertArchitectureLedgerPersistenceSafe(value: Json, label = "architecture-ledger-value"): void {
-  const encoded = JSON.stringify(value);
-  if (Buffer.byteLength(encoded, "utf8") > ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES) {
+  if (architectureLedgerPersistedJsonBytes(value) > ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES) {
     throw new Error(`architecture-ledger-privacy-denied: persisted JSON exceeds size limit at ${label}`);
   }
   visit(value, label, 0);

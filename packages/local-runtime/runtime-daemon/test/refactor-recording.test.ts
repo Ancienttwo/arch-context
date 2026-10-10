@@ -6,17 +6,38 @@ import { join } from "node:path";
 import {
   RECOMMENDATION_SCHEMA_VERSION,
   RECOMMENDATION_V3_SCHEMA_VERSION,
+  REFACTOR_EVIDENCE_ID_LIST_LIMIT,
+  REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH,
+  REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   digestJson,
   recommendationV3InvariantIssues,
+  refactorAssessmentDigest,
+  refactorAssessmentInvariantIssues,
   type Json,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
   type RefactorAssessmentV1,
-  type RefactorProposalV1
+  type RefactorEvidenceImportEdgeV1,
+  type RefactorObservationV1,
+  type RefactorProposalV1,
+  type StructuralObservationPayloadV1
 } from "@archcontext/contracts";
+import {
+  ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES,
+  architectureLedgerPersistedJsonBytes,
+  assertArchitectureLedgerPersistenceSafe,
+  emptyArchitectureLedgerEvidenceState,
+  validateArchitectureLedgerEvent
+} from "@archcontext/core/architecture-ledger";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
+import {
+  RECOMMENDATION_SCHEDULER_ENGINE_VERSION,
+  planRecommendationRun,
+  planRefactorRecommendationRun,
+  recommendationRunLedgerPayload,
+  refactorRecommendationRunLedgerPayload
+} from "@archcontext/core/recommendation-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -30,7 +51,14 @@ import {
   makeRequest,
   makeSnapshot
 } from "../../../core/refactor-assessment/test/factories";
-import { REFACTOR_ASSESSMENT_REGISTRY_CAPACITY, RefactorAssessmentRegistry } from "../src/refactor-recording";
+import {
+  REFACTOR_ASSESSMENT_REGISTRY_CAPACITY,
+  REFACTOR_RUN_PERSISTENCE_REASON_CODE,
+  RefactorAssessmentRegistry,
+  RefactorRunPersistenceError,
+  buildRefactorRecordEvent,
+  refactorClassifierRulesetDigest
+} from "../src/refactor-recording";
 import {
   ArchctxRuntimeRpcServer,
   RuntimeRpcClient,
@@ -792,6 +820,203 @@ describe("ledger migrate --recommendation-v3", () => {
       expect((planned.data as any).upgradedCount).toBe(1);
       expect(store.architectureEvents).toHaveLength(eventCount);
       expect(recordedRecommendations(store)[0]!.schemaVersion as string).toBe(RECOMMENDATION_SCHEMA_VERSION);
+    } finally {
+      await daemon.stop();
+    }
+  });
+});
+
+describe("refactor_scan event size", () => {
+  const LEDGER_SCOPE = {
+    repository: { repositoryId: "repo.rf2", storageRepositoryId: "storage.repo.rf2" },
+    worktree: {
+      workspaceId: "workspace.rf2",
+      storageWorkspaceId: "storage.workspace.rf2",
+      branch: "main",
+      headSha: "1f0c4b8a2d6e9071b3c5d7e9f0a1b2c3d4e5f607",
+      worktreeDigest: digestJson("worktree.rf2" as Json)
+    }
+  };
+  const NOW = "2026-09-03T08:00:00.000Z";
+
+  /** A repo-relative path of about 160 characters. */
+  function longPath(tag: string, index: number): string {
+    return `src/${tag}/${"nested-directory/".repeat(8)}file-${String(index).padStart(2, "0")}.ts`;
+  }
+
+  const SPECIFIER = `./${"s".repeat(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH - 2)}`;
+
+  function ids(prefix: string, count: number): string[] {
+    return Array.from({ length: count }, (_, index) => `${prefix}.${String(index).padStart(3, "0")}`);
+  }
+
+  function edge(tag: string, index: number, fromNodeId: string, toNodeId: string): RefactorEvidenceImportEdgeV1 {
+    return { fromPath: longPath(tag, 0), fromLine: index + 1, toPath: longPath(`${tag}-target`, index), specifier: SPECIFIER, fromNodeId, toNodeId };
+  }
+
+  /**
+   * 25 observations — one per `maxRecommendationsPerRun` slot — each with a full sample of
+   * ~160-character paths and 512-character specifiers and every id list at its cap.
+   */
+  function oversizedObservations(moduleIds: readonly string[]): RefactorObservationV1[] {
+    const limit = REFACTOR_OBSERVATION_EVIDENCE_LIMIT;
+    const observations: RefactorObservationV1[] = [];
+    for (let index = 0; index < 23; index += 1) {
+      const tag = `scc-${String(index).padStart(2, "0")}`;
+      const members = ids(`component.${tag}`, REFACTOR_EVIDENCE_ID_LIST_LIMIT);
+      observations.push({
+        kind: "cycle",
+        subjectSelectorId: `scc:${tag}`,
+        signalIds: [`signal.cycle.${tag}`],
+        metrics: { memberCount: REFACTOR_EVIDENCE_ID_LIST_LIMIT + 8, cycleEdgeCount: 60 },
+        evidence: {
+          kind: "cycle",
+          memberNodeIds: members,
+          edges: Array.from({ length: limit }, (_, line) => edge(tag, line, members[0]!, members[1]!)),
+          totalCount: 60,
+          truncated: true
+        }
+      });
+    }
+    const [violator, contested] = moduleIds;
+    const constraints = ids("constraint.forbid", REFACTOR_EVIDENCE_ID_LIST_LIMIT);
+    observations.push({
+      kind: "direction-violation",
+      subjectSelectorId: violator!,
+      signalIds: ["signal.direction-violation.size"],
+      metrics: { directionViolationCount: 30 },
+      evidence: {
+        kind: "direction-violation",
+        constraintIds: constraints,
+        constraintCount: REFACTOR_EVIDENCE_ID_LIST_LIMIT + 8,
+        violations: Array.from({ length: limit }, (_, line) => ({ ...edge("violation", line, violator!, "module.other"), constraintId: constraints[0]! })),
+        totalCount: 30,
+        truncated: true
+      }
+    });
+    observations.push({
+      kind: "ownership-ambiguous",
+      subjectSelectorId: contested!,
+      signalIds: ["signal.ownership-ambiguous.size"],
+      metrics: { ownedFileCount: 50 },
+      evidence: {
+        kind: "ownership-ambiguous",
+        paths: Array.from({ length: limit }, (_, index) => ({
+          path: longPath("contested", index),
+          candidateOwnerNodeIds: ids("component.claimant", REFACTOR_EVIDENCE_ID_LIST_LIMIT),
+          candidateOwnerCount: REFACTOR_EVIDENCE_ID_LIST_LIMIT + 8
+        })),
+        totalCount: 25,
+        truncated: true
+      }
+    });
+    return observations.sort((left, right) => left.kind.localeCompare(right.kind) || left.subjectSelectorId.localeCompare(right.subjectSelectorId));
+  }
+
+  function oversizedRun(snapshotOverride?: (snapshot: ModuleStatisticsSnapshotV1) => ModuleStatisticsSnapshotV1) {
+    const base = measured();
+    const snapshot = snapshotOverride ? snapshotOverride(base.snapshot) : base.snapshot;
+    const draft: RefactorAssessmentV1 = {
+      ...base.assessment,
+      observations: oversizedObservations(snapshot.modules.map((module) => module.nodeId)),
+      assessmentDigest: ""
+    };
+    const assessment = { ...draft, assessmentDigest: refactorAssessmentDigest(draft) };
+    expect(refactorAssessmentInvariantIssues(assessment)).toEqual([]);
+    return { snapshot, assessment };
+  }
+
+  function build(registered: { snapshot: ModuleStatisticsSnapshotV1; assessment: RefactorAssessmentV1 }) {
+    return buildRefactorRecordEvent({
+      ...LEDGER_SCOPE,
+      registered: { ...registered, headSha: LEDGER_SCOPE.worktree.headSha, worktreeDigest: registered.snapshot.worktree.worktreeDigest },
+      previousRecommendations: [],
+      evidenceState: emptyArchitectureLedgerEvidenceState(),
+      graphDigest: digestJson("graph.rf2" as Json),
+      catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
+      now: NOW
+    });
+  }
+
+  test("25 full-sample observations are cut to one shared limit until the event fits the ledger", () => {
+    const registered = oversizedRun();
+    const unbounded = planRefactorRecommendationRun({
+      ...LEDGER_SCOPE,
+      snapshot: registered.snapshot,
+      assessment: registered.assessment,
+      catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
+      now: NOW
+    });
+    // Without the budget this run is the B1 failure: one recording event over the ceiling.
+    expect(unbounded.recommendations).toHaveLength(25);
+    expect(architectureLedgerPersistedJsonBytes(refactorRecommendationRunLedgerPayload(unbounded))).toBeGreaterThan(ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES);
+
+    const built = build(registered);
+
+    expect(() => assertArchitectureLedgerPersistenceSafe(built.event.payload, "refactor_scan")).not.toThrow();
+    expect(() => validateArchitectureLedgerEvent(built.event)).not.toThrow();
+    const limit = built.plan.run.extensions!.evidenceSampleLimit as number;
+    expect(limit).toBeGreaterThan(0);
+    expect(limit).toBeLessThan(REFACTOR_OBSERVATION_EVIDENCE_LIMIT);
+
+    // The cut never reaches an identity.
+    expect(built.plan.run.runId).toBe(unbounded.run.runId);
+    expect(built.plan.recommendations.map((record) => [record.recommendationId, record.fingerprint]))
+      .toEqual(unbounded.recommendations.map((record) => [record.recommendationId, record.fingerprint]));
+
+    const observationsBySubject = new Map(registered.assessment.observations.map((observation) => [observation.subjectSelectorId, observation]));
+    for (const record of built.plan.recommendations) {
+      expect(recommendationV3InvariantIssues(record)).toEqual([]);
+      const evidence = (record.payload as StructuralObservationPayloadV1).evidence as unknown as Record<string, unknown>;
+      const original = observationsBySubject.get(record.subject)!.evidence as unknown as Record<string, unknown>;
+      const field = ({ cycle: "edges", "direction-violation": "violations", "ownership-ambiguous": "paths" } as Record<string, string>)[evidence.kind as string]!;
+      // An honest prefix: the true population, flagged truncated, id lists untouched.
+      expect(evidence[field]).toEqual((original[field] as unknown[]).slice(0, limit));
+      expect(evidence.totalCount).toBe(original.totalCount);
+      expect(evidence.truncated).toBe(true);
+      expect({ ...evidence, [field]: [] }).toEqual({ ...original, [field]: [] });
+    }
+
+    // Same input, same cut, same bytes.
+    expect(JSON.stringify(build(registered).event)).toBe(JSON.stringify(built.event));
+  });
+
+  test("a run over the ceiling with every sample empty fails closed with a typed reason", () => {
+    // The baseline snapshot rides in the event whole; an oversized one leaves no room at all.
+    const padded = (snapshot: ModuleStatisticsSnapshotV1): ModuleStatisticsSnapshotV1 => ({
+      ...snapshot,
+      extensions: { padding: Array.from({ length: 40 }, () => "p".repeat(8_000)) }
+    });
+    const registered = oversizedRun(padded);
+    let thrown: unknown;
+    try {
+      build(registered);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(RefactorRunPersistenceError);
+    expect((thrown as RefactorRunPersistenceError).code).toBe("AC_SCHEMA_INVALID");
+    expect((thrown as RefactorRunPersistenceError).reasonCode).toBe(REFACTOR_RUN_PERSISTENCE_REASON_CODE);
+    expect((thrown as Error).message).toMatch(/^AC_SCHEMA_INVALID: the refactor run event needs \d+ bytes with every evidence sample empty/);
+  });
+
+  test("refactor record refuses an unpersistable run with the typed reason and appends nothing", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Recording App");
+      const snapshot = makeSnapshot({ importEdges: CYCLE_EDGES });
+      const { digest } = registerAt(daemon, root, {
+        snapshot: { ...snapshot, extensions: { padding: Array.from({ length: 40 }, () => "p".repeat(8_000)) } }
+      });
+
+      const result = await daemon.refactorRecord(root, recordInput(root, digest));
+
+      expect(result.ok).toBe(false);
+      expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(result).reasonCode).toBe(REFACTOR_RUN_PERSISTENCE_REASON_CODE);
+      expect(store.architectureEvents).toHaveLength(0);
     } finally {
       await daemon.stop();
     }

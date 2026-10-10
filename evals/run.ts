@@ -33,7 +33,7 @@ import {
 } from "../packages/core/practice-engine/src/index";
 import { detectArchitecturePressure } from "../packages/core/pressure-engine/src/index";
 import { computeRefactorConfidence, decidePosture } from "../packages/core/refactor-decision/src/index";
-import { buildModuleStatisticsSnapshot, resolveOwnership, type ModuleStatisticsImportEdgeV1, type ModuleStatisticsTrackedFileV1 } from "../packages/core/module-statistics/src/index";
+import { buildModuleStatisticsSnapshot, measureModuleStatistics, resolveOwnership, type ModuleStatisticsImportEdgeV1, type ModuleStatisticsTrackedFileV1 } from "../packages/core/module-statistics/src/index";
 import { assessRefactor, deriveTargetDelta } from "../packages/core/refactor-assessment/src/index";
 import type { NativeModel } from "../packages/core/projection-engine/src/index";
 import {
@@ -537,7 +537,7 @@ function materializeTargetMigrationInput(item: TargetMigrationCase): {
   assessmentInput: Parameters<typeof assessRefactor>[0];
 } {
   const worktreeDigest = digestJson({ evaluator: "target-vs-migration", caseId: item.id });
-  const snapshot = buildModuleStatisticsSnapshot({
+  const { snapshot, structure } = measureModuleStatistics({
     model: item.model,
     repository: { repositoryId: `repo.eval.${item.id}`, storageRepositoryId: `storage.repo.eval.${item.id}` },
     worktree: {
@@ -590,6 +590,7 @@ function materializeTargetMigrationInput(item: TargetMigrationCase): {
     request,
     assessmentInput: {
       snapshot,
+      structure,
       model: item.model,
       trackedFiles: item.files.map((file) => file.path),
       request,
