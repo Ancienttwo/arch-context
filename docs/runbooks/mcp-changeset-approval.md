@@ -1,18 +1,46 @@
-# Approving an MCP ChangeSet
+# Approving a ChangeSet (CLI and MCP)
 
-MCP agents propose changes and forward approval credentials. They cannot approve their own proposals with `approved: true`.
+CLI and MCP share one approval model. A ChangeSet applies only when the caller passes all three:
 
-1. Call `archcontext_plan_update`. Review its `draft` and `preview`; retain the returned `changeSetDigest` and `draft.base.worktreeDigest`.
-2. In the local CLI, explicitly approve that exact preview:
+- an explicit approval: `--approved` on the CLI, `approved: true` on MCP;
+- the expected worktree digest from the preview (`draft.base.worktreeDigest`);
+- for every entity operation, the expected hash of the file it replaces (`missing` for a create).
+
+There is no separate approval command and no approval token.
+
+## CLI
+
+1. Plan one entity operation. Create, update and delete use the same shape:
 
    ```sh
-   archctx approve --id CHANGESET_ID --expected-worktree-digest WORKTREE_DIGEST --expected-changeset-digest CHANGESET_DIGEST --approved
+   archctx plan --id changeset.ID --path .archcontext/model/nodes/NODE.yaml --body '<complete YAML>'
+   archctx plan --id changeset.ID --op update_entity_fields --path .archcontext/model/nodes/NODE.yaml --expected-hash sha256:CURRENT --body '<complete YAML>'
+   archctx plan --id changeset.ID --op delete_entity --path .archcontext/model/flows/FLOW.yaml --expected-hash sha256:CURRENT
    ```
 
-3. Pass the returned `approvalToken`, the same ChangeSet ID, repository root and worktree digest to `archcontext_apply_update`.
+   `--body` is the complete new YAML document, not a field patch. Update and delete require `--expected-hash`; delete accepts no `--body`.
 
-The daemon binds the random token to the canonical repository path, ChangeSet contents and worktree digest. Tokens expire after five minutes, are consumed before asynchronous apply work, and become invalid when the daemon stops. A rejected attempt also consumes its token; preview and approve again before retrying. Tokens are held only in daemon memory as hashed lookup keys and are not persisted to the ledger.
+2. Review `preview`. `preview.allowed` is `false` when a finding blocks the write. A stale or wrong hash shows `Expected hash mismatch: PATH (current sha256:...)`. Re-read the file and plan again; do not copy the reported hash without reviewing the current content.
+3. Apply with the preview's worktree digest:
 
-MCP-created ChangeSets cannot use the direct `applyUpdate` RPC with a boolean approval. Both stdio and HTTP MCP use the token-verifying daemon method. The approval issuer is a local CLI/RPC operation and is not an MCP tool. The existing trusted CLI and internal projection apply flows retain their explicit local approval contract; this boundary separates agent tools from the local operator, not mutually hostile processes running as the same OS user.
+   ```sh
+   archctx apply --id changeset.ID --approved --expected-worktree-digest WORKTREE_DIGEST
+   ```
 
-The ChatGPT HTTP surface applies the same allowlist to listing and calling tools. It excludes apply by default, even if the caller knows the tool name or supplies an approval token. Explicit write-enabled host composition still requires a valid token.
+## MCP
+
+1. Call `archcontext_plan_update` with the same entity operation shape. Review `draft` and `preview`.
+2. Call `archcontext_apply_update` with the same ChangeSet ID, repository root, `expectedWorktreeDigest: draft.base.worktreeDigest` and `approved: true`.
+
+`archcontext_projection` follows the same rule. `run` with `mode: apply|adopt` and `recover` need `approved: true`, and the request's `expected` snapshot must match the repository.
+
+## What fails closed
+
+- A missing, `false` or non-boolean approval returns `AC_USER_CONFIRMATION_REQUIRED` and writes nothing.
+- A malformed CLI operation returns `AC_SCHEMA_INVALID` before the daemon is contacted.
+- An apply from another repository than the one that planned the ChangeSet returns `AC_PRECONDITION_FAILED`.
+- A changed worktree digest, HEAD or model digest, or a file whose hash no longer matches, aborts under the daemon writer lock. A failed apply rolls back. A second apply of the same draft fails because the first apply changed the worktree.
+
+The ChatGPT HTTP surface still excludes `archcontext_apply_update` and `archcontext_projection` from both the tool list and tool calls unless write mode is explicitly enabled.
+
+The decision record is [ADR-0012](../adr/ADR-0012-changeset-only-architecture-writes.md) and [the explicit-approval note](../researches/20261010-changeset-explicit-approval.md).

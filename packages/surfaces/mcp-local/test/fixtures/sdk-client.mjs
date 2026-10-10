@@ -18,8 +18,9 @@ try {
   const result = await client.callTool({ name: "archcontext_practices", arguments: { root: "/fixture" } });
   assert.equal(result.isError, false);
   assert.deepEqual(result.content, [{ type: "text", text: JSON.stringify({ ok: true, requestId: "practices", data: { practices: [] } }) }]);
-  const denied = await client.callTool({ name: "archcontext_apply_update", arguments: { root: "/fixture", id: "test", expectedWorktreeDigest: "digest", approvalToken: "invalid-grant" } });
+  const denied = await client.callTool({ name: "archcontext_apply_update", arguments: { root: "/fixture", id: "test", expectedWorktreeDigest: "digest", approved: false } });
   assert.equal(denied.isError, true);
+  await assert.rejects(client.callTool({ name: "archcontext_apply_update", arguments: { root: "/fixture", id: "test", expectedWorktreeDigest: "digest", approvalToken: "retired" } }), { code: -32602 });
   await assert.rejects(client.callTool({ name: "archcontext_practices", arguments: { root: 42 } }), { code: -32602 });
   await assert.rejects(client.callTool({ name: "missing", arguments: {} }), { code: -32602 });
   await assert.rejects(client.request({ method: "unknown/method" }, EmptyResultSchema), { code: -32601 });

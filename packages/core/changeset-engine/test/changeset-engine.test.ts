@@ -70,6 +70,32 @@ describe("@archcontext/core/changeset-engine", () => {
     expect(engine.preview("/tmp/repo", denied).allowed).toBe(false);
   });
 
+  test("previews the per-entity preimage that apply enforces for create, update and delete", () => {
+    const modelRoot = tempModelRoot();
+    try {
+      const path = ".archcontext/model/nodes/module.preimage.yaml";
+      const body = "schemaVersion: archcontext.node/v2\nid: module.preimage\nkind: module\nname: Preimage\nstatus: active\nsummary: Preimage\nresponsibilities:\n- preimage\n";
+      const engine = new ChangeSetEngine();
+      const preview = (op: "create_entity" | "update_entity_fields" | "delete_entity", expectedHash: string) => engine.preview(modelRoot, engine.plan({
+        id: `changeset.${op}`,
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.test" },
+        operations: [{ op, path, expectedHash, ...(op === "delete_entity" ? {} : { body }) }]
+      }));
+      expect(preview("create_entity", "missing")).toMatchObject({ allowed: true, findings: [] });
+      expect(preview("update_entity_fields", digest).findings).toEqual([`update_entity_fields target does not exist: ${path}`]);
+      expect(preview("delete_entity", digest).findings).toEqual([`delete_entity target does not exist: ${path}`]);
+      writeFileSync(join(modelRoot, path), body);
+      const current = digestJson({ body });
+      expect(preview("create_entity", "missing")).toMatchObject({ allowed: false, findings: [`Expected hash mismatch: ${path} (current ${current})`] });
+      expect(preview("update_entity_fields", digest)).toMatchObject({ allowed: false, findings: [`Expected hash mismatch: ${path} (current ${current})`] });
+      expect(preview("update_entity_fields", current)).toMatchObject({ allowed: true, findings: [] });
+      expect(preview("delete_entity", current)).toMatchObject({ allowed: true, findings: [] });
+    } finally {
+      rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+
   test("plans accepted architecture candidates as previewable changesets and ledger event batches", () => {
     const repository = { repositoryId: "repo.arch-context", storageRepositoryId: "git:arch-context" };
     const worktree = {

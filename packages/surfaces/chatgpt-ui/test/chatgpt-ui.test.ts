@@ -27,5 +27,9 @@ describe("ChatGPT UI resources", () => {
     const state = buildGaUiState({ writeEnabled: false });
     expect(state.writeMode).toBe("disabled");
     expect(state.disclosure).toContain("local runtime");
+    expect(state.disclosure).toContain("approved: true");
+    expect(state.disclosure).not.toContain("local confirmation");
+    expect(buildGaUiState({ writeEnabled: true }).writeMode).toBe("explicit-approval");
+    expect(html).not.toContain("local confirmation");
   });
 });
