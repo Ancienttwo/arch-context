@@ -16,8 +16,8 @@ import { initializeArchContextModel, listModelFiles, planGeneratedProjection, Ya
 import { ChangeSetEngine, type ApplyOptions, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
 import { createNodeGithubIssueExecutor, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueExecutorPort, type GithubIssuePreflightDraft } from "../src/github-issue-executor";
-import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
-import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, loadCapabilitySourceChangesSinceStamps, runtimeDefaultClock } from "../src/index";
+import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, runtimeDefaultClock } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-runtime-state-"));
@@ -62,12 +62,7 @@ function writeArchitectureDocsProjection(root: string): void {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    verifiedAgainst: {
-      branch: execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
-      commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
-      committedAt: execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
-    },
-    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest,
@@ -90,12 +85,7 @@ function architectureDocsProjectionOperation(root: string) {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    verifiedAgainst: {
-      branch: execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
-      commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
-      committedAt: execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
-    },
-    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest: architectureDocumentationSourceDigest({ model: loaded.model, decisions: loaded.decisions }),
@@ -135,10 +125,15 @@ async function applyArchitectureDocsProjection(
  * the projection manifest — no document body or marker carries provenance — so this is where the
  * stamp lifecycle is observed.
  */
-function projectionStampCommit(root: string, nodeId: string): string | undefined {
+function projectionStampDigest(root: string, nodeId: string): string | undefined {
   const manifest = JSON.parse(readText(join(root, "docs/architecture/.projection-manifest.json")));
   const target = (manifest.targets as any[]).find((entry) => entry.type === "entity-summary" && entry.scope?.id === nodeId);
-  return target?.verifiedAgainst?.commit;
+  return target?.sourceFootprintDigest;
+}
+
+function currentFootprintDigest(root: string, nodeId: string): string | undefined {
+  return loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root))
+    .find((entry) => entry.nodeId === nodeId)?.digest;
 }
 
 /** The `render_agent_context` operation `archctx agent-context plan|apply` builds. */
@@ -560,9 +555,9 @@ describe("local runtime foundation", () => {
     }
   });
 
-  test("complete_task blocks a projection whose declared source moved after the verified commit", async () => {
-    // Git-backed on purpose: the freshness gate diffs the manifest's verifiedAgainst commit against
-    // HEAD, so it needs real commits rather than a synthetic worktree digest.
+  test("complete_task blocks a projection whose declared source moved after it was verified", async () => {
+    // Git-backed so the "outside the footprint" case is a real commit; the gate itself compares the
+    // manifest's per-node footprint digest with the current one and reads no Git history.
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
@@ -578,17 +573,18 @@ describe("local runtime foundation", () => {
       gitCommitAll(root, "declare capability source");
       writeArchitectureDocsProjection(root);
 
-      const verifiedCommit = gitOut(root, "rev-parse", "HEAD");
+      const verifiedDigest = projectionStampDigest(root, "capability.architecture.context");
+      expect(verifiedDigest).toBe(currentFootprintDigest(root, "capability.architecture.context"));
       const fresh = await daemon.completeTask(root, {
         taskSessionId: "task_projection_freshness",
-        task: "finish with the projection verified against HEAD"
+        task: "finish with the projection verified against the current source"
       });
       expect(fresh.ok).toBe(true);
       expect((fresh.data as any).result).toBe("pass");
       expect((fresh.data as any).extensions.projectionFreshnessGate).toBeUndefined();
 
       // A commit outside every declared footprint leaves both projection gates silent: the stamp is
-      // sticky, so a moved HEAD alone is not drift either.
+      // content-addressed, so a moved HEAD alone is not drift either.
       writeFileSync(join(root, "NOTES.md"), "# notes\n", "utf8");
       gitCommitAll(root, "change outside the declared footprint");
       const stillFresh = await daemon.completeTask(root, {
@@ -609,20 +605,18 @@ describe("local runtime foundation", () => {
       expect((stale.data as any).result).toBe("fail_action_required");
       const finding = (stale.data as any).findings.find((entry: any) => entry.id === "stale-context");
       expect(finding.type).toBe("stale-context");
-      expect(finding.message).toContain("projection-source-changed-since-verified-commit");
-      expect(finding.message).toContain(`capability.architecture.context(1@${verifiedCommit})`);
+      expect(finding.message).toContain("projection-source-changed-since-stamp");
+      expect(finding.message).toContain("capability.architecture.context");
       const gate = (stale.data as any).extensions.projectionFreshnessGate;
       expect(gate.ok).toBe(false);
       expect(gate.staleNodes).toEqual([{
         nodeId: "capability.architecture.context",
-        verifiedAgainst: expect.objectContaining({ commit: verifiedCommit }),
-        changedPathCount: 1,
-        changedPaths: ["src/app.ts"],
-        changedPathsTruncated: false
+        stampedDigest: verifiedDigest,
+        currentDigest: currentFootprintDigest(root, "capability.architecture.context")
       }]);
 
-      // Re-running the projection against the new HEAD re-stamps the document (its measured scale
-      // signal moved, so the generated region is genuinely re-derived) and clears the finding.
+      // Re-running the projection re-stamps the document with the current footprint and clears the
+      // finding.
       writeArchitectureDocsProjection(root);
       const reprojected = await daemon.completeTask(root, {
         taskSessionId: "task_projection_freshness",
@@ -636,10 +630,9 @@ describe("local runtime foundation", () => {
   });
 
   test("committing the projection itself does not block the next complete_task", async () => {
-    // The heart of the sticky stamp: plan → apply → commit the projection → complete, with no
-    // second projection run in between. `verifiedAgainst` records when the content was generated,
-    // not which HEAD happens to be checked out during the drift re-render, so the projection is a
-    // fixed point: committing it does not invalidate it.
+    // plan → apply → commit the projection → complete, with no second projection run in between.
+    // The stamp is the footprint's content digest, and the projection's own outputs are outside
+    // every footprint, so committing the projection does not invalidate it.
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
@@ -669,7 +662,7 @@ describe("local runtime foundation", () => {
       });
       expect(apply.ok).toBe(true);
 
-      // Commit the projection output. HEAD now differs from the commit the documents name.
+      // Commit the projection output. HEAD now differs from the commit the projection ran on.
       gitCommitAll(root, "project architecture documentation");
       expect(gitOut(root, "rev-parse", "HEAD")).not.toBe(appliedAtCommit);
       expect(gitOut(root, "status", "--porcelain")).toBe("");
@@ -684,9 +677,13 @@ describe("local runtime foundation", () => {
       expect((complete.data as any).findings).toEqual([]);
       expect((complete.data as any).result).toBe("pass");
 
-      // The manifest still names the commit the content was generated against, not the projection
-      // commit — and the document itself names no commit at all.
-      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(appliedAtCommit);
+      // The manifest stamps the footprint content and names no commit, so nothing in it can dangle
+      // after a squash merge — and the document itself names no commit at all.
+      expect(projectionStampDigest(root, "capability.architecture.context"))
+        .toBe(currentFootprintDigest(root, "capability.architecture.context"));
+      const manifest = readText(join(root, "docs/architecture/.projection-manifest.json"));
+      expect(manifest).not.toContain(appliedAtCommit);
+      expect(manifest).not.toMatch(/"(?:baseHeadSha|worktreeDigest|verifiedAgainst)"/);
       expect(readText(join(root, "docs/architecture/modules/capability-architecture-context.md")))
         .not.toContain(appliedAtCommit);
     } finally {
@@ -698,10 +695,8 @@ describe("local runtime foundation", () => {
   test("a covered source edit that moves no rendered assertion is cleared by re-projecting", async () => {
     // The other half of the fixed point. An edit inside the capability footprint that changes nothing
     // the document asserts (same file count, same line count, same import edges) leaves every render
-    // digest identical. If the stamp stuck on digests alone, the freshness gate would report the
-    // projection stale and re-projecting would produce byte-identical output — `complete_task` would
-    // be wedged with no way out. The stamp lifecycle also asks "did covered source change since the
-    // stamped commit?", so re-projecting genuinely re-verifies and clears the gate.
+    // digest identical. The footprint digest still moves, so the freshness gate reports the projection
+    // stale, and re-projecting re-stamps the manifest — `complete_task` is never wedged.
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
@@ -715,18 +710,19 @@ describe("local runtime foundation", () => {
       mkdirSync(join(root, "src"), { recursive: true });
       writeFileSync(join(root, "src/app.ts"), "export const app = 1;\n", "utf8");
       gitCommitAll(root, "declare capability source");
-      const verifiedCommit = gitOut(root, "rev-parse", "HEAD");
 
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-deadlock-initial");
       gitCommitAll(root, "project architecture documentation");
       const docPath = join(root, "docs/architecture/modules/capability-architecture-context.md");
       const beforeDoc = readText(docPath);
-      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(verifiedCommit);
+      const verifiedDigest = projectionStampDigest(root, "capability.architecture.context");
+      expect(verifiedDigest).toBe(currentFootprintDigest(root, "capability.architecture.context"));
 
       // Same line, same line count, same files, same imports: no rendered assertion moves.
       writeFileSync(join(root, "src/app.ts"), "export const app = 2;\n", "utf8");
       gitCommitAll(root, "change a literal inside the declared footprint");
-      const reverifiedCommit = gitOut(root, "rev-parse", "HEAD");
+      const reverifiedDigest = currentFootprintDigest(root, "capability.architecture.context");
+      expect(reverifiedDigest).not.toBe(verifiedDigest);
 
       const stale = await daemon.completeTask(root, {
         taskSessionId: "task_docs_deadlock",
@@ -735,14 +731,14 @@ describe("local runtime foundation", () => {
       expect((stale.data as any).result).toBe("fail_action_required");
       expect((stale.data as any).findings).toContainEqual(expect.objectContaining({ id: "stale-context" }));
       expect((stale.data as any).extensions.projectionFreshnessGate.reasonCodes)
-        .toContain("projection-source-changed-since-verified-commit");
+        .toContain("projection-source-changed-since-stamp");
 
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-deadlock-reverify");
       const afterDoc = readText(docPath);
       // The re-verification advanced the stamp in the manifest and left the document untouched —
-      // byte-identical, marker attributes included. This is the churn fix: re-verifying a capability
-      // whose footprint moved no longer produces a documentation diff to commit.
-      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(reverifiedCommit);
+      // byte-identical, marker attributes included. Re-verifying a capability whose footprint moved
+      // produces no documentation diff to commit.
+      expect(projectionStampDigest(root, "capability.architecture.context")).toBe(reverifiedDigest);
       expect(afterDoc).toBe(beforeDoc);
 
       gitCommitAll(root, "re-verify the architecture documentation");
@@ -755,7 +751,7 @@ describe("local runtime foundation", () => {
       expect((complete.data as any).extensions.projectionFreshnessGate).toBeUndefined();
       expect((complete.data as any).extensions.projectionDriftGate).toBeUndefined();
 
-      // Idempotent at the same HEAD: a second projection writes the same bytes.
+      // Idempotent: a second projection writes the same bytes.
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-deadlock-idempotent");
       expect(readText(docPath)).toBe(afterDoc);
       expect(gitOut(root, "status", "--porcelain")).toBe("");
@@ -765,15 +761,18 @@ describe("local runtime foundation", () => {
     }
   });
 
-  test("a stamped commit this repository no longer has re-stamps with a notice instead of failing", async () => {
-    // Rebase / shallow clone: the commit the projection is stamped with is gone, so the change set
-    // cannot be measured. Failing closed would leave `docs apply` permanently unrunnable, so the
-    // renderer re-stamps against the current ref and reports it on the plan surface.
+  test("a projection stamped on a squash-merged branch stays fresh on the default branch (#257)", async () => {
+    // Squash merges discard the branch commit the projection ran on. A content-addressed stamp
+    // never names that commit, so the default branch can still measure freshness and needs no
+    // re-projection or manifest-only restamp commit.
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
-      await daemon.init(root, "Projection Rebase App");
+      await daemon.init(root, "Projection Squash App");
+      gitCommitAll(root, "initialize architecture model");
+      const defaultBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+      execFileSync("git", ["checkout", "-q", "-b", "feature/projection"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
         `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
@@ -782,28 +781,32 @@ describe("local runtime foundation", () => {
       mkdirSync(join(root, "src"), { recursive: true });
       writeFileSync(join(root, "src/app.ts"), "export const app = 1;\n", "utf8");
       gitCommitAll(root, "declare capability source");
-      await applyArchitectureDocsProjection(root, daemon, "changeset.docs-rebase-initial");
+      await applyArchitectureDocsProjection(root, daemon, "changeset.docs-squash");
       gitCommitAll(root, "project architecture documentation");
+      const branchCommits = gitOut(root, "rev-list", `${defaultBranch}..HEAD`).split("\n");
+      const manifestBefore = readText(join(root, "docs/architecture/.projection-manifest.json"));
 
-      // Rewrite the recorded stamp to a commit that is not in this repository. The manifest is the
-      // only place it lives, so this is the whole rewrite.
-      const orphanedCommit = "0".repeat(40);
-      const appliedCommit = gitOut(root, "rev-parse", "HEAD~1");
-      const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
-      writeFileSync(manifestPath, readText(manifestPath).replaceAll(appliedCommit, orphanedCommit), "utf8");
+      execFileSync("git", ["checkout", "-q", defaultBranch], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      execFileSync("git", ["merge", "--squash", "feature/projection"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      gitCommitAll(root, "squash: project architecture documentation");
+      execFileSync("git", ["branch", "-D", "feature/projection"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      for (const commit of branchCommits) {
+        expect(gitExitCode(root, "merge-base", "--is-ancestor", commit, "HEAD")).not.toBe(0);
+        expect(manifestBefore).not.toContain(commit);
+      }
 
-      const loaded = loadArchitectureDocumentationInputs(root);
-      const measured = loadCapabilitySourceChangesSinceStamps(root, loaded.model);
-      expect(measured).toEqual([{
-        nodeId: "capability.architecture.context",
-        commit: orphanedCommit,
-        status: "unmeasurable",
-        reason: expect.any(String)
-      }]);
+      const complete = await daemon.completeTask(root, {
+        taskSessionId: "task_docs_squash",
+        task: "finish on the default branch after the squash merge"
+      });
+      expect((complete.data as any).result).toBe("pass");
+      expect((complete.data as any).extensions.projectionFreshnessGate).toBeUndefined();
+      expect((complete.data as any).extensions.projectionDriftGate).toBeUndefined();
 
-      await applyArchitectureDocsProjection(root, daemon, "changeset.docs-rebase-reverify");
-      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(gitOut(root, "rev-parse", "HEAD"));
-      expect(readText(manifestPath)).not.toContain(orphanedCommit);
+      // Re-projecting on the default branch is a byte-identical no-op.
+      await applyArchitectureDocsProjection(root, daemon, "changeset.docs-squash-noop");
+      expect(readText(join(root, "docs/architecture/.projection-manifest.json"))).toBe(manifestBefore);
+      expect(gitOut(root, "status", "--porcelain")).toBe("");
     } finally {
       await daemon?.stop();
       removeTempRepo(root);
@@ -1000,10 +1003,10 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
-  test("a manifest stamp commit that is not a hex SHA never reaches git as an option (#159)", async () => {
-    // The projection manifest is committed repository content, i.e. untrusted input. A stamp commit
-    // of `--output=output` turns `git diff <commit>..HEAD` into `git diff --output=output..HEAD`,
-    // which truncates `output..HEAD` — and follows it when the repository commits it as a symlink.
+  test("a manifest stamp that is not a footprint digest fails closed and never reaches git (#159)", async () => {
+    // The projection manifest is committed repository content, i.e. untrusted input. Freshness
+    // compares content digests and runs no Git command, so a hostile stamp such as `--output=output`
+    // (which once truncated `output..HEAD` through `git diff`) can only be reported as invalid.
     const root = createGitRepo();
     const sentinelDir = mkdtempSync(join(tmpdir(), "archctx-stamp-sentinel-"));
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
@@ -1021,21 +1024,20 @@ setInterval(() => undefined, 1 << 30);
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-stamp-injection");
       gitCommitAll(root, "project architecture documentation");
 
-      const appliedCommit = gitOut(root, "rev-parse", "HEAD~1");
+      const stamp = projectionStampDigest(root, "capability.architecture.context")!;
       const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
-      writeFileSync(manifestPath, readText(manifestPath).replaceAll(appliedCommit, "--output=output"), "utf8");
+      writeFileSync(manifestPath, readText(manifestPath).replaceAll(stamp, "--output=output"), "utf8");
       const sentinel = join(sentinelDir, "sentinel.txt");
       writeFileSync(sentinel, "preserve me\n", "utf8");
       const trap = join(root, "output..HEAD");
       if (process.platform !== "win32") symlinkSync(sentinel, trap);
 
-      const loaded = loadArchitectureDocumentationInputs(root);
-      // An unusable stamp is never measured, and never reported as `unchanged`.
-      expect(loadCapabilitySourceChangesSinceStamps(root, loaded.model)).toEqual([]);
-      await daemon.completeTask(root, {
+      const complete = await daemon.completeTask(root, {
         taskSessionId: "task_stamp_injection",
         task: "complete with a hostile projection manifest"
       });
+      expect((complete.data as any).extensions.projectionFreshnessGate.reasonCodes)
+        .toContain("projection-source-stamp-invalid");
 
       expect(readText(sentinel)).toBe("preserve me\n");
       if (process.platform === "win32") expect(existsSync(trap)).toBe(false);
@@ -1046,9 +1048,9 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
-  test("changed paths since a stamp are read NUL-framed, so non-ASCII paths still count as changes (#173)", async () => {
-    // `git diff --name-only` C-quotes non-ASCII paths by default ("src/\350\263\207\346\226\231.ts"),
-    // and that quoted string never matches `src/**`, so a covered edit read as `unchanged`.
+  test("a non-ASCII path added inside the footprint moves the content stamp (#173)", async () => {
+    // Paths enter the footprint digest verbatim from the filesystem, so a non-ASCII file name is a
+    // covered change like any other — no Git quoting can hide it.
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
@@ -1064,18 +1066,25 @@ setInterval(() => undefined, 1 << 30);
       gitCommitAll(root, "declare capability source");
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-path-framing");
       gitCommitAll(root, "project architecture documentation");
-      const stampCommit = gitOut(root, "rev-parse", "HEAD~1");
-      expect(projectionStampCommit(root, "capability.architecture.context")).toBe(stampCommit);
+      const stamp = projectionStampDigest(root, "capability.architecture.context");
+      expect(stamp).toBe(currentFootprintDigest(root, "capability.architecture.context"));
 
       writeFileSync(join(root, "src/資料.ts"), "export const data = 1;\n", "utf8");
       gitCommitAll(root, "add a non-ASCII source path");
 
       const loaded = loadArchitectureDocumentationInputs(root);
-      expect(loadCapabilitySourceChangesSinceStamps(root, loaded.model)).toEqual([{
+      const footprint = loadCapabilitySourceFootprintDigests(root, loaded.model)
+        .find((entry) => entry.nodeId === "capability.architecture.context")!;
+      expect(footprint.fileCount).toBe(2);
+      expect(footprint.digest).not.toBe(stamp);
+      const complete = await daemon.completeTask(root, {
+        taskSessionId: "task_path_framing",
+        task: "complete after adding a non-ASCII source path"
+      });
+      expect((complete.data as any).extensions.projectionFreshnessGate.staleNodes).toEqual([{
         nodeId: "capability.architecture.context",
-        commit: stampCommit,
-        status: "changed",
-        changedPathCount: 1
+        stampedDigest: stamp,
+        currentDigest: footprint.digest
       }]);
     } finally {
       await daemon?.stop();
@@ -1216,14 +1225,14 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
-  test("complete_task fails closed when the projection's verified commit cannot be diffed", async () => {
+  test("a manifest stamped with commits before content stamps fails closed until re-projected once (#257)", async () => {
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Freshness Fail Closed App");
       // A declared capability footprint is what freshness grades, so the repository needs one
-      // before an undiffable stamp can fail closed against anything.
+      // before a legacy stamp can fail closed against anything.
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
         `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
@@ -1236,28 +1245,38 @@ setInterval(() => undefined, 1 << 30);
 
       const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
       const manifest = JSON.parse(readText(manifestPath));
-      // A commit that is valid provenance in shape but absent from this repository — the shallow
-      // clone / rewritten history case. The gate must report "could not measure", never "no change".
+      // The pre-#257 shape: a commit stamp and no content stamp. Commit stamps are never read, so
+      // the gate reports the missing content stamp instead of trusting or diffing the commit.
       for (const target of manifest.targets) {
-        if (target.verifiedAgainst) target.verifiedAgainst.commit = "0".repeat(40);
+        if (!target.sourceFootprintDigest) continue;
+        delete target.sourceFootprintDigest;
+        target.verifiedAgainst = { branch: "main", commit: gitOut(root, "rev-parse", "HEAD"), committedAt: "2026-08-08T10:40:00Z" };
       }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
       const result = await daemon.completeTask(root, {
         taskSessionId: "task_projection_freshness_failclosed",
-        task: "finish against an undiffable verified commit"
+        task: "finish against a commit-stamped manifest"
       });
       expect((result.data as any).result).toBe("fail_action_required");
       const finding = (result.data as any).findings.find((entry: any) => entry.id === "stale-context");
-      expect(finding.message).toContain("projection-change-set-unavailable");
+      expect(finding.message).toContain("projection-source-stamp-missing");
       expect((result.data as any).extensions.projectionFreshnessGate.reasonCodes)
-        .toEqual(["projection-change-set-unavailable"]);
+        .toEqual(["projection-source-stamp-missing"]);
+
+      // One re-projection migrates the manifest to content stamps and clears the gate.
+      writeArchitectureDocsProjection(root);
+      expect(readText(manifestPath)).not.toContain("verifiedAgainst");
+      const migrated = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_freshness_failclosed",
+        task: "finish after migrating the projection manifest"
+      });
+      expect((migrated.data as any).extensions.projectionFreshnessGate).toBeUndefined();
     } finally {
       await daemon?.stop();
       removeTempRepo(root);
     }
   });
-
   test("practice waiver writes are owner-aware ChangeSets with apply readback", async () => {
     const root = tempRepo();
     try {
@@ -2677,6 +2696,15 @@ describe("github issue executor", () => {
     expect((result as { ok: true; bodies: Map<string, string> }).bodies.size).toBe(2);
   });
 });
+
+function gitExitCode(root: string, ...args: string[]): number {
+  try {
+    execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    return 0;
+  } catch (error) {
+    return (error as { status?: number }).status ?? 1;
+  }
+}
 
 function gitCommitAll(root: string, message: string): void {
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });

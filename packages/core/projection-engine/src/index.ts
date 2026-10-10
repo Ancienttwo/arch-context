@@ -114,11 +114,12 @@ export interface ArchitectureDocumentationProjectionFile extends ArchitectureDoc
   digest: string;
   generatedBodyDigest: string;
   /**
-   * Present on `entity-summary` targets only: the commit this file's generated region is stamped
-   * with. Reused from the existing marker whenever the render inputs are unchanged, so the
-   * projection has a fixed point across commits.
+   * Present on `entity-summary` targets of nodes that declare `source.include`: the content digest
+   * of the node's declared source footprint this render verified the document against
+   * (`loadCapabilitySourceFootprintDigests`). Content-addressed, so it survives squash merges,
+   * rebases and shallow clones, and a change outside the footprint leaves it untouched.
    */
-  verifiedAgainst?: ArchitectureProjectionVerifiedAgainst;
+  sourceFootprintDigest?: string;
 }
 
 export type ArchitectureDocumentationDriftReason =
@@ -141,30 +142,13 @@ export interface ArchitectureDocumentationProjectionDrift {
   actualDigest?: string;
 }
 
-/**
- * Something a consumer must be told about a render that still succeeded. Notices are not drift and
- * never fail a projection; they exist so a stamp the renderer could not keep is visible on the
- * `plan`/`apply` surface instead of happening silently.
- */
-export type ArchitectureDocumentationProjectionNoticeCode = "projection-stamp-change-set-unmeasurable";
-
-export interface ArchitectureDocumentationProjectionNotice {
-  code: ArchitectureDocumentationProjectionNoticeCode;
-  nodeId: string;
-  targetId: string;
-  path: string;
-  /** The commit the existing generated region was stamped with. */
-  stampedCommit: string;
-  detail: string;
-}
-
 export interface ArchitectureDocumentationProjectionPlan {
   schemaVersion: "archcontext.architecture-docs-projection-plan/v1";
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   sourceDigest: string;
   projectionDigest: string;
   profile: ArchitectureProjectionProfile;
-  provenance: ArchitectureDocumentationProjectionProvenanceV1;
+  provenance: ArchitectureDocumentationProjectionProvenanceV2;
   semanticState: ArchitectureSemanticStateV1;
   architectureDigests: ArchitectureDigestSetV1;
   majorChange: ArchitectureMajorChangeClassificationV1;
@@ -180,14 +164,15 @@ export interface ArchitectureDocumentationProjectionPlan {
   };
   rejected: ArchitectureDocumentationProjectionDrift[];
   adoptionCandidates: ArchitectureDocumentationProjectionFile[];
-  /** Non-blocking; see `ArchitectureDocumentationProjectionNotice`. Empty on a fully measured run. */
-  notices: ArchitectureDocumentationProjectionNotice[];
 }
 
-export interface ArchitectureDocumentationProjectionProvenanceV1 {
-  schemaVersion: "archcontext.architecture-docs-projection-provenance/v1";
-  baseHeadSha: string;
-  worktreeDigest: string;
+/**
+ * Committed projection provenance. It records content identities only: the HEAD and full-worktree
+ * snapshot a projection ran against are runtime facts (`ArchitectureDocumentationProjectionRuntimeSnapshot`)
+ * and never reach the committed manifest, where a branch commit would dangle after a squash merge.
+ */
+export interface ArchitectureDocumentationProjectionProvenanceV2 {
+  schemaVersion: "archcontext.architecture-docs-projection-provenance/v2";
   sourceTreeDigest: string;
   modelDigest: string;
   codeGraphDigest: string;
@@ -208,15 +193,23 @@ export const ARCHITECTURE_DOCS_GENERATED_BEGIN_PREFIX = "<!-- BEGIN ARCHCONTEXT:
 export const ARCHITECTURE_DOCS_GENERATED_END_PREFIX = "<!-- END ARCHCONTEXT:generated";
 
 /**
- * Git state the projection was rendered against. Every documentation projection carries this
- * into the `entity-summary` intro block as `Verified against: <branch>@<commit>`; there is no
- * default and no placeholder — a caller that cannot read Git state must fail, not project.
+ * The repository state one projection run read: the HEAD it ran on and the projection worktree
+ * digest. Runtime-only — refresh signals and protocol receipts bind it, the committed manifest
+ * does not.
  */
-export interface ArchitectureProjectionVerifiedAgainst {
-  branch: string;
-  commit: string;
-  /** Committer date of `commit` (ISO 8601). The intro block dates the commit, not the render run. */
-  committedAt: string;
+export interface ArchitectureDocumentationProjectionRuntimeSnapshot {
+  headSha: string;
+  worktreeDigest: string;
+}
+
+/**
+ * Content digest of one node's declared source footprint: the files `source.include` selects,
+ * minus `source.exclude`, minus `projectionOwnedPaths`. This is the per-node projection stamp.
+ */
+export interface CapabilitySourceFootprintDigest {
+  nodeId: string;
+  digest: string;
+  fileCount: number;
 }
 
 /**
@@ -255,42 +248,20 @@ export interface CapabilityImportGraph {
   truncated: boolean;
 }
 
-/** Git values that the local adapters emit when the read failed; never valid projection provenance. */
-const VERIFIED_AGAINST_NON_VALUES = new Set(["unknown", "unborn", "undefined", "null", "none", "HEAD"]);
-
-export function assertArchitectureProjectionVerifiedAgainst(
-  value: ArchitectureProjectionVerifiedAgainst | undefined
-): ArchitectureProjectionVerifiedAgainst {
-  if (!value) throw new Error("architecture-docs-projection-verified-against-missing");
-  const branch = typeof value.branch === "string" ? value.branch.trim() : "";
-  const commit = typeof value.commit === "string" ? value.commit.trim() : "";
-  if (branch === "" || VERIFIED_AGAINST_NON_VALUES.has(branch)) {
-    throw new Error(`architecture-docs-projection-verified-against-invalid-branch: ${JSON.stringify(value.branch ?? null)}`);
-  }
-  if (VERIFIED_AGAINST_NON_VALUES.has(commit) || !/^[0-9a-f]{7,64}$/.test(commit)) {
-    throw new Error(`architecture-docs-projection-verified-against-invalid-commit: ${JSON.stringify(value.commit ?? null)}`);
-  }
-  const committedAt = typeof value.committedAt === "string" ? value.committedAt.trim() : "";
-  if (!/^\d{4}-\d{2}-\d{2}(?:[T ].*)?$/.test(committedAt)) {
-    throw new Error(`architecture-docs-projection-verified-against-invalid-committed-at: ${JSON.stringify(value.committedAt ?? null)}`);
-  }
-  return { branch, commit, committedAt };
-}
+const SOURCE_FOOTPRINT_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
 /** Compiles accepted node/relation/flow authority against an exact CodeGraph evidence snapshot. */
 export function renderArchitectureDocumentationProjection(input: {
   model: NativeModel;
   profile?: ArchitectureProjectionProfile;
   sourceDigest: string;
-  provenance: ArchitectureDocumentationProjectionProvenanceV1;
-  verifiedAgainst: ArchitectureProjectionVerifiedAgainst;
+  provenance: ArchitectureDocumentationProjectionProvenanceV2;
   /**
-   * Per node: did the code inside its declared `source.include` footprint change after the commit
-   * its existing document is stamped with? Measured by the caller (`capabilitySourceChangesSinceStamps`
-   * over a Git read), because `@archcontext/core` does not spawn processes. A node that declares no
-   * footprint needs no entry: no covered change is possible, so its stamp always sticks.
+   * Per node that declares `source.include`: the content digest of its footprint
+   * (`loadCapabilitySourceFootprintDigests`). It becomes the node's stamp in the manifest; a node
+   * that declares a footprint without a matching digest is refused, never stamped with a guess.
    */
-  sourceChangesSinceStamp: CapabilitySourceChangeSinceStamp[];
+  sourceFootprints: CapabilitySourceFootprintDigest[];
   sourceScaleSignals: CapabilitySourceScaleSignal[];
   importGraphs: CapabilityImportGraph[];
   selectorEvidence: ArchitectureSelectorEvidenceV1[];
@@ -310,7 +281,6 @@ export function renderArchitectureDocumentationProjection(input: {
 }): ArchitectureDocumentationProjectionPlan {
   const rendererVersion = input.rendererVersion ?? ARCHITECTURE_DOCS_RENDERER_VERSION;
   assertArchitectureDocumentationProjectionProvenance(input.provenance, rendererVersion);
-  const verifiedAgainst = assertArchitectureProjectionVerifiedAgainst(input.verifiedAgainst);
   const model = normalizeNativeModel(input.model);
   const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile: input.profile });
   const existingByPath = new Map((input.existingFiles ?? []).map((file) => [file.path, file.body]));
@@ -350,21 +320,16 @@ export function renderArchitectureDocumentationProjection(input: {
   // `extensions.localContracts`, `source.include`/`source.entrypoints`, both relation lists, the
   // bucketed scale signal, and the semantic P1/P2 compilation. Because the key is the rendered
   // string rather than an enumeration of inputs, a future body input is covered automatically
-  // instead of having to be remembered. The key is therefore exactly the "body would be
-  // byte-identical" predicate the sticky stamp needs: a status flip that moves the body moves the
-  // digest, so a stamp can never be silently reused against a commit that never rendered the body
-  // it now names, and a re-measured footprint is still reported as
+  // instead of having to be remembered. A re-measured footprint is therefore reported as
   // `projection-generated-region-stale` on the one document that carries it instead of every
   // entity target.
   //
-  // `verifiedAgainst` is not a body input at all: the stamp lives in the projection manifest and
-  // never reaches the rendered document or its marker attributes. Provenance is a moving global
-  // (the repository HEAD), and a document body that prints it churns whenever anything under the
-  // node's footprint moves even though no architecture assertion changed — six stamp-only commits
-  // in one working day, in a repository whose capabilities cover `tests/**`. Keeping the stamp in
-  // the manifest gives one machine-owned file the churn and lets every `.md` diff mean "the
-  // architecture this document asserts changed". The freshness gate already reads the stamp from
-  // the manifest (`loadArchitectureProjectionManifestVerifiedAgainst`), so no reader loses it.
+  // The source-footprint stamp is not a body input at all: it lives in the projection manifest and
+  // never reaches the rendered document or its marker attributes. A document body that printed it
+  // would churn whenever anything under the node's footprint moved even though no architecture
+  // assertion changed. Keeping the stamp in the manifest gives one machine-owned file that churn and
+  // lets every `.md` diff mean "the architecture this document asserts changed". The freshness gate
+  // reads the stamp from the manifest (`loadArchitectureProjectionManifestStamps`).
   //
   // The plan-wide `input.sourceDigest` (the moving tree) is deliberately not folded into the
   // per-entity key either: it would couple every entity document to unrelated commits. `generatedAt`
@@ -373,14 +338,12 @@ export function renderArchitectureDocumentationProjection(input: {
   // recording the plan-wide `input.sourceDigest`.
   const targetDrafts = architectureDocumentationTargetDrafts(model, layout);
   const declaresSourceByNodeId = new Map(model.nodes.map((node) => [node.id, (nativeNodeSource(node)?.include ?? []).length > 0]));
-  const changeSinceStampByNodeId = new Map(input.sourceChangesSinceStamp.map((entry) => [entry.nodeId, entry]));
-  const priorStampByNodeId = previousProjectionManifestStamps(existingByPath.get("docs/architecture/.projection-manifest.json"));
-  const notices: ArchitectureDocumentationProjectionNotice[] = [];
+  const footprintDigestByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
   const rendered = targetDrafts.map((draft) => {
     const existing = existingByPath.get(draft.path);
     const nodeId = draft.type === "entity-summary" ? draft.scope.id : undefined;
     // Rendering the body up front also keeps the fail-closed error paths in front of the stamp
-    // decision — a node that declares `source.include` with no measured scale signal throws
+    // — a node that declares `source.include` with no measured scale signal throws
     // `architecture-docs-projection-scale-signal-missing` here.
     const generatedBody = renderTargetGeneratedBody(draft, model, {
       generatedAt,
@@ -393,25 +356,17 @@ export function renderArchitectureDocumentationProjection(input: {
     // Targets that render no per-node measurement key on the plan-wide digest; an entity-summary
     // target keys on the digest of its own rendered body (see the comment above the render loop).
     let targetSourceDigest = input.sourceDigest;
-    let targetVerifiedAgainst: ArchitectureProjectionVerifiedAgainst | undefined;
+    let sourceFootprintDigest: string | undefined;
     if (nodeId !== undefined) {
       targetSourceDigest = digestJson(generatedBody);
-      const decision = stickyVerifiedAgainst(existing, draft.targetId, targetSourceDigest, {
-        priorStamp: priorStampByNodeId.get(nodeId),
-        nodeDeclaresSource: declaresSourceByNodeId.get(nodeId) === true,
-        measurement: changeSinceStampByNodeId.get(nodeId)
-      });
-      if (decision.kind === "restamp-unmeasured") {
-        notices.push({
-          code: "projection-stamp-change-set-unmeasurable",
-          nodeId,
-          targetId: draft.targetId,
-          path: draft.path,
-          stampedCommit: decision.stampedCommit,
-          detail: decision.detail
-        });
+      if (declaresSourceByNodeId.get(nodeId) === true) {
+        // The stamp is the footprint this render read, so re-projecting is what re-verifies a
+        // document and an unchanged footprint keeps the manifest byte-identical.
+        sourceFootprintDigest = footprintDigestByNodeId.get(nodeId);
+        if (sourceFootprintDigest === undefined || !SOURCE_FOOTPRINT_DIGEST_PATTERN.test(sourceFootprintDigest)) {
+          throw new Error(`architecture-docs-projection-source-footprint-missing: ${nodeId}`);
+        }
       }
-      targetVerifiedAgainst = decision.kind === "reuse" ? decision.verifiedAgainst : verifiedAgainst;
     }
     const generatedBodyDigest = digestJson({ targetId: draft.targetId, body: generatedBody } as unknown as Json);
     const target = projectionTarget({
@@ -428,7 +383,7 @@ export function renderArchitectureDocumentationProjection(input: {
       target,
       digest: digestJson({ path: target.path, body } as unknown as Json),
       generatedBodyDigest,
-      ...(targetVerifiedAgainst ? { verifiedAgainst: targetVerifiedAgainst } : {})
+      ...(sourceFootprintDigest ? { sourceFootprintDigest } : {})
     };
   });
   const targets = rendered.map((file) => file.target);
@@ -490,13 +445,10 @@ export function renderArchitectureDocumentationProjection(input: {
     receiptDigest,
     targetCount: targets.length,
     fileCount: rendered.length,
-    // Machine-readable copy of the `Verified against` line each entity-summary intro prints, one
-    // entry per target. The rendered prose is for humans; the freshness check
-    // (`evaluateArchitectureProjectionFreshness`) needs the commit as data, so it is recorded here
-    // instead of being parsed back out of Markdown. There is deliberately no manifest-wide
-    // `verifiedAgainst`: stamps are per target, and a manifest-wide copy of the current HEAD would
-    // make the manifest itself drift on every commit, which is exactly the fixed point the sticky
-    // stamp exists to establish.
+    // Per-node stamps: each entity-summary target of a node with a declared footprint records that
+    // footprint's content digest. The freshness check (`evaluateArchitectureProjectionFreshness`)
+    // compares it with the current digest and never reads Git history, so it holds after squash
+    // merges, rebases and in shallow clones.
     targets: rendered.map((file) => ({
       targetId: file.target.targetId,
       type: file.target.type,
@@ -507,7 +459,7 @@ export function renderArchitectureDocumentationProjection(input: {
       format: file.target.format,
       sourceDigest: file.target.sourceDigest,
       outputDigest: file.target.outputDigest,
-      ...(file.verifiedAgainst ? { verifiedAgainst: file.verifiedAgainst } : {})
+      ...(file.sourceFootprintDigest ? { sourceFootprintDigest: file.sourceFootprintDigest } : {})
     }))
   } as unknown as Json;
   const manifest = {
@@ -551,48 +503,8 @@ export function renderArchitectureDocumentationProjection(input: {
       }))
     },
     rejected,
-    adoptionCandidates,
-    notices
+    adoptionCandidates
   };
-}
-
-/**
- * The stamps of record for the sticky-stamp decision, read out of the previous projection manifest
- * that `existingFiles` already carries. Since renderer v4 the stamp lives only here, so this is the
- * only place a prior stamp can come from; an entry that is absent or not usable provenance simply
- * yields no stamp and the target re-stamps, exactly as a missing marker stamp used to.
- *
- * A manifest that cannot be parsed yields no stamps rather than throwing: the same run is about to
- * rewrite it, and refusing to project because the file it replaces is corrupt would be a deadlock.
- */
-function previousProjectionManifestStamps(body: string | undefined): Map<string, ArchitectureProjectionVerifiedAgainst> {
-  const stamps = new Map<string, ArchitectureProjectionVerifiedAgainst>();
-  if (body === undefined) return stamps;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    return stamps;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return stamps;
-  const targets = (parsed as Record<string, unknown>).targets;
-  if (!Array.isArray(targets)) return stamps;
-  for (const entry of targets as unknown[]) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-    const record = entry as Record<string, unknown>;
-    if (record.type !== "entity-summary") continue;
-    const scope = record.scope;
-    const nodeId = scope && typeof scope === "object" && !Array.isArray(scope)
-      ? (scope as Record<string, unknown>).id
-      : undefined;
-    if (typeof nodeId !== "string" || nodeId === "") continue;
-    try {
-      stamps.set(nodeId, assertArchitectureProjectionVerifiedAgainst(record.verifiedAgainst as ArchitectureProjectionVerifiedAgainst));
-    } catch {
-      continue;
-    }
-  }
-  return stamps;
 }
 
 function architectureProjectionSemanticBaseline(body: string | undefined): ArchitectureProjectionSemanticBaselineV1 | undefined {
@@ -642,38 +554,36 @@ export function architectureDocumentationProjectionWorktreeDigest(
 }
 
 export function architectureDocumentationProjectionInputDigest(
-  input: Omit<ArchitectureDocumentationProjectionProvenanceV1, "schemaVersion" | "projectionInputDigest">
+  input: Omit<ArchitectureDocumentationProjectionProvenanceV2, "schemaVersion" | "projectionInputDigest">
 ): string {
   return digestJson(input as unknown as Json);
 }
 
 export function architectureDocumentationProjectionProvenance(
-  input: Omit<ArchitectureDocumentationProjectionProvenanceV1, "schemaVersion" | "projectionInputDigest">
-): ArchitectureDocumentationProjectionProvenanceV1 {
+  input: Omit<ArchitectureDocumentationProjectionProvenanceV2, "schemaVersion" | "projectionInputDigest">
+): ArchitectureDocumentationProjectionProvenanceV2 {
   return {
-    schemaVersion: "archcontext.architecture-docs-projection-provenance/v1",
+    schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
     ...input,
     projectionInputDigest: architectureDocumentationProjectionInputDigest(input)
   };
 }
 
 /**
- * HEAD and full-worktree identity describe when a projection was produced; they are not semantic
- * freshness inputs. Preserve that generation snapshot while the declared architecture source,
- * model, CodeGraph runtime, and layout inputs are unchanged, otherwise an unrelated commit (or
- * committing the projection itself) would make the manifest permanently chase HEAD. CodeGraph's
+ * Preserve the prior generation snapshot while the declared architecture source, model, CodeGraph
+ * runtime, and layout inputs are unchanged, so re-indexing alone never rewrites the manifest. CodeGraph's
  * indexed status digest can legitimately advance when it notices projection-owned docs; that is
  * not an architecture input and must not make the manifest chase its own output. A malformed or
  * internally inconsistent prior provenance is never reused and is surfaced by the ordinary
  * manifest drift check.
  */
 function stickyArchitectureDocumentationProjectionProvenance(
-  current: ArchitectureDocumentationProjectionProvenanceV1,
+  current: ArchitectureDocumentationProjectionProvenanceV2,
   existingManifestBody: string | undefined
-): ArchitectureDocumentationProjectionProvenanceV1 {
+): ArchitectureDocumentationProjectionProvenanceV2 {
   if (!existingManifestBody) return current;
   try {
-    const parsed = JSON.parse(existingManifestBody) as { provenance?: ArchitectureDocumentationProjectionProvenanceV1 };
+    const parsed = JSON.parse(existingManifestBody) as { provenance?: ArchitectureDocumentationProjectionProvenanceV2 };
     const prior = parsed.provenance;
     if (!prior) return current;
     assertArchitectureDocumentationProjectionProvenance(prior, current.rendererVersion);
@@ -686,7 +596,7 @@ function stickyArchitectureDocumentationProjectionProvenance(
 }
 
 function architectureDocumentationStickyProvenanceDigest(
-  provenance: ArchitectureDocumentationProjectionProvenanceV1
+  provenance: ArchitectureDocumentationProjectionProvenanceV2
 ): string {
   return digestJson({
     // `sourceTreeDigest` is the authoritative declared-source boundary. Do not use the full
@@ -701,10 +611,10 @@ function architectureDocumentationStickyProvenanceDigest(
 }
 
 function assertArchitectureDocumentationProjectionProvenance(
-  provenance: ArchitectureDocumentationProjectionProvenanceV1,
+  provenance: ArchitectureDocumentationProjectionProvenanceV2,
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION
 ): void {
-  if (provenance.schemaVersion !== "archcontext.architecture-docs-projection-provenance/v1") {
+  if (provenance.schemaVersion !== "archcontext.architecture-docs-projection-provenance/v2") {
     throw new Error("architecture-docs-projection-provenance-schema-invalid");
   }
   if (provenance.rendererVersion !== rendererVersion || provenance.layoutVersion !== ARCHITECTURE_DOCS_LAYOUT_VERSION) {
@@ -914,83 +824,50 @@ export function loadArchitectureDocumentationFiles(
 // `architectureDocumentationProjectionDrift` answers "does the file on disk still match what the
 // renderer would emit from the current model?" — a digest question over the projection's own
 // inputs. Freshness answers a different one: "has the code the projection describes changed since
-// the commit it was verified against?". Neither subsumes the other; a projection can be
-// digest-clean and describe a tree that moved on ten commits ago.
+// its document was verified?". Neither subsumes the other; a projection can be digest-clean and
+// describe a footprint whose code has since moved.
 //
-// The Git read stays in the caller (surface/adapter) because `@archcontext/core` does not spawn
-// processes; this evaluation is a pure total function over the caller's measurement.
+// Both sides of the comparison are content digests: the per-node stamp the manifest records and
+// the footprint digest measured now. Git history is never read, so the answer is the same after a
+// squash merge, a rebase or in a shallow CI clone.
 
 export type ArchitectureProjectionFreshnessReasonCode =
   | "projection-manifest-missing"
   | "projection-manifest-unreadable"
-  | "projection-verified-against-missing"
-  | "projection-verified-against-invalid"
-  | "projection-change-set-unavailable"
-  | "projection-source-changed-since-verified-commit"
+  | "projection-source-stamp-missing"
+  | "projection-source-stamp-invalid"
+  | "projection-source-changed-since-stamp"
   | "projection-snapshot-provenance-missing"
   | "projection-source-tree-digest-mismatch";
 
-/**
- * Repo-relative paths that changed between the projection's `verifiedAgainst.commit` and the
- * current HEAD, as measured by the caller. `unavailable` is a first-class outcome (shallow clone,
- * unknown commit, missing Git): the freshness gate fails closed on it rather than reading an
- * unmeasurable range as "nothing changed".
- */
-export type CapabilitySourceChangeSet =
-  | { status: "measured"; paths: string[] }
-  | { status: "unavailable"; reason: string };
-
 export interface ArchitectureProjectionFreshnessStaleNode {
   nodeId: string;
-  /** The commit this node's projected document is stamped with. */
-  verifiedAgainst: ArchitectureProjectionVerifiedAgainst;
-  changedPathCount: number;
-  /** Bounded sample of the changed paths inside this node's footprint, sorted. */
-  changedPaths: string[];
-  changedPathsTruncated: boolean;
+  /** The footprint digest this node's projected document is stamped with. */
+  stampedDigest: string;
+  /** The footprint digest measured now. */
+  currentDigest: string;
 }
 
 export interface ArchitectureProjectionFreshnessEvaluation {
-  schemaVersion: "archcontext.projection-freshness/v1";
+  schemaVersion: "archcontext.projection-freshness/v2";
   ok: boolean;
   reasonCodes: ArchitectureProjectionFreshnessReasonCode[];
   /** Names the trigger source so a consumer can tell this apart from a HEAD-snapshot mismatch. */
   detail: string;
-  changedPathCount: number;
   staleNodes: ArchitectureProjectionFreshnessStaleNode[];
 }
-
-/** One measured changed-path set, keyed by the commit the caller diffed HEAD against. */
-export interface CapabilitySourceChangeSetForCommit {
-  commit: string;
-  changeSet: CapabilitySourceChangeSet;
-}
-
-/**
- * One node's answer to "did the code this document describes change after the commit the document
- * is stamped with?". Produced by `capabilitySourceChangesSinceStamps` and consumed by the renderer,
- * which reuses the existing stamp only on `unchanged`. `commit` names the stamped commit the
- * measurement is valid for, so a renderer looking at a marker stamped with a different commit
- * discards the measurement instead of applying it to the wrong baseline.
- */
-export type CapabilitySourceChangeSinceStamp =
-  | { nodeId: string; commit: string; status: "unchanged" }
-  | { nodeId: string; commit: string; status: "changed"; changedPathCount: number }
-  | { nodeId: string; commit: string; status: "unmeasurable"; reason: string };
-
-const FRESHNESS_SAMPLE_PATH_LIMIT = 10;
 
 /**
  * Repo-relative path patterns the projection itself writes: the architecture documentation tree
  * (including its manifest) and every agent-context contract file the model designates.
  *
- * Freshness must subtract these from the measured change set. An agent-context target lands inside
- * its own capability's declared `source.include` footprint, so counting the projection's own output
- * as capability source would make every projection commit report the capability stale, which would
- * demand another projection producing the same bytes — a loop with no fixed point.
+ * Footprint digests subtract these. An agent-context target lands inside its own capability's
+ * declared `source.include` footprint, so counting the projection's own output as capability
+ * source would make every projection report the capability stale, which would demand another
+ * projection producing the same bytes — a loop with no fixed point.
  *
- * Single point of truth: both the freshness gate and any consumer that needs to know "did the
- * projection write this?" derive it here, so the two can never disagree.
+ * Single point of truth: the stamp, the freshness gate and any consumer that needs to know "did
+ * the projection write this?" derive it here, so they can never disagree.
  */
 export function projectionOwnedPaths(model: NativeModel): string[] {
   return [
@@ -1000,34 +877,50 @@ export function projectionOwnedPaths(model: NativeModel): string[] {
 }
 
 /**
+ * Per-node projection stamps: for every node that declares `source.include`, the content digest of
+ * the files it selects (the same include/exclude predicate `loadCapabilitySourceFootprints` feeds
+ * the renderer) minus `projectionOwnedPaths`. Paths and bytes both enter the digest, so adding,
+ * removing, renaming or editing a covered file moves it and nothing outside the footprint can.
+ */
+export function loadCapabilitySourceFootprintDigests(root: string, model: NativeModel): CapabilitySourceFootprintDigest[] {
+  const ownedPathPatterns = projectionOwnedPaths(model);
+  return loadCapabilitySourceFootprints(root, model).map((footprint) => {
+    const files = footprint.files.filter((path) => !ownedPathPatterns.some((pattern) => matchesGlob(path, pattern)));
+    return {
+      nodeId: footprint.nodeId,
+      fileCount: files.length,
+      digest: digestJson({
+        schemaVersion: "archcontext.capability-source-footprint/v1",
+        files: files.map((path) => ({
+          path,
+          digest: `sha256:${createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")}`
+        }))
+      } as unknown as Json)
+    };
+  });
+}
+
+/**
  * Decides whether the architecture documentation projection is still verified against the current
- * tree: a path that changed after `verifiedAgainst.commit` and falls inside a node's declared
- * `source.include` (minus `source.exclude`) footprint means that node's projected document was
- * rendered from code that has since moved.
+ * tree: a node whose current footprint digest differs from the digest its document is stamped with
+ * was rendered from code that has since moved.
  *
- * Footprint matching deliberately uses the same include/exclude predicate as
- * `loadCapabilitySourceFootprints` — the one that feeds the renderer — and not the ADR-0043
- * single-owner tie-break: every node whose render input changed is stale, including nodes whose
- * globs overlap, and an ambiguous owner must not silently drop the signal.
+ * Every node that declares `source.include` is probed, including nodes whose globs overlap: an
+ * ambiguous owner must not silently drop the signal. A node without a stamp, or with a stamp that
+ * is not a footprint digest (a manifest written before content stamps), fails closed — re-running
+ * the projection once migrates it.
  */
 export function evaluateArchitectureProjectionFreshness(input: {
   model: NativeModel;
-  /** Manifest readback; every raw `verifiedAgainst` entry is validated here, never trusted. */
-  manifest: ArchitectureProjectionManifestVerifiedAgainstReadback;
-  /**
-   * One measured changed-path set per distinct stamped commit. Each node is compared against the
-   * set measured for *its own* stamp, so a document that was re-verified later is not judged
-   * against an older document's baseline.
-   */
-  changeSets: CapabilitySourceChangeSetForCommit[];
+  /** Manifest readback; every raw stamp is validated here, never trusted. */
+  manifest: ArchitectureProjectionManifestStampReadback;
+  /** `loadCapabilitySourceFootprintDigests` for the same model, measured now. */
+  sourceFootprints: CapabilitySourceFootprintDigest[];
 }): ArchitectureProjectionFreshnessEvaluation {
-  const reasonCodes: ArchitectureProjectionFreshnessReasonCode[] = [];
-  const details: string[] = [];
   if (input.manifest.status === "manifest-missing") {
     return freshnessEvaluation(
       ["projection-manifest-missing"],
       ["docs/architecture/.projection-manifest.json is absent; nothing records what the projection was verified against"],
-      0,
       []
     );
   }
@@ -1035,264 +928,110 @@ export function evaluateArchitectureProjectionFreshness(input: {
     return freshnessEvaluation(
       ["projection-manifest-unreadable"],
       [`projection manifest could not be read: ${input.manifest.reason}`],
-      0,
       []
     );
   }
 
-  const ownedPathPatterns = projectionOwnedPaths(input.model);
-  const measuredPaths = new Set<string>();
-  for (const entry of input.changeSets) {
-    if (entry.changeSet.status !== "measured") continue;
-    for (const path of entry.changeSet.paths) {
-      if (ownedPathPatterns.some((pattern) => matchesGlob(path, pattern))) continue;
-      measuredPaths.add(path);
-    }
-  }
-
+  const reasonCodes: ArchitectureProjectionFreshnessReasonCode[] = [];
+  const details: string[] = [];
+  const stampsByNodeId = new Map(input.manifest.nodes.map((entry) => [entry.nodeId, entry.sourceFootprintDigest]));
+  const currentByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
   const staleNodes: ArchitectureProjectionFreshnessStaleNode[] = [];
-  for (const probe of probeCapabilitySourceStamps({
-    model: input.model,
-    manifestNodes: input.manifest.nodes,
-    changeSets: input.changeSets
-  })) {
-    if (probe.outcome.kind === "no-stamp") {
-      reasonCodes.push("projection-verified-against-missing");
-      details.push(`projection manifest records no verifiedAgainst for ${probe.nodeId}; re-run the documentation projection`);
+  for (const node of [...input.model.nodes].sort((left, right) => left.id.localeCompare(right.id))) {
+    if ((nativeNodeSource(node)?.include ?? []).length === 0) continue;
+    const currentDigest = currentByNodeId.get(node.id);
+    if (currentDigest === undefined) throw new Error(`architecture-projection-freshness-footprint-unmeasured: ${node.id}`);
+    const stamp = stampsByNodeId.get(node.id);
+    if (stamp === undefined || stamp === null) {
+      reasonCodes.push("projection-source-stamp-missing");
+      details.push(`projection manifest records no sourceFootprintDigest for ${node.id}; re-run the documentation projection`);
       continue;
     }
-    if (probe.outcome.kind === "invalid-stamp") {
-      reasonCodes.push("projection-verified-against-invalid");
-      details.push(`projection manifest verifiedAgainst for ${probe.nodeId} is not usable provenance: ${probe.outcome.reason}`);
+    if (typeof stamp !== "string" || !SOURCE_FOOTPRINT_DIGEST_PATTERN.test(stamp)) {
+      reasonCodes.push("projection-source-stamp-invalid");
+      details.push(`projection manifest sourceFootprintDigest for ${node.id} is not a footprint digest: ${JSON.stringify(stamp)}`);
       continue;
     }
-    if (probe.outcome.kind === "unmeasurable") {
-      reasonCodes.push("projection-change-set-unavailable");
-      details.push(probe.outcome.detail);
-      continue;
-    }
-    const matched = probe.outcome.matchedPaths;
-    if (matched.length === 0) continue;
-    staleNodes.push({
-      nodeId: probe.nodeId,
-      verifiedAgainst: probe.outcome.verifiedAgainst,
-      changedPathCount: matched.length,
-      changedPaths: matched.slice(0, FRESHNESS_SAMPLE_PATH_LIMIT),
-      changedPathsTruncated: matched.length > FRESHNESS_SAMPLE_PATH_LIMIT
-    });
+    if (stamp !== currentDigest) staleNodes.push({ nodeId: node.id, stampedDigest: stamp, currentDigest });
   }
   if (staleNodes.length > 0) {
-    reasonCodes.push("projection-source-changed-since-verified-commit");
-    details.push(
-      `${staleNodes.length} node(s) changed after their verified commit: ${staleNodes.map((entry) => `${entry.nodeId}(${entry.changedPathCount}@${entry.verifiedAgainst.commit})`).join(", ")}`
-    );
+    reasonCodes.push("projection-source-changed-since-stamp");
+    details.push(`${staleNodes.length} node(s) changed after their document was verified: ${staleNodes.map((entry) => entry.nodeId).join(", ")}`);
   }
 
   return freshnessEvaluation(
     [...new Set(reasonCodes)],
     details,
-    measuredPaths.size,
     staleNodes,
-    "no declared capability source changed since the commit its documentation was verified against"
+    "no declared capability source changed since its documentation was verified"
   );
 }
 
-/** Dirty-worktree freshness authority layered over the historical per-node commit explanation. */
+/** Dirty-worktree freshness authority layered over the per-node footprint stamps. */
 export function evaluateArchitectureProjectionSnapshotFreshness(input: {
   model: NativeModel;
-  manifest: ArchitectureProjectionManifestVerifiedAgainstReadback;
-  changeSets: CapabilitySourceChangeSetForCommit[];
+  manifest: ArchitectureProjectionManifestStampReadback;
+  sourceFootprints: CapabilitySourceFootprintDigest[];
   currentSourceTreeDigest: string;
 }): ArchitectureProjectionFreshnessEvaluation {
-  const commitEvaluation = evaluateArchitectureProjectionFreshness(input);
+  const nodeEvaluation = evaluateArchitectureProjectionFreshness(input);
   if (input.manifest.status !== "present" || !input.manifest.provenance) {
     return freshnessEvaluation(
-      [...new Set([...commitEvaluation.reasonCodes, "projection-snapshot-provenance-missing" as const])],
-      [commitEvaluation.detail, "projection manifest has no snapshot provenance"],
-      commitEvaluation.changedPathCount,
-      commitEvaluation.staleNodes
+      [...new Set([...nodeEvaluation.reasonCodes, "projection-snapshot-provenance-missing" as const])],
+      [nodeEvaluation.detail, "projection manifest has no snapshot provenance"],
+      nodeEvaluation.staleNodes
     );
   }
   if (input.manifest.provenance.sourceTreeDigest !== input.currentSourceTreeDigest) {
     return freshnessEvaluation(
-      [...new Set([...commitEvaluation.reasonCodes, "projection-source-tree-digest-mismatch" as const])],
-      [commitEvaluation.detail, "declared source tree digest differs from the accepted projection snapshot"],
-      commitEvaluation.changedPathCount,
-      commitEvaluation.staleNodes
+      [...new Set([...nodeEvaluation.reasonCodes, "projection-source-tree-digest-mismatch" as const])],
+      [nodeEvaluation.detail, "declared source tree digest differs from the accepted projection snapshot"],
+      nodeEvaluation.staleNodes
     );
   }
-  return commitEvaluation;
-}
-
-/**
- * The one place a node's stamp is matched against a measured change set. Both consumers — the
- * freshness gate (`evaluateArchitectureProjectionFreshness`) and the renderer's stamp lifecycle
- * (`capabilitySourceChangesSinceStamps`) — read this, so "did this node's covered source change
- * since its stamp?" has exactly one answer and one footprint predicate: the same include/exclude
- * matching `loadCapabilitySourceFootprints` feeds the renderer, minus `projectionOwnedPaths`.
- *
- * Nodes without a declared `source.include` are absent: nothing can change under them.
- */
-interface CapabilitySourceStampProbe {
-  nodeId: string;
-  outcome:
-    | { kind: "no-stamp" }
-    | { kind: "invalid-stamp"; reason: string }
-    | { kind: "unmeasurable"; verifiedAgainst: ArchitectureProjectionVerifiedAgainst; reason: string; detail: string }
-    | { kind: "measured"; verifiedAgainst: ArchitectureProjectionVerifiedAgainst; matchedPaths: string[] };
-}
-
-function probeCapabilitySourceStamps(input: {
-  model: NativeModel;
-  manifestNodes: ArchitectureProjectionManifestNodeVerifiedAgainst[];
-  changeSets: CapabilitySourceChangeSetForCommit[];
-}): CapabilitySourceStampProbe[] {
-  const ownedPathPatterns = projectionOwnedPaths(input.model);
-  const stampsByNodeId = new Map(input.manifestNodes.map((entry) => [entry.nodeId, entry.verifiedAgainst]));
-  const changeSetByCommit = new Map(input.changeSets.map((entry) => [entry.commit, entry.changeSet]));
-  const probes: CapabilitySourceStampProbe[] = [];
-  for (const node of [...input.model.nodes].sort((left, right) => left.id.localeCompare(right.id))) {
-    const source = nativeNodeSource(node);
-    const includePatterns = source?.include ?? [];
-    if (includePatterns.length === 0) continue;
-    const raw = stampsByNodeId.get(node.id);
-    if (raw === undefined || raw === null) {
-      probes.push({ nodeId: node.id, outcome: { kind: "no-stamp" } });
-      continue;
-    }
-    let verifiedAgainst: ArchitectureProjectionVerifiedAgainst;
-    try {
-      verifiedAgainst = assertArchitectureProjectionVerifiedAgainst(raw as ArchitectureProjectionVerifiedAgainst);
-    } catch (error) {
-      probes.push({
-        nodeId: node.id,
-        outcome: { kind: "invalid-stamp", reason: error instanceof Error ? error.message : String(error) }
-      });
-      continue;
-    }
-    const changeSet = changeSetByCommit.get(verifiedAgainst.commit);
-    if (!changeSet) {
-      probes.push({
-        nodeId: node.id,
-        outcome: {
-          kind: "unmeasurable",
-          verifiedAgainst,
-          reason: "no changed-path set was measured for this commit",
-          detail: `no changed-path set was measured for ${node.id}'s verified commit ${verifiedAgainst.commit}`
-        }
-      });
-      continue;
-    }
-    if (changeSet.status === "unavailable") {
-      probes.push({
-        nodeId: node.id,
-        outcome: {
-          kind: "unmeasurable",
-          verifiedAgainst,
-          reason: changeSet.reason,
-          detail: `changed-path set for ${node.id} at ${verifiedAgainst.commit} could not be measured: ${changeSet.reason}`
-        }
-      });
-      continue;
-    }
-    const excludePatterns = source?.exclude ?? [];
-    const matchedPaths = [...new Set(changeSet.paths)]
-      .filter((path) => !ownedPathPatterns.some((pattern) => matchesGlob(path, pattern)))
-      .filter((path) =>
-        !excludePatterns.some((pattern) => matchesGlob(path, pattern))
-        && includePatterns.some((pattern) => matchesGlob(path, pattern))
-      )
-      .sort((left, right) => left.localeCompare(right));
-    probes.push({ nodeId: node.id, outcome: { kind: "measured", verifiedAgainst, matchedPaths } });
-  }
-  return probes;
-}
-
-/**
- * The renderer's stamp-lifecycle input: for every node whose documentation carries a usable stamp,
- * whether its declared source changed after that stamp's commit. A node the manifest does not stamp
- * (or stamps unusably) yields no entry, so the renderer re-stamps it rather than trusting a stamp
- * nothing corroborates.
- *
- * Pure: the caller supplies the Git measurement (`changeSets`), one entry per distinct stamped
- * commit, exactly as `evaluateArchitectureProjectionFreshness` takes it.
- */
-export function capabilitySourceChangesSinceStamps(input: {
-  model: NativeModel;
-  manifest: ArchitectureProjectionManifestVerifiedAgainstReadback;
-  changeSets: CapabilitySourceChangeSetForCommit[];
-}): CapabilitySourceChangeSinceStamp[] {
-  if (input.manifest.status !== "present") return [];
-  const out: CapabilitySourceChangeSinceStamp[] = [];
-  for (const probe of probeCapabilitySourceStamps({
-    model: input.model,
-    manifestNodes: input.manifest.nodes,
-    changeSets: input.changeSets
-  })) {
-    if (probe.outcome.kind === "no-stamp" || probe.outcome.kind === "invalid-stamp") continue;
-    if (probe.outcome.kind === "unmeasurable") {
-      out.push({
-        nodeId: probe.nodeId,
-        commit: probe.outcome.verifiedAgainst.commit,
-        status: "unmeasurable",
-        reason: probe.outcome.reason
-      });
-      continue;
-    }
-    out.push(probe.outcome.matchedPaths.length === 0
-      ? { nodeId: probe.nodeId, commit: probe.outcome.verifiedAgainst.commit, status: "unchanged" }
-      : {
-        nodeId: probe.nodeId,
-        commit: probe.outcome.verifiedAgainst.commit,
-        status: "changed",
-        changedPathCount: probe.outcome.matchedPaths.length
-      });
-  }
-  return out;
+  return nodeEvaluation;
 }
 
 function freshnessEvaluation(
   reasonCodes: ArchitectureProjectionFreshnessReasonCode[],
   details: string[],
-  changedPathCount: number,
   staleNodes: ArchitectureProjectionFreshnessStaleNode[],
   cleanDetail = "no projection freshness signal available"
 ): ArchitectureProjectionFreshnessEvaluation {
   return {
-    schemaVersion: "archcontext.projection-freshness/v1",
+    schemaVersion: "archcontext.projection-freshness/v2",
     ok: reasonCodes.length === 0,
     reasonCodes,
     detail: details.length > 0 ? details.join("; ") : cleanDetail,
-    changedPathCount,
     staleNodes
   };
 }
 
 /** One entity-summary target's recorded stamp, as read back out of the projection manifest. */
-export interface ArchitectureProjectionManifestNodeVerifiedAgainst {
+export interface ArchitectureProjectionManifestNodeStamp {
   nodeId: string;
   /** Raw manifest value; validated by `evaluateArchitectureProjectionFreshness`, never trusted here. */
-  verifiedAgainst: unknown;
+  sourceFootprintDigest: unknown;
 }
 
-export type ArchitectureProjectionManifestVerifiedAgainstReadback =
+export type ArchitectureProjectionManifestStampReadback =
   | { status: "manifest-missing" }
   | { status: "manifest-unreadable"; reason: string }
   | {
       status: "present";
-      nodes: ArchitectureProjectionManifestNodeVerifiedAgainst[];
-      provenance?: ArchitectureDocumentationProjectionProvenanceV1;
+      nodes: ArchitectureProjectionManifestNodeStamp[];
+      provenance?: ArchitectureDocumentationProjectionProvenanceV2;
     };
 
 /**
- * Reads the per-target `verifiedAgainst` stamps back out of the projection manifest, keyed by the
- * node each `entity-summary` target documents. A repository with no manifest has no projection to
- * keep fresh (`manifest-missing`); a manifest that cannot be parsed is reported, never treated as
- * a set of absent entries.
+ * Reads the per-target `sourceFootprintDigest` stamps back out of the projection manifest, keyed by
+ * the node each `entity-summary` target documents. A repository with no manifest has no projection
+ * to keep fresh (`manifest-missing`); a manifest that cannot be parsed is reported, never treated
+ * as a set of absent entries.
  */
-export function loadArchitectureProjectionManifestVerifiedAgainst(
+export function loadArchitectureProjectionManifestStamps(
   root: string
-): ArchitectureProjectionManifestVerifiedAgainstReadback {
+): ArchitectureProjectionManifestStampReadback {
   const absolute = resolve(root, "docs/architecture/.projection-manifest.json");
   if (!existsSync(absolute)) return { status: "manifest-missing" };
   let parsed: unknown;
@@ -1308,7 +1047,7 @@ export function loadArchitectureProjectionManifestVerifiedAgainst(
   if (targets !== undefined && !Array.isArray(targets)) {
     return { status: "manifest-unreadable", reason: "projection manifest targets is not an array" };
   }
-  const nodes: ArchitectureProjectionManifestNodeVerifiedAgainst[] = [];
+  const nodes: ArchitectureProjectionManifestNodeStamp[] = [];
   for (const entry of (targets ?? []) as unknown[]) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const record = entry as Record<string, unknown>;
@@ -1318,14 +1057,14 @@ export function loadArchitectureProjectionManifestVerifiedAgainst(
       ? (scope as Record<string, unknown>).id
       : undefined;
     if (typeof nodeId !== "string" || nodeId === "") continue;
-    nodes.push({ nodeId, verifiedAgainst: record.verifiedAgainst });
+    nodes.push({ nodeId, sourceFootprintDigest: record.sourceFootprintDigest });
   }
   const provenance = (parsed as Record<string, unknown>).provenance;
   return {
     status: "present",
     nodes,
     ...(provenance && typeof provenance === "object" && !Array.isArray(provenance)
-      ? { provenance: provenance as unknown as ArchitectureDocumentationProjectionProvenanceV1 }
+      ? { provenance: provenance as unknown as ArchitectureDocumentationProjectionProvenanceV2 }
       : {})
   };
 }
@@ -1690,7 +1429,7 @@ function renderArchitectureIndex(model: NativeModel, generatedAt: string, layout
  * Nothing here is a function of the repository ref. Every value printed is derived from the
  * architecture model or from a measurement bucketed coarsely enough that ordinary edits under the
  * node's footprint do not move it, so a diff on this document means an architecture assertion
- * changed. Provenance (`verifiedAgainst`) lives in the projection manifest for exactly this reason.
+ * changed. Provenance (the source-footprint stamp) lives in the projection manifest for exactly this reason.
  */
 function renderEntitySummary(
   node: NativeNode,
@@ -2054,9 +1793,9 @@ function parseGeneratedRegionMetadata(marker: string): {
 
 /**
  * Marker attributes are limited to what identifies the region and what a reader can verify against
- * the body in front of them. `verifiedAgainst` is deliberately absent: it is a moving global, and a
- * marker that carries it rewrites the document every time the repository moves under the node's
- * footprint. The stamp of record is the projection manifest.
+ * the body in front of them. The source-footprint stamp is deliberately absent: a marker that
+ * carried it would rewrite the document every time the code under the node's footprint moved. The
+ * stamp of record is the projection manifest.
  */
 function generatedStartMarker(
   targetId: string,
@@ -2065,88 +1804,6 @@ function generatedStartMarker(
   outputDigest: string
 ): string {
   return `${ARCHITECTURE_DOCS_GENERATED_BEGIN_PREFIX} target="${targetId}" sourceDigest="${sourceDigest}" rendererVersion="${rendererVersion}" outputDigest="${outputDigest}" -->`;
-}
-
-type StickyVerifiedAgainstDecision =
-  | { kind: "reuse"; verifiedAgainst: ArchitectureProjectionVerifiedAgainst }
-  | { kind: "restamp" }
-  | { kind: "restamp-unmeasured"; stampedCommit: string; detail: string };
-
-/**
- * Decides whether an entity-summary target keeps the stamp its existing region already carries.
- * `verifiedAgainst` records *when this content was last generated or verified*, not the HEAD that
- * happened to be checked out during a re-render, so an unchanged document keeps its stamp and the
- * projection reaches a fixed point instead of invalidating itself on every commit.
- *
- * A stamp sticks when **both** hold:
- *
- * 1. The region on disk was rendered from the body this run computes (`nodeSourceDigest` — the
- *    digest of the target's own rendered body — matches the digest its marker records, so the body
- *    would be byte-identical), and
- * 2. no file inside the node's declared `source.include` footprint changed after the stamped
- *    commit — as measured by the caller.
- *
- * The stamp itself comes from `priorStamp` (the previous projection manifest), not from the document:
- * since renderer v4 the document carries no provenance. The on-disk region is still required to
- * exist and to match, so a manifest whose stamps outlive the documents they describe cannot launder
- * a stale stamp onto a body that was never rendered under it.
- *
- * Condition 2 is what keeps the stamp honest. A covered source edit that changes no rendered
- * assertion (same line count, same files, same import edges) leaves the digest identical, so
- * condition 1 alone would pin the stamp to a commit the document was never re-verified against —
- * and the freshness gate would then be impossible to clear by re-projecting. Re-stamping there is
- * truthful: this render did read the current tree.
- *
- * An unmeasurable range (the stamped commit is not in this repository — a rebase, a shallow clone)
- * re-stamps and reports a notice rather than failing: a hard failure would make `docs apply`
- * permanently unrunnable after a rebase, which is a worse deadlock than the one being fixed.
- * A missing or malformed stamp re-stamps silently; it never throws and never lets an unparseable
- * value reach the rendered prose.
- */
-function stickyVerifiedAgainst(
-  existing: string | undefined,
-  targetId: string,
-  nodeSourceDigest: string,
-  node: {
-    priorStamp: ArchitectureProjectionVerifiedAgainst | undefined;
-    nodeDeclaresSource: boolean;
-    measurement: CapabilitySourceChangeSinceStamp | undefined;
-  }
-): StickyVerifiedAgainstDecision {
-  if (!existing) return { kind: "restamp" };
-  const region = findGeneratedRegion(existing, targetId);
-  if (!region) return { kind: "restamp" };
-  const metadata = parseGeneratedRegionMetadata(region.startMarker);
-  if (metadata.sourceDigest !== nodeSourceDigest) return { kind: "restamp" };
-  const stamp = node.priorStamp;
-  if (!stamp) return { kind: "restamp" };
-  // A node that declares no source footprint has nothing that can change under it, so its stamp
-  // sticks without a measurement — the caller has nothing to measure.
-  if (!node.nodeDeclaresSource) return { kind: "reuse", verifiedAgainst: stamp };
-  const measurement = node.measurement;
-  if (!measurement) {
-    return {
-      kind: "restamp-unmeasured",
-      stampedCommit: stamp.commit,
-      detail: `no changed-path measurement was supplied for the commit this document is stamped with (${stamp.commit}); re-stamping with the current ref`
-    };
-  }
-  if (measurement.commit !== stamp.commit) {
-    return {
-      kind: "restamp-unmeasured",
-      stampedCommit: stamp.commit,
-      detail: `changed paths were measured against ${measurement.commit} but this document is stamped with ${stamp.commit}; re-stamping with the current ref`
-    };
-  }
-  if (measurement.status === "unmeasurable") {
-    return {
-      kind: "restamp-unmeasured",
-      stampedCommit: stamp.commit,
-      detail: `changed paths since ${stamp.commit} could not be measured (${measurement.reason}); re-stamping with the current ref`
-    };
-  }
-  if (measurement.status === "changed") return { kind: "restamp" };
-  return { kind: "reuse", verifiedAgainst: stamp };
 }
 
 function generatedEndMarker(targetId: string): string {

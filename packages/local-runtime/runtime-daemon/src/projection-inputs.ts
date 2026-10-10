@@ -1,8 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { canonicalRepositoryRoot } from "@archcontext/core/architecture-domain";
 import { digestJson, type Json } from "@archcontext/contracts";
-import { readHeadSha } from "@archcontext/local-runtime/git-adapter";
-import { assertArchitectureProjectionVerifiedAgainst, type ArchitectureProjectionVerifiedAgainst } from "@archcontext/core/projection-engine";
 
 export function readCurrentBranch(root: string): string {
   try {
@@ -15,28 +13,6 @@ export function readCurrentBranch(root: string): string {
   } catch {
     return "unknown";
   }
-}
-
-
-export function readHeadCommittedAt(root: string): string {
-  try {
-    return execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
-  } catch {
-    return "";
-  }
-}
-
-
-export function readArchitectureProjectionVerifiedAgainst(root: string): ArchitectureProjectionVerifiedAgainst {
-  return assertArchitectureProjectionVerifiedAgainst({
-    branch: readCurrentBranch(root),
-    commit: readHeadSha(root),
-    committedAt: readHeadCommittedAt(root)
-  });
 }
 
 

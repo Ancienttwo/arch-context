@@ -19,7 +19,7 @@ import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, ty
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
 import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
-import { readCurrentBranch, readHeadCommittedAt } from "./projection-inputs";
+import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type DeveloperReviewRunManifest, type DeveloperReviewRun, type DeveloperReviewRunPreparation, type DeveloperReviewRunCleanup, type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunRecovery } from "./developer-review-run";
 export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
@@ -65,7 +65,7 @@ import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agen
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, assertArchitectureProjectionVerifiedAgainst, capabilitySourceChangesSinceStamps, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestVerifiedAgainst, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection, type ArchitectureProjectionManifestVerifiedAgainstReadback, type ArchitectureProjectionVerifiedAgainst, type CapabilitySourceChangeSet, type CapabilitySourceChangeSetForCommit, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
+import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
@@ -420,8 +420,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       openSession: (root) => this.openSession(root),
       withWriter: (run) => this.withWriter(run),
       localStore: this.localStore,
-      worktreeDigest: runtimeWorktreeDigest,
-      loadSourceChanges: loadCapabilitySourceChangesSinceStamps
+      worktreeDigest: runtimeWorktreeDigest
     });
     this.changeSetAuthority = new ChangeSetAuthorityService({
       projectionPlannedDrafts: this.projectionPlannedDrafts,
@@ -798,8 +797,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       listProjectionPriorCommittedApplies: (...args) => this.listProjectionPriorCommittedApplies(...args),
       inspectProjectionApplyReceipt: (...args) => this.inspectProjectionApplyReceipt(...args),
       readbackProjectionApply: (...args) => this.readbackProjectionApply(...args),
-      recoverProjectionApply: (...args) => this.recoverProjectionApply(...args),
-      loadCapabilitySourceChangesSinceStamps
+      recoverProjectionApply: (...args) => this.recoverProjectionApply(...args)
     };
   }
 
@@ -1530,47 +1528,6 @@ function architectureLedgerReadAuthority(mode: RuntimeArchitectureLedgerReadMode
   return mode === "ledger" ? "ledger" : "yaml";
 }
 
-/** Same shape `assertArchitectureProjectionVerifiedAgainst` accepts for a stamp commit. */
-const GIT_OBJECT_NAME_PATTERN = /^[0-9a-f]{7,64}$/;
-
-/**
- * Repo-relative paths that changed between `commit` and HEAD. Fails closed: a shallow clone, an
- * unknown commit, or a missing Git binary returns `unavailable` with the Git error, so the
- * freshness gate reports "could not measure" instead of reading an unmeasurable range as "nothing
- * changed". Only committed history is compared — an uncommitted edit is work in progress, not a
- * projection that fell behind a commit.
- *
- * `commit` comes from the committed projection manifest, i.e. repository content: anything that is
- * not a hex object name is refused before Git runs, and `--end-of-options` keeps Git from ever
- * reading it as an option (`--output=…` would otherwise write through a committed symlink). Paths
- * are read NUL-framed so non-ASCII, newline, and whitespace-bearing names come back verbatim
- * instead of C-quoted or trimmed.
- */
-function readChangedPathsSince(root: string, commit: string): CapabilitySourceChangeSet {
-  if (!GIT_OBJECT_NAME_PATTERN.test(commit)) {
-    return { status: "unavailable", reason: `refusing to measure changes since a non-hex commit: ${JSON.stringify(commit)}` };
-  }
-  try {
-    const output = execFileSync("git", ["diff", "--name-only", "-z", "--end-of-options", `${commit}..HEAD`], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    return {
-      status: "measured",
-      paths: output.split("\0").filter((path) => path.length > 0)
-    };
-  } catch (error) {
-    const stderr = (error as { stderr?: Buffer | string }).stderr;
-    const reason = (typeof stderr === "string" ? stderr : stderr?.toString("utf8"))?.trim();
-    return {
-      status: "unavailable",
-      reason: reason && reason.length > 0 ? reason : error instanceof Error ? error.message : String(error)
-    };
-  }
-}
-
-
 function blockedProductionInjections(deps: RuntimeDeps): string[] {
   return [
     "codeFacts",
@@ -1601,12 +1558,7 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    verifiedAgainst: assertArchitectureProjectionVerifiedAgainst({
-      branch: readCurrentBranch(root),
-      commit: readHeadSha(root),
-      committedAt: readHeadCommittedAt(root)
-    }),
-    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
@@ -1629,67 +1581,20 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
 
 /**
  * Freshness half of the projection gate: the drift check above asks whether the rendered files
- * still match the model, this one asks whether the code those files describe moved after the commit
- * the projection recorded. A repository with no projection manifest has no projection to keep
- * fresh, which is why the missing-manifest case returns `undefined` here — the same short-circuit
+ * still match the model, this one asks whether the code those files describe moved after each
+ * document was verified, by comparing every node's stamped footprint digest with the current one.
+ * A repository with no projection manifest has no projection to keep fresh, which is why the
+ * missing-manifest case returns `undefined` here — the same short-circuit
  * `completeTaskProjectionDrift` uses — rather than a blocking finding.
  */
 function completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFreshnessInput | undefined {
-  const manifest = loadArchitectureProjectionManifestVerifiedAgainst(root);
+  const manifest = loadArchitectureProjectionManifestStamps(root);
   if (manifest.status === "manifest-missing") return undefined;
   const model = loadNativeModelFromArchContext(root);
   return evaluateArchitectureProjectionSnapshotFreshness({
     model,
     manifest,
-    changeSets: measureChangeSetsForManifestStamps(root, manifest),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, model),
     currentSourceTreeDigest: architectureDocumentationSourceTreeDigest(root, model)
-  });
-}
-
-/**
- * Documents are stamped per target, so the diff baseline is per stamped commit: one
- * `git diff <commit>..HEAD` per distinct commit recorded in the manifest, never a single
- * repository-wide baseline that would judge a freshly re-verified document against an old one.
- */
-function measureChangeSetsForManifestStamps(
-  root: string,
-  manifest: ArchitectureProjectionManifestVerifiedAgainstReadback
-): CapabilitySourceChangeSetForCommit[] {
-  if (manifest.status !== "present") return [];
-  // Only stamps that pass the same validation the probe applies are measured; an invalid one is
-  // reported by the probe as unusable provenance and must never reach Git.
-  return [...new Set(manifest.nodes
-    .map((entry) => validManifestStampCommit(entry.verifiedAgainst))
-    .filter((commit): commit is string => commit !== undefined))]
-    .sort((left, right) => left.localeCompare(right))
-    .map((commit) => ({ commit, changeSet: readChangedPathsSince(root, commit) }));
-}
-
-function validManifestStampCommit(raw: unknown): string | undefined {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  try {
-    return assertArchitectureProjectionVerifiedAgainst(raw as ArchitectureProjectionVerifiedAgainst).commit;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Stamp-lifecycle input for `renderArchitectureDocumentationProjection`: per node, did its declared
- * source change after the commit its projected document is stamped with? The renderer keeps a stamp
- * only where this says `unchanged`, so a covered source edit that happens to leave every rendered
- * assertion identical still re-verifies the document instead of pinning it to a commit it was never
- * checked against — which is what the freshness gate would otherwise be unable to clear.
- *
- * The Git read lives here because `@archcontext/core` does not spawn processes; every caller that
- * renders the documentation projection (daemon drift gate, CLI `docs`, readback scripts) goes
- * through this one function so the measurement can never differ between them.
- */
-export function loadCapabilitySourceChangesSinceStamps(root: string, model: NativeModel): CapabilitySourceChangeSinceStamp[] {
-  const manifest = loadArchitectureProjectionManifestVerifiedAgainst(root);
-  return capabilitySourceChangesSinceStamps({
-    model,
-    manifest,
-    changeSets: measureChangeSetsForManifestStamps(root, manifest)
   });
 }

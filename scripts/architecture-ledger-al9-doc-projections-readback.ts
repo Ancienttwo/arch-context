@@ -11,14 +11,12 @@ import {
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   architectureDocumentationProjectionProvenance,
-  assertArchitectureProjectionVerifiedAgainst,
   loadArchitectureDocumentationInputs,
+  loadCapabilitySourceFootprintDigests,
   loadCapabilitySourceScaleSignals,
-  renderArchitectureDocumentationProjection,
-  type ArchitectureProjectionVerifiedAgainst
+  renderArchitectureDocumentationProjection
 } from "@archcontext/surfaces/renderer";
 import { loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
-import { loadCapabilitySourceChangesSinceStamps } from "@archcontext/local-runtime/runtime-daemon";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const DEFAULT_OUT = "docs/verification/architecture-ledger-al9-doc-projections-readback.json";
@@ -27,7 +25,7 @@ const CLI = resolve(REPO_ROOT, "packages/surfaces/cli/src/main.ts");
 
 function projectionReadbackProvenance(sourceDigest: string) {
   return architectureDocumentationProjectionProvenance({
-    baseHeadSha: "a".repeat(40), worktreeDigest: sourceDigest, sourceTreeDigest: sourceDigest,
+    sourceTreeDigest: sourceDigest,
     modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: null,
     rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
     generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "unavailable" }
@@ -110,8 +108,7 @@ function currentRepoProjectionReadback() {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    verifiedAgainst: projectionVerifiedAgainst(REPO_ROOT),
-    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(REPO_ROOT, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(REPO_ROOT, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(REPO_ROOT, loaded.model),
     ...loadCapabilityCodeGraphProjectionInputs(REPO_ROOT, loaded.model),
     sourceDigest,
@@ -220,8 +217,7 @@ function ambiguousOwnershipIsRejected(root: string): boolean {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: withoutMarker,
-    verifiedAgainst: projectionVerifiedAgainst(root),
-    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest: projectionSourceDigest(loaded),
@@ -231,13 +227,6 @@ function ambiguousOwnershipIsRejected(root: string): boolean {
 }
 
 /** Fail-closed Git provenance for the projection under readback; no placeholder branch/commit. */
-function projectionVerifiedAgainst(root: string): ArchitectureProjectionVerifiedAgainst {
-  const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-  const committedAt = execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-  return assertArchitectureProjectionVerifiedAgainst({ branch: branch === "HEAD" ? "detached" : branch, commit, committedAt });
-}
-
 function runCli(root: string, env: NodeJS.ProcessEnv, args: string[]) {
   const stdout = execFileSync("bun", [CLI, ...args], { cwd: root, env, encoding: "utf8" });
   return JSON.parse(stdout);

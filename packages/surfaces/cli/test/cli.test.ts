@@ -166,7 +166,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "projection protocol fixture");
     const plan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
     expect(plan.ok, JSON.stringify(plan)).toBe(true);
-    const provenance = (plan.data as any).provenance;
+    const runtimeSnapshot = (plan.data as any).runtimeSnapshot;
     const request = {
       schemaVersion: "archcontext.projection-request/v1",
       requestId: "projection_request.cli_contract",
@@ -178,7 +178,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
         repositoryId: repositoryFingerprint(root),
         workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
         headSha: gitOut(root, "rev-parse", "HEAD"),
-        worktreeDigest: provenance.worktreeDigest
+        worktreeDigest: runtimeSnapshot.worktreeDigest
       }
     };
     mkdirSync(join(root, ".ai/harness/journal/post-edit/pending"), { recursive: true });
@@ -309,7 +309,7 @@ test("CLI ledger accept-committed previews, approves, and drives an accepted pro
         repositoryId: repositoryFingerprint(root),
         workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
         headSha: gitOut(root, "rev-parse", "HEAD"),
-        worktreeDigest: (docsPlan.data as any).provenance.worktreeDigest
+        worktreeDigest: (docsPlan.data as any).runtimeSnapshot.worktreeDigest
       }
     }) as ProjectionRequestV1;
     // The preview is not an acceptance: nothing in it can drive an accepted projection run.
@@ -4604,8 +4604,7 @@ describe("archctx CLI", () => {
       expect(second.ok).toBe(true);
       expect((second.data as any).status).toBe("noop");
       expect((second.data as any).provenance).toMatchObject({
-        schemaVersion: "archcontext.architecture-docs-projection-provenance/v1",
-        baseHeadSha: expect.stringMatching(/^[a-f0-9]{40}$/),
+        schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
         rendererVersion: "archcontext.docs-renderer/v4",
         layoutVersion: "archcontext.docs-layout/v1",
         generatedFrom: {
@@ -4615,6 +4614,9 @@ describe("archctx CLI", () => {
         }
       });
       expect((second.data as any).provenance.projectionInputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      // HEAD and worktree identity are runtime facts; the committed provenance carries neither.
+      expect((second.data as any).provenance).not.toHaveProperty("baseHeadSha");
+      expect((second.data as any).provenance).not.toHaveProperty("worktreeDigest");
       const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
       expect(manifest.provenance).toEqual((second.data as any).provenance);
       const completed = await runTestCli("complete", ["--task", "verify adopted documentation"], root);
@@ -4626,7 +4628,6 @@ describe("archctx CLI", () => {
       const unresolvedPlan = await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root);
       expect(unresolvedPlan.ok).toBe(true);
       expect((unresolvedPlan.data as any).majorChange.mode).toBe("human-action-required");
-      const unresolvedProvenance = (unresolvedPlan.data as any).provenance;
       const protocolRequest: ProjectionRequestV1 = {
         schemaVersion: "archcontext.projection-request/v1",
         requestId: "projection_request.hook_adapters_major",
@@ -4638,7 +4639,7 @@ describe("archctx CLI", () => {
           repositoryId: repositoryFingerprint(root),
           workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
           headSha: gitOut(root, "rev-parse", "HEAD"),
-          worktreeDigest: unresolvedProvenance.worktreeDigest
+          worktreeDigest: (unresolvedPlan.data as any).runtimeSnapshot.worktreeDigest
         }
       };
       const unresolvedProtocol = await runTestCli("projection", ["run", "--request-json", JSON.stringify(protocolRequest)], root);

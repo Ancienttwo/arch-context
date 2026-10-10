@@ -127,7 +127,7 @@ async function prepareAcceptedMajorChange(root: string, options: { codeGraphRead
   writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("Routes runtime hook events.", "Routes and validates runtime hook events."), "utf8");
   const planned = await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root);
   expect(planned.ok, JSON.stringify(planned)).toBe(true);
-  const expected = (planned.data as any).provenance;
+  const expected = (planned.data as any).runtimeSnapshot;
   const acceptedChange = {
     changeSetId: "changeset.hook-adapters-major",
     eventId: "architecture_event.hook-adapters-major",

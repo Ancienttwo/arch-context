@@ -3,17 +3,15 @@ import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
-import { projectionWorkspaceId, readArchitectureProjectionVerifiedAgainst } from "./projection-inputs";
+import { projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionNotice, type ArchitectureDocumentationProjectionProvenanceV1, type CapabilitySourceChangeSinceStamp, type NativeModel } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionProvenanceV2, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
-export type ProjectionServiceHost = Pick<RuntimeDaemonClient, "planUpdate" | "applyUpdate" | "listProjectionPriorCommittedApplies" | "inspectProjectionApplyReceipt" | "readbackProjectionApply" | "recoverProjectionApply"> & {
-  loadCapabilitySourceChangesSinceStamps: (root: string, model: NativeModel) => CapabilitySourceChangeSinceStamp[];
-};
+export type ProjectionServiceHost = Pick<RuntimeDaemonClient, "planUpdate" | "applyUpdate" | "listProjectionPriorCommittedApplies" | "inspectProjectionApplyReceipt" | "readbackProjectionApply" | "recoverProjectionApply">;
 
 export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsProjectionInput, cwd: string, daemon: ProjectionServiceHost) {
   const subcommand = input.action ?? "plan";
@@ -36,6 +34,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
       sourceDigest: projection.plan.sourceDigest,
       projectionDigest: projection.plan.projectionDigest,
       profile: projection.plan.profile,
+      runtimeSnapshot: projection.runtimeSnapshot,
       rendererVersion: projection.plan.rendererVersion,
       targetCount: projection.plan.targets.length,
       fileCount: projection.plan.files.length,
@@ -43,8 +42,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
       rejected: projection.plan.rejected,
       majorChange: projection.plan.majorChange,
       refreshSignals: projection.plan.refreshSignals,
-      receiptDigest: projection.plan.receiptDigest,
-      notices: projection.plan.notices
+      receiptDigest: projection.plan.receiptDigest
     } as unknown as Json);
   }
   if (subcommand === "clean") {
@@ -71,10 +69,10 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
       sourceDigest: projection.plan.sourceDigest,
       projectionDigest: projection.plan.projectionDigest,
       provenance: projection.plan.provenance,
+      runtimeSnapshot: projection.runtimeSnapshot,
       majorChange: projection.plan.majorChange,
       refreshSignals: projection.plan.refreshSignals,
-      receiptDigest: projection.plan.receiptDigest,
-      ...(projection.plan.notices.length === 0 ? {} : { notices: projection.plan.notices })
+      receiptDigest: projection.plan.receiptDigest
     } as unknown as Json);
   }
   const changeSetId = input.id ?? `changeset.docs-projection-${projection.plan.projectionDigest.replace(/^sha256:/, "").slice(0, 16)}`;
@@ -94,8 +92,8 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     });
     return withProjectionMetadata(
       applied,
-      projection.plan.notices,
       projection.plan.provenance,
+      projection.runtimeSnapshot,
       projection.plan.majorChange,
       projection.plan.refreshSignals,
       projection.plan.receiptDigest
@@ -109,8 +107,8 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     targetCount: projection.plan.targets.length,
     fileCount: projection.files.length,
     drift: projection.plan.drift,
-    notices: projection.plan.notices,
     provenance: projection.plan.provenance,
+    runtimeSnapshot: projection.runtimeSnapshot,
     majorChange: projection.plan.majorChange,
     refreshSignals: projection.plan.refreshSignals,
     receiptDigest: projection.plan.receiptDigest,
@@ -121,15 +119,13 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
 }
 
 /**
- * Carries the renderer's non-blocking notices onto the `apply` envelope, which otherwise comes
- * straight from the daemon and would swallow them. A re-stamp the renderer could not corroborate
- * (rebased or missing stamp commit) must be visible on the surface that wrote the files, not only
- * on `plan`.
+ * Carries the projection metadata onto the `apply` envelope, which otherwise comes straight from
+ * the daemon and would only describe the ChangeSet.
  */
 function withProjectionMetadata(
   envelope: JsonEnvelope,
-  notices: ArchitectureDocumentationProjectionNotice[],
-  provenance: ArchitectureDocumentationProjectionProvenanceV1,
+  provenance: ArchitectureDocumentationProjectionProvenanceV2,
+  runtimeSnapshot: ArchitectureDocumentationProjectionRuntimeSnapshot,
   majorChange: ArchitectureMajorChangeClassificationV1,
   refreshSignals: ArchitectureRefreshSignalV1[],
   receiptDigest: string
@@ -140,10 +136,10 @@ function withProjectionMetadata(
     data: {
       ...(envelope.data as Record<string, Json>),
       provenance: provenance as unknown as Json,
+      runtimeSnapshot: runtimeSnapshot as unknown as Json,
       majorChange: majorChange as unknown as Json,
       refreshSignals: refreshSignals as unknown as Json,
-      receiptDigest,
-      ...(notices.length === 0 ? {} : { notices: notices as unknown as Json })
+      receiptDigest
     }
   };
 }
@@ -167,8 +163,7 @@ export function buildArchitectureDocsProjection(
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    verifiedAgainst: readArchitectureProjectionVerifiedAgainst(root),
-    sourceChangesSinceStamp: daemon.loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
@@ -178,14 +173,15 @@ export function buildArchitectureDocsProjection(
     refreshContext: {
       repositoryId: repositoryFingerprint(root),
       workspaceId: projectionWorkspaceId(root),
-      headSha: provenance.baseHeadSha,
-      worktreeDigest: provenance.worktreeDigest,
+      headSha: codeGraphInputs.runtimeSnapshot.headSha,
+      worktreeDigest: codeGraphInputs.runtimeSnapshot.worktreeDigest,
       ...(acceptedChange ? { acceptedChange } : {})
     }
   });
   return {
     loaded,
     plan,
+    runtimeSnapshot: codeGraphInputs.runtimeSnapshot,
     manifest: plan.manifest,
     files: [...plan.files, plan.manifest],
     /** This render's measured proof evidence; `plan.provenance` may be the sticky prior copy. */
@@ -752,8 +748,8 @@ function projectionProtocolResult(
   },
   priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = []
 ): ProjectionResultV2 {
-  const inputSnapshot = projectionProtocolSnapshot(request, input.plan.provenance);
-  const outputSnapshot = projectionProtocolSnapshot(request, output.plan.provenance);
+  const inputSnapshot = projectionProtocolSnapshot(request, input);
+  const outputSnapshot = projectionProtocolSnapshot(request, output);
   const files = overrides?.files ?? projectionProtocolFiles(input);
   const affectedNodeIds = projectionProtocolAffectedNodes(input);
   const requestPayloadDigest = digestJson(request as unknown as Json) as Sha256Digest;
@@ -818,13 +814,18 @@ function projectionResultDelivery(
   };
 }
 
+/**
+ * `baseHeadSha` is the HEAD this run read (runtime snapshot), not a committed value: the projection
+ * manifest no longer records a commit.
+ */
 function projectionProtocolSnapshot(
   request: ProjectionRequestV1,
-  provenance: ArchitectureDocumentationProjectionProvenanceV1
+  projection: ReturnType<typeof buildArchitectureDocsProjection>
 ): ProjectionSnapshotV1 {
+  const provenance = projection.plan.provenance;
   return {
     ...request.expected,
-    baseHeadSha: provenance.baseHeadSha,
+    baseHeadSha: projection.runtimeSnapshot.headSha,
     sourceTreeDigest: provenance.sourceTreeDigest as Sha256Digest,
     modelDigest: provenance.modelDigest as Sha256Digest,
     codeGraphDigest: provenance.codeGraphDigest as Sha256Digest,
