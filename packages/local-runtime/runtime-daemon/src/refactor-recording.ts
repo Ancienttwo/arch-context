@@ -316,7 +316,10 @@ export function previousRecommendationsV3(recommendations: readonly Recommendati
     recommendationId: recommendation.recommendationId,
     fingerprint: recommendation.fingerprint,
     status: recommendation.status,
-    updatedAt: recommendation.updatedAt
+    updatedAt: recommendation.updatedAt,
+    observationSignalIds: "category" in recommendation && recommendation.category === "structural_observation"
+      ? [...recommendation.payload.signalIds]
+      : null
   }));
 }
 

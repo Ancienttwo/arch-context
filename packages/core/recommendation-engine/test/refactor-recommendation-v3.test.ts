@@ -23,6 +23,7 @@ import {
 } from "../../refactor-assessment/test/factories";
 import {
   REFACTOR_ACTIVE_RECOMMENDATION_STATUSES,
+  REFACTOR_DECIDED_RECOMMENDATION_STATUSES,
   planRefactorRecommendationRun,
   recommendationFingerprint,
   recommendationV3Fingerprint,
@@ -60,6 +61,21 @@ function planWith(
     now: NOW,
     ...planOverrides
   });
+}
+
+/** The planner's view of a ledger record, as the daemon builds it. */
+function priorOf(
+  record: RecommendationV3,
+  status: PreviousRecommendationV3["status"],
+  updatedAt = "2026-09-03T07:31:00.000Z"
+): PreviousRecommendationV3 {
+  return {
+    recommendationId: record.recommendationId,
+    fingerprint: record.fingerprint,
+    status,
+    updatedAt,
+    observationSignalIds: record.category === "structural_observation" ? [...record.payload.signalIds] : null
+  };
 }
 
 /** Every emitted record must be one the ledger can trust without re-validating it. */
@@ -284,12 +300,7 @@ describe("dedup, cooldown and regression", () => {
   test("an active prior fingerprint suppresses instead of duplicating", () => {
     const first = planFor();
     const record = first.recommendations[0]!;
-    const previous: PreviousRecommendationV3[] = [{
-      recommendationId: record.recommendationId,
-      fingerprint: record.fingerprint,
-      status: "accepted",
-      updatedAt: "2026-09-03T07:31:00.000Z"
-    }];
+    const previous: PreviousRecommendationV3[] = [priorOf(record, "accepted")];
 
     expect(REFACTOR_ACTIVE_RECOMMENDATION_STATUSES.has("accepted")).toBe(true);
     const second = planFor({}, { previousRecommendations: previous });
@@ -316,14 +327,7 @@ describe("dedup, cooldown and regression", () => {
   test("a resolved prior yields a new record with regressesFrom and a distinct id", () => {
     const first = planFor();
     const record = first.recommendations[0]!;
-    const second = planFor({}, {
-      previousRecommendations: [{
-        recommendationId: record.recommendationId,
-        fingerprint: record.fingerprint,
-        status: "resolved",
-        updatedAt: "2026-09-03T07:31:00.000Z"
-      }]
-    });
+    const second = planFor({}, { previousRecommendations: [priorOf(record, "resolved")] });
     const regressed = second.recommendations.find((entry) => entry.fingerprint === record.fingerprint);
 
     expect(regressed).toBeDefined();
@@ -338,21 +342,16 @@ describe("dedup, cooldown and regression", () => {
     const first = planFor();
     const record = first.recommendations[0]!;
     const at = "2026-09-03T07:31:00.000Z";
-    // A record and its decision appended under one clock: the decision is the later entry.
-    const decidedLast = planFor({}, {
-      previousRecommendations: [
-        { recommendationId: record.recommendationId, fingerprint: record.fingerprint, status: "open", updatedAt: at },
-        { recommendationId: record.recommendationId, fingerprint: record.fingerprint, status: "rejected", updatedAt: at }
-      ]
+    // A record and its resolution appended under one clock: the resolution is the later entry.
+    const resolvedLast = planFor({}, {
+      previousRecommendations: [priorOf(record, "open", at), priorOf(record, "resolved", at)]
     });
-    expect(decidedLast.suppressed.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
-    expect(decidedLast.recommendations.map((entry) => entry.recommendationId)).toContain(record.recommendationId);
+    expect(resolvedLast.suppressed.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
+    expect(resolvedLast.recommendations.find((entry) => entry.fingerprint === record.fingerprint)!.relations)
+      .toEqual({ regressesFrom: record.recommendationId });
 
     const openLast = planFor({}, {
-      previousRecommendations: [
-        { recommendationId: record.recommendationId, fingerprint: record.fingerprint, status: "rejected", updatedAt: at },
-        { recommendationId: record.recommendationId, fingerprint: record.fingerprint, status: "open", updatedAt: at }
-      ]
+      previousRecommendations: [priorOf(record, "resolved", at), priorOf(record, "open", at)]
     });
     expect(openLast.suppressed).toContainEqual({
       reasonCode: "duplicate-active-fingerprint",
@@ -362,21 +361,50 @@ describe("dedup, cooldown and regression", () => {
     });
   });
 
-  test("a rejected prior yields a new record with no relation", () => {
-    const first = planFor();
-    const record = first.recommendations[0]!;
-    const second = planFor({}, {
-      previousRecommendations: [{
-        recommendationId: record.recommendationId,
-        fingerprint: record.fingerprint,
-        status: "rejected",
-        updatedAt: "2026-09-03T07:31:00.000Z"
-      }]
-    });
-    const reopened = second.recommendations.find((entry) => entry.fingerprint === record.fingerprint);
+  for (const status of ["rejected", "waived"] as const) {
+    test(`a ${status} prior with an unchanged measured fact stays suppressed`, () => {
+      const first = planFor();
+      const record = first.recommendations[0]!;
+      expect(REFACTOR_DECIDED_RECOMMENDATION_STATUSES.has(status)).toBe(true);
+      const second = planFor({}, { previousRecommendations: [priorOf(record, status)] });
 
-    expect(reopened!.relations).toEqual({});
-    expect(reopened!.recommendationId).toBe(record.recommendationId);
+      expect(second.recommendations.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
+      // Never `open` again under the decided id.
+      expect(second.recommendations.map((entry) => entry.recommendationId)).not.toContain(record.recommendationId);
+      expect(second.suppressed).toContainEqual({
+        reasonCode: "decided-fingerprint",
+        fingerprint: record.fingerprint,
+        subject: record.subjectSelectorId,
+        previousRecommendationId: record.recommendationId
+      });
+    });
+
+    test(`a ${status} prior reopens as a new related record only when its measured fact changed`, () => {
+      const first = planFor();
+      const record = first.recommendations.find((entry) => entry.category === "structural_observation")!;
+      // The decision was taken against a different measurement of the same fingerprint.
+      const decided = { ...priorOf(record, status), observationSignalIds: [`signal.${record.payload.kind}.0000000000000000`] };
+      const second = planFor({}, { previousRecommendations: [decided] });
+      const reopened = second.recommendations.find((entry) => entry.fingerprint === record.fingerprint);
+
+      expect(reopened).toBeDefined();
+      expect(reopened!.relations).toEqual({ regressesFrom: record.recommendationId });
+      expect(reopened!.recommendationId).not.toBe(record.recommendationId);
+      expect(second.suppressed.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
+      expectRecordsValid(second.recommendations);
+    });
+  }
+
+  test("a decided refactor proposal never reopens: every material field is in its fingerprint", () => {
+    const { snapshot, assessment, proposal } = proposalFor("module");
+    const first = planWith(snapshot, assessment, proposal);
+    const record = first.recommendations.find((entry) => entry.category === "refactor_proposal")!;
+    const prior = priorOf(record, "rejected");
+    expect(prior.observationSignalIds).toBeNull();
+
+    const second = planWith(snapshot, assessment, proposal, { previousRecommendations: [prior] });
+    expect(second.recommendations.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
+    expect(second.suppressed).toContainEqual(expect.objectContaining({ reasonCode: "decided-fingerprint", fingerprint: record.fingerprint }));
   });
 });
 

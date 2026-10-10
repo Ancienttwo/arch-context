@@ -806,6 +806,53 @@ function declareUnfootprintedModules(root: string, count: number, idPrefix: stri
   return ids;
 }
 
+describe("a rejected or waived suggestion stays decided", () => {
+  function decidedData(envelope: JsonEnvelope): { nextStatus: string; implicitRecord: { recommendationIds: string[] } | null } {
+    expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
+    return envelope.data as never;
+  }
+
+  for (const [command, status] of [["reject", "rejected"], ["waive", "waived"]] as const) {
+    test(`${command} A, decide B through the scan-candidate path, scan again: A stays hidden`, async () => {
+      const root = createFixtureRepo();
+      const store = new TestLocalStore();
+      const daemon = await startDaemon(store);
+      try {
+        const first = scanData(await daemon.refactorScan(root));
+        const a = first.proposedRecommendations[0]!.recommendationId;
+        expect(decidedData(await daemon.recommendations(root, { command, recommendationId: a, reason: "Intentional." })).nextStatus).toBe(status);
+
+        // A new observation B appears at a later commit; A's measured fact does not change.
+        const [laterNode] = declareUnfootprintedModules(root, 1, "module.later");
+        commitFixture(root, "a module with no footprint", SECOND_COMMITTER_DATE);
+        const second = scanData(await daemon.refactorScan(root));
+        const proposedIds = second.proposedRecommendations.map((candidate) => candidate.recommendationId);
+        expect(proposedIds).not.toContain(a);
+        expect((second as unknown as { suppressed: { reasonCode: string; previousRecommendationId: string }[] }).suppressed)
+          .toContainEqual(expect.objectContaining({ reasonCode: "decided-fingerprint", previousRecommendationId: a }));
+        const b = second.proposedRecommendations.find((candidate) => (candidate as unknown as { subject: string }).subject === laterNode)!.recommendationId;
+
+        // B is not recorded yet, so this decision records the whole run and then decides B.
+        const decidedB = decidedData(await daemon.recommendations(root, { command: "accept", recommendationId: b, reason: "Worth doing." }));
+        expect(decidedB.implicitRecord).not.toBeNull();
+        expect(decidedB.implicitRecord!.recommendationIds).not.toContain(a);
+
+        const third = scanData(await daemon.refactorScan(root));
+        expect(third.proposedRecommendations.map((candidate) => candidate.recommendationId)).not.toContain(a);
+        const shown = await daemon.recommendations(root, { command: "show", recommendationId: a });
+        expect(shown.ok, JSON.stringify(shown)).toBe(true);
+        expect(shown.data).toMatchObject({ source: "ledger", status });
+        const listed = await daemon.recommendations(root, { command: "list", status });
+        expect((listed.data as { recommendations: { recommendationId: string }[] }).recommendations.map((entry) => entry.recommendationId)).toEqual([a]);
+        const reopened = await daemon.recommendations(root, { command: "list", status: "open" });
+        expect((reopened.data as { recommendations: { recommendationId: string }[] }).recommendations.map((entry) => entry.recommendationId)).not.toContain(a);
+      } finally {
+        await daemon.stop();
+      }
+    });
+  }
+});
+
 describe("refactor scan limits", () => {
   test("the scan reports the evidence sample limit and the candidate cap", async () => {
     const root = createFixtureRepo();

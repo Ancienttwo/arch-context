@@ -101,7 +101,11 @@ export interface PreviousRecommendation {
 }
 
 export interface RecommendationSuppression {
-  reasonCode: "duplicate-active-fingerprint" | "cooldown-active";
+  /**
+   * `decided-fingerprint` is refactor-only: the latest record for the fingerprint is `rejected` or
+   * `waived` and its measured fact has not changed since that decision.
+   */
+  reasonCode: "duplicate-active-fingerprint" | "decided-fingerprint" | "cooldown-active";
   fingerprint: string;
   subject: string;
   practiceId?: string;
@@ -259,6 +263,15 @@ export const REFACTOR_ACTIVE_RECOMMENDATION_STATUSES: ReadonlySet<Recommendation
   "acknowledged",
   "accepted",
   "deferred"
+]);
+/**
+ * Refactor-category decisions that close a fingerprint without a fix. A re-detection of the same
+ * fingerprint is suppressed while the measured fact is unchanged, so a user's rejection or waiver
+ * outlives later runs; see `refactorObservationFactChanged` for what reopens it.
+ */
+export const REFACTOR_DECIDED_RECOMMENDATION_STATUSES: ReadonlySet<RecommendationStatus> = new Set<RecommendationStatus>([
+  "rejected",
+  "waived"
 ]);
 const OUTCOME_RECOMMENDATION_STATUSES = new Set<RecommendationStatus>([
   "accepted",
@@ -929,6 +942,12 @@ export interface PreviousRecommendationV3 {
   fingerprint: string;
   status: RecommendationStatus;
   updatedAt: string;
+  /**
+   * The prior record's `payload.signalIds` when it is a `structural_observation`, otherwise `null`.
+   * A signal id digests the observation's kind, subject and metrics and never its evidence sample,
+   * so it names the measured fact a `rejected` or `waived` decision was taken against.
+   */
+  observationSignalIds: string[] | null;
 }
 
 export interface PlanRefactorRecommendationRunInput {
@@ -1048,7 +1067,8 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
     previousRecommendations: (input.previousRecommendations ?? []).map((recommendation) => ({
       fingerprint: recommendation.fingerprint,
       status: recommendation.status,
-      updatedAt: recommendation.updatedAt
+      updatedAt: recommendation.updatedAt,
+      observationSignalIds: recommendation.observationSignalIds
     })),
     cooldowns: input.cooldowns ?? [],
     // The invocation clock is part of the run's identity. Without it two scans at the same HEAD
@@ -1075,6 +1095,16 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       });
       continue;
     }
+    const decided = previous !== undefined && REFACTOR_DECIDED_RECOMMENDATION_STATUSES.has(previous.status);
+    if (decided && !refactorObservationFactChanged(previous, draft)) {
+      suppressed.push({
+        reasonCode: "decided-fingerprint",
+        fingerprint: draft.fingerprint,
+        subject: draft.subjectSelectorId,
+        previousRecommendationId: previous.recommendationId
+      });
+      continue;
+    }
     const cooldown = findActiveCooldown(
       input.cooldowns ?? [],
       { subject: draft.subjectSelectorId },
@@ -1090,8 +1120,9 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       });
       continue;
     }
-    // A resolved prior is never touched: the regression is a new record that points back at it.
-    const relations: RecommendationRelationsV1 = previous?.status === "resolved"
+    // A resolved prior, or a rejected/waived one whose measured fact changed, is never touched:
+    // the re-detection is a new record that points back at it, never `open` under the old id.
+    const relations: RecommendationRelationsV1 = previous !== undefined && (previous.status === "resolved" || decided)
       ? { regressesFrom: previous.recommendationId }
       : {};
     const recommendationId = refactorRecommendationId(draft.fingerprint, relations.regressesFrom ?? null);
@@ -1200,6 +1231,20 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
   };
 }
 
+/**
+ * Whether a `rejected` or `waived` fingerprint's measured fact changed since the decision. The
+ * fact is the observation's `signalIds`: each digests kind, subject and metrics, and never the
+ * evidence sample, the baseline snapshot or HEAD, so a re-scan of an unchanged problem at a new
+ * commit, or under a different evidence cut, is not a change. A `refactor_proposal` fingerprints
+ * every material field already (`proposalDigest`, scale, affected nodes, major-change reasons), so
+ * its decided fingerprint never reopens; nor does a prior that carries no signal ids.
+ */
+function refactorObservationFactChanged(previous: PreviousRecommendationV3, draft: RefactorRecommendationDraft): boolean {
+  if (draft.category !== "structural_observation" || previous.observationSignalIds === null) return false;
+  const current = [...(draft.payload as StructuralObservationPayloadV1).signalIds].sort();
+  const prior = [...previous.observationSignalIds].sort();
+  return current.length !== prior.length || current.some((signalId, index) => signalId !== prior[index]);
+}
 
 export function refactorRecommendationRunLedgerPayload(plan: RefactorRecommendationRunPlan): Record<string, Json> {
   return {

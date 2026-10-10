@@ -96,6 +96,14 @@ their ledger readback identity.
 
 ### Refactor Suggestion Decisions and Limits
 
+A refactor fingerprint whose latest record is `rejected` or `waived` is suppressed on re-detection
+(`decided-fingerprint`), like `accepted` and `deferred`, including when a later decision records a
+whole scan run. It reopens only when its measured fact changed: a structural observation's
+`signalIds` (kind, subject and metrics, never the evidence sample, baseline or HEAD) differ from the
+decided record's. The reopened suggestion is a new record with a new id and
+`relations.regressesFrom` naming the decided one; the decided id is never appended as `open` again.
+A refactor proposal fingerprints every material field, so a decided proposal does not reopen.
+
 `refactor scan` is read-only and never fails on the ledger event size limit. It returns
 `recording.recordable`, `recording.measuredBytes` and `recording.limitBytes`, plus `limits` with the
 shared `evidenceSampleLimit` and the candidates cut by `maxRecommendationsPerRun`. `refactor record`,
