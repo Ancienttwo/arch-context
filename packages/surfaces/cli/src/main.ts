@@ -3441,8 +3441,8 @@ const CLI_PLAN_ENTITY_FLAGS = ["--op", "--path", "--expected-hash", "--body", "-
 
 const CLI_PLAN_HELP = {
   command: "archctx plan --id <changeset.id> (--op <create_entity|update_entity_fields|delete_entity> --path <file> [--expected-hash sha256:<64-hex>] [--body <yaml> | --body - | --body-file <path>] | --operations-file <operations.json>)",
-  operations: "--operations-file takes a JSON array of operations in the archcontext_plan_update MCP shape and plans them as one ChangeSet; it cannot be combined with --op, --path, --expected-hash, --body or --body-file.",
-  body: "--body is the complete new YAML document, not a field patch. Give exactly one of --body <yaml>, --body - (stdin) or --body-file <path>. delete_entity accepts no body.",
+  operations: "--operations-file takes a repository-relative path to a JSON array of operations in the archcontext_plan_update MCP shape and plans them as one ChangeSet; it cannot be combined with --op, --path, --expected-hash, --body or --body-file.",
+  body: "--body is the complete new YAML document, not a field patch. Give exactly one of --body <yaml>, --body - (stdin) or --body-file <path>. --body-file and --operations-file read only repository-relative files inside the repository (no absolute or .. paths, no symlinks); content from outside the repository must come through --body - (stdin). delete_entity accepts no body.",
   expectedHash: "digestJson({ body }) of the file's current UTF-8 contents, not sha256sum of the file. Read it with `archctx hash --path <file>`; use `missing` (the create default) for a new file.",
   drafts: "A draft lives in daemon memory. Planning the same --id again replaces it, and a daemon restart between plan and apply drops it: apply then fails with `Unknown ChangeSet`; plan again.",
   next: "archctx apply --id <changeset.id> --approved --expected-worktree-digest <draft.base.worktreeDigest>"
@@ -3451,8 +3451,44 @@ const CLI_PLAN_HELP = {
 const CLI_HASH_HELP = {
   command: "archctx hash --path <repo-relative file>",
   formula: "digestJson({ body: <file contents read as UTF-8> }); this is the expected hash a plan operation must carry. It is not sha256sum of the file.",
-  scope: "Read-only. The path must be inside the ChangeSet write allowlist (for example .archcontext/model/) and the file must exist; symlinks are refused."
+  scope: "Read-only. The path must be one a ChangeSet may write (for example .archcontext/model/, .archcontext/manifest.yaml or docs/adr/ADR-NNNN-*.md) and the file must exist; symlinks are refused."
 };
+
+/**
+ * The ChangeSet write boundary admits the manifest and ADR files only under their own operation
+ * scopes (`update_manifest_fields`, `update_adr_references`), and those operations need an expectedHash.
+ * Try the default scope first so its error is the one reported for a path no scope admits.
+ */
+function assertHashPathAllowed(cwd: string, path: string): void {
+  const agentContextPaths: ReadonlySet<string> = new Set();
+  try {
+    assertAllowedArchContextPath(cwd, path);
+  } catch (error) {
+    for (const operation of ["manifest", "adr-reference"] as const) {
+      try {
+        assertAllowedArchContextPath(cwd, path, { operation, agentContextPaths });
+        return;
+      } catch { /* try the next scope */ }
+    }
+    throw error;
+  }
+}
+
+/**
+ * Reads a plan input file. Only repository-relative POSIX paths inside the repository are read: no
+ * absolute or `..` paths and no symlink segments, so a flag cannot pull outside content into a
+ * ChangeSet body. Content from outside the repository comes in through stdin (`--body -`).
+ */
+function readRepositoryInputFile(cwd: string, flag: string, file: string): { content: string } | { problem: string } {
+  if (!isRepoRelativePosixPath(file)) return { problem: `plan ${flag} must be a repository-relative POSIX path inside the repository; use --body - to read stdin` };
+  try {
+    const absolute = assertPathHasNoSymlinkSegments(cwd, file);
+    if (!statSync(absolute).isFile()) return { problem: `plan ${flag} ${file} is not a regular file` };
+    return { content: readFileSync(absolute, "utf8") };
+  } catch (error) {
+    return { problem: `plan ${flag} ${file} is not readable: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
 
 /**
  * `archctx hash`: prints the expected hash of one existing file exactly as the ChangeSet precondition
@@ -3464,7 +3500,7 @@ function runHashCommand(args: string[], cwd: string) {
   if (!isRepoRelativePosixPath(path)) return errorEnvelope("hash", "AC_SCHEMA_INVALID", "hash --path must be a repository-relative POSIX path");
   let absolute: string;
   try {
-    assertAllowedArchContextPath(cwd, path);
+    assertHashPathAllowed(cwd, path);
     absolute = assertPathHasNoSymlinkSegments(cwd, path);
   } catch (error) {
     return errorEnvelope("hash", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
@@ -3486,11 +3522,13 @@ async function readCliPlanOperations(args: string[], cwd: string, deps: CliRunti
     if (conflicts.length > 0) return `plan --operations-file cannot be combined with ${conflicts.join(", ")}`;
     const file = readFlag(args, "--operations-file");
     if (!file) return "plan --operations-file requires a path";
+    const read = readRepositoryInputFile(cwd, "--operations-file", file);
+    if ("problem" in read) return read.problem;
     let parsed: Json;
     try {
-      parsed = JSON.parse(readFileSync(resolve(cwd, file), "utf8")) as Json;
+      parsed = JSON.parse(read.content) as Json;
     } catch (error) {
-      return `plan --operations-file ${file} is not readable JSON: ${error instanceof Error ? error.message : String(error)}`;
+      return `plan --operations-file ${file} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`;
     }
     const validation = validateJsonSchema(MCP_PLAN_OPERATIONS_SCHEMA, parsed);
     if (!validation.valid) return `plan --operations-file ${file} is not a valid operations array: ${validation.issues.map((issue) => `${issue.path} ${issue.message}`).join("; ")}`;
@@ -3533,11 +3571,8 @@ async function readCliPlanBody(args: string[], cwd: string, deps: CliRuntimeDeps
   if (hasBodyFile) {
     const file = readFlag(args, "--body-file");
     if (!file) return { problem: "plan --body-file requires a path" };
-    try {
-      return readFileSync(resolve(cwd, file), "utf8");
-    } catch (error) {
-      return { problem: `plan --body-file ${file} is not readable: ${error instanceof Error ? error.message : String(error)}` };
-    }
+    const read = readRepositoryInputFile(cwd, "--body-file", file);
+    return "problem" in read ? read : read.content;
   }
   if (!hasBody) return undefined;
   const inline = readFlag(args, "--body");

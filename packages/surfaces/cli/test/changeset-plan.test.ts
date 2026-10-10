@@ -35,7 +35,7 @@ test("archctx plan rejects malformed entity operations before reaching the daemo
     [["--op", "delete_entity", "--path", path, "--expected-hash", hash, "--body", "x"], "plan --op delete_entity does not accept --body or --body-file"],
     [["--path", path, "--body", "x", "--body-file", "body.yaml"], "plan accepts exactly one body source: --body, --body - or --body-file"],
     [["--path", path, "--body-file"], "plan --body-file requires a path"],
-    [["--path", path, "--body-file", "/absent/body.yaml"], "plan --body-file /absent/body.yaml is not readable: ENOENT: no such file or directory, open '/absent/body.yaml'"]
+    [["--path", path, "--body-file", "/absent/body.yaml"], "plan --body-file must be a repository-relative POSIX path inside the repository; use --body - to read stdin"]
   ];
   for (const [args, message] of cases) {
     expect(await runCli("plan", ["--id", "changeset.example", ...args], "/absent", { runtimeClient })).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", message } });
@@ -86,7 +86,7 @@ test("archctx plan --body-file and --body - read the complete YAML from a file o
     writeFileSync(join(root, "entity.yaml"), "from file\nsecond: line\n", "utf8");
     const plan = (args: string[], readStdin?: () => string) => runCli("plan", ["--id", "changeset.example", ...args], root, { runtimeClient, readStdin });
     await plan(["--path", path, "--body-file", "entity.yaml"]);
-    await plan(["--op", "update_entity_fields", "--path", path, "--expected-hash", hash, "--body-file", join(root, "entity.yaml")]);
+    await plan(["--op", "update_entity_fields", "--path", path, "--expected-hash", hash, "--body-file", "./entity.yaml"]);
     await plan(["--op", "update_entity_fields", "--path", path, "--expected-hash", hash, "--body", "-"], () => "from stdin\n");
     expect(calls.map((call) => (call.input as any).operations)).toEqual([
       [{ op: "create_entity", path, expectedHash: "missing", body: "from file\nsecond: line\n" }],
@@ -133,6 +133,42 @@ test("archctx plan --operations-file fails closed before reaching the daemon", (
     expect(calls).toEqual([]);
   }));
 
+test("archctx plan --body-file and --operations-file read only regular files inside the repository", () =>
+  withTempRepo(async (root) => {
+    const { calls, runtimeClient } = recordingClient();
+    const outside = mkdtempSync(join(tmpdir(), "archctx-cli-outside-"));
+    try {
+      writeFileSync(join(outside, "secret.txt"), "secret\n", "utf8");
+      writeFileSync(join(outside, "operations.json"), "[]", "utf8");
+      symlinkSync(join(outside, "secret.txt"), join(root, "linked-body.yaml"));
+      symlinkSync(join(outside, "operations.json"), join(root, "linked-operations.json"));
+      mkdirSync(join(root, "real"), { recursive: true });
+      writeFileSync(join(root, "real", "body.yaml"), "x\n", "utf8");
+      symlinkSync(join(root, "real"), join(root, "linked-dir"));
+      const base = ["--id", "changeset.example", "--path", path];
+      const cases: Array<[string, string[]]> = [
+        ["--body-file absolute", [...base, "--body-file", join(outside, "secret.txt")]],
+        ["--body-file ..", [...base, "--body-file", "../secret.txt"]],
+        ["--body-file symlink", [...base, "--body-file", "linked-body.yaml"]],
+        ["--body-file symlinked directory", [...base, "--body-file", "linked-dir/body.yaml"]],
+        ["--body-file directory", [...base, "--body-file", "real"]],
+        ["--operations-file absolute", ["--id", "changeset.example", "--operations-file", join(outside, "operations.json")]],
+        ["--operations-file ..", ["--id", "changeset.example", "--operations-file", "../operations.json"]],
+        ["--operations-file symlink", ["--id", "changeset.example", "--operations-file", "linked-operations.json"]],
+        ["--operations-file directory", ["--id", "changeset.example", "--operations-file", "real"]]
+      ];
+      for (const [name, args] of cases) {
+        expect(await runCli("plan", args, root, { runtimeClient }), name).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+      }
+      expect(calls).toEqual([]);
+      // Out-of-repository content stays possible through stdin.
+      await runCli("plan", [...base, "--body", "-"], root, { runtimeClient, readStdin: () => "from stdin\n" });
+      expect(calls).toHaveLength(1);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  }));
+
 test("archctx hash prints the expected hash exactly as the ChangeSet precondition computes it", () =>
   withTempRepo(async (root) => {
     const body = "id: module.example\nname: Example \u00e9\n";
@@ -141,6 +177,25 @@ test("archctx hash prints the expected hash exactly as the ChangeSet preconditio
     const result = await runCli("hash", ["--path", path], root);
     expect(result).toMatchObject({ ok: true, data: { path, hash: digestJson({ body }) } });
     expect((result.data as { hash: string }).hash).toMatch(/^sha256:[a-f0-9]{64}$/);
+  }));
+
+test("archctx hash accepts the manifest and ADR files that update_manifest_fields and update_adr_references precondition on", () =>
+  withTempRepo(async (root) => {
+    mkdirSync(join(root, "docs/adr"), { recursive: true });
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    const files: Record<string, string> = {
+      ".archcontext/manifest.yaml": "schemaVersion: archcontext.manifest/v1\n",
+      "docs/adr/ADR-0001-example-decision.md": "# ADR 1\n"
+    };
+    for (const [file, body] of Object.entries(files)) {
+      writeFileSync(join(root, file), body, "utf8");
+      expect(await runCli("hash", ["--path", file], root), file).toMatchObject({ ok: true, data: { path: file, hash: digestJson({ body }) } });
+    }
+    writeFileSync(join(root, "docs/adr/notes.md"), "x\n", "utf8");
+    writeFileSync(join(root, ".archcontext/other.yaml"), "x\n", "utf8");
+    for (const file of ["docs/adr/notes.md", ".archcontext/other.yaml"]) {
+      expect(await runCli("hash", ["--path", file], root), file).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", message: `Path is outside ArchContext write allowlist: ${file}` } });
+    }
   }));
 
 test("archctx hash fails closed for paths a ChangeSet could not write or files that do not exist", () =>

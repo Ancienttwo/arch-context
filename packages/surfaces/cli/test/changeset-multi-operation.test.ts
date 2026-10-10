@@ -45,9 +45,8 @@ test("archctx plan --operations-file applies a coordinated change that neither s
       const retarget = { op: "update_entity_fields", path: constraintPath, expectedHash: await hashOf(constraintPath), body: stableYaml(constraint("module.example.b2") as never) };
       const createB2 = { op: "create_entity", path: nodePath("module.example.b2"), expectedHash: "missing", body: stableYaml(moduleNode("module.example.b2") as never) };
       const planWith = async (id: string, operations: unknown[]) => {
-        const file = join(root, `${id}.json`);
-        writeFileSync(file, JSON.stringify(operations), "utf8");
-        return cli("plan", ["--id", id, "--operations-file", file]);
+        writeFileSync(join(root, `${id}.json`), JSON.stringify(operations), "utf8");
+        return cli("plan", ["--id", id, "--operations-file", `${id}.json`]);
       };
 
       // Each single-operation ChangeSet would leave a dangling reference, so the engine blocks it.

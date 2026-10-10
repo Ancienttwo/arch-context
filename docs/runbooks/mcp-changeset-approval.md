@@ -16,7 +16,7 @@ There is no separate approval command and no approval token.
    archctx hash --path .archcontext/model/nodes/NODE.yaml
    ```
 
-   It is read-only and prints `{ path, hash }`. It accepts the paths a ChangeSet may write (for example `.archcontext/model/`), refuses symlinks, and fails for a file that does not exist. Run it again right before planning; do not reuse a hash from a mismatch finding without reviewing the current content.
+   It is read-only and prints `{ path, hash }`. It accepts the paths a ChangeSet may write (for example `.archcontext/model/`, plus `.archcontext/manifest.yaml` and `docs/adr/ADR-NNNN-*.md` for the manifest and ADR reference operations), refuses symlinks, and fails for a file that does not exist. Run it again right before planning; do not reuse a hash from a mismatch finding without reviewing the current content.
 
 2. Plan one entity operation. Create, update and delete use the same shape:
 
@@ -26,7 +26,7 @@ There is no separate approval command and no approval token.
    archctx plan --id changeset.ID --op delete_entity --path .archcontext/model/flows/FLOW.yaml --expected-hash sha256:CURRENT
    ```
 
-   `--body` is the complete new YAML document, not a field patch. Give exactly one body source: `--body '<yaml>'`, `--body -` (read stdin) or `--body-file <path>`. Use the file or stdin forms for long entities. Update and delete require `--expected-hash`; delete accepts no body.
+   `--body` is the complete new YAML document, not a field patch. Give exactly one body source: `--body '<yaml>'`, `--body -` (read stdin) or `--body-file <path>`. Use the file or stdin forms for long entities. `--body-file` (and `--operations-file`) read only repository-relative files inside the repository: absolute paths, `..` and symlinks are rejected before the daemon is contacted. Content from outside the repository must come in through `--body -` (stdin). Update and delete require `--expected-hash`; delete accepts no body.
 
    To change several files in one ChangeSet, put the operations in a JSON array in the same shape `archcontext_plan_update` takes and pass it as one plan:
 
