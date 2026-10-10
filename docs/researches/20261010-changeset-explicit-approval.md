@@ -8,7 +8,7 @@ Baseline: `cb3de48`. This note amends [ADR-0012](../adr/ADR-0012-changeset-only-
 
 ## Decision
 
-P1: the daemon owns ChangeSet mutation. CLI and MCP are thin adapters (ADR-0006) and both reach the same `applyUpdate` RPC. archctx runs locally; the agent that edits the model already works inside a task the user authorized, and pull request review is the human gate (ADR-0003). A token that the same local user mints and forwards does not separate two trust levels.
+P1: the daemon owns ChangeSet mutation. CLI and MCP are thin adapters (ADR-0006) and both reach the same `applyUpdate` RPC. archctx runs locally; the agent that edits the model already works inside a task the user authorized, and pull request review is the human gate. A token that the same local user mints and forwards does not separate two trust levels.
 
 P2: `archctx plan` accepts `--op create_entity|update_entity_fields|delete_entity` in the MCP entity operation shape. Update and delete require `--expected-hash sha256:<64-hex>`; update requires the complete `--body`; delete rejects `--body`. `archctx apply --approved --expected-worktree-digest` and MCP `archcontext_apply_update { approved: true, expectedWorktreeDigest }` both call `applyUpdate`. The daemon returns `AC_USER_CONFIRMATION_REQUIRED` unless `approved` is `true`, then `AC_PRECONDITION_FAILED` if the draft was planned for another repository. Under the writer lock it rechecks the worktree digest, HEAD, model digest and each file's expected hash. The engine preview reports `Expected hash mismatch: PATH (current HASH)` and `update_entity_fields|delete_entity target does not exist`, so a stale plan is visible before apply.
 

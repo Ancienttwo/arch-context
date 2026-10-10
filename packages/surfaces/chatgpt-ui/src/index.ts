@@ -202,7 +202,7 @@ export function renderTaskContextHtml(input: {
 
     <div class="notice" role="note">
       <span class="notice-mark" aria-hidden="true">!</span>
-      <div><strong>Data sharing:</strong> Tool results displayed in this panel may be sent to OpenAI by the MCP host. Private repository context stays in the local runtime; write tools require local confirmation.</div>
+      <div><strong>Data sharing:</strong> Tool results displayed in this panel may be sent to OpenAI by the MCP host. Private repository context stays in the local runtime; write tools apply only when the caller sets approved: true and the request matches the current expected hash or snapshot.</div>
     </div>
 
     <section class="card">
@@ -275,7 +275,7 @@ export function renderTaskContextHtml(input: {
       ${findings.length ? `<div class="findings">${findings.map(findingRow).join("")}</div>` : `<p class="task-text" style="color:var(--muted)">No findings.</p>`}
     </section>
 
-    <p class="foot">writeMode: disabled — ArchContext cannot modify your code from this panel.<br>Private context stays in the local runtime; write tools require local confirmation.</p>
+    <p class="foot">writeMode: disabled — ArchContext cannot modify your code from this panel.<br>Private context stays in the local runtime; write tools apply only when the caller sets approved: true and the request matches the current expected hash or snapshot.</p>
   </main>
 </body>
 </html>`;
@@ -289,11 +289,11 @@ export function buildGaUiState(input: {
 }) {
   return {
     schemaVersion: "archcontext.chatgpt-ui-state/v1",
-    writeMode: input.writeEnabled ? "requires-local-confirmation" : "disabled",
+    writeMode: input.writeEnabled ? "explicit-approval" : "disabled",
     intervention: input.intervention ?? {},
     migrationProgress: input.migrationProgress ?? { required: 0, completed: 0, blocked: 0 },
     diffPreview: input.diffPreview ?? { files: [] },
-    disclosure: "Private repository context stays in the local runtime; write tools require local confirmation."
+    disclosure: "Private repository context stays in the local runtime; write tools apply only when the caller sets approved: true and the request matches the current expected hash or snapshot."
   };
 }
 

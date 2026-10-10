@@ -723,9 +723,10 @@ const ENTITY_FILE_OPERATIONS: ReadonlySet<ChangeOperationKind> = new Set(["creat
 
 /**
  * Preview-time view of the per-entity preimage: the expected hash must match the current file
- * (`missing` for an absent one), and update or delete must name an existing target. A mismatch
- * names the current hash so the caller can re-read and re-plan. Apply does not trust the preview:
- * `applyFileOperation` rechecks the expected hash immediately before it writes.
+ * (`missing` for an absent one), and the preview reports update or delete of an absent target as
+ * a finding. A mismatch names the current hash so the caller can re-read and re-plan. Apply does
+ * not trust the preview and does not repeat the target-exists check: `applyFileOperation` only
+ * rechecks the expected hash immediately before it writes.
  */
 function entityPreimageFindings(root: string, operation: ChangeOperation): string[] {
   if (!ENTITY_FILE_OPERATIONS.has(operation.op) || !operation.path) return [];

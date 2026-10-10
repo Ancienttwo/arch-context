@@ -5362,6 +5362,13 @@ describe("archctx CLI", () => {
       expect(applied.data.status).toBe("applied");
       expect(projectionResultInvariantIssues(applied.data)).toEqual([]);
       expect(await call("readback", request)).toEqual(await cli("readback", request));
+      // Replaying the identical approved apply must not apply twice: the committed receipt demands an explicit recover.
+      const readbackBeforeReplay = await call("readback", request);
+      expect(await call("run", request, true)).toMatchObject({
+        ok: false,
+        error: { code: "AC_PRECONDITION_FAILED", message: expect.stringContaining("requires explicit projection recover") }
+      });
+      expect(await call("readback", request)).toEqual(readbackBeforeReplay);
       const intent = {
         schemaVersion: "archcontext.projection-apply-recovery-intent/v1", requestId: request.requestId, profile: request.profile,
         receipt: { lookupKey: applied.data.applyReceipt.lookupKey, applyId: applied.data.applyReceipt.applyId }
