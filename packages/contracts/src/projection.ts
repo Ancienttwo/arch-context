@@ -64,6 +64,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-readback-v1",
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
+  "projection-check-freshness-v1",
   "projection-prior-committed-applies-v1",
   "projection-protocol-v2",
   "recommendation-v3",
@@ -71,7 +72,22 @@ export const ARCHCTX_FEATURES = [
   "refactor-resolution-v1"
 ] as const;
 
+/**
+ * Why a projection is not fresh. Shared by the core freshness evaluator and the `check` result's
+ * `freshness` field so the two can never disagree.
+ */
+export const PROJECTION_FRESHNESS_REASON_CODES = [
+  "projection-manifest-missing",
+  "projection-manifest-unreadable",
+  "projection-snapshot-provenance-missing",
+  "projection-source-changed-since-stamp",
+  "projection-source-stamp-invalid",
+  "projection-source-stamp-missing",
+  "projection-source-tree-digest-mismatch"
+] as const;
+
 export type ProjectionMode = (typeof PROJECTION_MODES)[number];
+export type ProjectionFreshnessReasonCode = (typeof PROJECTION_FRESHNESS_REASON_CODES)[number];
 export type ProjectionTarget = (typeof PROJECTION_TARGETS)[number];
 export type ProjectionResultStatus = (typeof PROJECTION_RESULT_STATUSES)[number];
 export type ProjectionHumanActionReasonCode = (typeof PROJECTION_HUMAN_ACTION_REASON_CODES)[number];
@@ -203,6 +219,21 @@ export interface ProjectionPriorCommittedApplyV1 {
   files: ProjectionPriorCommittedApplyFileV1[];
 }
 
+export interface ProjectionFreshnessStaleNodeV1 {
+  nodeId: string;
+  /** Source-footprint digest the node's projected document is stamped with. */
+  stampedDigest: Sha256Digest;
+  /** Source-footprint digest measured by this run. */
+  currentDigest: Sha256Digest;
+}
+
+/** Read-only per-node freshness of the committed projection, as `check` measured it. */
+export interface ProjectionFreshnessV1 {
+  ok: boolean;
+  reasonCodes: ProjectionFreshnessReasonCode[];
+  staleNodes: ProjectionFreshnessStaleNodeV1[];
+}
+
 export interface ProjectionResultV2 {
   schemaVersion: typeof PROJECTION_RESULT_SCHEMA_VERSION;
   requestId: string;
@@ -216,6 +247,11 @@ export interface ProjectionResultV2 {
   applyReceipt?: ProjectionApplyIdentityV1;
   /** Omitted, never `[]`, when no earlier attempt of this requestId committed. */
   priorCommittedApplies?: ProjectionPriorCommittedApplyV1[];
+  /**
+   * Present on `check` results only: which nodes changed since their documents were verified.
+   * Consumers gate on the `projection-check-freshness-v1` capability, not on field presence.
+   */
+  freshness?: ProjectionFreshnessV1;
   receiptDigest: Sha256Digest;
 }
 
@@ -418,6 +454,7 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
   if (input.priorCommittedApplies) {
     issues.push(...projectionPriorCommittedAppliesIssues(input.priorCommittedApplies, input.requestId));
   }
+  if (input.freshness) issues.push(...projectionFreshnessIssues(input.freshness));
   const { receiptDigest, ...receiptPayload } = input;
   if (projectionResultReceiptDigest(receiptPayload) !== receiptDigest) issues.push("receiptDigest must match the canonical projection result payload");
   for (const [index, signal] of input.refreshSignals.entries()) {
@@ -427,6 +464,26 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     if (signal.worktree.workspaceId !== input.outputSnapshot.workspaceId) issues.push(`${prefix}.workspaceId must match outputSnapshot.workspaceId`);
     if (signal.worktree.headSha !== input.outputSnapshot.headSha) issues.push(`${prefix}.headSha must match outputSnapshot.headSha`);
     if (signal.worktree.worktreeDigest !== input.outputSnapshot.worktreeDigest) issues.push(`${prefix}.worktreeDigest must match outputSnapshot.worktreeDigest`);
+  }
+  return issues;
+}
+
+export function projectionFreshnessIssues(input: ProjectionFreshnessV1): string[] {
+  const issues = [
+    ...sortedUniqueIssues("freshness.reasonCodes", input.reasonCodes),
+    ...sortedUniqueIssues("freshness.staleNodes.nodeId", input.staleNodes.map((node) => node.nodeId))
+  ];
+  const unsupported = input.reasonCodes.find((code) => !(PROJECTION_FRESHNESS_REASON_CODES as readonly string[]).includes(code));
+  if (unsupported) issues.push(`freshness.reasonCodes contains an unsupported code: ${unsupported}`);
+  if (input.ok !== (input.reasonCodes.length === 0)) issues.push("freshness.ok must be true exactly when reasonCodes is empty");
+  if ((input.staleNodes.length > 0) !== input.reasonCodes.includes("projection-source-changed-since-stamp")) {
+    issues.push("freshness.staleNodes must be non-empty exactly when projection-source-changed-since-stamp is reported");
+  }
+  for (const [index, node] of input.staleNodes.entries()) {
+    const prefix = `freshness.staleNodes[${index}]`;
+    if (node.nodeId.trim() === "") issues.push(`${prefix}.nodeId must not be empty`);
+    if (!SHA256_DIGEST.test(node.stampedDigest) || !SHA256_DIGEST.test(node.currentDigest)) issues.push(`${prefix} digests must be SHA-256 digests`);
+    else if (node.stampedDigest === node.currentDigest) issues.push(`${prefix} must name two different digests`);
   }
   return issues;
 }

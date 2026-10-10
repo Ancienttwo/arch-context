@@ -15,6 +15,7 @@ import {
   type ArchitectureRefreshSignalV1,
   type Json,
   type ModelExportResult,
+  type ProjectionFreshnessReasonCode,
   type ProjectionTargetV1
 } from "@archcontext/contracts";
 import { assertRepoRelativePath, computeWorktreeDigest, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
@@ -831,14 +832,8 @@ export function loadArchitectureDocumentationFiles(
 // the footprint digest measured now. Git history is never read, so the answer is the same after a
 // squash merge, a rebase or in a shallow CI clone.
 
-export type ArchitectureProjectionFreshnessReasonCode =
-  | "projection-manifest-missing"
-  | "projection-manifest-unreadable"
-  | "projection-source-stamp-missing"
-  | "projection-source-stamp-invalid"
-  | "projection-source-changed-since-stamp"
-  | "projection-snapshot-provenance-missing"
-  | "projection-source-tree-digest-mismatch";
+/** The contract's reason codes, so the `check` result's `freshness` field can carry them verbatim. */
+export type ArchitectureProjectionFreshnessReasonCode = ProjectionFreshnessReasonCode;
 
 export interface ArchitectureProjectionFreshnessStaleNode {
   nodeId: string;

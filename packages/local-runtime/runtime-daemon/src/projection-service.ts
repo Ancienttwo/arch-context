@@ -6,8 +6,8 @@ import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable
 import { projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionProvenanceV2, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionProvenanceV2, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -158,12 +158,13 @@ export function buildArchitectureDocsProjection(
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   const provenance = codeGraphInputs.provenance;
+  const sourceFootprints = loadCapabilitySourceFootprintDigests(root, loaded.model);
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model),
+    sourceFootprints,
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
@@ -182,6 +183,9 @@ export function buildArchitectureDocsProjection(
     loaded,
     plan,
     runtimeSnapshot: codeGraphInputs.runtimeSnapshot,
+    sourceFootprints,
+    /** Measured by this render; `plan.provenance` may be the sticky prior copy. */
+    currentSourceTreeDigest: codeGraphInputs.provenance.sourceTreeDigest,
     manifest: plan.manifest,
     files: [...plan.files, plan.manifest],
     /** This render's measured proof evidence; `plan.provenance` may be the sticky prior copy. */
@@ -440,8 +444,9 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     return projectionFailureEnvelope("projection.run", error);
   }
 
+  const freshness = request.mode === "check" ? projectionCheckFreshness(root, projection) : undefined;
   const blocked = projectionProtocolHumanStatus(request, projection);
-  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies);
+  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies, freshness);
 
   if (request.mode === "adopt") {
     const expectedWorktreeDigest = computeWorktreeDigest(root);
@@ -479,7 +484,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   }
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
-  return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies);
+  return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies, freshness);
 }
 
 /**
@@ -492,6 +497,29 @@ export function projectionFailureEnvelope(requestId: string, error: unknown): Js
     return errorEnvelope(requestId, "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
   }
   return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+}
+
+/**
+ * `check`'s read-only freshness answer: the committed manifest's per-node stamps against the
+ * footprints this run measured, through the same evaluator the `complete` gate uses. It reads
+ * repository files only — no daemon call, no runtime state.
+ */
+function projectionCheckFreshness(root: string, projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionFreshnessV1 {
+  const evaluation = evaluateArchitectureProjectionSnapshotFreshness({
+    model: projection.loaded.model,
+    manifest: loadArchitectureProjectionManifestStamps(root),
+    sourceFootprints: projection.sourceFootprints,
+    currentSourceTreeDigest: projection.currentSourceTreeDigest
+  });
+  return {
+    ok: evaluation.ok,
+    reasonCodes: [...evaluation.reasonCodes].sort(),
+    staleNodes: evaluation.staleNodes.map((node) => ({
+      nodeId: node.nodeId,
+      stampedDigest: node.stampedDigest as Sha256Digest,
+      currentDigest: node.currentDigest as Sha256Digest
+    }))
+  };
 }
 
 /** Strict decoder for the daemon reply; an unreadable answer must fail the run, never omit the field. */
@@ -731,9 +759,10 @@ function projectionProtocolEnvelope(
   input: ReturnType<typeof buildArchitectureDocsProjection>,
   status: ProjectionResultV2["status"],
   output: ReturnType<typeof buildArchitectureDocsProjection>,
-  priorCommittedApplies: ProjectionPriorCommittedApplyV1[]
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[],
+  freshness?: ProjectionFreshnessV1
 ): JsonEnvelope {
-  return projectionProtocolResultEnvelope(projectionProtocolResult(request, input, status, output, undefined, undefined, priorCommittedApplies));
+  return projectionProtocolResultEnvelope(projectionProtocolResult(request, input, status, output, undefined, undefined, priorCommittedApplies, freshness));
 }
 
 function projectionProtocolResult(
@@ -746,7 +775,8 @@ function projectionProtocolResult(
     files: ProjectionResultV2["files"];
     refreshSignals: ArchitectureRefreshSignalV1[];
   },
-  priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = []
+  priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = [],
+  freshness?: ProjectionFreshnessV1
 ): ProjectionResultV2 {
   const inputSnapshot = projectionProtocolSnapshot(request, input);
   const outputSnapshot = projectionProtocolSnapshot(request, output);
@@ -778,7 +808,8 @@ function projectionProtocolResult(
     humanActions,
     refreshSignals,
     ...(applyReceipt ? { applyReceipt } : {}),
-    ...(priorCommittedApplies.length > 0 ? { priorCommittedApplies } : {})
+    ...(priorCommittedApplies.length > 0 ? { priorCommittedApplies } : {}),
+    ...(freshness ? { freshness } : {})
   };
   const receiptDigest = projectionResultReceiptDigest(withoutReceipt);
   const result: ProjectionResultV2 = {

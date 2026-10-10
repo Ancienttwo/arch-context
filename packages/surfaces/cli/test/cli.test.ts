@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import { architectureDocumentationProjectionWorktreeDigest, loadCapabilitySourceFootprintDigests, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -126,6 +126,45 @@ test("CLI init help never calls the runtime, including with a product name", asy
   }
 });
 
+/** One capability whose declared footprint is `README.md`, committed on a fresh Git repository. */
+function seedProjectionProtocolFixture(root: string): void {
+  nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
+  writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
+    schemaVersion: "archcontext.node/v2",
+    id: "capability.runtime-harness.hook-adapters",
+    kind: "capability",
+    name: "Hook Adapters",
+    status: "active",
+    summary: "Routes runtime hook events.",
+    responsibilities: ["Own hook routing."],
+    source: { include: ["README.md"] },
+    extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
+  }), "utf8");
+  mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
+  writeFileSync(join(root, ".archcontext/model/flows/flow.hook-adapters.yaml"), stableYaml({
+    schemaVersion: "archcontext.flow/v1",
+    id: "flow.hook-adapters",
+    capabilityId: "capability.runtime-harness.hook-adapters",
+    name: "Hook routing",
+    applicability: "not-applicable",
+    rationale: "The protocol fixture only validates the projection transport."
+  }), "utf8");
+  writeFileSync(join(root, "AGENTS.md"), "# Agent context\n", "utf8");
+  writeFileSync(join(root, "CLAUDE.md"), "# Agent context\n", "utf8");
+  git(root, "init");
+  git(root, "add", ".");
+  git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "projection protocol fixture");
+}
+
+function projectionProtocolExpectedSnapshot(root: string): ProjectionRequestV1["expected"] {
+  return {
+    repositoryId: repositoryFingerprint(root),
+    workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+    headSha: gitOut(root, "rev-parse", "HEAD"),
+    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}`
+  };
+}
+
 test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-valid ProjectionResultV2", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
@@ -138,32 +177,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
   });
   const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
   try {
-    nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
-    writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
-      schemaVersion: "archcontext.node/v2",
-      id: "capability.runtime-harness.hook-adapters",
-      kind: "capability",
-      name: "Hook Adapters",
-      status: "active",
-      summary: "Routes runtime hook events.",
-      responsibilities: ["Own hook routing."],
-      source: { include: ["README.md"] },
-      extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
-    }), "utf8");
-    mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
-    writeFileSync(join(root, ".archcontext/model/flows/flow.hook-adapters.yaml"), stableYaml({
-      schemaVersion: "archcontext.flow/v1",
-      id: "flow.hook-adapters",
-      capabilityId: "capability.runtime-harness.hook-adapters",
-      name: "Hook routing",
-      applicability: "not-applicable",
-      rationale: "The protocol fixture only validates the projection transport."
-    }), "utf8");
-    writeFileSync(join(root, "AGENTS.md"), "# Agent context\n", "utf8");
-    writeFileSync(join(root, "CLAUDE.md"), "# Agent context\n", "utf8");
-    git(root, "init");
-    git(root, "add", ".");
-    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "projection protocol fixture");
+    seedProjectionProtocolFixture(root);
     const plan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
     expect(plan.ok, JSON.stringify(plan)).toBe(true);
     const runtimeSnapshot = (plan.data as any).runtimeSnapshot;
@@ -190,6 +204,12 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     expect(projection.requestId).toBe(request.requestId);
     expect(projection.inputSnapshot).not.toBe(projection.outputSnapshot);
     expect(projectionResultInvariantIssues(projection)).toEqual([]);
+    // Nothing has been projected yet, so `check` reports that nothing records a verification.
+    expect(projection.freshness).toEqual({
+      ok: false,
+      reasonCodes: ["projection-manifest-missing", "projection-snapshot-provenance-missing"],
+      staleNodes: []
+    });
 
     const stale = await cli("projection", ["run", "--request-json", JSON.stringify({
       ...request,
@@ -217,6 +237,79 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     })]);
     expect(nonCanonicalAcceptance.ok).toBe(false);
     expect((nonCanonicalAcceptance as any).error?.message).toContain("sorted and unique");
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
+test("CLI projection check reports per-node freshness read-only, from content stamps (#259)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-freshness-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Freshness App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const nodeId = "capability.runtime-harness.hook-adapters";
+  const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  const run = async (mode: ProjectionRequestV1["mode"], requestId: string) => {
+    const result = await cli("projection", ["run", "--request-json", JSON.stringify({
+      schemaVersion: "archcontext.projection-request/v1",
+      requestId,
+      profile: "repo-harness/v1",
+      mode,
+      targets: ["agent-context", "architecture-docs"],
+      changedPaths: [],
+      expected: projectionProtocolExpectedSnapshot(root)
+    } satisfies ProjectionRequestV1)]);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const projection = result.data as unknown as ProjectionResultV2;
+    expect(projectionResultInvariantIssues(projection)).toEqual([]);
+    expect(validateJsonSchema(JSON.parse(readFileSync(resolve(import.meta.dir, "../../../../schemas/runtime/projection-result.schema.json"), "utf8")), projection as any).issues).toEqual([]);
+    return projection;
+  };
+  const applyDocs = async () => {
+    const applied = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "project architecture documentation");
+  };
+  try {
+    seedProjectionProtocolFixture(root);
+    await applyDocs();
+    const stamped = JSON.parse(readFileSync(manifestPath, "utf8")).targets
+      .find((target: any) => target.type === "entity-summary" && target.scope.id === nodeId).sourceFootprintDigest;
+    expect(stamped).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+    expect((await run("check", "projection_request.freshness_clean")).freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
+
+    // A committed change inside the node's footprint makes exactly that node stale.
+    writeFileSync(join(root, "README.md"), "# projection fixture\n\nNew hook routing notes.\n", "utf8");
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "change the declared footprint");
+    const manifestBefore = readFileSync(manifestPath, "utf8");
+    const stale = await run("check", "projection_request.freshness_stale");
+    const currentDigest = loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root))
+      .find((entry) => entry.nodeId === nodeId)!.digest as `sha256:${string}`;
+    expect(stale.freshness).toEqual({
+      ok: false,
+      reasonCodes: ["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"],
+      staleNodes: [{ nodeId, stampedDigest: stamped, currentDigest }]
+    });
+    // `check` is read-only: the committed projection and the worktree are untouched.
+    expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
+    expect(gitOut(root, "status", "--porcelain")).toBe("");
+
+    // Only `check` carries the field.
+    expect((await run("plan", "projection_request.freshness_plan")).freshness).toBeUndefined();
+
+    // Re-projecting re-stamps the node and the next check is fresh again.
+    await applyDocs();
+    expect((await run("check", "projection_request.freshness_restamped")).freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
   } finally {
     await daemon.stop();
     removeTempRoot(root);
