@@ -428,7 +428,7 @@ function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): Projecti
     codeGraphDigest: digest,
     indexedWorktreeDigest: digest,
     projectionInputDigest: digest,
-    rendererVersion: "archcontext.docs-renderer/v4" as const,
+    rendererVersion: "archcontext.docs-renderer/v5" as const,
     layoutVersion: "archcontext.docs-layout/v1" as const,
     generatedFrom: {
       codeGraphPackage: "@colbymchenry/codegraph" as const,

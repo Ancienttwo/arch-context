@@ -536,8 +536,21 @@ export function architectureDocumentationSourceTreeDigest(root: string, model: N
     .sort((left, right) => left.localeCompare(right));
   return digestJson(files.map((path) => ({
     path,
-    digest: `sha256:${createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")}`
+    digest: sourceFileContentDigest(resolve(root, path))
   })) as unknown as Json);
+}
+
+/**
+ * Content digest of one declared source file with CRLF line endings normalized to LF. Checkouts
+ * that apply `core.autocrlf` (Windows runners and developer machines) then measure the same
+ * footprint as a Linux clone of the same commit, so source stamps and the snapshot digest do not
+ * depend on the platform that computed them. The latin1 round trip rewrites only `\r\n` pairs and
+ * leaves every other byte as is.
+ */
+function sourceFileContentDigest(absolute: string): string {
+  const bytes = readFileSync(absolute);
+  const normalized = bytes.includes(0x0d) ? Buffer.from(bytes.toString("latin1").replaceAll("\r\n", "\n"), "latin1") : bytes;
+  return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
 /** Fixed-point worktree digest: projection-owned outputs cannot hash the manifest that embeds it. */
@@ -888,7 +901,7 @@ export function loadCapabilitySourceFootprintDigests(root: string, model: Native
         schemaVersion: "archcontext.capability-source-footprint/v1",
         files: files.map((path) => ({
           path,
-          digest: `sha256:${createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")}`
+          digest: sourceFileContentDigest(resolve(root, path))
         }))
       } as unknown as Json)
     };

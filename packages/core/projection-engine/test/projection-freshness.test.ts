@@ -151,6 +151,19 @@ describe("capability source footprint digests", () => {
   });
 });
 
+test("a CRLF checkout measures the same footprint as an LF one", () => {
+  // `core.autocrlf` checkouts (Windows) must not make a node look stale against an LF stamp.
+  withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\nexport const gate = 2;\n" }, (lf) => {
+    withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\r\nexport const gate = 2;\r\n" }, (crlf) => {
+      expect(footprintDigest(crlf, "capability.review.gate")).toBe(footprintDigest(lf, "capability.review.gate"));
+      expect(architectureDocumentationSourceTreeDigest(crlf, model)).toBe(architectureDocumentationSourceTreeDigest(lf, model));
+      // A lone CR is content, not a line ending, and still moves the digest.
+      writeFileSync(join(crlf, "packages/core/review-engine/src/index.ts"), "export const review = 1;\rexport const gate = 2;\n");
+      expect(footprintDigest(crlf, "capability.review.gate")).not.toBe(footprintDigest(lf, "capability.review.gate"));
+    });
+  });
+});
+
 describe("architecture projection freshness", () => {
   test("stamps that match the current footprints are fresh", () => {
     const evaluation = evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: currentFootprints });

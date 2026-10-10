@@ -770,6 +770,9 @@ describe("local runtime foundation", () => {
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
       await daemon.init(root, "Projection Squash App");
+      // Windows runners default to `core.autocrlf=true`, which would rewrite the projected documents
+      // with CRLF on checkout; this test is about squash merges, so keep the checkout byte-exact.
+      execFileSync("git", ["config", "core.autocrlf", "false"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
       gitCommitAll(root, "initialize architecture model");
       const defaultBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
       execFileSync("git", ["checkout", "-q", "-b", "feature/projection"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
