@@ -40,7 +40,10 @@
       "then": {
         "properties": {
           "status": { "const": "human-action-required" },
-          "humanActions": { "contains": { "properties": { "reasonCode": { "const": "unprovable-required-flow" } }, "required": ["reasonCode"] } }
+          "humanActions": {
+            "contains": { "properties": { "reasonCode": { "const": "unprovable-required-flow" } }, "required": ["reasonCode"] },
+            "not": { "contains": { "properties": { "reasonCode": { "const": "unresolved-major-change" } }, "required": ["reasonCode"] } }
+          }
         }
       }
     },

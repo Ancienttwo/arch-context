@@ -923,6 +923,18 @@
                   "required": [
                     "reasonCode"
                   ]
+                },
+                "not": {
+                  "contains": {
+                    "properties": {
+                      "reasonCode": {
+                        "const": "unresolved-major-change"
+                      }
+                    },
+                    "required": [
+                      "reasonCode"
+                    ]
+                  }
                 }
               }
             }

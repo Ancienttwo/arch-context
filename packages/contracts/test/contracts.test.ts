@@ -676,7 +676,12 @@ test("a declined acceptObservedMajorChange is explicit and replaces the unresolv
   expect(projectionResultInvariantIssues(result("planned", []))).toContain(requirement);
   expect(validateJsonSchema(schema as any, result("planned", []) as any).valid).toBe(false);
   expect(projectionResultInvariantIssues(result("human-action-required", [{ ...unprovable, reasonCode: "unresolved-major-change" }]))).toContain(requirement);
-  expect(projectionResultInvariantIssues(result("human-action-required", [unprovable, { ...unprovable, reasonCode: "unresolved-major-change" }]))).toContain(requirement);
+  const both = result("human-action-required", [unprovable, { ...unprovable, reasonCode: "unresolved-major-change" }]);
+  expect(projectionResultInvariantIssues(both)).toContain(requirement);
+  expect(validateJsonSchema(schema as any, both as any).valid).toBe(false);
+  const withoutUnprovable = result("human-action-required", [{ ...unprovable, reasonCode: "manual-region-conflict" }]);
+  expect(projectionResultInvariantIssues(withoutUnprovable)).toContain(requirement);
+  expect(validateJsonSchema(schema as any, withoutUnprovable as any).valid).toBe(false);
   expect(projectionResultInvariantIssues(result("human-action-required", [unprovable], "declined"))).toContain("majorChangeAcceptance is unsupported");
   expect(validateJsonSchema(schema as any, result("human-action-required", [unprovable], "declined") as any).valid).toBe(false);
 });

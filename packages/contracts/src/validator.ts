@@ -20,6 +20,8 @@ type JsonSchema = {
   required?: string[];
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema;
+  contains?: JsonSchema;
+  minContains?: number;
   oneOf?: JsonSchema[];
   anyOf?: JsonSchema[];
   allOf?: JsonSchema[];
@@ -119,6 +121,15 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
       issues.push({ path, message: "expected unique items" });
     }
     if (schema.items) value.forEach((item, index) => visit(schema.items!, item, `${path}[${index}]`, issues, root));
+    if (schema.contains) {
+      const minContains = schema.minContains ?? 1;
+      const matched = value.filter((item, index) => {
+        const candidateIssues: ValidationIssue[] = [];
+        visit(schema.contains!, item, `${path}[${index}]`, candidateIssues, root);
+        return candidateIssues.length === 0;
+      }).length;
+      if (matched < minContains) issues.push({ path, message: `expected at least ${minContains} items matching contains` });
+    }
   }
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const objectValue = value as Record<string, Json>;
