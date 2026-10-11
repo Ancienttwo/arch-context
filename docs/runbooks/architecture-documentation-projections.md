@@ -4,7 +4,7 @@
 
 - `.archcontext/projections/targets.json` declares placement rules.
 - `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests. It records only machine-independent values: content digests of the model, the declared sources and the rendered output, plus renderer, layout and CodeGraph package and version. The CodeGraph evidence digest, index state and status, HEAD and worktree digest are per-run facts returned as `runtimeSnapshot` and never committed, so two machines projecting the same commit write the same manifest.
-- The manifest's shape is published in archctx-contracts: the `ArchitectureDocsProjectionManifestV1` type, the `architectureDocsProjectionManifestIssues` check, and `schemas/runtime/projection-manifest.schema.json`. The renderer validates every manifest it writes against that contract and reads the semantic baseline back through it. Each `entity-summary` target of a node that declares `source.include` carries `sourceFootprintDigest` and `scale: { fileCountBucket, lineCountBucket }`. A bucket is the half-open 1–2–5 range `{ lower, upper }` that contains the measured count (`{ lower: 0, upper: 1 }` holds only zero). The module document prints exactly these buckets, never the counts. Consumers detect the published contract and the scale field through the `projection-manifest-contract-v1` capability.
+- The manifest's shape is published in archctx-contracts: the `ArchitectureDocsProjectionManifestV2` type, the `architectureDocsProjectionManifestIssues` check, and `schemas/runtime/projection-manifest.schema.json`. The renderer validates every manifest it writes against that contract and reads the semantic baseline back through it. Each `entity-summary` target of a node that declares `source.include` carries `sourceFootprintDigest` and `scale: { fileCountBucket, lineCountBucket }`. A bucket is the half-open 1–2–5 range `{ lower, upper }` that contains the measured count (`{ lower: 0, upper: 1 }` holds only zero). The module document prints exactly these buckets, never the counts. Consumers detect the published contract and the scale field through the `projection-manifest-contract-v1` capability.
 - Text inside `ARCHCONTEXT:generated` markers is generated projection output.
 - Text outside generated markers is human-owned and must be preserved.
 - Agent-authored rationale or ADR prose is advisory draft material until deterministic validation and explicit approval.
@@ -29,6 +29,28 @@ When `.archcontext/manifest.yaml` declares `codeFacts.required: true` and the re
 | `codegraph-init` | Run `codegraph init` in the repository root, then retry the same call. |
 
 A repository that cannot build an index declares `codeFacts.required: false`; projections then render without code facts.
+
+Consumers detect this gate through the `projection-code-facts-gate-v1` capability. A build without it renders a projection with a missing index and reports a flow-proof major change for every capability instead.
+
+## Upgrading from archctx 0.6.3
+
+archctx 0.7.0 writes renderer `archcontext.docs-renderer/v5`, manifest `archcontext.architecture-docs-projection-manifest/v2` and provenance `archcontext.architecture-docs-projection-provenance/v3`. None of them is read as an older version, and an older one is never translated.
+
+Before upgrading, recover every in-flight projection apply receipt with `projection recover`. A 0.6.3 receipt carries `generatedFrom.codeGraphBinaryDigest`, which 0.7.0 no longer accepts, so after the upgrade it can be neither recovered nor read back. More generally, a committed-apply receipt written by an older build fails closed on recovery and replay after the upgrade, with `current renderer, layout, or CodeGraph provenance differs from the approved result`. Its pending refresh signals can no longer be delivered, so recover first.
+
+After the upgrade, until the first apply:
+
+- The first `check` on a renderer v4 manifest plans a rewrite of every generated document plus the manifest. This is the renderer change, not a model change. Run `archctx docs drift`, then `archctx docs plan` and `archctx docs apply --approved` (or `projection run` in `apply` mode) once.
+- `freshness` reports `projection-source-stamp-missing` for every node that declares `source.include`, because a 0.6.3 manifest records `verifiedAgainst` commit stamps instead of `sourceFootprintDigest`. Snapshot freshness also reports `projection-snapshot-provenance-missing`, because a v1 or v2 provenance reads as absent. The first apply clears the provenance reason and stamps every node that has a module document. Known gap in 0.7.0: the `repo-harness/v1` profile writes module documents for capabilities only, so a component that declares `source.include` has no target to carry a stamp and keeps reporting `projection-source-stamp-missing` after the apply.
+
+What the rewritten manifest records:
+
+- Each `entity-summary` target of a node that declares `source.include` carries `sourceFootprintDigest`: the content digest of that node's footprint. Freshness compares it with the current footprint and never reads Git history, so it survives squash merges, rebases and shallow clones.
+- Footprints are measured over Git-visible files only (`git ls-files --cached --others --exclude-standard`). A gitignored build artifact under `source.include` no longer moves a stamp. Projection outside a Git worktree fails with `AC_REPO_NOT_FOUND` (`reasonCode: "git-worktree-required"`).
+- File contents are hashed with CRLF line endings normalized to LF, so a `core.autocrlf` checkout measures the same digests as a Linux clone of the same commit.
+- Provenance v3 records only machine-independent values: `sourceTreeDigest`, `modelDigest`, `projectionInputDigest`, renderer and layout versions, and `generatedFrom.{codeGraphPackage, codeGraphVersion}`. `codeGraphBinaryDigest`, the CodeGraph evidence digest, the indexed-worktree digest and the CodeGraph status are per-run `runtimeSnapshot` facts. Two machines projecting the same commit write the same manifest bytes.
+
+With `codeFacts.required: true`, run `codegraph init` before the first projection after the upgrade; without an index the projection fails with `AC_CODE_FACTS_UNAVAILABLE` (see above).
 
 ## Accepting Committed Model Changes
 
@@ -103,7 +125,7 @@ A `requestId` names one apply. Once an accepted apply commits under it, only tha
 
 Recommended derivation: hash every request field except `requestId` and use the hash in the id. Take the request object without `requestId`: `{schemaVersion, profile, mode, targets, changedPaths, expected: {repositoryId, workspaceId, headSha, worktreeDigest}}` plus whichever of `acceptedChange`, `acceptObservedMajorChange` and `adoptionPlanId` the request carries; omit absent fields, never send them as `null`. Hash it with `digestJson` from the contracts package (`@archcontext/contracts`, published as `archctx-contracts`). `digestJson` returns `sha256:` plus the hex SHA-256 of the UTF-8 bytes of `JSON.stringify` applied after sorting the keys of every object, recursively, by JavaScript's default string sort (UTF-16 code unit order); array order is kept. Use `projection_request.` plus the first 16 hex characters after `sha256:`. `targets` and `changedPaths` are already sorted and unique, because the request requires it. The id must match `^[a-zA-Z0-9_.:-]+$`.
 
-Before upgrading from archctx 0.6.3, recover every in-flight projection apply receipt with `projection recover`. A 0.6.3 receipt carries `generatedFrom.codeGraphBinaryDigest`, which later versions no longer accept, so after the upgrade it can be neither recovered nor read back.
+Receipts committed by an older build cannot be replayed or recovered after an upgrade; see [Upgrading from archctx 0.6.3](#upgrading-from-archctx-063).
 
 ### Previewing a projection before apply
 
