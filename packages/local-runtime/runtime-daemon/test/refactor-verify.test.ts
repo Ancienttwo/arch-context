@@ -44,6 +44,7 @@ import {
   makeRequest,
   makeSnapshot
 } from "../../../core/refactor-assessment/test/factories";
+import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import { evidenceLifecycleOperations } from "../src/refactor-recording";
 import { baselineSnapshotForRecommendation, resolutionEvidenceItems, runRefactorVerify } from "../src/refactor-verify";
 import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "../src/index";
@@ -496,6 +497,8 @@ describe("daemon refactorVerify", () => {
       expect(binding.schemaVersion).toBe("archcontext.evidence-binding/v1");
       expect(binding.target).toEqual({ kind: "recommendation", id: recommendation.recommendationId });
       expect(binding.authorityEffect).toBe("complete-eligible");
+      expect(binding.provenance.inputDigest).toBe(plan.evidence.resolutionDigest);
+      expect(publishedSchemaIssues("runtime/evidence-binding.schema.json", binding)).toEqual([]);
     } finally {
       await daemon.stop();
     }

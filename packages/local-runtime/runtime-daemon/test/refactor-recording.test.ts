@@ -51,6 +51,7 @@ import {
   makeRequest,
   makeSnapshot
 } from "../../../core/refactor-assessment/test/factories";
+import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import {
   REFACTOR_ASSESSMENT_REGISTRY_CAPACITY,
   REFACTOR_RUN_PERSISTENCE_REASON_CODE,
@@ -457,7 +458,11 @@ describe("refactorRecord", () => {
         && operation.value.evidenceId === snapshotCreate.value.evidenceId
       );
       expect(bindings.length).toBe(recommendationIds.length);
-      for (const bound of bindings) expect(bound.value.target.kind).toBe("recommendation");
+      for (const bound of bindings) {
+        expect(bound.value.target.kind).toBe("recommendation");
+        expect(bound.value.provenance.inputDigest).toBe(snapshot.snapshotDigest);
+        expect(publishedSchemaIssues("runtime/evidence-binding.schema.json", bound.value)).toEqual([]);
+      }
       expect(new Set(bindings.map((bound) => bound.value.target.id))).toEqual(new Set(recommendationIds));
     } finally {
       await daemon.stop();

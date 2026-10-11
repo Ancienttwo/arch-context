@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { publishedSchemaResolver } from "./published-schemas";
 import {
   ERROR_CATALOG,
   type ArchContextErrorCode
@@ -68,6 +71,9 @@ import {
   type RefactorTargetOutcomeV1
 } from "../src/refactor";
 import { digestJson, type Json } from "../src/schema";
+import { validateJsonSchema } from "../src/validator";
+import { ARCHITECTURE_MAJOR_CHANGE_REASON_CODES } from "../src/projection";
+import { RECOMMENDATION_STATUSES } from "../src/ledger";
 
 const ZERO_DIGEST = `sha256:${"0".repeat(64)}`;
 
@@ -1391,5 +1397,166 @@ describe("refactor error catalog", () => {
       expect(row.retryable, code).toBe(shape.retryable);
       expect(row.action, code).toBe(shape.action);
     }
+  });
+});
+
+/**
+ * The published refactor-data JSON schemas (#282). Structural validation of untrusted ingress is
+ * the schemas' job; the TypeScript validators keep the cross-field checks a schema cannot state
+ * (sorted lists, digests that bind their payload, counts that equal a metric).
+ */
+describe("refactor JSON schemas", () => {
+  const repoRoot = join(import.meta.dir, "../../..");
+  const schema = (name: string) => JSON.parse(readFileSync(join(repoRoot, "schemas/runtime", name), "utf8"));
+  const recommendationSchema = schema("recommendation-v3.schema.json");
+  const payloadSchema = schema("structural-observation-payload.schema.json");
+  const scanSchema = schema("runtime-refactor-scan.schema.json");
+  const showSchema = schema("runtime-recommendation-show.schema.json");
+  const issuesOf = (target: unknown, value: unknown) =>
+    validateJsonSchema(target as never, value as Json, { resolveSchema: publishedSchemaResolver() }).issues;
+  const structural = (payload: Partial<StructuralObservationPayloadV1> = {}, overrides: Partial<RecommendationV3Base> = {}) =>
+    makeRecommendationV3(
+      { enforcement: "advisory", authoredBy: { kind: "daemon", id: "archctxd", source: "daemon" }, ...overrides },
+      { category: "structural_observation", payload: makeObservationPayload(payload) }
+    );
+  const evidenceByKind: Record<string, Pick<StructuralObservationPayloadV1, "metrics" | "evidence">> = {
+    cycle: { metrics: { memberCount: 2 }, evidence: makeCycleEvidence() },
+    "direction-violation": {
+      metrics: { directionViolationCount: 1 },
+      evidence: { kind: "direction-violation", constraintIds: ["constraint.core-down"], constraintCount: 1, violations: [{ ...makeEdge(), constraintId: "constraint.core-down" }], totalCount: 1, truncated: false }
+    },
+    "ownership-ambiguous": {
+      metrics: { ownedFileCount: 3 },
+      evidence: { kind: "ownership-ambiguous", paths: [{ path: "packages/core/src/a.ts", candidateOwnerNodeIds: ["component.a", "component.b"], candidateOwnerCount: 2 }], totalCount: 1, truncated: false }
+    },
+    "undeclared-footprint": { metrics: {}, evidence: { kind: "undeclared-footprint", paths: [], totalCount: 0, truncated: false } },
+    "unowned-paths": {
+      metrics: { unownedFileCount: 1 },
+      evidence: { kind: "unowned-paths", paths: [{ path: "scripts/tool.ts", candidateOwnerNodeIds: [], candidateOwnerCount: 0 }], totalCount: 1, truncated: false }
+    },
+    "evidence-gap": {
+      metrics: { unresolvedImportCount: 1, edgeLimit: 5000 },
+      evidence: { kind: "evidence-gap", coverage: "partial", reasonCodes: ["code-facts-truncated"], unresolvedImports: [{ fromPath: "src/a.ts", fromLine: null, specifier: "./missing" }], totalCount: 1, truncated: false }
+    }
+  };
+
+  test("every recommendation category the validator accepts is schema-valid", () => {
+    const practice = makeRecommendationV3(
+      { enforcement: "advisory", practiceId: "practice.boundary", authoredBy: { kind: "daemon", id: "archctxd", source: "daemon" } },
+      { category: "practice", payload: { practiceId: "practice.boundary", baselineDigest: null } }
+    );
+    const architecture = makeRecommendationV3({ enforcement: "complete" }, { category: "refactor_proposal", payload: makeRefactorProposalPayload({ scale: "architecture", majorChangeReasons: ["ownership-changed"] }) });
+    const published = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/valid/recommendation-v3.json"), "utf8")) as RecommendationV3;
+    for (const recommendation of [makeRecommendationV3(), architecture, practice, structural(), published]) {
+      expect(recommendationV3InvariantIssues(recommendation)).toEqual([]);
+      expect(issuesOf(recommendationSchema, recommendation)).toEqual([]);
+    }
+  });
+
+  test("every observation kind's evidence is schema-valid on its own and inside a record", () => {
+    expect(Object.keys(evidenceByKind).sort()).toEqual([...REFACTOR_OBSERVATION_KINDS]);
+    for (const [kind, sample] of Object.entries(evidenceByKind)) {
+      const payload = makeObservationPayload({ kind: kind as StructuralObservationPayloadV1["kind"], ...sample });
+      const recommendation = structural(payload);
+      expect(recommendationV3InvariantIssues(recommendation), kind).toEqual([]);
+      expect(issuesOf(payloadSchema, payload), kind).toEqual([]);
+      expect(issuesOf(recommendationSchema, recommendation), kind).toEqual([]);
+    }
+  });
+
+  test("the schema rejects what the validator rejects structurally", () => {
+    const rejected: [string, unknown][] = [
+      ["daemon-authored proposal", makeRecommendationV3({ authoredBy: { kind: "daemon", id: "archctxd", source: "daemon" } })],
+      ["kind and source mismatch", makeRecommendationV3({ authoredBy: { kind: "developer", id: "dev", source: "subagent" } })],
+      ["architecture scale without complete enforcement", makeRecommendationV3({}, { category: "refactor_proposal", payload: makeRefactorProposalPayload({ scale: "architecture" }) })],
+      ["advisory-only structural observation", structural({}, { enforcement: "checkpoint" })],
+      ["subagent-authored structural observation", structural({}, { authoredBy: { kind: "subagent", id: "agent", source: "subagent" } })],
+      ["practice without practiceId", makeRecommendationV3({ enforcement: "advisory" }, { category: "practice", payload: { practiceId: "practice.boundary", baselineDigest: null } })],
+      ["payload of another category", { ...makeRecommendationV3(), payload: { practiceId: "practice.boundary", baselineDigest: null } }],
+      ["evidence of another kind", structural({ evidence: evidenceByKind["unowned-paths"]!.evidence })],
+      ["oversized sample", structural({ evidence: { ...makeCycleEvidence(), edges: Array.from({ length: REFACTOR_OBSERVATION_EVIDENCE_LIMIT + 1 }, () => makeEdge()), totalCount: 21, truncated: false } as RefactorObservationEvidenceV1 })],
+      ["absolute evidence path", structural({ evidence: makeCycleEvidence({ edges: [makeEdge({ fromPath: "/etc/passwd" })] }) })],
+      ["parent-relative evidence path", structural({ evidence: makeCycleEvidence({ edges: [makeEdge({ toPath: "src/../../secret" })] }) })],
+      ["multi-line specifier", structural({ evidence: makeCycleEvidence({ edges: [makeEdge({ specifier: "a\nb" })] }) })],
+      ["zero line", structural({ evidence: makeCycleEvidence({ edges: [makeEdge({ fromLine: 0 })] }) })],
+      ["value on a value-free operator", makeRecommendationV3({}, { category: "refactor_proposal", payload: makeRefactorProposalPayload({ targetOutcomes: [makeOutcome({ operator: "absent", value: 1 })] }) })]
+    ];
+    for (const [label, value] of rejected) expect(issuesOf(recommendationSchema, value).length, label).toBeGreaterThan(0);
+  });
+
+  test("a structural record written before observation evidence existed is not a current record", () => {
+    // Records written before #262 lack metrics, signalIds and evidence; `show` returns them as stored.
+    const { metrics: _metrics, signalIds: _signalIds, evidence: _evidence, ...legacyPayload } = makeObservationPayload();
+    const legacy = { ...structural(), payload: legacyPayload } as unknown as RecommendationV3;
+    expect(recommendationV3InvariantIssues(legacy).some((issue) => issue.includes("missing evidence, metrics, signalIds"))).toBe(true);
+    expect(issuesOf(recommendationSchema, legacy).length).toBeGreaterThan(0);
+    expect(issuesOf(payloadSchema, legacyPayload).length).toBeGreaterThan(0);
+  });
+
+  test("closed vocabularies are the contract constants", () => {
+    const defs = recommendationSchema.$defs;
+    expect(recommendationSchema.properties.category.enum).toEqual([...RECOMMENDATION_CATEGORIES]);
+    expect(recommendationSchema.properties.status.enum).toEqual([...RECOMMENDATION_STATUSES]);
+    expect(defs.structuralObservationPayload.properties.kind.enum).toEqual([...REFACTOR_OBSERVATION_KINDS]);
+    expect(defs.refactorProposalPayload.properties.scale.enum).toEqual([...REFACTOR_SCALES]);
+    expect(defs.refactorProposalPayload.properties.majorChangeReasons.items.enum).toEqual([...ARCHITECTURE_MAJOR_CHANGE_REASON_CODES]);
+    expect(defs.targetOutcome.properties.operator.enum).toEqual([...REFACTOR_OUTCOME_OPERATORS]);
+    expect(defs.killListEntry.properties.kind.enum).toEqual([...REFACTOR_KILL_LIST_KINDS]);
+    expect(defs.observationEvidence.oneOf.flatMap((variant: any) => variant.properties.kind.const ?? variant.properties.kind.enum).sort()).toEqual([...REFACTOR_OBSERVATION_KINDS]);
+    expect(defs.observationEvidence.oneOf[3].properties.reasonCodes.items.enum).toEqual([...REFACTOR_SCALE_REASON_CODES]);
+    expect(defs.evidenceIdList.maxItems).toBe(REFACTOR_EVIDENCE_ID_LIST_LIMIT);
+    expect(defs.evidenceSpecifier.maxLength).toBe(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH);
+    for (const variant of defs.observationEvidence.oneOf) {
+      const sample = Object.values(variant.properties).find((property: any) => property.type === "array" && property.maxItems !== undefined && property.items?.$ref) as { maxItems: number };
+      expect(sample.maxItems).toBe(REFACTOR_OBSERVATION_EVIDENCE_LIMIT);
+    }
+    expect(scanSchema.$defs.moduleStatistics.properties.tests.properties.coverageStatus.enum).toEqual([...MODULE_TESTS_COVERAGE_STATUSES]);
+    expect(scanSchema.$defs.moduleStatistics.properties.uncertainty.properties.dynamicInvocation.enum).toEqual([...MODULE_DYNAMIC_INVOCATION_LEVELS]);
+    expect(scanSchema.$defs.refactorRequest.properties.schemaVersion.const).toBe(REFACTOR_REQUEST_SCHEMA_VERSION);
+    expect(scanSchema.$defs.refactorProposal.properties.schemaVersion.const).toBe(REFACTOR_PROPOSAL_SCHEMA_VERSION);
+    expect(scanSchema.$defs.refactorAssessment.properties.schemaVersion.const).toBe(REFACTOR_ASSESSMENT_SCHEMA_VERSION);
+    expect(scanSchema.$defs.moduleStatisticsSnapshot.properties.schemaVersion.const).toBe(MODULE_STATISTICS_SCHEMA_VERSION);
+    expect(scanSchema.properties.limits.properties.maxEvidenceSampleLimit.const).toBe(REFACTOR_OBSERVATION_EVIDENCE_LIMIT);
+    const pairs = recommendationSchema.allOf[2].then.properties.authoredBy.oneOf;
+    expect(Object.fromEntries(pairs.map((pair: any) => [pair.properties.kind.const, pair.properties.source.enum]))).toEqual(REFACTOR_PROPOSAL_AUTHOR_PAIRS as never);
+    expect([...REFACTOR_PROPOSAL_AUTHOR_SOURCES].sort()).toEqual([...new Set(Object.values(REFACTOR_PROPOSAL_AUTHOR_PAIRS).flat())].sort());
+  });
+
+  test("embedded copies stay synchronized with the standalone schemas", () => {
+    const { $schema: _s, $id: _i, title: _t, $defs: recommendationDefs, ...recommendationBody } = recommendationSchema;
+    const { $schema: _ps, $id: _pi, title: _pt, $defs: payloadDefs, ...payloadBody } = payloadSchema;
+    expect(recommendationDefs.structuralObservationPayload).toEqual(payloadBody);
+    for (const [name, def] of Object.entries(payloadDefs)) expect(recommendationDefs[name], name).toEqual(def);
+    for (const runtime of [scanSchema, showSchema]) {
+      expect(runtime.$defs.recommendationV3).toEqual(recommendationBody);
+      for (const [name, def] of Object.entries(recommendationDefs)) expect(runtime.$defs[name], name).toEqual(def);
+    }
+    expect(showSchema.$defs).toEqual(scanSchema.$defs);
+  });
+
+  test("the scan schema enforces the recording contract", () => {
+    const scan = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/valid/runtime-refactor-scan.json"), "utf8"));
+    expect(issuesOf(scanSchema, scan)).toEqual([]);
+    const { recordCommand: _command, ...withoutCommand } = scan;
+    expect(issuesOf(scanSchema, withoutCommand).length).toBeGreaterThan(0);
+    const unrecordable = { ...withoutCommand, recording: { ...scan.recording, recordable: false, reasonCode: "refactor-run-exceeds-ledger-size-limit" } };
+    expect(issuesOf(scanSchema, unrecordable)).toEqual([]);
+    expect(issuesOf(scanSchema, { ...unrecordable, recordCommand: scan.recordCommand }).length).toBeGreaterThan(0);
+    expect(issuesOf(scanSchema, { ...scan, recording: { ...scan.recording, reasonCode: "refactor-run-exceeds-ledger-size-limit" } }).length).toBeGreaterThan(0);
+  });
+
+  test("the show schema accepts a v3 or v2 record and binds the tree only to a scan candidate", () => {
+    const show = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/valid/runtime-recommendation-show.json"), "utf8"));
+    expect(issuesOf(showSchema, show)).toEqual([]);
+    const worktree = { headSha: "a".repeat(40), worktreeDigest: `sha256:${"b".repeat(64)}` };
+    expect(issuesOf(showSchema, { ...show, source: "scan-candidate" }).length).toBeGreaterThan(0);
+    expect(issuesOf(showSchema, { ...show, source: "scan-candidate", worktree })).toEqual([]);
+    expect(issuesOf(showSchema, { ...show, worktree }).length).toBeGreaterThan(0);
+    const recordedV2 = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/valid/recommendation.json"), "utf8"));
+    expect(issuesOf(showSchema, { ...show, recommendation: recordedV2 })).toEqual([]);
+    expect(issuesOf(showSchema, { ...show, baseline: { status: "missing", snapshotDigest: null } })).toEqual([]);
+    expect(issuesOf(showSchema, { ...show, baseline: { status: "missing", snapshotDigest: ZERO_DIGEST } }).length).toBeGreaterThan(0);
+    const legacy = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/invalid/recommendation-v3-structural-before-evidence.json"), "utf8"));
+    expect(issuesOf(showSchema, { ...show, recommendation: legacy }).length).toBeGreaterThan(0);
   });
 });

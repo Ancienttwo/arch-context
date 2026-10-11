@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,8 +9,6 @@ import {
   moduleStatisticsSnapshotInvariantIssues,
   refactorProposalDigest,
   refactorScanInvariantIssues,
-  validateJsonSchema,
-  type Json,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
   type RefactorAssessmentV1,
@@ -25,6 +23,7 @@ import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-fact
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { REPOSITORY_REFACTOR_REQUEST, refactorRequestId } from "../src/refactor-scan";
 import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "../src/index";
+import { publishedSchemaIssues as publishedRuntimeSchemaIssues } from "../../../contracts/test/published-schemas";
 
 const PREVIOUS_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-refactor-scan-state-"));
@@ -163,6 +162,23 @@ function scanData(envelope: JsonEnvelope): {
 } {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
   return envelope.data as never;
+}
+
+/** The binding values of the recommendation as the test store holds them, for in-place edits. */
+function storedRecommendationBindings(store: TestLocalStore, recommendationId: string): { evidenceId: string; provenance: { inputDigest: string } }[] {
+  const found: { evidenceId: string; provenance: { inputDigest: string } }[] = [];
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== "object") return;
+    const value = node as { schemaVersion?: unknown; target?: { kind?: unknown; id?: unknown } };
+    if (value.schemaVersion === "archcontext.evidence-binding/v1" && value.target?.kind === "recommendation" && value.target.id === recommendationId) {
+      found.push(node as never);
+      return;
+    }
+    Object.values(node).forEach(walk);
+  };
+  walk(store.architectureEvents);
+  return found;
 }
 
 function errorOf(envelope: JsonEnvelope): { code: string; message: string } {
@@ -670,6 +686,12 @@ describe("deciding a scan candidate", () => {
   });
 });
 
+/** Validates a real daemon response against the published runtime schema (#282). */
+/** Full validation: every `$ref`, including the cross-file evidence-item/binding ones, is resolved. */
+function publishedSchemaIssues(schemaFile: string, value: unknown) {
+  return publishedRuntimeSchemaIssues(`runtime/${schemaFile}`, value);
+}
+
 describe("scan-time evidence and recommendations show", () => {
   interface ScanCandidate {
     recommendationId: string;
@@ -713,6 +735,8 @@ describe("scan-time evidence and recommendations show", () => {
     try {
       const scan = scanWithEvidence(await daemon.refactorScan(root));
       expect(scan.proposedRecommendations.length).toBeGreaterThan(0);
+      expect(publishedSchemaIssues("runtime-refactor-scan.schema.json", scan)).toEqual([]);
+      for (const item of scan.evidenceItems) expect(publishedSchemaIssues("evidence-item.schema.json", item)).toEqual([]);
       const bindingIds = new Set(scan.evidenceBindings.map((binding) => binding.bindingId));
       const itemIds = new Set(scan.evidenceItems.map((item) => item.evidenceId));
       for (const candidate of scan.proposedRecommendations) {
@@ -757,6 +781,7 @@ describe("scan-time evidence and recommendations show", () => {
       expect(before.evidence.bindings.map((binding) => binding.bindingId)).toEqual([...candidate.evidenceBindingIds].sort());
       expect(before.evidence.items.map((item) => item.kind)).toContain("module-statistics-snapshot");
       expect(before.baseline.status).toBe("measured");
+      expect(publishedSchemaIssues("runtime-recommendation-show.schema.json", before)).toEqual([]);
       expect(before.affectedModules.map((module) => module.nodeId)).toEqual(candidate.payload.affectedNodeIds);
       expect(store.architectureEventAppends).toHaveLength(0);
 
@@ -766,10 +791,39 @@ describe("scan-time evidence and recommendations show", () => {
       const after = showData(await daemon.recommendations(root, { command: "show", recommendationId: candidate.recommendationId }));
       expect(after).toMatchObject({ recommendationId: candidate.recommendationId, source: "ledger", status: "deferred", worktree: null });
       expect(after.decisions.map((decision) => [decision.action, decision.reason])).toEqual([["defer", "Next quarter."]]);
+      expect(publishedSchemaIssues("runtime-recommendation-show.schema.json", after)).toEqual([]);
+      for (const decision of after.decisions) expect(publishedSchemaIssues("recommendation-feedback.schema.json", decision)).toEqual([]);
       expect(after.recommendation.payload.evidence).toEqual(candidate.payload.evidence);
       expect(after.evidence.bindings.map((binding) => binding.bindingId)).toEqual(before.evidence.bindings.map((binding) => binding.bindingId));
       expect(after.baseline).toEqual(before.baseline);
       expect(after.affectedModules).toEqual(before.affectedModules);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("show returns a binding stored by 0.6.x as stored; the published show schema rejects its evidence-id inputDigest", async () => {
+    const root = createFixtureRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const candidate = scanWithEvidence(await daemon.refactorScan(root)).proposedRecommendations[0]!;
+      const decided = await daemon.recommendations(root, { command: "defer", recommendationId: candidate.recommendationId, reason: "Next quarter." });
+      expect(decided.ok, JSON.stringify(decided)).toBe(true);
+      // 0.6.x `refactor record` and `refactor verify` stored the evidence id in provenance.inputDigest.
+      // Give the stored binding that shape: replay keeps a binding as written and never rewrites it.
+      const stored = storedRecommendationBindings(store, candidate.recommendationId);
+      expect(stored.length).toBeGreaterThan(0);
+      for (const binding of stored) binding.provenance.inputDigest = binding.evidenceId;
+
+      const shown = showData(await daemon.recommendations(root, { command: "show", recommendationId: candidate.recommendationId }));
+      expect(shown.source).toBe("ledger");
+      const bindings = shown.evidence.bindings as unknown as { evidenceId: string; provenance: { inputDigest: string } }[];
+      expect(bindings.length).toBe(stored.length);
+      for (const binding of bindings) expect(binding.provenance.inputDigest).toBe(binding.evidenceId);
+      const issues = publishedSchemaIssues("runtime-recommendation-show.schema.json", shown);
+      expect(issues.length).toBeGreaterThan(0);
+      for (const issue of issues) expect(issue.path).toMatch(/^\$\.evidence\.bindings\[\d+\]\.provenance\.inputDigest$/);
     } finally {
       await daemon.stop();
     }
@@ -1008,13 +1062,7 @@ describe("recommendation decisions and listing", () => {
 });
 
 describe("published refactor schemas", () => {
-  const schema = (name: string) =>
-    JSON.parse(readFileSync(new URL(`../../../../schemas/runtime/${name}.schema.json`, import.meta.url), "utf8"));
-  const expectValid = (name: string, value: unknown) => {
-    expect(validateJsonSchema(schema(name), value as Json).issues).toEqual([]);
-  };
-
-  test("scan and show output validate against the schemas archctx-contracts publishes", async () => {
+  test("default and proposal scans, and every candidate of both categories, validate against the published schemas", async () => {
     const root = createFixtureRepo();
     const daemon = await startDaemon(new TestLocalStore());
     try {
@@ -1023,28 +1071,16 @@ describe("published refactor schemas", () => {
         scope: { kind: "paths", paths: [OWNED_FILE] },
         proposal: proposalFor([OWNED_FILE])
       };
-      const scans = [await daemon.refactorScan(root), await daemon.refactorScan(root, { request })];
       const categories = new Set<string>();
-      for (const scan of scans) {
+      for (const scan of [await daemon.refactorScan(root), await daemon.refactorScan(root, { request })]) {
         const data = scanData(scan);
-        expectValid("runtime-refactor-scan", data);
+        expect(publishedSchemaIssues("runtime-refactor-scan.schema.json", data)).toEqual([]);
         for (const recommendation of data.proposedRecommendations as unknown as { category: string }[]) {
-          expectValid("recommendation-v3", recommendation);
+          expect(publishedSchemaIssues("recommendation-v3.schema.json", recommendation)).toEqual([]);
           categories.add(recommendation.category);
         }
       }
       expect([...categories].sort()).toEqual(["refactor_proposal", "structural_observation"]);
-
-      const candidate = scanData(scans[0]!).proposedRecommendations[0]!.recommendationId;
-      const candidateShow = await daemon.recommendations(root, { command: "show", recommendationId: candidate });
-      expect(candidateShow.ok, JSON.stringify(candidateShow)).toBe(true);
-      expectValid("runtime-recommendation-show", candidateShow.data);
-
-      const decided = await daemon.recommendations(root, { command: "defer", recommendationId: candidate, reason: "Next quarter." });
-      expect(decided.ok, JSON.stringify(decided)).toBe(true);
-      const recordedShow = await daemon.recommendations(root, { command: "show", recommendationId: candidate });
-      expect((recordedShow.data as { source: string }).source).toBe("ledger");
-      expectValid("runtime-recommendation-show", recordedShow.data);
     } finally {
       await daemon.stop();
     }

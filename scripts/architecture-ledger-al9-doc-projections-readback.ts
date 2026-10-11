@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
+  ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   digestJson,
   type Json
@@ -131,7 +132,7 @@ function currentRepoProjectionReadback() {
     projectionDigest: plan.projectionDigest,
     sourceDigest: plan.sourceDigest,
     projectionManifestTracksDigests:
-      projectionManifest.schemaVersion === "archcontext.architecture-docs-projection-manifest/v2"
+      projectionManifest.schemaVersion === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION
       && projectionManifest.sourceDigest === plan.sourceDigest
       && projectionManifest.projectionDigest === plan.projectionDigest
       && projectionManifest.targets.every((target: any) => typeof target.outputDigest === "string" && target.outputDigest.startsWith("sha256:")),

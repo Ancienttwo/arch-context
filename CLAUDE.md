@@ -25,7 +25,7 @@ This is the root routing contract for Claude Code and Codex.
 - Subagents may produce typed proposals and investigation reports only; they must not directly mutate ledger, YAML, docs, policies, or waivers.
 - Do not persist raw source bodies, raw diffs, prompt/completion bodies, full CodeGraph output, secrets, credentials, or private keys in ledger artifacts.
 
-<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.architecture.context" sourceDigest="sha256:2fdaf1f14686c4feec98054c2256c93776f73bff7ec3d25cceef04c340bc3088" rendererVersion="archcontext.agent-context-renderer/v1" outputDigest="sha256:3e4fe25ceff548e583d76672a5e0f49cf8614bd3460273dcd340e7701ef5503d" -->
+<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.architecture.context" sourceDigest="sha256:859e485009530a84d3794d032dab87b5cca38150183a00be81675866140568f8" rendererVersion="archcontext.agent-context-renderer/v1" outputDigest="sha256:3e4fe25ceff548e583d76672a5e0f49cf8614bd3460273dcd340e7701ef5503d" -->
 # Agent Context: Architecture Context
 
 - id: `capability.architecture.context`

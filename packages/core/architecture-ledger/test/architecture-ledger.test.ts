@@ -756,6 +756,21 @@ describe("@archcontext/core/architecture-ledger evidence lifecycle", () => {
     expect(afterRemove.stateDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
+  test("replays a binding recorded before 0.7.0 with an evidence id as provenance.inputDigest, as stored", () => {
+    // 0.6.x `refactor record` / `refactor verify` wrote the evidence id here. The value is opaque
+    // provenance to replay: the event validates on read and the binding comes back unchanged.
+    const item = evidenceItem("Owns API");
+    const recorded = { ...evidenceBinding(item.evidenceId), provenance: { producer: "recommendation-engine", command: "archctx refactor record", inputDigest: item.evidenceId } };
+    const event = evidenceEvent("pre-070-binding", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceOperations: [
+        { target: "item", action: "create", evidenceId: item.evidenceId, value: item },
+        { target: "binding", action: "create", bindingId: recorded.bindingId, value: recorded }
+      ]
+    });
+    expect(() => validateArchitectureLedgerEvent(event)).not.toThrow();
+    expect(replayArchitectureLedgerEvidenceState([event]).evidenceBindings).toEqual([recorded]);
+  });
+
   test("fails closed on illegal lifecycle transitions", () => {
     const item = evidenceItem("Owns API");
     const create = evidenceEvent("create", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
