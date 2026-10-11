@@ -1,6 +1,12 @@
 import {
+  CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON,
+  CAPABILITY_DEPENDENCIES_EDGE_LIMIT,
+  CAPABILITY_DEPENDENCIES_SCHEMA_VERSION,
   MODULE_STATISTICS_SCHEMA_VERSION,
   digestJson,
+  type CapabilityDependenciesV1,
+  type CapabilityDependencyCellV1,
+  type CapabilityDependencyEdgeV1,
   moduleStatisticsDigest,
   moduleStatisticsSnapshotDigest,
   type ArchitectureRepositoryIdentityV1,
@@ -19,7 +25,7 @@ import { nativeNodeSource, type NativeModel, type NativeNode } from "@archcontex
 import { buildModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
 import { ancestorChain, resolveOwnership, type OwnershipIndex } from "./ownership";
 
-export { resolveOwnership, type OwnershipIndex, type OwnershipResolution } from "./ownership";
+export { ownershipDelta, resolveOwnership, type OwnershipIndex, type OwnershipResolution } from "./ownership";
 export { buildModuleGraph, type ModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
 
 /** Whether the code index answered at all. Mirrors the index handshake's own two states. */
@@ -214,6 +220,119 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
     importEdgeCount: edges.length,
     unresolvedImports,
     violations: sortedViolations
+  };
+}
+
+export interface CapabilityDependencyInputV1 {
+  nodes: NativeNode[];
+  /** The tree the matrix describes: import facts count only when the index attested to exactly it. */
+  worktreeDigest: string;
+  /** Repo-relative paths ownership is resolved over; every observed edge endpoint is added on top. */
+  files: string[];
+  importEdges: ModuleStatisticsImportEdgeV1[];
+  workspacePackages: ModuleStatisticsWorkspacePackageV1[];
+  truncated: boolean;
+  importNodeCount: number | null;
+  importNodeLimit: number;
+  importNodeLimitExceeded: boolean;
+  codeFacts: Pick<ModuleStatisticsCodeFactsInputV1, "availability" | "indexedWorktreeDigest">;
+  /** Keep edges whose importing file is owned by this node or a descendant. */
+  from?: string;
+  /** Keep edges whose imported file is owned by this node or a descendant. */
+  into?: string;
+  edgeLimit?: number;
+}
+
+/**
+ * The capability x capability import matrix. Pure, like `evaluateDependencyConstraints`: the caller
+ * hands over the index answer and the file set.
+ *
+ * Each file gets its owners from `resolveOwnership` (the parent-chain rule `refactor scan` uses),
+ * and each owner rolls up to the nearest `kind: capability` node on its `parent` chain. An edge is
+ * counted in the matrix only when both endpoints roll up to exactly one capability; the other
+ * edges are counted by cause in `imports.unattributed`. One cell counts distinct file-to-file
+ * edges. Call edges are not read: the CodeGraph adapter exposes no bounded repository-wide call
+ * read, so `calls` is reported as unknown rather than estimated from text.
+ */
+export function measureCapabilityDependencies(input: CapabilityDependencyInputV1): CapabilityDependenciesV1 {
+  const certification = certifyCodeFacts(input.codeFacts, input.worktreeDigest, input.truncated, input.importNodeLimitExceeded);
+  const edges = certification.measurable ? resolveEdges(input.importEdges, input.workspacePackages, new Set(input.files)) : [];
+  const paths = new Set(input.files);
+  for (const edge of edges) {
+    paths.add(edge.from);
+    if (edge.to !== null) paths.add(edge.to);
+  }
+  const ownership = resolveOwnership(input.nodes, [...paths].sort());
+  const parents = new Map<string, string | undefined>(input.nodes.map((node) => [node.id, node.parent]));
+  const kinds = new Map(input.nodes.map((node) => [node.id, node.kind]));
+  const capabilityOf = (owner: string): string | null => {
+    for (const ancestor of ancestorChain(owner, parents)) if (kinds.get(ancestor) === "capability") return ancestor;
+    return null;
+  };
+  const ownersOf = (path: string): string[] => ownership.byPath.get(path)?.owners ?? [];
+  const within = (path: string, nodeId: string | undefined): boolean =>
+    nodeId === undefined || ownersOf(path).some((owner) => ancestorChain(owner, parents).has(nodeId));
+  type Attribution = { capability: string } | { gap: "unownedEndpoint" | "contestedEndpoint" | "noCapabilityEndpoint" };
+  const attribute = (path: string): Attribution => {
+    const owners = ownersOf(path);
+    if (owners.length === 0) return { gap: "unownedEndpoint" };
+    const capabilities = new Set(owners.map(capabilityOf));
+    if (capabilities.size > 1) return { gap: "contestedEndpoint" };
+    const [capability] = capabilities;
+    return capability === null ? { gap: "noCapabilityEndpoint" } : { capability };
+  };
+
+  const unattributed = { unownedEndpoint: 0, contestedEndpoint: 0, noCapabilityEndpoint: 0 };
+  const cells = new Map<string, CapabilityDependencyCellV1>();
+  const attributedEdges: CapabilityDependencyEdgeV1[] = [];
+  const seen = new Set<string>();
+  let unresolvedCount = 0;
+  for (const edge of edges) {
+    if (!within(edge.from, input.from)) continue;
+    if (edge.to === null) {
+      if (input.into === undefined && isRepositoryLocalSpecifier(edge.specifier, input.workspacePackages)) unresolvedCount += 1;
+      continue;
+    }
+    if (edge.to === edge.from || !within(edge.to, input.into)) continue;
+    const key = JSON.stringify([edge.from, edge.to]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const from = attribute(edge.from);
+    const to = attribute(edge.to);
+    if ("gap" in from || "gap" in to) {
+      // One cause per edge: the importing side is reported when both sides lack an attribution.
+      unattributed["gap" in from ? from.gap : (to as { gap: keyof typeof unattributed }).gap] += 1;
+      continue;
+    }
+    const cellKey = JSON.stringify([from.capability, to.capability]);
+    const cell = cells.get(cellKey) ?? { from: from.capability, to: to.capability, imports: 0, calls: null };
+    cell.imports += 1;
+    cells.set(cellKey, cell);
+    attributedEdges.push({ fromPath: edge.from, toPath: edge.to, fromCapability: from.capability, toCapability: to.capability });
+  }
+
+  const edgeLimit = input.edgeLimit ?? CAPABILITY_DEPENDENCIES_EDGE_LIMIT;
+  attributedEdges.sort((left, right) => compare(left.fromPath, right.fromPath) || compare(left.toPath, right.toPath));
+  const listed = attributedEdges.slice(0, edgeLimit);
+  return {
+    schemaVersion: CAPABILITY_DEPENDENCIES_SCHEMA_VERSION,
+    ownershipRule: "parent-chain",
+    filter: { from: input.from ?? null, into: input.into ?? null },
+    capabilities: input.nodes.filter((node) => node.kind === "capability").map((node) => node.id).sort(compare),
+    matrix: [...cells.values()].sort((left, right) => compare(left.from, right.from) || compare(left.to, right.to)),
+    imports: {
+      coverage: certification.coverage,
+      reasonCodes: [...certification.reasonCodes].sort(),
+      truncated: input.truncated,
+      importNodeCount: input.importNodeCount,
+      importNodeLimit: input.importNodeLimit,
+      importNodeLimitExceeded: input.importNodeLimitExceeded,
+      edgeCount: seen.size,
+      unresolvedCount,
+      unattributed
+    },
+    calls: { coverage: "unknown", reasonCodes: [CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON] },
+    edges: { limit: edgeLimit, count: attributedEdges.length, omittedCount: attributedEdges.length - listed.length, items: listed }
   };
 }
 

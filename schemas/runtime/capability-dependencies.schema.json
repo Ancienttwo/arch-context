@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/capability-dependencies.schema.json",
+  "title": "CapabilityDependenciesV1",
+  "description": "The data of `archctx deps`: a read-only capability x capability import matrix. Owners come from the parent-chain rule `refactor scan` uses, rolled up to the nearest capability. Call counts are not available in v1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "ownershipRule", "filter", "capabilities", "matrix", "imports", "calls", "edges", "worktree", "privacy"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.capability-dependencies/v1" },
+    "ownershipRule": { "const": "parent-chain" },
+    "filter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "into"],
+      "properties": {
+        "from": { "type": ["string", "null"] },
+        "into": { "type": ["string", "null"] }
+      }
+    },
+    "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "matrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to", "imports", "calls"],
+        "properties": {
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "imports": { "type": "integer", "minimum": 1 },
+          "calls": { "type": "null" }
+        }
+      }
+    },
+    "imports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coverage", "reasonCodes", "truncated", "importNodeCount", "importNodeLimit", "importNodeLimitExceeded", "edgeCount", "unresolvedCount", "unattributed"],
+      "properties": {
+        "coverage": { "enum": ["complete", "partial", "unknown"] },
+        "reasonCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["code-facts-import-limit", "code-facts-stale", "code-facts-truncated", "code-facts-unavailable"] }
+        },
+        "truncated": { "type": "boolean" },
+        "importNodeCount": { "type": ["integer", "null"], "minimum": 0 },
+        "importNodeLimit": { "type": "integer", "minimum": 1 },
+        "importNodeLimitExceeded": { "type": "boolean" },
+        "edgeCount": { "type": "integer", "minimum": 0 },
+        "unresolvedCount": { "type": "integer", "minimum": 0 },
+        "unattributed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["unownedEndpoint", "contestedEndpoint", "noCapabilityEndpoint"],
+          "properties": {
+            "unownedEndpoint": { "type": "integer", "minimum": 0 },
+            "contestedEndpoint": { "type": "integer", "minimum": 0 },
+            "noCapabilityEndpoint": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "calls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coverage", "reasonCodes"],
+      "properties": {
+        "coverage": { "const": "unknown" },
+        "reasonCodes": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "const": "call-edges-not-exposed" } }
+      }
+    },
+    "edges": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limit", "count", "omittedCount", "items"],
+      "properties": {
+        "limit": { "type": "integer", "minimum": 0 },
+        "count": { "type": "integer", "minimum": 0 },
+        "omittedCount": { "type": "integer", "minimum": 0 },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fromPath", "toPath", "fromCapability", "toCapability"],
+            "properties": {
+              "fromPath": { "type": "string", "minLength": 1 },
+              "toPath": { "type": "string", "minLength": 1 },
+              "fromCapability": { "type": "string", "minLength": 1 },
+              "toCapability": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headSha", "worktreeDigest"],
+      "properties": {
+        "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["writes"],
+      "properties": {
+        "writes": { "const": "none" }
+      }
+    }
+  }
+}

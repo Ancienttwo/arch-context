@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "archcontext.capability-dependencies/v1",
+  "ownershipRule": "parent-chain",
+  "filter": { "from": null, "into": "capability.billing" },
+  "capabilities": ["capability.billing", "capability.checkout"],
+  "matrix": [
+    { "from": "capability.checkout", "to": "capability.billing", "imports": 2, "calls": null }
+  ],
+  "imports": {
+    "coverage": "complete",
+    "reasonCodes": [],
+    "truncated": false,
+    "importNodeCount": 14,
+    "importNodeLimit": 50000,
+    "importNodeLimitExceeded": false,
+    "edgeCount": 3,
+    "unresolvedCount": 0,
+    "unattributed": { "unownedEndpoint": 1, "contestedEndpoint": 0, "noCapabilityEndpoint": 0 }
+  },
+  "calls": { "coverage": "unknown", "reasonCodes": ["call-edges-not-exposed"] },
+  "edges": {
+    "limit": 200,
+    "count": 2,
+    "omittedCount": 0,
+    "items": [
+      { "fromPath": "src/checkout/cart.ts", "toPath": "src/billing/invoice.ts", "fromCapability": "capability.checkout", "toCapability": "capability.billing" },
+      { "fromPath": "src/checkout/pay.ts", "toPath": "src/billing/invoice.ts", "fromCapability": "capability.checkout", "toCapability": "capability.billing" }
+    ]
+  },
+  "worktree": {
+    "headSha": "0123456789abcdef0123456789abcdef01234567",
+    "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "privacy": { "writes": "none" }
+}

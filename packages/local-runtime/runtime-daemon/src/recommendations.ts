@@ -620,6 +620,7 @@ export class RecommendationsService {
       requestId: result.requestId,
       request,
       trackedFileCount: result.trackedFileCount,
+      untrackedExcludedCount: result.untrackedExcludedCount,
       snapshot: result.snapshot,
       assessment: result.assessment,
       ...(result.proposal ? { proposal: result.proposal } : {}),

@@ -3,6 +3,7 @@ export * from "./architecture";
 export * from "./external-docs";
 export * from "./github-governance";
 export * from "./ledger";
+export * from "./ownership-dependencies";
 export * from "./ports";
 export * from "./practices";
 export * from "./projection";

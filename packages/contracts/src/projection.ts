@@ -62,7 +62,9 @@ export const ARCHCTX_FEATURES = [
   "architecture-change-capabilities-v1",
   "architecture-docs-renderer-v2",
   "architecture-refresh-signal-v1",
+  "capability-dependencies-v1",
   "changeset-entity-operations-v1",
+  "changeset-ownership-delta-v1",
   "code-facts-unavailable-error-v1",
   "module-statistics-v1",
   "projection-apply-readback-v1",
@@ -81,7 +83,8 @@ export const ARCHCTX_FEATURES = [
   "refactor-assessment-v1",
   "refactor-observation-evidence-v1",
   "refactor-resolution-v1",
-  "refactor-scan-limits-v1"
+  "refactor-scan-limits-v1",
+  "refactor-scan-untracked-count-v1"
 ] as const;
 
 /**

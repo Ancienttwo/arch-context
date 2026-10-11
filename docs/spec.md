@@ -123,8 +123,35 @@ field `importNodeLimit` (CLI `--import-node-limit`, default 50000) caps that rea
 holds more import nodes than the cap, `codeFacts` reports `coverage: partial`, `truncated: false`,
 `importNodeCount`, `edgeLimit` and reason code `code-facts-import-limit`. `code-facts-truncated`
 means the read returned fewer nodes than the index reported, or no index answered.
+The scan measures the `HEAD` tree only. `untrackedExcludedCount` counts the worktree files that Git
+does not ignore and that `HEAD` does not carry (untracked and newly staged files). A commit that
+adds them changes the numbers for the same model (capability `refactor-scan-untracked-count-v1`).
 `recommendations list --status <status>` returns the latest record of every recorded
 recommendation in that status with no item or byte budget; `book recommendations` keeps its budget.
+
+### Read-Only Ownership and Dependency Queries
+
+These queries use the parent-chain owner rule of `refactor scan` (module-statistics
+`resolveOwnership`) over the files the `HEAD` tree carries. They write nothing.
+
+- `archctx plan` and `archcontext_plan_update` add `preview.ownershipDelta`
+  (`archcontext.changeset-ownership-delta/v1`) when a planned ChangeSet writes a node file. It
+  compares ownership before and after the planned model. `becameOwned`, `becameContested`,
+  `ownerChanged` and `becameUnowned` each give `count`, up to 50 files with their owners before
+  and after, and `omittedCount`. `changedNodeIds` names the nodes whose `source.include`,
+  `source.exclude` or `parent` changed, or that the plan creates or deletes. A planned body that
+  does not parse gives `status: unavailable` with a reason. A plan with no node file write has no
+  `ownershipDelta` (capability `changeset-ownership-delta-v1`).
+- `archctx deps [--from <node>] [--into <node>] [--import-node-limit <n>] [--edge-limit <n>]`
+  returns the capability x capability import matrix (`archcontext.capability-dependencies/v1`,
+  schema `capability-dependencies.schema.json`). Each owner rolls up to the nearest
+  `kind: capability` node on its parent chain. An edge counts in `matrix` only when both files
+  roll up to one capability; other edges count in `imports.unattributed` by cause. `--from` and
+  `--into` keep edges whose importing or imported file the node or a descendant owns. Imports
+  come from the CodeGraph import read and carry its `truncated`, `importNodeCount` and
+  `importNodeLimitExceeded`. Call counts are not available: `calls.coverage` is `unknown` with
+  reason `call-edges-not-exposed`. The command runs in process, like `resolve`, and starts no
+  daemon (capability `capability-dependencies-v1`).
 
 `archctx-contracts` publishes JSON schemas for this data:
 `schemas/runtime/recommendation-v3.schema.json`, `structural-observation-payload.schema.json`,
