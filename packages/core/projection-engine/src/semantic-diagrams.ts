@@ -1,6 +1,8 @@
 import {
   digestJson,
   type ArchitectureFlowEvidenceSelectorV1,
+  type ArchitectureFlowSelectorCheckV1,
+  type ArchitectureFlowSelectorProofStatus,
   type ArchitectureFlowStepV1,
   type ArchitectureFlowV1,
   type ArchitectureNodeSourceV2,
@@ -38,6 +40,17 @@ export interface ArchitectureSelectorEvidenceV1 {
   ambiguous?: boolean;
   truncated: boolean;
   callSites: Array<{ path: string; line?: number }>;
+  /**
+   * `calls` edges to the exact sink that the producer rejected as false built-in edges: the sink
+   * carries a runtime built-in name and the source file does not import the sink file. They never
+   * prove the selector. Present only when a call was rejected.
+   */
+  rejectedBuiltinCallSites?: Array<{ path: string; line?: number }>;
+  /**
+   * `references` edges from the source to the exact sink (wiring by value). They never prove the
+   * selector. Present only when no call proves it.
+   */
+  referenceSites?: Array<{ path: string; line?: number }>;
 }
 
 export interface SemanticProofDiagnostic {
@@ -319,34 +332,112 @@ function validateStep(input: {
     input.diagnostics.push({ code: "selector-declaration-ambiguous", flowId: input.flowId, stepId: input.step.id, detail: selectorKey });
     return;
   }
-  const evidence = input.evidence.filter((entry) => evidenceSelectorKey(entry) === selectorKey && entry.nodeId === declarations[0].nodeId);
-  if (evidence.length === 0) {
-    input.diagnostics.push({ code: "selector-evidence-missing", flowId: input.flowId, stepId: input.step.id, detail: selectorKey });
-    return;
-  }
-  if (evidence.length > 1) {
-    input.diagnostics.push({ code: "selector-evidence-ambiguous", flowId: input.flowId, stepId: input.step.id, detail: selectorKey });
-    return;
-  }
-  if (evidence[0].ambiguous) {
-    input.diagnostics.push({ code: "selector-evidence-ambiguous", flowId: input.flowId, stepId: input.step.id, detail: selectorKey });
-    return;
-  }
-  if (evidence[0].truncated) {
-    input.diagnostics.push({ code: "selector-evidence-truncated", flowId: input.flowId, stepId: input.step.id, detail: selectorKey });
-    return;
-  }
-  if (!evidence[0].matched || evidence[0].callSites.length === 0) {
-    input.diagnostics.push({ code: "selector-evidence-unmatched", flowId: input.flowId, stepId: input.step.id, detail: selectorKey });
+  const status = architectureSelectorProofStatus(
+    input.evidence.filter((entry) => evidenceSelectorKey(entry) === selectorKey && entry.nodeId === declarations[0].nodeId)
+  );
+  if (status !== "proven") {
+    input.diagnostics.push({ code: SELECTOR_STATUS_DIAGNOSTICS[status], flowId: input.flowId, stepId: input.step.id, detail: selectorKey });
     return;
   }
   input.provenSelectorKeys.add(selectorKey);
 }
 
+const SELECTOR_STATUS_DIAGNOSTICS: Record<Exclude<ArchitectureFlowSelectorProofStatus, "proven">, SemanticProofDiagnostic["code"]> = {
+  "ambiguous-symbol": "selector-evidence-ambiguous",
+  "evidence-missing": "selector-evidence-missing",
+  "evidence-truncated": "selector-evidence-truncated",
+  "false-builtin-call": "selector-evidence-unmatched",
+  "no-direct-call": "selector-evidence-unmatched",
+  "only-references": "selector-evidence-unmatched"
+};
+
+/**
+ * The single selector proof rule. `evidence` holds every entry measured for one selector of one
+ * declaring node. The P2 flow proof and `archctx flows check` both read a selector through this
+ * function, so the check can never disagree with a projection. Only `proven` binds a flow step.
+ */
+export function architectureSelectorProofStatus(evidence: readonly ArchitectureSelectorEvidenceV1[]): ArchitectureFlowSelectorProofStatus {
+  if (evidence.length === 0) return "evidence-missing";
+  if (evidence.length > 1 || evidence[0].ambiguous) return "ambiguous-symbol";
+  if (evidence[0].truncated) return "evidence-truncated";
+  if (evidence[0].matched && evidence[0].callSites.length > 0) return "proven";
+  if ((evidence[0].rejectedBuiltinCallSites ?? []).length > 0) return "false-builtin-call";
+  if ((evidence[0].referenceSites ?? []).length > 0) return "only-references";
+  return "no-direct-call";
+}
+
+/**
+ * Every declared selector with its proof status and the required-flow steps that use it, plus the
+ * P2 proof of every capability that declares a flow, compiled exactly as a projection compiles it.
+ * Nothing is rendered; the result is a pure function of the model and the evidence.
+ */
+export function checkSemanticFlowSelectors(input: {
+  nodes: SemanticArchitectureNode[];
+  relations: SemanticArchitectureRelation[];
+  flows: ArchitectureFlowV1[];
+  evidence: ArchitectureSelectorEvidenceV1[];
+}): Pick<ArchitectureFlowSelectorCheckV1, "ok" | "summary" | "selectors" | "capabilities"> {
+  const stepsByKey = new Map<string, Array<{ flowId: string; stepId: string }>>();
+  for (const flow of [...input.flows].sort((left, right) => left.id.localeCompare(right.id))) {
+    if (flow.applicability !== "required") continue;
+    for (const step of [...flow.steps, ...flow.outcomes.flatMap((outcome) => outcome.steps)]) {
+      const key = evidenceSelectorKey(step.evidence);
+      stepsByKey.set(key, [...stepsByKey.get(key) ?? [], { flowId: flow.id, stepId: step.id }]);
+    }
+  }
+  const selectors = input.nodes.flatMap((node) => (node.source?.entrypoints ?? []).flatMap((entrypoint) =>
+    entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => {
+      const key = evidenceSelectorKey({ entrypointId: entrypoint.id, sourceSymbol: source.name, sinkId: sink.id });
+      const evidence = input.evidence.filter((entry) => evidenceSelectorKey(entry) === key && entry.nodeId === node.id);
+      const single = evidence.length === 1 ? evidence[0] : undefined;
+      return {
+        nodeId: node.id,
+        entrypointId: entrypoint.id,
+        sourcePath: entrypoint.path,
+        sourceSymbol: source.name,
+        sinkId: sink.id,
+        sinkPath: sink.path,
+        sinkSymbol: sink.symbol,
+        status: architectureSelectorProofStatus(evidence),
+        callSites: single?.callSites ?? [],
+        referenceSites: single?.referenceSites ?? [],
+        rejectedBuiltinCallSites: single?.rejectedBuiltinCallSites ?? [],
+        flowSteps: stepsByKey.get(key) ?? []
+      };
+    }))))
+    .sort((left, right) => compareStrings(left.nodeId, right.nodeId)
+      || compareStrings(left.entrypointId, right.entrypointId)
+      || compareStrings(left.sourceSymbol, right.sourceSymbol)
+      || compareStrings(left.sinkId, right.sinkId));
+  const capabilityIds = [...new Set(input.flows.map((flow) => flow.capabilityId))].sort(compareStrings);
+  const capabilities = capabilityIds.map((capabilityId) => {
+    const { p2 } = compileSemanticCapabilityDiagrams({ capabilityId, nodes: input.nodes, relations: input.relations, flows: input.flows, evidence: input.evidence });
+    return { capabilityId, p2Status: p2.status, diagnostics: p2.diagnostics };
+  });
+  const unproven = selectors.filter((selector) => selector.status !== "proven");
+  return {
+    ok: capabilities.every((capability) => capability.p2Status !== "unprovable"),
+    summary: {
+      selectors: selectors.length,
+      proven: selectors.length - unproven.length,
+      unproven: unproven.length,
+      usedUnproven: unproven.filter((selector) => selector.flowSteps.length > 0).length
+    },
+    selectors,
+    capabilities
+  };
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 /**
  * Exactly the per-entry facts `validateStep` reads from selector evidence: identity (node, selector
  * key parts), the truthiness of `matched`/`ambiguous`/`truncated`, and whether any call site exists.
- * Call-site paths and lines never reach a proof, so they are excluded. Entries are sorted, and
+ * Call-site paths and lines never reach a proof, so they are excluded. `referenceSites` and
+ * `rejectedBuiltinCallSites` only choose between unproven statuses that map to the same
+ * `selector-evidence-unmatched` diagnostic, so they are excluded too. Entries are sorted, and
  * duplicates are kept because `validateStep` treats more than one matching entry as ambiguous.
  * Keep this next to `validateStep`: a proof input added there must be added here.
  */
