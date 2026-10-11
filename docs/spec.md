@@ -94,6 +94,33 @@ partition. Reading lifecycle status never rebinds
 persisted resolution evidence or changes the ledger partition. Other book commands retain
 their ledger readback identity.
 
+### Refactor Suggestion Decisions and Limits
+
+A refactor fingerprint whose latest record is `rejected` or `waived` is suppressed on re-detection
+(`decided-fingerprint`), like `accepted` and `deferred`, including when a later decision records a
+whole scan run. Active and decided suppression run before the `maxRecommendationsPerRun` cap, so a
+suppressed fingerprint never takes a slot from a new candidate and `omittedCandidateCount` counts
+only what the cap cut. A decided structural observation reopens only when a severity metric of its
+kind is higher than in the decided record's `payload.metrics`
+(`REFACTOR_OBSERVATION_SEVERITY_METRICS` in refactor-assessment): `cycle` `memberCount` and
+`cycleEdgeCount`, `direction-violation` `directionViolationCount`, `unowned-paths`
+`unownedFileCount`. An equal or lower value does not reopen, and neither does a decided record that
+lacks the metric. `ownership-ambiguous` (its `ownedFileCount` measures module size),
+`evidence-gap` (a gap in the code facts, not a finding; `edgeLimit` is scan configuration) and
+`undeclared-footprint` have no severity metric and never reopen. The reopened suggestion is a new
+record with a new id and `relations.regressesFrom` naming the decided one; the decided id is never
+appended as `open` again. A refactor proposal fingerprints every material field, so a decided
+proposal does not reopen.
+
+`refactor scan` is read-only and never fails on the ledger event size limit. It returns
+`recording.recordable`, `recording.measuredBytes` and `recording.limitBytes`, plus `limits` with the
+shared `evidenceSampleLimit` and the candidates cut by `maxRecommendationsPerRun`. `refactor record`,
+a scan-candidate decision and a scan-candidate `recommendations show` refuse an unrecordable run with
+`AC_REFACTOR_RUN_TOO_LARGE` (not retryable; `error.details` carries the measured size and the
+limit), and the scan omits `recordCommand` for such a run. A stale `--expected-worktree-digest` on a decision returns `AC_REFACTOR_STALE`.
+`recommendations list --status <status>` returns the latest record of every recorded
+recommendation in that status with no item or byte budget; `book recommendations` keeps its budget.
+
 ## Release State
 
 `archctx@0.5.11` and `archctx-contracts@0.5.11` are the current published release on `latest`,

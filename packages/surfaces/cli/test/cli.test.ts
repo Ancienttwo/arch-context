@@ -2309,6 +2309,13 @@ describe("archctx CLI", () => {
       expect(missingId.ok).toBe(false);
       expect((missingId as any).error.message).toBe("recommendations show requires --id");
       expect(calls).toHaveLength(3);
+
+      // `list` is a read: the status, and nothing else, reaches the daemon, which owns its vocabulary.
+      const listed = await runCli("recommendations", ["list", "--status", "rejected", "--json"], root, { runtimeClient: runtimeClient as any });
+      expect(listed.ok).toBe(true);
+      expect(calls[3]).toEqual({ command: "list", status: "rejected" });
+      await runCli("recommendations", ["list"], root, { runtimeClient: runtimeClient as any });
+      expect(calls[4]).toEqual({ command: "list" });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -1374,12 +1374,14 @@ describe("code facts error catalog", () => {
 });
 
 describe("refactor error catalog", () => {
-  test("the four refactor error codes are catalogued", () => {
+  test("the refactor error codes are catalogued", () => {
     const expected: Record<string, { severity: string; retryable: boolean; action: string }> = {
       AC_MODEL_ADOPTION_REQUIRED: { severity: "error", retryable: false, action: "adopt-architecture-model" },
       AC_REFACTOR_STALE: { severity: "warning", retryable: true, action: "rerun-refactor-scan" },
       AC_REFACTOR_EVIDENCE_REQUIRED: { severity: "error", retryable: false, action: "run-refactor-verify" },
-      AC_REFACTOR_PROPOSAL_UNAUTHORED: { severity: "error", retryable: false, action: "attach-authoring-actor" }
+      AC_REFACTOR_PROPOSAL_UNAUTHORED: { severity: "error", retryable: false, action: "attach-authoring-actor" },
+      // The run size is a pure function of the measured tree: retrying at the same HEAD cannot pass.
+      AC_REFACTOR_RUN_TOO_LARGE: { severity: "error", retryable: false, action: "use-read-only-refactor-scan" }
     };
     for (const [code, shape] of Object.entries(expected)) {
       const row = ERROR_CATALOG[code as ArchContextErrorCode];

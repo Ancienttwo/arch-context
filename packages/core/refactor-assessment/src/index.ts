@@ -59,6 +59,41 @@ const PRESSURE_WEIGHTS: Readonly<Record<RefactorObservationKind, number>> = {
   "undeclared-footprint": 5
 };
 
+/**
+ * The `metrics` keys of each observation kind whose growth means the finding itself got worse.
+ * A `rejected` or `waived` observation reopens only when one of them grows past the decided value.
+ *
+ * Left out on purpose: `ownedFileCount` measures module size, not how ambiguous the ownership is,
+ * so `ownership-ambiguous` has no severity metric; `edgeLimit` is scan configuration; and
+ * `evidence-gap` as a whole is a gap in the code facts, not a finding about the architecture, so
+ * no change in coverage reopens a decision about it. `undeclared-footprint` carries no metric.
+ */
+export const REFACTOR_OBSERVATION_SEVERITY_METRICS: Readonly<Record<RefactorObservationKind, readonly string[]>> = {
+  cycle: ["cycleEdgeCount", "memberCount"],
+  "direction-violation": ["directionViolationCount"],
+  "evidence-gap": [],
+  "ownership-ambiguous": [],
+  "undeclared-footprint": [],
+  "unowned-paths": ["unownedFileCount"]
+};
+
+/**
+ * Whether `current` is strictly worse than `decided` on a severity metric of `kind`. An equal or
+ * lower value is not worse. A metric that either side does not carry as a number is not compared,
+ * so a decided record that lacks it never reopens: nothing is inferred in its place.
+ */
+export function observationSeverityWorsened(
+  kind: RefactorObservationKind,
+  decided: Readonly<Record<string, number | null>>,
+  current: Readonly<Record<string, number | null>>
+): boolean {
+  return REFACTOR_OBSERVATION_SEVERITY_METRICS[kind].some((metric) => {
+    const before = decided[metric];
+    const after = current[metric];
+    return typeof before === "number" && typeof after === "number" && after > before;
+  });
+}
+
 export interface RefactorAssessmentInputV1 {
   snapshot: ModuleStatisticsSnapshotV1;
   /**

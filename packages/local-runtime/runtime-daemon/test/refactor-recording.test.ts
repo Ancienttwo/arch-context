@@ -55,8 +55,9 @@ import {
   REFACTOR_ASSESSMENT_REGISTRY_CAPACITY,
   REFACTOR_RUN_PERSISTENCE_REASON_CODE,
   RefactorAssessmentRegistry,
-  RefactorRunPersistenceError,
+  RefactorRunTooLargeError,
   buildRefactorRecordEvent,
+  planRefactorRunWithRecording,
   refactorClassifierRulesetDigest
 } from "../src/refactor-recording";
 import {
@@ -153,7 +154,7 @@ function recordedRecommendations(store: TestLocalStore): RecommendationV3[] {
   );
 }
 
-function errorOf(envelope: JsonEnvelope): { code: string; message: string; reasonCode?: string } {
+function errorOf(envelope: JsonEnvelope): { code: string; message: string; reasonCode?: string; retryable?: boolean; details?: Record<string, unknown> } {
   return (envelope as { error?: { code: string; message: string; reasonCode?: string } }).error!;
 }
 
@@ -994,10 +995,45 @@ describe("refactor_scan event size", () => {
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toBeInstanceOf(RefactorRunPersistenceError);
-    expect((thrown as RefactorRunPersistenceError).code).toBe("AC_SCHEMA_INVALID");
-    expect((thrown as RefactorRunPersistenceError).reasonCode).toBe(REFACTOR_RUN_PERSISTENCE_REASON_CODE);
-    expect((thrown as Error).message).toMatch(/^AC_SCHEMA_INVALID: the refactor run event needs \d+ bytes with every evidence sample empty/);
+    expect(thrown).toBeInstanceOf(RefactorRunTooLargeError);
+    const tooLarge = thrown as RefactorRunTooLargeError;
+    expect(tooLarge.code).toBe("AC_REFACTOR_RUN_TOO_LARGE");
+    expect(tooLarge.reasonCode).toBe(REFACTOR_RUN_PERSISTENCE_REASON_CODE);
+    expect(tooLarge.message).toMatch(/^the refactor run event needs \d+ bytes with every evidence sample empty/);
+    expect(tooLarge.recording.recordable).toBe(false);
+    expect(tooLarge.recording.limitBytes).toBe(ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES);
+    expect(tooLarge.recording.measuredBytes).toBeGreaterThan(ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES);
+  });
+
+  test("the read-only planning path reports an unrecordable run instead of throwing", () => {
+    const padded = (snapshot: ModuleStatisticsSnapshotV1): ModuleStatisticsSnapshotV1 => ({
+      ...snapshot,
+      extensions: { padding: Array.from({ length: 40 }, () => "p".repeat(8_000)) }
+    });
+    const registered = oversizedRun(padded);
+    const { plan, recording } = planRefactorRunWithRecording({
+      ...LEDGER_SCOPE,
+      snapshot: registered.snapshot,
+      assessment: registered.assessment,
+      catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
+      now: NOW
+    });
+    expect(recording).toMatchObject({ recordable: false, reasonCode: REFACTOR_RUN_PERSISTENCE_REASON_CODE, limitBytes: ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES });
+    expect(recording.measuredBytes).toBeGreaterThan(recording.limitBytes);
+    // The preview is the smallest run there is: every sample empty, every candidate still named.
+    expect(plan.evidenceSampleLimit).toBe(0);
+    expect(plan.recommendations).toHaveLength(25);
+
+    const fits = planRefactorRunWithRecording({
+      ...LEDGER_SCOPE,
+      snapshot: oversizedRun().snapshot,
+      assessment: oversizedRun().assessment,
+      catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
+      now: NOW
+    });
+    expect(fits.recording).toMatchObject({ recordable: true, reasonCode: null });
+    expect(fits.recording.measuredBytes).toBeLessThanOrEqual(fits.recording.limitBytes);
+    expect(fits.plan.evidenceSampleLimit).toBe(build(oversizedRun()).plan.evidenceSampleLimit);
   });
 
   test("refactor record refuses an unpersistable run with the typed reason and appends nothing", async () => {
@@ -1014,8 +1050,13 @@ describe("refactor_scan event size", () => {
       const result = await daemon.refactorRecord(root, recordInput(root, digest));
 
       expect(result.ok).toBe(false);
-      expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(result).reasonCode).toBe(REFACTOR_RUN_PERSISTENCE_REASON_CODE);
+      expect(errorOf(result)).toMatchObject({
+        code: "AC_REFACTOR_RUN_TOO_LARGE",
+        reasonCode: REFACTOR_RUN_PERSISTENCE_REASON_CODE,
+        retryable: false,
+        details: { limitBytes: ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES }
+      });
+      expect(errorOf(result).details!.measuredBytes as number).toBeGreaterThan(ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES);
       expect(store.architectureEvents).toHaveLength(0);
     } finally {
       await daemon.stop();

@@ -17,10 +17,12 @@ import {
   type RecommendationFeedbackAction
 } from "@archcontext/core/recommendation-engine";
 import {
+  REFACTOR_RUN_PERSISTENCE_REASON_CODE,
   RefactorAssessmentRegistry,
-  RefactorRunPersistenceError,
+  RefactorRunTooLargeError,
   buildRefactorRecordEvent,
   refactorClassifierRulesetDigest,
+  refactorRunTooLargeMessage,
   refactorProposalAuthorPairIssues,
   type RegisteredRefactorAssessmentV1
 } from "./refactor-recording";
@@ -56,6 +58,7 @@ import {
   type RecommendationRunV1
 } from "@archcontext/contracts";
 import {
+  RECOMMENDATION_STATUSES,
   RECOMMENDATION_V3_SCHEMA_VERSION,
   REFACTOR_EXECUTION_EVIDENCE_KINDS,
   REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN,
@@ -120,12 +123,13 @@ export class RecommendationsService {
       } as unknown as Json);
     };
     if (command === "metrics") return readMetrics();
+    if (command === "list") return this.listRecommendations(repositoryRoot, input.status);
     if (command === "show") {
       if (!input.recommendationId) return errorEnvelope("recommendations.show", "AC_SCHEMA_INVALID", "recommendations show requires --id");
       return this.showRecommendation(repositoryRoot, input.recommendationId);
     }
     if (!isRecommendationLifecycleCliAction(command)) {
-      return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics|show");
+      return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics|show|list");
     }
     if (!input.recommendationId) {
       return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendations ${command} requires --id`);
@@ -136,7 +140,13 @@ export class RecommendationsService {
 
     return this.context.withWriter(async () => {
       if (input.expectedWorktreeDigest) {
-        this.context.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, `recommendations ${command}`);
+        // A stale claim about the tree is the same case `refactor record` refuses, so it gets the
+        // same typed envelope rather than escaping as an untyped throw.
+        try {
+          this.context.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, `recommendations ${command}`);
+        } catch (error) {
+          return errorEnvelope(`recommendations.${command}`, "AC_REFACTOR_STALE", error instanceof Error ? error.message : String(error));
+        }
       }
       const now = input.now ?? this.context.clock();
       const scope = await this.context.architectureLedgerScope(repositoryRoot);
@@ -359,6 +369,11 @@ export class RecommendationsService {
     }
     const candidate = measured.result.proposedRecommendations.find((entry) => entry.recommendationId === recommendationId);
     if (!candidate) return recommendationNotFound("show", recommendationId, "recorded-or-scanned");
+    // A candidate is shown under the identity a decision on it would record; a run that cannot be
+    // recorded cannot be decided, so its candidate is refused the way the decision would be.
+    if (!measured.result.recording.recordable) {
+      return refactorRunTooLargeEnvelope("recommendations.show", measured.result.recording);
+    }
     const bindings = measured.result.evidenceBindings
       .filter((binding) => binding.target.kind === "recommendation" && binding.target.id === recommendationId)
       .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
@@ -371,6 +386,43 @@ export class RecommendationsService {
       decisions: [],
       worktree: { headSha: measured.gitScope.worktree.headSha, worktreeDigest: measured.gitScope.worktree.worktreeDigest }
     });
+  }
+
+  /**
+   * Every recommendation whose latest record has `status`, read from the ledger alone. Unlike
+   * `book recommendations` there is no item or byte budget: a consumer that reads decisions must
+   * see all of them, so nothing is cut and `count` is the whole answer. Read-only.
+   */
+  private async listRecommendations(repositoryRoot: string, status: string | undefined): Promise<JsonEnvelope> {
+    if (status === undefined || !(RECOMMENDATION_STATUSES as readonly string[]).includes(status)) {
+      return errorEnvelope(
+        "recommendations.list",
+        "AC_SCHEMA_INVALID",
+        `recommendations list requires --status ${RECOMMENDATION_STATUSES.join("|")}`
+      );
+    }
+    const scope = await this.context.architectureLedgerScope(repositoryRoot);
+    const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+    const recommendations = latestRecommendationsById(recommendationArtifactsFromEvents(replay.events).recommendations)
+      .filter((recommendation) => recommendation.status === status);
+    return okEnvelope("recommendations.list", {
+      schemaVersion: "archcontext.runtime-recommendation-list/v1",
+      status,
+      count: recommendations.length,
+      recommendations,
+      ledgerCursor: {
+        eventCount: replay.cursor.eventCount,
+        lastEventId: replay.cursor.lastEventId,
+        lastEventHash: replay.cursor.lastEventHash
+      },
+      graphDigest: replay.graphDigest,
+      privacy: {
+        writes: "none",
+        rawSourcePersisted: false,
+        rawDiffPersisted: false,
+        promptPersisted: false
+      }
+    } as unknown as Json);
   }
 
   /** The transition, its explicit feedback and the lifecycle event, shared by both decide paths. */
@@ -576,7 +628,12 @@ export class RecommendationsService {
       evidenceItems: result.evidenceItems,
       evidenceBindings: result.evidenceBindings,
       suppressed: result.suppressed,
-      recordCommand: `archctx refactor record --assessment-digest ${result.assessment.assessmentDigest} --expected-worktree-digest ${gitScope.worktree.worktreeDigest}`,
+      recording: result.recording,
+      limits: result.limits,
+      // Only a run `refactor record` can append gets a command to record it.
+      ...(result.recording.recordable
+        ? { recordCommand: `archctx refactor record --assessment-digest ${result.assessment.assessmentDigest} --expected-worktree-digest ${gitScope.worktree.worktreeDigest}` }
+        : {}),
       privacy: {
         writes: "none",
         rawSourcePersisted: false,
@@ -910,10 +967,20 @@ export class RecommendationsService {
 
 class RuntimeRefactorInputError extends Error {}
 
-/** `buildRefactorRecordEvent` failures: an oversize run keeps its reason code, anything else is a defect. */
+/** `buildRefactorRecordEvent` failures: an oversize run is typed with its measured size, anything else is a defect. */
 function recordBuildErrorEnvelope(surface: string, error: unknown): JsonEnvelope {
-  if (error instanceof RefactorRunPersistenceError) return errorEnvelope(surface, error.code, error.message, error.reasonCode);
+  if (error instanceof RefactorRunTooLargeError) return refactorRunTooLargeEnvelope(surface, error.recording);
   return errorEnvelope(surface, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+}
+
+function refactorRunTooLargeEnvelope(surface: string, recording: RefactorRunTooLargeError["recording"]): JsonEnvelope {
+  return errorEnvelope(
+    surface,
+    "AC_REFACTOR_RUN_TOO_LARGE",
+    refactorRunTooLargeMessage(recording),
+    REFACTOR_RUN_PERSISTENCE_REASON_CODE,
+    { measuredBytes: recording.measuredBytes, limitBytes: recording.limitBytes }
+  );
 }
 
 /** Same shape check as `runtimeUpdateInputRecord`, reported under the refactor surface. */
@@ -1087,12 +1154,19 @@ function latestRecommendationById(
   recommendations: readonly RecommendationLedgerRecordV1[],
   recommendationId: string
 ): RecommendationLedgerRecordV1 | undefined {
-  let latest: RecommendationLedgerRecordV1 | undefined;
+  return latestRecommendationsById(recommendations.filter((recommendation) => recommendation.recommendationId === recommendationId))[0];
+}
+
+/** `latestRecommendationById` for every id: newest `updatedAt` first, then by id. */
+function latestRecommendationsById(recommendations: readonly RecommendationLedgerRecordV1[]): RecommendationLedgerRecordV1[] {
+  const latest = new Map<string, RecommendationLedgerRecordV1>();
   for (const recommendation of recommendations) {
-    if (recommendation.recommendationId !== recommendationId) continue;
-    if (!latest || recommendation.updatedAt.localeCompare(latest.updatedAt) >= 0) latest = recommendation;
+    const current = latest.get(recommendation.recommendationId);
+    if (!current || recommendation.updatedAt.localeCompare(current.updatedAt) >= 0) latest.set(recommendation.recommendationId, recommendation);
   }
-  return latest;
+  return [...latest.values()].sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt) || left.recommendationId.localeCompare(right.recommendationId)
+  );
 }
 
 /**

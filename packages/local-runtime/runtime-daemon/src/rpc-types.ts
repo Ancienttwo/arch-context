@@ -1,7 +1,7 @@
 import type { AgentInvestigationRunMetadata, InvestigationReportProposalPlan } from "@archcontext/core/agent-orchestrator";
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
 import type { ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
-import type { RecommendationFeedbackAction, RecommendationFeedbackSource } from "@archcontext/core/recommendation-engine";
+import type { RecommendationFeedbackAction, RecommendationFeedbackSource, RecommendationStatus } from "@archcontext/core/recommendation-engine";
 import type { CompleteTaskInput } from "@archcontext/core/review-engine";
 import type {
   AcceptedArchitectureChangeReferenceV1,
@@ -258,9 +258,14 @@ export type RuntimeProjectionInvocation =
   | { action: "recover"; request: ProjectionApplyRecoveryIntentV1 };
 
 export interface RuntimeRecommendationInput {
-  /** `show` is a read: one recommendation (recorded, or a current scan candidate) with its evidence. */
-  command: "metrics" | "show" | RecommendationFeedbackAction;
+  /**
+   * `show` is a read: one recommendation (recorded, or a current scan candidate) with its evidence.
+   * `list` is a read: the latest record of every recorded recommendation in `status`, unbudgeted.
+   */
+  command: "metrics" | "show" | "list" | RecommendationFeedbackAction;
   recommendationId?: string;
+  /** Required by `list`; one of `RECOMMENDATION_STATUSES`. */
+  status?: RecommendationStatus;
   reason?: string;
   /**
    * `resolve` on a non-practice category requires resolution evidence: the gate looks the digest

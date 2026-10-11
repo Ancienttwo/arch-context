@@ -790,3 +790,217 @@ describe("scan-time evidence and recommendations show", () => {
     }
   });
 });
+
+/** Declares `count` modules with no source footprint: each is one more `undeclared-footprint` candidate. */
+function declareUnfootprintedModules(root: string, count: number, idPrefix: string): string[] {
+  const ids: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const id = `${idPrefix}-${index}`;
+    ids.push(id);
+    writeFileSync(
+      join(root, ".archcontext/model/nodes", `${id}.yaml`),
+      [`id: "${id}"`, 'kind: "module"', `name: "Module ${index}"`, 'schemaVersion: "archcontext.node/v2"', 'status: "active"', 'summary: "Declares no footprint."', ""].join("\n"),
+      "utf8"
+    );
+  }
+  return ids;
+}
+
+describe("a rejected or waived suggestion stays decided", () => {
+  function decidedData(envelope: JsonEnvelope): { nextStatus: string; implicitRecord: { recommendationIds: string[] } | null } {
+    expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
+    return envelope.data as never;
+  }
+
+  for (const [command, status] of [["reject", "rejected"], ["waive", "waived"]] as const) {
+    test(`${command} A, decide B through the scan-candidate path, scan again: A stays hidden`, async () => {
+      const root = createFixtureRepo();
+      const store = new TestLocalStore();
+      const daemon = await startDaemon(store);
+      try {
+        const first = scanData(await daemon.refactorScan(root));
+        const a = first.proposedRecommendations[0]!.recommendationId;
+        expect(decidedData(await daemon.recommendations(root, { command, recommendationId: a, reason: "Intentional." })).nextStatus).toBe(status);
+
+        // A new observation B appears at a later commit; A's measured fact does not change.
+        const [laterNode] = declareUnfootprintedModules(root, 1, "module.later");
+        commitFixture(root, "a module with no footprint", SECOND_COMMITTER_DATE);
+        const second = scanData(await daemon.refactorScan(root));
+        const proposedIds = second.proposedRecommendations.map((candidate) => candidate.recommendationId);
+        expect(proposedIds).not.toContain(a);
+        expect((second as unknown as { suppressed: { reasonCode: string; previousRecommendationId: string }[] }).suppressed)
+          .toContainEqual(expect.objectContaining({ reasonCode: "decided-fingerprint", previousRecommendationId: a }));
+        const b = second.proposedRecommendations.find((candidate) => (candidate as unknown as { subject: string }).subject === laterNode)!.recommendationId;
+
+        // B is not recorded yet, so this decision records the whole run and then decides B.
+        const decidedB = decidedData(await daemon.recommendations(root, { command: "accept", recommendationId: b, reason: "Worth doing." }));
+        expect(decidedB.implicitRecord).not.toBeNull();
+        expect(decidedB.implicitRecord!.recommendationIds).not.toContain(a);
+
+        const third = scanData(await daemon.refactorScan(root));
+        expect(third.proposedRecommendations.map((candidate) => candidate.recommendationId)).not.toContain(a);
+        const shown = await daemon.recommendations(root, { command: "show", recommendationId: a });
+        expect(shown.ok, JSON.stringify(shown)).toBe(true);
+        expect(shown.data).toMatchObject({ source: "ledger", status });
+        const listed = await daemon.recommendations(root, { command: "list", status });
+        expect((listed.data as { recommendations: { recommendationId: string }[] }).recommendations.map((entry) => entry.recommendationId)).toEqual([a]);
+        const reopened = await daemon.recommendations(root, { command: "list", status: "open" });
+        expect((reopened.data as { recommendations: { recommendationId: string }[] }).recommendations.map((entry) => entry.recommendationId)).not.toContain(a);
+      } finally {
+        await daemon.stop();
+      }
+    });
+  }
+});
+
+describe("refactor scan limits", () => {
+  test("the scan reports the evidence sample limit and the candidate cap", async () => {
+    const root = createFixtureRepo();
+    declareUnfootprintedModules(root, 30, "module.capped");
+    commitFixture(root, "more candidates than the cap", SECOND_COMMITTER_DATE);
+    const daemon = await startDaemon(new TestLocalStore());
+    try {
+      const envelope = await daemon.refactorScan(root);
+      const data = envelope.data as {
+        proposedRecommendations: unknown[];
+        limits: Record<string, number>;
+        recording: { recordable: boolean; reasonCode: string | null; measuredBytes: number; limitBytes: number };
+      };
+      expect(envelope.ok, JSON.stringify(envelope.error)).toBe(true);
+      expect(data.proposedRecommendations).toHaveLength(25);
+      expect(data.limits).toEqual({
+        evidenceSampleLimit: 20,
+        maxEvidenceSampleLimit: 20,
+        maxRecommendationsPerRun: 25,
+        candidateCount: data.limits.candidateCount!,
+        omittedCandidateCount: data.limits.candidateCount! - 25
+      });
+      expect(data.limits.candidateCount).toBeGreaterThanOrEqual(31);
+      expect(data.recording).toMatchObject({ recordable: true, reasonCode: null, limitBytes: 262_144 });
+      expect(data.recording.measuredBytes).toBeLessThanOrEqual(data.recording.limitBytes);
+      expect((data as { recordCommand?: string }).recordCommand).toStartWith("archctx refactor record --assessment-digest ");
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("an unrecordable run is still scanned; record, decide and candidate show refuse it with a typed size error", async () => {
+    const root = createFixtureRepo();
+    // Each declared module rides in the baseline snapshot the recording event embeds whole.
+    declareUnfootprintedModules(root, 320, `module.${"x".repeat(100)}`);
+    commitFixture(root, "a model too large for one ledger event", SECOND_COMMITTER_DATE);
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const envelope = await daemon.refactorScan(root);
+      expect(envelope.ok, JSON.stringify(envelope.error)).toBe(true);
+      const data = envelope.data as unknown as {
+        assessment: RefactorAssessmentV1;
+        worktree: { worktreeDigest: string };
+        proposedRecommendations: { recommendationId: string }[];
+        limits: { evidenceSampleLimit: number };
+        recording: { recordable: boolean; reasonCode: string | null; measuredBytes: number; limitBytes: number };
+      };
+      expect(data.recording).toMatchObject({ recordable: false, reasonCode: "refactor-run-exceeds-ledger-size-limit", limitBytes: 262_144 });
+      expect(data.recording.measuredBytes).toBeGreaterThan(data.recording.limitBytes);
+      expect(data.limits.evidenceSampleLimit).toBe(0);
+      expect(data.proposedRecommendations.length).toBeGreaterThan(0);
+      // A command that can only fail is not offered.
+      expect("recordCommand" in data).toBe(false);
+
+      const expectTooLarge = (refused: JsonEnvelope) => {
+        expect(refused.ok, JSON.stringify(refused)).toBe(false);
+        expect((refused as { error: unknown }).error).toMatchObject({
+          code: "AC_REFACTOR_RUN_TOO_LARGE",
+          reasonCode: "refactor-run-exceeds-ledger-size-limit",
+          retryable: false,
+          details: { limitBytes: 262_144 }
+        });
+        const details = (refused as unknown as { error: { details: { measuredBytes: number } } }).error.details;
+        expect(details.measuredBytes).toBeGreaterThan(262_144);
+      };
+      expectTooLarge(await daemon.refactorRecord(root, {
+        assessmentDigest: data.assessment.assessmentDigest,
+        expectedWorktreeDigest: data.worktree.worktreeDigest
+      }));
+      const candidate = data.proposedRecommendations[0]!.recommendationId;
+      expectTooLarge(await daemon.recommendations(root, { command: "defer", recommendationId: candidate, reason: "Later." }));
+      expectTooLarge(await daemon.recommendations(root, { command: "show", recommendationId: candidate }));
+      expect(store.architectureEventAppends).toHaveLength(0);
+    } finally {
+      await daemon.stop();
+    }
+  });
+});
+
+describe("recommendation decisions and listing", () => {
+  test("a stale --expected-worktree-digest on a decision is AC_REFACTOR_STALE, like refactor record", async () => {
+    const root = createFixtureRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const scan = scanData(await daemon.refactorScan(root));
+      const stale = await daemon.recommendations(root, {
+        command: "accept",
+        recommendationId: scan.proposedRecommendations[0]!.recommendationId,
+        reason: "Looks right.",
+        expectedWorktreeDigest: `sha256:${"1".repeat(64)}`
+      });
+      expect(stale.ok, JSON.stringify(stale)).toBe(false);
+      expect(errorOf(stale)).toMatchObject({ code: "AC_REFACTOR_STALE", message: "Worktree digest changed before recommendations accept" });
+      expect(stale.requestId).toBe("recommendations.accept");
+      expect(store.architectureEventAppends).toHaveLength(0);
+
+      const current = await daemon.recommendations(root, {
+        command: "accept",
+        recommendationId: scan.proposedRecommendations[0]!.recommendationId,
+        reason: "Looks right.",
+        expectedWorktreeDigest: scan.worktree.worktreeDigest
+      });
+      expect(current.ok, JSON.stringify(current)).toBe(true);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("list --status returns every latest record in that status, with no book budget", async () => {
+    const root = createFixtureRepo();
+    declareUnfootprintedModules(root, 30, "module.listed");
+    commitFixture(root, "more records than the book shows", SECOND_COMMITTER_DATE);
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const scan = scanData(await daemon.refactorScan(root));
+      const recorded = await daemon.refactorRecord(root, {
+        assessmentDigest: scan.assessment.assessmentDigest,
+        expectedWorktreeDigest: scan.worktree.worktreeDigest
+      });
+      expect(recorded.ok, JSON.stringify(recorded)).toBe(true);
+      const ids = scan.proposedRecommendations.map((candidate) => candidate.recommendationId);
+      expect(ids).toHaveLength(25);
+      const rejected = ids[0]!;
+      expect((await daemon.recommendations(root, { command: "reject", recommendationId: rejected, reason: "Intentional." })).ok).toBe(true);
+
+      const book = await daemon.book(root, { command: "recommendations" });
+      expect((book.data as { budget: { truncated: boolean } }).budget.truncated).toBe(true);
+
+      const open = await daemon.recommendations(root, { command: "list", status: "open" });
+      expect(open.ok, JSON.stringify(open)).toBe(true);
+      const openData = open.data as { schemaVersion: string; status: string; count: number; recommendations: { recommendationId: string; status: string }[] };
+      expect(openData).toMatchObject({ schemaVersion: "archcontext.runtime-recommendation-list/v1", status: "open", count: 24 });
+      expect(openData.recommendations.map((entry) => entry.recommendationId).sort()).toEqual(ids.filter((id) => id !== rejected).sort());
+      expect(new Set(openData.recommendations.map((entry) => entry.status))).toEqual(new Set(["open"]));
+
+      const decided = await daemon.recommendations(root, { command: "list", status: "rejected" });
+      expect(decided.data).toMatchObject({ count: 1, recommendations: [{ recommendationId: rejected, status: "rejected" }] });
+
+      for (const input of [{ command: "list" as const }, { command: "list" as const, status: "closed" as never }]) {
+        const invalid = await daemon.recommendations(root, input);
+        expect(invalid.ok).toBe(false);
+        expect(errorOf(invalid).code).toBe("AC_SCHEMA_INVALID");
+      }
+    } finally {
+      await daemon.stop();
+    }
+  });
+});

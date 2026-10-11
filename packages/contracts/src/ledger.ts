@@ -31,16 +31,18 @@ export type ArchitectureLedgerMode = "yaml" | "dual" | "dual-compare" | "ledger-
 export type ArchitectureActorKind = "developer" | "daemon" | "hook" | "cli" | "mcp" | "subagent" | "migration" | "system";
 export type ArchitectureActorSource = "cli" | "mcp" | "manual" | "daemon" | "system" | "subagent";
 export type RecommendationCategory = (typeof RECOMMENDATION_CATEGORIES)[number];
-export type RecommendationStatus =
-  | "open"
-  | "acknowledged"
-  | "accepted"
-  | "rejected"
-  | "deferred"
-  | "waived"
-  | "resolved"
-  | "superseded"
-  | "expired";
+export const RECOMMENDATION_STATUSES = [
+  "open",
+  "acknowledged",
+  "accepted",
+  "rejected",
+  "deferred",
+  "waived",
+  "resolved",
+  "superseded",
+  "expired"
+] as const;
+export type RecommendationStatus = (typeof RECOMMENDATION_STATUSES)[number];
 export type ArchitectureEventSource =
   | "prepare_task"
   | "checkpoint"

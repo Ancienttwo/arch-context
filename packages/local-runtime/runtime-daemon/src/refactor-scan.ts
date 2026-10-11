@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   REFACTOR_REQUEST_SCHEMA_VERSION,
   digestJson,
   refactorRequestInvariantIssues,
@@ -28,7 +29,7 @@ import {
   type ModuleStatisticsIndexAvailability
 } from "@archcontext/core/module-statistics";
 import { loadNativeModelFromArchContext, type NativeNode } from "@archcontext/core/projection-engine";
-import type { RecommendationSuppression } from "@archcontext/core/recommendation-engine";
+import type { RecommendationSuppression, RefactorCandidateBudget } from "@archcontext/core/recommendation-engine";
 import { assessRefactor } from "@archcontext/core/refactor-assessment";
 import {
   CODEGRAPH_IMPORT_NODE_QUERY_LIMIT,
@@ -38,7 +39,7 @@ import {
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadCommitterDate, readTrackedSourceFiles, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
-import { RefactorRunPersistenceError, planRefactorRun } from "./refactor-recording";
+import { planRefactorRunWithRecording, previousRecommendationsV3, type RefactorRunRecordingV1 } from "./refactor-recording";
 
 /** The CodeGraph CLI name the adapter resolves package-locally when PATH has no answer. */
 const CODEGRAPH_BINARY = "codegraph";
@@ -91,7 +92,18 @@ export interface RefactorScanResultV1 {
   evidenceItems: EvidenceItemV2[];
   evidenceBindings: EvidenceBindingV1[];
   suppressed: RecommendationSuppression[];
+  /** Whether `refactor record` can append this run in one ledger event, with the measured size. */
+  recording: RefactorRunRecordingV1;
+  /** The limits that shaped `proposedRecommendations`, so a cut is visible to the caller. */
+  limits: RefactorScanLimitsV1;
   trackedFileCount: number;
+}
+
+export interface RefactorScanLimitsV1 extends RefactorCandidateBudget {
+  /** The one sample limit every observation's evidence was cut to, shared by all observations. */
+  evidenceSampleLimit: number;
+  /** The contract ceiling `evidenceSampleLimit` starts from before any cut. */
+  maxEvidenceSampleLimit: number;
 }
 
 /**
@@ -164,27 +176,24 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
     throw new RefactorScanError("AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
   }
 
-  let plan: ReturnType<typeof planRefactorRun>;
+  // The read-only scan never fails on the ledger's event size: a run no evidence cut can fit is
+  // still measured and returned, with `recording.recordable: false` and the measured size.
+  let planned: ReturnType<typeof planRefactorRunWithRecording>;
   try {
-    plan = planRefactorRun({
+    planned = planRefactorRunWithRecording({
       repository: input.repository,
       worktree: input.worktree,
       snapshot,
       assessment: assessed.assessment,
       ...(assessed.proposal ? { proposal: assessed.proposal } : {}),
-      previousRecommendations: input.previousRecommendations.map((recommendation) => ({
-        recommendationId: recommendation.recommendationId,
-        fingerprint: recommendation.fingerprint,
-        status: recommendation.status,
-        updatedAt: recommendation.updatedAt
-      })),
+      previousRecommendations: previousRecommendationsV3(input.previousRecommendations),
       catalogDigest: input.catalogDigest,
       now: createdAt
     });
   } catch (error) {
-    if (error instanceof RefactorRunPersistenceError) throw new RefactorScanError(error.code, error.message, error.reasonCode);
     throw new RefactorScanError("AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
   }
+  const { plan, recording } = planned;
 
   return {
     requestId,
@@ -195,6 +204,12 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
     evidenceItems: plan.evidenceItems,
     evidenceBindings: plan.evidenceBindings,
     suppressed: plan.suppressed,
+    recording,
+    limits: {
+      evidenceSampleLimit: plan.evidenceSampleLimit,
+      maxEvidenceSampleLimit: REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
+      ...plan.candidateBudget
+    },
     trackedFileCount: trackedFiles.length
   };
 }
