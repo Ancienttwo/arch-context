@@ -38,6 +38,7 @@ import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   REPO_HARNESS_PROJECTION_PROFILE,
   contractFilesForNode,
+  entitySummaryTargetNodes,
   loadArchitectureFilesForLayout,
   primarySourceDirectory,
   resolveArchitectureDocumentationLayout,
@@ -350,7 +351,7 @@ export function renderArchitectureDocumentationProjection(input: {
   // Index/diagram/decision/relation/changelog targets render no per-node measurement, so they keep
   // recording the plan-wide `input.sourceDigest`.
   const targetDrafts = architectureDocumentationTargetDrafts(model, layout);
-  const declaresSourceByNodeId = new Map(model.nodes.map((node) => [node.id, (nativeNodeSource(node)?.include ?? []).length > 0]));
+  const stampedNodeIds = new Set(architectureProjectionStampedNodeIds(model, layout.profile));
   const footprintDigestByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
   const rendered = targetDrafts.map((draft) => {
     const existing = existingByPath.get(draft.path);
@@ -374,7 +375,7 @@ export function renderArchitectureDocumentationProjection(input: {
     let scale: ArchitectureCapabilityScaleV1 | undefined;
     if (nodeId !== undefined) {
       targetSourceDigest = digestJson(generatedBody);
-      if (declaresSourceByNodeId.get(nodeId) === true) {
+      if (stampedNodeIds.has(nodeId)) {
         // The stamp is the footprint this render read, so re-projecting is what re-verifies a
         // document and an unchanged footprint keeps the manifest byte-identical.
         sourceFootprintDigest = footprintDigestByNodeId.get(nodeId);
@@ -910,17 +911,37 @@ export function loadCapabilitySourceFootprintDigests(root: string, model: Native
 }
 
 /**
+ * The nodes the projection stamps with a source footprint under `profile`: each node that has an
+ * entity-summary target and declares `source.include`. The renderer writes a stamp for exactly
+ * these nodes, and the freshness check probes exactly these nodes.
+ */
+export function architectureProjectionStampedNodeIds(model: NativeModel, profile: ArchitectureProjectionProfile = "default"): string[] {
+  return entitySummaryTargetNodes(model.nodes, profile)
+    .filter((node) => (nativeNodeSource(node)?.include ?? []).length > 0)
+    .map((node) => node.id)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+/**
  * Decides whether the architecture documentation projection is still verified against the current
  * tree: a node whose current footprint digest differs from the digest its document is stamped with
  * was rendered from code that has since moved.
  *
- * Every node that declares `source.include` is probed, including nodes whose globs overlap: an
- * ambiguous owner must not silently drop the signal. A node without a stamp, or with a stamp that
- * is not a footprint digest (a manifest written before content stamps), fails closed — re-running
- * the projection once migrates it.
+ * Every node the active profile stamps (`architectureProjectionStampedNodeIds`) is probed, including
+ * nodes whose globs overlap: an ambiguous owner must not silently drop the signal. A probed node
+ * without a stamp, or with a stamp that is not a footprint digest (a manifest written before content
+ * stamps), fails closed — re-running the projection once migrates it.
+ *
+ * A node that declares `source.include` but has no document under the profile (a non-capability
+ * node under `repo-harness/v1`) has no stamp to compare, so this per-node check does not probe it.
+ * A change in its footprint still makes the projection stale: the declared source tree digest
+ * covers every declared footprint, and `evaluateArchitectureProjectionSnapshotFreshness` reports
+ * `projection-source-tree-digest-mismatch` for it.
  */
 export function evaluateArchitectureProjectionFreshness(input: {
   model: NativeModel;
+  /** The profile the projection was rendered with; it selects the stamped nodes. Defaults to `default`. */
+  profile?: ArchitectureProjectionProfile;
   /** Manifest readback; every raw stamp is validated here, never trusted. */
   manifest: ArchitectureProjectionManifestStampReadback;
   /** `loadCapabilitySourceFootprintDigests` for the same model, measured now. */
@@ -946,22 +967,21 @@ export function evaluateArchitectureProjectionFreshness(input: {
   const stampsByNodeId = new Map(input.manifest.nodes.map((entry) => [entry.nodeId, entry.sourceFootprintDigest]));
   const currentByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
   const staleNodes: ArchitectureProjectionFreshnessStaleNode[] = [];
-  for (const node of [...input.model.nodes].sort((left, right) => left.id.localeCompare(right.id))) {
-    if ((nativeNodeSource(node)?.include ?? []).length === 0) continue;
-    const currentDigest = currentByNodeId.get(node.id);
-    if (currentDigest === undefined) throw new Error(`architecture-projection-freshness-footprint-unmeasured: ${node.id}`);
-    const stamp = stampsByNodeId.get(node.id);
+  for (const nodeId of architectureProjectionStampedNodeIds(input.model, input.profile)) {
+    const currentDigest = currentByNodeId.get(nodeId);
+    if (currentDigest === undefined) throw new Error(`architecture-projection-freshness-footprint-unmeasured: ${nodeId}`);
+    const stamp = stampsByNodeId.get(nodeId);
     if (stamp === undefined || stamp === null) {
       reasonCodes.push("projection-source-stamp-missing");
-      details.push(`projection manifest records no sourceFootprintDigest for ${node.id}; re-run the documentation projection`);
+      details.push(`projection manifest records no sourceFootprintDigest for ${nodeId}; re-run the documentation projection`);
       continue;
     }
     if (typeof stamp !== "string" || !SOURCE_FOOTPRINT_DIGEST_PATTERN.test(stamp)) {
       reasonCodes.push("projection-source-stamp-invalid");
-      details.push(`projection manifest sourceFootprintDigest for ${node.id} is not a footprint digest: ${JSON.stringify(stamp)}`);
+      details.push(`projection manifest sourceFootprintDigest for ${nodeId} is not a footprint digest: ${JSON.stringify(stamp)}`);
       continue;
     }
-    if (stamp !== currentDigest) staleNodes.push({ nodeId: node.id, stampedDigest: stamp, currentDigest });
+    if (stamp !== currentDigest) staleNodes.push({ nodeId, stampedDigest: stamp, currentDigest });
   }
   if (staleNodes.length > 0) {
     reasonCodes.push("projection-source-changed-since-stamp");
@@ -979,6 +999,7 @@ export function evaluateArchitectureProjectionFreshness(input: {
 /** Dirty-worktree freshness authority layered over the per-node footprint stamps. */
 export function evaluateArchitectureProjectionSnapshotFreshness(input: {
   model: NativeModel;
+  profile?: ArchitectureProjectionProfile;
   manifest: ArchitectureProjectionManifestStampReadback;
   sourceFootprints: CapabilitySourceFootprintDigest[];
   currentSourceTreeDigest: string;

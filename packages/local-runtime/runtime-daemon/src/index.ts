@@ -1593,6 +1593,9 @@ function completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFr
   const sourceFiles = listProjectionSourceFiles(root);
   return evaluateArchitectureProjectionSnapshotFreshness({
     model,
+    // The committed manifest's profile decides which nodes carry a stamp, as it decides the layout
+    // `completeTaskProjectionDrift` renders. An unreadable manifest has no profile to read.
+    profile: manifest.status === "present" ? loadArchitectureDocumentationProfile(root) : undefined,
     manifest,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, model, sourceFiles),
     currentSourceTreeDigest: architectureDocumentationSourceTreeDigest(root, model, sourceFiles)

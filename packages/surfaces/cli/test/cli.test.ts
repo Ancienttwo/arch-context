@@ -317,6 +317,80 @@ test("CLI projection check reports per-node freshness read-only, from content st
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
 
+test("CLI projection check under repo-harness/v1 is fresh after apply when a member node declares a footprint (#290)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-member-freshness-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Member Freshness App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const capabilityId = "capability.runtime-harness.hook-adapters";
+  const componentId = "component.runtime-harness.hook-engine";
+  const commit = (message: string) => {
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", message);
+  };
+  const check = async (requestId: string) => {
+    const result = await cli("projection", ["run", "--request-json", JSON.stringify({
+      schemaVersion: "archcontext.projection-request/v1",
+      requestId,
+      profile: "repo-harness/v1",
+      mode: "check",
+      targets: ["architecture-docs"],
+      changedPaths: [],
+      expected: projectionProtocolExpectedSnapshot(root)
+    } satisfies ProjectionRequestV1)]);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const projection = result.data as unknown as ProjectionResultV2;
+    expect(projectionResultInvariantIssues(projection)).toEqual([]);
+    return projection.freshness;
+  };
+  try {
+    seedProjectionProtocolFixture(root);
+    // A member node with its own footprint. repo-harness/v1 writes no document for it, so the
+    // manifest has no stamp for it.
+    writeFileSync(join(root, `.archcontext/model/nodes/${componentId}.yaml`), stableYaml({
+      schemaVersion: "archcontext.node/v2",
+      id: componentId,
+      kind: "component",
+      name: "Hook Engine",
+      status: "active",
+      parent: capabilityId,
+      summary: "Runs the routed hooks.",
+      source: { include: ["src/engine/**"] }
+    }), "utf8");
+    mkdirSync(join(root, "src/engine"), { recursive: true });
+    writeFileSync(join(root, "src/engine/index.ts"), "export const engine = 1;\n", "utf8");
+    commit("declare a member footprint");
+    const applied = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    commit("project architecture documentation");
+    const stampedNodeIds = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).targets
+      .filter((target: any) => typeof target.sourceFootprintDigest === "string")
+      .map((target: any) => target.scope.id);
+    expect(stampedNodeIds).toEqual([capabilityId]);
+
+    expect(await check("projection_request.member_freshness_clean")).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
+
+    // The member's footprint is outside the capability's footprint: no node is named, and the
+    // declared source tree digest still reports the change.
+    writeFileSync(join(root, "src/engine/index.ts"), "export const engine = 2;\n", "utf8");
+    commit("change the member footprint");
+    expect(await check("projection_request.member_freshness_stale")).toEqual({
+      ok: false,
+      reasonCodes: ["projection-source-tree-digest-mismatch"],
+      staleNodes: []
+    });
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
 test("CLI projection check never starts a runtime, writes runtime state or needs a task session (#259)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-check-daemonless-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");

@@ -17,7 +17,7 @@ import { initializeArchContextModel, listModelFiles, planGeneratedProjection, Ya
 import { ChangeSetEngine, type ApplyOptions, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
 import { createNodeGithubIssueExecutor, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueExecutorPort, type GithubIssuePreflightDraft } from "../src/github-issue-executor";
-import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, type ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, runtimeDefaultClock } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
@@ -53,14 +53,16 @@ function projectionTestProvenance(root: string, model: ReturnType<typeof loadNat
   return prepareArchitectureDocumentationProjectionSnapshot(root, model).provenance;
 }
 
-function writeArchitectureDocsProjection(root: string): void {
-  const loaded = loadArchitectureDocumentationInputs(root);
+function writeArchitectureDocsProjection(root: string, profile: ArchitectureProjectionProfile = "default"): void {
+  const loaded = loadArchitectureDocumentationInputs(root, profile);
   const sourceDigest = architectureDocumentationSourceDigest({
     model: loaded.model,
+    profile,
     decisions: loaded.decisions
   });
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
+    profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root)),
@@ -656,6 +658,70 @@ describe("local runtime foundation", () => {
         task: "finish after refreshing the projection"
       });
       expect((reprojected.data as any).findings.some((entry: any) => entry.id === "stale-context")).toBe(false);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("complete_task grades a repo-harness/v1 projection by the nodes that profile stamps (#290)", async () => {
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:40:00.000Z" });
+      await daemon.init(root, "Profile Freshness App");
+      declareOptionalCodeFacts(root);
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/app/**"\nextensions:\n  contractFiles:\n    agents: "AGENTS.md"\n    claude: "CLAUDE.md"\n`,
+        "utf8"
+      );
+      // A member with its own footprint: repo-harness/v1 writes no document, and so no stamp, for it.
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/component.architecture-context.engine.yaml"),
+        [
+          "schemaVersion: \"archcontext.node/v2\"",
+          "id: \"component.architecture-context.engine\"",
+          "kind: \"component\"",
+          "name: \"Engine\"",
+          "status: \"active\"",
+          "parent: \"capability.architecture.context\"",
+          "source:",
+          "  include:",
+          "    - \"src/engine/**\"",
+          ""
+        ].join("\n"),
+        "utf8"
+      );
+      mkdirSync(join(root, "src/app"), { recursive: true });
+      mkdirSync(join(root, "src/engine"), { recursive: true });
+      writeFileSync(join(root, "src/app/index.ts"), "export const app = 1;\n", "utf8");
+      writeFileSync(join(root, "src/engine/index.ts"), "export const engine = 1;\n", "utf8");
+      gitCommitAll(root, "declare capability and member source");
+      writeArchitectureDocsProjection(root, "repo-harness/v1");
+      expect(projectionStampDigest(root, "capability.architecture.context")).toBe(currentFootprintDigest(root, "capability.architecture.context"));
+      expect(projectionStampDigest(root, "component.architecture-context.engine")).toBeUndefined();
+
+      const fresh = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_profile_freshness",
+        task: "finish with a repo-harness projection verified against the current source"
+      });
+      expect((fresh.data as any).extensions.projectionFreshnessGate).toBeUndefined();
+      expect((fresh.data as any).findings.some((entry: any) => entry.id === "stale-context")).toBe(false);
+
+      // The member's footprint is outside the capability's footprint. No node is named, and the
+      // declared source tree digest still blocks the task.
+      writeFileSync(join(root, "src/engine/index.ts"), "export const engine = 2;\n", "utf8");
+      gitCommitAll(root, "change the member source");
+      const stale = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_profile_freshness",
+        task: "finish after changing the member source"
+      });
+      expect((stale.data as any).result).toBe("fail_action_required");
+      const gate = (stale.data as any).extensions.projectionFreshnessGate;
+      expect(gate.ok).toBe(false);
+      expect(gate.reasonCodes).toEqual(["projection-source-tree-digest-mismatch"]);
+      expect(gate.staleNodes).toEqual([]);
     } finally {
       await daemon?.stop();
       removeTempRepo(root);
