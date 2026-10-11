@@ -93,6 +93,28 @@ per-capability agent-context file looks like.
      marker, human-authored regions are preserved, ambiguous ownership is rejected —
      rather than introducing a second ownership model.
 
+# Amendment (2026-10-11)
+
+Issue #296 adds a parent-chain step to the tie-break in Decision 2. The exclude step and the
+ambiguity rule do not change.
+
+- Apply `source.exclude` first, as before.
+- When every remaining candidate lies on one `parent` chain, the deepest candidate owns the
+  path. Its glob specificity has no effect. `refactor scan` uses the same rule, through the same
+  function (`deepestOnOneParentChain` in `packages/core/projection-engine/src/index.ts`).
+- When the candidates lie on different chains, a candidate that is an ancestor of another
+  candidate yields to it. The longest literal prefix then wins among the rest. An
+  equal-length tie is still rejected as ambiguous.
+
+Before this change, a component glob with the same literal prefix as its parent capability
+made `archctx resolve` return ambiguous, while `refactor scan` gave the file to the component.
+
+`archctx resolve --paths-from <file>` and `--paths-from -` (stdin) resolve many paths with one
+model load. They return one result per path, in input order. They exit `2` when any path is
+ambiguous, `0` otherwise, and `1` on an error. A path that no node owns is a normal batch
+result. Each result, single or batch, also carries `owningCapabilityId`: the nearest
+`kind: capability` node on the owner's parent chain, or `null`.
+
 # Consequences
 
 - Agentic runtimes, including this product's own CLI/MCP surfaces and any future

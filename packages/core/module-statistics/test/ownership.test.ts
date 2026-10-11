@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { NativeModel } from "@archcontext/core/projection-engine";
+import { resolveArchitectureOwnerForPath, type NativeModel } from "@archcontext/core/projection-engine";
 import { buildModuleStatisticsSnapshot, resolveOwnership } from "../src/index";
 import { MODEL, TRACKED_FILES, makeInput } from "./factories";
 
@@ -125,5 +125,29 @@ describe("tracked file ownership under the PRD ancestor rule", () => {
     };
     const ownership = resolveOwnership(cyclic.nodes, ["src/deep/file.ts"]);
     expect(ownership.byPath.get("src/deep/file.ts")!.owners.length).toBeGreaterThan(0);
+  });
+});
+
+describe("ownership index and archctx resolve agree on one parent chain (issue #296)", () => {
+  test("a capability and its component with the same literal prefix resolve to the component in both", () => {
+    const nodes: NativeModel["nodes"] = [
+      { id: "capability.app", kind: "capability", name: "App", source: { include: ["packages/app/**"] } },
+      { id: "component.app.api", kind: "component", name: "API", parent: "capability.app", source: { include: ["packages/app/**/api/**"] } }
+    ];
+    const path = "packages/app/src/api/handler.ts";
+    expect(resolveOwnership(nodes, [path]).byPath.get(path)).toEqual({ owners: ["component.app.api"], ambiguous: false });
+    const resolved = resolveArchitectureOwnerForPath(nodes, path);
+    expect(resolved.status === "matched" && resolved.node.id).toBe("component.app.api");
+  });
+
+  test("every uncontested owner in the fixture model is the node archctx resolve matches", () => {
+    const ownership = resolveOwnership(MODEL.nodes, PATHS);
+    for (const path of PATHS) {
+      const resolution = ownership.byPath.get(path)!;
+      if (resolution.ambiguous) continue;
+      const resolved = resolveArchitectureOwnerForPath(MODEL.nodes, path);
+      if (resolution.owners.length === 0) expect(resolved.status).toBe("no-match");
+      else expect(resolved.status === "matched" && resolved.node.id).toBe(resolution.owners[0]);
+    }
   });
 });
