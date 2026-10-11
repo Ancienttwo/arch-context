@@ -23,6 +23,7 @@ import { ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION } from "@archcontext/co
 import type { ModuleStatisticsTrackedFileV1 } from "@archcontext/core/module-statistics";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { evaluateResolution, refactorOutcomeVocabularyIssues } from "@archcontext/core/refactor-assessment";
+import { CODEGRAPH_IMPORT_NODE_READ_LIMIT } from "@archcontext/local-runtime/codegraph-adapter";
 import { evidenceLifecycleOperations } from "./refactor-recording";
 
 export const REFACTOR_RESOLUTION_EVENT_TYPE = "architecture.refactor.resolution" as const;
@@ -274,6 +275,19 @@ export function baselineSnapshotForRecommendation(
     return { snapshotDigest: snapshot.snapshotDigest, snapshot };
   }
   return undefined;
+}
+
+/**
+ * The import-node read limit the baseline was measured with, so `refactor verify` re-measures the
+ * import population the BEFORE state read. `undefined` means the default read: no baseline body, a
+ * baseline at the default limit, or a baseline recorded before the limit was a request field. That
+ * last kind has no `codeFacts.importNodeCount`, and its `edgeLimit` is the old fixed read, not a
+ * choice.
+ */
+export function baselineImportNodeLimit(snapshot: ModuleStatisticsSnapshotV1 | undefined): number | undefined {
+  if (snapshot === undefined || snapshot.codeFacts.importNodeCount === undefined) return undefined;
+  const { edgeLimit } = snapshot.codeFacts;
+  return edgeLimit === null || edgeLimit === CODEGRAPH_IMPORT_NODE_READ_LIMIT ? undefined : edgeLimit;
 }
 
 /**

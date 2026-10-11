@@ -42,6 +42,7 @@ export const REFACTOR_VERIFICATION_REQUEST_KEYS = [
   "executionEvidenceRefs",
   "expectedHeadSha",
   "expectedWorktreeDigest",
+  "importNodeLimit",
   "recommendationId",
   "schemaVersion"
 ] as const;
@@ -222,6 +223,11 @@ export interface RefactorVerificationRequestV1 {
   expectedHeadSha?: string;
   expectedWorktreeDigest?: string;
   executionEvidenceRefs?: RefactorExecutionEvidenceRefV1[];
+  /**
+   * The most CodeGraph import nodes the re-measure reads. Omitted means the limit the recorded
+   * baseline snapshot was measured with, so BEFORE and AFTER read the same import population.
+   */
+  importNodeLimit?: number;
 }
 
 export interface ModuleStatisticsV1 {
@@ -648,6 +654,9 @@ export function refactorVerificationRequestInvariantIssues(
   }
   if (request.expectedWorktreeDigest !== undefined) {
     issues.push(...digestIssues(`${prefix}.expectedWorktreeDigest`, request.expectedWorktreeDigest));
+  }
+  if (request.importNodeLimit !== undefined && !(Number.isInteger(request.importNodeLimit) && request.importNodeLimit >= 1)) {
+    issues.push(`${prefix}.importNodeLimit must be a positive integer`);
   }
   if (request.executionEvidenceRefs !== undefined) {
     if (!Array.isArray(request.executionEvidenceRefs)) {
