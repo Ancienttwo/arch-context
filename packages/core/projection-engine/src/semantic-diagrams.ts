@@ -458,10 +458,10 @@ function mermaidStableId(prefix: string, value: string): string {
 }
 
 /**
- * Mermaid entity codes keep `#`, `;` and `,` as the model wrote them in the rendered diagram (#302).
- * One pass replaces each character once, so the `#` of an emitted code is never escaped again, and
- * a literal `#44;` in a label renders as written.
+ * Mermaid entity codes keep `"`, `#`, `;` and `,` as the model wrote them in the rendered diagram
+ * (#302). One pass replaces each character once, so the `#` of an emitted code is never escaped
+ * again, and a literal `#44;` in a label renders as written.
  */
 function escapeMermaidLabel(value: string): string {
-  return value.replace(/["#;,]/g, (character) => ({ '"': "'", "#": "#35;", ";": "#59;", ",": "#44;" })[character]!);
+  return value.replace(/["#;,]/g, (character) => ({ '"': "#quot;", "#": "#35;", ";": "#59;", ",": "#44;" })[character]!);
 }
