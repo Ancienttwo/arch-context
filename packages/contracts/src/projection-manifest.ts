@@ -104,7 +104,7 @@ export interface ArchitectureCapabilityScaleV1 {
   lineCountBucket: ArchitectureScaleBucketV1;
 }
 
-export interface ArchitectureDocsProjectionManifestTargetV1 {
+export interface ArchitectureDocsProjectionManifestTargetV2 {
   targetId: string;
   type: ProjectionTargetType;
   scope: { kind: ProjectionTargetScopeKind; id?: string; entityKind?: string };
@@ -123,7 +123,7 @@ export interface ArchitectureDocsProjectionManifestTargetV1 {
   scale?: ArchitectureCapabilityScaleV1;
 }
 
-export interface ArchitectureDocsProjectionManifestV1 {
+export interface ArchitectureDocsProjectionManifestV2 {
   schemaVersion: typeof ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION;
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   profile: ArchitectureDocsProjectionProfile;
@@ -134,7 +134,7 @@ export interface ArchitectureDocsProjectionManifestV1 {
   receiptDigest: string;
   targetCount: number;
   fileCount: number;
-  targets: ArchitectureDocsProjectionManifestTargetV1[];
+  targets: ArchitectureDocsProjectionManifestTargetV2[];
 }
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;

@@ -43,17 +43,7 @@
         "required": true,
         "outcomeId": "outcome.58946c9d4f0f41c1"
       }
-    ],
-    "metrics": {},
-    "signalIds": [
-      "signal.undeclared-footprint.bc66b760c4329111"
-    ],
-    "evidence": {
-      "kind": "undeclared-footprint",
-      "paths": [],
-      "totalCount": 0,
-      "truncated": false
-    }
+    ]
   },
   "extensions": {
     "assessmentDigest": "sha256:308510d9a08558453b9644d33fe24a73f4579832c448602b24c5053bdc4aa5ca",

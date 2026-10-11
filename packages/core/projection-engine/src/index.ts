@@ -18,7 +18,7 @@ import {
   type AcceptedArchitectureChangeReferenceV1,
   type ArchitectureCapabilityScaleV1,
   type ArchitectureDigestSetV1,
-  type ArchitectureDocsProjectionManifestV1,
+  type ArchitectureDocsProjectionManifestV2,
   type ArchitectureDocumentationProjectionProvenanceV3,
   type ArchitectureFlowV1,
   type ArchitectureNodeSourceV2,
@@ -450,7 +450,7 @@ export function renderArchitectureDocumentationProjection(input: {
       projectionReceiptDigest: receiptDigest
     })
     : [];
-  const manifestValue: ArchitectureDocsProjectionManifestV1 = {
+  const manifestValue: ArchitectureDocsProjectionManifestV2 = {
     schemaVersion: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
     rendererVersion,
     profile: layout.profile,

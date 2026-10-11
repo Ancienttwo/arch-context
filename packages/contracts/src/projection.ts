@@ -80,7 +80,8 @@ export const ARCHCTX_FEATURES = [
   "recommendation-v3",
   "refactor-assessment-v1",
   "refactor-observation-evidence-v1",
-  "refactor-resolution-v1"
+  "refactor-resolution-v1",
+  "refactor-scan-limits-v1"
 ] as const;
 
 /**
@@ -347,7 +348,11 @@ export interface ProjectionResultV2 {
   humanActions: ProjectionHumanActionV1[];
   refreshSignals: ArchitectureRefreshSignalV1[];
   applyReceipt?: ProjectionApplyIdentityV1;
-  /** Omitted, never `[]`, when no earlier attempt of this requestId committed. */
+  /**
+   * Omitted, never `[]`, when no earlier attempt of this requestId committed. Never present on
+   * `check` results: a check runs in-process without the daemon journal, so read committed applies
+   * through `apply` or `readback`.
+   */
   priorCommittedApplies?: ProjectionPriorCommittedApplyV1[];
   /**
    * Present on `check` results only: which nodes changed since their documents were verified.

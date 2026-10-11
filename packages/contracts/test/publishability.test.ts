@@ -58,6 +58,7 @@ describe("@archcontext/contracts source package", () => {
         expect(files).toContain(`schemas/runtime/${name}.schema.json`);
         expect(files).toContain(`fixtures/valid/${name}.json`);
       }
+      expect(files).toContain("schemas/runtime/structural-observation-payload.schema.json");
       expect(files.some((file) => file.startsWith("src/"))).toBe(true);
       expect(files.some((file) => file.startsWith("fixtures/valid/"))).toBe(true);
       expect(files.some((file) => file.startsWith("test/"))).toBe(false);
