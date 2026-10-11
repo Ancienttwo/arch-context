@@ -18,6 +18,8 @@
 5. Run `archctx docs drift` again.
 6. Run `archctx complete` only after projection drift is clean.
 
+The `docs` commands use the profile of the committed manifest when you do not give `--profile`. A repository without a manifest uses `default`. Give `--profile` only to select a different layout, and give the same value to `plan` and `apply`. `apply` renders the projection again and does not read the profile of the planned ChangeSet.
+
 `complete_task` validates active documentation projections when `docs/architecture/.projection-manifest.json` exists. A successful completion must have projection drift count zero.
 
 ### Missing code facts
