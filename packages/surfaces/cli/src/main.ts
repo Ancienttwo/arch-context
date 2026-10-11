@@ -57,6 +57,9 @@ class RuntimeVersionUnsupportedError extends Error {
 
 class RefactorFlagError extends Error {}
 
+/** A CLI argument error. The process entry reports it as AC_SCHEMA_INVALID, not as a runtime outage. */
+class CliUsageError extends Error {}
+
 const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
 
 /**
@@ -66,14 +69,8 @@ const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
  * accepted CLI-wide as a JSON-output hint), so they're allowed here too even though neither
  * subcommand's own input builder reads them.
  *
- * Declared here (not down next to `runAuditCommand`, where they're used) and, critically, before
- * the `if (import.meta.main)` entry block below: that block's top-level `await runCli(...)` pauses
- * this module's own evaluation partway through, so any top-level `const` textually *after* it is
- * still uninitialized (TDZ) for however long that first `await` takes to settle — long enough for
- * a real `archctx audit run`/`audit approve` invocation to reach `findUnknownAuditFlag` and throw
- * "Cannot access '...' before initialization", surfaced to the caller as AC_RUNTIME_UNAVAILABLE.
- * `AUDIT_RUN_STATUSES` right above already follows this rule; keep any new audit-command constant
- * here too, not near its point of use further down the file.
+ * The `if (import.meta.main)` entry block is the last statement of this file (#297), so these and
+ * every other top-level constant are set before a command runs. See the comment on that block.
  */
 const AUDIT_GLOBAL_VALUE_FLAGS = ["--format"] as const;
 const AUDIT_GLOBAL_BOOLEAN_FLAGS = ["--json"] as const;
@@ -98,38 +95,6 @@ function refactorFlagValueAt(args: string[], index: number, flag: string): strin
   const value = args[index + 1];
   if (value === undefined || value.startsWith("--")) throw new RefactorFlagError(`refactor ${flag} requires a value`);
   return value;
-}
-
-if (import.meta.main) {
-  if (command === "capabilities") {
-    const result = await runCli(command, args, process.cwd());
-    if ("ok" in result) {
-      process.stdout.write(`${renderResult(result, "json")}\n`);
-      if (result.ok === false) process.exitCode = 1;
-    } else {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    }
-  } else if (command === "mcp" && args.length === 0) {
-    await runStdioMcpLoop(
-      stdinLines(),
-      (line) => process.stdout.write(`${line}\n`),
-      (line) => process.stderr.write(`${line}\n`),
-      { runtimeResolver: (root) => createOrStartRuntimeRpcClient(root) }
-    );
-  } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground")) {
-    await runForegroundDaemon(process.cwd(), args).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`${message}\n`);
-      process.exitCode = isDaemonOwnedElsewhereError(message) ? DAEMON_OWNED_ELSEWHERE_EXIT_CODE : 1;
-    });
-  } else {
-    const result = await runCli(command, args, process.cwd()).catch((error) =>
-      errorEnvelope("cli", "AC_RUNTIME_UNAVAILABLE", error instanceof Error ? error.message : String(error))
-    );
-    process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
-    if (result.ok === false) process.exitCode = 1;
-    if (command === "resolve") process.exitCode = resolveCommandExitCode(result);
-  }
 }
 
 async function* stdinLines(): AsyncIterable<string> {
@@ -2283,7 +2248,7 @@ function readPullRequestNumber(args: string[]): number | undefined {
   const raw = readFlag(args, "--pr") ?? readFlag(args, "--pull-request");
   if (!raw) return undefined;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1) throw new Error("--pr must be a positive integer");
+  if (!Number.isInteger(value) || value < 1) throw new CliUsageError("--pr must be a positive integer");
   return value;
 }
 
@@ -3547,9 +3512,9 @@ function runDepsCommand(args: string[], cwd: string) {
 }
 
 const CLI_PLAN_HELP = {
-  command: "archctx plan --id <changeset.id> (--op <create_entity|update_entity_fields|delete_entity> --path <file> [--expected-hash sha256:<64-hex>] [--body <yaml> | --body - | --body-file <path>] | --operations-file <operations.json>)",
-  operations: "--operations-file takes a repository-relative path to a JSON array of operations in the archcontext_plan_update MCP shape and plans them as one ChangeSet; it cannot be combined with --op, --path, --expected-hash, --body or --body-file.",
-  body: "--body is the complete new YAML document, not a field patch. Give exactly one of --body <yaml>, --body - (stdin) or --body-file <path>. --body-file and --operations-file read only repository-relative files inside the repository (no absolute or .. paths, no symlinks); content from outside the repository must come through --body - (stdin). delete_entity accepts no body.",
+  command: "archctx plan --id <changeset.id> (--op <create_entity|update_entity_fields|delete_entity> --path <file> [--expected-hash sha256:<64-hex>] [--body <yaml> | --body - | --body-file <path>] | --operations-file <operations.json | ->)",
+  operations: "--operations-file takes a repository-relative path to a JSON array of operations in the archcontext_plan_update MCP shape, or - to read that array from stdin, and plans them as one ChangeSet; it cannot be combined with --op, --path, --expected-hash, --body or --body-file.",
+  body: "--body is the complete new YAML document, not a field patch. Give exactly one of --body <yaml>, --body - (stdin) or --body-file <path>. --body-file and --operations-file read only repository-relative files inside the repository (no absolute or .. paths, no symlinks); content from outside the repository must come through stdin (--body - or --operations-file -). delete_entity accepts no body.",
   expectedHash: "digestJson({ body }) of the file's current UTF-8 contents, not sha256sum of the file. Read it with `archctx hash --path <file>`; use `missing` (the create default) for a new file.",
   drafts: "A draft lives in daemon memory. Planning the same --id again replaces it, and a daemon restart between plan and apply drops it: apply then fails with `Unknown ChangeSet`; plan again.",
   ownershipDelta: "When the plan writes a node file, data.preview.ownershipDelta compares file ownership before and after the planned model over the files the HEAD tree carries, with the parent-chain rule refactor scan uses. becameOwned, becameContested, ownerChanged and becameUnowned each give count, up to 50 files with before and after owners, and omittedCount. status unavailable gives the reason, for example a planned body that does not parse. Read-only.",
@@ -3630,7 +3595,9 @@ async function readCliPlanOperations(args: string[], cwd: string, deps: CliRunti
     if (conflicts.length > 0) return `plan --operations-file cannot be combined with ${conflicts.join(", ")}`;
     const file = readFlag(args, "--operations-file");
     if (!file) return "plan --operations-file requires a path";
-    const read = readRepositoryInputFile(cwd, "--operations-file", file);
+    const read = file === "-"
+      ? { content: await (deps.readStdin ? deps.readStdin() : readFileSync(0, "utf8")) }
+      : readRepositoryInputFile(cwd, "--operations-file", file);
     if ("problem" in read) return read.problem;
     let parsed: Json;
     try {
@@ -3651,7 +3618,6 @@ async function readCliPlanOperations(args: string[], cwd: string, deps: CliRunti
  * entity operation. Update and delete name the exact current file hash; create defaults to `missing`.
  */
 async function readCliEntityOperation(args: string[], cwd: string, deps: CliRuntimeDeps): Promise<ChangeOperation | string> {
-  // Local, not module-level: `import.meta.main` dispatch runs before later module constants initialize.
   const CLI_ENTITY_OPERATIONS = ["create_entity", "update_entity_fields", "delete_entity"] as const;
   const requested = readFlag(args, "--op") ?? "create_entity";
   const op = CLI_ENTITY_OPERATIONS.find((candidate) => candidate === requested);
@@ -3697,7 +3663,7 @@ function readFlag(args: string[], flag: string): string | undefined {
 
 function requireFlag(args: string[], flag: string): string {
   const value = readFlag(args, flag);
-  if (!value) throw new Error(`${flag} is required`);
+  if (!value) throw new CliUsageError(`${flag} is required`);
   return value;
 }
 
@@ -3727,10 +3693,10 @@ function explorerProjectionQueryV2FromCli(args: string[]): ExplorerProjectionQue
   const expectedObservedFactsDigest = readFlag(args, "--expected-observed-facts-digest");
   const expectedRequired = [expectedHeadSha, expectedWorktreeDigest, expectedGraphDigest];
   if (expectedRequired.some(Boolean) && !expectedRequired.every(Boolean)) {
-    throw new Error("--expected-head-sha, --expected-worktree-digest, and --expected-graph-digest must be provided together");
+    throw new CliUsageError("--expected-head-sha, --expected-worktree-digest, and --expected-graph-digest must be provided together");
   }
   const viewId = readFlag(args, "--view") ?? "system-map";
-  if (!(EXPLORER_VIEW_IDS as readonly string[]).includes(viewId)) throw new Error(`unsupported Explorer view: ${viewId}`);
+  if (!(EXPLORER_VIEW_IDS as readonly string[]).includes(viewId)) throw new CliUsageError(`unsupported Explorer view: ${viewId}`);
   return {
     schemaVersion: "archcontext.explorer-projection-query/v2",
     viewId: viewId as ExplorerProjectionQueryV2["viewId"],
@@ -3752,4 +3718,49 @@ function explorerProjectionQueryV2FromCli(args: string[]): ExplorerProjectionQue
       maxRelations: Number(readFlag(args, "--max-relations") ?? 160)
     }
   };
+}
+
+/**
+ * A process-path failure as an envelope. A CLI argument error is the caller's to fix, so it is not
+ * reported as a retryable runtime outage; every other throw still reads as one.
+ */
+function cliFailureEnvelope(error: unknown): JsonEnvelope {
+  if (error instanceof CliUsageError) return errorEnvelope("cli", "AC_SCHEMA_INVALID", error.message);
+  return errorEnvelope("cli", "AC_RUNTIME_UNAVAILABLE", error instanceof Error ? error.message : String(error));
+}
+
+/*
+ * Process entry. Keep this block the last statement of the module (#297). Its top-level
+ * `await runCli(...)` pauses module evaluation, so a top-level `const` below it is still
+ * uninitialized while the command runs: TDZ under `bun main.ts`, and `undefined` in the bundled
+ * `bin/archctx.mjs`, where `bun build` lowers `const` to `var`.
+ */
+if (import.meta.main) {
+  if (command === "capabilities") {
+    const result = await runCli(command, args, process.cwd());
+    if ("ok" in result) {
+      process.stdout.write(`${renderResult(result, "json")}\n`);
+      if (result.ok === false) process.exitCode = 1;
+    } else {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    }
+  } else if (command === "mcp" && args.length === 0) {
+    await runStdioMcpLoop(
+      stdinLines(),
+      (line) => process.stdout.write(`${line}\n`),
+      (line) => process.stderr.write(`${line}\n`),
+      { runtimeResolver: (root) => createOrStartRuntimeRpcClient(root) }
+    );
+  } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground")) {
+    await runForegroundDaemon(process.cwd(), args).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`${message}\n`);
+      process.exitCode = isDaemonOwnedElsewhereError(message) ? DAEMON_OWNED_ELSEWHERE_EXIT_CODE : 1;
+    });
+  } else {
+    const result = await runCli(command, args, process.cwd()).catch(cliFailureEnvelope);
+    process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
+    if (result.ok === false) process.exitCode = 1;
+    if (command === "resolve") process.exitCode = resolveCommandExitCode(result);
+  }
 }
