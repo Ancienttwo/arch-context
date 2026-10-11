@@ -560,7 +560,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor scan --import-node-limit 100000 --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor scan --import-node-limit 100000 --json", "archctx refactor verify --request-json '{...}' --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
         }
       };
     }
@@ -967,7 +967,9 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
     if (!recommendationId || recommendationId.startsWith("--")) {
       return errorEnvelope("recommendations.show", "AC_SCHEMA_INVALID", "recommendations show requires --id");
     }
-    return daemon.recommendations(cwd, { command: "show", recommendationId });
+    const importNodeLimit = recommendationsImportNodeLimit(args);
+    if (importNodeLimit === null) return recommendationsImportNodeLimitError("show");
+    return daemon.recommendations(cwd, { command: "show", recommendationId, ...(importNodeLimit === undefined ? {} : { importNodeLimit }) });
   }
   if (subcommand === "list") {
     // The daemon owns the status vocabulary and rejects anything outside it.
@@ -983,6 +985,8 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
   }
   const reason = readFlag(args, "--reason");
   if (!reason) return errorEnvelope(`recommendations.${subcommand}`, "AC_SCHEMA_INVALID", `recommendations ${subcommand} requires --reason`);
+  const importNodeLimit = recommendationsImportNodeLimit(args);
+  if (importNodeLimit === null) return recommendationsImportNodeLimitError(subcommand);
   const input: RuntimeRecommendationInput = {
     command: subcommand as RuntimeRecommendationInput["command"],
     recommendationId,
@@ -992,10 +996,34 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
     ...(readFlag(args, "--source") === undefined ? {} : { source: readFlag(args, "--source")! as any }),
     ...(readFlag(args, "--expected-worktree-digest") === undefined ? {} : { expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest")! }),
     ...(readFlag(args, "--evidence-digest") === undefined ? {} : { evidenceDigest: readFlag(args, "--evidence-digest")! }),
+    ...(importNodeLimit === undefined ? {} : { importNodeLimit }),
     ...(readFlag(args, "--agent-job-id") === undefined ? {} : { agentJobId: readFlag(args, "--agent-job-id")! }),
     ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! })
   };
   return daemon.recommendations(cwd, input);
+}
+
+/**
+ * `--import-node-limit` on `recommendations show` and the decisions: the limit of the scan that
+ * found the candidate. `null` is a flag without a valid value.
+ */
+function recommendationsImportNodeLimit(args: string[]): number | undefined | null {
+  const index = args.indexOf("--import-node-limit");
+  if (index === -1) return undefined;
+  const raw = args[index + 1];
+  return raw === undefined ? null : importNodeLimitValue(raw) ?? null;
+}
+
+function recommendationsImportNodeLimitError(subcommand: string) {
+  return errorEnvelope(`recommendations.${subcommand}`, "AC_SCHEMA_INVALID", `recommendations ${subcommand} --import-node-limit must be a positive integer`);
+}
+
+/**
+ * A positive integer, digits only: `Number("1e3")` or `Number(" 7 ")` would accept a value the
+ * caller did not type.
+ */
+function importNodeLimitValue(raw: string): number | undefined {
+  return /^[0-9]+$/.test(raw) && Number(raw) >= 1 ? Number(raw) : undefined;
 }
 
 /**
@@ -1033,11 +1061,11 @@ async function runRefactorCommand(args: string[], cwd: string, runtime: () => Pr
         return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor scan --request-json must be a RefactorRequestV1 object");
       }
       if (limitRaw !== undefined) {
-        // Digits only: `Number("1e3")` or `Number(" 7 ")` would accept a value the caller did not type.
-        if (!/^[0-9]+$/.test(limitRaw)) {
+        const importNodeLimit = importNodeLimitValue(limitRaw);
+        if (importNodeLimit === undefined) {
           return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor scan --import-node-limit must be a positive integer");
         }
-        request = { ...request, importNodeLimit: Number(limitRaw) };
+        request = { ...request, importNodeLimit };
       }
       const issues = refactorRequestInvariantIssues(request as RefactorRequestV1);
       if (issues.length > 0) return errorEnvelope(surface, "AC_SCHEMA_INVALID", issues.join("; "));
@@ -1058,6 +1086,14 @@ async function runRefactorCommand(args: string[], cwd: string, runtime: () => Pr
       }
       if (typeof request !== "object" || request === null || Array.isArray(request)) {
         return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor verify --request-json must be a RefactorVerificationRequestV1 object");
+      }
+      const limitRaw = refactorFlagValue(args, "--import-node-limit");
+      if (limitRaw !== undefined) {
+        const importNodeLimit = importNodeLimitValue(limitRaw);
+        if (importNodeLimit === undefined) {
+          return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor verify --import-node-limit must be a positive integer");
+        }
+        request = { ...request, importNodeLimit };
       }
       const issues = refactorVerificationRequestInvariantIssues(request as RefactorVerificationRequestV1);
       if (issues.length > 0) return errorEnvelope(surface, "AC_SCHEMA_INVALID", issues.join("; "));

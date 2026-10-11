@@ -3087,6 +3087,58 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI --import-node-limit reaches recommendations show, the decisions and refactor verify", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-import-node-limit-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const recommendations: any[] = [];
+      const verifications: any[] = [];
+      const runtimeClient = {
+        recommendations(_root: string, input: any) {
+          recommendations.push(input);
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "recommendations", data: {} };
+        },
+        refactorVerify(_root: string, input: any) {
+          verifications.push(input);
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "refactor.verify", data: {} };
+        }
+      };
+      const run = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: runtimeClient as any });
+
+      expect((await run("recommendations", ["show", "--id", "recommendation.x", "--import-node-limit", "100000", "--json"])).ok).toBe(true);
+      expect(recommendations[0]).toEqual({ command: "show", recommendationId: "recommendation.x", importNodeLimit: 100000 });
+      expect((await run("recommendations", ["defer", "--id", "recommendation.x", "--reason", "later", "--import-node-limit", "7"])).ok).toBe(true);
+      expect(recommendations[1]).toMatchObject({ command: "defer", recommendationId: "recommendation.x", reason: "later", importNodeLimit: 7 });
+      // No flag sends no limit, so the daemon reads at its default.
+      await run("recommendations", ["accept", "--id", "recommendation.x", "--reason", "now"]);
+      expect(recommendations[2]).not.toHaveProperty("importNodeLimit");
+
+      const request = { schemaVersion: "archcontext.refactor-verification-request/v1", recommendationId: "recommendation.x" };
+      expect((await run("refactor", ["verify", "--request-json", JSON.stringify(request), "--import-node-limit", "100000"])).ok).toBe(true);
+      expect(verifications[0]).toEqual({ ...request, importNodeLimit: 100000 });
+      expect((await run("refactor", ["verify", "--request-json", JSON.stringify({ ...request, importNodeLimit: 9 })])).ok).toBe(true);
+      expect(verifications[1]).toEqual({ ...request, importNodeLimit: 9 });
+
+      for (const bad of ["0", "-5", "1e3", "abc", "--json"]) {
+        for (const args of [
+          ["recommendations", ["show", "--id", "recommendation.x", "--import-node-limit", bad]],
+          ["recommendations", ["defer", "--id", "recommendation.x", "--reason", "later", "--import-node-limit", bad]],
+          ["refactor", ["verify", "--request-json", JSON.stringify(request), "--import-node-limit", bad]]
+        ] as const) {
+          const rejected = await run(args[0], [...args[1]]);
+          expect(rejected.ok, `${args[0]} ${args[1][0]} ${bad}`).toBe(false);
+          expect((rejected as any).error.code).toBe("AC_SCHEMA_INVALID");
+        }
+      }
+      const missingValue = await run("recommendations", ["show", "--id", "recommendation.x", "--import-node-limit"]);
+      expect(missingValue.ok).toBe(false);
+      expect(recommendations).toHaveLength(3);
+      expect(verifications).toHaveLength(2);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
   test("CLI refactor rejects an invalid invocation without ever obtaining a runtime handle", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-refactor-no-runtime-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");

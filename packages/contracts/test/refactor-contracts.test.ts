@@ -1301,6 +1301,14 @@ describe("refactor verification request", () => {
       .toEqual(["request.recommendationId must be a non-empty string"]);
   });
 
+  test("an import node limit is a positive integer", () => {
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ importNodeLimit: 100000 }))).toEqual([]);
+    for (const invalid of [0, -1, 1.5, Number.NaN]) {
+      expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ importNodeLimit: invalid })), String(invalid))
+        .toEqual(["request.importNodeLimit must be a positive integer"]);
+    }
+  });
+
   test("a claim about HEAD or the worktree must be shaped like the identity it will be compared to", () => {
     expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ expectedHeadSha: "HEAD" })))
       .toEqual(["request.expectedHeadSha must be a 40-hex Git commit sha"]);

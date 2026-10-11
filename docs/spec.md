@@ -123,6 +123,12 @@ field `importNodeLimit` (CLI `--import-node-limit`, default 50000) caps that rea
 holds more import nodes than the cap, `codeFacts` reports `coverage: partial`, `truncated: false`,
 `importNodeCount`, `edgeLimit` and reason code `code-facts-import-limit`. `code-facts-truncated`
 means the read returned fewer nodes than the index reported, or no index answered.
+A scan-candidate decision and a scan-candidate `recommendations show` measure again with the
+`importNodeLimit` the caller gives (CLI `--import-node-limit`). Give the limit of the scan that
+found the candidate; the request and its `requestId` are then the same as that scan's.
+`refactor verify` measures again with the request field `importNodeLimit` (CLI
+`--import-node-limit`). Without it, verify uses the limit of the recorded baseline snapshot. A
+baseline recorded before `importNodeCount` existed uses the default.
 `recommendations list --status <status>` returns the latest record of every recorded
 recommendation in that status with no item or byte budget; `book recommendations` keeps its budget.
 

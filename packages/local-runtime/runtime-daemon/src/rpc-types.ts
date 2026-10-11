@@ -278,6 +278,12 @@ export interface RuntimeRecommendationInput {
   actorKind?: ArchitectureActorKind;
   source?: RecommendationFeedbackSource;
   expectedWorktreeDigest?: string;
+  /**
+   * `show` and the decisions on a scan candidate: the import-node read limit of the scan that
+   * finds the candidate. Give the limit the `refactor scan --import-node-limit <n>` had; a
+   * recorded recommendation is read from the ledger and needs none.
+   */
+  importNodeLimit?: number;
   agentJobId?: string;
   now?: string;
 }
