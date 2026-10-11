@@ -5733,7 +5733,155 @@ describe("archctx CLI", () => {
       removeTempRoot(root);
     }
   });
+
+  test("archctx resolve --path gives a file to the component that shares its capability's literal prefix (#296)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-chain-"));
+    try {
+      writeResolveFixtureModel(root);
+
+      const matched = await runTestCli("resolve", ["--path", "packages/app/src/api/handler.ts"], root);
+      expect(matched.ok).toBe(true);
+      expect(matched.data).toEqual({
+        path: "packages/app/src/api/handler.ts",
+        matched: true,
+        ambiguous: false,
+        stableId: "component.app.api",
+        kind: "component",
+        name: "App API",
+        owningCapabilityId: "capability.app",
+        source: { include: ["packages/app/**/api/**"] }
+      });
+      expect(resolveCommandExitCode(matched)).toBe(0);
+
+      const capability = await runTestCli("resolve", ["--path", "packages/app/index.ts"], root);
+      expect((capability.data as any).stableId).toBe("capability.app");
+      expect((capability.data as any).owningCapabilityId).toBe("capability.app");
+
+      const noMatch = await runTestCli("resolve", ["--path", "docs/unrelated.md"], root);
+      expect(noMatch.data).toEqual({ path: "docs/unrelated.md", matched: false, ambiguous: false, owningCapabilityId: null });
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("archctx resolve --paths-from <file> returns one result per path in input order", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-batch-"));
+    try {
+      writeResolveFixtureModel(root);
+      writeFileSync(
+        join(root, "paths.txt"),
+        "packages/shared/utils.ts\r\n\n  packages/app/src/api/handler.ts  \n\ndocs/unrelated.md\npackages/app/index.ts",
+        "utf8"
+      );
+
+      const batch = await runTestCli("resolve", ["--paths-from", "paths.txt"], root);
+      expect(batch.ok).toBe(true);
+      const results = (batch.data as any).results;
+      expect(results.map((result: any) => result.path)).toEqual([
+        "packages/shared/utils.ts",
+        "packages/app/src/api/handler.ts",
+        "docs/unrelated.md",
+        "packages/app/index.ts"
+      ]);
+      expect(results[0]).toEqual({
+        path: "packages/shared/utils.ts",
+        matched: false,
+        ambiguous: true,
+        candidates: ["capability.shared-a", "capability.shared-b"],
+        owningCapabilityId: null
+      });
+      expect(results[1]).toEqual((await runTestCli("resolve", ["--path", "packages/app/src/api/handler.ts"], root)).data);
+      expect(results[2]).toEqual({ path: "docs/unrelated.md", matched: false, ambiguous: false, owningCapabilityId: null });
+      expect(results[3].stableId).toBe("capability.app");
+      expect(resolveCommandExitCode(batch)).toBe(2);
+
+      writeFileSync(join(root, "owned.txt"), "packages/app/index.ts\ndocs/unrelated.md\n", "utf8");
+      const unambiguous = await runTestCli("resolve", ["--paths-from", "owned.txt"], root);
+      expect((unambiguous.data as any).results).toHaveLength(2);
+      expect(resolveCommandExitCode(unambiguous)).toBe(0);
+
+      writeFileSync(join(root, "empty.txt"), "\n\n", "utf8");
+      const empty = await runTestCli("resolve", ["--paths-from", "empty.txt"], root);
+      expect(empty.data).toEqual({ results: [] });
+      expect(resolveCommandExitCode(empty)).toBe(0);
+
+      writeFileSync(join(root, "invalid.txt"), "packages/app/index.ts\n../outside.ts\n", "utf8");
+      const invalid = await runTestCli("resolve", ["--paths-from", "invalid.txt"], root);
+      expect(invalid.ok).toBe(false);
+      expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((invalid as any).error.message).toContain("line 2");
+      expect(resolveCommandExitCode(invalid)).toBe(1);
+
+      const both = await runTestCli("resolve", ["--path", "packages/app/index.ts", "--paths-from", "owned.txt"], root);
+      expect(both.ok).toBe(false);
+      expect((both as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const missing = await runTestCli("resolve", ["--paths-from", "absent.txt"], root);
+      expect(missing.ok).toBe(false);
+      expect((missing as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const help = await runTestCli("resolve", ["--help"], root);
+      expect(help.ok).toBe(true);
+      expect((help.data as any).exitCodes).toContain("--paths-from");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("archctx resolve --paths-from - reads paths from stdin in the real process and sets the exit code", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-stdin-"));
+    try {
+      writeResolveFixtureModel(root);
+      const run = async (input: string) => {
+        const child = spawn(process.execPath, [CLI_ENTRY, "resolve", "--paths-from", "-"], {
+          cwd: root,
+          env: testStateEnv(root),
+          stdio: ["pipe", "pipe", "pipe"]
+        });
+        const result = collectProcess(child);
+        child.stdin.end(input);
+        return result;
+      };
+
+      const owned = await run("packages/app/src/api/handler.ts\n\ndocs/unrelated.md\n");
+      expect(owned.code).toBe(0);
+      const ownedBody = JSON.parse(owned.stdout);
+      expect(ownedBody.data.results.map((result: any) => [result.path, result.stableId ?? null, result.owningCapabilityId])).toEqual([
+        ["packages/app/src/api/handler.ts", "component.app.api", "capability.app"],
+        ["docs/unrelated.md", null, null]
+      ]);
+
+      const contested = await run("docs/unrelated.md\npackages/shared/utils.ts\n");
+      expect(contested.code).toBe(2);
+      expect(JSON.parse(contested.stdout).data.results[1].ambiguous).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, CLI_PROCESS_TIMEOUT_MS);
 });
+
+/**
+ * `capability.app` declares `packages/app/**`; its component `component.app.api` declares
+ * `packages/app/**\/api/**`, which has the same literal prefix. Two unrelated capabilities declare
+ * the same `packages/shared/**` glob, so a shared path stays ambiguous across chains.
+ */
+function writeResolveFixtureModel(root: string): void {
+  writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+  initializeArchContextModel(root, "CLI Resolve Chain App");
+  const nodes: { id: string; name: string; [field: string]: string | { include: string[] } }[] = [
+    { id: "capability.app", kind: "capability", name: "App", source: { include: ["packages/app/**"] } },
+    { id: "component.app.api", kind: "component", name: "App API", parent: "capability.app", source: { include: ["packages/app/**/api/**"] } },
+    { id: "capability.shared-a", kind: "capability", name: "Shared A", source: { include: ["packages/shared/**"] } },
+    { id: "capability.shared-b", kind: "capability", name: "Shared B", source: { include: ["packages/shared/**"] } }
+  ];
+  for (const node of nodes) {
+    writeFileSync(
+      join(root, `.archcontext/model/nodes/${node.id}.yaml`),
+      stableYaml({ schemaVersion: "archcontext.node/v2", status: "active", summary: `${node.name} fixture node.`, ...node }),
+      "utf8"
+    );
+  }
+}
 
 async function runCliProcess(root: string, ...args: string[]): Promise<any> {
   const child = spawn(process.execPath, [CLI_ENTRY, ...args], {
