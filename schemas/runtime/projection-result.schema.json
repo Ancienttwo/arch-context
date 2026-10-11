@@ -19,6 +19,7 @@
     "priorCommittedApplies": { "type": "array", "minItems": 1, "description": "Omitted, never empty. Canonical wire order is by changeSetId and is enforced by projectionResultInvariantIssues.", "items": { "$ref": "#/$defs/priorCommittedApply" } },
     "freshness": { "$ref": "#/$defs/freshness" },
     "replayed": { "const": true, "description": "A repeated apply for the same requestId and request digest returned the committed result without applying again. Excluded from receiptDigest." },
+    "majorChangeAcceptance": { "const": "declined-unprovable-proof", "description": "Present only when the request sent acceptObservedMajorChange and the provider declined it because a capability proof is unprovable; humanActions then carries unprovable-required-flow instead of unresolved-major-change." },
     "receiptDigest": { "$ref": "#/$defs/digest" }
   },
   "allOf": [
@@ -32,6 +33,18 @@
       "then": {
         "required": ["applyReceipt"],
         "properties": { "refreshSignals": { "maxItems": 0 } }
+      }
+    },
+    {
+      "if": { "required": ["majorChangeAcceptance"] },
+      "then": {
+        "properties": {
+          "status": { "const": "human-action-required" },
+          "humanActions": {
+            "contains": { "properties": { "reasonCode": { "const": "unprovable-required-flow" } }, "required": ["reasonCode"] },
+            "not": { "contains": { "properties": { "reasonCode": { "const": "unresolved-major-change" } }, "required": ["reasonCode"] } }
+          }
+        }
       }
     },
     {
@@ -86,22 +99,43 @@
         },
         "action": { "enum": ["create", "delete", "unchanged", "update"] },
         "preimageDigest": { "$ref": "#/$defs/nullableDigest" },
-        "outputDigest": { "$ref": "#/$defs/nullableDigest" }
+        "outputDigest": { "$ref": "#/$defs/nullableDigest" },
+        "preview": { "$ref": "#/$defs/filePreview" }
       },
       "allOf": [
         {
           "if": { "properties": { "action": { "const": "create" } }, "required": ["action"] },
-          "then": { "properties": { "preimageDigest": { "const": null }, "outputDigest": { "$ref": "#/$defs/digest" } } }
+          "then": { "properties": { "preimageDigest": { "const": null }, "outputDigest": { "$ref": "#/$defs/digest" }, "preview": { "properties": { "format": { "const": "body" } } } } }
         },
         {
           "if": { "properties": { "action": { "const": "delete" } }, "required": ["action"] },
-          "then": { "properties": { "preimageDigest": { "$ref": "#/$defs/digest" }, "outputDigest": { "const": null } } }
+          "then": { "properties": { "preimageDigest": { "$ref": "#/$defs/digest" }, "outputDigest": { "const": null }, "preview": { "properties": { "format": { "const": "unified-diff" } } } } }
         },
         {
           "if": { "properties": { "action": { "enum": ["unchanged", "update"] } }, "required": ["action"] },
           "then": { "properties": { "preimageDigest": { "$ref": "#/$defs/digest" }, "outputDigest": { "$ref": "#/$defs/digest" } } }
+        },
+        {
+          "if": { "properties": { "action": { "const": "update" } }, "required": ["action"] },
+          "then": { "properties": { "preview": { "properties": { "format": { "const": "unified-diff" } } } } }
+        },
+        {
+          "if": { "properties": { "action": { "const": "unchanged" } }, "required": ["action"] },
+          "then": { "not": { "required": ["preview"] } }
         }
       ]
+    },
+    "filePreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "plan results only (#264): the rendered body of a create, or a unified diff of an update or delete, returned in the response and never persisted. content is cut at a line boundary to at most 65536 UTF-8 bytes per file and 1048576 per result; byteLength is the UTF-8 length of the complete content. The byte bounds and truncated/byteLength coupling are enforced by projectionResultInvariantIssues.",
+      "required": ["format", "content", "byteLength", "truncated"],
+      "properties": {
+        "format": { "enum": ["body", "unified-diff"] },
+        "content": { "type": "string", "maxLength": 65536 },
+        "byteLength": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" }
+      }
     },
     "humanAction": {
       "type": "object",
@@ -133,6 +167,27 @@
         "projectionDigest": { "$ref": "#/$defs/digest" }
       }
     },
+    "capabilityChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilityId", "reasonCodes", "changedFacets", "proofStatusBefore", "proofStatusAfter"],
+      "properties": {
+        "capabilityId": { "type": "string", "minLength": 1 },
+        "reasonCodes": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
+        "changedFacets": { "type": "array", "uniqueItems": true, "items": { "enum": ["constraints", "entrypoints", "interfaces", "lifecycle", "names", "ownership", "placement", "relations", "responsibilities", "riskBoundaries"] } },
+        "proofStatusBefore": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/proofStatus" }] },
+        "proofStatusAfter": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/proofStatus" }] }
+      }
+    },
+    "proofStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p1", "p2"],
+      "properties": {
+        "p1": { "enum": ["proven", "unprovable"] },
+        "p2": { "enum": ["not-applicable", "proven", "unprovable"] }
+      }
+    },
     "reasonCode": {
       "enum": ["constraint-changed", "entrypoint-changed", "interface-changed", "lifecycle-changed", "node-added", "node-moved", "node-removed", "node-renamed", "ownership-changed", "relation-changed", "responsibility-changed", "risk-boundary-changed", "verified-flow-proof-changed"]
     },
@@ -160,6 +215,7 @@
         "acceptedChange": { "$ref": "#/$defs/acceptedChange" },
         "reasonCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
         "affectedNodeIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "capabilities": { "type": "array", "minItems": 1, "description": "The observed per-capability breakdown of this signal, sorted by capabilityId (enforced by architectureRefreshSignalInvariantIssues). Part of the signal identity; signals committed before it existed lack it.", "items": { "$ref": "#/$defs/capabilityChange" } },
         "refreshTargets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["architecture-contract-context", "architecture-readiness", "architecture-request-index", "capability-context", "capability-index"] } },
         "baseDigests": { "$ref": "#/$defs/digestSet" },
         "resultingDigests": { "$ref": "#/$defs/digestSet" },

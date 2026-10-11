@@ -19,11 +19,10 @@ import {
   type ArchitectureSelectorEvidenceV1,
   type CapabilityImportEdge,
   type CapabilityImportGraph,
-  type ArchitectureDocumentationProjectionProvenanceV3,
   type ArchitectureDocumentationProjectionRuntimeSnapshot,
   type NativeModel
 } from "@archcontext/core/projection-engine";
-import { digestJson, productVersionManifest, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, productVersionManifest, type ArchitectureCandidateDeltaV1, type ArchitectureDocumentationProjectionProvenanceV3, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
 export const REQUIRED_CODEGRAPH_VERSION: string = productVersionManifest().runtime.codeGraph.requiredVersion;

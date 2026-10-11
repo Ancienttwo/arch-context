@@ -1,0 +1,491 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/projection-manifest.schema.json",
+  "title": "ArchitectureDocsProjectionManifestV1",
+  "description": "The committed docs/architecture/.projection-manifest.json the architecture documentation projection writes (#264). Sorted/unique orders, targetCount/fileCount and the 1-2-5 bucket ladder are enforced by architectureDocsProjectionManifestIssues.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "rendererVersion",
+    "profile",
+    "sourceDigest",
+    "provenance",
+    "projectionDigest",
+    "semanticBaseline",
+    "receiptDigest",
+    "targetCount",
+    "fileCount",
+    "targets"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.architecture-docs-projection-manifest/v1"
+    },
+    "rendererVersion": {
+      "const": "archcontext.docs-renderer/v5"
+    },
+    "profile": {
+      "enum": [
+        "default",
+        "repo-harness/v1"
+      ]
+    },
+    "sourceDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "projectionDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "semanticBaseline": {
+      "$ref": "#/$defs/semanticBaseline"
+    },
+    "receiptDigest": {
+      "$ref": "#/$defs/digest"
+    },
+    "targetCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "fileCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/target"
+      }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceTreeDigest",
+        "modelDigest",
+        "projectionInputDigest",
+        "rendererVersion",
+        "layoutVersion",
+        "generatedFrom"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.architecture-docs-projection-provenance/v3"
+        },
+        "sourceTreeDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "modelDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "projectionInputDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "rendererVersion": {
+          "const": "archcontext.docs-renderer/v5"
+        },
+        "layoutVersion": {
+          "const": "archcontext.docs-layout/v1"
+        },
+        "generatedFrom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "codeGraphPackage",
+            "codeGraphVersion"
+          ],
+          "description": "Reproducible CodeGraph identity only: package name and version. The binary digest, index status and evidence digests are machine-specific runtime facts and never enter the committed manifest (#266, #277).",
+          "properties": {
+            "codeGraphPackage": {
+              "type": "string",
+              "minLength": 1
+            },
+            "codeGraphVersion": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "semanticBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "semanticState",
+        "digests"
+      ],
+      "properties": {
+        "semanticState": {
+          "$ref": "#/$defs/semanticState"
+        },
+        "digests": {
+          "$ref": "#/$defs/digestSet"
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceTreeDigest",
+            "selectorEvidenceDigest",
+            "rendererVersion"
+          ],
+          "description": "The non-model proof inputs this baseline was rendered from. Absent in manifests written before it existed.",
+          "properties": {
+            "sourceTreeDigest": {
+              "$ref": "#/$defs/digest"
+            },
+            "selectorEvidenceDigest": {
+              "$ref": "#/$defs/digest"
+            },
+            "rendererVersion": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "digestSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelDigest",
+        "sourceTreeDigest",
+        "flowProofDigest",
+        "projectionDigest"
+      ],
+      "properties": {
+        "modelDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sourceTreeDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "flowProofDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "projectionDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "semanticState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "capabilities",
+        "semanticFingerprint",
+        "flowProofFingerprint"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.architecture-semantic-state/v1"
+        },
+        "capabilities": {
+          "type": "array",
+          "description": "Sorted and unique by capabilityId.",
+          "items": {
+            "$ref": "#/$defs/capabilityState"
+          }
+        },
+        "semanticFingerprint": {
+          "$ref": "#/$defs/digest"
+        },
+        "flowProofFingerprint": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "capabilityState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilityId",
+        "memberNodeIds",
+        "semanticFingerprint",
+        "flowProofFingerprint",
+        "proofStatus",
+        "facets"
+      ],
+      "properties": {
+        "capabilityId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "memberNodeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "semanticFingerprint": {
+          "$ref": "#/$defs/digest"
+        },
+        "flowProofFingerprint": {
+          "$ref": "#/$defs/digest"
+        },
+        "proofStatus": {
+          "$ref": "#/$defs/proofStatus"
+        },
+        "facets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "constraints",
+            "entrypoints",
+            "interfaces",
+            "lifecycle",
+            "names",
+            "ownership",
+            "placement",
+            "relations",
+            "responsibilities",
+            "riskBoundaries"
+          ],
+          "properties": {
+            "constraints": {
+              "$ref": "#/$defs/digest"
+            },
+            "entrypoints": {
+              "$ref": "#/$defs/digest"
+            },
+            "interfaces": {
+              "$ref": "#/$defs/digest"
+            },
+            "lifecycle": {
+              "$ref": "#/$defs/digest"
+            },
+            "names": {
+              "$ref": "#/$defs/digest"
+            },
+            "ownership": {
+              "$ref": "#/$defs/digest"
+            },
+            "placement": {
+              "$ref": "#/$defs/digest"
+            },
+            "relations": {
+              "$ref": "#/$defs/digest"
+            },
+            "responsibilities": {
+              "$ref": "#/$defs/digest"
+            },
+            "riskBoundaries": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        }
+      }
+    },
+    "proofStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "p1",
+        "p2"
+      ],
+      "properties": {
+        "p1": {
+          "enum": [
+            "proven",
+            "unprovable"
+          ]
+        },
+        "p2": {
+          "enum": [
+            "not-applicable",
+            "proven",
+            "unprovable"
+          ]
+        }
+      }
+    },
+    "scaleBucket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lower",
+        "upper"
+      ],
+      "description": "The half-open 1-2-5 magnitude range [lower, upper) that contains a measured count; {lower: 0, upper: 1} holds only zero.",
+      "properties": {
+        "lower": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "upper": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "scale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fileCountBucket",
+        "lineCountBucket"
+      ],
+      "properties": {
+        "fileCountBucket": {
+          "$ref": "#/$defs/scaleBucket"
+        },
+        "lineCountBucket": {
+          "$ref": "#/$defs/scaleBucket"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targetId",
+        "type",
+        "scope",
+        "path",
+        "ownership",
+        "rendererVersion",
+        "format",
+        "sourceDigest",
+        "outputDigest"
+      ],
+      "properties": {
+        "targetId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "enum": [
+            "architecture-index",
+            "entity-summary",
+            "relation-summary",
+            "decision-index",
+            "architecture-changelog",
+            "diagram-mermaid",
+            "diagram-structurizr",
+            "diagram-likec4",
+            "agent-context"
+          ]
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "repository",
+                "entity",
+                "relation",
+                "decision",
+                "diagram",
+                "changelog"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "entityKind": {
+              "type": "string"
+            }
+          }
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "(^|/)\\.\\.(/|$)"
+              }
+            ]
+          }
+        },
+        "ownership": {
+          "enum": [
+            "generated",
+            "mixed"
+          ]
+        },
+        "rendererVersion": {
+          "const": "archcontext.docs-renderer/v5"
+        },
+        "format": {
+          "enum": [
+            "markdown",
+            "mermaid",
+            "structurizr-json",
+            "likec4"
+          ]
+        },
+        "sourceDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "outputDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sourceFootprintDigest": {
+          "$ref": "#/$defs/digest",
+          "description": "Content digest of the node's declared source footprint the document was verified against. entity-summary targets of nodes that declare source.include only; present exactly when scale is."
+        },
+        "scale": {
+          "$ref": "#/$defs/scale",
+          "description": "The scale buckets the module document prints. Present exactly when sourceFootprintDigest is."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "sourceFootprintDigest"
+            ]
+          },
+          "then": {
+            "required": [
+              "scale"
+            ],
+            "properties": {
+              "type": {
+                "const": "entity-summary"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "scale"
+            ]
+          },
+          "then": {
+            "required": [
+              "sourceFootprintDigest"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

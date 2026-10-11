@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, stableYaml, type Json } from "@archcontext/contracts";
-import type { ArchitectureFlowV1 } from "@archcontext/contracts";
-import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type ArchitectureSelectorEvidenceV1, type ArchitectureSemanticStateV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
+import type { ArchitectureFlowV1, ArchitectureSemanticStateV1 } from "@archcontext/contracts";
+import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type ArchitectureSelectorEvidenceV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
 import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -509,7 +509,8 @@ test("planCommittedChangeAcceptance refuses a stale model that no longer matches
       schemaVersion: "archcontext.major-change-classification/v1",
       mode: "human-action-required",
       reasonCodes: ["node-added"],
-      affectedNodeIds: []
+      affectedNodeIds: [],
+      capabilities: []
     };
     const scope: ArchitectureLedgerScope = {
       repository: { repositoryId: "repo.fixture", storageRepositoryId: "storage.repo.fixture" },

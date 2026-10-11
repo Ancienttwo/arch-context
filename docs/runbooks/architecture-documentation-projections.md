@@ -4,6 +4,7 @@
 
 - `.archcontext/projections/targets.json` declares placement rules.
 - `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests. It records only machine-independent values: content digests of the model, the declared sources and the rendered output, plus renderer, layout and CodeGraph package and version. The CodeGraph evidence digest, index state and status, HEAD and worktree digest are per-run facts returned as `runtimeSnapshot` and never committed, so two machines projecting the same commit write the same manifest.
+- The manifest's shape is published in archctx-contracts: the `ArchitectureDocsProjectionManifestV1` type, the `architectureDocsProjectionManifestIssues` check, and `schemas/runtime/projection-manifest.schema.json`. The renderer validates every manifest it writes against that contract and reads the semantic baseline back through it. Each `entity-summary` target of a node that declares `source.include` carries `sourceFootprintDigest` and `scale: { fileCountBucket, lineCountBucket }`. A bucket is the half-open 1–2–5 range `{ lower, upper }` that contains the measured count (`{ lower: 0, upper: 1 }` holds only zero). The module document prints exactly these buckets, never the counts. Consumers detect the published contract and the scale field through the `projection-manifest-contract-v1` capability.
 - Text inside `ARCHCONTEXT:generated` markers is generated projection output.
 - Text outside generated markers is human-owned and must be preserved.
 - Agent-authored rationale or ADR prose is advisory draft material until deterministic validation and explicit approval.
@@ -18,6 +19,16 @@
 6. Run `archctx complete` only after projection drift is clean.
 
 `complete_task` validates active documentation projections when `docs/architecture/.projection-manifest.json` exists. A successful completion must have projection drift count zero.
+
+### Missing code facts
+
+When `.archcontext/manifest.yaml` declares `codeFacts.required: true` and the repository has no CodeGraph index (`.codegraph/`), the projection is not rendered at all. `complete_task` (CLI `archctx complete`), the `docs` commands and `projection run`, `readback` and `recover` all fail with `AC_CODE_FACTS_UNAVAILABLE`: retryable, `error.reasonCode: "index-missing"`, `error.action: "codegraph-init"`. This is an environment state, not projection drift or a major change. Map `error.action` to a command, never the message:
+
+| `error.action` | Do this |
+| --- | --- |
+| `codegraph-init` | Run `codegraph init` in the repository root, then retry the same call. |
+
+A repository that cannot build an index declares `codeFacts.required: false`; projections then render without code facts.
 
 ## Accepting Committed Model Changes
 
@@ -64,17 +75,50 @@ Trust boundary: the HEAD anchor trusts local git history. Anyone who can commit 
 
 An agent that owns the decision, with the pull request review as the human gate, can skip the `ledger accept-committed` round trip. Set `acceptObservedMajorChange: true` on a `mode: "apply"` or `mode: "adopt"` request. The field is refused (`AC_SCHEMA_INVALID`) in `check` and `plan` mode, with any value other than `true`, and together with `acceptedChange`.
 
-With the flag, `projection run` classifies the major change at `expected` and applies it in the same run against the same expected snapshot. The daemon re-checks that snapshot under its writer lock before the ChangeSet writes, so a worktree that changed after classification fails the apply instead of committing an unreviewed change. The apply receipt records the observed change as `applyReceipt.acceptedChange`, with a `changeSetId` (`changeset.observed-major-change-<hash>`) and `eventId` (`projection_event.observed_major_change.<hash>`) that the provider derives from the snapshot and the change. No ledger event is appended.
+With the flag, `projection run` classifies the major change at `expected` and applies it in the same run against the same expected snapshot. The daemon re-checks that snapshot under its writer lock before the ChangeSet writes, so a change after classification to the inputs the worktree digest covers fails the apply instead of committing an unreviewed change. `docs/architecture/` is not covered by that digest. The run therefore renders the accepted change against the documents and projection manifest it read at classification, not a later copy, so the applied change is the one the receipt records. The apply receipt records the observed change as `applyReceipt.acceptedChange`, with a `changeSetId` (`changeset.observed-major-change-<hash>`) and `eventId` (`projection_event.observed_major_change.<hash>`) that the provider derives from the snapshot and the change. No ledger event is appended.
 
-When the run observes no major change, the flag does nothing and the request is a plain apply. When a capability proof is unprovable, the change cannot be accepted, and the result is the same `human-action-required` it would be without the flag. Without the flag, a major change still stops at `human-action-required`. Consumers detect the field through the `projection-observed-major-change-acceptance-v1` capability.
+When the run observes no major change, the flag does nothing and the request is a plain apply. When a capability proof (P1 or P2) is unprovable, the change cannot be accepted and the flag is declined: the result is `human-action-required` with `majorChangeAcceptance: "declined-unprovable-proof"`, and `humanActions[]` carries `reasonCode: "unprovable-required-flow"` with the ids of the capabilities whose proof is unprovable, in place of `unresolved-major-change`. Do not retry the flag; fix the named flows or relations first. `majorChangeAcceptance` is absent whenever the request did not send the flag. It also appears only on a `human-action-required` result, so other stops take precedence over it: in `mode: "apply"`, a projection that needs adoption returns `adoption-required` (with its `adoption-required` action, without `majorChangeAcceptance`) even when the flag was declined; in `mode: "adopt"`, a projection that needs no adoption and has no drift returns `noop`, also without the field. Without the flag, a major change still stops at `human-action-required`. Consumers detect the field through the `projection-observed-major-change-acceptance-v1` capability.
 
-To read back such an apply, send `projection readback` the original request with `acceptObservedMajorChange` replaced by the committed `applyReceipt.acceptedChange`.
+To read back such an apply, send `projection readback` the original request with `acceptObservedMajorChange` replaced by the committed `applyReceipt.acceptedChange`. A caller that lost the result never saw that `acceptedChange`; it gets the complete readback request from `AC_PROJECTION_APPLY_COMMITTED` (below).
 
 ### Repeating an accepted apply
 
 A caller that lost the response of an accepted `apply` or `adopt` (process kill, timeout, closed pipe) sends the same request again. If its `requestId` and request digest match a committed receipt, `projection run` returns the committed `ProjectionResultV2` with `replayed: true` and applies nothing. The replay key is the `requestId` plus the digest of the request exactly as the caller sent it, including `acceptObservedMajorChange`. It never includes provider-generated ids. `replayed` is excluded from `receiptDigest`, so the replay carries the committed receipt digest. If the first run committed but never delivered its refresh signals, the replay reports `applied-reconcile-required` with no signals; deliver them with `projection recover` and the `applyReceipt` `lookupKey` and `applyId`.
 
-A different request under a committed `requestId`, or a new request for an accepted change that is already applied, fails with `AC_PROJECTION_APPLY_COMMITTED` (not retryable, action `readback-committed-projection-apply`). `error.details` carries `requestId`, `lookupKey` and `applyId` of the committed apply, and `error.reasonCode` is `projection-apply-request-differs`, `projection-accepted-change-committed`, or `projection-apply-request-digest-unrecorded` (a receipt committed before request digests were recorded). Do not match the error message. `projection readback` still returns the committed receipt with its recovery proof. Consumers detect this behavior through the `projection-apply-replay-v1` capability.
+A different request under a committed `requestId`, or a new request for an accepted change that is already applied, fails with `AC_PROJECTION_APPLY_COMMITTED` (not retryable, action `readback-committed-projection-apply`). `error.reasonCode` is one of:
+
+- `projection-apply-request-differs`: the `requestId` already committed a different request. Send the new request under a new `requestId`.
+- `projection-accepted-change-committed`: the accepted change was already applied under the `requestId` in `error.details`.
+- `projection-apply-request-digest-unrecorded`: the receipt was committed before request digests were recorded, so no request can be proven equal to it. The `requestId` is never reused, not even for the same request. Send the request under a new `requestId`.
+
+`error.details` carries the committed apply's `requestId`, `lookupKey` and `applyId`, its original `requestDigest` when one was recorded, and `readbackRequest`: the committed apply's own readback request (`mode: "apply"`, the recorded `targets`, `changedPaths` and `expected` snapshot, and the committed `acceptedChange`). To read the committed result, send `error.details.readbackRequest` unchanged to `projection readback` (`archctx projection readback --request-json '<readbackRequest>'`, or MCP `archcontext_projection` with `action: "readback"`). This works also for an apply made with `acceptObservedMajorChange`. Readback rebuilds the current projection and proves it against the approval, so it succeeds only while HEAD and the projection worktree digest still equal the approved snapshot (`readbackRequest.expected`) and the projection is still the committed fixed point. After a new commit or another projection-relevant edit it fails with `AC_PRECONDITION_FAILED`; the receipt itself is unchanged. To deliver pending refresh signals, call `projection recover` with `requestId`, `lookupKey` and `applyId` from `error.details`. A receipt from before recovery bindings existed has no `readbackRequest` and cannot be read back or recovered. Do not match the error message. Consumers detect this behavior through the `projection-apply-replay-v1` capability.
+
+#### Choosing a requestId
+
+A `requestId` names one apply. Once an accepted apply commits under it, only that exact request (same request digest) replays; every other request under it fails with `AC_PROJECTION_APPLY_COMMITTED`. So:
+
+- Use a new `requestId` for every distinct apply: a different `mode`, `targets`, `changedPaths`, `expected` snapshot, `acceptedChange`, `acceptObservedMajorChange` or `adoptionPlanId`.
+- Keep the same `requestId` when you retry the same request, so a lost response replays instead of applying again.
+- Do not use fixed ids such as `<tool>.apply.accepted`; the first committed apply holds that id for good.
+
+Recommended derivation: hash every request field except `requestId` and use the hash in the id. Take the request object without `requestId`: `{schemaVersion, profile, mode, targets, changedPaths, expected: {repositoryId, workspaceId, headSha, worktreeDigest}}` plus whichever of `acceptedChange`, `acceptObservedMajorChange` and `adoptionPlanId` the request carries; omit absent fields, never send them as `null`. Hash it with `digestJson` from the contracts package (`@archcontext/contracts`, published as `archctx-contracts`). `digestJson` returns `sha256:` plus the hex SHA-256 of the UTF-8 bytes of `JSON.stringify` applied after sorting the keys of every object, recursively, by JavaScript's default string sort (UTF-16 code unit order); array order is kept. Use `projection_request.` plus the first 16 hex characters after `sha256:`. `targets` and `changedPaths` are already sorted and unique, because the request requires it. The id must match `^[a-zA-Z0-9_.:-]+$`.
+
+Before upgrading from archctx 0.6.3, recover every in-flight projection apply receipt with `projection recover`. A 0.6.3 receipt carries `generatedFrom.codeGraphBinaryDigest`, which later versions no longer accept, so after the upgrade it can be neither recovered nor read back.
+
+### Previewing a projection before apply
+
+`archctx projection run` in `mode: "plan"` is the only preview path. It plans no daemon ChangeSet and writes nothing; it renders and returns. Every `files[]` entry of a plan result carries `preview`:
+
+- `create`: `format: "body"`, the rendered document.
+- `update` and `delete`: `format: "unified-diff"`, a unified diff with three context lines from the bytes on disk to the rendered bytes (`+++ /dev/null` for a delete).
+- `content` is cut at a line boundary to at most 65,536 UTF-8 bytes per file, and the previews of one result share a 1,048,576-byte budget in path order, so a late file can show empty content. `byteLength` is the UTF-8 length of the complete content, and `truncated` is true exactly when `content` is shorter.
+- An entry whose path the projection rejected for adoption or ownership repair has no `preview`, because no apply writes that rendered body.
+
+`check`, `apply` and `adopt` results never carry `preview`, and a committed apply receipt is refused if it does, so document bodies never reach the ledger. The hidden `archctx docs preview` command is removed: it planned a daemon ChangeSet as a side effect and returned an unschematized draft. Use `projection run` `plan` to preview, or `archctx docs plan --id <changeset-id>` to stage a reviewable ChangeSet. Consumers detect previews through the `projection-preview-v1` capability.
+
+### Per-capability change details
+
+Every refresh signal a run produces carries `capabilities[]`, sorted by `capabilityId`: `{ capabilityId, reasonCodes, changedFacets, proofStatusBefore, proofStatusAfter }`. It breaks the signal's change down per capability: the reason codes and semantic facets (`constraints`, `entrypoints`, `interfaces`, `lifecycle`, `names`, `ownership`, `placement`, `relations`, `responsibilities`, `riskBoundaries`) that moved, and the P1/P2 proof status on each side. `proofStatusBefore` is null without a baseline entry (an added capability or a first projection), and `proofStatusAfter` is null for a removed capability; a one-sided capability lists no facets. A capability listed only because its proof is unprovable, while another capability carries the observed change, has no reason codes. For an accepted change the breakdown is the observed one, which can name more reasons than `acceptedChange.reasonCodes`. The breakdown is part of the signal identity. Signals committed before it existed lack the field. After upgrading, a pending refresh signal is re-emitted once with a new `signalId` and `idempotencyKey`, because its identity now includes `capabilities[]`; consumers that deduplicate on `idempotencyKey` see it as one new signal. `archctx docs drift|plan` report the same breakdown as `majorChange.capabilities`. Consumers detect it through the `architecture-change-capabilities-v1` capability.
 
 ## Bad Projection Recovery
 

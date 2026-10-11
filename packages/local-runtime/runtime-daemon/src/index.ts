@@ -68,7 +68,7 @@ import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPractic
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
 import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
-import { CodeGraphAdapter, CodeGraphCliProvider, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
+import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
@@ -753,7 +753,17 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         now: this.clock()
       })
       : undefined;
-    const projectionDrift = completeTaskProjectionDrift(session.workspace.root);
+    let projectionDrift: CompleteTaskProjectionDriftInput | undefined;
+    try {
+      projectionDrift = completeTaskProjectionDrift(session.workspace.root);
+    } catch (error) {
+      // Same typed, retryable answer as the docs and projection paths (#258, #279): missing
+      // required code facts are an environment state, never projection drift.
+      if (error instanceof ProjectionCodeFactsUnavailableError) {
+        return errorEnvelope("complete_task", "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
+      }
+      throw error;
+    }
     const projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
     const worktreeDigest = computeWorktreeDigest(session.workspace.root);
     // Constraints and the review policy are read through the model store port, so the ledger read
@@ -1540,6 +1550,7 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
     decisions: loaded.decisions
   });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
+  assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,

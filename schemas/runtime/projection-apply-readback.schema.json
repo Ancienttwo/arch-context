@@ -146,6 +146,9 @@
         },
         "outputDigest": {
           "$ref": "#/$defs/nullableDigest"
+        },
+        "preview": {
+          "$ref": "#/$defs/filePreview"
         }
       },
       "allOf": [
@@ -167,6 +170,13 @@
               },
               "outputDigest": {
                 "$ref": "#/$defs/digest"
+              },
+              "preview": {
+                "properties": {
+                  "format": {
+                    "const": "body"
+                  }
+                }
               }
             }
           }
@@ -189,6 +199,13 @@
               },
               "outputDigest": {
                 "const": null
+              },
+              "preview": {
+                "properties": {
+                  "format": {
+                    "const": "unified-diff"
+                  }
+                }
               }
             }
           }
@@ -217,8 +234,80 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "update"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "preview": {
+                "properties": {
+                  "format": {
+                    "const": "unified-diff"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "unchanged"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "preview"
+              ]
+            }
+          }
         }
       ]
+    },
+    "filePreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "plan results only (#264): the rendered body of a create, or a unified diff of an update or delete, returned in the response and never persisted. content is cut at a line boundary to at most 65536 UTF-8 bytes per file and 1048576 per result; byteLength is the UTF-8 length of the complete content. The byte bounds and truncated/byteLength coupling are enforced by projectionResultInvariantIssues.",
+      "required": [
+        "format",
+        "content",
+        "byteLength",
+        "truncated"
+      ],
+      "properties": {
+        "format": {
+          "enum": [
+            "body",
+            "unified-diff"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
     },
     "humanAction": {
       "type": "object",
@@ -429,6 +518,14 @@
             "minLength": 1
           }
         },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The observed per-capability breakdown of this signal, sorted by capabilityId (enforced by architectureRefreshSignalInvariantIssues). Part of the signal identity; signals committed before it existed lack it.",
+          "items": {
+            "$ref": "#/$defs/capabilityChange"
+          }
+        },
         "refreshTargets": {
           "type": "array",
           "minItems": 1,
@@ -489,6 +586,91 @@
           }
         }
       ]
+    },
+    "capabilityChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilityId",
+        "reasonCodes",
+        "changedFacets",
+        "proofStatusBefore",
+        "proofStatusAfter"
+      ],
+      "properties": {
+        "capabilityId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasonCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reasonCode"
+          }
+        },
+        "changedFacets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "constraints",
+              "entrypoints",
+              "interfaces",
+              "lifecycle",
+              "names",
+              "ownership",
+              "placement",
+              "relations",
+              "responsibilities",
+              "riskBoundaries"
+            ]
+          }
+        },
+        "proofStatusBefore": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/proofStatus"
+            }
+          ]
+        },
+        "proofStatusAfter": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/proofStatus"
+            }
+          ]
+        }
+      }
+    },
+    "proofStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "p1",
+        "p2"
+      ],
+      "properties": {
+        "p1": {
+          "enum": [
+            "proven",
+            "unprovable"
+          ]
+        },
+        "p2": {
+          "enum": [
+            "not-applicable",
+            "proven",
+            "unprovable"
+          ]
+        }
+      }
     },
     "acceptedChange": {
       "type": "object",
@@ -842,6 +1024,10 @@
           "const": true,
           "description": "A repeated apply for the same requestId and request digest returned the committed result without applying again. Excluded from receiptDigest."
         },
+        "majorChangeAcceptance": {
+          "const": "declined-unprovable-proof",
+          "description": "Present only when the request sent acceptObservedMajorChange and the provider declined it because a capability proof is unprovable; humanActions then carries unprovable-required-flow instead of unresolved-major-change."
+        },
         "receiptDigest": {
           "$ref": "#/$defs/digest"
         }
@@ -894,6 +1080,44 @@
             "properties": {
               "refreshSignals": {
                 "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "majorChangeAcceptance"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "human-action-required"
+              },
+              "humanActions": {
+                "contains": {
+                  "properties": {
+                    "reasonCode": {
+                      "const": "unprovable-required-flow"
+                    }
+                  },
+                  "required": [
+                    "reasonCode"
+                  ]
+                },
+                "not": {
+                  "contains": {
+                    "properties": {
+                      "reasonCode": {
+                        "const": "unresolved-major-change"
+                      }
+                    },
+                    "required": [
+                      "reasonCode"
+                    ]
+                  }
+                }
               }
             }
           }

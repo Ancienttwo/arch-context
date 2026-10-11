@@ -4,15 +4,28 @@ import { basename, posix, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
   AGENT_CONTEXT_RENDERER_VERSION as CONTRACT_AGENT_CONTEXT_RENDERER_VERSION,
+  ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
+  ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
+  ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION as CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION,
   PROJECTION_TARGET_SCHEMA_VERSION,
+  architectureDocsProjectionManifestIssues,
+  architectureDocsProjectionProvenanceIssues,
+  architectureDigestSetIssues,
+  architectureSemanticStateIssues,
   digestJson,
   stableId,
   type AcceptedArchitectureChangeReferenceV1,
+  type ArchitectureCapabilityScaleV1,
   type ArchitectureDigestSetV1,
+  type ArchitectureDocsProjectionManifestV1,
+  type ArchitectureDocumentationProjectionProvenanceV3,
   type ArchitectureFlowV1,
   type ArchitectureNodeSourceV2,
+  type ArchitectureProjectionSemanticBaselineV1,
   type ArchitectureRefreshSignalV1,
+  type ArchitectureScaleBucketV1,
+  type ArchitectureSemanticStateV1,
   type Json,
   type ModelExportResult,
   type ProjectionFreshnessReasonCode,
@@ -42,14 +55,13 @@ import {
   classifyArchitectureMajorChange,
   compileArchitectureSemanticState,
   produceArchitectureRefreshSignals,
-  type ArchitectureMajorChangeClassificationV1,
-  type ArchitectureProjectionSemanticBaselineV1,
-  type ArchitectureSemanticStateV1
+  type ArchitectureMajorChangeClassificationV1
 } from "./major-change";
 
 export * from "./adoption";
 export * from "./layout";
 export * from "./major-change";
+export * from "./preview";
 export * from "./semantic-diagrams";
 
 export type NativeNodeSource = ArchitectureNodeSourceV2;
@@ -121,6 +133,8 @@ export interface ArchitectureDocumentationProjectionFile extends ArchitectureDoc
    * rebases and shallow clones, and a change outside the footprint leaves it untouched.
    */
   sourceFootprintDigest?: string;
+  /** Present exactly with `sourceFootprintDigest`: the scale buckets the document prints (#264). */
+  scale?: ArchitectureCapabilityScaleV1;
 }
 
 export type ArchitectureDocumentationDriftReason =
@@ -180,29 +194,6 @@ export interface ArchitectureDocumentationProjectionPlan {
   adoptionCandidates: ArchitectureDocumentationProjectionFile[];
   /** Every `projection-orphaned` drift entry, sorted by path, with what may remove it. */
   orphans: ArchitectureDocumentationProjectionOrphan[];
-}
-
-/**
- * Committed projection provenance. It records machine-independent values only: content digests of
- * the model and the declared sources, plus renderer, layout and CodeGraph versions, so two machines
- * projecting the same commit write the same bytes (#277). Everything that depends on the checkout
- * path, the index build time, the platform or whether `codegraph init` ran on this machine — HEAD,
- * worktree digest, CodeGraph evidence digest, indexed-worktree digest and CodeGraph status — is a
- * runtime fact (`ArchitectureDocumentationProjectionRuntimeSnapshot`) and never reaches the
- * committed manifest. A provenance of any other schemaVersion is not read as this one.
- */
-export interface ArchitectureDocumentationProjectionProvenanceV3 {
-  schemaVersion: "archcontext.architecture-docs-projection-provenance/v3";
-  sourceTreeDigest: string;
-  modelDigest: string;
-  projectionInputDigest: string;
-  rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
-  layoutVersion: typeof ARCHITECTURE_DOCS_LAYOUT_VERSION;
-  /** Reproducible CodeGraph identity only: package name and version (#266, #277). */
-  generatedFrom: {
-    codeGraphPackage: string;
-    codeGraphVersion: string;
-  };
 }
 
 export const ARCHITECTURE_DOCS_RENDERER_VERSION = CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION;
@@ -310,6 +301,8 @@ export function renderArchitectureDocumentationProjection(input: {
   const provenance = input.provenance;
   const generatedAt = input.generatedAt ?? "1970-01-01T00:00:00.000Z";
   const scaleSignalsByNodeId = new Map((input.sourceScaleSignals ?? []).map((signal) => [signal.nodeId, signal]));
+  // One structured value per node: the module document prints it and the manifest records it.
+  const scaleByNodeId = new Map([...scaleSignalsByNodeId].map(([nodeId, signal]) => [nodeId, architectureCapabilityScale(signal)]));
   const semanticCompilationsByNodeId = new Map(model.nodes.map((node) => [node.id, compileSemanticCapabilityDiagrams({
     capabilityId: node.id,
     nodes: model.nodes.map((entry) => ({
@@ -328,7 +321,7 @@ export function renderArchitectureDocumentationProjection(input: {
     compilations: [...semanticCompilationsByNodeId.values()]
   });
   const previousSemanticBaseline = architectureProjectionSemanticBaseline(
-    existingByPath.get("docs/architecture/.projection-manifest.json")
+    existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH)
   );
   const majorChange = classifyArchitectureMajorChange({
     base: previousSemanticBaseline?.semanticState,
@@ -368,6 +361,7 @@ export function renderArchitectureDocumentationProjection(input: {
     const generatedBody = renderTargetGeneratedBody(draft, model, {
       generatedAt,
       scaleSignalsByNodeId,
+      scaleByNodeId,
       semanticCompilationsByNodeId,
       decisions: input.decisions ?? [],
       timeline: input.timeline ?? [],
@@ -377,6 +371,7 @@ export function renderArchitectureDocumentationProjection(input: {
     // target keys on the digest of its own rendered body (see the comment above the render loop).
     let targetSourceDigest = input.sourceDigest;
     let sourceFootprintDigest: string | undefined;
+    let scale: ArchitectureCapabilityScaleV1 | undefined;
     if (nodeId !== undefined) {
       targetSourceDigest = digestJson(generatedBody);
       if (declaresSourceByNodeId.get(nodeId) === true) {
@@ -386,6 +381,8 @@ export function renderArchitectureDocumentationProjection(input: {
         if (sourceFootprintDigest === undefined || !SOURCE_FOOTPRINT_DIGEST_PATTERN.test(sourceFootprintDigest)) {
           throw new Error(`architecture-docs-projection-source-footprint-missing: ${nodeId}`);
         }
+        scale = scaleByNodeId.get(nodeId);
+        if (scale === undefined) throw new Error(`architecture-docs-projection-scale-signal-missing: ${nodeId}`);
       }
     }
     const generatedBodyDigest = digestJson({ targetId: draft.targetId, body: generatedBody } as unknown as Json);
@@ -403,7 +400,7 @@ export function renderArchitectureDocumentationProjection(input: {
       target,
       digest: digestJson({ path: target.path, body } as unknown as Json),
       generatedBodyDigest,
-      ...(sourceFootprintDigest ? { sourceFootprintDigest } : {})
+      ...(sourceFootprintDigest && scale ? { sourceFootprintDigest, scale } : {})
     };
   });
   const targets = rendered.map((file) => file.target);
@@ -427,13 +424,18 @@ export function renderArchitectureDocumentationProjection(input: {
     projectionDigest: projectionDigest as ArchitectureDigestSetV1["projectionDigest"]
   };
   const baseDigests = previousSemanticBaseline?.digests ?? architectureDigests;
+  // The receipt binds the classification without its per-capability breakdown: the breakdown
+  // explains reasonCodes and affectedNodeIds, and an unresolved capability's proofStatusBefore moves
+  // from null to its status once a first baseline exists, which would keep the committed manifest
+  // from ever reaching a fixed point.
+  const { capabilities: _capabilities, ...majorChangeReceipt } = majorChange;
   const receiptDigest = digestJson({
     schemaVersion: "archcontext.architecture-docs-projection-receipt/v1",
     rendererVersion,
     profile: layout.profile,
     provenance,
     architectureDigests,
-    majorChange
+    majorChange: majorChangeReceipt
   } as unknown as Json);
   const refreshSignals = input.refreshContext
     ? produceArchitectureRefreshSignals({
@@ -448,8 +450,8 @@ export function renderArchitectureDocumentationProjection(input: {
       projectionReceiptDigest: receiptDigest
     })
     : [];
-  const manifestValue = {
-    schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
+  const manifestValue: ArchitectureDocsProjectionManifestV1 = {
+    schemaVersion: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
     rendererVersion,
     profile: layout.profile,
     sourceDigest: input.sourceDigest,
@@ -468,24 +470,28 @@ export function renderArchitectureDocumentationProjection(input: {
     // Per-node stamps: each entity-summary target of a node with a declared footprint records that
     // footprint's content digest. The freshness check (`evaluateArchitectureProjectionFreshness`)
     // compares it with the current digest and never reads Git history, so it holds after squash
-    // merges, rebases and in shallow clones.
+    // merges, rebases and in shallow clones. The same targets record the structured scale buckets
+    // their module documents print.
     targets: rendered.map((file) => ({
       targetId: file.target.targetId,
       type: file.target.type,
       scope: file.target.scope,
       path: file.target.path,
       ownership: file.target.ownership,
-      rendererVersion: file.target.rendererVersion,
+      rendererVersion,
       format: file.target.format,
       sourceDigest: file.target.sourceDigest,
       outputDigest: file.target.outputDigest,
-      ...(file.sourceFootprintDigest ? { sourceFootprintDigest: file.sourceFootprintDigest } : {})
+      ...(file.sourceFootprintDigest && file.scale ? { sourceFootprintDigest: file.sourceFootprintDigest, scale: file.scale } : {})
     }))
-  } as unknown as Json;
+  };
+  // The writer holds itself to the published contract: a manifest it cannot vouch for is never written.
+  const manifestIssues = architectureDocsProjectionManifestIssues(manifestValue);
+  if (manifestIssues.length > 0) throw new Error(`architecture-docs-projection-manifest-invalid: ${manifestIssues.join("; ")}`);
   const manifest = {
-    path: "docs/architecture/.projection-manifest.json",
+    path: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
     body: `${JSON.stringify(manifestValue, null, 2)}\n`,
-    digest: digestJson(manifestValue)
+    digest: digestJson(manifestValue as unknown as Json)
   };
   const drift = architectureDocumentationProjectionDrift({
     targets,
@@ -528,7 +534,12 @@ export function renderArchitectureDocumentationProjection(input: {
   };
 }
 
-function architectureProjectionSemanticBaseline(body: string | undefined): ArchitectureProjectionSemanticBaselineV1 | undefined {
+/**
+ * Reads the committed semantic baseline back. The two fields classification consumes, the semantic
+ * state and the digest set, are checked against the published manifest contract and fail closed;
+ * the rest of the manifest is the drift check's concern.
+ */
+function architectureProjectionSemanticBaseline(body: string | undefined): Pick<ArchitectureProjectionSemanticBaselineV1, "semanticState" | "digests"> | undefined {
   if (body === undefined) return undefined;
   let parsed: unknown;
   try {
@@ -540,11 +551,15 @@ function architectureProjectionSemanticBaseline(body: string | undefined): Archi
   const baseline = (parsed as Record<string, unknown>).semanticBaseline;
   if (baseline === undefined) return undefined;
   if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) {
-    throw new Error("architecture-major-change-semantic-baseline-invalid");
+    throw new Error("architecture-major-change-semantic-baseline-invalid: semanticBaseline must be an object");
   }
-  const value = baseline as ArchitectureProjectionSemanticBaselineV1;
-  if (!value.semanticState || !value.digests) throw new Error("architecture-major-change-semantic-baseline-invalid");
-  return value;
+  const { semanticState, digests } = baseline as Record<string, unknown>;
+  const issues = [
+    ...architectureSemanticStateIssues(semanticState, "semanticBaseline.semanticState"),
+    ...architectureDigestSetIssues(digests, "semanticBaseline.digests")
+  ];
+  if (issues.length > 0) throw new Error(`architecture-major-change-semantic-baseline-invalid: ${issues.join("; ")}`);
+  return { semanticState: semanticState as ArchitectureSemanticStateV1, digests: digests as ArchitectureDigestSetV1 };
 }
 
 export function architectureDocumentationSourceTreeDigest(root: string, model: NativeModel, sourceFiles: readonly string[]): string {
@@ -597,7 +612,7 @@ export function architectureDocumentationProjectionProvenance(
   input: Omit<ArchitectureDocumentationProjectionProvenanceV3, "schemaVersion" | "projectionInputDigest">
 ): ArchitectureDocumentationProjectionProvenanceV3 {
   return {
-    schemaVersion: "archcontext.architecture-docs-projection-provenance/v3",
+    schemaVersion: ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION,
     ...input,
     projectionInputDigest: architectureDocumentationProjectionInputDigest(input)
   };
@@ -607,9 +622,8 @@ function assertArchitectureDocumentationProjectionProvenance(
   provenance: ArchitectureDocumentationProjectionProvenanceV3,
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION
 ): void {
-  if (provenance.schemaVersion !== "archcontext.architecture-docs-projection-provenance/v3") {
-    throw new Error("architecture-docs-projection-provenance-schema-invalid");
-  }
+  const issues = architectureDocsProjectionProvenanceIssues(provenance);
+  if (issues.length > 0) throw new Error(`architecture-docs-projection-provenance-schema-invalid: ${issues.join("; ")}`);
   if (provenance.rendererVersion !== rendererVersion || provenance.layoutVersion !== ARCHITECTURE_DOCS_LAYOUT_VERSION) {
     throw new Error("architecture-docs-projection-provenance-version-mismatch");
   }
@@ -701,24 +715,24 @@ function countFileLines(absolute: string): number {
 }
 
 /**
- * Renders a measured count as the 1–2–5 magnitude bucket that contains it (`537` → `500–1000`,
- * `172275` → `100k–200k`).
+ * The 1–2–5 magnitude bucket that contains a measured count (`537` → `{ lower: 500, upper: 1000 }`,
+ * `172275` → `{ lower: 100000, upper: 200000 }`, `0` → `{ lower: 0, upper: 1 }`).
  *
- * The projection prints the bucket, never the count. A capability's declared footprint is measured
+ * The projection records the bucket, never the count. A capability's declared footprint is measured
  * against the working tree, so an exact count in a Git-tracked document rewrites that document on
  * every edit anywhere under the footprint — for a capability covering `tests/**` that is several
  * stamp-only commits a day, and it drowns the diffs that mean an architecture assertion changed.
  * The bucket carries the whole decision the signal exists to support ("how big is this capability")
  * at a resolution ordinary edits cannot move.
  *
- * A bucket is a half-open range `[lower, upper)`; rendering both ends states the resolution instead
+ * A bucket is a half-open range `[lower, upper)`; reporting both ends states the resolution instead
  * of implying a point estimate the renderer does not have.
  */
-function scaleMagnitudeBucketLabel(value: number): string {
+function scaleMagnitudeBucket(value: number): ArchitectureScaleBucketV1 {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`architecture-docs-projection-scale-signal-not-a-count: ${value}`);
   }
-  if (value === 0) return "0";
+  if (value === 0) return { lower: 0, upper: 1 };
   const mantissas = [1, 2, 5];
   let index = 0;
   let magnitude = 1;
@@ -727,16 +741,27 @@ function scaleMagnitudeBucketLabel(value: number): string {
     const nextIndex = (index + 1) % mantissas.length;
     const nextMagnitude = nextIndex === 0 ? magnitude * 10 : magnitude;
     const upper = mantissas[nextIndex] * nextMagnitude;
-    if (upper > value) {
-      // Both ends share the unit chosen from the lower bound, so a label never mixes `500–1k`.
-      const unit = lower >= 1_000_000 ? 1_000_000 : lower >= 10_000 ? 1_000 : 1;
-      const suffix = unit === 1_000_000 ? "M" : unit === 1_000 ? "k" : "";
-      return `${lower / unit}${suffix}–${upper / unit}${suffix}`;
-    }
+    if (upper > value) return { lower, upper };
     index = nextIndex;
     magnitude = nextMagnitude;
     lower = upper;
   }
+}
+
+/** The structured scale of one measured footprint; the module document prints exactly this value. */
+function architectureCapabilityScale(signal: CapabilitySourceScaleSignal): ArchitectureCapabilityScaleV1 {
+  return {
+    fileCountBucket: scaleMagnitudeBucket(signal.fileCount),
+    lineCountBucket: scaleMagnitudeBucket(signal.lineCount)
+  };
+}
+
+/** Prints a bucket as `500–1000` or `100k–200k`; both ends share the unit chosen from the lower bound. */
+function scaleMagnitudeBucketLabel(bucket: ArchitectureScaleBucketV1): string {
+  if (bucket.lower === 0) return "0";
+  const unit = bucket.lower >= 1_000_000 ? 1_000_000 : bucket.lower >= 10_000 ? 1_000 : 1;
+  const suffix = unit === 1_000_000 ? "M" : unit === 1_000 ? "k" : "";
+  return `${bucket.lower / unit}${suffix}–${bucket.upper / unit}${suffix}`;
 }
 
 export function architectureDocumentationSourceDigest(input: {
@@ -758,7 +783,7 @@ export function architectureDocumentationSourceDigest(input: {
 
 /** The applied manifest selects the layout to verify; never guess a missing profile. */
 export function loadArchitectureDocumentationProfile(root: string): ArchitectureProjectionProfile {
-  const manifest = JSON.parse(readFileSync(resolve(root, "docs/architecture/.projection-manifest.json"), "utf8"));
+  const manifest = JSON.parse(readFileSync(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), "utf8"));
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)
     || (manifest.profile !== "default" && manifest.profile !== REPO_HARNESS_PROJECTION_PROFILE)) {
     throw new Error("projection-manifest-profile-invalid: regenerate docs with an explicit supported --profile");
@@ -1016,7 +1041,7 @@ export type ArchitectureProjectionManifestStampReadback =
 export function loadArchitectureProjectionManifestStamps(
   root: string
 ): ArchitectureProjectionManifestStampReadback {
-  const absolute = resolve(root, "docs/architecture/.projection-manifest.json");
+  const absolute = resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
   if (!existsSync(absolute)) return { status: "manifest-missing" };
   let parsed: unknown;
   try {
@@ -1047,7 +1072,7 @@ export function loadArchitectureProjectionManifestStamps(
   // absent and freshness fails closed with `projection-snapshot-provenance-missing` (#277).
   const provenance = (parsed as Record<string, unknown>).provenance;
   const isV3Provenance = !!provenance && typeof provenance === "object" && !Array.isArray(provenance)
-    && (provenance as Record<string, unknown>).schemaVersion === "archcontext.architecture-docs-projection-provenance/v3";
+    && (provenance as Record<string, unknown>).schemaVersion === ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION;
   return {
     status: "present",
     nodes,
@@ -1350,6 +1375,7 @@ function renderTargetGeneratedBody(
   input: {
     generatedAt: string;
     scaleSignalsByNodeId: Map<string, CapabilitySourceScaleSignal>;
+    scaleByNodeId: Map<string, ArchitectureCapabilityScaleV1>;
     semanticCompilationsByNodeId: Map<string, SemanticCapabilityDiagramCompilation>;
     decisions: ArchitectureDecisionRecord[];
     timeline: ArchitectureDocumentationTimelineEntry[];
@@ -1361,6 +1387,7 @@ function renderTargetGeneratedBody(
     const node = model.nodes.find((entry) => entry.id === target.scope.id)!;
     return renderEntitySummary(node, model, {
       scaleSignal: input.scaleSignalsByNodeId.get(node.id),
+      scale: input.scaleByNodeId.get(node.id),
       semanticCompilation: input.semanticCompilationsByNodeId.get(node.id)!
     });
   }
@@ -1422,13 +1449,15 @@ function renderEntitySummary(
   model: NativeModel,
   input: {
     scaleSignal?: CapabilitySourceScaleSignal;
+    /** `architectureCapabilityScale(scaleSignal)`, the value the manifest records for this node. */
+    scale?: ArchitectureCapabilityScaleV1;
     semanticCompilation: SemanticCapabilityDiagramCompilation;
   }
 ): string {
   const source = nativeNodeSource(node);
   const include = source?.include ?? [];
   const entrypoints = source?.entrypoints ?? [];
-  if (include.length > 0 && !input.scaleSignal) {
+  if (include.length > 0 && (!input.scaleSignal || !input.scale)) {
     throw new Error(`architecture-docs-projection-scale-signal-missing: ${node.id}`);
   }
   const incoming = model.relations.filter((relation) => relation.target === node.id);
@@ -1462,9 +1491,9 @@ function renderEntitySummary(
     "",
     "### 1.3 規模信號",
     "",
-    ...(input.scaleSignal
+    ...(input.scaleSignal && input.scale
       ? [
-        `- 規模量級:\`${scaleMagnitudeBucketLabel(input.scaleSignal.fileCount)}\` 個文件 / \`${scaleMagnitudeBucketLabel(input.scaleSignal.lineCount)}\` 行`,
+        `- 規模量級:\`${scaleMagnitudeBucketLabel(input.scale.fileCountBucket)}\` 個文件 / \`${scaleMagnitudeBucketLabel(input.scale.lineCountBucket)}\` 行`,
         `- 匹配前綴:${input.scaleSignal.includePatterns.map((pattern) => `\`${pattern}\``).join("、")}`,
         ...(input.scaleSignal.excludePatterns.length > 0
           ? [`- 排除前綴:${input.scaleSignal.excludePatterns.map((pattern) => `\`${pattern}\``).join("、")}`]
@@ -1872,7 +1901,7 @@ function isManagedArchitectureDocumentationPath(path: string): boolean {
     || path === "docs/architecture/index.md"
     || path === "docs/architecture/changelog.md"
     || path === "docs/architecture/decisions/index.md"
-    || path === "docs/architecture/.projection-manifest.json";
+    || path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH;
 }
 
 function pathSegment(id: string): string {
