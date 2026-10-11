@@ -14,9 +14,13 @@ import { isRepoRelativePosixPath } from "./schema";
  * The committed projection manifest, `docs/architecture/.projection-manifest.json` (#264). The
  * projection engine writes it and reads its semantic baseline and provenance back; this module is
  * the only definition of its shape.
+ *
+ * `schemaVersion` is `v2` from 0.7.0: content-stamp targets (`sourceFootprintDigest`, `scale`) and
+ * provenance v3. A `v1` manifest (renderer v4) is not valid here, but the projection still reads its
+ * semantic baseline and plans a rewrite of the manifest and every generated document.
  */
 export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH = "docs/architecture/.projection-manifest.json" as const;
-export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION = "archcontext.architecture-docs-projection-manifest/v1" as const;
+export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION = "archcontext.architecture-docs-projection-manifest/v2" as const;
 export const ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION = "archcontext.architecture-docs-projection-provenance/v3" as const;
 export const ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION = "archcontext.architecture-semantic-state/v1" as const;
 export const ARCHITECTURE_DOCS_PROJECTION_PROFILES = ["default", "repo-harness/v1"] as const;

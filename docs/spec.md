@@ -121,6 +121,15 @@ limit), and the scan omits `recordCommand` for such a run. A stale `--expected-w
 `recommendations list --status <status>` returns the latest record of every recorded
 recommendation in that status with no item or byte budget; `book recommendations` keeps its budget.
 
+`archctx-contracts` publishes JSON schemas for this data:
+`schemas/runtime/recommendation-v3.schema.json`, `runtime-refactor-scan.schema.json` and
+`runtime-recommendation-show.schema.json`. A test validates real scan and show output against them.
+A structural observation recorded by archctx 0.6.3 or earlier has no `payload.metrics`,
+`payload.signalIds` or `payload.evidence`. The ledger keeps it as written, and `show` and `list`
+return it unchanged. A consumer detects such a record by the absence of `payload.evidence`; the
+schemas accept it. Refactor evidence bindings carry the bound `evidenceId` in
+`provenance.inputDigest`, and the runtime result schemas accept that form.
+
 ## Release State
 
 `archctx@0.5.11` and `archctx-contracts@0.5.11` are the current published release on `latest`,

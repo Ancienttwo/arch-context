@@ -1,0 +1,981 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/runtime-refactor-scan.schema.json",
+  "title": "RuntimeRefactorScanV1",
+  "description": "The data of a `refactor scan` envelope, archcontext.runtime-refactor-scan/v1. The scan is read-only. proposedRecommendations is what `refactor record` would append at this HEAD; every evidenceBindingIds entry resolves in evidenceBindings. recordCommand is present exactly when recording.recordable is true. Embedded $defs copy recommendation-v3 and evidence-item verbatim, and evidence-binding with one change: provenance.inputDigest also accepts the bound evidenceId.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "repository", "worktree", "requestId", "request", "trackedFileCount", "snapshot", "assessment", "proposedRecommendations", "evidenceItems", "evidenceBindings", "suppressed", "recording", "limits", "privacy"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.runtime-refactor-scan/v1" },
+    "repository": { "$ref": "#/$defs/repository" },
+    "worktree": { "$ref": "#/$defs/worktree" },
+    "requestId": { "type": "string", "pattern": "^refactor_request\\.[a-f0-9]{16}$" },
+    "request": { "$ref": "#/$defs/refactorRequest" },
+    "trackedFileCount": { "type": "integer", "minimum": 0 },
+    "snapshot": { "$ref": "#/$defs/moduleStatisticsSnapshot" },
+    "assessment": { "$ref": "#/$defs/refactorAssessment" },
+    "proposal": { "$ref": "#/$defs/refactorProposal" },
+    "proposedRecommendations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/recommendationV3" }
+    },
+    "evidenceItems": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceItem" }
+    },
+    "evidenceBindings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceBinding" }
+    },
+    "suppressed": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/suppression" }
+    },
+    "recording": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordable", "reasonCode", "measuredBytes", "limitBytes"],
+      "properties": {
+        "recordable": { "type": "boolean" },
+        "reasonCode": { "enum": ["refactor-run-exceeds-ledger-size-limit",null] },
+        "measuredBytes": { "type": "integer", "minimum": 0 },
+        "limitBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceSampleLimit", "maxEvidenceSampleLimit", "maxRecommendationsPerRun", "candidateCount", "omittedCandidateCount"],
+      "properties": {
+        "evidenceSampleLimit": { "type": "integer", "minimum": 0 },
+        "maxEvidenceSampleLimit": { "type": "integer", "minimum": 0 },
+        "maxRecommendationsPerRun": { "type": "integer", "minimum": 0 },
+        "candidateCount": { "type": "integer", "minimum": 0 },
+        "omittedCandidateCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "recordCommand": { "type": "string", "minLength": 1 },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["writes", "rawSourcePersisted", "rawDiffPersisted", "promptPersisted"],
+      "properties": {
+        "writes": { "const": "none" },
+        "rawSourcePersisted": { "const": false },
+        "rawDiffPersisted": { "const": false },
+        "promptPersisted": { "const": false }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "recording": {
+            "properties": {
+              "recordable": { "const": true }
+            }
+          }
+        }
+      },
+      "then": { "required": ["recordCommand"] },
+      "else": {
+        "not": { "required": ["recordCommand"] }
+      }
+    }
+  ],
+  "$defs": {
+    "recommendationV3": {
+      "description": "A recorded or proposed recommendation, archcontext.recommendation/v3. category selects the payload shape: practice, structural_observation or refactor_proposal. The write-side invariants (sorted lists, fingerprint value, evidence counts) are in recommendationV3InvariantIssues in archctx-contracts.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "recommendationId", "runId", "fingerprint", "subject", "status", "confidence", "enforcement", "risk", "uncertainty", "evidenceBindingIds", "explanation", "authoredBy", "subjectSelectorId", "relations", "createdAt", "updatedAt", "category", "payload"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.recommendation/v3" },
+        "recommendationId": { "type": "string", "pattern": "^(recommendation|rec)\\.[a-zA-Z0-9_.-]+$" },
+        "runId": { "type": "string", "pattern": "^(recommendation_run|rec_run)\\.[a-zA-Z0-9_.-]+$" },
+        "fingerprint": { "$ref": "#/$defs/digest" },
+        "subject": { "type": "string", "minLength": 1 },
+        "practiceId": { "type": "string", "minLength": 1 },
+        "status": {
+          "enum": ["open", "acknowledged", "accepted", "rejected", "deferred", "waived", "resolved", "superseded", "expired"]
+        },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "enforcement": { "enum": ["advisory", "checkpoint", "complete"] },
+        "risk": { "enum": ["low", "medium", "high"] },
+        "uncertainty": { "enum": ["low", "medium", "high"] },
+        "evidenceBindingIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^binding\\.[a-zA-Z0-9_.-]+$" }
+        },
+        "explanation": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "authoredBy": { "$ref": "#/$defs/author" },
+        "subjectSelectorId": { "type": "string", "minLength": 1 },
+        "relations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "supersedes": { "type": "string", "minLength": 1 },
+            "regressesFrom": { "type": "string", "minLength": 1 }
+          }
+        },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "category": { "enum": ["practice", "refactor_proposal", "structural_observation"] },
+        "payload": { "type": "object" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["category"],
+            "properties": {
+              "category": { "const": "practice" }
+            }
+          },
+          "then": {
+            "required": ["practiceId"],
+            "properties": {
+              "payload": { "$ref": "#/$defs/practicePayload" }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["category"],
+            "properties": {
+              "category": { "const": "structural_observation" }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": { "$ref": "#/$defs/structuralObservationPayload" },
+              "enforcement": { "const": "advisory" },
+              "authoredBy": {
+                "properties": {
+                  "kind": { "const": "daemon" },
+                  "source": { "const": "daemon" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["category"],
+            "properties": {
+              "category": { "const": "refactor_proposal" }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": { "$ref": "#/$defs/refactorProposalPayload" },
+              "enforcement": { "enum": ["checkpoint", "complete"] },
+              "authoredBy": {
+                "properties": {
+                  "source": { "enum": ["cli", "manual", "mcp", "subagent"] }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "evidenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceId", "kind", "strength", "polarity", "origin", "subject", "selector", "summary", "coverage", "supports", "provenance", "createdAt", "digest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.evidence-item/v2" },
+        "evidenceId": { "type": "string", "pattern": "^evidence\\.[a-zA-Z0-9_.-]+$" },
+        "kind": { "type": "string" },
+        "strength": { "enum": ["heuristic", "declared", "observed", "verified"] },
+        "polarity": { "enum": ["positive", "absence", "declaration"] },
+        "origin": {
+          "enum": ["codegraph", "model-store-yaml", "checkpoint", "runtime-daemon", "user", "subagent", "external-doc"]
+        },
+        "subject": { "type": "string" },
+        "selector": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": { "enum": ["repository", "path", "symbol", "relation", "constraint", "practice", "event", "snapshot"] },
+            "id": { "type": "string" },
+            "path": { "type": "string" },
+            "symbolId": { "type": "string" },
+            "startLine": { "type": "integer", "minimum": 1 },
+            "endLine": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "summary": { "type": "string" },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "scope"],
+          "properties": {
+            "level": { "enum": ["complete", "partial", "unknown"] },
+            "scope": { "type": "string" }
+          }
+        },
+        "supports": {
+          "type": "array",
+          "items": { "enum": ["recommendation", "checkpoint", "complete"] }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["producer", "command", "inputDigest"],
+          "properties": {
+            "producer": { "type": "string" },
+            "command": { "type": "string" },
+            "inputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "traceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          }
+        },
+        "createdAt": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "evidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "bindingId", "evidenceId", "target", "bindingReason", "authorityEffect", "createdAt", "provenance"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.evidence-binding/v1" },
+        "bindingId": { "type": "string", "pattern": "^binding\\.[a-zA-Z0-9_.-]+$" },
+        "evidenceId": { "type": "string", "pattern": "^evidence\\.[a-zA-Z0-9_.-]+$" },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": {
+              "enum": ["entity", "relation", "constraint", "recommendation", "practice", "event", "snapshot", "subject", "candidate-delta"]
+            },
+            "id": { "type": "string" }
+          }
+        },
+        "bindingReason": {
+          "enum": ["direct-selector", "predicate-subject", "change-cursor", "human-attestation", "deterministic-check", "subagent-proposal"]
+        },
+        "authorityEffect": { "enum": ["context-only", "ranking", "checkpoint-eligible", "complete-eligible"] },
+        "createdAt": { "type": "string" },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["producer", "command", "inputDigest"],
+          "properties": {
+            "producer": { "type": "string" },
+            "command": { "type": "string" },
+            "inputDigest": {
+              "description": "A SHA-256 digest, or the bound evidenceId: refactor record and refactor verify write the evidenceId here.",
+              "anyOf": [
+                { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                { "type": "string", "pattern": "^evidence\\.[a-zA-Z0-9_.-]+$" }
+              ]
+            },
+            "traceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          }
+        },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "source"],
+      "properties": {
+        "kind": { "enum": ["developer", "daemon", "hook", "cli", "mcp", "subagent", "migration", "system"] },
+        "id": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["cli", "mcp", "manual", "daemon", "system", "subagent"] }
+      }
+    },
+    "targetOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcomeId", "metric", "subjectSelectorId", "nodeId", "operator", "value", "required"],
+      "properties": {
+        "outcomeId": { "type": "string", "minLength": 1 },
+        "metric": { "type": "string", "minLength": 1 },
+        "subjectSelectorId": { "type": "string", "minLength": 1 },
+        "nodeId": { "type": ["string", "null"] },
+        "operator": { "enum": ["absent", "equals", "greater_than", "less_than", "present"] },
+        "value": { "type": ["number", "null"] },
+        "required": { "type": "boolean" }
+      }
+    },
+    "killListEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "selectorId", "required"],
+      "properties": {
+        "kind": { "enum": ["path", "relation", "symbol"] },
+        "selectorId": { "type": "string", "minLength": 1 },
+        "required": { "type": "boolean" }
+      }
+    },
+    "targetDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interventionId", "trigger", "thesis", "targetState", "migrationState", "completionCriteria", "falsifiers", "benefitLedger", "unresolvedTargets"],
+      "properties": {
+        "interventionId": { "type": "string", "minLength": 1 },
+        "trigger": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "thesis": { "type": "string" },
+        "targetState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owners", "requiredRelations", "removedConcepts"],
+          "properties": {
+            "owners": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "requiredRelations": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "removedConcepts": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "migrationState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["active", "compatibilityContracts", "temporaryRelations"],
+          "properties": {
+            "active": { "type": "boolean" },
+            "compatibilityContracts": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "cleanupBy": { "type": "string" },
+            "temporaryRelations": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "completionCriteria": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/targetOutcome" }
+        },
+        "falsifiers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "benefitLedger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["benefits", "costs", "rollbackPoint"],
+          "properties": {
+            "benefits": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "costs": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "rollbackPoint": { "type": "string" }
+          }
+        },
+        "unresolvedTargets": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "importEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fromPath", "fromLine", "toPath", "specifier", "fromNodeId", "toNodeId"],
+      "properties": {
+        "fromPath": { "type": "string", "minLength": 1 },
+        "fromLine": { "type": ["integer", "null"], "minimum": 1 },
+        "toPath": { "type": "string", "minLength": 1 },
+        "specifier": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\r\\n]+$" },
+        "fromNodeId": { "type": "string", "minLength": 1 },
+        "toNodeId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "directionViolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fromPath", "fromLine", "toPath", "specifier", "fromNodeId", "toNodeId", "constraintId"],
+      "properties": {
+        "fromPath": { "type": "string", "minLength": 1 },
+        "fromLine": { "type": ["integer", "null"], "minimum": 1 },
+        "toPath": { "type": "string", "minLength": 1 },
+        "specifier": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\r\\n]+$" },
+        "fromNodeId": { "type": "string", "minLength": 1 },
+        "toNodeId": { "type": "string", "minLength": 1 },
+        "constraintId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "evidencePath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "candidateOwnerNodeIds", "candidateOwnerCount"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "candidateOwnerNodeIds": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "type": "string" }
+        },
+        "candidateOwnerCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "unresolvedImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fromPath", "fromLine", "specifier"],
+      "properties": {
+        "fromPath": { "type": "string", "minLength": 1 },
+        "fromLine": { "type": ["integer", "null"], "minimum": 1 },
+        "specifier": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\r\\n]+$" }
+      }
+    },
+    "observationEvidence": {
+      "description": "Bounded evidence for one observation. Samples hold at most 20 entries and id lists at most 32. totalCount is the population; truncated is true when the sample is a prefix of it. Only paths, lines, specifiers and ids; never source text.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "memberNodeIds", "edges", "totalCount", "truncated"],
+          "properties": {
+            "kind": { "const": "cycle" },
+            "memberNodeIds": {
+              "type": "array",
+              "maxItems": 32,
+              "items": { "type": "string" }
+            },
+            "edges": {
+              "type": "array",
+              "maxItems": 20,
+              "items": { "$ref": "#/$defs/importEdge" }
+            },
+            "totalCount": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "constraintIds", "constraintCount", "violations", "totalCount", "truncated"],
+          "properties": {
+            "kind": { "const": "direction-violation" },
+            "constraintIds": {
+              "type": "array",
+              "maxItems": 32,
+              "items": { "type": "string" }
+            },
+            "constraintCount": { "type": "integer", "minimum": 0 },
+            "violations": {
+              "type": "array",
+              "maxItems": 20,
+              "items": { "$ref": "#/$defs/directionViolation" }
+            },
+            "totalCount": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "paths", "totalCount", "truncated"],
+          "properties": {
+            "kind": { "enum": ["ownership-ambiguous", "undeclared-footprint", "unowned-paths"] },
+            "paths": {
+              "type": "array",
+              "maxItems": 20,
+              "items": { "$ref": "#/$defs/evidencePath" }
+            },
+            "totalCount": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "coverage", "reasonCodes", "unresolvedImports", "totalCount", "truncated"],
+          "properties": {
+            "kind": { "const": "evidence-gap" },
+            "coverage": { "enum": ["complete", "partial", "unknown"] },
+            "reasonCodes": {
+              "type": "array",
+              "items": {
+                "enum": ["caller-coverage-unknown", "code-facts-missing", "code-facts-truncated", "major-change-detected", "multi-node-scope", "node-footprint-undeclared", "ownership-ambiguous", "single-node-scope", "target-unresolved", "unowned-paths"]
+              }
+            },
+            "unresolvedImports": {
+              "type": "array",
+              "maxItems": 20,
+              "items": { "$ref": "#/$defs/unresolvedImport" }
+            },
+            "totalCount": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "practicePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["practiceId", "baselineDigest"],
+      "properties": {
+        "practiceId": { "type": "string", "minLength": 1 },
+        "baselineDigest": {
+          "anyOf": [
+            { "$ref": "#/$defs/digest" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "structuralObservationPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assessmentDigest", "kind", "affectedNodeIds", "baselineSnapshotDigest", "derivedOutcomes"],
+      "properties": {
+        "assessmentDigest": { "$ref": "#/$defs/digest" },
+        "kind": {
+          "enum": ["cycle", "direction-violation", "evidence-gap", "ownership-ambiguous", "undeclared-footprint", "unowned-paths"]
+        },
+        "affectedNodeIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "baselineSnapshotDigest": { "$ref": "#/$defs/digest" },
+        "derivedOutcomes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/targetOutcome" }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Observation metrics by name. Each value is a number or null.",
+          "additionalProperties": { "type": ["number", "null"] }
+        },
+        "signalIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "evidence": { "$ref": "#/$defs/observationEvidence" }
+      },
+      "description": "A structural observation. archctx 0.7.0 and later copy metrics, signalIds and evidence from the assessed observation, so a record is self-contained. A record written by archctx 0.6.3 or earlier (before #262) has none of the three, and `recommendations show` and `list` return it unchanged. The absence of evidence marks such a legacy record. The three fields are present together or absent together.",
+      "anyOf": [
+        { "required": ["metrics", "signalIds", "evidence"] },
+        {
+          "not": {
+            "anyOf": [
+              { "required": ["metrics"] },
+              { "required": ["signalIds"] },
+              { "required": ["evidence"] }
+            ]
+          }
+        }
+      ]
+    },
+    "refactorProposalPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assessmentDigest", "proposalDigest", "scale", "affectedNodeIds", "majorChangeReasons", "baselineSnapshotDigest", "targetOutcomes", "killList"],
+      "properties": {
+        "assessmentDigest": { "$ref": "#/$defs/digest" },
+        "proposalDigest": { "$ref": "#/$defs/digest" },
+        "scale": { "enum": ["architecture", "cross_module", "insufficient_evidence", "model_adoption_required", "module"] },
+        "affectedNodeIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "majorChangeReasons": {
+          "type": "array",
+          "items": {
+            "enum": ["constraint-changed", "entrypoint-changed", "interface-changed", "lifecycle-changed", "node-added", "node-moved", "node-removed", "node-renamed", "ownership-changed", "relation-changed", "responsibility-changed", "risk-boundary-changed", "verified-flow-proof-changed"]
+          }
+        },
+        "baselineSnapshotDigest": { "$ref": "#/$defs/digest" },
+        "targetDelta": { "$ref": "#/$defs/targetDelta" },
+        "targetOutcomes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/targetOutcome" }
+        },
+        "killList": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/killListEntry" }
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "moduleStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "nodeDigest", "parentNodeId", "footprintDeclared", "footprint", "surfaces", "dependencyGraph", "tests", "uncertainty", "moduleDigest"],
+      "properties": {
+        "nodeId": { "type": "string", "minLength": 1 },
+        "nodeDigest": { "$ref": "#/$defs/digest" },
+        "parentNodeId": { "type": ["string", "null"] },
+        "footprintDeclared": { "type": "boolean" },
+        "footprint": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["fileCount", "lineCount", "sourceFilesDigest", "includePatterns", "excludePatterns"],
+              "properties": {
+                "fileCount": { "type": "integer", "minimum": 0 },
+                "lineCount": { "type": "integer", "minimum": 0 },
+                "sourceFilesDigest": { "$ref": "#/$defs/digest" },
+                "includePatterns": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "excludePatterns": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "surfaces": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["declaredEntrypoints", "observedEntrypoints", "lifecycleOwners", "datastoreSubjects"],
+          "properties": {
+            "declaredEntrypoints": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "observedEntrypoints": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "lifecycleOwners": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "datastoreSubjects": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "dependencyGraph": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["internalEdgeCount", "inboundModuleEdges", "outboundModuleEdges", "fanIn", "fanOut", "stronglyConnectedComponentId", "cycleCount", "instability", "directionViolationCount"],
+              "properties": {
+                "internalEdgeCount": { "type": "integer", "minimum": 0 },
+                "inboundModuleEdges": { "type": "integer", "minimum": 0 },
+                "outboundModuleEdges": { "type": "integer", "minimum": 0 },
+                "fanIn": { "type": "integer", "minimum": 0 },
+                "fanOut": { "type": "integer", "minimum": 0 },
+                "stronglyConnectedComponentId": { "type": ["string", "null"] },
+                "cycleCount": { "type": "integer", "minimum": 0 },
+                "instability": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+                "directionViolationCount": { "type": ["integer", "null"], "minimum": 0 }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "tests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["testFileCount", "observedTestEdges", "callerCoverage", "coverageStatus"],
+          "properties": {
+            "testFileCount": { "type": ["integer", "null"], "minimum": 0 },
+            "observedTestEdges": { "type": ["integer", "null"], "minimum": 0 },
+            "callerCoverage": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "coverageStatus": { "enum": ["measured", "partial", "unknown"] }
+          }
+        },
+        "uncertainty": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["unresolvedImports", "dynamicInvocation", "ambiguousOwnership"],
+          "properties": {
+            "unresolvedImports": { "type": "integer", "minimum": 0 },
+            "dynamicInvocation": { "enum": ["known", "none_observed", "possible", "unknown"] },
+            "ambiguousOwnership": { "type": "boolean" }
+          }
+        },
+        "moduleDigest": { "$ref": "#/$defs/digest" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "refactorScope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "repository" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "nodeId"],
+          "properties": {
+            "kind": { "const": "node" },
+            "nodeId": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "paths"],
+          "properties": {
+            "kind": { "const": "paths" },
+            "paths": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      ]
+    },
+    "refactorProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "authoredBy", "intent", "scopePaths", "targetOutcomes", "killList", "proposalDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.refactor-proposal/v1" },
+        "authoredBy": { "$ref": "#/$defs/author" },
+        "intent": { "type": "string" },
+        "scopePaths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "targetDelta": { "$ref": "#/$defs/targetDelta" },
+        "targetOutcomes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/targetOutcome" }
+        },
+        "killList": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/killListEntry" }
+        },
+        "proposalDigest": { "$ref": "#/$defs/digest" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "refactorRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "scope"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.refactor-request/v1" },
+        "scope": { "$ref": "#/$defs/refactorScope" },
+        "proposal": { "$ref": "#/$defs/refactorProposal" },
+        "expectedHeadSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "expectedWorktreeDigest": { "$ref": "#/$defs/digest" },
+        "task": { "type": "string" }
+      }
+    },
+    "moduleStatisticsSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "repository", "worktree", "modelDigest", "codeFacts", "modules", "repositorySummary", "createdAt", "snapshotDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.module-statistics/v1" },
+        "repository": { "$ref": "#/$defs/repository" },
+        "worktree": { "$ref": "#/$defs/worktree" },
+        "modelDigest": { "$ref": "#/$defs/digest" },
+        "codeFacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "version", "binaryDigest", "indexedWorktreeDigest", "coverage", "truncated", "edgeLimit", "reasonCodes"],
+          "properties": {
+            "provider": { "const": "codegraph" },
+            "version": { "type": "string" },
+            "binaryDigest": { "type": "string" },
+            "indexedWorktreeDigest": { "type": ["string", "null"] },
+            "coverage": { "enum": ["complete", "partial", "unknown"] },
+            "truncated": { "type": "boolean" },
+            "edgeLimit": { "type": ["integer", "null"], "minimum": 0 },
+            "reasonCodes": {
+              "type": "array",
+              "items": {
+                "enum": ["caller-coverage-unknown", "code-facts-missing", "code-facts-truncated", "major-change-detected", "multi-node-scope", "node-footprint-undeclared", "ownership-ambiguous", "single-node-scope", "target-unresolved", "unowned-paths"]
+              }
+            }
+          }
+        },
+        "modules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/moduleStatistics" }
+        },
+        "repositorySummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["moduleCount", "undeclaredFootprintNodeCount", "ownedFileCount", "unownedFileCount", "multiplyOwnedFileCount", "crossModuleEdgeCount", "crossModuleCycleCount", "stronglyConnectedComponentCount", "unresolvedImportCount", "dynamicInvocationRiskCount"],
+          "properties": {
+            "moduleCount": { "type": "integer", "minimum": 0 },
+            "undeclaredFootprintNodeCount": { "type": "integer", "minimum": 0 },
+            "ownedFileCount": { "type": "integer", "minimum": 0 },
+            "unownedFileCount": { "type": "integer", "minimum": 0 },
+            "multiplyOwnedFileCount": { "type": "integer", "minimum": 0 },
+            "crossModuleEdgeCount": { "type": "integer", "minimum": 0 },
+            "crossModuleCycleCount": { "type": "integer", "minimum": 0 },
+            "stronglyConnectedComponentCount": { "type": "integer", "minimum": 0 },
+            "unresolvedImportCount": { "type": "integer", "minimum": 0 },
+            "dynamicInvocationRiskCount": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "createdAt": { "type": "string" },
+        "snapshotDigest": { "$ref": "#/$defs/digest" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "subjectSelectorId", "signalIds", "metrics", "evidence"],
+      "properties": {
+        "kind": {
+          "enum": ["cycle", "direction-violation", "evidence-gap", "ownership-ambiguous", "undeclared-footprint", "unowned-paths"]
+        },
+        "subjectSelectorId": { "type": "string", "minLength": 1 },
+        "signalIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Observation metrics by name. Each value is a number or null.",
+          "additionalProperties": { "type": ["number", "null"] }
+        },
+        "evidence": { "$ref": "#/$defs/observationEvidence" }
+      }
+    },
+    "refactorAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "requestId", "statisticsSnapshotDigest", "modelDigest", "codeFactsDigest", "requestedScope", "proposalDigest", "observations", "scale", "scaleReasonCodes", "affectedNodeIds", "majorChangeReasons", "pressure", "confidence", "createdAt", "assessmentDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.refactor-assessment/v1" },
+        "requestId": { "type": "string", "minLength": 1 },
+        "statisticsSnapshotDigest": { "$ref": "#/$defs/digest" },
+        "modelDigest": { "$ref": "#/$defs/digest" },
+        "codeFactsDigest": { "$ref": "#/$defs/digest" },
+        "requestedScope": { "$ref": "#/$defs/refactorScope" },
+        "proposalDigest": {
+          "anyOf": [
+            { "$ref": "#/$defs/digest" },
+            { "type": "null" }
+          ]
+        },
+        "observations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/observation" }
+        },
+        "scale": {
+          "enum": ["architecture", "cross_module", "insufficient_evidence", "model_adoption_required", "module",null]
+        },
+        "scaleReasonCodes": {
+          "type": "array",
+          "items": {
+            "enum": ["caller-coverage-unknown", "code-facts-missing", "code-facts-truncated", "major-change-detected", "multi-node-scope", "node-footprint-undeclared", "ownership-ambiguous", "single-node-scope", "target-unresolved", "unowned-paths"]
+          }
+        },
+        "affectedNodeIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "majorChangeReasons": {
+          "type": "array",
+          "items": {
+            "enum": ["constraint-changed", "entrypoint-changed", "interface-changed", "lifecycle-changed", "node-added", "node-moved", "node-removed", "node-renamed", "ownership-changed", "relation-changed", "responsibility-changed", "risk-boundary-changed", "verified-flow-proof-changed"]
+          }
+        },
+        "pressure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "score", "signalIds"],
+          "properties": {
+            "level": { "enum": ["low", "medium", "high"] },
+            "score": { "type": "number", "minimum": 0, "maximum": 100 },
+            "signalIds": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "confidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "callerCoverage", "testsObserved", "rollbackObserved", "unresolvedEvidence"],
+          "properties": {
+            "level": { "enum": ["low", "medium", "high"] },
+            "callerCoverage": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "testsObserved": { "type": ["boolean", "null"] },
+            "rollbackObserved": { "type": ["boolean", "null"] },
+            "unresolvedEvidence": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "createdAt": { "type": "string" },
+        "assessmentDigest": { "$ref": "#/$defs/digest" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "suppression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reasonCode", "fingerprint", "subject"],
+      "properties": {
+        "reasonCode": { "enum": ["cooldown-active", "decided-fingerprint", "duplicate-active-fingerprint"] },
+        "fingerprint": { "$ref": "#/$defs/digest" },
+        "subject": { "type": "string" },
+        "practiceId": { "type": "string" },
+        "previousRecommendationId": { "type": "string" },
+        "cooldownUntil": { "type": "string" }
+      }
+    }
+  }
+}

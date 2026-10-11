@@ -44,10 +44,18 @@ import {
 } from "../src/github-governance";
 import {
   LEDGER_AUTHORITY_MATRIX,
+  RECOMMENDATION_CATEGORIES,
   RECOMMENDATION_STATUSES,
   architectureEventHash,
-  architectureSnapshotDigest
+  architectureSnapshotDigest,
+  type RecommendationV3
 } from "../src/ledger";
+import {
+  REFACTOR_OBSERVATION_KINDS,
+  REFACTOR_SCALES,
+  REFACTOR_SCALE_REASON_CODES,
+  recommendationV3InvariantIssues
+} from "../src/refactor";
 import {
   ARCHCONTEXT_PACKAGE_MANAGER,
   ARCHCONTEXT_PRODUCT_VERSION,
@@ -61,6 +69,7 @@ import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, typ
 import { architectureDocsProjectionManifestIssues, isArchitectureScaleBucket } from "../src/projection-manifest";
 import {
   ARCHCTX_FEATURES,
+  ARCHITECTURE_MAJOR_CHANGE_REASON_CODES,
   PROJECTION_FILE_PREVIEW_MAX_BYTES,
   PROJECTION_PREVIEW_TOTAL_MAX_BYTES,
   architectureRefreshSignalInvariantIssues,
@@ -158,6 +167,10 @@ const schemaByFixture: Record<string, string> = {
   "recommendation-run": "schemas/runtime/recommendation-run.schema.json",
   "recommendation": "schemas/runtime/recommendation.schema.json",
   "recommendation-feedback": "schemas/runtime/recommendation-feedback.schema.json",
+  "recommendation-v3": "schemas/runtime/recommendation-v3.schema.json",
+  "recommendation-v3-legacy": "schemas/runtime/recommendation-v3.schema.json",
+  "runtime-refactor-scan": "schemas/runtime/runtime-refactor-scan.schema.json",
+  "runtime-recommendation-show": "schemas/runtime/runtime-recommendation-show.schema.json",
   "agent-job": "schemas/runtime/agent-job.schema.json",
   "investigation-report": "schemas/runtime/investigation-report.schema.json",
   "practice-catalog-manifest": "schemas/runtime/practice-catalog-manifest.schema.json",
@@ -875,6 +888,21 @@ test("capabilities fixture is the exact static handshake advertised by contracts
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
 });
 
+test("capabilities schema accepts a well-formed feature flag it does not list, so older validators accept newer releases", () => {
+  const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
+  expect(fixture.features).toContain("code-facts-unavailable-error-v1");
+  expect(fixture.features).toContain("projection-manifest-contract-v2");
+  const schema = readJson("schemas/runtime/archctx-capabilities.schema.json") as any;
+  const items = schema.properties.features.items as { pattern: string; examples: string[] };
+  expect(items.examples).toEqual([...ARCHCTX_FEATURES]);
+  for (const feature of ARCHCTX_FEATURES) expect(new RegExp(items.pattern).test(feature), feature).toBe(true);
+  const withFeatures = (features: string[]) => ({ ...fixture, features } as unknown as Json);
+  expect(validateJsonSchema(schema, withFeatures([...fixture.features, "future-release-feature-v1"])).valid).toBe(true);
+  for (const malformed of ["Future-Feature-v1", "future-feature", "future_feature-v1", "-v1", ""]) {
+    expect(validateJsonSchema(schema, withFeatures([...fixture.features, malformed])).valid, malformed).toBe(false);
+  }
+});
+
 function readJson(path: string): Json {
   return JSON.parse(readFileSync(join(root, path), "utf8"));
 }
@@ -882,6 +910,90 @@ function readJson(path: string): Json {
 test("RECOMMENDATION_STATUSES is the recommendation schema's status enum", () => {
   const schema = readJson("schemas/runtime/recommendation.schema.json") as { properties: { status: { enum: string[] } } };
   expect(schema.properties.status.enum).toEqual([...RECOMMENDATION_STATUSES]);
+});
+
+describe("refactor data schemas", () => {
+  const shapeOf = (schema: Json) => {
+    const { $schema: _schema, $id: _id, title: _title, $defs: _defs, ...shape } = schema as Record<string, Json>;
+    return shape;
+  };
+  const v3 = readJson("schemas/runtime/recommendation-v3.schema.json") as any;
+  const scan = readJson("schemas/runtime/runtime-refactor-scan.schema.json") as any;
+  const show = readJson("schemas/runtime/runtime-recommendation-show.schema.json") as any;
+
+  test("the recommendation v3 schema enums are the contract constants", () => {
+    expect(v3.properties.status.enum).toEqual([...RECOMMENDATION_STATUSES]);
+    expect(v3.properties.category.enum).toEqual([...RECOMMENDATION_CATEGORIES]);
+    expect(v3.$defs.structuralObservationPayload.properties.kind.enum).toEqual([...REFACTOR_OBSERVATION_KINDS]);
+    expect(v3.$defs.refactorProposalPayload.properties.scale.enum).toEqual([...REFACTOR_SCALES]);
+    expect(v3.$defs.refactorProposalPayload.properties.majorChangeReasons.items.enum).toEqual([...ARCHITECTURE_MAJOR_CHANGE_REASON_CODES]);
+    const evidenceKinds = (v3.$defs.observationEvidence.oneOf as any[]).flatMap((branch) => branch.properties.kind.const ?? branch.properties.kind.enum);
+    expect([...evidenceKinds].sort()).toEqual([...REFACTOR_OBSERVATION_KINDS]);
+    const gap = (v3.$defs.observationEvidence.oneOf as any[]).find((branch) => branch.properties.kind.const === "evidence-gap");
+    expect(gap.properties.reasonCodes.items.enum).toEqual([...REFACTOR_SCALE_REASON_CODES]);
+  });
+
+  test("the v3 fixture passes the write-side invariant; the legacy fixture is detected by its missing evidence", () => {
+    const current = readJson("packages/contracts/fixtures/valid/recommendation-v3.json") as unknown as RecommendationV3;
+    expect(recommendationV3InvariantIssues(current)).toEqual([]);
+    expect("evidence" in current.payload).toBe(true);
+
+    // Written before #262 and returned unchanged by show: valid against the read-side schema, never
+    // written again, and recognized by the absence of payload.evidence.
+    const legacy = readJson("packages/contracts/fixtures/valid/recommendation-v3-legacy.json") as unknown as RecommendationV3;
+    expect(validateJsonSchema(v3, legacy as unknown as Json).issues).toEqual([]);
+    expect("evidence" in legacy.payload).toBe(false);
+    expect(recommendationV3InvariantIssues(legacy)).toContain(
+      "recommendation.payload does not match category structural_observation; missing evidence, metrics, signalIds"
+    );
+  });
+
+  test("a category with another category's payload is rejected", () => {
+    const current = readJson("packages/contracts/fixtures/valid/recommendation-v3.json") as Record<string, Json>;
+    expect(validateJsonSchema(v3, { ...current, category: "refactor_proposal", enforcement: "checkpoint" } as Json).valid).toBe(false);
+    expect(validateJsonSchema(v3, { ...current, enforcement: "checkpoint" } as Json).valid).toBe(false);
+    const payload = current.payload as Record<string, Json>;
+    expect(validateJsonSchema(v3, { ...current, payload: { ...payload, evidence: { ...(payload.evidence as Record<string, Json>), kind: "unknown-kind" } } } as Json).valid).toBe(false);
+  });
+
+  test("runtime result schemas embed the published shapes; only evidence-binding inputDigest is widened", () => {
+    for (const result of [scan, show]) {
+      expect(result.$defs.recommendationV3).toEqual(shapeOf(v3 as Json));
+      for (const [name, shape] of Object.entries(v3.$defs)) expect(result.$defs[name], name).toEqual(shape);
+      expect(result.$defs.evidenceItem).toEqual(shapeOf(readJson("schemas/runtime/evidence-item.schema.json")));
+      const binding = structuredClone(shapeOf(readJson("schemas/runtime/evidence-binding.schema.json"))) as any;
+      expect(result.$defs.evidenceBinding.properties.provenance.properties.inputDigest.anyOf[0])
+        .toEqual(binding.properties.provenance.properties.inputDigest);
+      binding.properties.provenance.properties.inputDigest = result.$defs.evidenceBinding.properties.provenance.properties.inputDigest;
+      expect(result.$defs.evidenceBinding).toEqual(binding);
+    }
+    for (const name of ["repository", "worktree", "moduleStatistics"]) expect(show.$defs[name], name).toEqual(scan.$defs[name]);
+    expect(show.$defs.recommendationV2).toEqual(shapeOf(readJson("schemas/runtime/recommendation.schema.json")));
+    expect(show.$defs.recommendationFeedback).toEqual(shapeOf(readJson("schemas/runtime/recommendation-feedback.schema.json")));
+  });
+
+  test("a scan carries recordCommand exactly when the run is recordable", () => {
+    const fixture = readJson("packages/contracts/fixtures/valid/runtime-refactor-scan.json") as Record<string, Json>;
+    const { recordCommand: _recordCommand, ...withoutCommand } = fixture;
+    expect(validateJsonSchema(scan, withoutCommand as Json).valid).toBe(false);
+    const unrecordable = { recordable: false, reasonCode: "refactor-run-exceeds-ledger-size-limit", measuredBytes: 300000, limitBytes: 262144 };
+    expect(validateJsonSchema(scan, { ...withoutCommand, recording: unrecordable } as Json).issues).toEqual([]);
+    expect(validateJsonSchema(scan, { ...fixture, recording: unrecordable } as Json).valid).toBe(false);
+  });
+
+  test("show binds worktree to the source and accepts a recorded v2 or legacy v3 record", () => {
+    const fixture = readJson("packages/contracts/fixtures/valid/runtime-recommendation-show.json") as Record<string, Json>;
+    const worktree = { headSha: "a".repeat(40), worktreeDigest: `sha256:${"b".repeat(64)}` };
+    expect(validateJsonSchema(show, { ...fixture, worktree } as Json).valid).toBe(false);
+    expect(validateJsonSchema(show, { ...fixture, source: "scan-candidate", worktree } as Json).issues).toEqual([]);
+    expect(validateJsonSchema(show, { ...fixture, source: "scan-candidate" } as Json).valid).toBe(false);
+    for (const recorded of ["recommendation", "recommendation-v3-legacy"]) {
+      const recommendation = readJson(`packages/contracts/fixtures/valid/${recorded}.json`);
+      expect(validateJsonSchema(show, { ...fixture, recommendation } as Json).issues, recorded).toEqual([]);
+    }
+    expect(validateJsonSchema(show, { ...fixture, baseline: { status: "missing", snapshotDigest: `sha256:${"c".repeat(64)}` } } as Json).valid).toBe(false);
+    expect(validateJsonSchema(show, { ...fixture, baseline: { status: "missing", snapshotDigest: null } } as Json).issues).toEqual([]);
+  });
 });
 
 describe("JSON schema contracts", () => {
@@ -1309,13 +1421,16 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.architecture-event/v1": "architecture-event",
     "archcontext.architecture-snapshot/v2": "architecture-snapshot",
     "archcontext.projection-target/v1": "projection-target",
-    "archcontext.architecture-docs-projection-manifest/v1": "projection-manifest",
+    "archcontext.architecture-docs-projection-manifest/v2": "projection-manifest",
     "archcontext.evidence-item/v2": "evidence-item",
     "archcontext.evidence-binding/v1": "evidence-binding",
     "archcontext.architecture-candidate-delta-policy/v1": "architecture-candidate-delta-policy",
     "archcontext.recommendation-run/v1": "recommendation-run",
     "archcontext.recommendation/v2": "recommendation",
     "archcontext.recommendation-feedback/v1": "recommendation-feedback",
+    "archcontext.recommendation/v3": "recommendation-v3",
+    "archcontext.runtime-refactor-scan/v1": "runtime-refactor-scan",
+    "archcontext.runtime-recommendation-show/v1": "runtime-recommendation-show",
     "archcontext.agent-job/v1": "agent-job",
     "archcontext.investigation-report/v1": "investigation-report",
     "archcontext.retrieval-config/v1": "retrieval-config",

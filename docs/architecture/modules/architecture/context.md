@@ -1,6 +1,6 @@
 # architecture/context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:8f5b79b0348a19a3d73c80ef65ce96552f7d86f86fdf5d0472d8abf0617025cd" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:93fec0618c2b13431ef7e70d7d3217349e491e88b339b78eeb53ed8cd50ab37a" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:4e28579f79119802f0a6a7f9968a3b323802384715341b8f2b85116fb1c96672" rendererVersion="archcontext.docs-renderer/v5" outputDigest="sha256:7d0af2b583842a50cdbaf02b5fdc1544ddddbaae8fb1012005e15fcda14c0a77" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture.context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -105,7 +105,7 @@ flowchart LR
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose external documentation operations using the existing provider， store and writer ports"| p1_component_architecture_context_local_runtime_external_documentation_cb71400c
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate explicit ledger administration using the existing writer gate， stores and transactional append callback"| p1_component_architecture_context_local_runtime_ledger_admin_0c86ee18
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate projection receipt operations through the composed service with the daemon running guard and writer gate"| p1_component_architecture_context_local_runtime_projection_apply_154446a6
-  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate typed projection operations after validating transport input and MCP one-time approval"| p1_component_architecture_context_local_runtime_projection_service_5fe94894
+  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate typed projection operations after validating transport input and MCP explicit approval"| p1_component_architecture_context_local_runtime_projection_service_5fe94894
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose recommendation lifecycle and refactor scan/record/verify orchestration， and evaluate review dependency constraints in the completion gate"| p1_component_architecture_context_local_runtime_recommendations_0ebeafe6
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose the loopback RPC client through the runtime facade while preserving the public protocol"| p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose the public RPC server and share control-file， HTTP and strict review-boundary helpers"| p1_component_architecture_context_local_runtime_rpc_server_90daf412
@@ -116,7 +116,7 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:691d588d1ae919bf87f70307b32074f641c94f6b4a2029fc3d08c718c6ecb049`).
+- Proof: `proven` (`sha256:5c43c313ac3e79e3599b06c95b369912dd8d1be29e306e62f4e1eca40347f4c2`).
 - Semantic nodes: `50`; declared relations: `45`.
 
 ### 1.2 模組職責表
@@ -145,7 +145,7 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **Proof**: `proven` (`sha256:691d588d1ae919bf87f70307b32074f641c94f6b4a2029fc3d08c718c6ecb049`); selectors `2/2`.
+> **Proof**: `proven` (`sha256:5c43c313ac3e79e3599b06c95b369912dd8d1be29e306e62f4e1eca40347f4c2`); selectors `2/2`.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%

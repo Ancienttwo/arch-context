@@ -131,7 +131,7 @@ function currentRepoProjectionReadback() {
     projectionDigest: plan.projectionDigest,
     sourceDigest: plan.sourceDigest,
     projectionManifestTracksDigests:
-      projectionManifest.schemaVersion === "archcontext.architecture-docs-projection-manifest/v1"
+      projectionManifest.schemaVersion === "archcontext.architecture-docs-projection-manifest/v2"
       && projectionManifest.sourceDigest === plan.sourceDigest
       && projectionManifest.projectionDigest === plan.projectionDigest
       && projectionManifest.targets.every((target: any) => typeof target.outputDigest === "string" && target.outputDigest.startsWith("sha256:")),
