@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
-import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, packagedCodeGraphCliInvocation, prepareProjectionCodeFacts } from "../src/index";
+import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, prepareProjectionCodeFacts } from "../src/index";
 import { MockCodeGraphProvider } from "./factories";
 
 // Mirrors the synthetic id CodeGraphCliProvider assigns to a CLI node that has no hash id
@@ -570,5 +570,23 @@ process.exit(2);
     };
     expect(adapter.crossRepoImpact([relation], "repo.api")).toEqual([relation]);
     expect(adapter.crossRepoImpact([relation], "repo.worker")).toEqual([]);
+  });
+});
+
+describe("CodeGraph symbol reader (#298)", () => {
+  test("a failed read-only open is index-open-failed and is never retried writable", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-symbol-reader-"));
+    try {
+      mkdirSync(join(root, ".codegraph"));
+      const calls: unknown[] = [];
+      const result = openCodeGraphSymbolReader(root, (_root, options) => {
+        calls.push(options);
+        throw new Error("unable to open database file");
+      });
+      expect(result).toEqual({ availability: "unavailable", reasonCode: "index-open-failed" });
+      expect(calls).toEqual([{ readOnly: true }]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

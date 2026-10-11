@@ -1063,18 +1063,21 @@ export type CodeGraphSymbolReaderResult =
 const NON_DECLARATION_KINDS: ReadonlySet<string> = new Set(["file", "import", "export", "parameter"]);
 
 /**
- * Opens the workspace CodeGraph index for symbol lookups. It opens the index read-only first. A
- * fresh WAL-mode index without its shared-memory file cannot open read-only, so it then opens the
- * index the way projection does. Nothing outside `.codegraph/` is written.
+ * Opens the workspace CodeGraph index read-only for symbol lookups. It never opens the index
+ * writable. When the read-only open fails, the result is `index-open-failed`. Whether a read-only
+ * open works with no live holder depends on the SQLite build: Node's `node:sqlite` opens it and
+ * creates the WAL files, and the macOS system SQLite that Bun uses there refuses it.
  */
-export function openCodeGraphSymbolReader(workspaceRoot: string): CodeGraphSymbolReaderResult {
+export function openCodeGraphSymbolReader(
+  workspaceRoot: string,
+  openIndex: (root: string, options: { readOnly: true }) => ReturnType<typeof CodeGraph.openSync> = (root, options) => CodeGraph.openSync(root, options)
+): CodeGraphSymbolReaderResult {
   if (!codeGraphIndexAvailable(workspaceRoot)) return { availability: "unavailable", reasonCode: "index-missing" };
   disableCodeGraphTelemetryByDefault();
   let graph: ReturnType<typeof CodeGraph.openSync>;
   try {
-    graph = CodeGraph.openSync(workspaceRoot, { readOnly: true });
+    graph = openIndex(workspaceRoot, { readOnly: true });
   } catch {
-    // Readers never reopen the index writable: that could create or change files under `.codegraph/`.
     return { availability: "unavailable", reasonCode: "index-open-failed" };
   }
   const declarations = (nodes: CodeGraphNode[]): CodeGraphSymbolDeclaration[] => nodes
