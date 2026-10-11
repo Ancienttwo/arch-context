@@ -116,6 +116,14 @@ describe("evaluateDependencyConstraints", () => {
     expect(evaluation.reasonCodes).toEqual(["code-facts-truncated"]);
   });
 
+  test("an import read cut by the configured limit is undetermined with code-facts-import-limit", () => {
+    const evaluation = evaluateDependencyConstraints(input({ importNodeLimitExceeded: true }));
+
+    expect(evaluation.status).toBe("undetermined");
+    expect(evaluation.coverage).toBe("partial");
+    expect(evaluation.reasonCodes).toEqual(["code-facts-import-limit"]);
+  });
+
   test("an unreadable workspace package map is undetermined", () => {
     const evaluation = evaluateDependencyConstraints(input({ workspacePackages: [], workspacePackagesResolved: false }));
 

@@ -2205,37 +2205,115 @@ function findAgentContextRegion(body: string, nodeId: string): {
   };
 }
 
-// --- Path Ownership Resolution (ADR-0043 tie-break) ---
+// --- Path Ownership Resolution (ADR-0043 tie-break, parent-chain amendment) ---
 //
-// Single implementation of the ADR-0043 tie-break: apply `source.exclude` first, then the
-// most-specific (longest literal prefix) matching `source.include` wins, and an equal-
-// specificity tie is rejected as ambiguous. `archctx resolve --path`
-// (packages/surfaces/cli/src/main.ts) is the only caller today; a future repo-harness
-// adapter is expected to call the CLI rather than re-deriving this glob semantics.
+// Single implementation of the ADR-0043 path-ownership rule, in this order:
+// 1. Apply `source.exclude` first; a node with no `source.include` never participates.
+// 2. Parent chain: when every candidate lies on one `parent` chain, the deepest candidate owns the
+//    path. This is `deepestOnOneParentChain`, the same function the module-statistics ownership
+//    index (and so `refactor scan`) calls, so the two resolvers cannot disagree on this case.
+// 3. Different chains: a candidate that is an ancestor of another candidate yields to it. Among the
+//    rest, the longest literal `source.include` prefix wins, and an equal-specificity tie is
+//    rejected as ambiguous.
+// `archctx resolve --path` and `archctx resolve --paths-from` (packages/surfaces/cli/src/main.ts)
+// call this; a repo-harness adapter is expected to call the CLI rather than re-deriving it.
 
 export type ResolveArchitectureOwnerResult =
-  | { status: "matched"; node: NativeNode }
-  | { status: "no-match" }
-  | { status: "ambiguous"; candidates: NativeNode[] };
+  | { status: "matched"; node: NativeNode; owningCapabilityId: string | null }
+  | { status: "no-match"; owningCapabilityId: null }
+  | { status: "ambiguous"; candidates: NativeNode[]; owningCapabilityId: string | null };
 
 export function resolveArchitectureOwnerForPath(nodes: NativeNode[], path: string): ResolveArchitectureOwnerResult {
-  const candidates: { node: NativeNode; specificity: number }[] = [];
-  for (const node of nodes) {
+  return resolveArchitectureOwnersForPaths(nodes, [path])[0];
+}
+
+/**
+ * Resolves many paths against one node set, in input order. The globs are compiled once, so a
+ * batch costs one model load instead of one process per path.
+ *
+ * `owningCapabilityId` is the nearest `kind: capability` node on the owner's parent chain (the
+ * owner itself when it is a capability). For an ambiguous path it is set only when every
+ * candidate has the same owning capability; otherwise it is `null`.
+ */
+export function resolveArchitectureOwnersForPaths(nodes: NativeNode[], paths: readonly string[]): ResolveArchitectureOwnerResult[] {
+  const declaring = nodes.flatMap((node) => {
     const source = nativeNodeSource(node);
     const include = source?.include ?? [];
-    if (include.length === 0) continue;
-    const excluded = (source?.exclude ?? []).some((pattern) => matchesGlob(path, pattern));
-    if (excluded) continue;
-    const specificity = include
-      .filter((pattern) => matchesGlob(path, pattern))
-      .reduce((max, pattern) => Math.max(max, globLiteralPrefixLength(pattern)), -1);
-    if (specificity >= 0) candidates.push({ node, specificity });
+    if (include.length === 0) return [];
+    return [{
+      node,
+      include: include.map((pattern) => ({ regex: globToRegExp(pattern), specificity: globLiteralPrefixLength(pattern) })),
+      exclude: (source?.exclude ?? []).map(globToRegExp)
+    }];
+  });
+  const parents = new Map<string, string | undefined>(nodes.map((node) => [node.id, node.parent]));
+  const kinds = new Map(nodes.map((node) => [node.id, node.kind]));
+  const owningCapabilityOf = (id: string): string | null => {
+    for (const ancestor of ancestorChain(id, parents)) if (kinds.get(ancestor) === "capability") return ancestor;
+    return null;
+  };
+
+  return paths.map((path): ResolveArchitectureOwnerResult => {
+    const candidates: { node: NativeNode; specificity: number }[] = [];
+    for (const entry of declaring) {
+      if (entry.exclude.some((regex) => regex.test(path))) continue;
+      const specificity = entry.include
+        .filter((pattern) => pattern.regex.test(path))
+        .reduce((max, pattern) => Math.max(max, pattern.specificity), -1);
+      if (specificity >= 0) candidates.push({ node: entry.node, specificity });
+    }
+    if (candidates.length === 0) return { status: "no-match", owningCapabilityId: null };
+
+    const chainOwner = deepestOnOneParentChain(candidates.map((candidate) => candidate.node.id), parents);
+    if (chainOwner !== undefined) {
+      const node = candidates.find((candidate) => candidate.node.id === chainOwner)!.node;
+      return { status: "matched", node, owningCapabilityId: owningCapabilityOf(node.id) };
+    }
+
+    const chains = new Map(candidates.map((candidate) => [candidate.node.id, ancestorChain(candidate.node.id, parents)]));
+    const isStrictAncestorOf = (ancestor: string, descendant: string): boolean =>
+      ancestor !== descendant && chains.get(descendant)!.has(ancestor) && !chains.get(ancestor)!.has(descendant);
+    const leaves = candidates.filter((candidate) => !candidates.some((other) => isStrictAncestorOf(candidate.node.id, other.node.id)));
+    // Only a `parent` cycle (which `validate` reports) can leave no leaf; then every candidate competes.
+    const contenders = leaves.length > 0 ? leaves : candidates;
+    const maxSpecificity = contenders.reduce((max, candidate) => Math.max(max, candidate.specificity), -1);
+    const winners = contenders.filter((candidate) => candidate.specificity === maxSpecificity).map((candidate) => candidate.node);
+    if (winners.length === 1) return { status: "matched", node: winners[0], owningCapabilityId: owningCapabilityOf(winners[0].id) };
+    const capabilities = new Set(winners.map((node) => owningCapabilityOf(node.id)));
+    return { status: "ambiguous", candidates: winners, owningCapabilityId: capabilities.size === 1 ? [...capabilities][0] : null };
+  });
+}
+
+/**
+ * The parent-chain ownership rule, shared by `resolveArchitectureOwnersForPaths` and the
+ * module-statistics ownership index behind `refactor scan`: when every candidate lies on one
+ * `parent` chain, the deepest candidate (lowest id on a depth tie) owns the path. Returns
+ * `undefined` when the candidates sit on more than one chain.
+ */
+export function deepestOnOneParentChain(candidateIds: readonly string[], parents: ReadonlyMap<string, string | undefined>): string | undefined {
+  if (candidateIds.length === 0) return undefined;
+  const depthOf = (id: string): number => ancestorChain(id, parents).size - 1;
+  const deepest = candidateIds.reduce((best, id) => {
+    const bestDepth = depthOf(best);
+    const depth = depthOf(id);
+    if (depth !== bestDepth) return depth > bestDepth ? id : best;
+    return id < best ? id : best;
+  });
+  // Two distinct nodes at the same depth can never both sit on one chain, so the ancestor-set
+  // test below already covers the depth-tie case; it needs no separate branch.
+  const chain = ancestorChain(deepest, parents);
+  return candidateIds.every((id) => chain.has(id)) ? deepest : undefined;
+}
+
+/** The node plus every ancestor reachable through `parent`, nearest first. A cycle or dangling parent ends the walk. */
+export function ancestorChain(id: string, parents: ReadonlyMap<string, string | undefined>): Set<string> {
+  const chain = new Set<string>();
+  let current: string | undefined = id;
+  while (current !== undefined && parents.has(current) && !chain.has(current)) {
+    chain.add(current);
+    current = parents.get(current);
   }
-  if (candidates.length === 0) return { status: "no-match" };
-  const maxSpecificity = candidates.reduce((max, candidate) => Math.max(max, candidate.specificity), -1);
-  const winners = candidates.filter((candidate) => candidate.specificity === maxSpecificity).map((candidate) => candidate.node);
-  if (winners.length > 1) return { status: "ambiguous", candidates: winners };
-  return { status: "matched", node: winners[0] };
+  return chain;
 }
 
 export function matchesGlob(path: string, pattern: string): boolean {

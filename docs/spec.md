@@ -118,6 +118,11 @@ shared `evidenceSampleLimit` and the candidates cut by `maxRecommendationsPerRun
 a scan-candidate decision and a scan-candidate `recommendations show` refuse an unrecordable run with
 `AC_REFACTOR_RUN_TOO_LARGE` (not retryable; `error.details` carries the measured size and the
 limit), and the scan omits `recordCommand` for such a run. A stale `--expected-worktree-digest` on a decision returns `AC_REFACTOR_STALE`.
+The scan reads all CodeGraph import nodes in one query sized from the index count. The request
+field `importNodeLimit` (CLI `--import-node-limit`, default 50000) caps that read. When the index
+holds more import nodes than the cap, `codeFacts` reports `coverage: partial`, `truncated: false`,
+`importNodeCount`, `edgeLimit` and reason code `code-facts-import-limit`. `code-facts-truncated`
+means the read returned fewer nodes than the index reported, or no index answered.
 `recommendations list --status <status>` returns the latest record of every recorded
 recommendation in that status with no item or byte budget; `book recommendations` keeps its budget.
 

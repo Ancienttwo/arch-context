@@ -81,9 +81,21 @@ export interface ModuleStatisticsInputV1 {
   importEdges: ModuleStatisticsImportEdgeV1[];
   /** Workspace manifests, so bare `@scope/pkg/sub` specifiers resolve to real repository files. */
   workspacePackages: ModuleStatisticsWorkspacePackageV1[];
-  /** True when the index dump saturated its limit, so the edge set is a prefix, not the population. */
+  /** True when the read is shorter than the population the index reported, for any reason but the limit. */
   truncated: boolean;
+  /** The import-node read limit. */
   edgeLimit: number | null;
+  /**
+   * Import nodes the index reported, from `repositoryImportPairs(...).importNodeCount`. Omitted
+   * means the producer reported no count, and the snapshot then carries no `importNodeCount`.
+   */
+  importNodeCount?: number | null;
+  /**
+   * True when the index holds more import nodes than `edgeLimit`, from
+   * `repositoryImportPairs(...).importNodeLimitExceeded`. The edge set is then a prefix by
+   * configuration: coverage is `partial` with `code-facts-import-limit`, not `code-facts-truncated`.
+   */
+  importNodeLimitExceeded?: boolean;
   codeFacts: ModuleStatisticsCodeFactsInputV1;
   /**
    * Declared `forbid-dependency` constraints. When non-empty they fill each measured module's
@@ -114,6 +126,8 @@ export interface DependencyConstraintInputV1 {
    */
   workspacePackagesResolved?: boolean;
   truncated: boolean;
+  /** True when the index holds more import nodes than the read limit; see `ModuleStatisticsInputV1`. */
+  importNodeLimitExceeded?: boolean;
   codeFacts: Pick<ModuleStatisticsCodeFactsInputV1, "availability" | "indexedWorktreeDigest">;
 }
 
@@ -129,7 +143,7 @@ export interface DependencyConstraintInputV1 {
  */
 export function evaluateDependencyConstraints(input: DependencyConstraintInputV1): DependencyConstraintEvaluationV1 {
   const constraints = [...input.constraints].sort((left, right) => compare(left.id, right.id));
-  const certification = certifyCodeFacts(input.codeFacts, input.worktreeDigest, input.truncated);
+  const certification = certifyCodeFacts(input.codeFacts, input.worktreeDigest, input.truncated, input.importNodeLimitExceeded ?? false);
   if (constraints.length === 0) {
     // Nothing is declared, so nothing was asked of the evidence: no gap can make this undetermined.
     return {
@@ -205,21 +219,26 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
 
 /**
  * The single coverage certification both the snapshot and the dependency gate use: edges count
- * only when the index answered and attested to the measured tree, and a dump that hit its limit
- * is a prefix, never the population.
+ * only when the index answered and attested to the measured tree, and a read that is shorter than
+ * the population is a prefix, never the population. The two prefix causes stay apart: a read cut
+ * by the configured limit is `code-facts-import-limit`, any other short read is
+ * `code-facts-truncated`.
  */
 function certifyCodeFacts(
   codeFacts: Pick<ModuleStatisticsCodeFactsInputV1, "availability" | "indexedWorktreeDigest">,
   worktreeDigest: string,
-  truncated: boolean
+  truncated: boolean,
+  importNodeLimitExceeded: boolean
 ): { measurable: boolean; coverage: EvidenceCoverageLevelV2; reasonCodes: DependencyConstraintReasonCode[] } {
   const attested = codeFacts.indexedWorktreeDigest !== null && codeFacts.indexedWorktreeDigest === worktreeDigest;
   const measurable = codeFacts.availability === "ready" && attested;
   const reasonCodes: DependencyConstraintReasonCode[] = [];
   if (codeFacts.availability !== "ready") reasonCodes.push("code-facts-unavailable");
   else if (!attested) reasonCodes.push("code-facts-stale");
+  if (measurable && importNodeLimitExceeded) reasonCodes.push("code-facts-import-limit");
   if (measurable && truncated) reasonCodes.push("code-facts-truncated");
-  return { measurable, coverage: !measurable ? "unknown" : truncated ? "partial" : "complete", reasonCodes };
+  const partial = truncated || importNodeLimitExceeded;
+  return { measurable, coverage: !measurable ? "unknown" : partial ? "partial" : "complete", reasonCodes };
 }
 
 /** A relative specifier, or one naming a workspace package: both must resolve to a repository file. */
@@ -270,7 +289,8 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
   const linesByPath = new Map(trackedFiles.map((file) => [file.path, file.lineCount]));
   const ownership = resolveOwnership(nodes, trackedFiles.map((file) => file.path));
 
-  const { measurable, coverage } = certifyCodeFacts(input.codeFacts, input.worktree.worktreeDigest, input.truncated);
+  const importNodeLimitExceeded = input.importNodeLimitExceeded ?? false;
+  const { measurable, coverage } = certifyCodeFacts(input.codeFacts, input.worktree.worktreeDigest, input.truncated, importNodeLimitExceeded);
   // An index that did not attest to this tree is not weaker evidence, it is no evidence: the edges
   // it produced describe some other tree, so they are dropped rather than reported as observations.
   const edges = measurable ? resolveEdges(input.importEdges, input.workspacePackages, new Set(linesByPath.keys())) : [];
@@ -285,6 +305,7 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
       importEdges: input.importEdges,
       workspacePackages: input.workspacePackages,
       truncated: input.truncated,
+      importNodeLimitExceeded,
       codeFacts: input.codeFacts
     });
   const directionViolations = directionEvaluation === undefined ? undefined : countViolationsByNode(directionEvaluation);
@@ -317,7 +338,8 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
     // An unknown coverage is a truncated answer by definition: nothing was observed.
     truncated: coverage === "unknown" ? true : input.truncated,
     edgeLimit: input.edgeLimit,
-    reasonCodes: reasonCodes({ coverage, truncated: input.truncated, measurable, modules, ownership })
+    ...(input.importNodeCount === undefined ? {} : { importNodeCount: input.importNodeCount }),
+    reasonCodes: reasonCodes({ coverage, truncated: input.truncated, importNodeLimitExceeded, measurable, modules, ownership })
   };
 
   const draft: ModuleStatisticsSnapshotV1 = {
@@ -480,6 +502,7 @@ function countUnresolvedImports(
 function reasonCodes(context: {
   coverage: EvidenceCoverageLevelV2;
   truncated: boolean;
+  importNodeLimitExceeded: boolean;
   measurable: boolean;
   modules: ModuleStatisticsV1[];
   ownership: OwnershipIndex;
@@ -487,6 +510,7 @@ function reasonCodes(context: {
   const codes = new Set<RefactorScaleReasonCode>(["caller-coverage-unknown"]);
   if (!context.measurable) codes.add("code-facts-missing");
   if (context.truncated || context.coverage === "unknown") codes.add("code-facts-truncated");
+  if (context.measurable && context.importNodeLimitExceeded) codes.add("code-facts-import-limit");
   if (context.modules.some((module) => !module.footprintDeclared)) codes.add("node-footprint-undeclared");
   if (context.ownership.multiplyOwnedFileCount > 0) codes.add("ownership-ambiguous");
   if (context.ownership.unownedFileCount > 0) codes.add("unowned-paths");

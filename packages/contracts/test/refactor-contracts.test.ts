@@ -673,6 +673,34 @@ describe("module statistics validators", () => {
     );
   });
 
+  test("an import-limit snapshot carries partial coverage and a count above the limit", () => {
+    const limited = (codeFacts: Partial<ModuleStatisticsSnapshotV1["codeFacts"]>) => makeSnapshot({
+      codeFacts: { ...makeSnapshot().codeFacts, coverage: "partial", edgeLimit: 5000, importNodeCount: 6124, reasonCodes: ["code-facts-import-limit"], ...codeFacts }
+    });
+    expect(moduleStatisticsSnapshotInvariantIssues(limited({}))).toEqual([]);
+    expect(moduleStatisticsSnapshotInvariantIssues(limited({ coverage: "complete" }))).toContain(
+      "snapshot.codeFacts.coverage must be partial when the import limit was reached"
+    );
+    expect(moduleStatisticsSnapshotInvariantIssues(limited({ importNodeCount: 4000 }))).toContain(
+      "snapshot.codeFacts.importNodeCount must exceed edgeLimit when the import limit was reached"
+    );
+    expect(moduleStatisticsSnapshotInvariantIssues(limited({ importNodeCount: -1, reasonCodes: [] , coverage: "complete" }))).toContain(
+      "snapshot.codeFacts.importNodeCount must be a non-negative integer"
+    );
+  });
+
+  test("a request import node limit must be a positive integer", () => {
+    const request = (importNodeLimit: number): RefactorRequestV1 => ({
+      schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION,
+      scope: { kind: "repository" },
+      importNodeLimit
+    });
+    expect(refactorRequestInvariantIssues(request(100_000))).toEqual([]);
+    for (const invalid of [0, -1, 1.5, Number.NaN]) {
+      expect(refactorRequestInvariantIssues(request(invalid))).toContain("request.importNodeLimit must be a positive integer");
+    }
+  });
+
   test("unknown code-facts coverage forbids a dependency graph", () => {
     const draft = makeSnapshot({
       codeFacts: {
@@ -1532,6 +1560,25 @@ describe("refactor JSON schemas", () => {
       for (const [name, def] of Object.entries(recommendationDefs)) expect(runtime.$defs[name], name).toEqual(def);
     }
     expect(showSchema.$defs).toEqual(scanSchema.$defs);
+  });
+
+  test("the scan and show schemas carry the import node count, the import-limit reason and the request limit", () => {
+    const scan = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/valid/runtime-refactor-scan.json"), "utf8"));
+    const limited = {
+      ...scan,
+      request: { ...scan.request, importNodeLimit: 5000 },
+      snapshot: {
+        ...scan.snapshot,
+        codeFacts: { ...scan.snapshot.codeFacts, coverage: "partial", truncated: false, importNodeCount: 6124, reasonCodes: ["caller-coverage-unknown", "code-facts-import-limit"] }
+      }
+    };
+    expect(issuesOf(scanSchema, limited)).toEqual([]);
+    expect(issuesOf(scanSchema, { ...limited, request: { ...limited.request, importNodeLimit: 0 } }).length).toBeGreaterThan(0);
+    expect(issuesOf(scanSchema, { ...limited, snapshot: { ...limited.snapshot, codeFacts: { ...limited.snapshot.codeFacts, importNodeCount: -1 } } }).length).toBeGreaterThan(0);
+    for (const target of [scanSchema, showSchema]) {
+      expect(target.$defs.moduleStatisticsSnapshot.properties.codeFacts.properties.reasonCodes.items.enum).toEqual([...REFACTOR_SCALE_REASON_CODES]);
+      expect(target.$defs.refactorRequest.properties.importNodeLimit).toEqual({ type: "integer", minimum: 1 });
+    }
   });
 
   test("the scan schema enforces the recording contract", () => {

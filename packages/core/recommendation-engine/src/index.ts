@@ -1492,12 +1492,19 @@ export function observationExplanation(observation: RefactorObservationV1, affec
       const examples = evidence.unresolvedImports.slice(0, EXPLANATION_EXAMPLE_LIMIT);
       return [
         `Code facts coverage is ${evidence.coverage} (${evidence.reasonCodes.join(", ")}), so structural metrics${affectedNodeIds.length > 0 ? ` for ${affectedNodeIds.join(", ")}` : ""} are incomplete.`,
+        ...(evidence.reasonCodes.includes("code-facts-import-limit") ? [importLimitText(observation.metrics)] : []),
         ...(evidence.totalCount === 0
           ? []
           : [`${evidence.totalCount} import specifier(s) did not resolve to a tracked file.`, ...examples.map((entry) => `${locationText(entry.fromPath, entry.fromLine)} imports ${entry.specifier}.`), ...more(examples.length)])
       ];
     }
   }
+}
+
+/** The index is complete; the scan limit cut the read, so the fix is a larger limit, not a new index. */
+function importLimitText(metrics: RefactorObservationV1["metrics"]): string {
+  const count = typeof metrics.importNodeCount === "number" ? `${metrics.importNodeCount} import nodes` : "more import nodes";
+  return `The index holds ${count}, more than the scan import node limit of ${metrics.edgeLimit ?? "unknown"}. Run archctx refactor scan --import-node-limit <n> with a larger limit; a new CodeGraph index does not change this.`;
 }
 
 function evidenceLength(evidence: RefactorObservationEvidenceV1): number {

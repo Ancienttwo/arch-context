@@ -285,7 +285,8 @@ export function buildObservations(
       subjectSelectorId: repositorySubject,
       metrics: {
         unresolvedImportCount: snapshot.repositorySummary.unresolvedImportCount,
-        edgeLimit: snapshot.codeFacts.edgeLimit
+        edgeLimit: snapshot.codeFacts.edgeLimit,
+        ...(snapshot.codeFacts.importNodeCount === undefined ? {} : { importNodeCount: snapshot.codeFacts.importNodeCount })
       },
       evidence: evidence.evidenceGap()
     });
@@ -345,7 +346,12 @@ function classifyProposal(context: {
   if (scopeOwnership.unowned.length > 0) codes.add("unowned-paths");
   if (undeclared.length > 0) codes.add("node-footprint-undeclared");
   if (coverage === "unknown") codes.add("code-facts-missing");
-  if (coverage === "partial") codes.add("code-facts-truncated");
+  // A partial read keeps the snapshot's own cause, so a configured limit never reads as a broken index.
+  if (coverage === "partial") {
+    const limited = context.snapshot.codeFacts.reasonCodes.includes("code-facts-import-limit");
+    codes.add(limited ? "code-facts-import-limit" : "code-facts-truncated");
+    if (limited && context.snapshot.codeFacts.truncated) codes.add("code-facts-truncated");
+  }
   if (scopeOwnership.contested.length > 0) codes.add("ownership-ambiguous");
   if (derivation.unresolvedTargets.length > 0) codes.add("target-unresolved");
 
@@ -415,10 +421,11 @@ interface ScopeOwnership {
 /**
  * Resolves `scopePaths` through RF1b's ownership rule.
  *
- * `resolveArchitectureOwnerForPath` is deliberately not used: it implements the ADR-0043
- * longest-literal-prefix tie-break for `archctx resolve --path`, which is a different rule from the
- * structural ancestor collapse the snapshot was measured with, and forking the two would let a
- * proposal's owners disagree with the modules it was assessed against.
+ * `resolveArchitectureOwnerForPath` is deliberately not used: across different parent chains it
+ * applies the ADR-0043 longest-literal-prefix tie-break for `archctx resolve`, while the snapshot
+ * was measured with the structural rule that marks such claims contested. Forking the two would
+ * let a proposal's owners disagree with the modules it was assessed against. On one parent chain
+ * both call the same `deepestOnOneParentChain`.
  */
 function resolveScopePaths(model: NativeModel, trackedFiles: readonly string[], scopePaths: string[]): ScopeOwnership {
   // `scopePaths` are tracked file paths (PRD RF2). Membership in the snapshot's own tracked-file
