@@ -70,7 +70,7 @@ function packet(overrides: Record<string, any> = {}) {
       deterministicProjectionDigest: true,
       cliCommands: [
         { command: "docs plan", ok: true },
-        { command: "docs preview", ok: true },
+        { command: "docs plan (repeat)", ok: true },
         { command: "docs apply", ok: true },
         { command: "docs drift", ok: true },
         { command: "docs clean", ok: true }

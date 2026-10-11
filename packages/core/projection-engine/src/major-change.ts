@@ -1,17 +1,21 @@
 import {
   ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION,
+  ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION,
   digestJson,
   type AcceptedArchitectureChangeReferenceV1,
+  type ArchitectureCapabilityChangeV1,
+  type ArchitectureCapabilitySemanticStateV1,
   type ArchitectureDigestSetV1,
   type ArchitectureMajorChangeReasonCode,
+  type ArchitectureProofEvidenceDigestsV1,
   type ArchitectureRefreshSignalV1,
+  type ArchitectureSemanticFacet,
+  type ArchitectureSemanticStateV1,
   type Json,
   type Sha256Digest
 } from "@archcontext/contracts";
 import type { NativeModel, NativeNode } from "./index";
 import { proofRelevantSelectorEvidence, type ArchitectureSelectorEvidenceV1, type SemanticCapabilityDiagramCompilation } from "./semantic-diagrams";
-
-export const ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION = "archcontext.architecture-semantic-state/v1" as const;
 
 const REFRESH_TARGETS = [
   "architecture-contract-context",
@@ -21,33 +25,19 @@ const REFRESH_TARGETS = [
   "capability-index"
 ] as const;
 
-type FacetName =
-  | "constraints"
-  | "entrypoints"
-  | "interfaces"
-  | "lifecycle"
-  | "names"
-  | "ownership"
-  | "placement"
-  | "relations"
-  | "responsibilities"
-  | "riskBoundaries";
-
-export interface ArchitectureCapabilitySemanticStateV1 {
-  capabilityId: string;
-  memberNodeIds: string[];
-  semanticFingerprint: string;
-  flowProofFingerprint: string;
-  proofStatus: { p1: "proven" | "unprovable"; p2: "not-applicable" | "proven" | "unprovable" };
-  facets: Record<FacetName, string>;
-}
-
-export interface ArchitectureSemanticStateV1 {
-  schemaVersion: typeof ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION;
-  capabilities: ArchitectureCapabilitySemanticStateV1[];
-  semanticFingerprint: string;
-  flowProofFingerprint: string;
-}
+/** Each facet in the order its reason is checked, with the reason a moved digest raises. */
+const FACET_REASONS: ReadonlyArray<readonly [ArchitectureSemanticFacet, ArchitectureMajorChangeReasonCode]> = [
+  ["placement", "node-moved"],
+  ["names", "node-renamed"],
+  ["responsibilities", "responsibility-changed"],
+  ["entrypoints", "entrypoint-changed"],
+  ["interfaces", "interface-changed"],
+  ["relations", "relation-changed"],
+  ["constraints", "constraint-changed"],
+  ["ownership", "ownership-changed"],
+  ["lifecycle", "lifecycle-changed"],
+  ["riskBoundaries", "risk-boundary-changed"]
+];
 
 export interface ArchitectureMajorChangeClassificationV1 {
   schemaVersion: "archcontext.major-change-classification/v1";
@@ -55,26 +45,9 @@ export interface ArchitectureMajorChangeClassificationV1 {
   cause?: ArchitectureRefreshSignalV1["cause"];
   reasonCodes: ArchitectureMajorChangeReasonCode[];
   affectedNodeIds: string[];
+  /** Per-capability breakdown of `reasonCodes`, sorted by capabilityId; empty when mode is none (#264). */
+  capabilities: ArchitectureCapabilityChangeV1[];
   acceptedChange?: AcceptedArchitectureChangeReferenceV1;
-}
-
-export interface ArchitectureProjectionSemanticBaselineV1 {
-  semanticState: ArchitectureSemanticStateV1;
-  digests: ArchitectureDigestSetV1;
-  /**
-   * The non-model proof inputs this baseline was rendered from, recorded fresh on every render and
-   * never reused from sticky provenance. Absent in manifests written before it existed.
-   */
-  evidence?: ArchitectureProofEvidenceDigestsV1;
-}
-
-export interface ArchitectureProofEvidenceDigestsV1 {
-  /** Declared source footprint identity; already a sticky-provenance key, so it cannot churn. */
-  sourceTreeDigest: string;
-  /** Digest of the selector-evidence facts the P1/P2 compilation reads (`proofRelevantSelectorEvidence`). */
-  selectorEvidenceDigest: string;
-  /** The renderer version that compiled the proofs, so a compiler change is never credited to journals. */
-  rendererVersion: string;
 }
 
 export function architectureProofEvidenceDigests(input: {
@@ -108,7 +81,7 @@ export function compileArchitectureSemanticState(input: {
       .sort((left, right) => left.id.localeCompare(right.id));
     const compilation = compilations.get(capability.id);
     if (!compilation) throw new Error(`architecture-major-change-compilation-missing: ${capability.id}`);
-    const facets: Record<FacetName, string> = {
+    const facets: Record<ArchitectureSemanticFacet, string> = {
       constraints: facetDigest(memberNodes.map((node) => ({ id: node.id, constraints: canonicalUnorderedJson(recordField(node.extensions, "constraints")) }))),
       entrypoints: facetDigest(memberNodes.map((node) => ({ id: node.id, entrypoints: canonicalEntrypoints(recordField(node.source, "entrypoints")) }))),
       interfaces: facetDigest(memberNodes.map((node) => ({ id: node.id, interfaces: canonicalNamedSets(node.interfaces) }))),
@@ -156,27 +129,40 @@ export function classifyArchitectureMajorChange(input: {
     .filter((entry) => entry.proofStatus.p1 === "unprovable" || entry.proofStatus.p2 === "unprovable")
     .map((entry) => entry.capabilityId)
     .sort();
+  // Unresolved capabilities without an observed semantic delta carry the reason the top-level
+  // classification attributes to them: a verified-flow-proof change nobody can vouch for.
+  const unresolvedOnly = (reasonCodes: ArchitectureMajorChangeReasonCode[]) =>
+    unresolvedCapabilityChanges(unresolved, input.base, input.resulting, reasonCodes);
   if (!input.base) {
     if (input.acceptedChange) throw new Error("architecture-major-change-accepted-reference-without-baseline");
     return unresolved.length === 0
       ? noMajorChange()
-      : humanAction(["verified-flow-proof-changed"], unresolved);
+      : humanAction(["verified-flow-proof-changed"], unresolved, unresolvedOnly(["verified-flow-proof-changed"]));
   }
 
   const observed = observedMajorChange(input.base, input.resulting);
   if (observed.reasonCodes.length === 0) {
     if (input.acceptedChange) throw new Error("architecture-major-change-accepted-reference-without-semantic-delta");
-    return unresolved.length === 0 ? noMajorChange() : humanAction(["verified-flow-proof-changed"], unresolved);
+    return unresolved.length === 0
+      ? noMajorChange()
+      : humanAction(["verified-flow-proof-changed"], unresolved, unresolvedOnly(["verified-flow-proof-changed"]));
   }
   if (!input.acceptedChange || unresolved.length > 0) {
-    return humanAction(observed.reasonCodes, [...new Set([...observed.affectedNodeIds, ...unresolved])].sort());
+    // An unresolved capability the observed delta did not touch is listed without reason codes:
+    // it is here because its proof is unprovable, which its proof statuses show.
+    const observedIds = new Set(observed.capabilities.map((entry) => entry.capabilityId));
+    const capabilities = [
+      ...observed.capabilities,
+      ...unresolvedOnly([]).filter((entry) => !observedIds.has(entry.capabilityId))
+    ].sort((left, right) => left.capabilityId < right.capabilityId ? -1 : left.capabilityId > right.capabilityId ? 1 : 0);
+    return humanAction(observed.reasonCodes, [...new Set([...observed.affectedNodeIds, ...unresolved])].sort(), capabilities);
   }
   const observedReasons = new Set(observed.reasonCodes);
   const unsupportedAcceptedReason = input.acceptedChange.reasonCodes.find((reason) => !observedReasons.has(reason));
   if (unsupportedAcceptedReason) {
     throw new Error(`architecture-major-change-accepted-reason-not-observed: ${unsupportedAcceptedReason}`);
   }
-  const changedCapabilities = new Set(observed.capabilityIds);
+  const changedCapabilities = new Set(observed.capabilities.map((entry) => entry.capabilityId));
   if (!input.acceptedChange.affectedNodeIds.some((nodeId) => belongsToChangedCapability(nodeId, changedCapabilities, input.base!, input.resulting))) {
     throw new Error("architecture-major-change-accepted-reference-does-not-bind-observed-delta");
   }
@@ -188,6 +174,7 @@ export function classifyArchitectureMajorChange(input: {
       : "accepted-semantic-delta",
     reasonCodes: [...input.acceptedChange.reasonCodes],
     affectedNodeIds: [...input.acceptedChange.affectedNodeIds],
+    capabilities: observed.capabilities,
     acceptedChange: input.acceptedChange
   };
 }
@@ -227,6 +214,7 @@ export function produceArchitectureRefreshSignals(input: {
     ...(input.classification.acceptedChange ? { acceptedChange: input.classification.acceptedChange } : {}),
     reasonCodes: input.classification.reasonCodes,
     affectedNodeIds: input.classification.affectedNodeIds,
+    capabilities: input.classification.capabilities,
     refreshTargets: [...REFRESH_TARGETS],
     baseDigests: input.baseDigests,
     resultingDigests: input.resultingDigests
@@ -243,65 +231,81 @@ export function produceArchitectureRefreshSignals(input: {
 function observedMajorChange(base: ArchitectureSemanticStateV1, resulting: ArchitectureSemanticStateV1): {
   reasonCodes: ArchitectureMajorChangeReasonCode[];
   affectedNodeIds: string[];
-  capabilityIds: string[];
+  /** Every capability whose semantic or flow-proof fingerprint moved, sorted by capabilityId. */
+  capabilities: ArchitectureCapabilityChangeV1[];
 } {
   const baseById = new Map(base.capabilities.map((entry) => [entry.capabilityId, entry]));
   const resultingById = new Map(resulting.capabilities.map((entry) => [entry.capabilityId, entry]));
   const capabilityIds = [...new Set([...baseById.keys(), ...resultingById.keys()])].sort();
   const reasons = new Set<ArchitectureMajorChangeReasonCode>();
   const affected = new Set<string>();
-  const changedCapabilities = new Set<string>();
+  const capabilities: ArchitectureCapabilityChangeV1[] = [];
   for (const capabilityId of capabilityIds) {
     const before = baseById.get(capabilityId);
     const after = resultingById.get(capabilityId);
-    if (!before) {
-      reasons.add("node-added");
+    if (!before || !after) {
+      const reason = before ? "node-removed" : "node-added";
+      reasons.add(reason);
       affected.add(capabilityId);
-      changedCapabilities.add(capabilityId);
+      capabilities.push(capabilityChange(capabilityId, [reason], [], before, after));
       continue;
     }
-    if (!after) {
-      reasons.add("node-removed");
-      affected.add(capabilityId);
-      changedCapabilities.add(capabilityId);
-      continue;
-    }
+    const capabilityReasons = new Set<ArchitectureMajorChangeReasonCode>();
     const added = after.memberNodeIds.filter((id) => !before.memberNodeIds.includes(id));
     const removed = before.memberNodeIds.filter((id) => !after.memberNodeIds.includes(id));
-    if (added.length > 0) reasons.add("node-added");
-    if (removed.length > 0) reasons.add("node-removed");
+    if (added.length > 0) capabilityReasons.add("node-added");
+    if (removed.length > 0) capabilityReasons.add("node-removed");
     for (const id of [...added, ...removed]) affected.add(id);
-    compareFacet(before, after, "placement", "node-moved", reasons);
-    compareFacet(before, after, "names", "node-renamed", reasons);
-    compareFacet(before, after, "responsibilities", "responsibility-changed", reasons);
-    compareFacet(before, after, "entrypoints", "entrypoint-changed", reasons);
-    compareFacet(before, after, "interfaces", "interface-changed", reasons);
-    compareFacet(before, after, "relations", "relation-changed", reasons);
-    compareFacet(before, after, "constraints", "constraint-changed", reasons);
-    compareFacet(before, after, "ownership", "ownership-changed", reasons);
-    compareFacet(before, after, "lifecycle", "lifecycle-changed", reasons);
-    compareFacet(before, after, "riskBoundaries", "risk-boundary-changed", reasons);
-    if (before.flowProofFingerprint !== after.flowProofFingerprint) reasons.add("verified-flow-proof-changed");
+    const changedFacets = changedSemanticFacets(before, after);
+    for (const [facet, reason] of FACET_REASONS) if (changedFacets.includes(facet)) capabilityReasons.add(reason);
+    if (before.flowProofFingerprint !== after.flowProofFingerprint) capabilityReasons.add("verified-flow-proof-changed");
+    for (const reason of capabilityReasons) reasons.add(reason);
     if (before.semanticFingerprint !== after.semanticFingerprint || before.flowProofFingerprint !== after.flowProofFingerprint) {
       affected.add(capabilityId);
-      changedCapabilities.add(capabilityId);
+      capabilities.push(capabilityChange(capabilityId, [...capabilityReasons], changedFacets, before, after));
     }
   }
   return {
     reasonCodes: [...reasons].sort(),
     affectedNodeIds: [...affected].sort(),
-    capabilityIds: [...changedCapabilities].sort()
+    capabilities
   };
 }
 
-function compareFacet(
-  before: ArchitectureCapabilitySemanticStateV1,
-  after: ArchitectureCapabilitySemanticStateV1,
-  facet: FacetName,
-  reason: ArchitectureMajorChangeReasonCode,
-  reasons: Set<ArchitectureMajorChangeReasonCode>
-): void {
-  if (before.facets[facet] !== after.facets[facet]) reasons.add(reason);
+/** The facets whose digest differs between the two states of one capability. */
+function changedSemanticFacets(before: ArchitectureCapabilitySemanticStateV1, after: ArchitectureCapabilitySemanticStateV1): ArchitectureSemanticFacet[] {
+  return FACET_REASONS.filter(([facet]) => before.facets[facet] !== after.facets[facet]).map(([facet]) => facet);
+}
+
+function capabilityChange(
+  capabilityId: string,
+  reasonCodes: ArchitectureMajorChangeReasonCode[],
+  changedFacets: ArchitectureSemanticFacet[],
+  before: ArchitectureCapabilitySemanticStateV1 | undefined,
+  after: ArchitectureCapabilitySemanticStateV1 | undefined
+): ArchitectureCapabilityChangeV1 {
+  return {
+    capabilityId,
+    reasonCodes: [...new Set(reasonCodes)].sort(),
+    changedFacets: [...new Set(changedFacets)].sort(),
+    proofStatusBefore: before ? { p1: before.proofStatus.p1, p2: before.proofStatus.p2 } : null,
+    proofStatusAfter: after ? { p1: after.proofStatus.p1, p2: after.proofStatus.p2 } : null
+  };
+}
+
+/**
+ * Capabilities whose current proof is unprovable and whose semantic facets did not move (a moved
+ * one is an observed change instead), with the reason codes the caller attributes to them.
+ */
+function unresolvedCapabilityChanges(
+  unresolved: readonly string[],
+  base: ArchitectureSemanticStateV1 | undefined,
+  resulting: ArchitectureSemanticStateV1,
+  reasonCodes: ArchitectureMajorChangeReasonCode[]
+): ArchitectureCapabilityChangeV1[] {
+  const baseById = new Map((base?.capabilities ?? []).map((entry) => [entry.capabilityId, entry]));
+  const resultingById = new Map(resulting.capabilities.map((entry) => [entry.capabilityId, entry]));
+  return unresolved.map((capabilityId) => capabilityChange(capabilityId, reasonCodes, [], baseById.get(capabilityId), resultingById.get(capabilityId)));
 }
 
 function belongsToChangedCapability(
@@ -394,17 +398,23 @@ function noMajorChange(): ArchitectureMajorChangeClassificationV1 {
     schemaVersion: "archcontext.major-change-classification/v1",
     mode: "none",
     reasonCodes: [],
-    affectedNodeIds: []
+    affectedNodeIds: [],
+    capabilities: []
   };
 }
 
-function humanAction(reasonCodes: ArchitectureMajorChangeReasonCode[], affectedNodeIds: string[]): ArchitectureMajorChangeClassificationV1 {
+function humanAction(
+  reasonCodes: ArchitectureMajorChangeReasonCode[],
+  affectedNodeIds: string[],
+  capabilities: ArchitectureCapabilityChangeV1[]
+): ArchitectureMajorChangeClassificationV1 {
   return {
     schemaVersion: "archcontext.major-change-classification/v1",
     mode: "human-action-required",
     cause: "unresolved-major-candidate",
     reasonCodes: [...new Set(reasonCodes)].sort(),
-    affectedNodeIds: [...new Set(affectedNodeIds)].sort()
+    affectedNodeIds: [...new Set(affectedNodeIds)].sort(),
+    capabilities
   };
 }
 

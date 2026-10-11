@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { architectureDocsProjectionManifestIssues } from "@archcontext/contracts";
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
@@ -16,6 +17,7 @@ import {
   type CapabilitySourceFootprintDigest,
   type NativeModel
 } from "../src/index";
+import { fixtureSourceFiles } from "./fixture-source-files";
 
 const sourceDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
 const docsDigest = `sha256:${"a".repeat(64)}`;
@@ -84,7 +86,7 @@ function withRepository(files: Record<string, string>, run: (root: string) => vo
 }
 
 function footprintDigest(root: string, nodeId: string): string {
-  const entry = loadCapabilitySourceFootprintDigests(root, model).find((footprint) => footprint.nodeId === nodeId);
+  const entry = loadCapabilitySourceFootprintDigests(root, model, fixtureSourceFiles(root)).find((footprint) => footprint.nodeId === nodeId);
   if (!entry) throw new Error(`no footprint for ${nodeId}`);
   return entry.digest;
 }
@@ -104,11 +106,11 @@ describe("capability source footprint digests", () => {
       "packages/docs-runtime/src/index.ts": "export const version = 1;\n",
       "docs/architecture/index.md": "# First projection\n"
     }, (root) => {
-      const initial = architectureDocumentationSourceTreeDigest(root, sourceModel);
+      const initial = architectureDocumentationSourceTreeDigest(root, sourceModel, fixtureSourceFiles(root));
       writeFileSync(join(root, "docs/architecture/index.md"), "# Edited projection\n");
-      expect(architectureDocumentationSourceTreeDigest(root, sourceModel)).toBe(initial);
+      expect(architectureDocumentationSourceTreeDigest(root, sourceModel, fixtureSourceFiles(root))).toBe(initial);
       writeFileSync(join(root, "packages/docs-runtime/src/index.ts"), "export const version = 2;\n");
-      expect(architectureDocumentationSourceTreeDigest(root, sourceModel)).not.toBe(initial);
+      expect(architectureDocumentationSourceTreeDigest(root, sourceModel, fixtureSourceFiles(root))).not.toBe(initial);
     });
   });
 
@@ -119,7 +121,7 @@ describe("capability source footprint digests", () => {
       "packages/core/review-engine/src/index.ts": "export const review = 1;\n",
       "README.md": "# repository\n"
     }, (root) => {
-      const footprints = loadCapabilitySourceFootprintDigests(root, model);
+      const footprints = loadCapabilitySourceFootprintDigests(root, model, fixtureSourceFiles(root));
       expect(footprints.map((entry) => [entry.nodeId, entry.fileCount])).toEqual([
         ["capability.docs.projection", 1],
         ["capability.review.gate", 1]
@@ -156,7 +158,7 @@ test("a CRLF checkout measures the same footprint as an LF one", () => {
   withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\nexport const gate = 2;\n" }, (lf) => {
     withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\r\nexport const gate = 2;\r\n" }, (crlf) => {
       expect(footprintDigest(crlf, "capability.review.gate")).toBe(footprintDigest(lf, "capability.review.gate"));
-      expect(architectureDocumentationSourceTreeDigest(crlf, model)).toBe(architectureDocumentationSourceTreeDigest(lf, model));
+      expect(architectureDocumentationSourceTreeDigest(crlf, model, fixtureSourceFiles(crlf))).toBe(architectureDocumentationSourceTreeDigest(lf, model, fixtureSourceFiles(lf)));
       // A lone CR is content, not a line ending, and still moves the digest.
       writeFileSync(join(crlf, "packages/core/review-engine/src/index.ts"), "export const review = 1;\rexport const gate = 2;\n");
       expect(footprintDigest(crlf, "capability.review.gate")).not.toBe(footprintDigest(lf, "capability.review.gate"));
@@ -318,11 +320,33 @@ describe("projection manifest source-footprint stamps", () => {
       .every((target: { sourceFootprintDigest?: unknown }) => target.sourceFootprintDigest === undefined)).toBe(true);
   });
 
+  test("the manifest publishes the scale buckets each module document prints, under the contract (#264)", () => {
+    const plan = renderArchitectureDocumentationProjection({
+      ...renderInput,
+      sourceScaleSignals: [{ ...renderInput.sourceScaleSignals[0]!, fileCount: 0, lineCount: 537 }, { ...renderInput.sourceScaleSignals[1]!, fileCount: 12, lineCount: 172_275 }],
+      sourceFootprints: currentFootprints
+    });
+    const manifest = JSON.parse(plan.manifest.body);
+    expect(architectureDocsProjectionManifestIssues(manifest)).toEqual([]);
+    const scales = Object.fromEntries(manifest.targets
+      .filter((target: { type: string }) => target.type === "entity-summary")
+      .map((target: { scope: { id: string }; scale?: unknown }) => [target.scope.id, target.scale]));
+    expect(scales).toEqual({
+      "capability.docs.projection": { fileCountBucket: { lower: 0, upper: 1 }, lineCountBucket: { lower: 500, upper: 1000 } },
+      "capability.review.gate": { fileCountBucket: { lower: 10, upper: 20 }, lineCountBucket: { lower: 100_000, upper: 200_000 } },
+      "module.no-source": undefined
+    });
+    // The rendered Markdown prints the same buckets.
+    const body = (nodeId: string) => plan.files.find((file) => file.target.type === "entity-summary" && file.target.scope.id === nodeId)!.body;
+    expect(body("capability.docs.projection")).toContain("- 規模量級:`0` 個文件 / `500–1000` 行");
+    expect(body("capability.review.gate")).toContain("- 規模量級:`10–20` 個文件 / `100k–200k` 行");
+  });
+
   test("an unchanged footprint re-renders a byte-identical manifest; a moved one changes only its stamp", () => {
     const first = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
     const existingFiles = [...first.files.map((file) => ({ path: file.path, body: file.body })), first.manifest];
     const again = renderArchitectureDocumentationProjection({ ...renderInput, existingFiles, sourceFootprints: currentFootprints });
-    expect(again.drift.ok).toBe(true);
+    expect(again.drift.diffs).toEqual([]);
     expect(again.manifest.body).toBe(first.manifest.body);
 
     const moved = renderArchitectureDocumentationProjection({

@@ -1,13 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { ProjectionSourceFilesUnavailableError, findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionProvenanceV2, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV2, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -76,7 +76,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     } as unknown as Json);
   }
   const changeSetId = input.id ?? `changeset.docs-projection-${projection.plan.projectionDigest.replace(/^sha256:/, "").slice(0, 16)}`;
-  const operations = [architectureDocsRenderProjectionOperation(root, projection.files)];
+  const operations = [architectureDocsRenderProjectionOperation(projection.loaded.existingFiles, projection.files)];
   const plan = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: input.taskSessionId ?? "task_docs_projection" },
@@ -99,7 +99,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
       projection.plan.receiptDigest
     );
   }
-  return okEnvelope(subcommand === "preview" ? "docs.preview" : "docs.plan", {
+  return okEnvelope("docs.plan", {
     schemaVersion: "archcontext.docs-projection-change-set/v1",
     sourceDigest: projection.plan.sourceDigest,
     projectionDigest: projection.plan.projectionDigest,
@@ -145,7 +145,7 @@ function withProjectionMetadata(
 }
 
 export function buildArchitectureDocsProjection(
-  daemon: ProjectionServiceHost,
+  _host: ProjectionServiceHost | undefined,
   root: string,
   generatedAt: string,
   profile: ArchitectureProjectionProfile = "default",
@@ -158,14 +158,14 @@ export function buildArchitectureDocsProjection(
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   const provenance = codeGraphInputs.provenance;
-  const sourceFootprints = loadCapabilitySourceFootprintDigests(root, loaded.model);
+  const sourceFootprints = loadCapabilitySourceFootprintDigests(root, loaded.model, codeGraphInputs.sourceFiles);
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     sourceFootprints,
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.sourceFiles),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
@@ -268,7 +268,7 @@ async function runArchitectureDocsAdoptionCommand(
   const planned = await daemon.planUpdate(root, {
     id: adoption.changeSetId,
     reason: { taskSessionId: input.taskSessionId ?? "task_docs_adoption" },
-    operations: [architectureDocsRenderProjectionOperation(root, [...filesByPath.values()])]
+    operations: [architectureDocsRenderProjectionOperation(projection.loaded.existingFiles, [...filesByPath.values()])]
   });
   if (!planned.ok) return planned;
   const applied = await daemon.applyUpdate(root, {
@@ -342,7 +342,7 @@ async function applyProjectionProtocolFixedPoint(
   const planned = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: request.requestId },
-    operations: [architectureDocsRenderProjectionOperation(root, fixedPoint.files, orphanDeletes.map((orphan) => orphan.operation))],
+    operations: [architectureDocsRenderProjectionOperation(input.loaded.existingFiles, fixedPoint.files, orphanDeletes.map((orphan) => orphan.operation))],
     worktreeDigestPrecondition: {
       profile: "architecture-documentation-projection",
       expectedDigest: request.expected.worktreeDigest
@@ -418,6 +418,8 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
   }
 
+  if (request.mode === "check") return runProjectionCheckCommand(request, findRepositoryRoot(cwd));
+
   const root = findRepositoryRoot(cwd);
   const generatedAt = new Date(0).toISOString();
   // Snapshot the journal before this command can write anything: whatever is committed under this
@@ -478,19 +480,21 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
     }
   }
+  // The flag path renders the accepted change against the documents it classified. The semantic
+  // baseline is in the projection manifest, which the expected worktree digest does not cover, so
+  // re-reading it here could apply a broader change than the one the receipt records.
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
     projection = observed !== undefined && acceptedChange === undefined
       ? observed
-      : buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange);
+      : buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, observed?.loaded.existingFiles, acceptedChange);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return projectionFailureEnvelope("projection.run", error);
   }
 
-  const freshness = request.mode === "check" ? projectionCheckFreshness(root, projection) : undefined;
   const blocked = projectionProtocolHumanStatus(request, projection);
-  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies, freshness, declinedUnprovableNodeIds);
+  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies, undefined, declinedUnprovableNodeIds);
 
   if (request.mode === "adopt") {
     const expectedWorktreeDigest = computeWorktreeDigest(root);
@@ -528,7 +532,44 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   }
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
-  return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies, freshness);
+  return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies);
+}
+
+/**
+ * `projection run` in `check` mode, computed in-process and read-only end to end: it reads
+ * repository files and the committed manifest, and never reaches the daemon. No runtime client is
+ * started, no journal is read, no runtime state is written and no task session is opened, so a CI
+ * job or a hook can ask "is the projection current?" without a daemon. A check never commits, so
+ * it has no prior committed applies to report; `apply` and `readback` own that journal.
+ */
+export function runProjectionCheckCommand(request: ProjectionRequestV1, root: string): JsonEnvelope {
+  if (request.mode !== "check") {
+    return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", `projection check requires mode check, got ${request.mode}`);
+  }
+  let projection: ReturnType<typeof buildArchitectureDocsProjection>;
+  try {
+    projection = buildArchitectureDocsProjection(undefined, root, new Date(0).toISOString(), REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
+    assertProjectionExpectedSnapshot(request, root, projection);
+  } catch (error) {
+    return projectionFailureEnvelope("projection.run", error);
+  }
+  const freshness = projectionCheckFreshness(root, projection);
+  const status = projectionProtocolHumanStatus(request, projection) ?? (projection.plan.drift.ok ? "noop" : "planned");
+  return projectionProtocolEnvelope(request, projection, status, projection, [], freshness);
+}
+
+/**
+ * The CLI's daemonless entry for `projection run --request-json` in `check` mode: the raw request
+ * is decoded and validated here, before any runtime client exists.
+ */
+export function runProjectionCheckInvocation(rawRequest: unknown, cwd: string): JsonEnvelope {
+  let request: ProjectionRequestV1;
+  try {
+    request = parseProjectionProtocolRequest(JSON.stringify(rawRequest));
+  } catch (error) {
+    return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  return runProjectionCheckCommand(request, findRepositoryRoot(cwd));
 }
 
 /**
@@ -655,13 +696,17 @@ function observedMajorChangeAcceptance(
 }
 
 /**
- * A projection that cannot be built fails its precondition, except when required code facts are
- * missing: that is an environment state with its own typed, retryable code, so a consumer can tell
- * it apart from a real architecture change.
+ * A projection that cannot be built fails its precondition, except for two environment states with
+ * their own typed codes, so a consumer can tell them apart from a real architecture change:
+ * required code facts are missing (`AC_CODE_FACTS_UNAVAILABLE`), or the root is not a Git worktree
+ * whose files footprints could be measured over (`AC_REPO_NOT_FOUND`, `git-worktree-required`).
  */
 export function projectionFailureEnvelope(requestId: string, error: unknown): JsonEnvelope {
   if (error instanceof ProjectionCodeFactsUnavailableError) {
     return errorEnvelope(requestId, "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
+  }
+  if (error instanceof ProjectionSourceFilesUnavailableError) {
+    return errorEnvelope(requestId, error.code, error.message, error.reasonCode);
   }
   return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
 }
@@ -982,7 +1027,8 @@ function projectionProtocolResult(
 ): ProjectionResultV2 {
   const inputSnapshot = projectionProtocolSnapshot(request, input);
   const outputSnapshot = projectionProtocolSnapshot(request, output);
-  const files = overrides?.files ?? projectionProtocolFiles(input);
+  const plannedFiles = overrides?.files ?? projectionProtocolFiles(input);
+  const files = request.mode === "plan" ? withProjectionPlanPreviews(input, plannedFiles) : plannedFiles;
   const affectedNodeIds = projectionProtocolAffectedNodes(input);
   const requestPayloadDigest = digestJson(request as unknown as Json) as Sha256Digest;
   const humanActions: ProjectionResultV2["humanActions"] = [];
@@ -1027,7 +1073,7 @@ function projectionProtocolResult(
     refreshSignals: refreshSignals.map((signal) => ({ ...signal, projectionReceiptDigest: receiptDigest })),
     receiptDigest
   };
-  const issues = projectionResultInvariantIssues(result);
+  const issues = [...projectionResultInvariantIssues(result), ...projectionResultRequestModeIssues(result, request.mode)];
   if (issues.length > 0) throw new Error(`projection result invariant failed: ${issues.join("; ")}`);
   return result;
 }
@@ -1101,6 +1147,35 @@ function projectionProtocolFiles(
   }).sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
 }
 
+/**
+ * `plan` is the one preview authority (#264): every file entry gains the rendered body (`create`) or
+ * a unified diff from the bytes on disk (`update`, `delete`), bounded per file and per result. The
+ * bodies are generated architecture documents and travel in this response only; no ChangeSet is
+ * planned and nothing is persisted. An entry whose path the projection rejected for adoption or
+ * ownership repair carries none, because no apply writes that rendered body.
+ */
+function withProjectionPlanPreviews(
+  projection: ReturnType<typeof buildArchitectureDocsProjection>,
+  files: ProjectionResultV2["files"]
+): ProjectionResultV2["files"] {
+  const rendered = new Map(projection.files.map((file) => [file.path, file.body]));
+  const current = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
+  const rejected = new Set(projection.plan.rejected.map((diff) => diff.path));
+  const previewable = files.filter((file): file is ProjectionResultV2["files"][number] & { action: "create" | "delete" | "update" } =>
+    file.action !== "unchanged" && !rejected.has(file.path));
+  const previews = architectureProjectionFilePreviews(previewable.map((file) => ({
+    path: file.path,
+    action: file.action,
+    ...(file.action === "create" ? {} : { before: current.get(file.path) }),
+    ...(file.action === "delete" ? {} : { after: rendered.get(file.path) })
+  })));
+  const previewByPath = new Map(previewable.map((file, index) => [file.path, previews[index]!]));
+  return files.map((file) => {
+    const preview = previewByPath.get(file.path);
+    return preview ? { ...file, preview } : file;
+  });
+}
+
 /** Committed apply receipts bind the physical preimage and the exact fixed-point output bytes. */
 function projectionProtocolFilesForExpectedOutput(
   root: string,
@@ -1169,11 +1244,7 @@ export async function runAgentContextProjectionCommand(input: RuntimeAgentContex
     operations: [{
       op: "render_agent_context" as const,
       expectedHash: "missing",
-      projectionFiles: projection.plan.files.map((file) => ({
-        path: file.path,
-        expectedHash: currentBodyHash(root, file.path),
-        body: file.body
-      }))
+      projectionFiles: projectionFilesBoundToRenderInput(projection.existingFiles, projection.plan.files)
     }]
   });
   if (!plan.ok) return plan;
@@ -1206,19 +1277,23 @@ function buildAgentContextProjection(root: string) {
   // Model-only digest: an ADR edit changes the architecture documentation projection, but it does
   // not change what a capability's contract file says about that capability.
   const sourceDigest = digestJson({ model } as unknown as Json);
+  const existingFiles = loadAgentContextProjectionFiles(root, model);
   return {
     model,
     sourceDigest,
-    plan: renderAgentContextProjection({
-      model,
-      sourceDigest,
-      existingFiles: loadAgentContextProjectionFiles(root, model)
-    })
+    existingFiles,
+    plan: renderAgentContextProjection({ model, sourceDigest, existingFiles })
   };
 }
 
+/**
+ * Each write's precondition is the body the render read, never a fresh disk read: the render
+ * preserves human text outside generated markers from exactly those bytes, so an edit made after
+ * that read fails the ChangeSet hash recheck under the daemon writer lock instead of being
+ * overwritten by a body rendered without it.
+ */
 function architectureDocsRenderProjectionOperation(
-  root: string,
+  renderInput: readonly { path: string; body: string }[],
   files: { path: string; body: string }[],
   deletes: { path: string; expectedHash: string; delete: true }[] = []
 ) {
@@ -1226,19 +1301,26 @@ function architectureDocsRenderProjectionOperation(
     op: "render_projection" as const,
     expectedHash: "missing",
     projectionFiles: [
-      ...files.map((file) => ({
-        path: file.path,
-        expectedHash: currentBodyHash(root, file.path),
-        body: file.body
-      })),
+      ...projectionFilesBoundToRenderInput(renderInput, files),
       ...deletes
     ]
   };
 }
 
-function currentBodyHash(root: string, path: string): string {
-  const absolute = resolve(root, path);
-  return existsSync(absolute) ? digestJson({ body: readFileSync(absolute, "utf8") } as unknown as Json) : "missing";
+/** `missing` when the render read no body at that path, so a file created since fails closed too. */
+function projectionFilesBoundToRenderInput(
+  renderInput: readonly { path: string; body: string }[],
+  files: readonly { path: string; body: string }[]
+): { path: string; expectedHash: string; body: string }[] {
+  const readByPath = new Map(renderInput.map((file) => [file.path, file.body]));
+  return files.map((file) => {
+    const read = readByPath.get(file.path);
+    return {
+      path: file.path,
+      expectedHash: read === undefined ? "missing" : digestJson({ body: read } as unknown as Json),
+      body: file.body
+    };
+  });
 }
 
 
@@ -1281,7 +1363,7 @@ function validateHumanProjectionInput(input: Record<string, unknown>, actions: r
 
 export function validateDocsProjectionInput(value: unknown): asserts value is RuntimeDocsProjectionInput {
   const input = projectionInputRecord(value, ["action", "profile", "generatedAt", "acceptedChange", "id", "taskSessionId", "approved", "expectedWorktreeDigest", "adoptionPlanId"]);
-  validateHumanProjectionInput(input, ["plan", "preview", "apply", "adopt", "drift", "clean"]);
+  validateHumanProjectionInput(input, ["plan", "apply", "adopt", "drift", "clean"]);
   if (input.profile !== undefined && input.profile !== "default" && input.profile !== REPO_HARNESS_PROJECTION_PROFILE) throw new Error("projection profile is invalid");
   if (input.acceptedChange !== undefined) validateProjectionAcceptedChange(input.acceptedChange);
 }
