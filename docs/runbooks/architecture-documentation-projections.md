@@ -58,7 +58,7 @@ Do these steps once per repository:
 6. Run `archctx docs drift` again and confirm that it is clean. Run `check` again: `projection-snapshot-provenance-missing` is gone.
 7. Commit the rewritten documents and the manifest in one commit.
 
-Known limit: freshness checks every node that declares `source.include`. The `repo-harness/v1` profile writes a module document, and so a stamp, only for capability nodes. Under that profile, a non-capability node that declares `source.include` has no stamp, and `check` keeps `projection-source-stamp-missing` after the apply. Treat that code as expected only for such nodes.
+Freshness checks a stamp only for the nodes that the active profile stamps. The `default` profile stamps every node that declares `source.include`. The `repo-harness/v1` profile writes a module document, and so a stamp, only for capability nodes. Under that profile, a non-capability node that declares `source.include` has no stamp, and `check` does not report `projection-source-stamp-missing` for it. A change in its footprint still sets `freshness.ok` to `false`. If a stamped footprint covers the changed file, `staleNodes` names that node. If not, `staleNodes` is empty and `reasonCodes` contains `projection-source-tree-digest-mismatch`, because the declared source tree digest covers every declared footprint.
 
 ## Accepting Committed Model Changes
 
