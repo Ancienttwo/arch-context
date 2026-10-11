@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/projection-manifest.schema.json",
-  "title": "ArchitectureDocsProjectionManifestV1",
+  "title": "ArchitectureDocsProjectionManifestV2",
   "description": "The committed docs/architecture/.projection-manifest.json the architecture documentation projection writes (#264). Sorted/unique orders, targetCount/fileCount and the 1-2-5 bucket ladder are enforced by architectureDocsProjectionManifestIssues.",
   "type": "object",
   "additionalProperties": false,
@@ -20,7 +20,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": "archcontext.architecture-docs-projection-manifest/v1"
+      "const": "archcontext.architecture-docs-projection-manifest/v2"
     },
     "rendererVersion": {
       "const": "archcontext.docs-renderer/v5"

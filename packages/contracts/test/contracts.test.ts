@@ -1309,7 +1309,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.architecture-event/v1": "architecture-event",
     "archcontext.architecture-snapshot/v2": "architecture-snapshot",
     "archcontext.projection-target/v1": "projection-target",
-    "archcontext.architecture-docs-projection-manifest/v1": "projection-manifest",
+    "archcontext.architecture-docs-projection-manifest/v2": "projection-manifest",
     "archcontext.evidence-item/v2": "evidence-item",
     "archcontext.evidence-binding/v1": "evidence-binding",
     "archcontext.architecture-candidate-delta-policy/v1": "architecture-candidate-delta-policy",
