@@ -55,8 +55,67 @@
     "digest": "sha256:7cb939bdd7e8c9052046038c4fca8d8d0d61411aaa6e5770baddbdef05efcec6"
   },
   {
-    "id": "saturated-dump-copies-truncated-into-every-graph",
-    "description": "hitting importNodeLimit marks every capability graph truncated, including one with no edges of its own",
+    "id": "limit-below-population-copies-limit-flag-into-every-graph",
+    "description": "an importNodeLimit below the import count marks every capability graph importNodeLimitExceeded, including one with no edges of its own; truncated stays false",
+    "input": {
+      "importNodeLimit": 10
+    },
+    "expected": {
+      "importGraphs": [
+        {
+          "nodeId": "capability.app",
+          "files": [
+            "packages/app/src/data.json",
+            "packages/app/src/dir/index.ts",
+            "packages/app/src/dironly/notindex.ts",
+            "packages/app/src/exact.ts",
+            "packages/app/src/exact/index.ts",
+            "packages/app/src/ext.js",
+            "packages/app/src/ext.ts",
+            "packages/app/src/main.ts"
+          ],
+          "edges": [
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/data.json"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/dir/index.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/exact.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/ext.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/lib/src/shared.ts"
+            }
+          ],
+          "truncated": false,
+          "importNodeLimitExceeded": true
+        },
+        {
+          "nodeId": "capability.lib",
+          "files": [
+            "packages/lib/src/shared.ts"
+          ],
+          "edges": [],
+          "truncated": false,
+          "importNodeLimitExceeded": true
+        }
+      ],
+      "selectorEvidence": []
+    },
+    "digest": "sha256:0fcb0674dcc87a087ede0bd2601419a701b09f23acdf3984bb7ed210c6adfb8d"
+  },
+  {
+    "id": "limit-equal-to-population-is-complete",
+    "description": "an importNodeLimit equal to the import count reads the whole population, so truncated stays false",
     "input": {
       "importNodeLimit": 11
     },
@@ -96,7 +155,7 @@
               "to": "packages/lib/src/shared.ts"
             }
           ],
-          "truncated": true
+          "truncated": false
         },
         {
           "nodeId": "capability.lib",
@@ -104,12 +163,12 @@
             "packages/lib/src/shared.ts"
           ],
           "edges": [],
-          "truncated": true
+          "truncated": false
         }
       ],
       "selectorEvidence": []
     },
-    "digest": "sha256:2c337b8a79ca3952c94487b27281963082dbc5a0eb7d1ca4b924aaf84024af10"
+    "digest": "sha256:7cb939bdd7e8c9052046038c4fca8d8d0d61411aaa6e5770baddbdef05efcec6"
   },
   {
     "id": "limit-above-population-is-not-truncated",

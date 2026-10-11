@@ -658,12 +658,10 @@ function architectureDeltaTask(git: ArchitectureDeltaGitChangeMetadata): string 
 // here, the renderer only receives measured facts. Import graphs remain diagnostic measurements;
 // exact node-v2 selectors are the only CodeGraph facts that can bind a semantic flow step.
 
-/** Import-node dump budget for one repository. Hitting it marks the graph `truncated`. */
-export const CODEGRAPH_IMPORT_NODE_QUERY_LIMIT = 5000;
 /**
- * Default cap on the import nodes `repositoryImportPairs` reads. The read is sized from the
- * index's own import count, so this cap only bounds memory and time. One import node costs about
- * 0.7 KiB of CLI output, so the default is about 35 MiB.
+ * Default cap on the import nodes `repositoryImportPairs` and the docs projection read. The read
+ * is sized from the index's own import count, so this cap only bounds memory and time. One import
+ * node costs about 0.7 KiB of CLI output, so the default is about 35 MiB.
  */
 export const CODEGRAPH_IMPORT_NODE_READ_LIMIT = 50_000;
 /** Output allowance per import node, so a large read is not cut by the CLI output buffer. */
@@ -889,6 +887,7 @@ export function prepareProjectionCodeFacts(
     ...(options.sourceFiles ? { sourceFiles: options.sourceFiles } : {}),
     binary: binaryPath,
     importNodeLimit: options.importNodeLimit,
+    importNodeCount: statusImportNodeCount(postStatus),
     ...(options.importGraphs === false ? { importGraphs: false } : {})
   });
   const finalStatus = readProjectionCodeGraphStatus(invocation, root, statusTimeout);
@@ -1116,7 +1115,13 @@ export function loadCapabilityCodeGraphProjectionInputs(
     /** Git-visible files to resolve footprints over; listed from `root` when omitted. */
     sourceFiles?: readonly string[];
     binary?: string;
+    /** Safety cap on the import nodes read; `CODEGRAPH_IMPORT_NODE_READ_LIMIT` when omitted. */
     importNodeLimit?: number;
+    /**
+     * Import nodes in the index, from the `codegraph status` the caller asserted. The read is sized
+     * from it. `null` or omitted is an unknown count: the read then asks for the limit.
+     */
+    importNodeCount?: number | null;
     selectorIndexFactory?: (root: string) => CodeGraphSelectorIndex;
     /** `false` skips the import-graph query; `flows check` reads selector evidence only. */
     importGraphs?: boolean;
@@ -1137,7 +1142,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
   disableCodeGraphTelemetryByDefault();
   const binary = options.binary ?? DEFAULT_CODEGRAPH_BINARY;
   const importGraphs = footprints.length > 0
-    ? capabilityImportGraphs(root, binary, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_QUERY_LIMIT)
+    ? capabilityImportGraphs(root, binary, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT, options.importNodeCount ?? null)
     : [];
   const selectorIndex = entrypointNodes.length > 0
     ? options.selectorIndexFactory?.(root) ?? CodeGraph.openSync(root)
@@ -1204,9 +1209,9 @@ export interface RepositoryImportPairsV1 {
  * boundary is unresolved and a dropped edge is indistinguishable from an absent one. Bare
  * workspace specifiers are deliberately left unresolved here: mapping `@scope/pkg/sub` through a
  * package `exports` map is the builder's job, which keeps this adapter free of resolution rules
- * and keeps the resolution itself unit-testable without an index. The two producers share no
- * reader: `capabilityImportGraphs` keeps its fixed-limit `codeGraphImportNodes` dump and its
- * resolved-only edge set, which the capability projection fixtures pin byte for byte.
+ * and keeps the resolution itself unit-testable without an index. The two producers share only
+ * `codeGraphImportPopulation`; `capabilityImportGraphs` keeps its resolved-only edge set, which
+ * the capability projection fixtures pin byte for byte.
  *
  * Freshness is producer-owned evidence, never a caller assertion: the returned
  * `indexedWorktreeDigest` binds the edges to `worktreeDigest` only when the index reports itself
@@ -1311,9 +1316,11 @@ function capabilityImportGraphs(
   root: string,
   binary: string,
   footprints: { nodeId: string; files: string[] }[],
-  limit: number
+  limit: number,
+  reportedCount: number | null
 ): CapabilityImportGraph[] {
-  const nodes = codeGraphImportNodes(root, binary, limit);
+  if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
+  const nodes = codeGraphImportPopulation(root, binary, limit, reportedCount);
   const pairs = resolvedImportPairs(root, nodes.imports);
   return footprints.map((footprint) => {
     const scope = new Set(footprint.files);
@@ -1326,20 +1333,10 @@ function capabilityImportGraphs(
       nodeId: footprint.nodeId,
       files: footprint.files,
       edges: [...edges.values()].sort((left, right) => left.from.localeCompare(right.from) || left.to.localeCompare(right.to)),
-      truncated: nodes.truncated
+      truncated: nodes.truncated,
+      ...(nodes.limitExceeded ? { importNodeLimitExceeded: true as const } : {})
     };
   });
-}
-
-/**
- * Dumps the repository's import nodes. `-k import` restricts the kind and every import node's
- * text carries the `import` token, so one query enumerates the population; reaching the limit is
- * reported rather than silently accepted as a complete answer.
- */
-function codeGraphImportNodes(root: string, binary: string, limit: number): { imports: CodeGraphCliNode[]; truncated: boolean } {
-  const output = runCodeGraphCli(binary, root, ["query", "-p", root, "-j", "-l", String(limit), "-k", "import", "import"]);
-  const parsed = JSON.parse(output) as { node: CodeGraphCliNode }[];
-  return { imports: parsed.map(({ node }) => node), truncated: parsed.length >= limit };
 }
 
 /**

@@ -195,17 +195,21 @@ describe("RF0 baseline: resolver and scope behavior restated from the frozen tab
   });
 
   /**
-   * `truncated` is a property of the single repository-wide import dump, and today it is copied
+   * The read limit is a property of the single repository-wide import read, and it is copied
    * verbatim into every capability graph. `capability.lib` has no edges at all, yet it is still
-   * marked truncated when the dump saturates. Frozen as observed; RF2 owns whether to change it.
+   * marked when the limit is below the import count. A limit hit is not truncation, and a limit
+   * equal to the import count is a complete read.
    */
-  test("the dump-wide truncated flag is copied into every capability graph", () => {
-    const saturated = expectedInputs("saturated-dump-copies-truncated-into-every-graph").importGraphs;
+  test("the read-wide limit flag is copied into every capability graph", () => {
+    const limited = expectedInputs("limit-below-population-copies-limit-flag-into-every-graph").importGraphs;
+    const exact = expectedInputs("limit-equal-to-population-is-complete").importGraphs;
     const headroom = expectedInputs("limit-above-population-is-not-truncated").importGraphs;
-    expect(saturated.map((graph) => [graph.nodeId, graph.truncated, graph.edges.length]))
-      .toEqual([["capability.app", true, 5], ["capability.lib", true, 0]]);
-    expect(headroom.every((graph) => graph.truncated === false)).toBe(true);
-    expect(headroom.map((graph) => graph.edges.length)).toEqual([5, 0]);
+    expect(limited.map((graph) => [graph.nodeId, graph.truncated, graph.importNodeLimitExceeded, graph.edges.length]))
+      .toEqual([["capability.app", false, true, 5], ["capability.lib", false, true, 0]]);
+    for (const graphs of [exact, headroom]) {
+      expect(graphs.every((graph) => graph.truncated === false && graph.importNodeLimitExceeded === undefined)).toBe(true);
+      expect(graphs.map((graph) => graph.edges.length)).toEqual([5, 0]);
+    }
   });
 });
 

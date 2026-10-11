@@ -5,16 +5,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   REFACTOR_REQUEST_SCHEMA_VERSION,
+  REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
   moduleStatisticsSnapshotInvariantIssues,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
-  type RefactorAssessmentV1
+  type RefactorAssessmentV1,
+  type RefactorResolutionEvidenceV1
 } from "@archcontext/contracts";
 import { CODEGRAPH_IMPORT_NODE_READ_LIMIT, CodeGraphAdapter, codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { createStartedDaemon } from "../src/index";
+import { REPOSITORY_REFACTOR_REQUEST, refactorRequestId, repositoryRefactorRequest } from "../src/refactor-scan";
+import { baselineImportNodeLimit } from "../src/refactor-verify";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 
 const PREVIOUS_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
@@ -88,9 +92,11 @@ function startDaemon() {
 }
 
 function scanData(envelope: JsonEnvelope): {
+  requestId: string;
+  worktree: { worktreeDigest: string };
   snapshot: ModuleStatisticsSnapshotV1;
   assessment: RefactorAssessmentV1;
-  proposedRecommendations: unknown[];
+  proposedRecommendations: { recommendationId: string }[];
 } {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
   expect(publishedSchemaIssues("runtime/runtime-refactor-scan.schema.json", envelope.data)).toEqual([]);
@@ -160,5 +166,158 @@ describe("refactor scan over an index with more than 5000 import nodes", () => {
     } finally {
       await daemon.stop();
     }
+  });
+});
+
+/** The candidate only a scan cut by the import limit raises: the evidence gap that names the limit. */
+function importLimitCandidateId(data: ReturnType<typeof scanData>): string {
+  const candidates = data.proposedRecommendations.filter((candidate) => JSON.stringify(candidate).includes("code-facts-import-limit"));
+  expect(candidates).toHaveLength(1);
+  return candidates[0]!.recommendationId;
+}
+
+function errorOf(envelope: JsonEnvelope): { code: string; message: string; reasonCode?: string } {
+  expect(envelope.ok, JSON.stringify(envelope)).toBe(false);
+  return (envelope as unknown as { error: { code: string; message: string; reasonCode?: string } }).error;
+}
+
+const LIMIT = 1000;
+const limitedRequest = { schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION, scope: { kind: "repository" as const }, importNodeLimit: LIMIT };
+
+describe("a scan candidate found with a custom import node limit", () => {
+  test("the re-measure request is the scan request, so the requestId is the same", async () => {
+    expect(repositoryRefactorRequest(undefined)).toBe(REPOSITORY_REFACTOR_REQUEST);
+    const daemon = await startDaemon();
+    try {
+      const limited = scanData(await daemon.refactorScan(root, { request: limitedRequest }));
+      expect(refactorRequestId(repositoryRefactorRequest(LIMIT))).toBe(limited.requestId);
+      const defaulted = scanData(await daemon.refactorScan(root));
+      expect(refactorRequestId(repositoryRefactorRequest(undefined))).toBe(defaulted.requestId);
+    } finally {
+      await daemon.stop();
+    }
+  }, 120_000);
+
+  test("recommendations show finds the candidate only with the scan limit", async () => {
+    const daemon = await startDaemon();
+    try {
+      const limited = scanData(await daemon.refactorScan(root, { request: limitedRequest }));
+      const recommendationId = importLimitCandidateId(limited);
+      // The default read is complete here, so the default scan has no such candidate.
+      const defaulted = scanData(await daemon.refactorScan(root));
+      expect(defaulted.proposedRecommendations.map((candidate) => candidate.recommendationId)).not.toContain(recommendationId);
+
+      expect(errorOf(await daemon.recommendations(root, { command: "show", recommendationId }))).toMatchObject({
+        code: "AC_REFACTOR_STALE",
+        reasonCode: "recommendation-not-found"
+      });
+
+      const shown = await daemon.recommendations(root, { command: "show", recommendationId, importNodeLimit: LIMIT });
+      expect(shown.ok, JSON.stringify(shown)).toBe(true);
+      expect(publishedSchemaIssues("runtime/runtime-recommendation-show.schema.json", shown.data)).toEqual([]);
+      const data = shown.data as { source: string; baseline: { snapshotDigest: string } };
+      expect(data.source).toBe("scan-candidate");
+      expect(data.baseline.snapshotDigest).toBe(limited.snapshot.snapshotDigest);
+    } finally {
+      await daemon.stop();
+    }
+  }, 120_000);
+
+  test("a decision records the candidate only with the scan limit, and records that scan's assessment", async () => {
+    const daemon = await startDaemon();
+    try {
+      const limited = scanData(await daemon.refactorScan(root, { request: limitedRequest }));
+      const recommendationId = importLimitCandidateId(limited);
+      const decide = (importNodeLimit?: number) => daemon.recommendations(root, {
+        command: "defer",
+        recommendationId,
+        reason: "Measured with the scan limit.",
+        ...(importNodeLimit === undefined ? {} : { importNodeLimit })
+      });
+
+      expect(errorOf(await decide())).toMatchObject({ code: "AC_REFACTOR_STALE", reasonCode: "recommendation-not-found" });
+
+      const decided = await decide(LIMIT);
+      expect(decided.ok, JSON.stringify(decided)).toBe(true);
+      const implicitRecord = (decided.data as { implicitRecord: { assessmentDigest: string; recommendationIds: string[] } }).implicitRecord;
+      expect(implicitRecord.assessmentDigest).toBe(limited.assessment.assessmentDigest);
+      expect(implicitRecord.recommendationIds).toContain(recommendationId);
+    } finally {
+      await daemon.stop();
+    }
+  }, 120_000);
+
+  test("an import node limit that is not a positive integer is refused for every command", async () => {
+    const daemon = await startDaemon();
+    try {
+      for (const command of ["show", "defer", "metrics"] as const) {
+        const envelope = await daemon.recommendations(root, { command, recommendationId: "recommendation.any", reason: "r", importNodeLimit: 0 });
+        expect(errorOf(envelope), command).toMatchObject({
+          code: "AC_SCHEMA_INVALID",
+          message: expect.stringContaining("importNodeLimit must be a positive integer")
+        });
+      }
+      const verify = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+        recommendationId: "recommendation.any",
+        importNodeLimit: 1.5
+      });
+      expect(errorOf(verify)).toMatchObject({ code: "AC_SCHEMA_INVALID", message: expect.stringContaining("importNodeLimit must be a positive integer") });
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("refactor verify measures with the baseline limit, or with the request limit", async () => {
+    const daemon = await startDaemon();
+    try {
+      const limited = scanData(await daemon.refactorScan(root, { request: limitedRequest }));
+      const recommendationId = importLimitCandidateId(limited);
+      const recorded = await daemon.refactorRecord(root, {
+        assessmentDigest: limited.assessment.assessmentDigest,
+        expectedWorktreeDigest: limited.worktree.worktreeDigest
+      });
+      expect(recorded.ok, JSON.stringify(recorded)).toBe(true);
+      const verify = async (importNodeLimit?: number) => {
+        const envelope = await daemon.refactorVerify(root, {
+          schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+          recommendationId,
+          ...(importNodeLimit === undefined ? {} : { importNodeLimit })
+        });
+        expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
+        return (envelope.data as unknown as { evidence: RefactorResolutionEvidenceV1 }).evidence;
+      };
+
+      // Same HEAD and the baseline's limit: AFTER is the BEFORE measurement.
+      const sameLimit = await verify();
+      expect(sameLimit.beforeSnapshotDigest).toBe(limited.snapshot.snapshotDigest);
+      expect(sameLimit.afterSnapshotDigest).toBe(limited.snapshot.snapshotDigest);
+
+      // A request limit replaces the baseline's.
+      const wider = scanData(await daemon.refactorScan(root, { request: { ...limitedRequest, importNodeLimit: IMPORT_NODE_COUNT + 1 } }));
+      expect(wider.snapshot.codeFacts.coverage).toBe("complete");
+      const widerLimit = await verify(IMPORT_NODE_COUNT + 1);
+      expect(widerLimit.afterSnapshotDigest).toBe(wider.snapshot.snapshotDigest);
+    } finally {
+      await daemon.stop();
+    }
+  }, 180_000);
+});
+
+describe("baselineImportNodeLimit", () => {
+  const snapshot = (codeFacts: Partial<ModuleStatisticsSnapshotV1["codeFacts"]>) =>
+    ({ codeFacts: { edgeLimit: LIMIT, importNodeCount: IMPORT_NODE_COUNT, ...codeFacts } }) as unknown as ModuleStatisticsSnapshotV1;
+
+  test("gives the recorded limit of a baseline that has an import node count", () => {
+    expect(baselineImportNodeLimit(snapshot({}))).toBe(LIMIT);
+    expect(baselineImportNodeLimit(snapshot({ importNodeCount: null }))).toBe(LIMIT);
+  });
+
+  test("gives the default for no baseline, the default limit, no limit, or a baseline from before the count", () => {
+    expect(baselineImportNodeLimit(undefined)).toBeUndefined();
+    expect(baselineImportNodeLimit(snapshot({ edgeLimit: CODEGRAPH_IMPORT_NODE_READ_LIMIT }))).toBeUndefined();
+    expect(baselineImportNodeLimit(snapshot({ edgeLimit: null }))).toBeUndefined();
+    const legacy = { codeFacts: { edgeLimit: 5000 } } as unknown as ModuleStatisticsSnapshotV1;
+    expect(baselineImportNodeLimit(legacy)).toBeUndefined();
   });
 });
