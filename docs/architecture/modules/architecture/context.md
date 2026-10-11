@@ -1,6 +1,6 @@
 # architecture/context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:4e28579f79119802f0a6a7f9968a3b323802384715341b8f2b85116fb1c96672" rendererVersion="archcontext.docs-renderer/v5" outputDigest="sha256:7d0af2b583842a50cdbaf02b5fdc1544ddddbaae8fb1012005e15fcda14c0a77" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:852e0e01c1765445e32955b254e9877d9f11851c7a294386d80fccca72cda8ff" rendererVersion="archcontext.docs-renderer/v5" outputDigest="sha256:d631ae9969de11b644743a80886a64128b9fedeebb7d76901f39840205cde8f3" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture.context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -66,15 +66,15 @@ flowchart LR
   p1_module_architecture_context_surfaces_7bec6277["Surfaces Workspace"]:::component
   p1_module_architecture_context_tooling_d6655cd5["Repository Tooling"]:::component
   p1_component_architecture_context_local_runtime_agent_jobs_33e671d3 -->|"Resolve repository sessions and ledger scope without moving store transactional ownership"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
-  p1_component_architecture_context_local_runtime_architecture_book_ec146b18 -->|"Query， diff and export Book subjects from replayed ledger state and events with shared ledger contracts"| p1_component_architecture_context_core_architecture_ledger_248e87de
+  p1_component_architecture_context_local_runtime_architecture_book_ec146b18 -->|"Query#44; diff and export Book subjects from replayed ledger state and events with shared ledger contracts"| p1_component_architecture_context_core_architecture_ledger_248e87de
   p1_component_architecture_context_local_runtime_architecture_book_ec146b18 -->|"Resolve the architecture-ledger readback and Git scope without moving ledger readback ownership"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
-  p1_component_architecture_context_local_runtime_audit_eaeac660 -->|"Use the same job completion， ID， risk and proposal validation semantics through the existing daemon callbacks"| p1_component_architecture_context_local_runtime_agent_jobs_33e671d3
+  p1_component_architecture_context_local_runtime_audit_eaeac660 -->|"Use the same job completion#44; ID#44; risk and proposal validation semantics through the existing daemon callbacks"| p1_component_architecture_context_local_runtime_agent_jobs_33e671d3
   p1_component_architecture_context_local_runtime_audit_eaeac660 -->|"Run read-only investigation and compile advisory proposals before daemon-owned ledger recording"| p1_component_architecture_context_core_agent_orchestrator_dd368317
   p1_component_architecture_context_surfaces_cli_c2747804 -->|"Use shared private control-file permission authority"| p1_component_architecture_context_local_runtime_control_file_security_af51dbd4
   p1_component_architecture_context_surfaces_cli_c2747804 -->|"Persist and read only review metadata and apply the shared CLI credential privacy guard"| p1_component_architecture_context_surfaces_github_review_state_a43938db
   p1_component_architecture_context_surfaces_cli_c2747804 -->|"Use the shared state path authority in the fast hook client"| p1_component_architecture_context_local_runtime_runtime_state_paths_13691514
   p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce -->|"Compute deterministic review results from daemon-owned digests before persistence and attestation signing"| p1_component_architecture_context_core_review_engine_f590debf
-  p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce -->|"Use shared daemon control paths， process liveness and strict persisted run manifest decoding"| p1_component_architecture_context_local_runtime_rpc_server_90daf412
+  p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce -->|"Use shared daemon control paths#44; process liveness and strict persisted run manifest decoding"| p1_component_architecture_context_local_runtime_rpc_server_90daf412
   p1_component_architecture_context_local_runtime_explorer_server_52082528 -->|"Request authoritative projection and delta through daemon callbacks without moving cache or ledger ownership"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
   p1_component_architecture_context_local_runtime_external_documentation_cb71400c -->|"Open repository sessions and execute approved pins under the daemon writer and recovery guard"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
   p1_component_architecture_context_surfaces_github_review_state_a43938db -->|"Resolve the worktree-specific user state directory for local review metadata"| p1_component_architecture_context_local_runtime_runtime_state_paths_13691514
@@ -84,31 +84,31 @@ flowchart LR
   p1_component_architecture_context_local_runtime_local_store_sqlite_cd341e9b -->|"Use shared private control-file permission authority"| p1_component_architecture_context_local_runtime_control_file_security_af51dbd4
   p1_component_architecture_context_local_runtime_local_store_sqlite_cd341e9b -->|"Resolve runtime storage partitions and re-export the existing public state-path contract"| p1_component_architecture_context_local_runtime_runtime_state_paths_13691514
   p1_component_architecture_context_surfaces_mcp_local_d11d91ff -->|"Resolve and call the daemon through the client-only RPC entrypoint"| p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30
-  p1_component_architecture_context_local_runtime_projection_apply_154446a6 -->|"Rebuild fixed-point proof from repository， model and CodeGraph authority before receipt delivery"| p1_component_architecture_context_projection_renderer_53dbb119
+  p1_component_architecture_context_local_runtime_projection_apply_154446a6 -->|"Rebuild fixed-point proof from repository#44; model and CodeGraph authority before receipt delivery"| p1_component_architecture_context_projection_renderer_53dbb119
   p1_capability_architecture_context_d82fe06a -->|"Project the accepted architecture model into documentation"| p1_component_architecture_context_projection_renderer_53dbb119
   p1_component_architecture_context_local_runtime_projection_service_5fe94894 -->|"Render deterministic documentation and agent context using daemon-owned inputs"| p1_component_architecture_context_projection_renderer_53dbb119
-  p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30 -->|"Re-export the loopback RPC client， wire protocol， and shared RPC type contracts through the client-only subpath"| p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb
+  p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30 -->|"Re-export the loopback RPC client#44; wire protocol#44; and shared RPC type contracts through the client-only subpath"| p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb
   p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30 -->|"Read the shared daemon connection file through control helpers without loading the server implementation"| p1_component_architecture_context_local_runtime_rpc_server_90daf412
   p1_component_architecture_context_local_runtime_public_entrypoints_cc659d30 -->|"Re-export the daemon facade and its egress status through the package root barrel"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
-  p1_component_architecture_context_local_runtime_recommendations_0ebeafe6 -->|"Transition recommendation lifecycle status， build feedback and aggregate lifecycle metrics from the frozen recommendation engine"| p1_component_architecture_context_core_recommendation_engine_bb326e86
+  p1_component_architecture_context_local_runtime_recommendations_0ebeafe6 -->|"Transition recommendation lifecycle status#44; build feedback and aggregate lifecycle metrics from the frozen recommendation engine"| p1_component_architecture_context_core_recommendation_engine_bb326e86
   p1_component_architecture_context_local_runtime_recommendations_0ebeafe6 -->|"Classify refactor scans and evaluate verify resolutions against the frozen refactor assessment engine"| p1_component_architecture_context_core_refactor_assessment_3ccf5012
-  p1_component_architecture_context_local_runtime_recommendations_0ebeafe6 -->|"Resolve ledger scope， writer， clock， short digest and the non-journal append callback without moving writer or ledger scope ownership"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
-  p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Resolve daemon connection， lock and review-run paths through the shared state path authority"| p1_component_architecture_context_local_runtime_runtime_state_paths_13691514
+  p1_component_architecture_context_local_runtime_recommendations_0ebeafe6 -->|"Resolve ledger scope#44; writer#44; clock#44; short digest and the non-journal append callback without moving writer or ledger scope ownership"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
+  p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Resolve daemon connection#44; lock and review-run paths through the shared state path authority"| p1_component_architecture_context_local_runtime_runtime_state_paths_13691514
   p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Use shared private control-file permission authority"| p1_component_architecture_context_local_runtime_control_file_security_af51dbd4
   p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Use the shared process liveness semantics before stale-owner recovery"| p1_component_architecture_context_local_runtime_process_liveness_f8365b95
   p1_component_architecture_context_local_runtime_rpc_server_90daf412 -->|"Use the common wire protocol and construct a client from a validated daemon connection file"| p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose job queue orchestration and supply existing session and ledger scope ports"| p1_component_architecture_context_local_runtime_agent_jobs_33e671d3
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose Architecture Book reads and the task-context ledger query port using the shared ledger readback and local store"| p1_component_architecture_context_local_runtime_architecture_book_ec146b18
-  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate audit orchestration with existing lifecycle cancellation， writer gate， stores and job completion"| p1_component_architecture_context_local_runtime_audit_eaeac660
+  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate audit orchestration with existing lifecycle cancellation#44; writer gate#44; stores and job completion"| p1_component_architecture_context_local_runtime_audit_eaeac660
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate review worktree lifecycle through the composed service with the daemon running-state guard and clock"| p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose Explorer session lifecycle and send committed projection and authority invalidations"| p1_component_architecture_context_local_runtime_explorer_server_52082528
-  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose external documentation operations using the existing provider， store and writer ports"| p1_component_architecture_context_local_runtime_external_documentation_cb71400c
-  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate explicit ledger administration using the existing writer gate， stores and transactional append callback"| p1_component_architecture_context_local_runtime_ledger_admin_0c86ee18
+  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose external documentation operations using the existing provider#44; store and writer ports"| p1_component_architecture_context_local_runtime_external_documentation_cb71400c
+  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate explicit ledger administration using the existing writer gate#44; stores and transactional append callback"| p1_component_architecture_context_local_runtime_ledger_admin_0c86ee18
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate projection receipt operations through the composed service with the daemon running guard and writer gate"| p1_component_architecture_context_local_runtime_projection_apply_154446a6
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate typed projection operations after validating transport input and MCP explicit approval"| p1_component_architecture_context_local_runtime_projection_service_5fe94894
-  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose recommendation lifecycle and refactor scan/record/verify orchestration， and evaluate review dependency constraints in the completion gate"| p1_component_architecture_context_local_runtime_recommendations_0ebeafe6
+  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose recommendation lifecycle and refactor scan/record/verify orchestration#44; and evaluate review dependency constraints in the completion gate"| p1_component_architecture_context_local_runtime_recommendations_0ebeafe6
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose the loopback RPC client through the runtime facade while preserving the public protocol"| p1_component_architecture_context_local_runtime_rpc_client_4a0f2fbb
-  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose the public RPC server and share control-file， HTTP and strict review-boundary helpers"| p1_component_architecture_context_local_runtime_rpc_server_90daf412
+  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose the public RPC server and share control-file#44; HTTP and strict review-boundary helpers"| p1_component_architecture_context_local_runtime_rpc_server_90daf412
   p1_component_architecture_context_surfaces_cli_c2747804 -->|"Use the same generated projection path guard"| p1_component_architecture_context_local_runtime_projection_paths_f737d52b
   classDef actor fill:#111827,color:#ffffff,stroke:#f9fafb,stroke-width:2px
   classDef component fill:#075985,color:#ffffff,stroke:#bae6fd,stroke-width:2px
@@ -116,7 +116,7 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:5c43c313ac3e79e3599b06c95b369912dd8d1be29e306e62f4e1eca40347f4c2`).
+- Proof: `proven` (`sha256:9c2a674fa8d77a44242b3e8c99237af3d2a02b161a9e3e7c32c6acc075196e4e`).
 - Semantic nodes: `50`; declared relations: `45`.
 
 ### 1.2 模組職責表
@@ -145,7 +145,7 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **Proof**: `proven` (`sha256:5c43c313ac3e79e3599b06c95b369912dd8d1be29e306e62f4e1eca40347f4c2`); selectors `2/2`.
+> **Proof**: `proven` (`sha256:9c2a674fa8d77a44242b3e8c99237af3d2a02b161a9e3e7c32c6acc075196e4e`); selectors `2/2`.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%
