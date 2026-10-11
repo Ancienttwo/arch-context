@@ -54,12 +54,12 @@ CodeGraph remains pinned to `@colbymchenry/codegraph` 1.6.1. Bun is pinned to 1.
 
 All candidate commands use Bun 1.4.3.
 
-- `bun run verify` passes: typecheck, architecture Mermaid render, 2502 tests (1 skip, 0 fail), packaged CLI smoke and the audit readbacks.
+- `bun run verify` passes on the final candidate (43cf569, docs-only commit on top of 17341a1): typecheck, architecture Mermaid render, 2506 tests (1 skip, 0 fail), packaged CLI smoke and the audit readbacks. `bun run typecheck` passes.
 - The npm release dry-run builds `archctx-0.7.0.tgz` and `archctx-contracts-0.7.0.tgz` with no failures.
 - The installed CLI tarball smoke passes under a Node-only runtime (Node 24).
 - Both npm publish preflights pack and validate the manifests; they are blocked only on npm identity (`E401`) until the publisher authenticates.
 - Version-bound deterministic records were regenerated for 0.7.0.
 - Architecture projection was rebuilt through the daemon projection apply with `acceptObservedMajorChange`; `docs drift` is clean afterwards.
-- After the evidence-binding fix: `bun run typecheck`, the contracts, recommendation-engine, refactor-assessment, architecture-ledger, architecture-delta, runtime-daemon and CLI suites (1241 tests, 0 fail) and `node scripts/packaged-cli-smoke.mjs` pass. Every valid contracts fixture now validates with cross-file `$ref`s resolved. The full `bun run verify` above predates the fix.
+- Architecture projection was re-applied through `projection run` `apply` after the evidence-binding fix and the schema-validation test: a manifest-only rewrite refreshed the `sourceFootprintDigest` stamp of `capability.architecture.context`; no major change was observed or accepted. The agent-context projection (`AGENTS.md`, `CLAUDE.md`) was re-applied for its changed `sourceDigest`. `docs drift` is clean; `projection run` `check` reports no stale node and only the known `projection-source-stamp-missing` gap for components.
 
 Publish both npm packages after the release-prep CI passes. Rebuild the tarballs from the merged main commit. Create tag `v0.7.0` and the GitHub Release only after both npm publishes succeed.
