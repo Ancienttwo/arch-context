@@ -224,6 +224,29 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     }
   });
 
+  test("expands a dir/* workspace entry and refuses other glob shapes", () => {
+    const root = createGitFixture();
+    try {
+      mkdirSync(join(root, "packages/alpha"), { recursive: true });
+      mkdirSync(join(root, "packages/no-manifest"), { recursive: true });
+      mkdirSync(join(root, "tools/cli"), { recursive: true });
+      writeFileSync(join(root, "package.json"), JSON.stringify({ workspaces: ["packages/*", "tools/cli"] }));
+      writeFileSync(join(root, "packages/alpha/package.json"), JSON.stringify({ name: "@fixture/alpha" }));
+      writeFileSync(join(root, "tools/cli/package.json"), JSON.stringify({ name: "@fixture/cli" }));
+
+      // A subdirectory without a package.json is not a workspace package.
+      expect(readWorkspacePackages(root)).toEqual([
+        { name: "@fixture/alpha", root: "packages/alpha", exports: {} },
+        { name: "@fixture/cli", root: "tools/cli", exports: {} }
+      ]);
+
+      writeFileSync(join(root, "package.json"), JSON.stringify({ workspaces: ["packages/**"] }));
+      expect(() => readWorkspacePackages(root)).toThrow("workspace-glob-unsupported: packages/**");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
   test("creates a detached temporary worktree at an exact clean commit", () => {
     const root = createGitFixture();
     const tempRoot = mkdtempSync(join(tmpdir(), "archctx-review-worktrees-"));

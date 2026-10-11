@@ -59,7 +59,7 @@ export function readCapabilityDependencies(root: string, request: CapabilityDepe
     worktreeDigest,
     files,
     importEdges: imports.pairs,
-    workspacePackages: declaredWorkspacePackages(root),
+    workspacePackages: readWorkspaces(root),
     truncated: imports.truncated,
     importNodeCount: imports.importNodeCount,
     importNodeLimit: imports.importNodeLimit,
@@ -70,6 +70,17 @@ export function readCapabilityDependencies(root: string, request: CapabilityDepe
     ...(request.edgeLimit === undefined ? {} : { edgeLimit: request.edgeLimit })
   });
   return { ...matrix, worktree: { headSha, worktreeDigest }, privacy: { writes: "none" } };
+}
+
+function readWorkspaces(root: string): ReturnType<typeof declaredWorkspacePackages> {
+  try {
+    return declaredWorkspacePackages(root);
+  } catch (error) {
+    throw new CapabilityDependenciesError(
+      "AC_SCHEMA_INVALID",
+      `workspace packages are unreadable: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 function loadModel(root: string): NativeModel {

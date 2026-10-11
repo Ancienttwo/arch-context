@@ -227,7 +227,7 @@ export interface CapabilityDependencyInputV1 {
   nodes: NativeNode[];
   /** The tree the matrix describes: import facts count only when the index attested to exactly it. */
   worktreeDigest: string;
-  /** Repo-relative paths ownership is resolved over; every observed edge endpoint is added on top. */
+  /** The repo-relative paths the matrix describes; an edge with an endpoint outside them is dropped. */
   files: string[];
   importEdges: ModuleStatisticsImportEdgeV1[];
   workspacePackages: ModuleStatisticsWorkspacePackageV1[];
@@ -256,12 +256,10 @@ export interface CapabilityDependencyInputV1 {
  */
 export function measureCapabilityDependencies(input: CapabilityDependencyInputV1): CapabilityDependenciesV1 {
   const certification = certifyCodeFacts(input.codeFacts, input.worktreeDigest, input.truncated, input.importNodeLimitExceeded);
-  const edges = certification.measurable ? resolveEdges(input.importEdges, input.workspacePackages, new Set(input.files)) : [];
   const paths = new Set(input.files);
-  for (const edge of edges) {
-    paths.add(edge.from);
-    if (edge.to !== null) paths.add(edge.to);
-  }
+  // The index can hold files the file set excludes, such as untracked files: their edges do not count.
+  const edges = (certification.measurable ? resolveEdges(input.importEdges, input.workspacePackages, paths) : [])
+    .filter((edge) => paths.has(edge.from) && (edge.to === null || paths.has(edge.to)));
   const ownership = resolveOwnership(input.nodes, [...paths].sort());
   const parents = new Map<string, string | undefined>(input.nodes.map((node) => [node.id, node.parent]));
   const kinds = new Map(input.nodes.map((node) => [node.id, node.kind]));

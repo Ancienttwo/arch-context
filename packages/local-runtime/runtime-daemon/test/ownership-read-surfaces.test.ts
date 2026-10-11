@@ -8,7 +8,7 @@ import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { createStartedDaemon } from "../src/index";
+import { CapabilityDependenciesError, createStartedDaemon, readCapabilityDependencies } from "../src/index";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import { rmSync } from "./runtime-test-fixtures";
 
@@ -218,5 +218,20 @@ describe("refactor scan untracked exclusion (#301)", () => {
     } finally {
       await daemon.stop();
     }
+  });
+});
+
+describe("deps workspace discovery (#301)", () => {
+  test("an unsupported workspace glob is a typed input error, not a runtime failure", () => {
+    const root = createRepo();
+    writeFileSync(join(root, "package.json"), JSON.stringify({ workspaces: ["packages/**"] }), "utf8");
+    let caught: unknown;
+    try {
+      readCapabilityDependencies(root, {});
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(CapabilityDependenciesError);
+    expect(caught).toMatchObject({ code: "AC_SCHEMA_INVALID", message: expect.stringContaining("workspace-glob-unsupported: packages/**") });
   });
 });

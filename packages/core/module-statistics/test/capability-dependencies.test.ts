@@ -82,6 +82,22 @@ describe("capability dependency matrix (#301)", () => {
     });
   });
 
+  test("an edge with an endpoint outside the file set is not counted", () => {
+    const base = input();
+    const result = measureCapabilityDependencies(input({
+      importEdges: [
+        ...base.importEdges,
+        // The index also holds a file that HEAD does not carry, for example an untracked file.
+        { from: "src/checkout/pay.ts", specifier: "../billing/draft", to: "src/billing/draft.ts" },
+        { from: "src/billing/draft.ts", specifier: "../checkout/pay", to: "src/checkout/pay.ts" }
+      ]
+    }));
+    const expected = measureCapabilityDependencies(base);
+    expect(result.matrix).toEqual(expected.matrix);
+    expect(result.imports.edgeCount).toBe(expected.imports.edgeCount);
+    expect(result.edges).toEqual(expected.edges);
+  });
+
   test("--into keeps edges whose imported file the node or a descendant owns", () => {
     const into = measureCapabilityDependencies(input({ into: "capability.billing" }));
     expect(into.filter).toEqual({ from: null, into: "capability.billing" });
