@@ -13,6 +13,7 @@ Projection:
 - #268, #272, #276, #286: an orphaned module document that holds only its generated region or the renderer's skeleton is deleted in the same apply. Any other orphan is `orphaned-document-review`. Capability `projection-orphan-review-v1`.
 - #264, #287: `plan` mode returns a bounded preview per file, and `docs preview` is removed. Major-change results, refresh signals and `docs drift|plan` carry `capabilities[]`. archctx-contracts publishes the projection manifest contract. Capabilities `projection-preview-v1`, `architecture-change-capabilities-v1` and `projection-manifest-contract-v2`.
 - #290, #292: freshness checks a stamp only for the nodes that the active profile stamps. Under `repo-harness/v1`, only capability nodes have a module document and a stamp, so `check` is fresh right after an apply. A change in a member footprint still sets `freshness.ok` to `false`: `staleNodes` names the stamped node whose footprint covers the file, or `reasonCodes` contains `projection-source-tree-digest-mismatch`.
+- #293: the `docs` commands use the profile of the committed manifest when the caller gives no `--profile`. Before, `docs apply` rendered the `default` layout in a `repo-harness/v1` repository.
 
 ChangeSet:
 
