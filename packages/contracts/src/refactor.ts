@@ -62,6 +62,7 @@ export const REFACTOR_SCALES = [
 ] as const;
 export const REFACTOR_SCALE_REASON_CODES = [
   "caller-coverage-unknown",
+  "code-facts-import-limit",
   "code-facts-missing",
   "code-facts-truncated",
   "major-change-detected",
@@ -198,6 +199,11 @@ export interface RefactorRequestV1 {
   expectedHeadSha?: string;
   expectedWorktreeDigest?: string;
   task?: string;
+  /**
+   * The most CodeGraph import nodes the scan reads. Omitted means the runtime default. A larger
+   * index gives partial coverage with `code-facts-import-limit`, never `code-facts-truncated`.
+   */
+  importNodeLimit?: number;
 }
 
 /**
@@ -281,8 +287,18 @@ export interface ModuleStatisticsSnapshotV1 {
     binaryDigest: string;
     indexedWorktreeDigest: string | null;
     coverage: EvidenceCoverageLevelV2;
+    /**
+     * True only when the read is shorter than the population the index reported. A read cut by
+     * `edgeLimit` is not truncated: it reports `code-facts-import-limit` instead.
+     */
     truncated: boolean;
+    /** The import-node read limit the scan applied. */
     edgeLimit: number | null;
+    /**
+     * Import nodes the index reported, or `null` when no index gave a count. Absent on snapshots
+     * recorded before the field existed.
+     */
+    importNodeCount?: number | null;
     reasonCodes: RefactorScaleReasonCode[];
   };
   modules: ModuleStatisticsV1[];
@@ -594,6 +610,9 @@ export function refactorRequestInvariantIssues(request: RefactorRequestV1, prefi
     }
   }
   if (request.proposal) issues.push(...refactorProposalInvariantIssues(request.proposal, `${prefix}.proposal`));
+  if (request.importNodeLimit !== undefined && !(Number.isInteger(request.importNodeLimit) && request.importNodeLimit >= 1)) {
+    issues.push(`${prefix}.importNodeLimit must be a positive integer`);
+  }
   return issues;
 }
 
@@ -722,6 +741,15 @@ export function moduleStatisticsSnapshotInvariantIssues(snapshot: ModuleStatisti
     }
   }
   issues.push(...nonNegativeIntegerIssues(`${prefix}.codeFacts.edgeLimit`, snapshot.codeFacts.edgeLimit));
+  const importNodeCount = snapshot.codeFacts.importNodeCount ?? null;
+  issues.push(...nonNegativeIntegerIssues(`${prefix}.codeFacts.importNodeCount`, importNodeCount));
+  if (snapshot.codeFacts.reasonCodes.includes("code-facts-import-limit")) {
+    const { edgeLimit } = snapshot.codeFacts;
+    if (snapshot.codeFacts.coverage !== "partial") issues.push(`${prefix}.codeFacts.coverage must be partial when the import limit was reached`);
+    if (edgeLimit === null || (importNodeCount !== null && importNodeCount <= edgeLimit)) {
+      issues.push(`${prefix}.codeFacts.importNodeCount must exceed edgeLimit when the import limit was reached`);
+    }
+  }
   for (const [field, value] of Object.entries(snapshot.repositorySummary)) {
     issues.push(...nonNegativeIntegerIssues(`${prefix}.repositorySummary.${field}`, value));
   }

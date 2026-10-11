@@ -85,6 +85,24 @@ describe("module statistics snapshot", () => {
     expect(snapshot.modules.find((module) => module.nodeId === "module.core")!.dependencyGraph).not.toBeNull();
   });
 
+  test("an index larger than the read limit reports code-facts-import-limit with its count, not code-facts-truncated", () => {
+    const snapshot = buildModuleStatisticsSnapshot(makeInput({ edgeLimit: 3, importNodeCount: 7, importNodeLimitExceeded: true }));
+
+    expect(issues(snapshot)).toEqual([]);
+    expect(snapshot.codeFacts).toMatchObject({ coverage: "partial", truncated: false, edgeLimit: 3, importNodeCount: 7 });
+    expect(snapshot.codeFacts.reasonCodes).toContain("code-facts-import-limit");
+    expect(snapshot.codeFacts.reasonCodes).not.toContain("code-facts-truncated");
+  });
+
+  test("a complete read records the measured import count", () => {
+    const snapshot = buildModuleStatisticsSnapshot(makeInput({ importNodeCount: 7, importNodeLimitExceeded: false }));
+
+    expect(issues(snapshot)).toEqual([]);
+    expect(snapshot.codeFacts).toMatchObject({ coverage: "complete", truncated: false, importNodeCount: 7 });
+    expect(snapshot.codeFacts.reasonCodes).not.toContain("code-facts-import-limit");
+    expect(snapshot.codeFacts.reasonCodes).not.toContain("code-facts-truncated");
+  });
+
   test("a missing index yields unknown coverage, no digest, and no dependency graph anywhere", () => {
     // The edges are deliberately still supplied: an index that did not attest to this tree is no
     // evidence at all, so the builder must ignore them rather than report them as observations.

@@ -7,7 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
 import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
@@ -550,7 +550,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx resolve --paths-from changed-paths.txt", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor scan --import-node-limit 100000 --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx resolve --paths-from changed-paths.txt"]
         }
       };
     }
@@ -1008,16 +1008,26 @@ async function runRefactorCommand(args: string[], cwd: string, runtime: () => Pr
   try {
     if (subcommand === "scan") {
       const raw = refactorFlagValue(args, "--request-json");
+      const limitRaw = refactorFlagValue(args, "--import-node-limit");
       // No request is the repository-scope default, which is what the daemon already applies.
-      if (raw === undefined) return (await runtime()).refactorScan(cwd, {});
-      let request: unknown;
-      try {
-        request = JSON.parse(raw);
-      } catch (error) {
-        return errorEnvelope(surface, "AC_SCHEMA_INVALID", `refactor scan --request-json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      if (raw === undefined && limitRaw === undefined) return (await runtime()).refactorScan(cwd, {});
+      let request: unknown = { schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION, scope: { kind: "repository" } };
+      if (raw !== undefined) {
+        try {
+          request = JSON.parse(raw);
+        } catch (error) {
+          return errorEnvelope(surface, "AC_SCHEMA_INVALID", `refactor scan --request-json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
       if (typeof request !== "object" || request === null || Array.isArray(request)) {
         return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor scan --request-json must be a RefactorRequestV1 object");
+      }
+      if (limitRaw !== undefined) {
+        // Digits only: `Number("1e3")` or `Number(" 7 ")` would accept a value the caller did not type.
+        if (!/^[0-9]+$/.test(limitRaw)) {
+          return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor scan --import-node-limit must be a positive integer");
+        }
+        request = { ...request, importNodeLimit: Number(limitRaw) };
       }
       const issues = refactorRequestInvariantIssues(request as RefactorRequestV1);
       if (issues.length > 0) return errorEnvelope(surface, "AC_SCHEMA_INVALID", issues.join("; "));

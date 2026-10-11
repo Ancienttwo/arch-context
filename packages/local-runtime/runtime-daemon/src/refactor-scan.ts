@@ -32,7 +32,7 @@ import { loadNativeModelFromArchContext, type NativeNode } from "@archcontext/co
 import type { RecommendationSuppression, RefactorCandidateBudget } from "@archcontext/core/recommendation-engine";
 import { assessRefactor } from "@archcontext/core/refactor-assessment";
 import {
-  CODEGRAPH_IMPORT_NODE_QUERY_LIMIT,
+  CODEGRAPH_IMPORT_NODE_READ_LIMIT,
   codeGraphCliInvocation,
   codeGraphIndexAvailable,
   repositoryImportPairs
@@ -74,7 +74,6 @@ export interface RefactorScanInputV1 {
    */
   previousRecommendations: readonly RecommendationLedgerRecordV1[];
   catalogDigest: string;
-  edgeLimit?: number;
 }
 
 export interface RefactorScanResultV1 {
@@ -133,7 +132,8 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
   const constraints = readDependencyConstraints(listModelFiles(input.root)).constraints;
   const createdAt = readHeadCommitterDate(input.root);
   const requestId = refactorRequestId(input.request);
-  const edgeLimit = input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_QUERY_LIMIT;
+  // The request carries the limit, so it is part of the request identity and visible in `request`.
+  const edgeLimit = input.request.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
 
   // Read once, hand the same array to both consumers: the classifier's ownership resolution has
   // to run over exactly the file set the snapshot measured, or a `scopePath` it calls unowned may
@@ -150,6 +150,8 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
     workspacePackages: declaredWorkspacePackages(input.root),
     truncated: codeFacts.truncated,
     edgeLimit,
+    importNodeCount: codeFacts.importNodeCount,
+    importNodeLimitExceeded: codeFacts.importNodeLimitExceeded,
     codeFacts: {
       version: codeFacts.version,
       binaryDigest: codeFacts.binaryDigest,
@@ -244,11 +246,20 @@ export function evaluateReviewDependencyConstraints(input: ReviewDependencyConst
       codeFacts: { availability: "unavailable", indexedWorktreeDigest: null }
     });
   }
+  const edgeLimit = input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
   let imports: ReturnType<typeof repositoryImportPairs>;
   try {
-    imports = repositoryImportPairs(input.root, CODEGRAPH_BINARY, input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_QUERY_LIMIT, input.worktreeDigest);
+    imports = repositoryImportPairs(input.root, CODEGRAPH_BINARY, edgeLimit, input.worktreeDigest);
   } catch {
-    imports = { pairs: [], truncated: true, availability: "unavailable", indexedWorktreeDigest: null };
+    imports = {
+      pairs: [],
+      truncated: true,
+      availability: "unavailable",
+      indexedWorktreeDigest: null,
+      importNodeCount: null,
+      importNodeLimit: edgeLimit,
+      importNodeLimitExceeded: false
+    };
   }
   const workspaces = reviewWorkspacePackages(input.root);
   return evaluateDependencyConstraints({
@@ -258,6 +269,7 @@ export function evaluateReviewDependencyConstraints(input: ReviewDependencyConst
     workspacePackages: workspaces.packages,
     workspacePackagesResolved: workspaces.resolved,
     truncated: imports.truncated,
+    importNodeLimitExceeded: imports.importNodeLimitExceeded,
     codeFacts: { availability: imports.availability, indexedWorktreeDigest: imports.indexedWorktreeDigest }
   });
 }
@@ -384,6 +396,8 @@ function loadModel(root: string): ReturnType<typeof loadNativeModelFromArchConte
 interface RefactorScanCodeFactsV1 {
   pairs: { from: string; specifier: string; to: string | null; line?: number }[];
   truncated: boolean;
+  importNodeCount: number | null;
+  importNodeLimitExceeded: boolean;
   availability: ModuleStatisticsIndexAvailability;
   indexedWorktreeDigest: string | null;
   version: string;
@@ -402,6 +416,8 @@ function readCodeFacts(root: string, worktreeDigest: string, edgeLimit: number):
   return {
     pairs: imports.pairs,
     truncated: imports.truncated,
+    importNodeCount: imports.importNodeCount,
+    importNodeLimitExceeded: imports.importNodeLimitExceeded,
     availability: imports.availability,
     indexedWorktreeDigest: imports.indexedWorktreeDigest,
     ...attestation
