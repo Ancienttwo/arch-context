@@ -1446,7 +1446,8 @@ describe("refactor JSON schemas", () => {
       { category: "practice", payload: { practiceId: "practice.boundary", baselineDigest: null } }
     );
     const architecture = makeRecommendationV3({ enforcement: "complete" }, { category: "refactor_proposal", payload: makeRefactorProposalPayload({ scale: "architecture", majorChangeReasons: ["ownership-changed"] }) });
-    for (const recommendation of [makeRecommendationV3(), architecture, practice, structural()]) {
+    const published = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/valid/recommendation-v3.json"), "utf8")) as RecommendationV3;
+    for (const recommendation of [makeRecommendationV3(), architecture, practice, structural(), published]) {
       expect(recommendationV3InvariantIssues(recommendation)).toEqual([]);
       expect(issuesOf(recommendationSchema, recommendation)).toEqual([]);
     }
@@ -1501,6 +1502,7 @@ describe("refactor JSON schemas", () => {
     expect(defs.refactorProposalPayload.properties.majorChangeReasons.items.enum).toEqual([...ARCHITECTURE_MAJOR_CHANGE_REASON_CODES]);
     expect(defs.targetOutcome.properties.operator.enum).toEqual([...REFACTOR_OUTCOME_OPERATORS]);
     expect(defs.killListEntry.properties.kind.enum).toEqual([...REFACTOR_KILL_LIST_KINDS]);
+    expect(defs.observationEvidence.oneOf.flatMap((variant: any) => variant.properties.kind.const ?? variant.properties.kind.enum).sort()).toEqual([...REFACTOR_OBSERVATION_KINDS]);
     expect(defs.observationEvidence.oneOf[3].properties.reasonCodes.items.enum).toEqual([...REFACTOR_SCALE_REASON_CODES]);
     expect(defs.evidenceIdList.maxItems).toBe(REFACTOR_EVIDENCE_ID_LIST_LIMIT);
     expect(defs.evidenceSpecifier.maxLength).toBe(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH);
@@ -1543,10 +1545,17 @@ describe("refactor JSON schemas", () => {
     expect(issuesOf(scanSchema, { ...scan, recording: { ...scan.recording, reasonCode: "refactor-run-exceeds-ledger-size-limit" } }).length).toBeGreaterThan(0);
   });
 
-  test("the show schema accepts a v3 record and binds the tree only to a scan candidate", () => {
+  test("the show schema accepts a v3 or v2 record and binds the tree only to a scan candidate", () => {
     const show = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/valid/runtime-recommendation-show.json"), "utf8"));
     expect(issuesOf(showSchema, show)).toEqual([]);
+    const worktree = { headSha: "a".repeat(40), worktreeDigest: `sha256:${"b".repeat(64)}` };
     expect(issuesOf(showSchema, { ...show, source: "scan-candidate" }).length).toBeGreaterThan(0);
+    expect(issuesOf(showSchema, { ...show, source: "scan-candidate", worktree })).toEqual([]);
+    expect(issuesOf(showSchema, { ...show, worktree }).length).toBeGreaterThan(0);
+    const recordedV2 = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/valid/recommendation.json"), "utf8"));
+    expect(issuesOf(showSchema, { ...show, recommendation: recordedV2 })).toEqual([]);
+    expect(issuesOf(showSchema, { ...show, baseline: { status: "missing", snapshotDigest: null } })).toEqual([]);
+    expect(issuesOf(showSchema, { ...show, baseline: { status: "missing", snapshotDigest: ZERO_DIGEST } }).length).toBeGreaterThan(0);
     const legacy = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/invalid/recommendation-v3-structural-before-evidence.json"), "utf8"));
     expect(issuesOf(showSchema, { ...show, recommendation: legacy }).length).toBeGreaterThan(0);
   });

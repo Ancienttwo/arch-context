@@ -164,6 +164,23 @@ function scanData(envelope: JsonEnvelope): {
   return envelope.data as never;
 }
 
+/** The binding values of the recommendation as the test store holds them, for in-place edits. */
+function storedRecommendationBindings(store: TestLocalStore, recommendationId: string): { evidenceId: string; provenance: { inputDigest: string } }[] {
+  const found: { evidenceId: string; provenance: { inputDigest: string } }[] = [];
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== "object") return;
+    const value = node as { schemaVersion?: unknown; target?: { kind?: unknown; id?: unknown } };
+    if (value.schemaVersion === "archcontext.evidence-binding/v1" && value.target?.kind === "recommendation" && value.target.id === recommendationId) {
+      found.push(node as never);
+      return;
+    }
+    Object.values(node).forEach(walk);
+  };
+  walk(store.architectureEvents);
+  return found;
+}
+
 function errorOf(envelope: JsonEnvelope): { code: string; message: string } {
   return (envelope as { error?: { code: string; message: string } }).error!;
 }
@@ -785,6 +802,33 @@ describe("scan-time evidence and recommendations show", () => {
     }
   });
 
+  test("show returns a binding stored by 0.6.x as stored; the published show schema rejects its evidence-id inputDigest", async () => {
+    const root = createFixtureRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const candidate = scanWithEvidence(await daemon.refactorScan(root)).proposedRecommendations[0]!;
+      const decided = await daemon.recommendations(root, { command: "defer", recommendationId: candidate.recommendationId, reason: "Next quarter." });
+      expect(decided.ok, JSON.stringify(decided)).toBe(true);
+      // 0.6.x `refactor record` and `refactor verify` stored the evidence id in provenance.inputDigest.
+      // Give the stored binding that shape: replay keeps a binding as written and never rewrites it.
+      const stored = storedRecommendationBindings(store, candidate.recommendationId);
+      expect(stored.length).toBeGreaterThan(0);
+      for (const binding of stored) binding.provenance.inputDigest = binding.evidenceId;
+
+      const shown = showData(await daemon.recommendations(root, { command: "show", recommendationId: candidate.recommendationId }));
+      expect(shown.source).toBe("ledger");
+      const bindings = shown.evidence.bindings as unknown as { evidenceId: string; provenance: { inputDigest: string } }[];
+      expect(bindings.length).toBe(stored.length);
+      for (const binding of bindings) expect(binding.provenance.inputDigest).toBe(binding.evidenceId);
+      const issues = publishedSchemaIssues("runtime-recommendation-show.schema.json", shown);
+      expect(issues.length).toBeGreaterThan(0);
+      for (const issue of issues) expect(issue.path).toMatch(/^\$\.evidence\.bindings\[\d+\]\.provenance\.inputDigest$/);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   test("show on an id that is neither recorded nor scanned is a typed not-found and writes nothing", async () => {
     const root = createFixtureRepo();
     const store = new TestLocalStore();
@@ -1011,6 +1055,32 @@ describe("recommendation decisions and listing", () => {
         expect(invalid.ok).toBe(false);
         expect(errorOf(invalid).code).toBe("AC_SCHEMA_INVALID");
       }
+    } finally {
+      await daemon.stop();
+    }
+  });
+});
+
+describe("published refactor schemas", () => {
+  test("default and proposal scans, and every candidate of both categories, validate against the published schemas", async () => {
+    const root = createFixtureRepo();
+    const daemon = await startDaemon(new TestLocalStore());
+    try {
+      const request: RefactorRequestV1 = {
+        schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION,
+        scope: { kind: "paths", paths: [OWNED_FILE] },
+        proposal: proposalFor([OWNED_FILE])
+      };
+      const categories = new Set<string>();
+      for (const scan of [await daemon.refactorScan(root), await daemon.refactorScan(root, { request })]) {
+        const data = scanData(scan);
+        expect(publishedSchemaIssues("runtime-refactor-scan.schema.json", data)).toEqual([]);
+        for (const recommendation of data.proposedRecommendations as unknown as { category: string }[]) {
+          expect(publishedSchemaIssues("recommendation-v3.schema.json", recommendation)).toEqual([]);
+          categories.add(recommendation.category);
+        }
+      }
+      expect([...categories].sort()).toEqual(["refactor_proposal", "structural_observation"]);
     } finally {
       await daemon.stop();
     }

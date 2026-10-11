@@ -879,6 +879,21 @@ test("capabilities fixture is the exact static handshake advertised by contracts
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
 });
 
+test("capabilities schema accepts a well-formed feature flag it does not list, so older validators accept newer releases", () => {
+  const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
+  expect(fixture.features).toContain("code-facts-unavailable-error-v1");
+  expect(fixture.features).toContain("projection-manifest-contract-v2");
+  const schema = readJson("schemas/runtime/archctx-capabilities.schema.json") as any;
+  const items = schema.properties.features.items as { pattern: string; examples: string[] };
+  expect(items.examples).toEqual([...ARCHCTX_FEATURES]);
+  for (const feature of ARCHCTX_FEATURES) expect(new RegExp(items.pattern).test(feature), feature).toBe(true);
+  const withFeatures = (features: string[]) => ({ ...fixture, features } as unknown as Json);
+  expect(validateJsonSchema(schema, withFeatures([...fixture.features, "future-release-feature-v1"])).valid).toBe(true);
+  for (const malformed of ["Future-Feature-v1", "future-feature", "future_feature-v1", "-v1", ""]) {
+    expect(validateJsonSchema(schema, withFeatures([...fixture.features, malformed])).valid, malformed).toBe(false);
+  }
+});
+
 function readJson(path: string): Json {
   return JSON.parse(readFileSync(join(root, path), "utf8"));
 }

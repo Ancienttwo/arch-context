@@ -10,6 +10,7 @@ rollout operations live in `docs/runbooks/practice-assets-v1.md`.
 2. Run schema migration checks.
 3. Write new generated projections.
 4. Keep previous local state snapshot until first successful `complete_task`.
+5. For an upgrade to 0.7.0, follow "Upgrading from archctx 0.6.3" in `docs/runbooks/architecture-documentation-projections.md`. The first projection after that upgrade rewrites every generated document and the projection manifest.
 
 ## Practice Assets v1 Release Drill
 

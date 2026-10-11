@@ -93,7 +93,10 @@ The scan and show schemas embed the recommendation definitions; contract tests
 keep the embedded copies equal to the standalone schemas. Evidence items,
 evidence bindings and decisions reference the existing
 `evidence-item.schema.json`, `evidence-binding.schema.json` and
-`recommendation-feedback.schema.json`. The schemas check structure. The
+`recommendation-feedback.schema.json`. Load the whole `schemas/` directory, or
+pass `resolveSchema` (for example from `jsonSchemaResolver`) to
+`validateJsonSchema`, so that these references resolve; without a resolver the
+validator reports each one as unresolved. The schemas check structure. The
 TypeScript validators (`recommendationV3InvariantIssues`,
 `refactorObservationEvidenceIssues`, `refactorScanInvariantIssues`) still own
 the cross-field rules: sorted lists, digests that bind their payload, and
@@ -115,3 +118,15 @@ whose `payload` has no `evidence` field was written before evidence existed. A
 runtime that advertises the `refactor-observation-evidence-v1` capability writes
 all three fields on every new structural observation. There is no translation
 reader: treat the old record as evidence-less.
+
+### Evidence bindings recorded by 0.6.x
+
+archctx 0.7.0 `refactor record` and `refactor verify` write
+`provenance.inputDigest` as the `sha256:` digest of the binding's input: the
+baseline snapshot digest or the resolution digest (#289). A binding that 0.6.x
+recorded carries the evidence id there. Ledger replay does not validate binding
+provenance and never rewrites a binding. `recommendations show` returns such a
+binding as stored, and it does not validate against
+`evidence-binding.schema.json` or the `runtime-recommendation-show` schema that
+references it. Validation reports only `provenance.inputDigest`. Treat that
+field of an old binding as opaque provenance.

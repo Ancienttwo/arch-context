@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/projection-manifest.schema.json",
   "title": "ArchitectureDocsProjectionManifestV2",
-  "description": "The committed docs/architecture/.projection-manifest.json the architecture documentation projection writes (#264). Sorted/unique orders, targetCount/fileCount and the 1-2-5 bucket ladder are enforced by architectureDocsProjectionManifestIssues.",
+  "description": "The committed docs/architecture/.projection-manifest.json the architecture documentation projection writes (#264). Version v2 (archctx 0.7.0) has content-stamp targets and provenance v3; a v1 manifest is not valid against this schema. Sorted/unique orders, targetCount/fileCount and the 1-2-5 bucket ladder are enforced by architectureDocsProjectionManifestIssues.",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -3,7 +3,7 @@
   "environment": "process-fixture",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-10-11T04:28:29.220Z",
+  "generatedAt": "2026-10-11T06:11:30.177Z",
   "evidence": {
     "processLevelFixture": true,
     "providerEnvCleared": {
