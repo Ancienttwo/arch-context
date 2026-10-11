@@ -21,7 +21,7 @@ import { ArchctxRuntimeRpcServer, runProjectionCheckInvocation, AUDIT_APPROVE_GH
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { MCP_PLAN_OPERATIONS_SCHEMA, runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
-import { REPO_HARNESS_PROJECTION_PROFILE, exportMermaidModel, loadNativeModelFromArchContext, resolveArchitectureOwnerForPath, type ArchitectureProjectionProfile } from "@archcontext/surfaces/renderer";
+import { REPO_HARNESS_PROJECTION_PROFILE, exportMermaidModel, loadNativeModelFromArchContext, resolveArchitectureOwnerForPath, resolveArchitectureOwnersForPaths, type ArchitectureProjectionProfile, type ResolveArchitectureOwnerResult } from "@archcontext/surfaces/renderer";
 
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
@@ -150,7 +150,7 @@ async function* stdinLines(): AsyncIterable<string> {
 
 export interface CliRuntimeDeps extends RuntimeDeps {
   runtimeClient?: RuntimeDaemonClient;
-  /** Source of `plan --body -`; defaults to the process stdin. */
+  /** Source of `plan --body -` and `resolve --paths-from -`; defaults to the process stdin. */
   readStdin?: () => string | Promise<string>;
   disableRpcDiscovery?: boolean;
   devicePrivateKeyStore?: {
@@ -523,34 +523,24 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         }
       };
     case "resolve": {
+      if (args.includes("--help") || args.includes("-h")) return okEnvelope("resolve", CLI_RESOLVE_HELP as unknown as Json);
+      if (args.includes("--path") && args.includes("--paths-from")) {
+        return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve accepts exactly one of --path or --paths-from");
+      }
+      if (args.includes("--paths-from")) {
+        const read = await readResolvePathsFrom(args, cwd, deps);
+        if ("problem" in read) return errorEnvelope("resolve", "AC_SCHEMA_INVALID", read.problem);
+        const model = loadNativeModelFromArchContext(cwd);
+        const outcomes = resolveArchitectureOwnersForPaths(model.nodes, read.paths);
+        return okEnvelope("resolve", { results: outcomes.map((outcome, index) => resolveResultData(read.paths[index], outcome)) } as unknown as Json);
+      }
       const path = readFlag(args, "--path");
-      if (!path) return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve requires --path");
+      if (!path) return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve requires --path or --paths-from");
       if (!isRepoRelativePosixPath(path)) {
         return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve --path must be a repository-relative POSIX path");
       }
       const model = loadNativeModelFromArchContext(cwd);
-      const outcome = resolveArchitectureOwnerForPath(model.nodes, path);
-      if (outcome.status === "matched") {
-        const node = outcome.node;
-        return okEnvelope("resolve", {
-          matched: true,
-          ambiguous: false,
-          stableId: node.id,
-          kind: node.kind,
-          name: node.name,
-          ...(node.source ? { source: node.source } : {}),
-          ...(node.extensions ? { extensions: node.extensions } : {})
-        } as unknown as Json);
-      }
-      if (outcome.status === "ambiguous") {
-        return okEnvelope("resolve", {
-          matched: false,
-          ambiguous: true,
-          path,
-          candidates: outcome.candidates.map((node) => node.id)
-        } as unknown as Json);
-      }
-      return okEnvelope("resolve", { matched: false, ambiguous: false, path } as unknown as Json);
+      return okEnvelope("resolve", resolveResultData(path, resolveArchitectureOwnerForPath(model.nodes, path)) as unknown as Json);
     }
     case "help":
     default:
@@ -560,7 +550,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor scan --import-node-limit 100000 --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor scan --import-node-limit 100000 --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx resolve --paths-from changed-paths.txt", "archctx tunnel"]
         }
       };
     }
@@ -3449,13 +3439,69 @@ function renderResult(result: any, format: string): string {
   return `OK ${result.requestId}\n${JSON.stringify(result.data, null, 2)}`;
 }
 
-/** ADR-0043: `archctx resolve --path` exit codes are 0=matched, 1=no-match, 2=ambiguous. */
+/**
+ * ADR-0043: `archctx resolve --path` exit codes are 0=matched, 1=no-match, 2=ambiguous.
+ * `archctx resolve --paths-from` exits 2 when any path is ambiguous and 0 otherwise: a path no node
+ * owns is a normal batch result, so 1 there always means the batch itself failed.
+ */
 export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown }): number {
   if (!result || result.ok !== true) return 1;
-  const data = result.data as { matched?: boolean; ambiguous?: boolean } | undefined;
+  const data = result.data as { matched?: boolean; ambiguous?: boolean; results?: { ambiguous?: boolean }[] } | undefined;
+  if (Array.isArray(data?.results)) return data.results.some((entry) => entry.ambiguous === true) ? 2 : 0;
   if (data?.matched === true) return 0;
   if (data?.ambiguous === true) return 2;
   return 1;
+}
+
+const CLI_RESOLVE_HELP = {
+  command: "archctx resolve (--path <repo-relative path> | --paths-from <file> | --paths-from -)",
+  rule: "ADR-0043. source.exclude applies first. When every matching node lies on one parent chain, the deepest node owns the path; refactor scan uses the same rule. When matching nodes lie on different chains, an ancestor yields to its own descendant, then the longest literal source.include prefix wins, and an equal-length tie is ambiguous.",
+  batch: "--paths-from reads one repository-relative POSIX path per line from a file (relative to the current directory) or from stdin (-). Blank lines are ignored and surrounding whitespace is trimmed. The model loads once. data.results has one entry per input path, in input order. The command reads no daemon state and no CodeGraph index.",
+  result: "Each result carries path, matched, ambiguous and owningCapabilityId. A match adds stableId, kind, name, source and extensions of the most specific node. An ambiguous result adds candidates. owningCapabilityId is the nearest kind: capability node on the owner's parent chain (the owner itself when it is a capability), or null. For an ambiguous result it is set only when all candidates share one owning capability.",
+  exitCodes: "--path: 0 matched, 1 no match or error, 2 ambiguous. --paths-from: 0 when no path is ambiguous (unowned paths included), 2 when any path is ambiguous, 1 on error."
+};
+
+function resolveResultData(path: string, outcome: ResolveArchitectureOwnerResult): Record<string, Json> {
+  if (outcome.status === "matched") {
+    const node = outcome.node;
+    return {
+      path,
+      matched: true,
+      ambiguous: false,
+      stableId: node.id,
+      kind: node.kind,
+      name: node.name,
+      owningCapabilityId: outcome.owningCapabilityId,
+      ...(node.source ? { source: node.source } : {}),
+      ...(node.extensions ? { extensions: node.extensions } : {})
+    };
+  }
+  if (outcome.status === "ambiguous") {
+    return { path, matched: false, ambiguous: true, candidates: outcome.candidates.map((node) => node.id), owningCapabilityId: outcome.owningCapabilityId };
+  }
+  return { path, matched: false, ambiguous: false, owningCapabilityId: null };
+}
+
+/** `resolve --paths-from <file>` or `--paths-from -` (stdin): one path per line, blank lines ignored. */
+async function readResolvePathsFrom(args: string[], cwd: string, deps: CliRuntimeDeps): Promise<{ paths: string[] } | { problem: string }> {
+  const source = readFlag(args, "--paths-from");
+  if (source === undefined || source.startsWith("--")) return { problem: "resolve --paths-from requires a file path or - for stdin" };
+  let content: string;
+  try {
+    content = source === "-"
+      ? await (deps.readStdin ? deps.readStdin() : readFileSync(0, "utf8"))
+      : readFileSync(resolve(cwd, source), "utf8");
+  } catch (error) {
+    return { problem: `resolve --paths-from ${source} is not readable: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  const paths: string[] = [];
+  for (const [index, line] of content.split("\n").entries()) {
+    const path = line.trim();
+    if (path === "") continue;
+    if (!isRepoRelativePosixPath(path)) return { problem: `resolve --paths-from line ${index + 1} must be a repository-relative POSIX path: ${path}` };
+    paths.push(path);
+  }
+  return { paths };
 }
 
 

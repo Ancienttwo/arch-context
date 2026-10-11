@@ -421,10 +421,11 @@ interface ScopeOwnership {
 /**
  * Resolves `scopePaths` through RF1b's ownership rule.
  *
- * `resolveArchitectureOwnerForPath` is deliberately not used: it implements the ADR-0043
- * longest-literal-prefix tie-break for `archctx resolve --path`, which is a different rule from the
- * structural ancestor collapse the snapshot was measured with, and forking the two would let a
- * proposal's owners disagree with the modules it was assessed against.
+ * `resolveArchitectureOwnerForPath` is deliberately not used: across different parent chains it
+ * applies the ADR-0043 longest-literal-prefix tie-break for `archctx resolve`, while the snapshot
+ * was measured with the structural rule that marks such claims contested. Forking the two would
+ * let a proposal's owners disagree with the modules it was assessed against. On one parent chain
+ * both call the same `deepestOnOneParentChain`.
  */
 function resolveScopePaths(model: NativeModel, trackedFiles: readonly string[], scopePaths: string[]): ScopeOwnership {
   // `scopePaths` are tracked file paths (PRD RF2). Membership in the snapshot's own tracked-file
