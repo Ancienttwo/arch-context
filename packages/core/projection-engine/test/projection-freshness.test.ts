@@ -6,14 +6,18 @@ import { architectureDocsProjectionManifestIssues } from "@archcontext/contracts
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
+  REPO_HARNESS_PROJECTION_PROFILE,
   architectureDocumentationSourceTreeDigest,
   architectureDocumentationProjectionProvenance,
+  architectureProjectionStampedNodeIds,
   evaluateArchitectureProjectionFreshness,
   evaluateArchitectureProjectionSnapshotFreshness,
   loadArchitectureProjectionManifestStamps,
   loadCapabilitySourceFootprintDigests,
+  loadCapabilitySourceScaleSignals,
   renderArchitectureDocumentationProjection,
   type ArchitectureProjectionManifestStampReadback,
+  type ArchitectureProjectionProfile,
   type CapabilitySourceFootprintDigest,
   type NativeModel
 } from "../src/index";
@@ -491,5 +495,179 @@ describe("projection manifest source-footprint stamps", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("profile-scoped freshness (#290)", () => {
+  // One capability with two members that declare their own footprint. The component's footprint
+  // is inside the capability's footprint; the tooling module's footprint is outside it.
+  const capabilityId = "capability.app.core";
+  const componentId = "component.app.core.engine";
+  const toolingId = "module.app.tooling";
+  const memberModel: NativeModel = {
+    nodes: [
+      {
+        id: capabilityId,
+        kind: "capability",
+        name: "App Core",
+        status: "active",
+        source: { include: ["packages/app/**/src/**"] },
+        extensions: { contractFiles: { agents: "packages/app/AGENTS.md", claude: "packages/app/CLAUDE.md" } }
+      },
+      {
+        id: componentId,
+        kind: "component",
+        name: "Engine",
+        status: "active",
+        parent: capabilityId,
+        source: { include: ["packages/app/engine/src/**"] }
+      },
+      {
+        id: toolingId,
+        kind: "module",
+        name: "Tooling",
+        status: "active",
+        parent: capabilityId,
+        source: { include: ["scripts/**"] }
+      }
+    ],
+    relations: []
+  };
+  const memberFiles = {
+    "packages/app/api/src/index.ts": "export const api = 1;\n",
+    "packages/app/engine/src/index.ts": "export const engine = 1;\n",
+    "scripts/release.ts": "export const release = 1;\n"
+  };
+
+  /** Renders the projection from the current tree and writes it, as `docs apply` does. */
+  function applyProjection(root: string, profile: ArchitectureProjectionProfile) {
+    const sourceFiles = fixtureSourceFiles(root);
+    const plan = renderArchitectureDocumentationProjection({
+      model: memberModel,
+      profile,
+      sourceDigest,
+      provenance: architectureDocumentationProjectionProvenance({
+        sourceTreeDigest: architectureDocumentationSourceTreeDigest(root, memberModel, sourceFiles),
+        modelDigest: sourceDigest,
+        rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
+        generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
+      }),
+      sourceFootprints: loadCapabilitySourceFootprintDigests(root, memberModel, sourceFiles),
+      sourceScaleSignals: loadCapabilitySourceScaleSignals(root, memberModel, sourceFiles),
+      importGraphs: [],
+      selectorEvidence: []
+    });
+    for (const file of [...plan.files, plan.manifest]) {
+      mkdirSync(dirname(join(root, file.path)), { recursive: true });
+      writeFileSync(join(root, file.path), file.body);
+    }
+    return plan;
+  }
+
+  /** The `check` answer: committed stamps and provenance against the tree measured now. */
+  function checkFreshness(root: string, profile?: ArchitectureProjectionProfile) {
+    const sourceFiles = fixtureSourceFiles(root);
+    return evaluateArchitectureProjectionSnapshotFreshness({
+      model: memberModel,
+      ...(profile ? { profile } : {}),
+      manifest: loadArchitectureProjectionManifestStamps(root),
+      sourceFootprints: loadCapabilitySourceFootprintDigests(root, memberModel, sourceFiles),
+      currentSourceTreeDigest: architectureDocumentationSourceTreeDigest(root, memberModel, sourceFiles)
+    });
+  }
+
+  function manifestStamps(plan: ReturnType<typeof applyProjection>): Record<string, unknown> {
+    return Object.fromEntries(JSON.parse(plan.manifest.body).targets
+      .filter((target: { type: string }) => target.type === "entity-summary")
+      .map((target: { scope: { id: string }; sourceFootprintDigest?: string }) => [target.scope.id, target.sourceFootprintDigest]));
+  }
+
+  test("the stamped node set is the profile's entity-summary nodes that declare a footprint", () => {
+    expect(architectureProjectionStampedNodeIds(memberModel)).toEqual([capabilityId, componentId, toolingId]);
+    expect(architectureProjectionStampedNodeIds(memberModel, "default")).toEqual([capabilityId, componentId, toolingId]);
+    expect(architectureProjectionStampedNodeIds(memberModel, REPO_HARNESS_PROJECTION_PROFILE)).toEqual([capabilityId]);
+    // The no-source module of the default fixture has a document but no footprint, so no stamp.
+    expect(architectureProjectionStampedNodeIds(model)).toEqual(["capability.docs.projection", "capability.review.gate"]);
+  });
+
+  test("repo-harness/v1: fresh right after apply, although members declare footprints without a document", () => {
+    withRepository(memberFiles, (root) => {
+      const plan = applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
+      // The renderer stamps exactly the set the freshness check probes.
+      const stamps = manifestStamps(plan);
+      expect(Object.keys(stamps)).toEqual(architectureProjectionStampedNodeIds(memberModel, REPO_HARNESS_PROJECTION_PROFILE));
+      expect(stamps[capabilityId]).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+      expect(checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE)).toEqual({
+        schemaVersion: "archcontext.projection-freshness/v2",
+        ok: true,
+        reasonCodes: [],
+        detail: "no declared capability source changed since its documentation was verified",
+        staleNodes: []
+      });
+      // Evaluated under a profile that the manifest was not rendered with, the members have no
+      // stamp, and the check fails closed instead of reading as fresh.
+      const wrongProfile = checkFreshness(root);
+      expect(wrongProfile.ok).toBe(false);
+      expect(wrongProfile.reasonCodes).toEqual(["projection-source-stamp-missing"]);
+      expect(wrongProfile.detail).toContain(componentId);
+      expect(wrongProfile.detail).toContain(toolingId);
+    });
+  });
+
+  test("repo-harness/v1: a change in the stamped capability's footprint names the capability stale", () => {
+    withRepository(memberFiles, (root) => {
+      applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
+      writeFileSync(join(root, "packages/app/api/src/index.ts"), "export const api = 2;\n");
+      const stale = checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE);
+      expect(stale.ok).toBe(false);
+      expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"]);
+      expect(stale.staleNodes.map((node) => node.nodeId)).toEqual([capabilityId]);
+    });
+  });
+
+  test("repo-harness/v1: a change in a member footprint inside the capability footprint names the capability stale", () => {
+    withRepository(memberFiles, (root) => {
+      applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
+      writeFileSync(join(root, "packages/app/engine/src/index.ts"), "export const engine = 2;\n");
+      const stale = checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE);
+      expect(stale.ok).toBe(false);
+      expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"]);
+      expect(stale.staleNodes.map((node) => node.nodeId)).toEqual([capabilityId]);
+    });
+  });
+
+  test("repo-harness/v1: a change in a member footprint outside every stamped footprint is still stale", () => {
+    withRepository(memberFiles, (root) => {
+      applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
+      writeFileSync(join(root, "scripts/release.ts"), "export const release = 2;\n");
+      // No stamp covers the file, so no node is named. The declared source tree digest covers
+      // every declared footprint, so the projection is not fresh.
+      const stale = checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE);
+      expect(stale.ok).toBe(false);
+      expect(stale.reasonCodes).toEqual(["projection-source-tree-digest-mismatch"]);
+      expect(stale.staleNodes).toEqual([]);
+
+      // Re-projecting re-verifies the tree.
+      applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
+      expect(checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE).ok).toBe(true);
+    });
+  });
+
+  test("default profile: every node that declares a footprint is stamped and probed, as before", () => {
+    withRepository(memberFiles, (root) => {
+      const plan = applyProjection(root, "default");
+      const stamps = manifestStamps(plan);
+      expect(Object.keys(stamps).sort()).toEqual([capabilityId, componentId, toolingId]);
+      for (const nodeId of [capabilityId, componentId, toolingId]) expect(stamps[nodeId]).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(checkFreshness(root, "default").ok).toBe(true);
+      // An omitted profile is the default profile.
+      expect(checkFreshness(root).ok).toBe(true);
+
+      writeFileSync(join(root, "scripts/release.ts"), "export const release = 2;\n");
+      const stale = checkFreshness(root);
+      expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"]);
+      expect(stale.staleNodes.map((node) => node.nodeId)).toEqual([toolingId]);
+    });
   });
 });

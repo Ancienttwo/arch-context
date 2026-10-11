@@ -12,6 +12,7 @@ Projection:
 - #266, #272, #277, #286: the committed manifest is machine-independent. The manifest is `archcontext.architecture-docs-projection-manifest/v2` with provenance `archcontext.architecture-docs-projection-provenance/v3`. HEAD, the worktree digest and the CodeGraph state move to the per-run `runtimeSnapshot`.
 - #268, #272, #276, #286: an orphaned module document that holds only its generated region or the renderer's skeleton is deleted in the same apply. Any other orphan is `orphaned-document-review`. Capability `projection-orphan-review-v1`.
 - #264, #287: `plan` mode returns a bounded preview per file, and `docs preview` is removed. Major-change results, refresh signals and `docs drift|plan` carry `capabilities[]`. archctx-contracts publishes the projection manifest contract. Capabilities `projection-preview-v1`, `architecture-change-capabilities-v1` and `projection-manifest-contract-v2`.
+- #290, #292: freshness checks a stamp only for the nodes that the active profile stamps. Under `repo-harness/v1`, only capability nodes have a module document and a stamp, so `check` is fresh right after an apply. A change in a member footprint still sets `freshness.ok` to `false`: `staleNodes` names the stamped node whose footprint covers the file, or `reasonCodes` contains `projection-source-tree-digest-mismatch`.
 
 ChangeSet:
 
@@ -30,7 +31,7 @@ Release readiness (#282):
 
 - Version 0.7.0 for every package, the product version, fixtures, the review action and the workflow examples.
 - archctx-contracts publishes `schemas/runtime/recommendation-v3.schema.json`, `structural-observation-payload.schema.json`, `runtime-refactor-scan.schema.json` and `runtime-recommendation-show.schema.json`, with fixtures. Tests validate real daemon scan and show output against them.
-- The archctx-contracts schema validator resolves a relative cross-file `$ref` through a schema resolver. Without a resolver it reports the reference as unresolved. Before, it skipped such a reference. A test makes sure that every cross-file `$ref` in `schemas/` resolves to a published schema.
+- The archctx-contracts schema validator resolves a relative cross-file `$ref` through a schema resolver. Without a resolver it reports the reference as unresolved. Before, it skipped such a reference. A root `$ref: "#"` resolves to the schema itself. A test makes sure that every cross-file `$ref` in `schemas/` resolves to a published schema.
 - The capabilities schema accepts any feature flag that matches `^[a-z0-9]+(-[a-z0-9]+)*-v[0-9]+$`, so a validator built from it accepts flags that a later release adds. `examples` lists the flags of this release.
 - New capability flags: `code-facts-unavailable-error-v1`, `projection-manifest-contract-v2` and `refactor-scan-limits-v1`. `projection-manifest-contract-v2` replaces `projection-manifest-contract-v1`, which no release advertised and no code reads.
 - This repository's `docs/architecture/` is re-projected with renderer v5 and manifest v2.
@@ -58,8 +59,6 @@ Ledger data written before 0.7.0 is kept as written, and `recommendations show` 
 
 - A structural observation recorded before #262 has no `payload.metrics`, `payload.signalIds` or `payload.evidence`, and its payload has no version marker. It does not validate against `recommendation-v3.schema.json`. Detect it by a `structural_observation` payload without `evidence`. A runtime with `refactor-observation-evidence-v1` writes all three fields. See `docs/runbooks/schema-upgrade-guide.md`.
 - An evidence binding recorded by 0.6.x `refactor record` or `refactor verify` keeps the evidence id in `provenance.inputDigest`. Ledger replay does not validate binding provenance. `recommendations show` and `book evidence` return such a binding as stored, and it does not validate against `evidence-binding.schema.json`. Bindings that 0.7.0 writes validate.
-
-Known limit (#290): under the `repo-harness/v1` profile, a component that declares `source.include` has no module document to carry a stamp. `freshness` keeps reporting `projection-source-stamp-missing` for such a node after the first apply.
 
 CodeGraph remains pinned to `@colbymchenry/codegraph` 1.6.1. The pinned Bun toolchain is 1.4.3.
 

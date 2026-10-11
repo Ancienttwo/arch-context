@@ -719,6 +719,7 @@ export function projectionFailureEnvelope(requestId: string, error: unknown): Js
 function projectionCheckFreshness(root: string, projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionFreshnessV1 {
   const evaluation = evaluateArchitectureProjectionSnapshotFreshness({
     model: projection.loaded.model,
+    profile: projection.plan.profile,
     manifest: loadArchitectureProjectionManifestStamps(root),
     sourceFootprints: projection.sourceFootprints,
     currentSourceTreeDigest: projection.currentSourceTreeDigest

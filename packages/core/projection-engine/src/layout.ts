@@ -86,19 +86,27 @@ export function parseRepoHarnessNodeProfile(node: ProjectionLayoutNode): RepoHar
   };
 }
 
+/**
+ * The nodes that get an entity-summary target under `profile`. The layout and the source-footprint
+ * freshness check both read this one predicate, so freshness never probes a node that has no document.
+ */
+export function entitySummaryTargetNodes<T extends { kind: string }>(nodes: readonly T[], profile: ArchitectureProjectionProfile): T[] {
+  // The repo-harness profile owns one nested document per capability. Child semantic
+  // nodes and relations are inputs to the capability's P1/P2 compiler, not additional
+  // documentation targets; attempting to parse them as capability identities both
+  // rejects valid semantic models and creates an unintended second document set.
+  return profile === REPO_HARNESS_PROJECTION_PROFILE
+    ? nodes.filter((node) => node.kind === "capability")
+    : [...nodes];
+}
+
 export function resolveArchitectureDocumentationLayout(input: {
   nodes: ProjectionLayoutNode[];
   relations: ProjectionLayoutRelation[];
   profile?: ArchitectureProjectionProfile;
 }): ArchitectureDocumentationLayout {
   const profile = input.profile ?? "default";
-  // The repo-harness profile owns one nested document per capability. Child semantic
-  // nodes and relations are inputs to the capability's P1/P2 compiler, not additional
-  // documentation targets; attempting to parse them as capability identities both
-  // rejects valid semantic models and creates an unintended second document set.
-  const targetNodes = profile === REPO_HARNESS_PROJECTION_PROFILE
-    ? input.nodes.filter((node) => node.kind === "capability")
-    : input.nodes;
+  const targetNodes = entitySummaryTargetNodes(input.nodes, profile);
   const entityTargets = targetNodes.map((node) => {
     const path = profile === REPO_HARNESS_PROJECTION_PROFILE
       ? parseRepoHarnessNodeProfile(node).modulePath
