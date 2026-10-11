@@ -702,6 +702,10 @@ export interface PracticeRecommendationPayloadV1 {
  * Self-contained: `metrics`, `signalIds` and `evidence` are copied verbatim from the assessed
  * `RefactorObservationV1`, so a reader never has to join a recorded record back to an in-memory
  * assessment by kind and subject. None of them is part of the fingerprint.
+ *
+ * A record written by archctx 0.6.3 or earlier (before #262) has none of the three, and the ledger
+ * keeps it as written, so `recommendations show` and `list` can return it. A reader detects such a
+ * record by the absence of `evidence`. `schemas/runtime/recommendation-v3.schema.json` accepts it.
  */
 export interface StructuralObservationPayloadV1 {
   assessmentDigest: string;

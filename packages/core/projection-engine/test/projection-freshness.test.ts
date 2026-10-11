@@ -397,6 +397,62 @@ describe("projection manifest source-footprint stamps", () => {
     expect(moved.files.map((file) => file.body)).toEqual(first.files.map((file) => file.body));
   });
 
+  test("a committed v1 manifest from renderer v4 keeps its semantic baseline, and the plan rewrites every document and the manifest (0.7.0 upgrade)", () => {
+    const current = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
+    const manifestPath = current.manifest.path;
+    const v4Renderer = "archcontext.docs-renderer/v4";
+    const currentManifest = JSON.parse(current.manifest.body);
+    // The shape a 0.6.3 install committed: manifest v1, renderer v4, provenance v1 and commit stamps.
+    const v1Manifest = {
+      ...currentManifest,
+      schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
+      rendererVersion: v4Renderer,
+      provenance: {
+        ...currentManifest.provenance,
+        schemaVersion: "archcontext.architecture-docs-projection-provenance/v1",
+        baseHeadSha: "a".repeat(40),
+        worktreeDigest: sourceDigest,
+        codeGraphDigest: sourceDigest,
+        indexedWorktreeDigest: sourceDigest,
+        rendererVersion: v4Renderer,
+        generatedFrom: { ...currentManifest.provenance.generatedFrom, codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "ready" }
+      },
+      targets: currentManifest.targets.map(({ sourceFootprintDigest: _stamp, scale: _scale, ...target }: Record<string, unknown>) => ({
+        ...target,
+        rendererVersion: v4Renderer,
+        ...(target.type === "entity-summary" ? { verifiedAgainst: { branch: "main", commit: "7415329", committedAt: "2026-10-05T00:00:00+08:00" } } : {})
+      }))
+    };
+    expect(architectureDocsProjectionManifestIssues(v1Manifest)).toContain("manifest.schemaVersion is unsupported");
+    const v4Documents = current.files.map((file) => ({ path: file.path, body: file.body.replaceAll(ARCHITECTURE_DOCS_RENDERER_VERSION, v4Renderer) }));
+    const upgradeFrom = (manifest: unknown) => renderArchitectureDocumentationProjection({
+      ...renderInput,
+      sourceFootprints: currentFootprints,
+      existingFiles: [...v4Documents, { path: manifestPath, body: `${JSON.stringify(manifest, null, 2)}\n` }]
+    });
+
+    // Classified exactly as against the same baseline in a v2 manifest.
+    const sameBaselineV2 = renderArchitectureDocumentationProjection({
+      ...renderInput,
+      sourceFootprints: currentFootprints,
+      existingFiles: [...current.files.map((file) => ({ path: file.path, body: file.body })), current.manifest]
+    });
+    const upgraded = upgradeFrom(v1Manifest);
+    expect(upgraded.majorChange).toEqual(sameBaselineV2.majorChange);
+    expect(upgraded.majorChange.reasonCodes).not.toContain("node-renamed");
+    expect([...new Set(upgraded.drift.diffs.map((diff) => diff.path))].sort())
+      .toEqual([...current.files.map((file) => file.path), manifestPath].sort());
+    expect(JSON.parse(upgraded.manifest.body).schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v2");
+    expect(upgraded.manifest.body).toBe(current.manifest.body);
+
+    // The v1 baseline is read, not dropped: a node renamed since that baseline is a major change.
+    const renamedBaseline = structuredClone(v1Manifest);
+    renamedBaseline.semanticBaseline.semanticState.capabilities[0].facets.names = movedDigest;
+    const renamed = upgradeFrom(renamedBaseline);
+    expect(renamed.majorChange.mode).toBe("human-action-required");
+    expect(renamed.majorChange.reasonCodes).toContain("node-renamed");
+  });
+
   test("a declared node without a measured footprint is refused, never stamped with a guess", () => {
     expect(() => renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: [currentFootprints[0]!] }))
       .toThrow("architecture-docs-projection-source-footprint-missing: capability.review.gate");

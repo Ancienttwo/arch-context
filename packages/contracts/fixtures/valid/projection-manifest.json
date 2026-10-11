@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "archcontext.architecture-docs-projection-manifest/v1",
+  "schemaVersion": "archcontext.architecture-docs-projection-manifest/v2",
   "rendererVersion": "archcontext.docs-renderer/v5",
   "profile": "repo-harness/v1",
   "sourceDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",

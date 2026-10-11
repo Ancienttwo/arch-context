@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,8 @@ import {
   moduleStatisticsSnapshotInvariantIssues,
   refactorProposalDigest,
   refactorScanInvariantIssues,
+  validateJsonSchema,
+  type Json,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
   type RefactorAssessmentV1,
@@ -999,6 +1001,50 @@ describe("recommendation decisions and listing", () => {
         expect(invalid.ok).toBe(false);
         expect(errorOf(invalid).code).toBe("AC_SCHEMA_INVALID");
       }
+    } finally {
+      await daemon.stop();
+    }
+  });
+});
+
+describe("published refactor schemas", () => {
+  const schema = (name: string) =>
+    JSON.parse(readFileSync(new URL(`../../../../schemas/runtime/${name}.schema.json`, import.meta.url), "utf8"));
+  const expectValid = (name: string, value: unknown) => {
+    expect(validateJsonSchema(schema(name), value as Json).issues).toEqual([]);
+  };
+
+  test("scan and show output validate against the schemas archctx-contracts publishes", async () => {
+    const root = createFixtureRepo();
+    const daemon = await startDaemon(new TestLocalStore());
+    try {
+      const request: RefactorRequestV1 = {
+        schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION,
+        scope: { kind: "paths", paths: [OWNED_FILE] },
+        proposal: proposalFor([OWNED_FILE])
+      };
+      const scans = [await daemon.refactorScan(root), await daemon.refactorScan(root, { request })];
+      const categories = new Set<string>();
+      for (const scan of scans) {
+        const data = scanData(scan);
+        expectValid("runtime-refactor-scan", data);
+        for (const recommendation of data.proposedRecommendations as unknown as { category: string }[]) {
+          expectValid("recommendation-v3", recommendation);
+          categories.add(recommendation.category);
+        }
+      }
+      expect([...categories].sort()).toEqual(["refactor_proposal", "structural_observation"]);
+
+      const candidate = scanData(scans[0]!).proposedRecommendations[0]!.recommendationId;
+      const candidateShow = await daemon.recommendations(root, { command: "show", recommendationId: candidate });
+      expect(candidateShow.ok, JSON.stringify(candidateShow)).toBe(true);
+      expectValid("runtime-recommendation-show", candidateShow.data);
+
+      const decided = await daemon.recommendations(root, { command: "defer", recommendationId: candidate, reason: "Next quarter." });
+      expect(decided.ok, JSON.stringify(decided)).toBe(true);
+      const recordedShow = await daemon.recommendations(root, { command: "show", recommendationId: candidate });
+      expect((recordedShow.data as { source: string }).source).toBe("ledger");
+      expectValid("runtime-recommendation-show", recordedShow.data);
     } finally {
       await daemon.stop();
     }

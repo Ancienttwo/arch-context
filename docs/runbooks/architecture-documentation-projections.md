@@ -4,7 +4,7 @@
 
 - `.archcontext/projections/targets.json` declares placement rules.
 - `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests. It records only machine-independent values: content digests of the model, the declared sources and the rendered output, plus renderer, layout and CodeGraph package and version. The CodeGraph evidence digest, index state and status, HEAD and worktree digest are per-run facts returned as `runtimeSnapshot` and never committed, so two machines projecting the same commit write the same manifest.
-- The manifest's shape is published in archctx-contracts: the `ArchitectureDocsProjectionManifestV1` type, the `architectureDocsProjectionManifestIssues` check, and `schemas/runtime/projection-manifest.schema.json`. The renderer validates every manifest it writes against that contract and reads the semantic baseline back through it. Each `entity-summary` target of a node that declares `source.include` carries `sourceFootprintDigest` and `scale: { fileCountBucket, lineCountBucket }`. A bucket is the half-open 1–2–5 range `{ lower, upper }` that contains the measured count (`{ lower: 0, upper: 1 }` holds only zero). The module document prints exactly these buckets, never the counts. Consumers detect the published contract and the scale field through the `projection-manifest-contract-v1` capability.
+- The manifest's shape is published in archctx-contracts: the `ArchitectureDocsProjectionManifestV1` type, the `architectureDocsProjectionManifestIssues` check, and `schemas/runtime/projection-manifest.schema.json`. The renderer validates every manifest it writes against that contract and reads the semantic baseline back through it. Each `entity-summary` target of a node that declares `source.include` carries `sourceFootprintDigest` and `scale: { fileCountBucket, lineCountBucket }`. A bucket is the half-open 1–2–5 range `{ lower, upper }` that contains the measured count (`{ lower: 0, upper: 1 }` holds only zero). The module document prints exactly these buckets, never the counts. The manifest `schemaVersion` is `archcontext.architecture-docs-projection-manifest/v2`. Consumers detect the published contract and the scale field through the `projection-manifest-contract-v2` capability.
 - Text inside `ARCHCONTEXT:generated` markers is generated projection output.
 - Text outside generated markers is human-owned and must be preserved.
 - Agent-authored rationale or ADR prose is advisory draft material until deterministic validation and explicit approval.
@@ -28,7 +28,37 @@ When `.archcontext/manifest.yaml` declares `codeFacts.required: true` and the re
 | --- | --- |
 | `codegraph-init` | Run `codegraph init` in the repository root, then retry the same call. |
 
-A repository that cannot build an index declares `codeFacts.required: false`; projections then render without code facts.
+A repository that cannot build an index declares `codeFacts.required: false`; projections then render without code facts. Consumers detect the typed error through the `code-facts-unavailable-error-v1` capability.
+
+## Upgrading to archctx 0.7.0
+
+archctx 0.7.0 changes the committed projection format. Upgrade `archctx` and `archctx-contracts` together, and upgrade every installation that projects the same repository at the same time. An older archctx rewrites the new manifest back to the old format, and the two installations then rewrite each other's output.
+
+What changes:
+
+- The renderer is `archcontext.docs-renderer/v5`. Every generated-region marker records the renderer version, so every generated document changes once.
+- The manifest is `archcontext.architecture-docs-projection-manifest/v2`, with provenance `archcontext.architecture-docs-projection-provenance/v3`. The provenance holds only content digests and versions. HEAD, the worktree digest and the CodeGraph state move to `runtimeSnapshot`, which is never committed.
+- Each `entity-summary` target of a node that declares `source.include` records `sourceFootprintDigest` and `scale`. `sourceFootprintDigest` is the content digest of the node's footprint: `source.include` minus `source.exclude` minus projection-owned paths, over Git-visible files, with CRLF read as LF. The commit stamp `verifiedAgainst` is removed.
+- `projection run` in `check` mode returns `freshness: { ok, reasonCodes, staleNodes }`. Freshness compares each stamp with the current footprint digest. It never reads commit history.
+- A missing CodeGraph index with `codeFacts.required: true` returns `AC_CODE_FACTS_UNAVAILABLE` (see "Missing code facts" above).
+
+What the first `check` on a renderer v4 tree reports:
+
+- The plan has an `update` for every generated document and for `docs/architecture/.projection-manifest.json`. The drift reasons are `projection-generated-region-stale` and `projection-manifest-stale`.
+- `freshness.ok` is `false`. `reasonCodes` contains `projection-snapshot-provenance-missing`, because a v1 provenance is never read as v3, and `projection-source-stamp-missing`, because no node has a `sourceFootprintDigest`. Both stay until the first apply.
+- The projection still reads the semantic baseline of the v1 manifest. If the model changed since the last projection, the status is `human-action-required`, as before the upgrade. Accept the change as "Accepting Committed Model Changes" describes before you apply.
+
+Do these steps once per repository:
+
+1. Before the upgrade, recover every in-flight projection apply receipt with `projection recover` (see "Choosing a requestId").
+2. Upgrade `archctx` and `archctx-contracts` to 0.7.0 on every installation that projects the repository.
+3. If `.codegraph/` is missing and `codeFacts.required` is `true`, run `codegraph init` in the repository root.
+4. Run `archctx docs drift` or `projection run` in `check` mode. Confirm that the report matches the list above.
+5. Apply once: `archctx docs plan --id <changeset-id>` and `archctx docs apply --approved --id <changeset-id> --expected-worktree-digest <digest>`, or `projection run` in `apply` mode. Add `acceptedChange` or `acceptObservedMajorChange: true` when the result was `human-action-required`.
+6. Run `archctx docs drift` again and confirm that it is clean. Run `check` again: `projection-snapshot-provenance-missing` is gone.
+7. Commit the rewritten documents and the manifest in one commit.
+
+Known limit: freshness checks every node that declares `source.include`. The `repo-harness/v1` profile writes a module document, and so a stamp, only for capability nodes. Under that profile, a non-capability node that declares `source.include` has no stamp, and `check` keeps `projection-source-stamp-missing` after the apply. Treat that code as expected only for such nodes.
 
 ## Accepting Committed Model Changes
 
