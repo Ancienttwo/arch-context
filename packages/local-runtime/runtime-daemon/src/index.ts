@@ -1557,6 +1557,7 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
+    docsLanguage: loaded.docsLanguage,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, codeGraphInputs.sourceFiles),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.sourceFiles),
     importGraphs: codeGraphInputs.importGraphs,

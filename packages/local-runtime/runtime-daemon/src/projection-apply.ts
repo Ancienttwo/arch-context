@@ -215,6 +215,7 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
     profile: REPO_HARNESS_PROJECTION_PROFILE,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
+    docsLanguage: loaded.docsLanguage,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, codeGraphInputs.sourceFiles),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.sourceFiles),
     importGraphs: codeGraphInputs.importGraphs,

@@ -284,6 +284,11 @@ export function renderArchitectureDocumentationProjection(input: {
   decisions?: ArchitectureDecisionRecord[];
   timeline?: ArchitectureDocumentationTimelineEntry[];
   existingFiles?: ArchitectureDocumentationExistingFile[];
+  /**
+   * `docs.language` (`loadArchitectureDocumentationLanguage`): the headings of a new module
+   * document's skeleton. An existing document keeps its headings. Absent writes the legacy headings.
+   */
+  docsLanguage?: ArchitectureDocsLanguage;
   rendererVersion?: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   refreshContext?: {
     repositoryId: string;
@@ -350,7 +355,8 @@ export function renderArchitectureDocumentationProjection(input: {
   // does not enter entity bodies (only architecture-index prints it), so it cannot perturb the key.
   // Index/diagram/decision/relation/changelog targets render no per-node measurement, so they keep
   // recording the plan-wide `input.sourceDigest`.
-  const targetDrafts = architectureDocumentationTargetDrafts(model, layout);
+  const docsLanguage = input.docsLanguage === undefined ? undefined : assertArchitectureDocsLanguage(input.docsLanguage);
+  const targetDrafts = architectureDocumentationTargetDrafts(model, layout, docsLanguage);
   const stampedNodeIds = new Set(architectureProjectionStampedNodeIds(model, layout.profile));
   const footprintDigestByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
   const rendered = targetDrafts.map((draft) => {
@@ -638,13 +644,15 @@ export function loadArchitectureDocumentationInputs(root: string, profile: Archi
   model: NativeModel;
   decisions: ArchitectureDecisionRecord[];
   existingFiles: ArchitectureDocumentationExistingFile[];
+  docsLanguage: ArchitectureDocsLanguage | undefined;
 } {
   const model = loadNativeModelFromArchContext(root);
   const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile });
   return {
     model,
     decisions: loadArchitectureDecisionRecords(root),
-    existingFiles: loadArchitectureFilesForLayout(root, layout)
+    existingFiles: loadArchitectureFilesForLayout(root, layout),
+    docsLanguage: loadArchitectureDocumentationLanguage(root)
   };
 }
 
@@ -790,6 +798,39 @@ export function loadArchitectureDocumentationProfile(root: string): Architecture
     throw new Error("projection-manifest-profile-invalid: regenerate docs with an explicit supported --profile");
   }
   return manifest.profile;
+}
+
+/** Languages of the module-document skeleton headings (#302). */
+export const ARCHITECTURE_DOCS_LANGUAGES = ["zh-Hant", "zh-Hans", "en"] as const;
+export type ArchitectureDocsLanguage = typeof ARCHITECTURE_DOCS_LANGUAGES[number];
+
+const ARCHCONTEXT_MANIFEST_PATH = ".archcontext/manifest.yaml";
+
+/**
+ * `docs.language` from `.archcontext/manifest.yaml`. It selects the headings of a new module
+ * document's skeleton only. Without the setting the renderer writes the legacy headings. A missing
+ * or unreadable manifest declares nothing here, as for `codeFacts.required`; manifest shape is
+ * `archctx validate`'s concern. A value that is not a supported language fails closed.
+ */
+export function loadArchitectureDocumentationLanguage(root: string): ArchitectureDocsLanguage | undefined {
+  const path = resolve(root, ARCHCONTEXT_MANIFEST_PATH);
+  if (!existsSync(path)) return undefined;
+  let manifest: Json;
+  try {
+    manifest = parseJsonOrStableYaml(readFileSync(path, "utf8"), ARCHCONTEXT_MANIFEST_PATH);
+  } catch {
+    return undefined;
+  }
+  const docs = manifest && typeof manifest === "object" && !Array.isArray(manifest) ? manifest.docs : undefined;
+  const language = docs && typeof docs === "object" && !Array.isArray(docs) ? docs.language : undefined;
+  return language === undefined ? undefined : assertArchitectureDocsLanguage(language);
+}
+
+function assertArchitectureDocsLanguage(value: unknown): ArchitectureDocsLanguage {
+  if (!(ARCHITECTURE_DOCS_LANGUAGES as readonly unknown[]).includes(value)) {
+    throw new Error(`architecture-docs-language-invalid: docs.language must be one of ${ARCHITECTURE_DOCS_LANGUAGES.join(", ")} (got ${JSON.stringify(value)})`);
+  }
+  return value as ArchitectureDocsLanguage;
 }
 
 export function loadArchitectureDecisionRecords(root: string): ArchitectureDecisionRecord[] {
@@ -1361,9 +1402,13 @@ interface ProjectionTargetDraft extends ProjectionLayoutTargetDraft {
   skeleton?: { prefix: string; suffix: string };
 }
 
-function architectureDocumentationTargetDrafts(model: NativeModel, layout: ArchitectureDocumentationLayout): ProjectionTargetDraft[] {
+function architectureDocumentationTargetDrafts(
+  model: NativeModel,
+  layout: ArchitectureDocumentationLayout,
+  docsLanguage: ArchitectureDocsLanguage | undefined
+): ProjectionTargetDraft[] {
   return layout.targets.map((target) => target.type === "entity-summary"
-    ? { ...target, skeleton: entitySummarySkeleton(model.nodes.find((node) => node.id === target.scope.id)!) }
+    ? { ...target, skeleton: entitySummarySkeleton(model.nodes.find((node) => node.id === target.scope.id)!, docsLanguage) }
     : target);
 }
 
@@ -1409,6 +1454,7 @@ function renderTargetGeneratedBody(
     return renderEntitySummary(node, model, {
       scaleSignal: input.scaleSignalsByNodeId.get(node.id),
       scale: input.scaleByNodeId.get(node.id),
+      scaleByNodeId: input.scaleByNodeId,
       semanticCompilation: input.semanticCompilationsByNodeId.get(node.id)!
     });
   }
@@ -1472,6 +1518,8 @@ function renderEntitySummary(
     scaleSignal?: CapabilitySourceScaleSignal;
     /** `architectureCapabilityScale(scaleSignal)`, the value the manifest records for this node. */
     scale?: ArchitectureCapabilityScaleV1;
+    /** The measured scale of every node that declares `source.include`; components read theirs here. */
+    scaleByNodeId: ReadonlyMap<string, ArchitectureCapabilityScaleV1>;
     semanticCompilation: SemanticCapabilityDiagramCompilation;
   }
 ): string {
@@ -1484,6 +1532,8 @@ function renderEntitySummary(
   const incoming = model.relations.filter((relation) => relation.target === node.id);
   const outgoing = model.relations.filter((relation) => relation.source === node.id);
   const localContracts = contractFilesForNode(node);
+  // Direct `component` children (#299). A node without them renders exactly as before.
+  const components = model.nodes.filter((entry) => entry.parent === node.id && entry.kind === "component");
   const lines = [
     `> **狀態**:${node.status ? `\`${node.status}\`` : "未宣告(`status` 缺失)"}`,
     `> **Capability ID**:\`${node.id}\`(kind \`${node.kind}\`)`,
@@ -1509,6 +1559,7 @@ function renderEntitySummary(
         ))
       ]
       : ["- 未宣告 `source.entrypoints`,入口清單無法從架構模型推導。"]),
+    ...renderComponentEntrypoints(components),
     "",
     "### 1.3 規模信號",
     "",
@@ -1532,12 +1583,73 @@ function renderEntitySummary(
     "入向關係:",
     "",
     ...(incoming.length === 0 ? ["- 無。"] : incoming.map((relation) => `- \`${relation.kind}\` ← \`${relation.source}\` — ${relation.intent}`)),
+    ...renderComponentOutboundRelations(components, model.relations),
+    ...renderComponentTable(components, input.scaleByNodeId),
     "",
     "## 2. P2:端到端數據流",
     "",
     ...renderSemanticP2Section(input.semanticCompilation)
   ];
   return `${lines.join("\n")}\n`;
+}
+
+/** §1.2 addition for a node with components: the entrypoints each component declares (#299). */
+function renderComponentEntrypoints(components: readonly NativeNode[]): string[] {
+  if (components.length === 0) return [];
+  const rows = components.flatMap((component) => (nativeNodeSource(component)?.entrypoints ?? []).flatMap((entry) => entry.symbols.map((symbol) =>
+    `| \`${component.id}\` | \`${entry.id}\` | \`${entry.path}#${symbol.name}\` | ${symbol.sinks.map((sink) => `\`${sink.id}\` → \`${sink.path}#${sink.symbol}\``).join("、")} |`
+  )));
+  return [
+    "",
+    "組件入口:",
+    "",
+    ...(rows.length > 0
+      ? ["| 組件 | 宣告入口 | 錨點 | 職責 |", "| --- | --- | --- | --- |", ...rows]
+      : ["- 組件均未宣告 `source.entrypoints`。"])
+  ];
+}
+
+/** §1.4 addition for a node with components: each component's outbound relations, grouped by component (#299). */
+function renderComponentOutboundRelations(components: readonly NativeNode[], relations: readonly NativeRelation[]): string[] {
+  if (components.length === 0) return [];
+  return [
+    "",
+    "組件出向關係:",
+    "",
+    ...components.flatMap((component) => {
+      const outgoing = relations.filter((relation) => relation.source === component.id);
+      return [
+        `- \`${component.id}\`:`,
+        ...(outgoing.length === 0 ? ["  - 無。"] : outgoing.map((relation) => `  - \`${relation.kind}\` → \`${relation.target}\` — ${relation.intent}`))
+      ];
+    })
+  ];
+}
+
+/**
+ * §1.5 for a node with components: id, name, the 1–2–5 scale buckets of the component's own
+ * declared footprint (the same measurement and buckets as §1.3) and its entrypoint ids (#299).
+ */
+function renderComponentTable(components: readonly NativeNode[], scaleByNodeId: ReadonlyMap<string, ArchitectureCapabilityScaleV1>): string[] {
+  if (components.length === 0) return [];
+  return [
+    "",
+    "### 1.5 組件結構",
+    "",
+    "| 組件 | 名稱 | 規模量級 | 宣告入口 |",
+    "| --- | --- | --- | --- |",
+    ...components.map((component) => {
+      const source = nativeNodeSource(component);
+      let scaleCell = "未宣告 `source.include`";
+      if ((source?.include ?? []).length > 0) {
+        const scale = scaleByNodeId.get(component.id);
+        if (!scale) throw new Error(`architecture-docs-projection-scale-signal-missing: ${component.id}`);
+        scaleCell = `\`${scaleMagnitudeBucketLabel(scale.fileCountBucket)}\` 個文件 / \`${scaleMagnitudeBucketLabel(scale.lineCountBucket)}\` 行`;
+      }
+      const entrypointIds = (source?.entrypoints ?? []).map((entry) => `\`${entry.id}\``);
+      return `| \`${component.id}\` | ${component.name.replaceAll("|", "\\|")} | ${scaleCell} | ${entrypointIds.length > 0 ? entrypointIds.join("、") : "未宣告"} |`;
+    })
+  ];
 }
 
 function renderSemanticP1Section(compilation: SemanticCapabilityDiagramCompilation): string[] {
@@ -1590,19 +1702,41 @@ function entitySummaryTitle(node: Pick<NativeNode, "id">): string {
   return segments.length > 0 ? segments.join("/") : node.id;
 }
 
-function entitySummarySkeleton(node: Pick<NativeNode, "id">): { prefix: string; suffix: string } {
+/**
+ * Skeleton headings per `docs.language`. The `legacy` entry is the text every release before #302
+ * wrote; a repository that sets no language keeps it byte for byte. `Optimization Backlog` stays
+ * the same in every language because agents and tools find the section by that heading.
+ */
+const ENTITY_SUMMARY_SKELETON_TEXT: Record<ArchitectureDocsLanguage | "legacy", { titleSuffix: string; p3: string; history: string }> = {
+  legacy: { titleSuffix: " 架構文檔", p3: "## 3. P3:設計決策與不變量", history: "## 4. 歷史決策記錄(append-only)" },
+  "zh-Hant": { titleSuffix: " 架構文檔", p3: "## 3. P3：設計決策與不變量", history: "## 4. 歷史決策記錄（append-only）" },
+  "zh-Hans": { titleSuffix: " 架构文档", p3: "## 3. P3：设计决策与不变量", history: "## 4. 历史决策记录（append-only）" },
+  en: { titleSuffix: " Architecture", p3: "## 3. P3: Design Decisions and Invariants", history: "## 4. Decision History (append-only)" }
+};
+
+/**
+ * The scaffold of a new module document. Only a file that does not exist yet gets it, so changing
+ * `docs.language` never rewrites the headings of an existing document (#302).
+ */
+function entitySummarySkeleton(node: Pick<NativeNode, "id">, docsLanguage: ArchitectureDocsLanguage | undefined): { prefix: string; suffix: string } {
+  const text = ENTITY_SUMMARY_SKELETON_TEXT[docsLanguage ?? "legacy"];
   return {
-    prefix: `# ${entitySummaryTitle(node)} 架構文檔\n\n`,
+    prefix: `# ${entitySummaryTitle(node)}${text.titleSuffix}\n\n`,
     suffix: [
       "",
-      "## 3. P3:設計決策與不變量",
+      text.p3,
       "",
-      "## 4. 歷史決策記錄(append-only)",
+      text.history,
       "",
       "## Optimization Backlog",
       ""
     ].join("\n")
   };
+}
+
+/** Every skeleton the renderer can have written for one node, whatever `docs.language` was then. */
+function entitySummarySkeletonVariants(node: Pick<NativeNode, "id">): { prefix: string; suffix: string }[] {
+  return [undefined, ...ARCHITECTURE_DOCS_LANGUAGES].map((language) => entitySummarySkeleton(node, language));
 }
 
 function renderRelationSummary(relation: NativeRelation, model: NativeModel): string {
@@ -1797,7 +1931,7 @@ function architectureDocumentationProjectionDrift(input: {
         path: existing.path,
         targetId: region.targetId,
         actualDigest,
-        disposition: orphanHoldsOnlyIntactGeneratedRegion(existing.body, region.targetId, orphanSkeleton(committedEntityTargets, existing.path, region.targetId)) ? "delete" : "human-review"
+        disposition: orphanHoldsOnlyIntactGeneratedRegion(existing.body, region.targetId, orphanSkeletons(committedEntityTargets, existing.path, region.targetId)) ? "delete" : "human-review"
       });
     }
   }
@@ -1837,30 +1971,34 @@ function committedEntitySummaryTargets(manifestBody: string | undefined): Map<st
   return targets;
 }
 
-/** The skeleton the renderer wrote around an orphan's region, when the manifest records it as that path's entity summary. */
-function orphanSkeleton(
+/**
+ * The skeletons the renderer can have written around an orphan's region, when the manifest records
+ * it as that path's entity summary: one per `docs.language`, because the document may predate a
+ * change of the setting.
+ */
+function orphanSkeletons(
   committedEntityTargets: Map<string, { path: string; nodeId: string }>,
   path: string,
   targetId: string
-): { prefix: string; suffix: string } | undefined {
+): { prefix: string; suffix: string }[] {
   const committed = committedEntityTargets.get(targetId);
-  return committed && committed.path === path ? entitySummarySkeleton({ id: committed.nodeId }) : undefined;
+  return committed && committed.path === path ? entitySummarySkeletonVariants({ id: committed.nodeId }) : [];
 }
 
 /**
  * True only when deleting the orphan cannot lose human text: everything outside its one generated
- * region is whitespace or exactly the renderer's own skeleton for that target (title and empty
- * §3/§4/Backlog headings, #276), and the region still digests to the output its own marker records
- * (an edited region is human content). Anything else, including a missing end marker or one human
- * line in a skeleton section, is human review.
+ * region is whitespace or exactly one of the renderer's own skeletons for that target (title and
+ * empty §3/§4/Backlog headings, #276), and the region still digests to the output its own marker
+ * records (an edited region is human content). Anything else, including a missing end marker or
+ * one human line in a skeleton section, is human review.
  */
-function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string, skeleton: { prefix: string; suffix: string } | undefined): boolean {
+function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string, skeletons: { prefix: string; suffix: string }[]): boolean {
   const region = findGeneratedRegion(body, targetId);
   if (!region) return false;
   const before = body.slice(0, region.start);
   const after = body.slice(region.end);
   const generatedOnly = `${before}${after}`.trim() === ""
-    || (skeleton !== undefined && before === skeleton.prefix && after === skeleton.suffix);
+    || skeletons.some((skeleton) => before === skeleton.prefix && after === skeleton.suffix);
   if (!generatedOnly) return false;
   const metadata = parseGeneratedRegionMetadata(region.startMarker);
   return metadata.outputDigest !== undefined
@@ -2204,37 +2342,115 @@ function findAgentContextRegion(body: string, nodeId: string): {
   };
 }
 
-// --- Path Ownership Resolution (ADR-0043 tie-break) ---
+// --- Path Ownership Resolution (ADR-0043 tie-break, parent-chain amendment) ---
 //
-// Single implementation of the ADR-0043 tie-break: apply `source.exclude` first, then the
-// most-specific (longest literal prefix) matching `source.include` wins, and an equal-
-// specificity tie is rejected as ambiguous. `archctx resolve --path`
-// (packages/surfaces/cli/src/main.ts) is the only caller today; a future repo-harness
-// adapter is expected to call the CLI rather than re-deriving this glob semantics.
+// Single implementation of the ADR-0043 path-ownership rule, in this order:
+// 1. Apply `source.exclude` first; a node with no `source.include` never participates.
+// 2. Parent chain: when every candidate lies on one `parent` chain, the deepest candidate owns the
+//    path. This is `deepestOnOneParentChain`, the same function the module-statistics ownership
+//    index (and so `refactor scan`) calls, so the two resolvers cannot disagree on this case.
+// 3. Different chains: a candidate that is an ancestor of another candidate yields to it. Among the
+//    rest, the longest literal `source.include` prefix wins, and an equal-specificity tie is
+//    rejected as ambiguous.
+// `archctx resolve --path` and `archctx resolve --paths-from` (packages/surfaces/cli/src/main.ts)
+// call this; a repo-harness adapter is expected to call the CLI rather than re-deriving it.
 
 export type ResolveArchitectureOwnerResult =
-  | { status: "matched"; node: NativeNode }
-  | { status: "no-match" }
-  | { status: "ambiguous"; candidates: NativeNode[] };
+  | { status: "matched"; node: NativeNode; owningCapabilityId: string | null }
+  | { status: "no-match"; owningCapabilityId: null }
+  | { status: "ambiguous"; candidates: NativeNode[]; owningCapabilityId: string | null };
 
 export function resolveArchitectureOwnerForPath(nodes: NativeNode[], path: string): ResolveArchitectureOwnerResult {
-  const candidates: { node: NativeNode; specificity: number }[] = [];
-  for (const node of nodes) {
+  return resolveArchitectureOwnersForPaths(nodes, [path])[0];
+}
+
+/**
+ * Resolves many paths against one node set, in input order. The globs are compiled once, so a
+ * batch costs one model load instead of one process per path.
+ *
+ * `owningCapabilityId` is the nearest `kind: capability` node on the owner's parent chain (the
+ * owner itself when it is a capability). For an ambiguous path it is set only when every
+ * candidate has the same owning capability; otherwise it is `null`.
+ */
+export function resolveArchitectureOwnersForPaths(nodes: NativeNode[], paths: readonly string[]): ResolveArchitectureOwnerResult[] {
+  const declaring = nodes.flatMap((node) => {
     const source = nativeNodeSource(node);
     const include = source?.include ?? [];
-    if (include.length === 0) continue;
-    const excluded = (source?.exclude ?? []).some((pattern) => matchesGlob(path, pattern));
-    if (excluded) continue;
-    const specificity = include
-      .filter((pattern) => matchesGlob(path, pattern))
-      .reduce((max, pattern) => Math.max(max, globLiteralPrefixLength(pattern)), -1);
-    if (specificity >= 0) candidates.push({ node, specificity });
+    if (include.length === 0) return [];
+    return [{
+      node,
+      include: include.map((pattern) => ({ regex: globToRegExp(pattern), specificity: globLiteralPrefixLength(pattern) })),
+      exclude: (source?.exclude ?? []).map(globToRegExp)
+    }];
+  });
+  const parents = new Map<string, string | undefined>(nodes.map((node) => [node.id, node.parent]));
+  const kinds = new Map(nodes.map((node) => [node.id, node.kind]));
+  const owningCapabilityOf = (id: string): string | null => {
+    for (const ancestor of ancestorChain(id, parents)) if (kinds.get(ancestor) === "capability") return ancestor;
+    return null;
+  };
+
+  return paths.map((path): ResolveArchitectureOwnerResult => {
+    const candidates: { node: NativeNode; specificity: number }[] = [];
+    for (const entry of declaring) {
+      if (entry.exclude.some((regex) => regex.test(path))) continue;
+      const specificity = entry.include
+        .filter((pattern) => pattern.regex.test(path))
+        .reduce((max, pattern) => Math.max(max, pattern.specificity), -1);
+      if (specificity >= 0) candidates.push({ node: entry.node, specificity });
+    }
+    if (candidates.length === 0) return { status: "no-match", owningCapabilityId: null };
+
+    const chainOwner = deepestOnOneParentChain(candidates.map((candidate) => candidate.node.id), parents);
+    if (chainOwner !== undefined) {
+      const node = candidates.find((candidate) => candidate.node.id === chainOwner)!.node;
+      return { status: "matched", node, owningCapabilityId: owningCapabilityOf(node.id) };
+    }
+
+    const chains = new Map(candidates.map((candidate) => [candidate.node.id, ancestorChain(candidate.node.id, parents)]));
+    const isStrictAncestorOf = (ancestor: string, descendant: string): boolean =>
+      ancestor !== descendant && chains.get(descendant)!.has(ancestor) && !chains.get(ancestor)!.has(descendant);
+    const leaves = candidates.filter((candidate) => !candidates.some((other) => isStrictAncestorOf(candidate.node.id, other.node.id)));
+    // Only a `parent` cycle (which `validate` reports) can leave no leaf; then every candidate competes.
+    const contenders = leaves.length > 0 ? leaves : candidates;
+    const maxSpecificity = contenders.reduce((max, candidate) => Math.max(max, candidate.specificity), -1);
+    const winners = contenders.filter((candidate) => candidate.specificity === maxSpecificity).map((candidate) => candidate.node);
+    if (winners.length === 1) return { status: "matched", node: winners[0], owningCapabilityId: owningCapabilityOf(winners[0].id) };
+    const capabilities = new Set(winners.map((node) => owningCapabilityOf(node.id)));
+    return { status: "ambiguous", candidates: winners, owningCapabilityId: capabilities.size === 1 ? [...capabilities][0] : null };
+  });
+}
+
+/**
+ * The parent-chain ownership rule, shared by `resolveArchitectureOwnersForPaths` and the
+ * module-statistics ownership index behind `refactor scan`: when every candidate lies on one
+ * `parent` chain, the deepest candidate (lowest id on a depth tie) owns the path. Returns
+ * `undefined` when the candidates sit on more than one chain.
+ */
+export function deepestOnOneParentChain(candidateIds: readonly string[], parents: ReadonlyMap<string, string | undefined>): string | undefined {
+  if (candidateIds.length === 0) return undefined;
+  const depthOf = (id: string): number => ancestorChain(id, parents).size - 1;
+  const deepest = candidateIds.reduce((best, id) => {
+    const bestDepth = depthOf(best);
+    const depth = depthOf(id);
+    if (depth !== bestDepth) return depth > bestDepth ? id : best;
+    return id < best ? id : best;
+  });
+  // Two distinct nodes at the same depth can never both sit on one chain, so the ancestor-set
+  // test below already covers the depth-tie case; it needs no separate branch.
+  const chain = ancestorChain(deepest, parents);
+  return candidateIds.every((id) => chain.has(id)) ? deepest : undefined;
+}
+
+/** The node plus every ancestor reachable through `parent`, nearest first. A cycle or dangling parent ends the walk. */
+export function ancestorChain(id: string, parents: ReadonlyMap<string, string | undefined>): Set<string> {
+  const chain = new Set<string>();
+  let current: string | undefined = id;
+  while (current !== undefined && parents.has(current) && !chain.has(current)) {
+    chain.add(current);
+    current = parents.get(current);
   }
-  if (candidates.length === 0) return { status: "no-match" };
-  const maxSpecificity = candidates.reduce((max, candidate) => Math.max(max, candidate.specificity), -1);
-  const winners = candidates.filter((candidate) => candidate.specificity === maxSpecificity).map((candidate) => candidate.node);
-  if (winners.length > 1) return { status: "ambiguous", candidates: winners };
-  return { status: "matched", node: winners[0] };
+  return chain;
 }
 
 export function matchesGlob(path: string, pattern: string): boolean {

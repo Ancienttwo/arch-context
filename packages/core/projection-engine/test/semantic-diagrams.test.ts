@@ -228,8 +228,36 @@ describe("semantic architecture compiler", () => {
   test("escapes Mermaid delimiters without changing semantic labels upstream", () => {
     const escapedNodes = nodes.map((node) => node.id === "component.hook" ? { ...node, name: 'Hook "A" #1, stop;' } : node);
     const result = compileSemanticCapabilityDiagrams({ capabilityId, nodes: escapedNodes, relations, flows: [flow], evidence });
-    expect(result.p1.mermaid).toContain("Hook 'A' ＃1， stop；");
-    expect(result.p2.mermaid[0]).toContain("Hook 'A' ＃1， stop；");
+    expect(result.p1.mermaid).toContain("Hook #quot;A#quot; #35;1#44; stop#59;");
+    expect(result.p2.mermaid[0]).toContain("Hook #quot;A#quot; #35;1#44; stop#59;");
+  });
+
+  test("escapes with Mermaid entity codes that decode back to the model text (#302)", () => {
+    const label = 'a,b;c#d #44; e "q" #quot;';
+    const escapedNodes = nodes.map((node) => node.id === "component.hook" ? { ...node, name: label } : node);
+    const escapedRelations = relations.map((relation) => relation.id === "relation.hook-worker" ? { ...relation, intent: label } : relation);
+    const escapedFlow = structuredClone(flow) as Extract<ArchitectureFlowV1, { applicability: "required" }>;
+    escapedFlow.steps[0]!.label = label;
+    escapedFlow.outcomes[0]!.label = label;
+    escapedFlow.outcomes[0]!.terminal.label = label;
+    const result = compileSemanticCapabilityDiagrams({ capabilityId, nodes: escapedNodes, relations: escapedRelations, flows: [escapedFlow], evidence });
+    const escaped = "a#44;b#59;c#35;d #35;44#59; e #quot;q#quot; #35;quot#59;";
+    const decode = (value: string) => value.replace(/#(\d+|quot);/g, (_match, code: string) => code === "quot" ? "\"" : String.fromCharCode(Number(code)));
+    expect(decode(escaped)).toBe(label);
+
+    const diagrams = [result.p1.mermaid!, ...result.p2.mermaid];
+    expect(diagrams).toHaveLength(2);
+    for (const diagram of diagrams) {
+      expect(diagram).not.toMatch(/[＃；，]/);
+      expect(diagram).not.toContain(label);
+      // `"` is kept as an entity code, never replaced by `'`.
+      expect(diagram).not.toContain("'q'");
+    }
+    expect(result.p1.mermaid).toContain(`["${escaped}"]`);
+    expect(result.p1.mermaid).toContain(`-->|"${escaped}"|`);
+    expect(result.p2.mermaid[0]).toContain(` as ${escaped}\n`);
+    expect(result.p2.mermaid[0]).toContain(`: ${escaped}\n`);
+    expect(result.p2.mermaid[0]).toContain(`  alt ${escaped}\n`);
   });
 
   test("proves both pinned repo-harness pilot capabilities from node-v2, flow-v1 and exact selector evidence", () => {
