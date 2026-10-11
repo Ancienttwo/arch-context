@@ -20,6 +20,17 @@
 
 The `docs` commands use the profile of the committed manifest when you do not give `--profile`. A repository without a manifest uses `default`. Give `--profile` only to select a different layout, and give the same value to `plan` and `apply`. `apply` renders the projection again and does not read the profile of the planned ChangeSet.
 
+### Module document language
+
+A new module document gets a skeleton outside the generated region: the title and empty `## 3`, `## 4` and `## Optimization Backlog` headings. Set `docs.language` in `.archcontext/manifest.yaml` to select the language of the title and the `## 3` and `## 4` headings:
+
+```yaml
+docs:
+  language: zh-Hans # zh-Hant, zh-Hans or en
+```
+
+Without `docs.language`, the renderer writes the headings of earlier releases (`## 3. P3:設計決策與不變量`). Any other value fails the projection with `architecture-docs-language-invalid`. The setting applies only to a module document that does not exist yet. The projection never rewrites the skeleton of an existing document, so a change of the setting does not change existing headings. To change them, edit them by hand: they are outside the generated region. The generated region (the intro, `## 1` and `## 2`) stays in Traditional Chinese.
+
 `complete_task` validates active documentation projections when `docs/architecture/.projection-manifest.json` exists. A successful completion must have projection drift count zero.
 
 ### Checking citations in human-owned text
@@ -49,6 +60,26 @@ When `.archcontext/manifest.yaml` declares `codeFacts.required: true` and the re
 A repository that cannot build an index declares `codeFacts.required: false`; projections then render without code facts.
 
 Consumers detect the typed error through the `code-facts-unavailable-error-v1` capability. A build without it renders a projection with a missing index and reports a flow-proof major change for every capability instead.
+
+### Checking flow selectors before a projection
+
+Run `archctx flows check --json` before an apply when you add or change an entrypoint selector or a flow. It takes seconds; an apply can take more than a minute. It runs the same P2 flow proof as a projection and renders nothing. It runs in-process, starts no daemon, opens no local store and writes no runtime state. Like `projection run` in `check` mode, it runs `codegraph sync` first.
+
+The result (`archcontext.flow-selector-check/v1`, `schemas/runtime/flow-selector-check.schema.json`) lists every declared selector with a `status` and the flow steps that use it. Only `proven` binds a flow step.
+
+| `status` | Meaning | Do this |
+| --- | --- | --- |
+| `proven` | One exact `calls` edge from the source symbol to the sink symbol. | Nothing. |
+| `no-direct-call` | The source does not call the sink. For example, the call goes through an injected dependency. | Select the function that makes the call. |
+| `only-references` | The source passes the sink as a value; it does not call it. | Select the function that calls the value. |
+| `false-builtin-call` | The only call carries a runtime built-in name (for example `resolve` or `existsSync`), and the source file does not import the sink file. CodeGraph matched a Node built-in to a repository function. | Select a real call. |
+| `ambiguous-symbol` | The source or the sink name has more than one declaration in its file. | Rename one declaration, or select another symbol. |
+| `evidence-missing` | No evidence. Usually the CodeGraph index is missing. | Run `codegraph init`. |
+| `evidence-truncated` | The evidence is incomplete. | Report it; this producer does not truncate today. |
+
+`ok` is `false` when a capability that declares a flow has an unprovable P2 proof. `capabilities[]` shows the same P2 status and diagnostics that a projection records. A selector that no flow uses can be unproven and `ok` can still be `true`; `summary.usedUnproven` counts only the selectors that a flow uses. Consumers detect the command through the `flow-selector-check-v1` capability.
+
+A built-in-named call is accepted only when the source file imports the sink file through a relative specifier. A call through a package alias or a re-exporting barrel is not proven this way. A call inside the sink file needs no import.
 
 ## Upgrading from archctx 0.6.3
 

@@ -8,6 +8,7 @@ import {
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION as CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION,
+  ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION,
   PROJECTION_TARGET_SCHEMA_VERSION,
   architectureDocsProjectionManifestIssues,
   architectureDocsProjectionProvenanceIssues,
@@ -20,6 +21,7 @@ import {
   type ArchitectureDigestSetV1,
   type ArchitectureDocsProjectionManifestV2,
   type ArchitectureDocumentationProjectionProvenanceV3,
+  type ArchitectureFlowSelectorCheckV1,
   type ArchitectureFlowV1,
   type ArchitectureNodeSourceV2,
   type ArchitectureProjectionSemanticBaselineV1,
@@ -47,8 +49,10 @@ import {
   type ProjectionLayoutTargetDraft
 } from "./layout";
 import {
+  checkSemanticFlowSelectors,
   compileSemanticCapabilityDiagrams,
   type ArchitectureSelectorEvidenceV1,
+  type SemanticArchitectureNode,
   type SemanticCapabilityDiagramCompilation
 } from "./semantic-diagrams";
 import {
@@ -285,6 +289,11 @@ export function renderArchitectureDocumentationProjection(input: {
   decisions?: ArchitectureDecisionRecord[];
   timeline?: ArchitectureDocumentationTimelineEntry[];
   existingFiles?: ArchitectureDocumentationExistingFile[];
+  /**
+   * `docs.language` (`loadArchitectureDocumentationLanguage`): the headings of a new module
+   * document's skeleton. An existing document keeps its headings. Absent writes the legacy headings.
+   */
+  docsLanguage?: ArchitectureDocsLanguage;
   rendererVersion?: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   refreshContext?: {
     repositoryId: string;
@@ -305,15 +314,10 @@ export function renderArchitectureDocumentationProjection(input: {
   const scaleSignalsByNodeId = new Map((input.sourceScaleSignals ?? []).map((signal) => [signal.nodeId, signal]));
   // One structured value per node: the module document prints it and the manifest records it.
   const scaleByNodeId = new Map([...scaleSignalsByNodeId].map(([nodeId, signal]) => [nodeId, architectureCapabilityScale(signal)]));
+  const semanticNodes = semanticArchitectureNodes(model);
   const semanticCompilationsByNodeId = new Map(model.nodes.map((node) => [node.id, compileSemanticCapabilityDiagrams({
     capabilityId: node.id,
-    nodes: model.nodes.map((entry) => ({
-      id: entry.id,
-      kind: entry.kind,
-      name: entry.name,
-      ...(entry.parent ? { parent: entry.parent } : {}),
-      ...(nativeNodeSource(entry) ? { source: nativeNodeSource(entry) } : {})
-    })),
+    nodes: semanticNodes,
     relations: model.relations,
     flows: model.flows ?? [],
     evidence: input.selectorEvidence
@@ -351,7 +355,8 @@ export function renderArchitectureDocumentationProjection(input: {
   // does not enter entity bodies (only architecture-index prints it), so it cannot perturb the key.
   // Index/diagram/decision/relation/changelog targets render no per-node measurement, so they keep
   // recording the plan-wide `input.sourceDigest`.
-  const targetDrafts = architectureDocumentationTargetDrafts(model, layout);
+  const docsLanguage = input.docsLanguage === undefined ? undefined : assertArchitectureDocsLanguage(input.docsLanguage);
+  const targetDrafts = architectureDocumentationTargetDrafts(model, layout, docsLanguage);
   const stampedNodeIds = new Set(architectureProjectionStampedNodeIds(model, layout.profile));
   const footprintDigestByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
   const rendered = targetDrafts.map((draft) => {
@@ -639,13 +644,15 @@ export function loadArchitectureDocumentationInputs(root: string, profile: Archi
   model: NativeModel;
   decisions: ArchitectureDecisionRecord[];
   existingFiles: ArchitectureDocumentationExistingFile[];
+  docsLanguage: ArchitectureDocsLanguage | undefined;
 } {
   const model = loadNativeModelFromArchContext(root);
   const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile });
   return {
     model,
     decisions: loadArchitectureDecisionRecords(root),
-    existingFiles: loadArchitectureFilesForLayout(root, layout)
+    existingFiles: loadArchitectureFilesForLayout(root, layout),
+    docsLanguage: loadArchitectureDocumentationLanguage(root)
   };
 }
 
@@ -791,6 +798,39 @@ export function loadArchitectureDocumentationProfile(root: string): Architecture
     throw new Error("projection-manifest-profile-invalid: regenerate docs with an explicit supported --profile");
   }
   return manifest.profile;
+}
+
+/** Languages of the module-document skeleton headings (#302). */
+export const ARCHITECTURE_DOCS_LANGUAGES = ["zh-Hant", "zh-Hans", "en"] as const;
+export type ArchitectureDocsLanguage = typeof ARCHITECTURE_DOCS_LANGUAGES[number];
+
+const ARCHCONTEXT_MANIFEST_PATH = ".archcontext/manifest.yaml";
+
+/**
+ * `docs.language` from `.archcontext/manifest.yaml`. It selects the headings of a new module
+ * document's skeleton only. Without the setting the renderer writes the legacy headings. A missing
+ * or unreadable manifest declares nothing here, as for `codeFacts.required`; manifest shape is
+ * `archctx validate`'s concern. A value that is not a supported language fails closed.
+ */
+export function loadArchitectureDocumentationLanguage(root: string): ArchitectureDocsLanguage | undefined {
+  const path = resolve(root, ARCHCONTEXT_MANIFEST_PATH);
+  if (!existsSync(path)) return undefined;
+  let manifest: Json;
+  try {
+    manifest = parseJsonOrStableYaml(readFileSync(path, "utf8"), ARCHCONTEXT_MANIFEST_PATH);
+  } catch {
+    return undefined;
+  }
+  const docs = manifest && typeof manifest === "object" && !Array.isArray(manifest) ? manifest.docs : undefined;
+  const language = docs && typeof docs === "object" && !Array.isArray(docs) ? docs.language : undefined;
+  return language === undefined ? undefined : assertArchitectureDocsLanguage(language);
+}
+
+function assertArchitectureDocsLanguage(value: unknown): ArchitectureDocsLanguage {
+  if (!(ARCHITECTURE_DOCS_LANGUAGES as readonly unknown[]).includes(value)) {
+    throw new Error(`architecture-docs-language-invalid: docs.language must be one of ${ARCHITECTURE_DOCS_LANGUAGES.join(", ")} (got ${JSON.stringify(value)})`);
+  }
+  return value as ArchitectureDocsLanguage;
 }
 
 export function loadArchitectureDecisionRecords(root: string): ArchitectureDecisionRecord[] {
@@ -1102,6 +1142,40 @@ export function loadArchitectureProjectionManifestStamps(
   };
 }
 
+/** The node shape the semantic proof reads. Projection and `flows check` both build it here. */
+function semanticArchitectureNodes(model: NativeModel): SemanticArchitectureNode[] {
+  return model.nodes.map((entry) => ({
+    id: entry.id,
+    kind: entry.kind,
+    name: entry.name,
+    ...(entry.parent ? { parent: entry.parent } : {}),
+    ...(nativeNodeSource(entry) ? { source: nativeNodeSource(entry) } : {})
+  }));
+}
+
+/**
+ * `archctx flows check`: every declared selector's proof status and the P2 proof of every
+ * capability that declares a flow, from the same model normalization and proof code a projection
+ * uses, without rendering anything.
+ */
+export function checkArchitectureFlowSelectors(input: {
+  model: NativeModel;
+  selectorEvidence: ArchitectureSelectorEvidenceV1[];
+  codeGraph: ArchitectureFlowSelectorCheckV1["codeGraph"];
+}): ArchitectureFlowSelectorCheckV1 {
+  const model = normalizeNativeModel(input.model);
+  return {
+    schemaVersion: ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION,
+    codeGraph: input.codeGraph,
+    ...checkSemanticFlowSelectors({
+      nodes: semanticArchitectureNodes(model),
+      relations: model.relations,
+      flows: model.flows ?? [],
+      evidence: input.selectorEvidence
+    })
+  };
+}
+
 export function normalizeNativeModel(model: NativeModel): NativeModel {
   return {
     nodes: [...model.nodes].sort((a, b) => a.id.localeCompare(b.id)),
@@ -1362,9 +1436,13 @@ interface ProjectionTargetDraft extends ProjectionLayoutTargetDraft {
   skeleton?: { prefix: string; suffix: string };
 }
 
-function architectureDocumentationTargetDrafts(model: NativeModel, layout: ArchitectureDocumentationLayout): ProjectionTargetDraft[] {
+function architectureDocumentationTargetDrafts(
+  model: NativeModel,
+  layout: ArchitectureDocumentationLayout,
+  docsLanguage: ArchitectureDocsLanguage | undefined
+): ProjectionTargetDraft[] {
   return layout.targets.map((target) => target.type === "entity-summary"
-    ? { ...target, skeleton: entitySummarySkeleton(model.nodes.find((node) => node.id === target.scope.id)!) }
+    ? { ...target, skeleton: entitySummarySkeleton(model.nodes.find((node) => node.id === target.scope.id)!, docsLanguage) }
     : target);
 }
 
@@ -1410,6 +1488,7 @@ function renderTargetGeneratedBody(
     return renderEntitySummary(node, model, {
       scaleSignal: input.scaleSignalsByNodeId.get(node.id),
       scale: input.scaleByNodeId.get(node.id),
+      scaleByNodeId: input.scaleByNodeId,
       semanticCompilation: input.semanticCompilationsByNodeId.get(node.id)!
     });
   }
@@ -1473,6 +1552,8 @@ function renderEntitySummary(
     scaleSignal?: CapabilitySourceScaleSignal;
     /** `architectureCapabilityScale(scaleSignal)`, the value the manifest records for this node. */
     scale?: ArchitectureCapabilityScaleV1;
+    /** The measured scale of every node that declares `source.include`; components read theirs here. */
+    scaleByNodeId: ReadonlyMap<string, ArchitectureCapabilityScaleV1>;
     semanticCompilation: SemanticCapabilityDiagramCompilation;
   }
 ): string {
@@ -1485,6 +1566,8 @@ function renderEntitySummary(
   const incoming = model.relations.filter((relation) => relation.target === node.id);
   const outgoing = model.relations.filter((relation) => relation.source === node.id);
   const localContracts = contractFilesForNode(node);
+  // Direct `component` children (#299). A node without them renders exactly as before.
+  const components = model.nodes.filter((entry) => entry.parent === node.id && entry.kind === "component");
   const lines = [
     `> **狀態**:${node.status ? `\`${node.status}\`` : "未宣告(`status` 缺失)"}`,
     `> **Capability ID**:\`${node.id}\`(kind \`${node.kind}\`)`,
@@ -1510,6 +1593,7 @@ function renderEntitySummary(
         ))
       ]
       : ["- 未宣告 `source.entrypoints`,入口清單無法從架構模型推導。"]),
+    ...renderComponentEntrypoints(components),
     "",
     "### 1.3 規模信號",
     "",
@@ -1533,12 +1617,73 @@ function renderEntitySummary(
     "入向關係:",
     "",
     ...(incoming.length === 0 ? ["- 無。"] : incoming.map((relation) => `- \`${relation.kind}\` ← \`${relation.source}\` — ${relation.intent}`)),
+    ...renderComponentOutboundRelations(components, model.relations),
+    ...renderComponentTable(components, input.scaleByNodeId),
     "",
     "## 2. P2:端到端數據流",
     "",
     ...renderSemanticP2Section(input.semanticCompilation)
   ];
   return `${lines.join("\n")}\n`;
+}
+
+/** §1.2 addition for a node with components: the entrypoints each component declares (#299). */
+function renderComponentEntrypoints(components: readonly NativeNode[]): string[] {
+  if (components.length === 0) return [];
+  const rows = components.flatMap((component) => (nativeNodeSource(component)?.entrypoints ?? []).flatMap((entry) => entry.symbols.map((symbol) =>
+    `| \`${component.id}\` | \`${entry.id}\` | \`${entry.path}#${symbol.name}\` | ${symbol.sinks.map((sink) => `\`${sink.id}\` → \`${sink.path}#${sink.symbol}\``).join("、")} |`
+  )));
+  return [
+    "",
+    "組件入口:",
+    "",
+    ...(rows.length > 0
+      ? ["| 組件 | 宣告入口 | 錨點 | 職責 |", "| --- | --- | --- | --- |", ...rows]
+      : ["- 組件均未宣告 `source.entrypoints`。"])
+  ];
+}
+
+/** §1.4 addition for a node with components: each component's outbound relations, grouped by component (#299). */
+function renderComponentOutboundRelations(components: readonly NativeNode[], relations: readonly NativeRelation[]): string[] {
+  if (components.length === 0) return [];
+  return [
+    "",
+    "組件出向關係:",
+    "",
+    ...components.flatMap((component) => {
+      const outgoing = relations.filter((relation) => relation.source === component.id);
+      return [
+        `- \`${component.id}\`:`,
+        ...(outgoing.length === 0 ? ["  - 無。"] : outgoing.map((relation) => `  - \`${relation.kind}\` → \`${relation.target}\` — ${relation.intent}`))
+      ];
+    })
+  ];
+}
+
+/**
+ * §1.5 for a node with components: id, name, the 1–2–5 scale buckets of the component's own
+ * declared footprint (the same measurement and buckets as §1.3) and its entrypoint ids (#299).
+ */
+function renderComponentTable(components: readonly NativeNode[], scaleByNodeId: ReadonlyMap<string, ArchitectureCapabilityScaleV1>): string[] {
+  if (components.length === 0) return [];
+  return [
+    "",
+    "### 1.5 組件結構",
+    "",
+    "| 組件 | 名稱 | 規模量級 | 宣告入口 |",
+    "| --- | --- | --- | --- |",
+    ...components.map((component) => {
+      const source = nativeNodeSource(component);
+      let scaleCell = "未宣告 `source.include`";
+      if ((source?.include ?? []).length > 0) {
+        const scale = scaleByNodeId.get(component.id);
+        if (!scale) throw new Error(`architecture-docs-projection-scale-signal-missing: ${component.id}`);
+        scaleCell = `\`${scaleMagnitudeBucketLabel(scale.fileCountBucket)}\` 個文件 / \`${scaleMagnitudeBucketLabel(scale.lineCountBucket)}\` 行`;
+      }
+      const entrypointIds = (source?.entrypoints ?? []).map((entry) => `\`${entry.id}\``);
+      return `| \`${component.id}\` | ${component.name.replaceAll("|", "\\|")} | ${scaleCell} | ${entrypointIds.length > 0 ? entrypointIds.join("、") : "未宣告"} |`;
+    })
+  ];
 }
 
 function renderSemanticP1Section(compilation: SemanticCapabilityDiagramCompilation): string[] {
@@ -1591,19 +1736,41 @@ function entitySummaryTitle(node: Pick<NativeNode, "id">): string {
   return segments.length > 0 ? segments.join("/") : node.id;
 }
 
-function entitySummarySkeleton(node: Pick<NativeNode, "id">): { prefix: string; suffix: string } {
+/**
+ * Skeleton headings per `docs.language`. The `legacy` entry is the text every release before #302
+ * wrote; a repository that sets no language keeps it byte for byte. `Optimization Backlog` stays
+ * the same in every language because agents and tools find the section by that heading.
+ */
+const ENTITY_SUMMARY_SKELETON_TEXT: Record<ArchitectureDocsLanguage | "legacy", { titleSuffix: string; p3: string; history: string }> = {
+  legacy: { titleSuffix: " 架構文檔", p3: "## 3. P3:設計決策與不變量", history: "## 4. 歷史決策記錄(append-only)" },
+  "zh-Hant": { titleSuffix: " 架構文檔", p3: "## 3. P3：設計決策與不變量", history: "## 4. 歷史決策記錄（append-only）" },
+  "zh-Hans": { titleSuffix: " 架构文档", p3: "## 3. P3：设计决策与不变量", history: "## 4. 历史决策记录（append-only）" },
+  en: { titleSuffix: " Architecture", p3: "## 3. P3: Design Decisions and Invariants", history: "## 4. Decision History (append-only)" }
+};
+
+/**
+ * The scaffold of a new module document. Only a file that does not exist yet gets it, so changing
+ * `docs.language` never rewrites the headings of an existing document (#302).
+ */
+function entitySummarySkeleton(node: Pick<NativeNode, "id">, docsLanguage: ArchitectureDocsLanguage | undefined): { prefix: string; suffix: string } {
+  const text = ENTITY_SUMMARY_SKELETON_TEXT[docsLanguage ?? "legacy"];
   return {
-    prefix: `# ${entitySummaryTitle(node)} 架構文檔\n\n`,
+    prefix: `# ${entitySummaryTitle(node)}${text.titleSuffix}\n\n`,
     suffix: [
       "",
-      "## 3. P3:設計決策與不變量",
+      text.p3,
       "",
-      "## 4. 歷史決策記錄(append-only)",
+      text.history,
       "",
       "## Optimization Backlog",
       ""
     ].join("\n")
   };
+}
+
+/** Every skeleton the renderer can have written for one node, whatever `docs.language` was then. */
+function entitySummarySkeletonVariants(node: Pick<NativeNode, "id">): { prefix: string; suffix: string }[] {
+  return [undefined, ...ARCHITECTURE_DOCS_LANGUAGES].map((language) => entitySummarySkeleton(node, language));
 }
 
 function renderRelationSummary(relation: NativeRelation, model: NativeModel): string {
@@ -1798,7 +1965,7 @@ function architectureDocumentationProjectionDrift(input: {
         path: existing.path,
         targetId: region.targetId,
         actualDigest,
-        disposition: orphanHoldsOnlyIntactGeneratedRegion(existing.body, region.targetId, orphanSkeleton(committedEntityTargets, existing.path, region.targetId)) ? "delete" : "human-review"
+        disposition: orphanHoldsOnlyIntactGeneratedRegion(existing.body, region.targetId, orphanSkeletons(committedEntityTargets, existing.path, region.targetId)) ? "delete" : "human-review"
       });
     }
   }
@@ -1838,30 +2005,34 @@ function committedEntitySummaryTargets(manifestBody: string | undefined): Map<st
   return targets;
 }
 
-/** The skeleton the renderer wrote around an orphan's region, when the manifest records it as that path's entity summary. */
-function orphanSkeleton(
+/**
+ * The skeletons the renderer can have written around an orphan's region, when the manifest records
+ * it as that path's entity summary: one per `docs.language`, because the document may predate a
+ * change of the setting.
+ */
+function orphanSkeletons(
   committedEntityTargets: Map<string, { path: string; nodeId: string }>,
   path: string,
   targetId: string
-): { prefix: string; suffix: string } | undefined {
+): { prefix: string; suffix: string }[] {
   const committed = committedEntityTargets.get(targetId);
-  return committed && committed.path === path ? entitySummarySkeleton({ id: committed.nodeId }) : undefined;
+  return committed && committed.path === path ? entitySummarySkeletonVariants({ id: committed.nodeId }) : [];
 }
 
 /**
  * True only when deleting the orphan cannot lose human text: everything outside its one generated
- * region is whitespace or exactly the renderer's own skeleton for that target (title and empty
- * §3/§4/Backlog headings, #276), and the region still digests to the output its own marker records
- * (an edited region is human content). Anything else, including a missing end marker or one human
- * line in a skeleton section, is human review.
+ * region is whitespace or exactly one of the renderer's own skeletons for that target (title and
+ * empty §3/§4/Backlog headings, #276), and the region still digests to the output its own marker
+ * records (an edited region is human content). Anything else, including a missing end marker or
+ * one human line in a skeleton section, is human review.
  */
-function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string, skeleton: { prefix: string; suffix: string } | undefined): boolean {
+function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string, skeletons: { prefix: string; suffix: string }[]): boolean {
   const region = findGeneratedRegion(body, targetId);
   if (!region) return false;
   const before = body.slice(0, region.start);
   const after = body.slice(region.end);
   const generatedOnly = `${before}${after}`.trim() === ""
-    || (skeleton !== undefined && before === skeleton.prefix && after === skeleton.suffix);
+    || skeletons.some((skeleton) => before === skeleton.prefix && after === skeleton.suffix);
   if (!generatedOnly) return false;
   const metadata = parseGeneratedRegionMetadata(region.startMarker);
   return metadata.outputDigest !== undefined

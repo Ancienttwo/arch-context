@@ -65,6 +65,7 @@ export const ARCHCTX_FEATURES = [
   "changeset-entity-operations-v1",
   "code-facts-unavailable-error-v1",
   "docs-anchors-v1",
+  "flow-selector-check-v1",
   "module-statistics-v1",
   "projection-apply-readback-v1",
   "projection-apply-receipt-v1",
@@ -103,6 +104,69 @@ export const ARCHITECTURE_SEMANTIC_FACETS = [
 ] as const;
 export const ARCHITECTURE_PROOF_P1_STATUSES = ["proven", "unprovable"] as const;
 export const ARCHITECTURE_PROOF_P2_STATUSES = ["not-applicable", "proven", "unprovable"] as const;
+
+export const ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION = "archcontext.flow-selector-check/v1" as const;
+
+/**
+ * The proof status of one declared entrypoint→sink selector, as the P2 flow proof reads its
+ * evidence. Only `proven` can bind a flow step. `no-direct-call`: no `calls` edge from the source
+ * to the sink. `only-references`: no proving call, but the source references the sink by value.
+ * `false-builtin-call`: the only calls carry a runtime built-in name and the source file does not
+ * import the sink file. `ambiguous-symbol`: the source or the sink matches more than one indexed
+ * symbol. `evidence-missing`: no evidence was measured (for example, no CodeGraph index).
+ * `evidence-truncated`: the evidence producer could not enumerate every edge.
+ */
+export const ARCHITECTURE_FLOW_SELECTOR_PROOF_STATUSES = [
+  "ambiguous-symbol",
+  "evidence-missing",
+  "evidence-truncated",
+  "false-builtin-call",
+  "no-direct-call",
+  "only-references",
+  "proven"
+] as const;
+export type ArchitectureFlowSelectorProofStatus = typeof ARCHITECTURE_FLOW_SELECTOR_PROOF_STATUSES[number];
+
+export interface ArchitectureFlowSelectorSiteV1 {
+  path: string;
+  line?: number;
+}
+
+export interface ArchitectureFlowSelectorCheckEntryV1 {
+  nodeId: string;
+  entrypointId: string;
+  sourcePath: string;
+  sourceSymbol: string;
+  sinkId: string;
+  sinkPath: string;
+  sinkSymbol: string;
+  status: ArchitectureFlowSelectorProofStatus;
+  callSites: ArchitectureFlowSelectorSiteV1[];
+  referenceSites: ArchitectureFlowSelectorSiteV1[];
+  rejectedBuiltinCallSites: ArchitectureFlowSelectorSiteV1[];
+  /** The required-flow steps that name this selector as evidence. Empty for an unused selector. */
+  flowSteps: Array<{ flowId: string; stepId: string }>;
+}
+
+export interface ArchitectureFlowSelectorCheckCapabilityV1 {
+  capabilityId: string;
+  /** The same P2 status a projection records for this capability. */
+  p2Status: typeof ARCHITECTURE_PROOF_P2_STATUSES[number];
+  diagnostics: Array<{ code: string; flowId?: string; stepId?: string; detail: string }>;
+}
+
+/**
+ * `archctx flows check`: the P2 flow proof without rendering. Read-only. `ok` is true when no
+ * capability that declares a flow has an unprovable P2 proof.
+ */
+export interface ArchitectureFlowSelectorCheckV1 {
+  schemaVersion: typeof ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION;
+  ok: boolean;
+  codeGraph: { availability: "ready" | "unavailable"; version: string };
+  summary: { selectors: number; proven: number; unproven: number; usedUnproven: number };
+  selectors: ArchitectureFlowSelectorCheckEntryV1[];
+  capabilities: ArchitectureFlowSelectorCheckCapabilityV1[];
+}
 
 /** `files[].preview.format`: a `create` carries the rendered body, an `update` or `delete` a unified diff. */
 export const PROJECTION_FILE_PREVIEW_FORMATS = ["body", "unified-diff"] as const;
