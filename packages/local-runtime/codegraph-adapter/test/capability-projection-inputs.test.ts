@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { digestJson } from "@archcontext/contracts";
-import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
+import { ProjectionCodeFactsUnavailableError, RUNTIME_BUILTIN_CALL_NAMES, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
 
 const model: NativeModel = {
   nodes: [
@@ -124,7 +124,57 @@ function selectorIndex(options: { exactTargets?: number; unrelatedCalls?: number
     getNodesByName: (name) => [...nodes.values()].filter((node) => node.name === name),
     getOutgoingEdges: (nodeId) => edges.filter((edge) => edge.source === nodeId),
     getNode: (nodeId) => nodes.get(nodeId) ?? null,
+    getNodesInFile: (filePath) => [...nodes.values()].filter((node) => node.filePath === filePath),
     close: () => undefined
+  };
+}
+
+/**
+ * A fake index for the #300 proof rules: `src/main.ts#entry` and its edges to symbols in
+ * `src/util.ts`. `imports` are the import specifiers of `src/main.ts`.
+ */
+function builtinSelectorIndex(options: {
+  sinkName: string;
+  imports: string[];
+  edges: Array<{ kind: "calls" | "references"; line: number }>;
+  sinkDeclarations?: number;
+}): CodeGraphSelectorIndex {
+  const nodes = new Map<string, any>([
+    ["entry", { id: "entry", kind: "function", name: "entry", filePath: "src/main.ts", startLine: 4 }],
+    ...options.imports.map((specifier, index) => [
+      `import-${index}`,
+      { id: `import-${index}`, kind: "import", name: specifier, filePath: "src/main.ts", startLine: 1 + index }
+    ] as const),
+    ...Array.from({ length: options.sinkDeclarations ?? 1 }, (_, index) => [
+      `sink-${index}`,
+      { id: `sink-${index}`, kind: index === 0 ? "function" : "constant", name: options.sinkName, filePath: "src/util.ts", startLine: 1 + 10 * index }
+    ] as const)
+  ]);
+  const edges = options.edges.map((edge) => ({ source: "entry", target: "sink-0", kind: edge.kind, line: edge.line }));
+  return {
+    getNodesByName: (name) => [...nodes.values()].filter((node) => node.name === name),
+    getOutgoingEdges: (nodeId) => edges.filter((edge) => edge.source === nodeId) as any[],
+    getNode: (nodeId) => nodes.get(nodeId) ?? null,
+    getNodesInFile: (filePath) => [...nodes.values()].filter((node) => node.filePath === filePath),
+    close: () => undefined
+  };
+}
+
+function builtinSelectorModel(sinkName: string): NativeModel {
+  return {
+    nodes: [{
+      id: "capability.builtin",
+      kind: "capability",
+      name: "Builtin",
+      source: {
+        entrypoints: [{
+          id: "entrypoint.builtin.entry",
+          path: "src/main.ts",
+          symbols: [{ name: "entry", sinks: [{ id: "sink.builtin.util", path: "src/util.ts", symbol: sinkName }] }]
+        }]
+      }
+    }],
+    relations: []
   };
 }
 
@@ -205,6 +255,93 @@ describe("capability documentation projection inputs from the code index", () =>
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  describe("selector proof rules for false built-in edges, references and duplicate symbols (#300)", () => {
+    function evidenceFor(sinkName: string, index: CodeGraphSelectorIndex) {
+      const root = mkdtempSync(join(tmpdir(), "archctx-selector-builtin-"));
+      try {
+        mkdirSync(join(root, ".codegraph"));
+        mkdirSync(join(root, "src"));
+        writeFileSync(join(root, "src/util.ts"), `export function ${sinkName}() {}\n`);
+        writeFileSync(join(root, "src/main.ts"), "// fixture\n");
+        // No footprint is declared, so only the structured selector index is read: no CLI call.
+        const inputs = loadCapabilityCodeGraphProjectionInputs(root, builtinSelectorModel(sinkName), {
+          binary: join(root, "does-not-exist.js"),
+          selectorIndexFactory: () => index
+        });
+        expect(inputs.selectorEvidence).toHaveLength(1);
+        return inputs.selectorEvidence[0]!;
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+
+    test("rejects a call to a runtime built-in name when the source file does not import the sink file", () => {
+      expect(RUNTIME_BUILTIN_CALL_NAMES.has("resolve")).toBe(true);
+      const evidence = evidenceFor("resolve", builtinSelectorIndex({
+        sinkName: "resolve",
+        imports: ["node:path"],
+        edges: [{ kind: "calls", line: 5 }]
+      }));
+      expect(evidence).toMatchObject({ matched: false, ambiguous: false, truncated: false, callSites: [] });
+      expect(evidence.rejectedBuiltinCallSites).toEqual([{ path: "src/main.ts", line: 5 }]);
+      expect(evidence.referenceSites).toBeUndefined();
+    });
+
+    test("accepts the same built-in-named call when the source file imports the sink file", () => {
+      for (const specifier of ["./util", "./util.js"]) {
+        const evidence = evidenceFor("existsSync", builtinSelectorIndex({
+          sinkName: "existsSync",
+          imports: ["node:fs", specifier],
+          edges: [{ kind: "calls", line: 6 }]
+        }));
+        expect(evidence, specifier).toEqual({
+          nodeId: "capability.builtin",
+          entrypointId: "entrypoint.builtin.entry",
+          sourcePath: "src/main.ts",
+          sourceSymbol: "entry",
+          sinkId: "sink.builtin.util",
+          sinkPath: "src/util.ts",
+          sinkSymbol: "existsSync",
+          matched: true,
+          ambiguous: false,
+          truncated: false,
+          callSites: [{ path: "src/main.ts", line: 6 }]
+        });
+      }
+    });
+
+    test("keeps a call to a name that is not a runtime built-in without an import check", () => {
+      expect(RUNTIME_BUILTIN_CALL_NAMES.has("renderBlock")).toBe(false);
+      const evidence = evidenceFor("renderBlock", builtinSelectorIndex({
+        sinkName: "renderBlock",
+        imports: [],
+        edges: [{ kind: "calls", line: 7 }]
+      }));
+      expect(evidence).toMatchObject({ matched: true, callSites: [{ path: "src/main.ts", line: 7 }] });
+      expect(evidence.rejectedBuiltinCallSites).toBeUndefined();
+    });
+
+    test("reports a references-only edge as reference sites that do not prove the selector", () => {
+      const evidence = evidenceFor("collectOffers", builtinSelectorIndex({
+        sinkName: "collectOffers",
+        imports: ["./util"],
+        edges: [{ kind: "references", line: 8 }]
+      }));
+      expect(evidence).toMatchObject({ matched: false, ambiguous: false, callSites: [] });
+      expect(evidence.referenceSites).toEqual([{ path: "src/main.ts", line: 8 }]);
+    });
+
+    test("marks a sink declared twice in its file as ambiguous even when one declaration is called", () => {
+      const evidence = evidenceFor("readBinding", builtinSelectorIndex({
+        sinkName: "readBinding",
+        imports: ["./util"],
+        edges: [{ kind: "calls", line: 9 }],
+        sinkDeclarations: 2
+      }));
+      expect(evidence).toMatchObject({ matched: false, ambiguous: true });
+    });
   });
 
   // The fake index always replies with its 6 import nodes, whatever `-l` asks for.

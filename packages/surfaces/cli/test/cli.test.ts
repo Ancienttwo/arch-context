@@ -8,7 +8,7 @@ import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint }
 import { architectureDocumentationProjectionWorktreeDigest, loadCapabilitySourceFootprintDigests, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
-import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
+import { CodeGraphAdapter, codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, grantAuditConsent, readAuditConsent, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
@@ -523,6 +523,200 @@ test("CLI projection check never starts a runtime, writes runtime state or needs
     expect(existsSync(checkStateRoot)).toBe(false);
     expect(existsSync(runtimeStatePaths(root, { ...process.env, ARCHCONTEXT_STATE_DIR: checkStateRoot }).stateRoot)).toBe(false);
     expect(gitOut(root, "status", "--porcelain", "--ignored")).toBe(worktreeBefore);
+  } finally {
+    rmSync(checkStateRoot, { recursive: true, force: true });
+    removeTempRoot(root);
+  }
+}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+
+test("CLI flows check reports each selector proof status from a real index without a runtime or runtime state (#300)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-flows-check-"));
+  const checkStateRoot = join(dirname(root), `.archctx-flows-check-state-${basename(root)}`);
+  const capabilityId = "capability.flows-check";
+  const write = (path: string, lines: string[]) => {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), `${lines.join("\n")}\n`, "utf8");
+  };
+  const sink = (id: string, path: string, symbol: string) => ({ id: `sink.flows.${id}`, path, symbol });
+  const step = (id: string, sinkId: string) => ({
+    id,
+    from: "handler",
+    to: "renderer",
+    label: `Step ${id}`,
+    evidence: { entrypointId: "entrypoint.flows.main", sourceSymbol: "handle", sinkId: `sink.flows.${sinkId}` }
+  });
+  try {
+    writeFileSync(join(root, "README.md"), "# flows check fixture\n", "utf8");
+    initializeArchContextModel(root, "Flows Check App");
+    write("src/render.ts", ["export function renderBlock(): string {", "  return \"block\";", "}"]);
+    write("src/util.ts", ["export function resolve(value: string): string {", "  return value;", "}"]);
+    write("src/main.ts", [
+      "import { resolve } from \"node:path\";",
+      "import { renderBlock } from \"./render\";",
+      "",
+      "export function handle(): string {",
+      "  resolve(\"a\");",
+      "  return renderBlock();",
+      "}"
+    ]);
+    write("src/wiring.ts", [
+      "import { renderBlock } from \"./render\";",
+      "",
+      "function run(step: () => string): string {",
+      "  return step();",
+      "}",
+      "",
+      "export function wireRender(): string {",
+      "  return run(renderBlock);",
+      "}",
+      "",
+      "export const helper = (): string => renderBlock();",
+      "",
+      "export function outer(): string {",
+      "  function helper(): string {",
+      "    return renderBlock();",
+      "  }",
+      "  return helper();",
+      "}"
+    ]);
+    writeFileSync(join(root, `.archcontext/model/nodes/${capabilityId}.yaml`), stableYaml({
+      schemaVersion: "archcontext.node/v2",
+      id: capabilityId,
+      kind: "capability",
+      name: "Flows Check",
+      status: "active",
+      summary: "Exercises every selector proof status.",
+      source: {
+        include: ["src/**"],
+        entrypoints: [
+          {
+            id: "entrypoint.flows.main",
+            path: "src/main.ts",
+            symbols: [{ name: "handle", sinks: [sink("render", "src/render.ts", "renderBlock"), sink("resolve", "src/util.ts", "resolve")] }]
+          },
+          {
+            id: "entrypoint.flows.wiring",
+            path: "src/wiring.ts",
+            symbols: [
+              { name: "wireRender", sinks: [sink("wired-render", "src/render.ts", "renderBlock"), sink("wired-resolve", "src/util.ts", "resolve")] },
+              { name: "helper", sinks: [sink("helper-render", "src/render.ts", "renderBlock")] }
+            ]
+          }
+        ]
+      }
+    }), "utf8");
+    for (const [id, name] of [["component.flows.handler", "Handler"], ["component.flows.renderer", "Renderer"]] as const) {
+      writeFileSync(join(root, `.archcontext/model/nodes/${id}.yaml`), stableYaml({
+        schemaVersion: "archcontext.node/v2",
+        id,
+        kind: "component",
+        name,
+        status: "active",
+        parent: capabilityId,
+        summary: `${name} of the flows check fixture.`
+      }), "utf8");
+    }
+    mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/relations/relation.flows.handler-renderer.yaml"), stableYaml({
+      schemaVersion: "archcontext.relation/v1",
+      id: "relation.flows.handler-renderer",
+      kind: "calls",
+      source: "component.flows.handler",
+      target: "component.flows.renderer",
+      intent: "Render one block"
+    }), "utf8");
+    mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/flows/flow.flows-check.yaml"), stableYaml({
+      schemaVersion: "archcontext.flow/v1",
+      id: "flow.flows-check",
+      capabilityId,
+      name: "Render through the handler",
+      applicability: "required",
+      participants: [{ id: "handler", nodeId: "component.flows.handler" }, { id: "renderer", nodeId: "component.flows.renderer" }],
+      steps: [step("render", "render"), step("resolve", "resolve")],
+      outcomes: [
+        { id: "rendered", kind: "success", label: "Rendered", steps: [step("rendered", "render")], terminal: { participant: "handler", label: "Return the block" } },
+        { id: "failed", kind: "error", label: "Failed", steps: [step("failed", "render")], terminal: { participant: "handler", label: "Return the failure" } }
+      ]
+    }), "utf8");
+    git(root, "init");
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "flows check fixture");
+    const invocation = codeGraphCliInvocation("codegraph", root);
+    execFileSync(invocation.command, [...invocation.argsPrefix, "init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    // Like a projection, the check runs `codegraph sync`, which owns `.codegraph/`. Every other
+    // path must stay untouched.
+    const worktreeStatus = () => gitOut(root, "status", "--porcelain", "--ignored", "--", ".", ":(exclude).codegraph");
+    const worktreeBefore = worktreeStatus();
+
+    let runtimeAccesses = 0;
+    const noRuntime = new Proxy({}, {
+      get(_target, property) {
+        if (property === "then") return undefined;
+        runtimeAccesses += 1;
+        throw new Error(`flows check reached the runtime: ${String(property)}`);
+      }
+    }) as unknown as RuntimeDaemonClient;
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    process.env.ARCHCONTEXT_STATE_DIR = checkStateRoot;
+    let inProcess: Awaited<ReturnType<typeof runCli>>;
+    try {
+      inProcess = await runCli("flows", ["check", "--json"], root, { runtimeClient: noRuntime });
+    } finally {
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+    }
+    expect(inProcess.ok, JSON.stringify(inProcess)).toBe(true);
+    expect(runtimeAccesses).toBe(0);
+    const check = (inProcess as JsonEnvelope).data as any;
+    expect(validateJsonSchema(JSON.parse(readFileSync(join(REPOSITORY_ROOT, "schemas/runtime/flow-selector-check.schema.json"), "utf8")), check).issues).toEqual([]);
+    expect(check.codeGraph).toEqual({ availability: "ready", version: productVersionManifest().runtime.codeGraph.requiredVersion });
+    expect(Object.fromEntries(check.selectors.map((selector: any) => [selector.sinkId.slice("sink.flows.".length), selector.status]))).toEqual({
+      "render": "proven",
+      "resolve": "false-builtin-call",
+      "wired-render": "only-references",
+      "wired-resolve": "no-direct-call",
+      "helper-render": "ambiguous-symbol"
+    });
+    const bySink = (id: string) => check.selectors.find((selector: any) => selector.sinkId === `sink.flows.${id}`);
+    expect(bySink("render").callSites).toEqual([{ path: "src/main.ts", line: 6 }]);
+    expect(bySink("resolve").rejectedBuiltinCallSites).toEqual([{ path: "src/main.ts", line: 5 }]);
+    expect(bySink("wired-render").referenceSites).toEqual([{ path: "src/wiring.ts", line: 8 }]);
+    expect(bySink("resolve").flowSteps).toEqual([{ flowId: "flow.flows-check", stepId: "resolve" }]);
+    expect(bySink("wired-resolve").flowSteps).toEqual([]);
+    expect(check.summary).toEqual({ selectors: 5, proven: 1, unproven: 4, usedUnproven: 1 });
+    // The flow uses the false built-in selector, so its P2 proof is unprovable exactly as a projection reports it.
+    expect(check.ok).toBe(false);
+    expect(check.capabilities).toEqual([{
+      capabilityId,
+      p2Status: "unprovable",
+      diagnostics: [{ code: "selector-evidence-unmatched", flowId: "flow.flows-check", stepId: "resolve", detail: "entrypoint.flows.main\u0000handle\u0000sink.flows.resolve" }]
+    }]);
+
+    // Real process with no runtime client injected: no daemon is discovered or started.
+    const processOutput = execFileSync("bun", [CLI_ENTRY, "flows", "check", "--json"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, ARCHCONTEXT_STATE_DIR: checkStateRoot },
+      timeout: CLI_PROCESS_TIMEOUT_MS
+    });
+    expect(JSON.parse(processOutput).data).toEqual(check);
+    expect(existsSync(checkStateRoot)).toBe(false);
+    expect(worktreeStatus()).toBe(worktreeBefore);
+
+    const invalid = await runCli("flows", ["verify"], root, { runtimeClient: noRuntime });
+    expect(invalid.ok).toBe(false);
+    expect((invalid as JsonEnvelope).error?.code).toBe("AC_SCHEMA_INVALID");
+    const help = await runCli("help", [], root, { runtimeClient: noRuntime });
+    expect((help as JsonEnvelope).data as any).toMatchObject({ commands: expect.arrayContaining(["flows"]) });
+    const flowsHelp = JSON.parse(execFileSync("bun", [CLI_ENTRY, "flows", "--help"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, ARCHCONTEXT_STATE_DIR: checkStateRoot },
+      timeout: CLI_PROCESS_TIMEOUT_MS
+    }));
+    expect(flowsHelp.ok, JSON.stringify(flowsHelp)).toBe(true);
+    expect(flowsHelp.data.command).toBe("archctx flows check [--json]");
   } finally {
     rmSync(checkStateRoot, { recursive: true, force: true });
     removeTempRoot(root);

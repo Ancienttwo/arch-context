@@ -29,6 +29,56 @@ try {
     "}",
     ""
   ].join("\n"));
+  // #300: a repository function that shares a Node built-in name, a file that calls the built-in,
+  // a file that calls the repository function through an import, value wiring, and a duplicate.
+  writeFileSync(join(fixtureRoot, "src", "util.ts"), [
+    "export function resolve(value: string): string {",
+    "  return value;",
+    "}",
+    "",
+    "export function existsSync(path: string): boolean {",
+    "  return path.length > 0;",
+    "}",
+    ""
+  ].join("\n"));
+  writeFileSync(join(fixtureRoot, "src", "builtin.ts"), [
+    "import { resolve } from \"node:path\";",
+    "import { existsSync } from \"node:fs\";",
+    "",
+    "export function usesBuiltins(): boolean {",
+    "  return existsSync(resolve(\"a\"));",
+    "}",
+    ""
+  ].join("\n"));
+  writeFileSync(join(fixtureRoot, "src", "imported.ts"), [
+    "import { existsSync } from \"./util\";",
+    "",
+    "export function usesUtil(): boolean {",
+    "  return existsSync(\"a\");",
+    "}",
+    ""
+  ].join("\n"));
+  writeFileSync(join(fixtureRoot, "src", "wiring.ts"), [
+    "import { renderBlock } from \"./render\";",
+    "",
+    "function run(step: () => string): string {",
+    "  return step();",
+    "}",
+    "",
+    "export function wireRender(): string {",
+    "  return run(renderBlock);",
+    "}",
+    "",
+    "export const helper = (): string => renderBlock();",
+    "",
+    "export function outer(): string {",
+    "  function helper(): string {",
+    "    return renderBlock();",
+    "  }",
+    "  return helper();",
+    "}",
+    ""
+  ].join("\n"));
 
   const bundlePath = join(buildRoot, "codegraph-adapter.mjs");
   const built = spawnSync("bun", [
@@ -102,6 +152,45 @@ try {
       callSites: [{ path: "src/main.ts", line: 4 }]
     }]
   });
+
+  const selector = (sourcePath, sourceSymbol, sinkId, sinkPath, sinkSymbol) => ({
+    id: `entrypoint.proof.${sinkId}`,
+    path: sourcePath,
+    symbols: [{ name: sourceSymbol, sinks: [{ id: `sink.proof.${sinkId}`, path: sinkPath, symbol: sinkSymbol }] }]
+  });
+  const proofModel = {
+    nodes: [{
+      id: "capability.proof",
+      kind: "capability",
+      name: "Proof",
+      source: {
+        entrypoints: [
+          selector("src/builtin.ts", "usesBuiltins", "false-resolve", "src/util.ts", "resolve"),
+          selector("src/builtin.ts", "usesBuiltins", "false-exists", "src/util.ts", "existsSync"),
+          selector("src/imported.ts", "usesUtil", "imported-exists", "src/util.ts", "existsSync"),
+          selector("src/wiring.ts", "wireRender", "by-value", "src/render.ts", "renderBlock"),
+          selector("src/wiring.ts", "helper", "duplicate", "src/render.ts", "renderBlock")
+        ]
+      }
+    }],
+    relations: []
+  };
+  const proof = Object.fromEntries(adapter.loadCapabilityCodeGraphProjectionInputs(fixtureRoot, proofModel).selectorEvidence
+    .map((entry) => [entry.sinkId.slice("sink.proof.".length), entry]));
+  // CodeGraph 1.6.1 resolves both built-in calls to the same-named repository functions. The
+  // source file imports only node:path and node:fs, so neither call proves the selector.
+  for (const name of ["false-resolve", "false-exists"]) {
+    assert.equal(proof[name].matched, false, name);
+    assert.deepEqual(proof[name].callSites, [], name);
+    assert.equal(proof[name].rejectedBuiltinCallSites.length, 1, name);
+  }
+  assert.equal(proof["imported-exists"].matched, true);
+  assert.deepEqual(proof["imported-exists"].callSites, [{ path: "src/imported.ts", line: 4 }]);
+  assert.equal(proof["imported-exists"].rejectedBuiltinCallSites, undefined);
+  assert.equal(proof["by-value"].matched, false);
+  assert.deepEqual(proof["by-value"].referenceSites, [{ path: "src/wiring.ts", line: 8 }]);
+  assert.equal(proof.duplicate.ambiguous, true);
+  assert.equal(proof.duplicate.matched, false);
 
   console.log(JSON.stringify({
     schemaVersion: "archcontext.codegraph-selector-node-integration/v1",
