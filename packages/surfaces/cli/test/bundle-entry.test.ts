@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { type RmDirOptions, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync as nodeRmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,21 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.."
 const PROCESS_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 const TEST_TIMEOUT_MS = process.platform === "win32" ? 300_000 : 90_000;
 const NODE_FILE = ".archcontext/model/nodes/module.bundle-smoke.yaml";
+
+// Windows can hold a temp repo briefly after `daemon stop`; cleanup must not fail the test.
+function rmSync(path: string, options?: RmDirOptions): void {
+  try {
+    nodeRmSync(path, { maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100, ...options });
+  } catch (error) {
+    if (isIgnorableWindowsCleanupError(error)) return;
+    throw error;
+  }
+}
+
+function isIgnorableWindowsCleanupError(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
+}
 
 let buildRoot: string;
 let bundlePath: string;
