@@ -173,6 +173,7 @@ export function buildArchitectureDocsProjection(
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
+    docsLanguage: loaded.docsLanguage,
     sourceFootprints,
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.sourceFiles),
     importGraphs: codeGraphInputs.importGraphs,

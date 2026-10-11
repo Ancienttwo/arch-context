@@ -20,6 +20,17 @@
 
 The `docs` commands use the profile of the committed manifest when you do not give `--profile`. A repository without a manifest uses `default`. Give `--profile` only to select a different layout, and give the same value to `plan` and `apply`. `apply` renders the projection again and does not read the profile of the planned ChangeSet.
 
+### Module document language
+
+A new module document gets a skeleton outside the generated region: the title and empty `## 3`, `## 4` and `## Optimization Backlog` headings. Set `docs.language` in `.archcontext/manifest.yaml` to select the language of the title and the `## 3` and `## 4` headings:
+
+```yaml
+docs:
+  language: zh-Hans # zh-Hant, zh-Hans or en
+```
+
+Without `docs.language`, the renderer writes the headings of earlier releases (`## 3. P3:設計決策與不變量`). Any other value fails the projection with `architecture-docs-language-invalid`. The setting applies only to a module document that does not exist yet. The projection never rewrites the skeleton of an existing document, so a change of the setting does not change existing headings. To change them, edit them by hand: they are outside the generated region. The generated region (the intro, `## 1` and `## 2`) stays in Traditional Chinese.
+
 `complete_task` validates active documentation projections when `docs/architecture/.projection-manifest.json` exists. A successful completion must have projection drift count zero.
 
 ### Missing code facts
