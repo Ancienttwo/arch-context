@@ -13,6 +13,8 @@ interface FakeIndexOptions {
   reportCount?: boolean;
   /** Return this many fewer nodes than the status reports, as an index that changed mid-read. */
   queryShortBy?: number;
+  /** The `nodesByKind` key the status uses for imports; another name models a renamed kind. */
+  countKey?: string;
 }
 
 /**
@@ -49,7 +51,7 @@ if (argv[0] === "query") {
     version: "1.6.1",
     projectPath: process.cwd(),
     lastIndexed: "2026-09-03T00:00:00Z",
-    ...(${index.reportCount ?? false} ? { nodesByKind: { file: 5, import: importNodes.length } } : {}),
+    ...(${index.reportCount ?? false} ? { nodesByKind: { file: 5, [${JSON.stringify(index.countKey ?? "import")}]: importNodes.length } } : {}),
     pendingChanges: { added: ${pending}, modified: 0, removed: 0 }
   }));
 } else {
@@ -210,6 +212,35 @@ describe("repository-wide import pairs", () => {
       expect(result.truncated).toBe(true);
       expect(result.importNodeLimitExceeded).toBe(false);
       expect(result.importNodeCount).toBe(7);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an index that shrinks below the limit during a limit-exceeded read is also truncated", () => {
+    // The status reports 7 import nodes, the cap is 3, and the reply has only 2 nodes.
+    const { root, binary } = seedWorkspace({ reportCount: true, queryShortBy: 5 });
+    try {
+      const result = repositoryImportPairs(root, binary, 3, WORKTREE_DIGEST);
+      expect(result.importNodeLimitExceeded).toBe(true);
+      expect(result.truncated).toBe(true);
+      expect(result.importNodeCount).toBe(7);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a status without an import count falls back to the limit-sized read, not to a zero count", () => {
+    // A CodeGraph that names the kind differently must not turn every scan into a one-node read.
+    const { root, binary, log } = seedWorkspace({ reportCount: true, countKey: "imports" });
+    try {
+      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST);
+      expect(result.truncated).toBe(false);
+      expect(result.importNodeLimitExceeded).toBe(false);
+      expect(result.importNodeCount).toBe(7);
+      expect(result.pairs).toHaveLength(6);
+      const query = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]).find((argv) => argv[0] === "query")!;
+      expect(query[query.indexOf("-l") + 1]).toBe("101");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

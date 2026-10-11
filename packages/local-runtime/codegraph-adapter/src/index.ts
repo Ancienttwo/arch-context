@@ -1185,12 +1185,15 @@ export function repositoryImportPairs(
   };
 }
 
-/** The import population the index reports. A status without `nodesByKind` gives no count. */
+/**
+ * The import population the index reports, or `null` when the status gives no `import` count.
+ * A missing `import` kind is unknown, not zero: a CodeGraph that names the kind differently must
+ * fall back to the limit-sized read, not to a one-node read that is always short.
+ */
 function statusImportNodeCount(status: CodeGraphProjectionStatusV1): number | null {
   if (!status.nodesByKind || typeof status.nodesByKind !== "object") return null;
-  // The status lists only the kinds it holds, so a missing `import` kind is zero import nodes.
-  const count = status.nodesByKind.import ?? 0;
-  return Number.isInteger(count) && count >= 0 ? count : null;
+  const count = status.nodesByKind.import;
+  return Number.isInteger(count) && count! >= 0 ? count! : null;
 }
 
 /**
@@ -1215,7 +1218,9 @@ function codeGraphImportPopulation(
   const imports = (JSON.parse(output) as { node: CodeGraphCliNode }[]).map(({ node }) => node);
   const limitExceeded = (reportedCount ?? imports.length) > limit;
   if (limitExceeded) {
-    return { imports: imports.slice(0, limit), count: reportedCount, truncated: false, limitExceeded };
+    // The cap explains a reply of exactly `limit` nodes. A shorter reply means the index shrank
+    // during the read, which is real truncation on top of the limit.
+    return { imports: imports.slice(0, limit), count: reportedCount, truncated: imports.length < limit, limitExceeded };
   }
   return {
     imports,
