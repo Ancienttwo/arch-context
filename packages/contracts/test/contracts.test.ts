@@ -88,6 +88,7 @@ import {
   type ProjectionRequestV1,
   type ProjectionResultV2
 } from "../src/projection";
+import { DOCS_ANCHOR_FINDING_KINDS, DOCS_ANCHOR_UNCHECKED_REASON_CODES, docsAnchorsReportIssues, type DocsAnchorsReportV1 } from "../src/docs-anchors";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -154,6 +155,7 @@ const schemaByFixture: Record<string, string> = {
   "projection-apply-recovery": "schemas/runtime/projection-apply-recovery.schema.json",
   "architecture-refresh-signal": "schemas/runtime/architecture-refresh-signal.schema.json",
   "archctx-capabilities": "schemas/runtime/archctx-capabilities.schema.json",
+  "docs-anchors": "schemas/runtime/docs-anchors.schema.json",
   "evidence-item": "schemas/runtime/evidence-item.schema.json",
   "evidence-binding": "schemas/runtime/evidence-binding.schema.json",
   "recommendation-run": "schemas/runtime/recommendation-run.schema.json",
@@ -868,6 +870,34 @@ test("check freshness is schema-valid, receipt-bound and internally consistent (
   expect(validateJsonSchema(schema as any, { ...valid, freshness: { ...fresh, reasonCodes: ["projection-change-set-unavailable"] } } as any).valid).toBe(false);
 });
 
+test("docs anchors report contract: schema and invariants agree with the TypeScript constants", () => {
+  const schema = readJson("schemas/runtime/docs-anchors.schema.json") as any;
+  const valid = readJson("packages/contracts/fixtures/valid/docs-anchors.json") as unknown as DocsAnchorsReportV1;
+  expect(docsAnchorsReportIssues(valid)).toEqual([]);
+  expect(schema.$defs.finding.properties.kind.enum).toEqual([...DOCS_ANCHOR_FINDING_KINDS]);
+  expect(schema.properties.summary.properties.byKind.required).toEqual([...DOCS_ANCHOR_FINDING_KINDS]);
+  expect(schema.$defs.unchecked.properties.reasonCode.enum).toEqual([...DOCS_ANCHOR_UNCHECKED_REASON_CODES]);
+  expect(archctxCapabilities(ARCHCONTEXT_PRODUCT_VERSION).features).toContain("docs-anchors-v1");
+
+  const [evals, hook] = valid.nodes;
+  expect(docsAnchorsReportIssues({ ...valid, nodes: [hook!, evals!] })).toContain("nodes.nodeId must be sorted and unique");
+  expect(docsAnchorsReportIssues({ ...valid, summary: { ...valid.summary, findings: 3 } })).toContain("summary.findings must equal the number of findings");
+  expect(docsAnchorsReportIssues({ ...valid, summary: { ...valid.summary, byKind: { ...valid.summary.byKind, "missing-path": 0 } } }))
+    .toContain("summary.byKind.missing-path must equal the number of missing-path findings");
+  const moved = hook!.findings[0]!;
+  const withFinding = (finding: typeof moved) => ({ ...valid, nodes: [evals!, { ...hook!, findings: [finding, ...hook!.findings.slice(1)] }] });
+  expect(docsAnchorsReportIssues(withFinding({ ...moved, currentLines: [] }))).toContain("nodes[1].findings[0].currentLines must be non-empty, sorted and unique");
+  expect(docsAnchorsReportIssues(withFinding({ ...moved, kind: "missing-path", currentLines: undefined }))).not.toContain("nodes[1].findings[0].currentLines is present only on line-moved");
+  expect(docsAnchorsReportIssues(withFinding({ ...moved, kind: "missing-path" }))).toContain("nodes[1].findings[0].currentLines is present only on line-moved");
+  expect(docsAnchorsReportIssues({ ...valid, nodes: [{ ...evals!, unchecked: [{ ...hook!.unchecked[0]!, reasonCode: "codegraph-unavailable" }] }, hook!], summary: { ...valid.summary, unchecked: 2 } }))
+    .toEqual(["codegraph-unavailable is reported only when codeGraph.availability is unavailable"]);
+
+  expect(validateJsonSchema(schema, { ...valid, extra: true } as unknown as Json).valid).toBe(false);
+  expect(validateJsonSchema(schema, { ...valid, codeGraph: { availability: "unavailable" } } as unknown as Json).valid).toBe(false);
+  expect(validateJsonSchema(schema, withFinding({ ...moved, kind: "stale" as never }) as unknown as Json).valid).toBe(false);
+  expect(validateJsonSchema(schema, withFinding({ ...moved, origin: { kind: "document", path: "../outside.md", line: 1 } }) as unknown as Json).valid).toBe(false);
+});
+
 test("capabilities fixture is the exact static handshake advertised by contracts", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
   expect(archctxCapabilities(ARCHCONTEXT_PRODUCT_VERSION)).toEqual(fixture);
@@ -1390,6 +1420,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.recommendation/v2": "recommendation",
     "archcontext.recommendation/v3": "recommendation-v3",
     "archcontext.runtime-refactor-scan/v1": "runtime-refactor-scan",
+    "archcontext.docs-anchors/v1": "docs-anchors",
     "archcontext.runtime-recommendation-show/v1": "runtime-recommendation-show",
     "archcontext.recommendation-feedback/v1": "recommendation-feedback",
     "archcontext.agent-job/v1": "agent-job",

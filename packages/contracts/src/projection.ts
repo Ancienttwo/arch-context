@@ -64,6 +64,7 @@ export const ARCHCTX_FEATURES = [
   "architecture-refresh-signal-v1",
   "changeset-entity-operations-v1",
   "code-facts-unavailable-error-v1",
+  "docs-anchors-v1",
   "module-statistics-v1",
   "projection-apply-readback-v1",
   "projection-apply-receipt-v1",
