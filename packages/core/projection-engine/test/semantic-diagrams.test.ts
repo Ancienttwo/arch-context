@@ -6,6 +6,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadNativeModelFromArchContext } from "../src/index";
 import {
+  architectureSelectorProofStatus,
+  checkSemanticFlowSelectors,
   compileSemanticCapabilityDiagrams,
   type ArchitectureSelectorEvidenceV1,
   type SemanticArchitectureNode,
@@ -164,6 +166,65 @@ describe("semantic architecture compiler", () => {
     }
   });
 
+  test("selector proof status names why a selector is unproven, and only proven binds a step (#300)", () => {
+    const base = evidence[0]!;
+    const unmatched = { ...base, matched: false, callSites: [] };
+    const cases: Array<[ArchitectureSelectorEvidenceV1[], string, string | undefined]> = [
+      [[base], "proven", undefined],
+      [[unmatched], "no-direct-call", "selector-evidence-unmatched"],
+      [[{ ...unmatched, referenceSites: [{ path: "src/hook.ts", line: 4 }] }], "only-references", "selector-evidence-unmatched"],
+      [[{ ...unmatched, rejectedBuiltinCallSites: [{ path: "src/hook.ts", line: 5 }] }], "false-builtin-call", "selector-evidence-unmatched"],
+      [[{ ...base, ambiguous: true }], "ambiguous-symbol", "selector-evidence-ambiguous"],
+      [[base, base], "ambiguous-symbol", "selector-evidence-ambiguous"],
+      [[{ ...base, truncated: true }], "evidence-truncated", "selector-evidence-truncated"],
+      [[], "evidence-missing", "selector-evidence-missing"]
+    ];
+    for (const [entries, status, diagnostic] of cases) {
+      expect(architectureSelectorProofStatus(entries), status).toBe(status as never);
+      const result = compileSemanticCapabilityDiagrams({ capabilityId, nodes, relations, flows: [flow], evidence: [...entries, ...evidence.slice(1)] });
+      expect(result.p2.status, status).toBe(diagnostic === undefined ? "proven" : "unprovable");
+      expect(result.p2.diagnostics.map((entry): string => entry.code), status).toEqual(diagnostic === undefined ? [] : [diagnostic, diagnostic]);
+    }
+  });
+
+  test("flow selector check reports every declared selector with its flow steps and the projection P2 status (#300)", () => {
+    const unused: SemanticArchitectureNode = {
+      ...nodes[0]!,
+      source: {
+        entrypoints: [{
+          ...nodes[0]!.source!.entrypoints![0]!,
+          symbols: [{
+            name: "runHook",
+            sinks: [...nodes[0]!.source!.entrypoints![0]!.symbols[0]!.sinks, { id: "sink.hook.unused", path: "src/deps.ts", symbol: "readBinding" }]
+          }]
+        }]
+      }
+    };
+    const checkNodes = [unused, ...nodes.slice(1)];
+    const checkEvidence = [
+      { ...evidence[0]!, matched: false, callSites: [], rejectedBuiltinCallSites: [{ path: "src/hook.ts", line: 5 }] },
+      ...evidence.slice(1),
+      { ...evidenceFor("sink.hook.unused", "src/deps.ts", "readBinding"), matched: false, callSites: [] }
+    ];
+    const check = checkSemanticFlowSelectors({ nodes: checkNodes, relations, flows: [flow], evidence: checkEvidence });
+    expect(check.selectors.map((selector) => [selector.sinkId, selector.status, selector.flowSteps])).toEqual([
+      ["sink.hook.error", "proven", [{ flowId: flow.id, stepId: "failure" }]],
+      ["sink.hook.journal", "false-builtin-call", [{ flowId: flow.id, stepId: "submit" }, { flowId: flow.id, stepId: "persist" }]],
+      ["sink.hook.receipt", "proven", [{ flowId: flow.id, stepId: "receipt" }]],
+      ["sink.hook.unused", "no-direct-call", []]
+    ]);
+    expect(check.selectors[1]!.rejectedBuiltinCallSites).toEqual([{ path: "src/hook.ts", line: 5 }]);
+    expect(check.summary).toEqual({ selectors: 4, proven: 2, unproven: 2, usedUnproven: 1 });
+    const projected = compileSemanticCapabilityDiagrams({ capabilityId, nodes: checkNodes, relations, flows: [flow], evidence: checkEvidence });
+    expect(check.capabilities).toEqual([{ capabilityId, p2Status: projected.p2.status, diagnostics: projected.p2.diagnostics }]);
+    expect(check.capabilities[0]!.p2Status).toBe("unprovable");
+    expect(check.ok).toBe(false);
+
+    const proven = checkSemanticFlowSelectors({ nodes, relations, flows: [flow], evidence });
+    expect(proven.ok).toBe(true);
+    expect(proven.summary).toEqual({ selectors: 3, proven: 3, unproven: 0, usedUnproven: 0 });
+  });
+
   test("raw paths and call trails cannot synthesize a verified flow", () => {
     const result = compileSemanticCapabilityDiagrams({ capabilityId, nodes, relations, flows: [], evidence });
     expect(result.p2.status).toBe("unprovable");
@@ -228,8 +289,36 @@ describe("semantic architecture compiler", () => {
   test("escapes Mermaid delimiters without changing semantic labels upstream", () => {
     const escapedNodes = nodes.map((node) => node.id === "component.hook" ? { ...node, name: 'Hook "A" #1, stop;' } : node);
     const result = compileSemanticCapabilityDiagrams({ capabilityId, nodes: escapedNodes, relations, flows: [flow], evidence });
-    expect(result.p1.mermaid).toContain("Hook 'A' ＃1， stop；");
-    expect(result.p2.mermaid[0]).toContain("Hook 'A' ＃1， stop；");
+    expect(result.p1.mermaid).toContain("Hook #quot;A#quot; #35;1#44; stop#59;");
+    expect(result.p2.mermaid[0]).toContain("Hook #quot;A#quot; #35;1#44; stop#59;");
+  });
+
+  test("escapes with Mermaid entity codes that decode back to the model text (#302)", () => {
+    const label = 'a,b;c#d #44; e "q" #quot;';
+    const escapedNodes = nodes.map((node) => node.id === "component.hook" ? { ...node, name: label } : node);
+    const escapedRelations = relations.map((relation) => relation.id === "relation.hook-worker" ? { ...relation, intent: label } : relation);
+    const escapedFlow = structuredClone(flow) as Extract<ArchitectureFlowV1, { applicability: "required" }>;
+    escapedFlow.steps[0]!.label = label;
+    escapedFlow.outcomes[0]!.label = label;
+    escapedFlow.outcomes[0]!.terminal.label = label;
+    const result = compileSemanticCapabilityDiagrams({ capabilityId, nodes: escapedNodes, relations: escapedRelations, flows: [escapedFlow], evidence });
+    const escaped = "a#44;b#59;c#35;d #35;44#59; e #quot;q#quot; #35;quot#59;";
+    const decode = (value: string) => value.replace(/#(\d+|quot);/g, (_match, code: string) => code === "quot" ? "\"" : String.fromCharCode(Number(code)));
+    expect(decode(escaped)).toBe(label);
+
+    const diagrams = [result.p1.mermaid!, ...result.p2.mermaid];
+    expect(diagrams).toHaveLength(2);
+    for (const diagram of diagrams) {
+      expect(diagram).not.toMatch(/[＃；，]/);
+      expect(diagram).not.toContain(label);
+      // `"` is kept as an entity code, never replaced by `'`.
+      expect(diagram).not.toContain("'q'");
+    }
+    expect(result.p1.mermaid).toContain(`["${escaped}"]`);
+    expect(result.p1.mermaid).toContain(`-->|"${escaped}"|`);
+    expect(result.p2.mermaid[0]).toContain(` as ${escaped}\n`);
+    expect(result.p2.mermaid[0]).toContain(`: ${escaped}\n`);
+    expect(result.p2.mermaid[0]).toContain(`  alt ${escaped}\n`);
   });
 
   test("proves both pinned repo-harness pilot capabilities from node-v2, flow-v1 and exact selector evidence", () => {

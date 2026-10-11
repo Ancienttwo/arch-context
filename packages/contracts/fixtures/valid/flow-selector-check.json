@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "archcontext.flow-selector-check/v1",
+  "ok": false,
+  "codeGraph": { "availability": "ready", "version": "1.6.1" },
+  "summary": { "selectors": 2, "proven": 1, "unproven": 1, "usedUnproven": 1 },
+  "selectors": [
+    {
+      "nodeId": "capability.runtime.hooks",
+      "entrypointId": "entrypoint.hook.stop",
+      "sourcePath": "src/hook.ts",
+      "sourceSymbol": "runHook",
+      "sinkId": "sink.hook.journal",
+      "sinkPath": "src/journal.ts",
+      "sinkSymbol": "writeEvent",
+      "status": "proven",
+      "callSites": [{ "path": "src/hook.ts", "line": 12 }],
+      "referenceSites": [],
+      "rejectedBuiltinCallSites": [],
+      "flowSteps": [{ "flowId": "flow.runtime.hooks.stop", "stepId": "persist" }]
+    },
+    {
+      "nodeId": "capability.runtime.hooks",
+      "entrypointId": "entrypoint.hook.stop",
+      "sourcePath": "src/hook.ts",
+      "sourceSymbol": "runHook",
+      "sinkId": "sink.hook.resolve",
+      "sinkPath": "src/paths.ts",
+      "sinkSymbol": "resolve",
+      "status": "false-builtin-call",
+      "callSites": [],
+      "referenceSites": [],
+      "rejectedBuiltinCallSites": [{ "path": "src/hook.ts", "line": 7 }],
+      "flowSteps": [{ "flowId": "flow.runtime.hooks.stop", "stepId": "resolve" }]
+    }
+  ],
+  "capabilities": [
+    {
+      "capabilityId": "capability.runtime.hooks",
+      "p2Status": "unprovable",
+      "diagnostics": [
+        {
+          "code": "selector-evidence-unmatched",
+          "flowId": "flow.runtime.hooks.stop",
+          "stepId": "resolve",
+          "detail": "entrypoint.hook.stop runHook sink.hook.resolve"
+        }
+      ]
+    }
+  ]
+}
