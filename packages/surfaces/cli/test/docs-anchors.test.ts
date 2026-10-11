@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { type RmDirOptions, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync as nodeRmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { docsAnchorsReportIssues, stableYaml, validateJsonSchema, type DocsAnchorsReportV1, type Json, type JsonEnvelope } from "@archcontext/contracts";
@@ -9,6 +9,21 @@ import { initializeArchContextModel } from "@archcontext/local-runtime/model-sto
 import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import type { RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { runCli } from "../src/main";
+
+// Windows can hold a temp repo briefly after a CodeGraph or daemon process exits; cleanup must not fail the test.
+function rmSync(path: string, options?: RmDirOptions): void {
+  try {
+    nodeRmSync(path, { maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100, ...options });
+  } catch (error) {
+    if (isIgnorableWindowsCleanupError(error)) return;
+    throw error;
+  }
+}
+
+function isIgnorableWindowsCleanupError(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
+}
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
 const CLI_ENTRY = resolve(import.meta.dir, "../src/main.ts");
