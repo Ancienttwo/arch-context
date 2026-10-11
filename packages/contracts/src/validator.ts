@@ -208,6 +208,7 @@ function resolveRef(
 }
 
 function resolveLocalRef(root: JsonSchema, ref: string): JsonSchema | undefined {
+  if (ref === "#") return root;
   if (!ref.startsWith("#/")) return undefined;
   let current: unknown = root;
   for (const rawSegment of ref.slice(2).split("/")) {

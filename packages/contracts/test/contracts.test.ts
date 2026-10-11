@@ -951,6 +951,19 @@ describe("JSON schema contracts", () => {
     expect(result.issues.some((issue) => issue.message === "unresolved schema reference evidence-binding.schema.json")).toBe(true);
   });
 
+  test("a root $ref \"#\" resolves to the schema itself, so a recursive schema validates", () => {
+    const schema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["name"],
+      properties: { name: { type: "string" }, children: { type: "array", items: { $ref: "#" } } }
+    };
+    const valid = validateJsonSchema(schema as any, { name: "root", children: [{ name: "child", children: [{ name: "leaf" }] }] });
+    expect(valid.issues).toEqual([]);
+    const invalid = validateJsonSchema(schema as any, { name: "root", children: [{ children: [] }] });
+    expect(invalid.issues).toEqual([{ path: "$.children[0].name", message: "required" }]);
+  });
+
   test("a binding whose provenance.inputDigest is not a sha256 digest fails the scan and show schemas through $ref", () => {
     for (const name of ["runtime-refactor-scan", "runtime-recommendation-show"]) {
       const schema = readJson(`schemas/runtime/${name}.schema.json`);
