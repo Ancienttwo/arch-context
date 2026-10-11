@@ -676,6 +676,8 @@ export interface CodeGraphSelectorIndex {
   getNodesByName(name: string): CodeGraphNode[];
   getOutgoingEdges(nodeId: string): CodeGraphEdge[];
   getNode(nodeId: string): CodeGraphNode | null;
+  /** Read only for a call to a runtime built-in name, to find the source file's imports. */
+  getNodesInFile(filePath: string): CodeGraphNode[];
   close(): void;
 }
 
@@ -835,6 +837,8 @@ export function prepareProjectionCodeFacts(
     binary?: string;
     importNodeLimit?: number;
     timeouts?: { versionMs?: number; statusMs?: number; syncMs?: number };
+    /** `false` reads selector evidence only (`flows check`); a projection always reads both. */
+    importGraphs?: boolean;
   }
 ): PreparedProjectionCodeFacts {
   const invocation = options.binary
@@ -883,7 +887,8 @@ export function prepareProjectionCodeFacts(
   const inputs = loadCapabilityCodeGraphProjectionInputs(root, model, {
     ...(options.sourceFiles ? { sourceFiles: options.sourceFiles } : {}),
     binary: binaryPath,
-    importNodeLimit: options.importNodeLimit
+    importNodeLimit: options.importNodeLimit,
+    ...(options.importGraphs === false ? { importGraphs: false } : {})
   });
   const finalStatus = readProjectionCodeGraphStatus(invocation, root, statusTimeout);
   assertProjectionCodeGraphStatus(finalStatus, root, "post-query");
@@ -1045,9 +1050,12 @@ export function loadCapabilityCodeGraphProjectionInputs(
     binary?: string;
     importNodeLimit?: number;
     selectorIndexFactory?: (root: string) => CodeGraphSelectorIndex;
+    /** `false` skips the import-graph query; `flows check` reads selector evidence only. */
+    importGraphs?: boolean;
   } = {}
 ): CapabilityCodeGraphProjectionInputs {
-  const declaresFootprint = model.nodes.some((node) => (nativeNodeSource(node)?.include ?? []).length > 0);
+  const declaresFootprint = options.importGraphs !== false
+    && model.nodes.some((node) => (nativeNodeSource(node)?.include ?? []).length > 0);
   const footprints = declaresFootprint
     ? loadCapabilitySourceFootprints(root, model, options.sourceFiles ?? listProjectionSourceFiles(root))
     : [];
@@ -1069,7 +1077,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
   let selectorEvidence: ArchitectureSelectorEvidenceV1[];
   try {
     selectorEvidence = entrypointNodes.flatMap((entry) => entry.entrypoints.flatMap((entrypoint) =>
-      entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => exactSelectorEvidence(selectorIndex!, {
+      entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => exactSelectorEvidence(root, selectorIndex!, {
         nodeId: entry.nodeId,
         entrypointId: entrypoint.id,
         sourcePath: entrypoint.path,
@@ -1266,14 +1274,43 @@ function codeGraphImportNodes(root: string, binary: string, limit: number): { im
   return { imports: parsed.map(({ node }) => node), truncated: parsed.length >= limit };
 }
 
+/**
+ * Runtime built-in names a call can carry without any repository import: the named exports of
+ * `node:path`, `node:fs`, `node:child_process`, `node:os`, `node:url` and `node:crypto` that code
+ * imports by name, plus globals. CodeGraph resolves a call by name, so `resolve()` from
+ * `node:path` can appear as a `calls` edge into a repository file that defines `resolve` (#300).
+ * The list is explicit, not read from `node:module` at run time, so a proof does not change with
+ * the Node or Bun version that computes it. Add a name only when it is such a built-in export.
+ */
+export const RUNTIME_BUILTIN_CALL_NAMES: ReadonlySet<string> = new Set([
+  // node:path
+  "basename", "dirname", "extname", "format", "isAbsolute", "join", "normalize", "parse", "relative", "resolve", "toNamespacedPath",
+  // node:fs
+  "access", "accessSync", "appendFile", "appendFileSync", "chmod", "chmodSync", "close", "closeSync", "copyFile", "copyFileSync",
+  "cp", "cpSync", "createReadStream", "createWriteStream", "exists", "existsSync", "fsync", "fsyncSync", "lstat", "lstatSync",
+  "mkdir", "mkdirSync", "mkdtemp", "mkdtempSync", "open", "openSync", "opendir", "opendirSync", "read", "readFile", "readFileSync",
+  "readSync", "readdir", "readdirSync", "readlink", "readlinkSync", "realpath", "realpathSync", "rename", "renameSync", "rm",
+  "rmSync", "rmdir", "rmdirSync", "stat", "statSync", "symlink", "symlinkSync", "unlink", "unlinkSync", "watch", "write",
+  "writeFile", "writeFileSync", "writeSync",
+  // node:child_process
+  "exec", "execFile", "execFileSync", "execSync", "fork", "spawn", "spawnSync",
+  // node:os, node:url, node:crypto
+  "homedir", "hostname", "platform", "tmpdir", "fileURLToPath", "pathToFileURL", "createHash", "randomBytes", "randomUUID",
+  // globals
+  "clearInterval", "clearTimeout", "fetch", "queueMicrotask", "setInterval", "setTimeout", "structuredClone"
+]);
+
 function exactSelectorEvidence(
+  root: string,
   index: CodeGraphSelectorIndex,
   selector: Omit<ArchitectureSelectorEvidenceV1, "matched" | "truncated" | "callSites">
 ): ArchitectureSelectorEvidenceV1 {
-  const sources = index.getNodesByName(selector.sourceSymbol)
-    .filter((node) => normalizedIndexPath(node.filePath) === normalizedIndexPath(selector.sourcePath));
-  const exactCalls = sources.flatMap((source) => index.getOutgoingEdges(source.id)
-    .filter((edge) => edge.kind === "calls")
+  const sources = indexedSymbolsAt(index, selector.sourceSymbol, selector.sourcePath);
+  // A selector names one symbol. Two indexed declarations of the sink name in the sink file (for
+  // example a function and a constant) make the sink ambiguous even when only one is called.
+  const sinkDeclarations = indexedSymbolsAt(index, selector.sinkSymbol, selector.sinkPath);
+  const exactEdges = sources.flatMap((source) => index.getOutgoingEdges(source.id)
+    .filter((edge) => edge.kind === "calls" || edge.kind === "references")
     .flatMap((edge) => {
       const target = index.getNode(edge.target);
       return target
@@ -1282,12 +1319,12 @@ function exactSelectorEvidence(
         ? [{ edge, target }]
         : [];
     }));
+  const calls = exactEdges.filter(({ edge }) => edge.kind === "calls");
+  const falseBuiltinCalls = calls.length > 0 && isFalseBuiltinCall(root, index, sources[0]!.filePath, selector);
+  const exactCalls = falseBuiltinCalls ? [] : calls;
+  const references = exactCalls.length === 0 ? exactEdges.filter(({ edge }) => edge.kind === "references") : [];
   const sinkIdentities = new Set(exactCalls.map(({ target }) => target.id));
-  const ambiguous = sources.length > 1 || sinkIdentities.size > 1;
-  const callSites = [...new Map(exactCalls.map(({ edge }) => {
-    const callSite = { path: selector.sourcePath, ...(edge.line === undefined ? {} : { line: edge.line }) };
-    return [`${callSite.path}\0${callSite.line ?? ""}`, callSite] as const;
-  })).values()].sort((left, right) => left.path.localeCompare(right.path) || (left.line ?? 0) - (right.line ?? 0));
+  const ambiguous = sources.length > 1 || sinkDeclarations.length > 1 || sinkIdentities.size > 1;
   return {
     ...selector,
     matched: !ambiguous && sinkIdentities.size === 1,
@@ -1296,8 +1333,42 @@ function exactSelectorEvidence(
     // outgoing-edge set of each source), so this producer enumerates the whole population and
     // can never drop a match; only the CLI-backed import query has a limit to report.
     truncated: false,
-    callSites
+    callSites: edgeSites(selector.sourcePath, exactCalls),
+    ...(falseBuiltinCalls ? { rejectedBuiltinCallSites: edgeSites(selector.sourcePath, calls) } : {}),
+    ...(references.length > 0 ? { referenceSites: edgeSites(selector.sourcePath, references) } : {})
   };
+}
+
+function indexedSymbolsAt(index: CodeGraphSelectorIndex, name: string, path: string): CodeGraphNode[] {
+  return index.getNodesByName(name).filter((node) => normalizedIndexPath(node.filePath) === normalizedIndexPath(path));
+}
+
+function edgeSites(sourcePath: string, edges: Array<{ edge: CodeGraphEdge }>): Array<{ path: string; line?: number }> {
+  return [...new Map(edges.map(({ edge }) => {
+    const site = { path: sourcePath, ...(edge.line === undefined ? {} : { line: edge.line }) };
+    return [`${site.path}\0${site.line ?? ""}`, site] as const;
+  })).values()].sort((left, right) => left.path.localeCompare(right.path) || (left.line ?? 0) - (right.line ?? 0));
+}
+
+/**
+ * A call to a runtime built-in name proves nothing unless the source file imports the sink file:
+ * otherwise CodeGraph may have matched a built-in (`resolve` from `node:path`) to a same-named
+ * repository function. A call inside the sink file needs no import. Only relative specifiers are
+ * resolved, so a call through a package alias or a re-exporting barrel is not proven this way.
+ */
+function isFalseBuiltinCall(
+  root: string,
+  index: CodeGraphSelectorIndex,
+  indexedSourcePath: string,
+  selector: { sourcePath: string; sinkPath: string; sinkSymbol: string }
+): boolean {
+  if (!RUNTIME_BUILTIN_CALL_NAMES.has(selector.sinkSymbol)) return false;
+  const sourcePath = normalizedIndexPath(selector.sourcePath);
+  const sinkPath = normalizedIndexPath(selector.sinkPath);
+  if (sourcePath === sinkPath) return false;
+  return !index.getNodesInFile(indexedSourcePath).some((node) => node.kind === "import"
+    // A TypeScript ESM specifier names the emitted `.js` file; try the extensionless form too.
+    && [node.name, node.name.replace(/\.[cm]?js$/, "")].some((specifier) => resolveImportTarget(root, sourcePath, specifier) === sinkPath));
 }
 
 function normalizedIndexPath(path: string): string {

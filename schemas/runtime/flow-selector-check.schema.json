@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/flow-selector-check.schema.json",
+  "title": "ArchitectureFlowSelectorCheckV1",
+  "description": "The data of `archctx flows check`: the P2 flow proof of every capability that declares a flow, and the proof status of every declared entrypoint-to-sink selector, computed without rendering. Consumers detect it through the flow-selector-check-v1 capability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "ok", "codeGraph", "summary", "selectors", "capabilities"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.flow-selector-check/v1" },
+    "ok": { "type": "boolean", "description": "True when no capability that declares a flow has an unprovable P2 proof." },
+    "codeGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability", "version"],
+      "properties": {
+        "availability": { "enum": ["ready", "unavailable"] },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectors", "proven", "unproven", "usedUnproven"],
+      "properties": {
+        "selectors": { "type": "integer", "minimum": 0 },
+        "proven": { "type": "integer", "minimum": 0 },
+        "unproven": { "type": "integer", "minimum": 0 },
+        "usedUnproven": { "type": "integer", "minimum": 0, "description": "Unproven selectors that a required-flow step names." }
+      }
+    },
+    "selectors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nodeId", "entrypointId", "sourcePath", "sourceSymbol", "sinkId", "sinkPath", "sinkSymbol", "status", "callSites", "referenceSites", "rejectedBuiltinCallSites", "flowSteps"],
+        "properties": {
+          "nodeId": { "type": "string", "minLength": 1 },
+          "entrypointId": { "type": "string", "minLength": 1 },
+          "sourcePath": { "type": "string", "minLength": 1 },
+          "sourceSymbol": { "type": "string", "minLength": 1 },
+          "sinkId": { "type": "string", "minLength": 1 },
+          "sinkPath": { "type": "string", "minLength": 1 },
+          "sinkSymbol": { "type": "string", "minLength": 1 },
+          "status": {
+            "enum": ["ambiguous-symbol", "evidence-missing", "evidence-truncated", "false-builtin-call", "no-direct-call", "only-references", "proven"],
+            "description": "Only proven binds a flow step."
+          },
+          "callSites": { "$ref": "#/$defs/sites" },
+          "referenceSites": { "$ref": "#/$defs/sites" },
+          "rejectedBuiltinCallSites": { "$ref": "#/$defs/sites" },
+          "flowSteps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["flowId", "stepId"],
+              "properties": {
+                "flowId": { "type": "string", "minLength": 1 },
+                "stepId": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["capabilityId", "p2Status", "diagnostics"],
+        "properties": {
+          "capabilityId": { "type": "string", "minLength": 1 },
+          "p2Status": { "enum": ["not-applicable", "proven", "unprovable"] },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code", "detail"],
+              "properties": {
+                "code": { "type": "string", "minLength": 1 },
+                "flowId": { "type": "string", "minLength": 1 },
+                "stepId": { "type": "string", "minLength": 1 },
+                "detail": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sites": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "line": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}

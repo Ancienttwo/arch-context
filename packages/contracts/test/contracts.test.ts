@@ -62,6 +62,8 @@ import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, typ
 import { architectureDocsProjectionManifestIssues, isArchitectureScaleBucket } from "../src/projection-manifest";
 import {
   ARCHCTX_FEATURES,
+  ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION,
+  ARCHITECTURE_FLOW_SELECTOR_PROOF_STATUSES,
   PROJECTION_FILE_PREVIEW_MAX_BYTES,
   PROJECTION_PREVIEW_TOTAL_MAX_BYTES,
   architectureRefreshSignalInvariantIssues,
@@ -154,6 +156,7 @@ const schemaByFixture: Record<string, string> = {
   "projection-apply-recovery": "schemas/runtime/projection-apply-recovery.schema.json",
   "architecture-refresh-signal": "schemas/runtime/architecture-refresh-signal.schema.json",
   "archctx-capabilities": "schemas/runtime/archctx-capabilities.schema.json",
+  "flow-selector-check": "schemas/runtime/flow-selector-check.schema.json",
   "evidence-item": "schemas/runtime/evidence-item.schema.json",
   "evidence-binding": "schemas/runtime/evidence-binding.schema.json",
   "recommendation-run": "schemas/runtime/recommendation-run.schema.json",
@@ -897,6 +900,13 @@ test("capabilities schema accepts a well-formed feature flag it does not list, s
 function readJson(path: string): Json {
   return JSON.parse(readFileSync(join(root, path), "utf8"));
 }
+
+test("ARCHITECTURE_FLOW_SELECTOR_PROOF_STATUSES is the flow selector check schema's status enum (#300)", () => {
+  const schema = readJson("schemas/runtime/flow-selector-check.schema.json") as any;
+  expect(schema.properties.selectors.items.properties.status.enum).toEqual([...ARCHITECTURE_FLOW_SELECTOR_PROOF_STATUSES]);
+  expect(schema.properties.schemaVersion.const).toBe(ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION);
+  expect(ARCHCTX_FEATURES).toContain("flow-selector-check-v1");
+});
 
 test("RECOMMENDATION_STATUSES is the recommendation schema's status enum", () => {
   const schema = readJson("schemas/runtime/recommendation.schema.json") as { properties: { status: { enum: string[] } } };
