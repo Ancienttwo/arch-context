@@ -470,6 +470,7 @@
               "items": {
                 "enum": [
                   "caller-coverage-unknown",
+                  "code-facts-import-limit",
                   "code-facts-missing",
                   "code-facts-truncated",
                   "major-change-detected",
@@ -1740,12 +1741,20 @@
               ],
               "minimum": 0
             },
+            "importNodeCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
             "reasonCodes": {
               "type": "array",
               "uniqueItems": true,
               "items": {
                 "enum": [
                   "caller-coverage-unknown",
+                  "code-facts-import-limit",
                   "code-facts-missing",
                   "code-facts-truncated",
                   "major-change-detected",
@@ -2028,6 +2037,10 @@
         },
         "task": {
           "type": "string"
+        },
+        "importNodeLimit": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
@@ -2272,6 +2285,7 @@
           "items": {
             "enum": [
               "caller-coverage-unknown",
+              "code-facts-import-limit",
               "code-facts-missing",
               "code-facts-truncated",
               "major-change-detected",

@@ -90,11 +90,14 @@ export type DependencyConstraintStatus = (typeof DEPENDENCY_CONSTRAINT_STATUSES)
 
 /**
  * Why a dependency result is not a complete observation: no index answered, the index attested
- * to a different worktree, the import dump hit its limit, a constrained file carries a
- * repository-local import that resolved to no file, or the workspace package map could not be
- * read, so no bare workspace specifier could be resolved.
+ * to a different worktree, the index holds more import nodes than the configured read limit
+ * (`code-facts-import-limit`), the read came back shorter than the population the index reported
+ * (`code-facts-truncated`), a constrained file carries a repository-local import that resolved to
+ * no file, or the workspace package map could not be read, so no bare workspace specifier could
+ * be resolved.
  */
 export const DEPENDENCY_CONSTRAINT_REASON_CODES = [
+  "code-facts-import-limit",
   "code-facts-stale",
   "code-facts-truncated",
   "code-facts-unavailable",

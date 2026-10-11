@@ -117,6 +117,16 @@ describe("S5 incomplete evidence", () => {
     expect(assessment.scaleReasonCodes).toContain("code-facts-truncated");
   });
 
+  test("2b. an index larger than the read limit yields insufficient_evidence with code-facts-import-limit", () => {
+    const snapshot = makeSnapshot({ edgeLimit: 3, importNodeCount: 7, importNodeLimitExceeded: true });
+    const { assessment } = assessProposal(["src/m/a/x.ts"], { snapshot });
+    expect(assessment.scale).toBe("insufficient_evidence");
+    expect(assessment.scaleReasonCodes).toContain("code-facts-import-limit");
+    expect(assessment.scaleReasonCodes).not.toContain("code-facts-truncated");
+    const gap = assessment.observations.find((observation) => observation.kind === "evidence-gap")!;
+    expect(gap.metrics).toMatchObject({ edgeLimit: 3, importNodeCount: 7 });
+  });
+
   test("3. a non-ancestor ownership contest yields insufficient_evidence", () => {
     const { assessment } = assessProposal(["src/m/a/x.ts"], {
       snapshot: makeSnapshot({ model: CONTESTED_MODEL }),
