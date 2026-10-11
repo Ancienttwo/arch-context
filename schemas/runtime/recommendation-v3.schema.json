@@ -1,0 +1,1166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/recommendation-v3.schema.json",
+  "title": "RecommendationV3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "recommendationId",
+    "runId",
+    "fingerprint",
+    "subject",
+    "status",
+    "confidence",
+    "enforcement",
+    "risk",
+    "uncertainty",
+    "evidenceBindingIds",
+    "explanation",
+    "authoredBy",
+    "subjectSelectorId",
+    "relations",
+    "createdAt",
+    "updatedAt",
+    "category",
+    "payload"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.recommendation/v3"
+    },
+    "recommendationId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "fingerprint": {
+      "$ref": "#/$defs/sha256"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "practiceId": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "open",
+        "acknowledged",
+        "accepted",
+        "rejected",
+        "deferred",
+        "waived",
+        "resolved",
+        "superseded",
+        "expired"
+      ]
+    },
+    "confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "enforcement": {
+      "enum": [
+        "advisory",
+        "checkpoint",
+        "complete"
+      ]
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "uncertainty": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "evidenceBindingIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "explanation": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "authoredBy": {
+      "$ref": "#/$defs/recommendationAuthor"
+    },
+    "subjectSelectorId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "relations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "supersedes": {
+          "type": "string"
+        },
+        "regressesFrom": {
+          "type": "string"
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": "string"
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "category": {
+      "enum": [
+        "practice",
+        "refactor_proposal",
+        "structural_observation"
+      ]
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "category": {
+            "const": "practice"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "practiceId"
+        ],
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/practiceRecommendationPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "category": {
+            "const": "structural_observation"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/structuralObservationPayload"
+          },
+          "enforcement": {
+            "const": "advisory"
+          },
+          "authoredBy": {
+            "properties": {
+              "kind": {
+                "const": "daemon"
+              },
+              "source": {
+                "const": "daemon"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "category": {
+            "const": "refactor_proposal"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/refactorProposalPayload"
+          },
+          "authoredBy": {
+            "oneOf": [
+              {
+                "properties": {
+                  "kind": {
+                    "const": "cli"
+                  },
+                  "source": {
+                    "enum": [
+                      "cli"
+                    ]
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "developer"
+                  },
+                  "source": {
+                    "enum": [
+                      "manual"
+                    ]
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "mcp"
+                  },
+                  "source": {
+                    "enum": [
+                      "mcp"
+                    ]
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "subagent"
+                  },
+                  "source": {
+                    "enum": [
+                      "subagent"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "if": {
+          "properties": {
+            "payload": {
+              "properties": {
+                "scale": {
+                  "const": "architecture"
+                }
+              }
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "enforcement": {
+              "const": "complete"
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "enforcement": {
+              "const": "checkpoint"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "repoRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!(?:.*/)?\\.\\.(?:/|$)).+$"
+    },
+    "evidenceLine": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "evidenceSpecifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "evidenceIdList": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "observationMetrics": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "number",
+          "null"
+        ]
+      }
+    },
+    "evidenceImportEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromPath",
+        "fromLine",
+        "toPath",
+        "specifier",
+        "fromNodeId",
+        "toNodeId"
+      ],
+      "properties": {
+        "fromPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "fromLine": {
+          "$ref": "#/$defs/evidenceLine"
+        },
+        "toPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "specifier": {
+          "$ref": "#/$defs/evidenceSpecifier"
+        },
+        "fromNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "toNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      }
+    },
+    "evidenceDirectionViolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromPath",
+        "fromLine",
+        "toPath",
+        "specifier",
+        "fromNodeId",
+        "toNodeId",
+        "constraintId"
+      ],
+      "properties": {
+        "fromPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "fromLine": {
+          "$ref": "#/$defs/evidenceLine"
+        },
+        "toPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "specifier": {
+          "$ref": "#/$defs/evidenceSpecifier"
+        },
+        "fromNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "toNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "constraintId": {
+          "type": "string"
+        }
+      }
+    },
+    "evidencePath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "candidateOwnerNodeIds",
+        "candidateOwnerCount"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "candidateOwnerNodeIds": {
+          "$ref": "#/$defs/evidenceIdList"
+        },
+        "candidateOwnerCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "evidenceUnresolvedImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromPath",
+        "fromLine",
+        "specifier"
+      ],
+      "properties": {
+        "fromPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "fromLine": {
+          "$ref": "#/$defs/evidenceLine"
+        },
+        "specifier": {
+          "$ref": "#/$defs/evidenceSpecifier"
+        }
+      }
+    },
+    "observationEvidence": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "memberNodeIds",
+            "edges",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "cycle"
+            },
+            "memberNodeIds": {
+              "$ref": "#/$defs/evidenceIdList"
+            },
+            "edges": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceImportEdge"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "constraintIds",
+            "constraintCount",
+            "violations",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "direction-violation"
+            },
+            "constraintIds": {
+              "$ref": "#/$defs/evidenceIdList"
+            },
+            "constraintCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "violations": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceDirectionViolation"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "paths",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "ownership-ambiguous",
+                "undeclared-footprint",
+                "unowned-paths"
+              ]
+            },
+            "paths": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidencePath"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "coverage",
+            "reasonCodes",
+            "unresolvedImports",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "evidence-gap"
+            },
+            "coverage": {
+              "enum": [
+                "complete",
+                "partial",
+                "unknown"
+              ]
+            },
+            "reasonCodes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "caller-coverage-unknown",
+                  "code-facts-missing",
+                  "code-facts-truncated",
+                  "major-change-detected",
+                  "multi-node-scope",
+                  "node-footprint-undeclared",
+                  "ownership-ambiguous",
+                  "single-node-scope",
+                  "target-unresolved",
+                  "unowned-paths"
+                ]
+              }
+            },
+            "unresolvedImports": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceUnresolvedImport"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "targetOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcomeId",
+        "metric",
+        "subjectSelectorId",
+        "nodeId",
+        "operator",
+        "value",
+        "required"
+      ],
+      "properties": {
+        "outcomeId": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "subjectSelectorId": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operator": {
+          "enum": [
+            "absent",
+            "equals",
+            "greater_than",
+            "less_than",
+            "present"
+          ]
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "if": {
+        "properties": {
+          "operator": {
+            "enum": [
+              "absent",
+              "present"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "value": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "killListEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "selectorId",
+        "required"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "path",
+            "relation",
+            "symbol"
+          ]
+        },
+        "selectorId": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "architectureTargetDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interventionId",
+        "trigger",
+        "thesis",
+        "targetState",
+        "migrationState",
+        "completionCriteria",
+        "falsifiers",
+        "benefitLedger",
+        "unresolvedTargets"
+      ],
+      "properties": {
+        "interventionId": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "thesis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "targetState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "owners",
+            "requiredRelations",
+            "removedConcepts"
+          ],
+          "properties": {
+            "owners": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "requiredRelations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "removedConcepts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "migrationState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "active",
+            "compatibilityContracts",
+            "temporaryRelations"
+          ],
+          "properties": {
+            "active": {
+              "type": "boolean"
+            },
+            "compatibilityContracts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cleanupBy": {
+              "type": "string"
+            },
+            "temporaryRelations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "completionCriteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/targetOutcome"
+          }
+        },
+        "falsifiers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "benefitLedger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "benefits",
+            "costs",
+            "rollbackPoint"
+          ],
+          "properties": {
+            "benefits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "costs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rollbackPoint": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            }
+          }
+        },
+        "unresolvedTargets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "recommendationAuthor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "source"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "developer",
+            "daemon",
+            "hook",
+            "cli",
+            "mcp",
+            "subagent",
+            "migration",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "source": {
+          "enum": [
+            "cli",
+            "mcp",
+            "manual",
+            "daemon",
+            "system",
+            "subagent"
+          ]
+        }
+      }
+    },
+    "practiceRecommendationPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "practiceId",
+        "baselineDigest"
+      ],
+      "properties": {
+        "practiceId": {
+          "type": "string"
+        },
+        "baselineDigest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "structuralObservationPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assessmentDigest",
+        "kind",
+        "affectedNodeIds",
+        "baselineSnapshotDigest",
+        "derivedOutcomes",
+        "metrics",
+        "signalIds",
+        "evidence"
+      ],
+      "properties": {
+        "assessmentDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "kind": {
+          "enum": [
+            "cycle",
+            "direction-violation",
+            "evidence-gap",
+            "ownership-ambiguous",
+            "undeclared-footprint",
+            "unowned-paths"
+          ]
+        },
+        "affectedNodeIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "baselineSnapshotDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "derivedOutcomes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/targetOutcome"
+          }
+        },
+        "metrics": {
+          "$ref": "#/$defs/observationMetrics"
+        },
+        "signalIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence": {
+          "$ref": "#/$defs/observationEvidence"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "cycle"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "cycle"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "direction-violation"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "direction-violation"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "evidence-gap"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "evidence-gap"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "ownership-ambiguous"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "ownership-ambiguous"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "undeclared-footprint"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "undeclared-footprint"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "unowned-paths"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "unowned-paths"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "refactorProposalPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assessmentDigest",
+        "proposalDigest",
+        "scale",
+        "affectedNodeIds",
+        "majorChangeReasons",
+        "baselineSnapshotDigest",
+        "targetOutcomes",
+        "killList"
+      ],
+      "properties": {
+        "assessmentDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "proposalDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scale": {
+          "enum": [
+            "architecture",
+            "cross_module",
+            "insufficient_evidence",
+            "model_adoption_required",
+            "module"
+          ]
+        },
+        "affectedNodeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "majorChangeReasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "constraint-changed",
+              "entrypoint-changed",
+              "interface-changed",
+              "lifecycle-changed",
+              "node-added",
+              "node-moved",
+              "node-removed",
+              "node-renamed",
+              "ownership-changed",
+              "relation-changed",
+              "responsibility-changed",
+              "risk-boundary-changed",
+              "verified-flow-proof-changed"
+            ]
+          }
+        },
+        "baselineSnapshotDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "targetDelta": {
+          "$ref": "#/$defs/architectureTargetDelta"
+        },
+        "targetOutcomes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/targetOutcome"
+          }
+        },
+        "killList": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/killListEntry"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,312 @@
+{
+  "schemaVersion": "archcontext.runtime-recommendation-show/v1",
+  "recommendationId": "recommendation.c8c842b3d8529388",
+  "source": "ledger",
+  "status": "deferred",
+  "recommendation": {
+    "schemaVersion": "archcontext.recommendation/v3",
+    "recommendationId": "recommendation.c8c842b3d8529388",
+    "runId": "recommendation_run.207822edf39557d3",
+    "fingerprint": "sha256:27b2fed8524041b6003797081dbf77355d7fccfa54327becf00ecaef0728db2a",
+    "subject": "capability.architecture.context",
+    "status": "deferred",
+    "confidence": "low",
+    "enforcement": "advisory",
+    "risk": "medium",
+    "uncertainty": "high",
+    "evidenceBindingIds": [
+      "binding.7577455e29083b0b"
+    ],
+    "explanation": [
+      "capability.architecture.context declares no source.include footprint, so none of its files or imports are measured.",
+      "It declares no entrypoint paths either."
+    ],
+    "authoredBy": {
+      "kind": "daemon",
+      "id": "archctxd",
+      "source": "daemon"
+    },
+    "subjectSelectorId": "subject.node.d4eae75fb5b5121f",
+    "relations": {},
+    "createdAt": "2026-12-31T23:59:59.000Z",
+    "updatedAt": "2026-12-31T23:59:59.000Z",
+    "category": "structural_observation",
+    "payload": {
+      "assessmentDigest": "sha256:308510d9a08558453b9644d33fe24a73f4579832c448602b24c5053bdc4aa5ca",
+      "kind": "undeclared-footprint",
+      "affectedNodeIds": [
+        "capability.architecture.context"
+      ],
+      "baselineSnapshotDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e",
+      "derivedOutcomes": [
+        {
+          "metric": "module.footprintDeclared",
+          "subjectSelectorId": "subject.node.d4eae75fb5b5121f",
+          "nodeId": "capability.architecture.context",
+          "operator": "present",
+          "value": null,
+          "required": true,
+          "outcomeId": "outcome.58946c9d4f0f41c1"
+        }
+      ],
+      "metrics": {},
+      "signalIds": [
+        "signal.undeclared-footprint.bc66b760c4329111"
+      ],
+      "evidence": {
+        "kind": "undeclared-footprint",
+        "paths": [],
+        "totalCount": 0,
+        "truncated": false
+      }
+    },
+    "extensions": {
+      "assessmentDigest": "sha256:308510d9a08558453b9644d33fe24a73f4579832c448602b24c5053bdc4aa5ca",
+      "baselineSnapshotDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e",
+      "riskSignals": [
+        "ownership-change"
+      ],
+      "uncertaintySignals": [
+        "low-coverage"
+      ],
+      "score": 23,
+      "lifecycle": {
+        "previousStatus": "open",
+        "status": "deferred",
+        "action": "defer",
+        "actor": "developer",
+        "reason": "later",
+        "transitionedAt": "2026-12-31T23:59:59.000Z"
+      }
+    }
+  },
+  "evidence": {
+    "items": [
+      {
+        "schemaVersion": "archcontext.evidence-item/v2",
+        "evidenceId": "evidence.module_statistics_snapshot.35796bb112cab526",
+        "kind": "module-statistics-snapshot",
+        "strength": "observed",
+        "polarity": "positive",
+        "origin": "runtime-daemon",
+        "subject": "repository:repo.537182127c5f2134",
+        "selector": {
+          "kind": "snapshot",
+          "id": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
+        },
+        "summary": "Module statistics baseline for 2 declared module(s).",
+        "coverage": {
+          "level": "unknown",
+          "scope": "module-statistics-snapshot"
+        },
+        "supports": [
+          "recommendation"
+        ],
+        "provenance": {
+          "producer": "recommendation-engine",
+          "command": "archctx refactor record",
+          "inputDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
+        },
+        "createdAt": "2026-10-11T04:21:31.000Z",
+        "digest": "sha256:5ee758961ef4ea532ef72359f46e2d06fa528d70bab6bd19cd59dbfca8acd3fc",
+        "extensions": {
+          "moduleStatisticsSnapshot": {
+            "schemaVersion": "archcontext.module-statistics/v1",
+            "repository": {
+              "repositoryId": "repo.537182127c5f2134",
+              "storageRepositoryId": "repo.03ba73c90cbf6a7e"
+            },
+            "worktree": {
+              "workspaceId": "ws.537182127c5f2134",
+              "storageWorkspaceId": "ws.537182127c5f2134",
+              "branch": "main",
+              "headSha": "728b42479d7ab7a2d401ea44af26cdac64912f0f",
+              "worktreeDigest": "sha256:96cbb5ccf708d8b7c56c2633e8937311338957998b7154879461706460d4c467"
+            },
+            "modelDigest": "sha256:54ed020e2f65d0649b215df9251332d5a288746a687d9d7a654b9700dfd995a7",
+            "codeFacts": {
+              "provider": "codegraph",
+              "version": "",
+              "binaryDigest": "",
+              "indexedWorktreeDigest": null,
+              "coverage": "unknown",
+              "truncated": true,
+              "edgeLimit": 5000,
+              "reasonCodes": [
+                "caller-coverage-unknown",
+                "code-facts-missing",
+                "code-facts-truncated",
+                "node-footprint-undeclared"
+              ]
+            },
+            "modules": [
+              {
+                "nodeId": "capability.architecture.context",
+                "nodeDigest": "sha256:47f48ff9115682aeb1cce33a01ecac47ef79935a7e9a10a4577d7e7c8582c3f0",
+                "parentNodeId": null,
+                "footprintDeclared": false,
+                "footprint": null,
+                "surfaces": {
+                  "declaredEntrypoints": [],
+                  "observedEntrypoints": [],
+                  "lifecycleOwners": [],
+                  "datastoreSubjects": []
+                },
+                "dependencyGraph": null,
+                "tests": {
+                  "testFileCount": null,
+                  "observedTestEdges": null,
+                  "callerCoverage": null,
+                  "coverageStatus": "unknown"
+                },
+                "uncertainty": {
+                  "unresolvedImports": 0,
+                  "dynamicInvocation": "unknown",
+                  "ambiguousOwnership": false
+                },
+                "moduleDigest": "sha256:7c539afac512c4aed0d7408f4b1945c51ddb79e24a017732c2a2a5cd5f52481e"
+              },
+              {
+                "nodeId": "module.dump",
+                "nodeDigest": "sha256:8f77a427f093506f0ff5197dd0129f6888c1653c0ccc65e3981d587e102a882b",
+                "parentNodeId": null,
+                "footprintDeclared": true,
+                "footprint": {
+                  "fileCount": 1,
+                  "lineCount": 1,
+                  "sourceFilesDigest": "sha256:5f2ceccfe01dc55c63a1b0e5bf2ce51676e8f2805499e0c8519d59fdc8e265c4",
+                  "includePatterns": [
+                    "src/**"
+                  ],
+                  "excludePatterns": []
+                },
+                "surfaces": {
+                  "declaredEntrypoints": [],
+                  "observedEntrypoints": [],
+                  "lifecycleOwners": [],
+                  "datastoreSubjects": []
+                },
+                "dependencyGraph": null,
+                "tests": {
+                  "testFileCount": null,
+                  "observedTestEdges": null,
+                  "callerCoverage": null,
+                  "coverageStatus": "unknown"
+                },
+                "uncertainty": {
+                  "unresolvedImports": 0,
+                  "dynamicInvocation": "unknown",
+                  "ambiguousOwnership": false
+                },
+                "moduleDigest": "sha256:32d887790fe89e1415d1cb0e68557509e025b4026184ad8a463f4d886a3de182"
+              }
+            ],
+            "repositorySummary": {
+              "moduleCount": 2,
+              "undeclaredFootprintNodeCount": 1,
+              "ownedFileCount": 1,
+              "unownedFileCount": 0,
+              "multiplyOwnedFileCount": 0,
+              "crossModuleEdgeCount": 0,
+              "crossModuleCycleCount": 0,
+              "stronglyConnectedComponentCount": 0,
+              "unresolvedImportCount": 0,
+              "dynamicInvocationRiskCount": 2
+            },
+            "createdAt": "2026-10-11T04:21:31.000Z",
+            "snapshotDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
+          }
+        }
+      }
+    ],
+    "bindings": [
+      {
+        "schemaVersion": "archcontext.evidence-binding/v1",
+        "bindingId": "binding.7577455e29083b0b",
+        "evidenceId": "evidence.module_statistics_snapshot.35796bb112cab526",
+        "target": {
+          "kind": "recommendation",
+          "id": "recommendation.c8c842b3d8529388"
+        },
+        "bindingReason": "deterministic-check",
+        "authorityEffect": "context-only",
+        "createdAt": "2026-12-31T23:59:59.000Z",
+        "provenance": {
+          "producer": "recommendation-engine",
+          "command": "archctx refactor record",
+          "inputDigest": "evidence.module_statistics_snapshot.35796bb112cab526"
+        }
+      }
+    ]
+  },
+  "baseline": {
+    "status": "measured",
+    "snapshotDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
+  },
+  "affectedModules": [
+    {
+      "nodeId": "capability.architecture.context",
+      "nodeDigest": "sha256:47f48ff9115682aeb1cce33a01ecac47ef79935a7e9a10a4577d7e7c8582c3f0",
+      "parentNodeId": null,
+      "footprintDeclared": false,
+      "footprint": null,
+      "surfaces": {
+        "declaredEntrypoints": [],
+        "observedEntrypoints": [],
+        "lifecycleOwners": [],
+        "datastoreSubjects": []
+      },
+      "dependencyGraph": null,
+      "tests": {
+        "testFileCount": null,
+        "observedTestEdges": null,
+        "callerCoverage": null,
+        "coverageStatus": "unknown"
+      },
+      "uncertainty": {
+        "unresolvedImports": 0,
+        "dynamicInvocation": "unknown",
+        "ambiguousOwnership": false
+      },
+      "moduleDigest": "sha256:7c539afac512c4aed0d7408f4b1945c51ddb79e24a017732c2a2a5cd5f52481e"
+    }
+  ],
+  "decisions": [
+    {
+      "schemaVersion": "archcontext.recommendation-feedback/v1",
+      "feedbackId": "recommendation_feedback.11e6209a830eae96",
+      "recommendationId": "recommendation.c8c842b3d8529388",
+      "runId": "recommendation_run.207822edf39557d3",
+      "action": "defer",
+      "previousStatus": "open",
+      "nextStatus": "deferred",
+      "actor": {
+        "kind": "cli",
+        "id": "developer",
+        "source": "cli"
+      },
+      "reason": "later",
+      "explicit": true,
+      "implicitAcceptance": false,
+      "repository": {
+        "repositoryId": "repo.537182127c5f2134",
+        "storageRepositoryId": "repo.03ba73c90cbf6a7e"
+      },
+      "worktree": {
+        "workspaceId": "ws.537182127c5f2134",
+        "storageWorkspaceId": "ws.537182127c5f2134",
+        "branch": "main",
+        "headSha": "728b42479d7ab7a2d401ea44af26cdac64912f0f",
+        "worktreeDigest": "sha256:96cbb5ccf708d8b7c56c2633e8937311338957998b7154879461706460d4c467"
+      },
+      "createdAt": "2026-12-31T23:59:59.000Z"
+    }
+  ],
+  "worktree": null,
+  "privacy": {
+    "writes": "none",
+    "rawSourcePersisted": false,
+    "rawDiffPersisted": false,
+    "promptPersisted": false
+  }
+}

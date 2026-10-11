@@ -68,3 +68,50 @@ Verification:
 ```bash
 bun test packages/contracts packages/local-runtime/runtime-daemon packages/local-runtime/local-store-sqlite
 ```
+
+## Release 0.7.0: Refactor Data Schemas
+
+archctx-contracts 0.7.0 publishes JSON Schemas for the refactor data that was
+previously described only by TypeScript types:
+
+- `schemas/runtime/recommendation-v3.schema.json`: `RecommendationV3`
+  (`archcontext.recommendation/v3`). `category` selects the payload and the
+  authoring rules: a `structural_observation` is daemon-authored and advisory, a
+  `refactor_proposal` is agent- or human-authored with `complete` enforcement at
+  `architecture` scale and `checkpoint` otherwise, and a `practice` record
+  carries `practiceId`.
+- `schemas/runtime/structural-observation-payload.schema.json`:
+  `StructuralObservationPayloadV1` with its observation `evidence` (one variant
+  per observation kind, samples bounded at 20 entries, id lists at 32).
+- `schemas/runtime/runtime-refactor-scan.schema.json`: the
+  `archcontext.runtime-refactor-scan/v1` result of `archctx refactor scan`.
+- `schemas/runtime/runtime-recommendation-show.schema.json`: the
+  `archcontext.runtime-recommendation-show/v1` result of
+  `archctx recommendations show`.
+
+The scan and show schemas embed the recommendation definitions; contract tests
+keep the embedded copies equal to the standalone schemas. Evidence items,
+evidence bindings and decisions reference the existing
+`evidence-item.schema.json`, `evidence-binding.schema.json` and
+`recommendation-feedback.schema.json`. The schemas check structure. The
+TypeScript validators (`recommendationV3InvariantIssues`,
+`refactorObservationEvidenceIssues`, `refactorScanInvariantIssues`) still own
+the cross-field rules: sorted lists, digests that bind their payload, and
+sample counts that equal a metric.
+
+### Structural observations recorded before observation evidence
+
+A `structural_observation` recorded before observation evidence existed (by
+archctx 0.6.3 or earlier, before #262) has no `payload.metrics`,
+`payload.signalIds` or `payload.evidence`. Its `schemaVersion` is still
+`archcontext.recommendation/v3`, and the payload carries no version marker of
+its own. `recommendations show` and the ledger return it as stored; it is never
+rewritten. Such a record does not validate against
+`recommendation-v3.schema.json`, and `recommendationV3InvariantIssues` reports
+it as missing those fields.
+
+Detect it before validating: a record with `category: "structural_observation"`
+whose `payload` has no `evidence` field was written before evidence existed. A
+runtime that advertises the `refactor-observation-evidence-v1` capability writes
+all three fields on every new structural observation. There is no translation
+reader: treat the old record as evidence-less.

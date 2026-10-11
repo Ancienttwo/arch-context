@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,8 @@ import {
   moduleStatisticsSnapshotInvariantIssues,
   refactorProposalDigest,
   refactorScanInvariantIssues,
+  validateJsonSchema,
+  type Json,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
   type RefactorAssessmentV1,
@@ -668,6 +670,12 @@ describe("deciding a scan candidate", () => {
   });
 });
 
+/** Validates a real daemon response against the published runtime schema (#282). */
+function publishedSchemaIssues(schemaFile: string, value: unknown) {
+  const schema = JSON.parse(readFileSync(join(import.meta.dir, "../../../../schemas/runtime", schemaFile), "utf8"));
+  return validateJsonSchema(schema, value as Json).issues;
+}
+
 describe("scan-time evidence and recommendations show", () => {
   interface ScanCandidate {
     recommendationId: string;
@@ -711,6 +719,8 @@ describe("scan-time evidence and recommendations show", () => {
     try {
       const scan = scanWithEvidence(await daemon.refactorScan(root));
       expect(scan.proposedRecommendations.length).toBeGreaterThan(0);
+      expect(publishedSchemaIssues("runtime-refactor-scan.schema.json", scan)).toEqual([]);
+      for (const item of scan.evidenceItems) expect(publishedSchemaIssues("evidence-item.schema.json", item)).toEqual([]);
       const bindingIds = new Set(scan.evidenceBindings.map((binding) => binding.bindingId));
       const itemIds = new Set(scan.evidenceItems.map((item) => item.evidenceId));
       for (const candidate of scan.proposedRecommendations) {
@@ -755,6 +765,7 @@ describe("scan-time evidence and recommendations show", () => {
       expect(before.evidence.bindings.map((binding) => binding.bindingId)).toEqual([...candidate.evidenceBindingIds].sort());
       expect(before.evidence.items.map((item) => item.kind)).toContain("module-statistics-snapshot");
       expect(before.baseline.status).toBe("measured");
+      expect(publishedSchemaIssues("runtime-recommendation-show.schema.json", before)).toEqual([]);
       expect(before.affectedModules.map((module) => module.nodeId)).toEqual(candidate.payload.affectedNodeIds);
       expect(store.architectureEventAppends).toHaveLength(0);
 
@@ -764,6 +775,8 @@ describe("scan-time evidence and recommendations show", () => {
       const after = showData(await daemon.recommendations(root, { command: "show", recommendationId: candidate.recommendationId }));
       expect(after).toMatchObject({ recommendationId: candidate.recommendationId, source: "ledger", status: "deferred", worktree: null });
       expect(after.decisions.map((decision) => [decision.action, decision.reason])).toEqual([["defer", "Next quarter."]]);
+      expect(publishedSchemaIssues("runtime-recommendation-show.schema.json", after)).toEqual([]);
+      for (const decision of after.decisions) expect(publishedSchemaIssues("recommendation-feedback.schema.json", decision)).toEqual([]);
       expect(after.recommendation.payload.evidence).toEqual(candidate.payload.evidence);
       expect(after.evidence.bindings.map((binding) => binding.bindingId)).toEqual(before.evidence.bindings.map((binding) => binding.bindingId));
       expect(after.baseline).toEqual(before.baseline);
