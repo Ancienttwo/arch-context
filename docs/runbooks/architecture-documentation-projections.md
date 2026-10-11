@@ -3,7 +3,7 @@
 ## Ownership
 
 - `.archcontext/projections/targets.json` declares placement rules.
-- `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests. It records only reproducible identity: CodeGraph appears as package name, version and status, never as the digest of the binary installed on the machine that ran the projection. Two machines with the same CodeGraph version write the same manifest.
+- `docs/architecture/.projection-manifest.json` records the active renderer, source digest and output digests. It records only machine-independent values: content digests of the model, the declared sources and the rendered output, plus renderer, layout and CodeGraph package and version. The CodeGraph evidence digest, index state and status, HEAD and worktree digest are per-run facts returned as `runtimeSnapshot` and never committed, so two machines projecting the same commit write the same manifest.
 - The manifest's shape is published in archctx-contracts: the `ArchitectureDocsProjectionManifestV1` type, the `architectureDocsProjectionManifestIssues` check, and `schemas/runtime/projection-manifest.schema.json`. The renderer validates every manifest it writes against that contract and reads the semantic baseline back through it. Each `entity-summary` target of a node that declares `source.include` carries `sourceFootprintDigest` and `scale: { fileCountBucket, lineCountBucket }`. A bucket is the half-open 1–2–5 range `{ lower, upper }` that contains the measured count (`{ lower: 0, upper: 1 }` holds only zero). The module document prints exactly these buckets, never the counts. Consumers detect the published contract and the scale field through the `projection-manifest-contract-v1` capability.
 - Text inside `ARCHCONTEXT:generated` markers is generated projection output.
 - Text outside generated markers is human-owned and must be preserved.
@@ -140,8 +140,8 @@ If an obsolete generated projection exists:
 
 `archctx projection run` sorts an orphaned document (its target is no longer in the model, for example after a node is removed) by what it holds. `check`, `plan` and `apply` report the same action for it:
 
-- Only an intact generated region and nothing else: the result lists it in `files[]` as a `delete`, and `apply` deletes it in the same ChangeSet as the other projection writes.
-- Any other text, such as the human-owned title and section skeleton of a module document, or an edited generated region: the result status is `human-action-required`, and `humanActions[]` carries `reasonCode: "orphaned-document-review"` with the document `path`. The document is never a `files[]` entry. `apply` stops before writing anything, including with an `acceptedChange`. Review the document, move any text worth keeping, delete it, and run `apply` again with the same request fields.
+- An intact generated region with nothing else around it, or with exactly the skeleton the renderer wrote for that target (the title line and the empty §3, §4 and Optimization Backlog headings, as the committed manifest records the target): the result lists it in `files[]` as a `delete`, and `apply` deletes it in the same ChangeSet as the other projection writes.
+- Any other text, such as a human line in a skeleton section, an edited title, or an edited generated region: the result status is `human-action-required`, and `humanActions[]` carries `reasonCode: "orphaned-document-review"` with the document `path`. The document is never a `files[]` entry. `apply` stops before writing anything, including with an `acceptedChange`. Review the document, move any text worth keeping, delete it, and run `apply` again with the same request fields.
 
 Consumers detect this behavior through the `projection-orphan-review-v1` capability.
 

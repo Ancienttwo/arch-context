@@ -81,9 +81,9 @@ describe("RF0 baseline: declared source footprints and scale signals", () => {
 const sourceDigest = `sha256:${"1".repeat(64)}`;
 const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
-  modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
+  modelDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "ready" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
 });
 
 const bucketModel: NativeModel = {

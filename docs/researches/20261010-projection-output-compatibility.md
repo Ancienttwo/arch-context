@@ -2,63 +2,72 @@
 
 Status: unreleased. Fold this into the next versioned release note
 (`docs/researches/YYYYMMDD-archctx-X.Y.Z-release.md`) during release prep. It covers PR #267
-(issues #257, #258, #259), PR #269, PR #272 (#266) and PR #270. v0.6.3 predates all of them, so
-renderer v5 and provenance v2 ship together for the first time.
+(issues #257, #258, #259), PR #269, PR #272 (#266), PR #270 and PR #286 (#276, #277). v0.6.3
+predates all of them, so renderer v5 and provenance v3 ship together for the first time.
 
 ## Breaking changes
 
-### `docs` envelopes: machine and checkout identity left `provenance`
+### `docs` envelopes: machine-dependent values left `provenance` (#257, #266, #277)
 
-The `provenance` object on the `docs plan`, `docs preview` and `docs apply` envelopes (including the
-`noop` apply) is the committed manifest provenance. Fields that describe the checkout or the
-machine that ran the projection are gone from it:
+The `provenance` object on the `docs plan` and `docs apply` envelopes (including the `noop` apply)
+is the committed manifest provenance. It now records machine-independent values only: content
+digests of the model and the declared sources, plus renderer, layout and CodeGraph package and
+version. Everything that depends on the checkout path, the index build time, the platform or
+whether `codegraph init` ran on that machine is in the sibling `runtimeSnapshot` object, which
+`docs drift` also returns:
 
 | Removed field | Read instead | Removed by |
 | --- | --- | --- |
 | `provenance.baseHeadSha` | `runtimeSnapshot.headSha` | provenance v2 (#267) |
 | `provenance.worktreeDigest` | `runtimeSnapshot.worktreeDigest` | provenance v2 (#267) |
 | `provenance.generatedFrom.codeGraphBinaryDigest` | nothing; no runtime consumer reads it | #272 (#266) |
+| `provenance.codeGraphDigest` | `runtimeSnapshot.codeGraphDigest` | provenance v3 (#277) |
+| `provenance.indexedWorktreeDigest` | `runtimeSnapshot.indexedWorktreeDigest` | provenance v3 (#277) |
+| `provenance.generatedFrom.codeGraphStatus` | `runtimeSnapshot.codeGraphStatus` | provenance v3 (#277) |
 
-`runtimeSnapshot` is a sibling of `provenance` on the same envelopes, and `docs drift` returns it
-too. The removed fields are not emitted, not even as aliases.
+`runtimeSnapshot.codeGraphDigest` digests the CodeGraph version and the code evidence the run read
+(import graphs and selector evidence). It no longer includes the binary digest or the index status,
+so re-indexing an unchanged tree does not move it. The removed fields are not emitted, not even as
+aliases.
 
 Detect the shape with `provenance.schemaVersion`:
 
-- `archcontext.architecture-docs-projection-provenance/v1`: old shape, all three fields present.
-- `archcontext.architecture-docs-projection-provenance/v2`: current. No `baseHeadSha`, no
-  `worktreeDigest`, and `generatedFrom` holds only `codeGraphPackage`, `codeGraphVersion` and
-  `codeGraphStatus`.
+- `archcontext.architecture-docs-projection-provenance/v1`: oldest shape, with commit and worktree.
+- `.../v2`: never released. No `baseHeadSha` or `worktreeDigest`; still has `codeGraphDigest`,
+  `indexedWorktreeDigest` and `generatedFrom.codeGraphStatus`.
+- `.../v3`: current. `sourceTreeDigest`, `modelDigest`, `projectionInputDigest`, `rendererVersion`,
+  `layoutVersion` and `generatedFrom.{codeGraphPackage, codeGraphVersion}` only. The published
+  manifest contract (`ArchitectureDocsProjectionManifestV1`, `architectureDocsProjectionManifestIssues`
+  and `schemas/runtime/projection-manifest.schema.json`) accepts only v3.
 
-#266 removed the binary digest without a version bump because provenance v2 was never released.
-A v2 manifest written by an unreleased build between #267 and #272 can still carry
-`generatedFrom.codeGraphBinaryDigest`; it is not reused as the sticky provenance, so the next
-projection rewrites it.
+Migration for consumers: read HEAD, worktree and CodeGraph runtime state from `runtimeSnapshot`,
+and gate on `provenance.schemaVersion` rather than on field presence. Do not compare
+`runtimeSnapshot` across machines or commits. It describes one run and is never committed.
 
-Migration for consumers: read HEAD and worktree identity from `runtimeSnapshot`, and gate on
-`provenance.schemaVersion` rather than on field presence. Do not compare `runtimeSnapshot` across
-machines or commits. It describes one run and is never committed.
+### Protocol snapshots keep their shape (#266, #277)
 
-### Protocol snapshots no longer carry the CodeGraph binary digest (#266)
-
-`ProjectionSnapshotV1.generatedFrom` in `projection run` results, apply receipts, recovery
-bindings and readbacks drops `codeGraphBinaryDigest` as well. The JSON schemas under
-`schemas/runtime/` reject it. `baseHeadSha` stays on the protocol snapshot.
+`ProjectionSnapshotV1` in `projection run` results, apply receipts, recovery bindings and readbacks
+drops `generatedFrom.codeGraphBinaryDigest` (#266); the JSON schemas under `schemas/runtime/` reject
+it. It still carries `baseHeadSha`, `codeGraphDigest`, `indexedWorktreeDigest` and
+`generatedFrom.codeGraphStatus`, now taken from the run's runtime snapshot rather than from the
+committed provenance. Receipts are runtime artifacts, so a readback or replay that rebuilds its
+request from a receipt reads `generatedFrom` from the receipt's binding, never from the manifest.
 
 ### Committed manifest `docs/architecture/.projection-manifest.json`
 
-- Renderer `archcontext.docs-renderer/v5` and provenance v2 (#269, #267). Each entity target is
-  stamped with `sourceFootprintDigest`, a content digest of the node's declared footprint, and
+- Renderer `archcontext.docs-renderer/v5` and provenance v3 (#269, #267, #277). Each entity target
+  is stamped with `sourceFootprintDigest`, a content digest of the node's declared footprint, and
   `verifiedAgainst.commit` is gone.
+- Two machines that project the same commit write byte-equal manifests, whatever the checkout
+  path, the platform, the index build time or whether a `.codegraph` index exists.
 - Footprint digests read file contents with CRLF normalized to LF (#269), so a `core.autocrlf`
   checkout stamps the same digest as an LF one. A lone CR is still content.
-- A manifest written by an older archctx fails the freshness gate closed with
-  `projection-source-stamp-missing` (pre-#267), and a provenance from another renderer version or
-  schema is not reused as the sticky provenance. Migration: re-run the documentation projection
-  once (`archctx docs apply`, or `archctx projection run` in `apply` mode) and commit the rewritten
-  manifest.
-- The manifest is not yet machine-independent. `codeGraphDigest`, `indexedWorktreeDigest`,
-  `projectionInputDigest` and `generatedFrom.codeGraphStatus` still depend on the machine, the
-  checkout path or the local CodeGraph index. #277 tracks that work.
+- Provenance is a pure function of content, so there is no sticky reuse of an earlier provenance.
+  A manifest written by an older archctx fails the freshness gate closed with
+  `projection-source-stamp-missing` (pre-#267), and a v1/v2 provenance is never read as v3: it
+  shows as manifest drift and freshness fails with `projection-snapshot-provenance-missing`.
+  Migration: re-run the documentation projection once (`archctx docs apply`, or `archctx projection
+  run` in `apply` mode) and commit the rewritten manifest.
 
 ### Footprints count Git-visible files only (#270, #257)
 
@@ -93,3 +102,8 @@ which update the repo-local, gitignored `.codegraph` index.
 - `projection run` and `docs` fail with `AC_CODE_FACTS_UNAVAILABLE` (reasonCode `index-missing`)
   when `codeFacts.required: true` and the CodeGraph index is missing, instead of reporting a major
   change for every capability (#258).
+- An orphaned module document of a removed node is deleted in the same ChangeSet when the text
+  outside its generated region is exactly the renderer's own skeleton for that target (title and
+  empty §3, §4 and Optimization Backlog headings, as the committed manifest records the target) and
+  the region digest is intact. Any human text there still reports `orphaned-document-review` and
+  blocks the apply (#276).

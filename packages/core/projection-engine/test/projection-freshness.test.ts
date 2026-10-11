@@ -25,9 +25,9 @@ const reviewDigest = `sha256:${"b".repeat(64)}`;
 const movedDigest = `sha256:${"c".repeat(64)}`;
 const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
-  modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
+  modelDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "ready" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
 });
 
 const model: NativeModel = {
@@ -275,6 +275,45 @@ describe("architecture projection freshness", () => {
     });
     expect(noProvenance.reasonCodes).toEqual(["projection-snapshot-provenance-missing"]);
   });
+
+  test("a v2 manifest provenance is never read as v3, even when its sourceTreeDigest matches (#277)", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-freshness-provenance-v2-"));
+    try {
+      const writeManifest = (value: unknown) => {
+        mkdirSync(join(root, "docs/architecture"), { recursive: true });
+        writeFileSync(join(root, "docs/architecture/.projection-manifest.json"), `${JSON.stringify(value, null, 2)}\n`);
+      };
+      const targets = Object.entries(freshStamps).map(([nodeId, sourceFootprintDigest]) => ({ type: "entity-summary", scope: { id: nodeId }, sourceFootprintDigest }));
+      const evaluate = () => evaluateArchitectureProjectionSnapshotFreshness({
+        model,
+        manifest: loadArchitectureProjectionManifestStamps(root),
+        sourceFootprints: currentFootprints,
+        currentSourceTreeDigest: provenance.sourceTreeDigest
+      });
+
+      writeManifest({ targets, provenance });
+      expect(evaluate().ok).toBe(true);
+
+      writeManifest({
+        targets,
+        provenance: {
+          ...provenance,
+          schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
+          codeGraphDigest: sourceDigest,
+          indexedWorktreeDigest: sourceDigest,
+          generatedFrom: { ...provenance.generatedFrom, codeGraphStatus: "ready" }
+        }
+      });
+      const v2 = loadArchitectureProjectionManifestStamps(root);
+      expect(v2.status).toBe("present");
+      expect(v2).not.toHaveProperty("provenance");
+      const evaluation = evaluate();
+      expect(evaluation.ok).toBe(false);
+      expect(evaluation.reasonCodes).toEqual(["projection-snapshot-provenance-missing"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("projection manifest source-footprint stamps", () => {
@@ -305,7 +344,7 @@ describe("projection manifest source-footprint stamps", () => {
   test("the rendered manifest stamps each declared node's footprint and records no commit", () => {
     const plan = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
     const manifest = JSON.parse(plan.manifest.body);
-    expect(manifest.provenance.schemaVersion).toBe("archcontext.architecture-docs-projection-provenance/v2");
+    expect(manifest.provenance.schemaVersion).toBe("archcontext.architecture-docs-projection-provenance/v3");
     for (const field of ["baseHeadSha", "worktreeDigest"]) expect(manifest.provenance).not.toHaveProperty(field);
     expect(plan.manifest.body).not.toContain("verifiedAgainst");
     const stamps = Object.fromEntries(manifest.targets

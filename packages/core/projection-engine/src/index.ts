@@ -6,6 +6,7 @@ import {
   AGENT_CONTEXT_RENDERER_VERSION as CONTRACT_AGENT_CONTEXT_RENDERER_VERSION,
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
+  ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION as CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION,
   PROJECTION_TARGET_SCHEMA_VERSION,
   architectureDocsProjectionManifestIssues,
@@ -18,7 +19,7 @@ import {
   type ArchitectureCapabilityScaleV1,
   type ArchitectureDigestSetV1,
   type ArchitectureDocsProjectionManifestV1,
-  type ArchitectureDocumentationProjectionProvenanceV2,
+  type ArchitectureDocumentationProjectionProvenanceV3,
   type ArchitectureFlowV1,
   type ArchitectureNodeSourceV2,
   type ArchitectureProjectionSemanticBaselineV1,
@@ -175,7 +176,7 @@ export interface ArchitectureDocumentationProjectionPlan {
   sourceDigest: string;
   projectionDigest: string;
   profile: ArchitectureProjectionProfile;
-  provenance: ArchitectureDocumentationProjectionProvenanceV2;
+  provenance: ArchitectureDocumentationProjectionProvenanceV3;
   semanticState: ArchitectureSemanticStateV1;
   architectureDigests: ArchitectureDigestSetV1;
   majorChange: ArchitectureMajorChangeClassificationV1;
@@ -200,13 +201,19 @@ export const ARCHITECTURE_DOCS_GENERATED_BEGIN_PREFIX = "<!-- BEGIN ARCHCONTEXT:
 export const ARCHITECTURE_DOCS_GENERATED_END_PREFIX = "<!-- END ARCHCONTEXT:generated";
 
 /**
- * The repository state one projection run read: the HEAD it ran on and the projection worktree
- * digest. Runtime-only — refresh signals and protocol receipts bind it, the committed manifest
- * does not.
+ * The repository and CodeGraph state one projection run read. Runtime-only — refresh signals and
+ * protocol snapshots, receipts and recovery bindings bind it, the committed manifest does not,
+ * because each value can differ between two machines projecting the same commit (#277).
  */
 export interface ArchitectureDocumentationProjectionRuntimeSnapshot {
   headSha: string;
   worktreeDigest: string;
+  /** Digest of the CodeGraph version and the code evidence (import graphs, selector evidence) this run read. */
+  codeGraphDigest: string;
+  /** Binds the index status (checkout path, index time) to the declared source tree; null without an index. */
+  indexedWorktreeDigest: string | null;
+  /** Whether this machine had a usable `.codegraph` index. */
+  codeGraphStatus: "ready" | "unavailable";
 }
 
 /**
@@ -262,7 +269,7 @@ export function renderArchitectureDocumentationProjection(input: {
   model: NativeModel;
   profile?: ArchitectureProjectionProfile;
   sourceDigest: string;
-  provenance: ArchitectureDocumentationProjectionProvenanceV2;
+  provenance: ArchitectureDocumentationProjectionProvenanceV3;
   /**
    * Per node that declares `source.include`: the content digest of its footprint
    * (`loadCapabilitySourceFootprintDigests`). It becomes the node's stamp in the manifest; a node
@@ -291,10 +298,7 @@ export function renderArchitectureDocumentationProjection(input: {
   const model = normalizeNativeModel(input.model);
   const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile: input.profile });
   const existingByPath = new Map((input.existingFiles ?? []).map((file) => [file.path, file.body]));
-  const provenance = stickyArchitectureDocumentationProjectionProvenance(
-    input.provenance,
-    existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH)
-  );
+  const provenance = input.provenance;
   const generatedAt = input.generatedAt ?? "1970-01-01T00:00:00.000Z";
   const scaleSignalsByNodeId = new Map((input.sourceScaleSignals ?? []).map((signal) => [signal.nodeId, signal]));
   // One structured value per node: the module document prints it and the manifest records it.
@@ -456,8 +460,8 @@ export function renderArchitectureDocumentationProjection(input: {
     semanticBaseline: {
       semanticState,
       digests: architectureDigests,
-      // From this render's inputs, not the sticky `provenance` above: the reuse key of that copy
-      // excludes CodeGraph evidence, so it cannot say what this baseline's proofs were built from.
+      // The committed provenance carries no CodeGraph evidence identity, so the baseline records
+      // what its proofs were built from itself.
       evidence: architectureProofEvidenceDigests({ sourceTreeDigest: input.provenance.sourceTreeDigest, selectorEvidence: input.selectorEvidence, rendererVersion })
     },
     receiptDigest,
@@ -599,64 +603,23 @@ export function architectureDocumentationProjectionWorktreeDigest(
 }
 
 export function architectureDocumentationProjectionInputDigest(
-  input: Omit<ArchitectureDocumentationProjectionProvenanceV2, "schemaVersion" | "projectionInputDigest">
+  input: Omit<ArchitectureDocumentationProjectionProvenanceV3, "schemaVersion" | "projectionInputDigest">
 ): string {
   return digestJson(input as unknown as Json);
 }
 
 export function architectureDocumentationProjectionProvenance(
-  input: Omit<ArchitectureDocumentationProjectionProvenanceV2, "schemaVersion" | "projectionInputDigest">
-): ArchitectureDocumentationProjectionProvenanceV2 {
+  input: Omit<ArchitectureDocumentationProjectionProvenanceV3, "schemaVersion" | "projectionInputDigest">
+): ArchitectureDocumentationProjectionProvenanceV3 {
   return {
-    schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
+    schemaVersion: ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION,
     ...input,
     projectionInputDigest: architectureDocumentationProjectionInputDigest(input)
   };
 }
 
-/**
- * Preserve the prior generation snapshot while the declared architecture source, model, CodeGraph
- * runtime, and layout inputs are unchanged, so re-indexing alone never rewrites the manifest. CodeGraph's
- * indexed status digest can legitimately advance when it notices projection-owned docs; that is
- * not an architecture input and must not make the manifest chase its own output. A malformed or
- * internally inconsistent prior provenance is never reused and is surfaced by the ordinary
- * manifest drift check.
- */
-function stickyArchitectureDocumentationProjectionProvenance(
-  current: ArchitectureDocumentationProjectionProvenanceV2,
-  existingManifestBody: string | undefined
-): ArchitectureDocumentationProjectionProvenanceV2 {
-  if (!existingManifestBody) return current;
-  try {
-    const parsed = JSON.parse(existingManifestBody) as { provenance?: ArchitectureDocumentationProjectionProvenanceV2 };
-    const prior = parsed.provenance;
-    if (!prior) return current;
-    assertArchitectureDocumentationProjectionProvenance(prior, current.rendererVersion);
-    return architectureDocumentationStickyProvenanceDigest(prior) === architectureDocumentationStickyProvenanceDigest(current)
-      ? prior
-      : current;
-  } catch {
-    return current;
-  }
-}
-
-function architectureDocumentationStickyProvenanceDigest(
-  provenance: ArchitectureDocumentationProjectionProvenanceV2
-): string {
-  return digestJson({
-    // `sourceTreeDigest` is the authoritative declared-source boundary. Do not use the full
-    // worktree snapshot here: unrelated files and projection-owned outputs must not invalidate a
-    // renderer fixed point merely because CodeGraph reindexed them.
-    sourceTreeDigest: provenance.sourceTreeDigest,
-    modelDigest: provenance.modelDigest,
-    rendererVersion: provenance.rendererVersion,
-    layoutVersion: provenance.layoutVersion,
-    generatedFrom: provenance.generatedFrom
-  } as unknown as Json);
-}
-
 function assertArchitectureDocumentationProjectionProvenance(
-  provenance: ArchitectureDocumentationProjectionProvenanceV2,
+  provenance: ArchitectureDocumentationProjectionProvenanceV3,
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION
 ): void {
   const issues = architectureDocsProjectionProvenanceIssues(provenance);
@@ -1066,7 +1029,7 @@ export type ArchitectureProjectionManifestStampReadback =
   | {
       status: "present";
       nodes: ArchitectureProjectionManifestNodeStamp[];
-      provenance?: ArchitectureDocumentationProjectionProvenanceV2;
+      provenance?: ArchitectureDocumentationProjectionProvenanceV3;
     };
 
 /**
@@ -1105,13 +1068,15 @@ export function loadArchitectureProjectionManifestStamps(
     if (typeof nodeId !== "string" || nodeId === "") continue;
     nodes.push({ nodeId, sourceFootprintDigest: record.sourceFootprintDigest });
   }
+  // Only a v3 provenance is read as one. A v1/v2 provenance is never translated, so it reads as
+  // absent and freshness fails closed with `projection-snapshot-provenance-missing` (#277).
   const provenance = (parsed as Record<string, unknown>).provenance;
+  const isV3Provenance = !!provenance && typeof provenance === "object" && !Array.isArray(provenance)
+    && (provenance as Record<string, unknown>).schemaVersion === ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION;
   return {
     status: "present",
     nodes,
-    ...(provenance && typeof provenance === "object" && !Array.isArray(provenance)
-      ? { provenance: provenance as unknown as ArchitectureDocumentationProjectionProvenanceV2 }
-      : {})
+    ...(isV3Provenance ? { provenance: provenance as ArchitectureDocumentationProjectionProvenanceV3 } : {})
   };
 }
 
@@ -1599,12 +1564,12 @@ function renderDiagnosticDetail(detail: string): string {
  * used rather than `node.name` because the title is the document's stable address, and ids are the
  * only part of the model guaranteed to be unique and path-shaped.
  */
-function entitySummaryTitle(node: NativeNode): string {
+function entitySummaryTitle(node: Pick<NativeNode, "id">): string {
   const segments = node.id.replace(/^capability\./, "").split(".").filter((segment) => segment !== "");
   return segments.length > 0 ? segments.join("/") : node.id;
 }
 
-function entitySummarySkeleton(node: NativeNode): { prefix: string; suffix: string } {
+function entitySummarySkeleton(node: Pick<NativeNode, "id">): { prefix: string; suffix: string } {
   return {
     prefix: `# ${entitySummaryTitle(node)} 架構文檔\n\n`,
     suffix: [
@@ -1718,6 +1683,7 @@ function architectureDocumentationProjectionDrift(input: {
   const orphans: ArchitectureDocumentationProjectionOrphan[] = [];
 
   const existingManifest = existingByPath.get(input.expectedManifest.path);
+  const committedEntityTargets = committedEntitySummaryTargets(existingManifest?.body);
   if (!existingManifest) {
     diffs.push({
       path: input.expectedManifest.path,
@@ -1810,7 +1776,7 @@ function architectureDocumentationProjectionDrift(input: {
         path: existing.path,
         targetId: region.targetId,
         actualDigest,
-        disposition: orphanHoldsOnlyIntactGeneratedRegion(existing.body, region.targetId) ? "delete" : "human-review"
+        disposition: orphanHoldsOnlyIntactGeneratedRegion(existing.body, region.targetId, orphanSkeleton(committedEntityTargets, existing.path, region.targetId)) ? "delete" : "human-review"
       });
     }
   }
@@ -1825,14 +1791,56 @@ function architectureDocumentationProjectionDrift(input: {
 }
 
 /**
- * True only when deleting the orphan cannot lose human text: everything outside its one generated
- * region is whitespace, and the region still digests to the output its own marker records (an
- * edited region is human content). Anything else, including a missing end marker, is human review.
+ * The entity-summary targets the committed manifest records, by targetId: their path and the node
+ * they document. A removed node is gone from the model, so this is where its skeleton is derived
+ * from. An absent or unreadable manifest records none.
  */
-function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string): boolean {
+function committedEntitySummaryTargets(manifestBody: string | undefined): Map<string, { path: string; nodeId: string }> {
+  const targets = new Map<string, { path: string; nodeId: string }>();
+  if (manifestBody === undefined) return targets;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(manifestBody);
+  } catch {
+    return targets;
+  }
+  const entries = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).targets : undefined;
+  if (!Array.isArray(entries)) return targets;
+  for (const entry of entries as unknown[]) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const scope = record.scope && typeof record.scope === "object" && !Array.isArray(record.scope) ? record.scope as Record<string, unknown> : undefined;
+    if (record.type !== "entity-summary" || typeof record.targetId !== "string" || typeof record.path !== "string" || typeof scope?.id !== "string") continue;
+    targets.set(record.targetId, { path: record.path, nodeId: scope.id });
+  }
+  return targets;
+}
+
+/** The skeleton the renderer wrote around an orphan's region, when the manifest records it as that path's entity summary. */
+function orphanSkeleton(
+  committedEntityTargets: Map<string, { path: string; nodeId: string }>,
+  path: string,
+  targetId: string
+): { prefix: string; suffix: string } | undefined {
+  const committed = committedEntityTargets.get(targetId);
+  return committed && committed.path === path ? entitySummarySkeleton({ id: committed.nodeId }) : undefined;
+}
+
+/**
+ * True only when deleting the orphan cannot lose human text: everything outside its one generated
+ * region is whitespace or exactly the renderer's own skeleton for that target (title and empty
+ * §3/§4/Backlog headings, #276), and the region still digests to the output its own marker records
+ * (an edited region is human content). Anything else, including a missing end marker or one human
+ * line in a skeleton section, is human review.
+ */
+function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string, skeleton: { prefix: string; suffix: string } | undefined): boolean {
   const region = findGeneratedRegion(body, targetId);
   if (!region) return false;
-  if (`${body.slice(0, region.start)}${body.slice(region.end)}`.trim() !== "") return false;
+  const before = body.slice(0, region.start);
+  const after = body.slice(region.end);
+  const generatedOnly = `${before}${after}`.trim() === ""
+    || (skeleton !== undefined && before === skeleton.prefix && after === skeleton.suffix);
+  if (!generatedOnly) return false;
   const metadata = parseGeneratedRegionMetadata(region.startMarker);
   return metadata.outputDigest !== undefined
     && digestJson({ targetId, body: `${region.body.trimEnd()}\n` } as unknown as Json) === metadata.outputDigest;

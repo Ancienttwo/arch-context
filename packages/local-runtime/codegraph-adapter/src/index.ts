@@ -22,7 +22,7 @@ import {
   type ArchitectureDocumentationProjectionRuntimeSnapshot,
   type NativeModel
 } from "@archcontext/core/projection-engine";
-import { digestJson, productVersionManifest, type ArchitectureCandidateDeltaV1, type ArchitectureDocumentationProjectionProvenanceV2, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, productVersionManifest, type ArchitectureCandidateDeltaV1, type ArchitectureDocumentationProjectionProvenanceV3, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
 export const REQUIRED_CODEGRAPH_VERSION: string = productVersionManifest().runtime.codeGraph.requiredVersion;
@@ -705,6 +705,11 @@ export interface CodeGraphProjectionHandshakeV1 {
   postSyncStatusDigest: string | null;
   syncDigest: string | null;
   indexedWorktreeDigest: string | null;
+  /**
+   * Digest of the CodeGraph version and the code evidence this handshake read (import graphs,
+   * selector evidence). It excludes the binary digest and the index status, which differ per
+   * machine and per index build, so re-indexing an unchanged tree never moves it.
+   */
   graphDigest: string;
 }
 
@@ -713,8 +718,8 @@ export interface PreparedProjectionCodeFacts extends CapabilityCodeGraphProjecti
 }
 
 export interface PreparedArchitectureDocumentationProjectionSnapshot extends PreparedProjectionCodeFacts {
-  provenance: ArchitectureDocumentationProjectionProvenanceV2;
-  /** HEAD and projection worktree digest this snapshot read; runtime receipts only, never committed. */
+  provenance: ArchitectureDocumentationProjectionProvenanceV3;
+  /** HEAD, worktree and CodeGraph state this snapshot read; runtime receipts only, never committed. */
   runtimeSnapshot: ArchitectureDocumentationProjectionRuntimeSnapshot;
   /**
    * The Git-visible files (`listProjectionSourceFiles`) this snapshot measured footprints over.
@@ -746,17 +751,25 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
   const provenance = architectureDocumentationProjectionProvenance({
     sourceTreeDigest,
     modelDigest,
-    codeGraphDigest: prepared.handshake.graphDigest,
-    indexedWorktreeDigest: prepared.handshake.indexedWorktreeDigest,
     rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
     layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
     generatedFrom: {
       codeGraphPackage: prepared.handshake.packageName,
-      codeGraphVersion: prepared.handshake.actualVersion,
-      codeGraphStatus: prepared.handshake.availability
+      codeGraphVersion: prepared.handshake.actualVersion
     }
   });
-  return { ...prepared, provenance, runtimeSnapshot: { headSha: baseHeadSha, worktreeDigest }, sourceFiles };
+  return {
+    ...prepared,
+    provenance,
+    runtimeSnapshot: {
+      headSha: baseHeadSha,
+      worktreeDigest,
+      codeGraphDigest: prepared.handshake.graphDigest,
+      indexedWorktreeDigest: prepared.handshake.indexedWorktreeDigest,
+      codeGraphStatus: prepared.handshake.availability
+    },
+    sourceFiles
+  };
 }
 
 /**
@@ -829,7 +842,6 @@ export function prepareProjectionCodeFacts(
     const graphDigest = digestJson({
       schemaVersion: "archcontext.codegraph-projection-handshake/v1",
       actualVersion,
-      binaryDigest,
       availability: "unavailable",
       reasonCode: "index-missing"
     } as unknown as Json);
@@ -878,8 +890,6 @@ export function prepareProjectionCodeFacts(
   } as unknown as Json);
   const graphDigest = digestJson({
     actualVersion,
-    binaryDigest,
-    indexedWorktreeDigest,
     importGraphs: inputs.importGraphs,
     selectorEvidence: inputs.selectorEvidence
   } as unknown as Json);

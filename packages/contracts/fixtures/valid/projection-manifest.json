@@ -4,19 +4,16 @@
   "profile": "repo-harness/v1",
   "sourceDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
   "provenance": {
-    "schemaVersion": "archcontext.architecture-docs-projection-provenance/v2",
+    "schemaVersion": "archcontext.architecture-docs-projection-provenance/v3",
     "sourceTreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     "modelDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "codeGraphDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
-    "indexedWorktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
     "rendererVersion": "archcontext.docs-renderer/v5",
     "layoutVersion": "archcontext.docs-layout/v1",
     "generatedFrom": {
       "codeGraphPackage": "@colbymchenry/codegraph",
-      "codeGraphVersion": "1.6.1",
-      "codeGraphStatus": "ready"
+      "codeGraphVersion": "1.6.1"
     },
-    "projectionInputDigest": "sha256:67ce53a0983799597f2c20e3de7d4f77d5f77102055e7b2b4922c28878f7385d"
+    "projectionInputDigest": "sha256:16f337f3a1e0eac82b565ca1a0dc04629af1df60d7e2b9ad9b767c21ae581d4c"
   },
   "projectionDigest": "sha256:336562d0f1772c32f64a5fe7ee62d49fb17ac6ef7c9d820385c05e538ed1e5d1",
   "semanticBaseline": {

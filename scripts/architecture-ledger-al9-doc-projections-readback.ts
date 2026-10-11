@@ -27,9 +27,9 @@ const CLI = resolve(REPO_ROOT, "packages/surfaces/cli/src/main.ts");
 function projectionReadbackProvenance(sourceDigest: string) {
   return architectureDocumentationProjectionProvenance({
     sourceTreeDigest: sourceDigest,
-    modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: null,
+    modelDigest: sourceDigest,
     rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1", codeGraphStatus: "unavailable" }
+    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
   });
 }
 

@@ -73,8 +73,6 @@
         "schemaVersion",
         "sourceTreeDigest",
         "modelDigest",
-        "codeGraphDigest",
-        "indexedWorktreeDigest",
         "projectionInputDigest",
         "rendererVersion",
         "layoutVersion",
@@ -82,23 +80,13 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "archcontext.architecture-docs-projection-provenance/v2"
+          "const": "archcontext.architecture-docs-projection-provenance/v3"
         },
         "sourceTreeDigest": {
           "$ref": "#/$defs/digest"
         },
         "modelDigest": {
           "$ref": "#/$defs/digest"
-        },
-        "codeGraphDigest": {
-          "$ref": "#/$defs/digest"
-        },
-        "indexedWorktreeDigest": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^sha256:[a-f0-9]{64}$"
         },
         "projectionInputDigest": {
           "$ref": "#/$defs/digest"
@@ -114,10 +102,9 @@
           "additionalProperties": false,
           "required": [
             "codeGraphPackage",
-            "codeGraphVersion",
-            "codeGraphStatus"
+            "codeGraphVersion"
           ],
-          "description": "Reproducible CodeGraph identity only; the machine-specific binary digest never enters the committed manifest (#266).",
+          "description": "Reproducible CodeGraph identity only: package name and version. The binary digest, index status and evidence digests are machine-specific runtime facts and never enter the committed manifest (#266, #277).",
           "properties": {
             "codeGraphPackage": {
               "type": "string",
@@ -126,12 +113,6 @@
             "codeGraphVersion": {
               "type": "string",
               "minLength": 1
-            },
-            "codeGraphStatus": {
-              "enum": [
-                "ready",
-                "unavailable"
-              ]
             }
           }
         }

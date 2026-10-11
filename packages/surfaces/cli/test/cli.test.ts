@@ -4800,19 +4800,21 @@ describe("archctx CLI", () => {
       expect(second.ok).toBe(true);
       expect((second.data as any).status).toBe("noop");
       expect((second.data as any).provenance).toMatchObject({
-        schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
+        schemaVersion: "archcontext.architecture-docs-projection-provenance/v3",
         rendererVersion: "archcontext.docs-renderer/v5",
         layoutVersion: "archcontext.docs-layout/v1",
         generatedFrom: {
           codeGraphPackage: "@colbymchenry/codegraph",
-          codeGraphVersion: "1.6.1",
-          codeGraphStatus: options.codeGraphReady ? "ready" : "unavailable"
+          codeGraphVersion: "1.6.1"
         }
       });
       expect((second.data as any).provenance.projectionInputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
-      // HEAD and worktree identity are runtime facts; the committed provenance carries neither.
-      expect((second.data as any).provenance).not.toHaveProperty("baseHeadSha");
-      expect((second.data as any).provenance).not.toHaveProperty("worktreeDigest");
+      // HEAD, worktree and CodeGraph index identity are runtime facts; the committed provenance carries none (#277).
+      for (const field of ["baseHeadSha", "worktreeDigest", "codeGraphDigest", "indexedWorktreeDigest"]) {
+        expect((second.data as any).provenance).not.toHaveProperty(field);
+      }
+      expect((second.data as any).provenance.generatedFrom).not.toHaveProperty("codeGraphStatus");
+      expect((second.data as any).runtimeSnapshot).toMatchObject({ codeGraphStatus: options.codeGraphReady ? "ready" : "unavailable" });
       const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
       expect(manifest.provenance).toEqual((second.data as any).provenance);
       const completed = await runTestCli("complete", ["--task", "verify adopted documentation"], root);

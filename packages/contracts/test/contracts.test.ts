@@ -450,6 +450,10 @@ test("the projection manifest contract matches the schema and the writer's curre
   const rejected: Array<[string, unknown]> = [
     ["binary digest (#266)", { ...manifest, provenance: { ...manifest.provenance, generatedFrom: { ...manifest.provenance.generatedFrom, codeGraphBinaryDigest: `sha256:${"9".repeat(64)}` } } }],
     ["provenance v1", { ...manifest, provenance: { ...manifest.provenance, schemaVersion: "archcontext.architecture-docs-projection-provenance/v1" } }],
+    ["provenance v2 (#277)", { ...manifest, provenance: { ...manifest.provenance, schemaVersion: "archcontext.architecture-docs-projection-provenance/v2" } }],
+    ["CodeGraph evidence digest (#277)", { ...manifest, provenance: { ...manifest.provenance, codeGraphDigest: `sha256:${"3".repeat(64)}` } }],
+    ["indexed worktree digest (#277)", { ...manifest, provenance: { ...manifest.provenance, indexedWorktreeDigest: null } }],
+    ["CodeGraph status (#277)", { ...manifest, provenance: { ...manifest.provenance, generatedFrom: { ...manifest.provenance.generatedFrom, codeGraphStatus: "ready" } } }],
     ["older renderer", { ...manifest, rendererVersion: "archcontext.docs-renderer/v4" }],
     ["scale without footprint", withTarget({ sourceFootprintDigest: undefined })],
     ["footprint on a non-entity target", withTarget({ sourceFootprintDigest: manifest.targets[entityIndex].sourceFootprintDigest, scale: manifest.targets[entityIndex].scale }, 0)],

@@ -17,7 +17,7 @@ import { isRepoRelativePosixPath } from "./schema";
  */
 export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH = "docs/architecture/.projection-manifest.json" as const;
 export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION = "archcontext.architecture-docs-projection-manifest/v1" as const;
-export const ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION = "archcontext.architecture-docs-projection-provenance/v2" as const;
+export const ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION = "archcontext.architecture-docs-projection-provenance/v3" as const;
 export const ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION = "archcontext.architecture-semantic-state/v1" as const;
 export const ARCHITECTURE_DOCS_PROJECTION_PROFILES = ["default", "repo-harness/v1"] as const;
 
@@ -40,7 +40,7 @@ export interface ArchitectureSemanticStateV1 {
 }
 
 export interface ArchitectureProofEvidenceDigestsV1 {
-  /** Declared source footprint identity; already a sticky-provenance key, so it cannot churn. */
+  /** Declared source footprint identity, the same value the committed provenance records. */
   sourceTreeDigest: string;
   /** Digest of the selector-evidence facts the P1/P2 compilation reads. */
   selectorEvidenceDigest: string;
@@ -52,35 +52,32 @@ export interface ArchitectureProjectionSemanticBaselineV1 {
   semanticState: ArchitectureSemanticStateV1;
   digests: ArchitectureDigestSetV1;
   /**
-   * The non-model proof inputs this baseline was rendered from, recorded fresh on every render and
-   * never reused from sticky provenance. Absent in manifests written before it existed.
+   * The non-model proof inputs this baseline was rendered from, recorded fresh on every render.
+   * Absent in manifests written before it existed.
    */
   evidence?: ArchitectureProofEvidenceDigestsV1;
 }
 
 /**
- * Committed projection provenance. It records content identities only: the HEAD and full-worktree
- * snapshot a projection ran against are runtime facts and never reach the committed manifest, where
- * a branch commit would dangle after a squash merge.
+ * Committed projection provenance. It records machine-independent values only: content digests of
+ * the model and the declared sources, plus renderer, layout and CodeGraph versions, so two machines
+ * projecting the same commit write the same bytes (#277). HEAD, the full-worktree digest, the
+ * CodeGraph evidence digest, the indexed-worktree digest and the CodeGraph status depend on the
+ * checkout path, the index build time, the platform or whether `codegraph init` ran; they are runtime
+ * facts (the projection runtime snapshot) and never reach the committed manifest. A provenance of
+ * any other schemaVersion is not read as this one; the next projection rewrites it.
  */
-export interface ArchitectureDocumentationProjectionProvenanceV2 {
+export interface ArchitectureDocumentationProjectionProvenanceV3 {
   schemaVersion: typeof ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION;
   sourceTreeDigest: string;
   modelDigest: string;
-  codeGraphDigest: string;
-  indexedWorktreeDigest: string | null;
   projectionInputDigest: string;
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   layoutVersion: "archcontext.docs-layout/v1";
-  /**
-   * Reproducible CodeGraph identity only: package name and version. The digest of the installed
-   * binary differs between machines running the same version, so it is a runtime diagnostic and
-   * never enters the committed manifest (#266).
-   */
+  /** Reproducible CodeGraph identity only: package name and version (#266, #277). */
   generatedFrom: {
     codeGraphPackage: string;
     codeGraphVersion: string;
-    codeGraphStatus: "ready" | "unavailable";
   };
 }
 
@@ -127,7 +124,7 @@ export interface ArchitectureDocsProjectionManifestV1 {
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   profile: ArchitectureDocsProjectionProfile;
   sourceDigest: string;
-  provenance: ArchitectureDocumentationProjectionProvenanceV2;
+  provenance: ArchitectureDocumentationProjectionProvenanceV3;
   projectionDigest: string;
   semanticBaseline: ArchitectureProjectionSemanticBaselineV1;
   receiptDigest: string;
@@ -182,12 +179,11 @@ export function architectureDocsProjectionManifestIssues(value: unknown): string
 export function architectureDocsProjectionProvenanceIssues(value: unknown, prefix = "provenance"): string[] {
   const provenance = record(value);
   if (!provenance) return [`${prefix} must be an object`];
-  const issues = exactKeys(provenance, ["schemaVersion", "sourceTreeDigest", "modelDigest", "codeGraphDigest", "indexedWorktreeDigest", "projectionInputDigest", "rendererVersion", "layoutVersion", "generatedFrom"], [], prefix);
+  const issues = exactKeys(provenance, ["schemaVersion", "sourceTreeDigest", "modelDigest", "projectionInputDigest", "rendererVersion", "layoutVersion", "generatedFrom"], [], prefix);
   if (provenance.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION) issues.push(`${prefix}.schemaVersion is unsupported`);
-  for (const field of ["sourceTreeDigest", "modelDigest", "codeGraphDigest", "projectionInputDigest"] as const) {
+  for (const field of ["sourceTreeDigest", "modelDigest", "projectionInputDigest"] as const) {
     if (!isDigest(provenance[field])) issues.push(`${prefix}.${field} must be a SHA-256 digest`);
   }
-  if (provenance.indexedWorktreeDigest !== null && !isDigest(provenance.indexedWorktreeDigest)) issues.push(`${prefix}.indexedWorktreeDigest must be null or a SHA-256 digest`);
   if (provenance.rendererVersion !== ARCHITECTURE_DOCS_RENDERER_VERSION) issues.push(`${prefix}.rendererVersion must be ${ARCHITECTURE_DOCS_RENDERER_VERSION}`);
   if (provenance.layoutVersion !== "archcontext.docs-layout/v1") issues.push(`${prefix}.layoutVersion is unsupported`);
   const generatedFrom = record(provenance.generatedFrom);
@@ -195,11 +191,10 @@ export function architectureDocsProjectionProvenanceIssues(value: unknown, prefi
     issues.push(`${prefix}.generatedFrom must be an object`);
     return issues;
   }
-  issues.push(...exactKeys(generatedFrom, ["codeGraphPackage", "codeGraphVersion", "codeGraphStatus"], [], `${prefix}.generatedFrom`));
+  issues.push(...exactKeys(generatedFrom, ["codeGraphPackage", "codeGraphVersion"], [], `${prefix}.generatedFrom`));
   for (const field of ["codeGraphPackage", "codeGraphVersion"] as const) {
     if (!isNonEmptyString(generatedFrom[field])) issues.push(`${prefix}.generatedFrom.${field} must be a non-empty string`);
   }
-  if (generatedFrom.codeGraphStatus !== "ready" && generatedFrom.codeGraphStatus !== "unavailable") issues.push(`${prefix}.generatedFrom.codeGraphStatus is unsupported`);
   return issues;
 }
 

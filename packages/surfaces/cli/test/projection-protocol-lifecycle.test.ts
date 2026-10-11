@@ -155,13 +155,14 @@ test("check, plan and apply agree on orphaned module documents after a node is r
     commitAll(root, "project architecture documentation");
     const modulePath = manifestTargetPath(root, REMOVED);
     const generatedPath = manifestTargetPath(root, REMOVED_GENERATED);
-    // One module document carries the human-owned skeleton plus a human note; the other holds
-    // only its generated region.
-    writeFileSync(join(root, modulePath), `${readFileSync(join(root, modulePath), "utf8")}\nHuman budget notes.\n`, "utf8");
+    // One module document carries one line of human text in its §3 skeleton section; the other is
+    // exactly as the renderer wrote it, skeleton included (#276).
+    const section3 = "## 3. P3:設計決策與不變量\n";
+    const moduleBody = readFileSync(join(root, modulePath), "utf8");
+    expect(moduleBody).toContain(section3);
+    writeFileSync(join(root, modulePath), moduleBody.replace(section3, `${section3}Human budget notes.\n`), "utf8");
     const generatedBody = readFileSync(join(root, generatedPath), "utf8");
-    const regionStart = generatedBody.indexOf("<!-- BEGIN ARCHCONTEXT:generated");
-    const regionEnd = generatedBody.indexOf("-->", generatedBody.indexOf("<!-- END ARCHCONTEXT:generated")) + "-->".length;
-    writeFileSync(join(root, generatedPath), `${generatedBody.slice(regionStart, regionEnd)}\n`, "utf8");
+    expect(generatedBody).toContain(section3);
     // Whole-document digests are part of the manifest, so the edits are restamped first.
     const restamped = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
     expect(restamped.ok, JSON.stringify(restamped)).toBe(true);
@@ -209,7 +210,7 @@ test("check, plan and apply agree on orphaned module documents after a node is r
     const applied = projectionResult(await run("apply", "projection_request.orphans_apply", { acceptedChange }));
     expect(applied.status).toBe("applied");
     expect(applied.humanActions).toEqual([]);
-    expect(applied.files.find((file) => file.path === generatedPath)).toMatchObject({ action: "delete", outputDigest: null });
+    expect(applied.files.find((file) => file.path === generatedPath)).toMatchObject({ action: "delete", preimageDigest: digestJson({ path: generatedPath, body: generatedBody } as any), outputDigest: null });
     expect(existsSync(join(root, generatedPath))).toBe(false);
     expect(applied.refreshSignals).toHaveLength(1);
     expect(applied.refreshSignals[0]).toMatchObject({ mode: "refresh-required", acceptedChange });
