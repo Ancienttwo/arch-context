@@ -457,7 +457,10 @@ describe("refactorRecord", () => {
         && operation.value.evidenceId === snapshotCreate.value.evidenceId
       );
       expect(bindings.length).toBe(recommendationIds.length);
-      for (const bound of bindings) expect(bound.value.target.kind).toBe("recommendation");
+      for (const bound of bindings) {
+        expect(bound.value.target.kind).toBe("recommendation");
+        expect(bound.value.provenance.inputDigest).toBe(snapshot.snapshotDigest);
+      }
       expect(new Set(bindings.map((bound) => bound.value.target.id))).toEqual(new Set(recommendationIds));
     } finally {
       await daemon.stop();

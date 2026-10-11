@@ -496,6 +496,7 @@ describe("daemon refactorVerify", () => {
       expect(binding.schemaVersion).toBe("archcontext.evidence-binding/v1");
       expect(binding.target).toEqual({ kind: "recommendation", id: recommendation.recommendationId });
       expect(binding.authorityEffect).toBe("complete-eligible");
+      expect(binding.provenance.inputDigest).toBe(plan.evidence.resolutionDigest);
     } finally {
       await daemon.stop();
     }

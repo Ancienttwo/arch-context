@@ -264,6 +264,9 @@ describe("planRefactorRecommendationRun observations", () => {
       expect(binding).toBeDefined();
       expect(binding!.target.kind).toBe("recommendation");
       expect(binding!.evidenceId).toBe(baseline!.evidenceId);
+      // Derived from the same measurement as the item it binds: its input digest, never its id.
+      expect(binding!.provenance.inputDigest).toBe(baseline!.provenance.inputDigest);
+      expect(binding!.provenance.inputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
       expect(record.evidenceBindingIds).toEqual([binding!.bindingId]);
     }
     expect(plan.run.metrics.evidenceBindingCount).toBe(plan.evidenceBindings.length);

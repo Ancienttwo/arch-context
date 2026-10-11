@@ -234,7 +234,7 @@
         "provenance": {
           "producer": "recommendation-engine",
           "command": "archctx refactor record",
-          "inputDigest": "evidence.module_statistics_snapshot.35796bb112cab526"
+          "inputDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
         }
       }
     ]

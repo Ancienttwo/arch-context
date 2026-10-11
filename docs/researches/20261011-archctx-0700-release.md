@@ -25,6 +25,7 @@ Refactor:
 - #274, #284: rejected and waived refactor suggestions stay decided across later runs and reopen only when a severity metric gets worse.
 - #280, #284: `refactor scan` reports `recording` and `limits` instead of failing on the ledger size limit; record, a scan-candidate decision and a scan-candidate `show` refuse an unrecordable run with `AC_REFACTOR_RUN_TOO_LARGE`; `recommendations list --status` is budget-free. Capability `refactor-scan-limits-v1`.
 - #282: archctx-contracts publishes `recommendation-v3`, `structural-observation-payload`, `runtime-refactor-scan` and `runtime-recommendation-show` JSON Schemas.
+- Evidence bindings written by `refactor record` and `refactor verify` set `provenance.inputDigest` to the `sha256:` digest of the input they were derived from (the baseline snapshot digest, the resolution digest), matching the item they bind and `evidence-binding.schema.json`. Before the fix they carried the evidence id, so a validator that resolves the cross-file `$ref` in `runtime-refactor-scan` and `runtime-recommendation-show` rejected real scan and show output. The archctx-contracts schema validator now resolves relative `$ref`s through a schema resolver and reports an unresolved one instead of skipping it.
 
 ## Compatibility
 
@@ -43,6 +44,8 @@ Before upgrading, recover every in-flight 0.6.3 projection apply receipt with `p
 
 Structural observations recorded before #262 have no `payload.metrics`, `payload.signalIds` or `payload.evidence`, and the payload has no version marker. `recommendations show` returns them as stored; they do not validate against `recommendation-v3.schema.json`. Detect them by a `structural_observation` payload without `evidence`; a runtime with `refactor-observation-evidence-v1` writes all three fields. See `docs/runbooks/schema-upgrade-guide.md`.
 
+Evidence bindings recorded by 0.6.x `refactor record` or `refactor verify` keep their stored `provenance.inputDigest`, which is the evidence id rather than a `sha256:` digest. Ledger replay does not validate binding provenance and keeps them as recorded; `recommendations show` and `book evidence` return them as stored, so for those records the `evidence.bindings` entries do not validate against `evidence-binding.schema.json`. Bindings written by 0.7.0 do.
+
 Known gap: under the `repo-harness/v1` profile, components that declare `source.include` have no module document to carry a stamp, so `freshness` keeps reporting `projection-source-stamp-missing` after the first apply.
 
 CodeGraph remains pinned to `@colbymchenry/codegraph` 1.6.1. Bun is pinned to 1.4.3.
@@ -57,5 +60,6 @@ All candidate commands use Bun 1.4.3.
 - Both npm publish preflights pack and validate the manifests; they are blocked only on npm identity (`E401`) until the publisher authenticates.
 - Version-bound deterministic records were regenerated for 0.7.0.
 - Architecture projection was rebuilt through the daemon projection apply with `acceptObservedMajorChange`; `docs drift` is clean afterwards.
+- After the evidence-binding fix: `bun run typecheck`, the contracts, recommendation-engine, refactor-assessment, architecture-ledger, architecture-delta, runtime-daemon and CLI suites (1241 tests, 0 fail) and `node scripts/packaged-cli-smoke.mjs` pass. Every valid contracts fixture now validates with cross-file `$ref`s resolved. The full `bun run verify` above predates the fix.
 
 Publish both npm packages after the release-prep CI passes. Rebuild the tarballs from the merged main commit. Create tag `v0.7.0` and the GitHub Release only after both npm publishes succeed.

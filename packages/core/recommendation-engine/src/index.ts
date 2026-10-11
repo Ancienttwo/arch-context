@@ -1138,7 +1138,7 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       ? { regressesFrom: previous.recommendationId }
       : {};
     const recommendationId = refactorRecommendationId(draft.fingerprint, relations.regressesFrom ?? null);
-    const binding = baselineEvidenceBinding(baselineEvidence.evidenceId, recommendationId, now);
+    const binding = baselineEvidenceBinding(baselineEvidence, recommendationId, now);
     evidenceBindings.push(binding);
     const evidenceBindingIds = [binding.bindingId];
     const record = {
@@ -1632,7 +1632,13 @@ function baselineSnapshotEvidenceItem(input: PlanRefactorRecommendationRunInput)
   });
 }
 
-function baselineEvidenceBinding(evidenceId: string, recommendationId: string, now: string): EvidenceBindingV1 {
+/**
+ * Links the baseline snapshot item to one recommendation. The binding is derived from the same
+ * input as the item it binds, so it carries that item's `provenance.inputDigest` (the snapshot
+ * digest) — a `sha256:` digest per the published evidence-binding schema, never the evidence id.
+ */
+function baselineEvidenceBinding(evidence: EvidenceItemV2, recommendationId: string, now: string): EvidenceBindingV1 {
+  const evidenceId = evidence.evidenceId;
   return {
     schemaVersion: EVIDENCE_BINDING_SCHEMA_VERSION,
     bindingId: `binding.${digestSuffix(digestJson({ evidenceId, recommendationId } as unknown as Json))}`,
@@ -1644,7 +1650,7 @@ function baselineEvidenceBinding(evidenceId: string, recommendationId: string, n
     provenance: {
       producer: "recommendation-engine",
       command: "archctx refactor record",
-      inputDigest: evidenceId
+      inputDigest: evidence.provenance.inputDigest
     }
   };
 }
