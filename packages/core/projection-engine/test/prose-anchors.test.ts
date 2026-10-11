@@ -26,15 +26,20 @@ function fakeTree(files: Record<string, number>, ignored: string[] = []): ProseA
   };
 }
 
-/** CodeGraph with declarations per file; `appearsInSource` is true only for `usedNames`. */
-function fakeCodeGraph(declarations: Record<string, Record<string, ProseAnchorDeclaration[]>>, usedNames: string[] = []): ProseAnchorCodeGraph {
+/**
+ * CodeGraph with declarations per file. Like the real word search over current source,
+ * `appearsInSource` is true for every declared name and for `usedNames`. `staleNames` are
+ * declarations that only a stale index still holds: they are not in the current source.
+ */
+function fakeCodeGraph(declarations: Record<string, Record<string, ProseAnchorDeclaration[]>>, usedNames: string[] = [], staleNames: string[] = []): ProseAnchorCodeGraph {
+  const declaredNames = new Set(Object.values(declarations).flatMap((byName) => Object.keys(byName)));
   return {
     availability: "ready",
     symbols: {
       supportsPath: (path) => path.endsWith(".ts"),
       declarationsInFile: (path, name) => declarations[path]?.[name] ?? [],
       declarationsNamed: (name) => Object.values(declarations).flatMap((byName) => byName[name] ?? []),
-      appearsInSource: (name) => usedNames.includes(name)
+      appearsInSource: (name) => usedNames.includes(name) || (declaredNames.has(name) && !staleNames.includes(name))
     }
   };
 }
@@ -205,6 +210,26 @@ describe("prose anchors (#298)", () => {
       { kind: "missing-path", text: "src/billing:3", line: 1 },
       { kind: "missing-path", text: "src/billing#chargeCard", line: 1 }
     ]);
+  });
+
+  test("a call-shaped symbol that only a stale index declares is missing", () => {
+    const stale = fakeCodeGraph({
+      "src/billing/charge.ts": {
+        retryCharge: [{ qualifiedName: "retryCharge", startLine: 5, endLine: 7 }],
+        removedRefund: [{ qualifiedName: "removedRefund", startLine: 1, endLine: 3 }]
+      }
+    }, [], ["removedRefund"]);
+    const report = run([documentNode(["# Billing", "Calls `retryCharge()` and `removedRefund()`."].join("\n"))], stale);
+    expect(findingSummary(report)).toEqual([{ kind: "missing-symbol", text: "removedRefund()", line: 2 }]);
+  });
+
+  test("a backslash-escaped backtick does not open a code span", () => {
+    const report = run([documentNode([
+      "# Billing",
+      "Literal syntax: \\`src/billing/legacy.ts` is not a citation.",
+      "An escaped backslash: \\\\`src/billing/gone.ts` is a citation."
+    ].join("\n"))]);
+    expect(findingSummary(report)).toEqual([{ kind: "missing-path", text: "src/billing/gone.ts", line: 3 }]);
   });
 
   test("nodes are sorted and nodes without citations are left out", () => {

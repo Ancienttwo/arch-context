@@ -226,6 +226,11 @@ function inlineCodeSpans(text: string): { content: string; start: number; end: n
       index += 1;
       continue;
     }
+    if (precedingBackslashes(text, index) % 2 === 1) {
+      // A backslash-escaped backtick is literal text, not a code span delimiter.
+      index += 1;
+      continue;
+    }
     let runEnd = index;
     while (text[runEnd] === "`") runEnd += 1;
     const ticks = runEnd - index;
@@ -254,6 +259,12 @@ function inlineCodeSpans(text: string): { content: string; start: number; end: n
     index = close + ticks;
   }
   return spans;
+}
+
+function precedingBackslashes(text: string, index: number): number {
+  let count = 0;
+  while (index - count - 1 >= 0 && text[index - count - 1] === "\\") count += 1;
+  return count;
 }
 
 function parseLineCitations(text: string): ParsedCitation[] {
@@ -369,7 +380,8 @@ function checkSymbolCitation(parsed: Extract<ParsedCitation, { form: "call" | "i
   const { name, container } = splitSymbol(parsed.symbol);
   const declared = matchingDeclarations(codeGraph.symbols.declarationsNamed(name), container).length > 0;
   if (parsed.form === "identifier") return { counted: declared, citation, findings: [], unchecked: [] };
-  const missing = !declared && !codeGraph.symbols.appearsInSource(name);
+  // The index can be stale after a rename or delete, so only the current source decides "missing".
+  const missing = !codeGraph.symbols.appearsInSource(name);
   return { counted: true, citation, findings: missing ? [{ kind: "missing-symbol" }] : [], unchecked: [] };
 }
 

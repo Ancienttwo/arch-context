@@ -1074,11 +1074,8 @@ export function openCodeGraphSymbolReader(workspaceRoot: string): CodeGraphSymbo
   try {
     graph = CodeGraph.openSync(workspaceRoot, { readOnly: true });
   } catch {
-    try {
-      graph = CodeGraph.openSync(workspaceRoot);
-    } catch {
-      return { availability: "unavailable", reasonCode: "index-open-failed" };
-    }
+    // Readers never reopen the index writable: that could create or change files under `.codegraph/`.
+    return { availability: "unavailable", reasonCode: "index-open-failed" };
   }
   const declarations = (nodes: CodeGraphNode[]): CodeGraphSymbolDeclaration[] => nodes
     .filter((node) => !NON_DECLARATION_KINDS.has(node.kind))

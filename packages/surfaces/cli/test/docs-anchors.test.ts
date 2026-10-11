@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { type RmDirOptions, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync as nodeRmSync, writeFileSync } from "node:fs";
+import { type RmDirOptions, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync as nodeRmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { docsAnchorsReportIssues, stableYaml, validateJsonSchema, type DocsAnchorsReportV1, type Json, type JsonEnvelope } from "@archcontext/contracts";
@@ -121,6 +122,16 @@ async function runAnchors(root: string, args: string[] = ["--json"]): Promise<Do
   return report;
 }
 
+/**
+ * Holds the CodeGraph index open, as the CodeGraph watcher or the archctx daemon does in normal
+ * use. While a connection is open, the WAL shared-memory file exists and a read-only open works.
+ */
+function holdCodeGraphIndexOpen(root: string): Database {
+  const holder = new Database(join(root, ".codegraph", "codegraph.db"));
+  holder.query("SELECT count(*) FROM sqlite_master").get();
+  return holder;
+}
+
 function findings(report: DocsAnchorsReportV1) {
   return report.nodes.flatMap((node) => node.findings.map((finding) => [
     node.nodeId,
@@ -135,7 +146,13 @@ test("docs anchors reports stale citations with CodeGraph, and ignores generated
   const root = seedFixture();
   try {
     execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
-    const report = await runAnchors(root);
+    const holder = holdCodeGraphIndexOpen(root);
+    let report: DocsAnchorsReportV1;
+    try {
+      report = await runAnchors(root);
+    } finally {
+      holder.close();
+    }
     expect(report.profile).toBe("default");
     expect(report.codeGraph).toEqual({ availability: "ready" });
     expect(findings(report)).toEqual([
@@ -189,6 +206,22 @@ test("docs anchors without a CodeGraph index still checks paths and lines and re
     });
     expect(JSON.parse(output).data).toEqual(report);
     expect(existsSync(stateRoot)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, TEST_TIMEOUT_MS);
+
+test("docs anchors never reopens an index writable when no process holds it open", async () => {
+  const root = seedFixture();
+  try {
+    execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    const indexFilesBefore = readdirSync(join(root, ".codegraph")).sort();
+    const report = await runAnchors(root);
+    expect(report.codeGraph).toEqual({ availability: "unavailable", reasonCode: "index-open-failed" });
+    expect(readdirSync(join(root, ".codegraph")).sort()).toEqual(indexFilesBefore);
+    // Path and line checks still run; symbol checks are unchecked.
+    expect(findings(report)).toContainEqual([NODE_ID, "missing-path", "src/billing/legacy.ts", 3, null]);
+    expect(report.nodes[0]!.unchecked.map((entry) => entry.reasonCode)).toContain("codegraph-unavailable");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

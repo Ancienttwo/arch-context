@@ -39,13 +39,13 @@ Drift and `freshness.staleNodes` cover only generated regions. To check the cita
 
 - The command is read-only. It runs in-process, starts no daemon and writes no runtime state. It uses the profile of the committed manifest unless you give `--profile`.
 - It is a signal, not a gate. The envelope stays `ok` when it has findings. It does not change drift, freshness or `complete`.
-- Only inline code spans are citations. Fenced code blocks, HTML comments and generated regions are not read.
+- Only inline code spans are citations. Fenced code blocks, HTML comments and generated regions are not read. A backslash-escaped backtick does not open a code span.
 - `missing-path`: a cited `path` is not in the Git-visible tree. A bare path is reported only when its first segment is a top-level entry, and a gitignored path is never reported.
 - `line-out-of-range`: `path:line`, `path:start-end` or `path#L12` points past the end of the file. The finding gives `lineCount`.
-- `missing-symbol`: the file of `path#symbol` does not declare the symbol, or a call-shaped `name()` is declared nowhere and no source file contains the name. A plain identifier such as `name` is never reported missing.
+- `missing-symbol`: the file of `path#symbol` does not declare the symbol, or no current source file contains the name of a call-shaped `name()`. The index is not used for this check, because it can be stale after a rename or a delete. A plain identifier such as `name` is never reported missing.
 - `line-moved`: `path:line` binds a symbol when an identifier span directly follows or precedes it, for example `` `runtime.ts:277` (`assertFoo`) ``. When the line is outside every declaration of that symbol, the finding gives the symbol's current start lines in `currentLines`. A bare `path:line` can only be `line-out-of-range`.
 - A path in an explicit form that is not found at the root, such as `route-registry.ts:52`, resolves by path suffix, first inside the node's source footprint. When more than one file matches, the citation is `unchecked` with `path-ambiguous`.
-- Symbols are parsed from the current file contents through CodeGraph, so a stale index does not move a line. Without a CodeGraph index, path and line checks still run, `codeGraph.availability` is `unavailable`, and every symbol check is `unchecked` with `codegraph-unavailable`. A symbol in a file that CodeGraph cannot parse is `unchecked` with `language-unsupported`, and its line is still checked.
+- Symbols are parsed from the current file contents through CodeGraph, so a stale index does not move a line. The command opens the CodeGraph index read-only and never reopens it writable. A read-only open needs a live index: the CodeGraph watcher or the archctx daemon must hold it open. When no index exists, `codeGraph.reasonCode` is `index-missing`. When the read-only open fails, it is `index-open-failed`. In both cases path and line checks still run, `codeGraph.availability` is `unavailable`, and every symbol check is `unchecked` with `codegraph-unavailable`. A symbol in a file that CodeGraph cannot parse is `unchecked` with `language-unsupported`, and its line is still checked.
 
 Fix the stale text by hand in a pull request. The command does not rewrite documents.
 
