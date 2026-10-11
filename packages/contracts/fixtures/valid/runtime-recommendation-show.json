@@ -1,13 +1,13 @@
 {
   "schemaVersion": "archcontext.runtime-recommendation-show/v1",
-  "recommendationId": "recommendation.6dfbb8de16d2070c",
+  "recommendationId": "recommendation.c8c842b3d8529388",
   "source": "ledger",
   "status": "deferred",
   "recommendation": {
     "schemaVersion": "archcontext.recommendation/v3",
-    "recommendationId": "recommendation.6dfbb8de16d2070c",
-    "runId": "recommendation_run.e67f27cf71953eb9",
-    "fingerprint": "sha256:7a1d9897df313fdb370d2c8311691fcb08a35867e8c61692c7a0c2fea5974d04",
+    "recommendationId": "recommendation.c8c842b3d8529388",
+    "runId": "recommendation_run.207822edf39557d3",
+    "fingerprint": "sha256:27b2fed8524041b6003797081dbf77355d7fccfa54327becf00ecaef0728db2a",
     "subject": "capability.architecture.context",
     "status": "deferred",
     "confidence": "low",
@@ -15,7 +15,7 @@
     "risk": "medium",
     "uncertainty": "high",
     "evidenceBindingIds": [
-      "binding.e9f7f050eb0110a0"
+      "binding.7577455e29083b0b"
     ],
     "explanation": [
       "capability.architecture.context declares no source.include footprint, so none of its files or imports are measured.",
@@ -26,27 +26,27 @@
       "id": "archctxd",
       "source": "daemon"
     },
-    "subjectSelectorId": "subject.node.10128b3e80f1865a",
+    "subjectSelectorId": "subject.node.d4eae75fb5b5121f",
     "relations": {},
     "createdAt": "2026-12-31T23:59:59.000Z",
     "updatedAt": "2026-12-31T23:59:59.000Z",
     "category": "structural_observation",
     "payload": {
-      "assessmentDigest": "sha256:066d640cd186a826aaddf7b066f8180ba3bad3c5863c75821155555a6ed30363",
+      "assessmentDigest": "sha256:308510d9a08558453b9644d33fe24a73f4579832c448602b24c5053bdc4aa5ca",
       "kind": "undeclared-footprint",
       "affectedNodeIds": [
         "capability.architecture.context"
       ],
-      "baselineSnapshotDigest": "sha256:1c12800775baa70c3188cd54769060d48819aaf0945430418282e0f9a44e051c",
+      "baselineSnapshotDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e",
       "derivedOutcomes": [
         {
           "metric": "module.footprintDeclared",
-          "subjectSelectorId": "subject.node.10128b3e80f1865a",
+          "subjectSelectorId": "subject.node.d4eae75fb5b5121f",
           "nodeId": "capability.architecture.context",
           "operator": "present",
           "value": null,
           "required": true,
-          "outcomeId": "outcome.2fce6f19673068c7"
+          "outcomeId": "outcome.58946c9d4f0f41c1"
         }
       ],
       "metrics": {},
@@ -61,8 +61,8 @@
       }
     },
     "extensions": {
-      "assessmentDigest": "sha256:066d640cd186a826aaddf7b066f8180ba3bad3c5863c75821155555a6ed30363",
-      "baselineSnapshotDigest": "sha256:1c12800775baa70c3188cd54769060d48819aaf0945430418282e0f9a44e051c",
+      "assessmentDigest": "sha256:308510d9a08558453b9644d33fe24a73f4579832c448602b24c5053bdc4aa5ca",
+      "baselineSnapshotDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e",
       "riskSignals": [
         "ownership-change"
       ],
@@ -75,7 +75,7 @@
         "status": "deferred",
         "action": "defer",
         "actor": "developer",
-        "reason": "Next quarter.",
+        "reason": "later",
         "transitionedAt": "2026-12-31T23:59:59.000Z"
       }
     }
@@ -84,15 +84,15 @@
     "items": [
       {
         "schemaVersion": "archcontext.evidence-item/v2",
-        "evidenceId": "evidence.module_statistics_snapshot.1c12800775baa70c",
+        "evidenceId": "evidence.module_statistics_snapshot.35796bb112cab526",
         "kind": "module-statistics-snapshot",
         "strength": "observed",
         "polarity": "positive",
         "origin": "runtime-daemon",
-        "subject": "repository:repo.a4a21ba4cb14b855",
+        "subject": "repository:repo.537182127c5f2134",
         "selector": {
           "kind": "snapshot",
-          "id": "sha256:1c12800775baa70c3188cd54769060d48819aaf0945430418282e0f9a44e051c"
+          "id": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
         },
         "summary": "Module statistics baseline for 2 declared module(s).",
         "coverage": {
@@ -105,25 +105,25 @@
         "provenance": {
           "producer": "recommendation-engine",
           "command": "archctx refactor record",
-          "inputDigest": "sha256:1c12800775baa70c3188cd54769060d48819aaf0945430418282e0f9a44e051c"
+          "inputDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
         },
-        "createdAt": "2026-04-05T06:07:08.000Z",
-        "digest": "sha256:b469d11bdd392c14512b3f5a5339c016a30428f973d8a98a2c4fb02b9ba47119",
+        "createdAt": "2026-10-11T04:21:31.000Z",
+        "digest": "sha256:5ee758961ef4ea532ef72359f46e2d06fa528d70bab6bd19cd59dbfca8acd3fc",
         "extensions": {
           "moduleStatisticsSnapshot": {
             "schemaVersion": "archcontext.module-statistics/v1",
             "repository": {
-              "repositoryId": "repo.a4a21ba4cb14b855",
-              "storageRepositoryId": "repo.5f80f61249841116"
+              "repositoryId": "repo.537182127c5f2134",
+              "storageRepositoryId": "repo.03ba73c90cbf6a7e"
             },
             "worktree": {
-              "workspaceId": "ws.a4a21ba4cb14b855",
-              "storageWorkspaceId": "ws.a4a21ba4cb14b855",
+              "workspaceId": "ws.537182127c5f2134",
+              "storageWorkspaceId": "ws.537182127c5f2134",
               "branch": "main",
-              "headSha": "0dbf45f2a1563076ac848b16005aa1a8f59550d6",
-              "worktreeDigest": "sha256:6bafc970673d93a963dd8b6c95b353eb25751822fa7c38d58b3b90910f17fb4e"
+              "headSha": "728b42479d7ab7a2d401ea44af26cdac64912f0f",
+              "worktreeDigest": "sha256:96cbb5ccf708d8b7c56c2633e8937311338957998b7154879461706460d4c467"
             },
-            "modelDigest": "sha256:8cef8bcad47272ff5576566da5ea53d3103fe8043b9ee8fd321aea961534828f",
+            "modelDigest": "sha256:54ed020e2f65d0649b215df9251332d5a288746a687d9d7a654b9700dfd995a7",
             "codeFacts": {
               "provider": "codegraph",
               "version": "",
@@ -167,8 +167,8 @@
                 "moduleDigest": "sha256:7c539afac512c4aed0d7408f4b1945c51ddb79e24a017732c2a2a5cd5f52481e"
               },
               {
-                "nodeId": "module.refactor-scan-fixture",
-                "nodeDigest": "sha256:480a771a7161931b535f562f083122e84332101272841eb036d110437d9c0483",
+                "nodeId": "module.dump",
+                "nodeDigest": "sha256:8f77a427f093506f0ff5197dd0129f6888c1653c0ccc65e3981d587e102a882b",
                 "parentNodeId": null,
                 "footprintDeclared": true,
                 "footprint": {
@@ -198,7 +198,7 @@
                   "dynamicInvocation": "unknown",
                   "ambiguousOwnership": false
                 },
-                "moduleDigest": "sha256:dd81f4f75fdf1f14b7d1d6c41249fb64bfb3d9112ca2d3438546c70ee4b3bd92"
+                "moduleDigest": "sha256:32d887790fe89e1415d1cb0e68557509e025b4026184ad8a463f4d886a3de182"
               }
             ],
             "repositorySummary": {
@@ -213,8 +213,8 @@
               "unresolvedImportCount": 0,
               "dynamicInvocationRiskCount": 2
             },
-            "createdAt": "2026-04-05T06:07:08.000Z",
-            "snapshotDigest": "sha256:1c12800775baa70c3188cd54769060d48819aaf0945430418282e0f9a44e051c"
+            "createdAt": "2026-10-11T04:21:31.000Z",
+            "snapshotDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
           }
         }
       }
@@ -222,11 +222,11 @@
     "bindings": [
       {
         "schemaVersion": "archcontext.evidence-binding/v1",
-        "bindingId": "binding.e9f7f050eb0110a0",
-        "evidenceId": "evidence.module_statistics_snapshot.1c12800775baa70c",
+        "bindingId": "binding.7577455e29083b0b",
+        "evidenceId": "evidence.module_statistics_snapshot.35796bb112cab526",
         "target": {
           "kind": "recommendation",
-          "id": "recommendation.6dfbb8de16d2070c"
+          "id": "recommendation.c8c842b3d8529388"
         },
         "bindingReason": "deterministic-check",
         "authorityEffect": "context-only",
@@ -234,14 +234,14 @@
         "provenance": {
           "producer": "recommendation-engine",
           "command": "archctx refactor record",
-          "inputDigest": "evidence.module_statistics_snapshot.1c12800775baa70c"
+          "inputDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
         }
       }
     ]
   },
   "baseline": {
     "status": "measured",
-    "snapshotDigest": "sha256:1c12800775baa70c3188cd54769060d48819aaf0945430418282e0f9a44e051c"
+    "snapshotDigest": "sha256:35796bb112cab526dfe31a9ad84bc9df5d28b6a9ef4154d7d3c2d7d3a7753f7e"
   },
   "affectedModules": [
     {
@@ -274,9 +274,9 @@
   "decisions": [
     {
       "schemaVersion": "archcontext.recommendation-feedback/v1",
-      "feedbackId": "recommendation_feedback.cba1ca7a53796414",
-      "recommendationId": "recommendation.6dfbb8de16d2070c",
-      "runId": "recommendation_run.e67f27cf71953eb9",
+      "feedbackId": "recommendation_feedback.11e6209a830eae96",
+      "recommendationId": "recommendation.c8c842b3d8529388",
+      "runId": "recommendation_run.207822edf39557d3",
       "action": "defer",
       "previousStatus": "open",
       "nextStatus": "deferred",
@@ -285,19 +285,19 @@
         "id": "developer",
         "source": "cli"
       },
-      "reason": "Next quarter.",
+      "reason": "later",
       "explicit": true,
       "implicitAcceptance": false,
       "repository": {
-        "repositoryId": "repo.a4a21ba4cb14b855",
-        "storageRepositoryId": "repo.5f80f61249841116"
+        "repositoryId": "repo.537182127c5f2134",
+        "storageRepositoryId": "repo.03ba73c90cbf6a7e"
       },
       "worktree": {
-        "workspaceId": "ws.a4a21ba4cb14b855",
-        "storageWorkspaceId": "ws.a4a21ba4cb14b855",
+        "workspaceId": "ws.537182127c5f2134",
+        "storageWorkspaceId": "ws.537182127c5f2134",
         "branch": "main",
-        "headSha": "0dbf45f2a1563076ac848b16005aa1a8f59550d6",
-        "worktreeDigest": "sha256:6bafc970673d93a963dd8b6c95b353eb25751822fa7c38d58b3b90910f17fb4e"
+        "headSha": "728b42479d7ab7a2d401ea44af26cdac64912f0f",
+        "worktreeDigest": "sha256:96cbb5ccf708d8b7c56c2633e8937311338957998b7154879461706460d4c467"
       },
       "createdAt": "2026-12-31T23:59:59.000Z"
     }

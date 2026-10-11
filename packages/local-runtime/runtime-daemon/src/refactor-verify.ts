@@ -209,7 +209,8 @@ export function resolutionEvidenceItems(input: {
     provenance: {
       producer: "runtime-daemon",
       command: "archctx refactor verify",
-      inputDigest: resolutionItem.evidenceId
+      // Derived from the same verdict as the item it binds: the resolution digest, never the id.
+      inputDigest: resolutionItem.provenance.inputDigest
     }
   };
   return { resolutionItem, afterSnapshotItem, binding };

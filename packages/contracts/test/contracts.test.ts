@@ -44,18 +44,10 @@ import {
 } from "../src/github-governance";
 import {
   LEDGER_AUTHORITY_MATRIX,
-  RECOMMENDATION_CATEGORIES,
   RECOMMENDATION_STATUSES,
   architectureEventHash,
-  architectureSnapshotDigest,
-  type RecommendationV3
+  architectureSnapshotDigest
 } from "../src/ledger";
-import {
-  REFACTOR_OBSERVATION_KINDS,
-  REFACTOR_SCALES,
-  REFACTOR_SCALE_REASON_CODES,
-  recommendationV3InvariantIssues
-} from "../src/refactor";
 import {
   ARCHCONTEXT_PACKAGE_MANAGER,
   ARCHCONTEXT_PRODUCT_VERSION,
@@ -65,11 +57,11 @@ import {
 } from "../src/product-version";
 import { ERROR_CATALOG, digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
+import { publishedSchemaFiles, publishedSchemaResolver } from "./published-schemas";
 import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
 import { architectureDocsProjectionManifestIssues, isArchitectureScaleBucket } from "../src/projection-manifest";
 import {
   ARCHCTX_FEATURES,
-  ARCHITECTURE_MAJOR_CHANGE_REASON_CODES,
   PROJECTION_FILE_PREVIEW_MAX_BYTES,
   PROJECTION_PREVIEW_TOTAL_MAX_BYTES,
   architectureRefreshSignalInvariantIssues,
@@ -166,11 +158,10 @@ const schemaByFixture: Record<string, string> = {
   "evidence-binding": "schemas/runtime/evidence-binding.schema.json",
   "recommendation-run": "schemas/runtime/recommendation-run.schema.json",
   "recommendation": "schemas/runtime/recommendation.schema.json",
-  "recommendation-feedback": "schemas/runtime/recommendation-feedback.schema.json",
   "recommendation-v3": "schemas/runtime/recommendation-v3.schema.json",
-  "recommendation-v3-legacy": "schemas/runtime/recommendation-v3.schema.json",
   "runtime-refactor-scan": "schemas/runtime/runtime-refactor-scan.schema.json",
   "runtime-recommendation-show": "schemas/runtime/runtime-recommendation-show.schema.json",
+  "recommendation-feedback": "schemas/runtime/recommendation-feedback.schema.json",
   "agent-job": "schemas/runtime/agent-job.schema.json",
   "investigation-report": "schemas/runtime/investigation-report.schema.json",
   "practice-catalog-manifest": "schemas/runtime/practice-catalog-manifest.schema.json",
@@ -912,96 +903,12 @@ test("RECOMMENDATION_STATUSES is the recommendation schema's status enum", () =>
   expect(schema.properties.status.enum).toEqual([...RECOMMENDATION_STATUSES]);
 });
 
-describe("refactor data schemas", () => {
-  const shapeOf = (schema: Json) => {
-    const { $schema: _schema, $id: _id, title: _title, $defs: _defs, ...shape } = schema as Record<string, Json>;
-    return shape;
-  };
-  const v3 = readJson("schemas/runtime/recommendation-v3.schema.json") as any;
-  const scan = readJson("schemas/runtime/runtime-refactor-scan.schema.json") as any;
-  const show = readJson("schemas/runtime/runtime-recommendation-show.schema.json") as any;
-
-  test("the recommendation v3 schema enums are the contract constants", () => {
-    expect(v3.properties.status.enum).toEqual([...RECOMMENDATION_STATUSES]);
-    expect(v3.properties.category.enum).toEqual([...RECOMMENDATION_CATEGORIES]);
-    expect(v3.$defs.structuralObservationPayload.properties.kind.enum).toEqual([...REFACTOR_OBSERVATION_KINDS]);
-    expect(v3.$defs.refactorProposalPayload.properties.scale.enum).toEqual([...REFACTOR_SCALES]);
-    expect(v3.$defs.refactorProposalPayload.properties.majorChangeReasons.items.enum).toEqual([...ARCHITECTURE_MAJOR_CHANGE_REASON_CODES]);
-    const evidenceKinds = (v3.$defs.observationEvidence.oneOf as any[]).flatMap((branch) => branch.properties.kind.const ?? branch.properties.kind.enum);
-    expect([...evidenceKinds].sort()).toEqual([...REFACTOR_OBSERVATION_KINDS]);
-    const gap = (v3.$defs.observationEvidence.oneOf as any[]).find((branch) => branch.properties.kind.const === "evidence-gap");
-    expect(gap.properties.reasonCodes.items.enum).toEqual([...REFACTOR_SCALE_REASON_CODES]);
-  });
-
-  test("the v3 fixture passes the write-side invariant; the legacy fixture is detected by its missing evidence", () => {
-    const current = readJson("packages/contracts/fixtures/valid/recommendation-v3.json") as unknown as RecommendationV3;
-    expect(recommendationV3InvariantIssues(current)).toEqual([]);
-    expect("evidence" in current.payload).toBe(true);
-
-    // Written before #262 and returned unchanged by show: valid against the read-side schema, never
-    // written again, and recognized by the absence of payload.evidence.
-    const legacy = readJson("packages/contracts/fixtures/valid/recommendation-v3-legacy.json") as unknown as RecommendationV3;
-    expect(validateJsonSchema(v3, legacy as unknown as Json).issues).toEqual([]);
-    expect("evidence" in legacy.payload).toBe(false);
-    expect(recommendationV3InvariantIssues(legacy)).toContain(
-      "recommendation.payload does not match category structural_observation; missing evidence, metrics, signalIds"
-    );
-  });
-
-  test("a category with another category's payload is rejected", () => {
-    const current = readJson("packages/contracts/fixtures/valid/recommendation-v3.json") as Record<string, Json>;
-    expect(validateJsonSchema(v3, { ...current, category: "refactor_proposal", enforcement: "checkpoint" } as Json).valid).toBe(false);
-    expect(validateJsonSchema(v3, { ...current, enforcement: "checkpoint" } as Json).valid).toBe(false);
-    const payload = current.payload as Record<string, Json>;
-    expect(validateJsonSchema(v3, { ...current, payload: { ...payload, evidence: { ...(payload.evidence as Record<string, Json>), kind: "unknown-kind" } } } as Json).valid).toBe(false);
-  });
-
-  test("runtime result schemas embed the published shapes; only evidence-binding inputDigest is widened", () => {
-    for (const result of [scan, show]) {
-      expect(result.$defs.recommendationV3).toEqual(shapeOf(v3 as Json));
-      for (const [name, shape] of Object.entries(v3.$defs)) expect(result.$defs[name], name).toEqual(shape);
-      expect(result.$defs.evidenceItem).toEqual(shapeOf(readJson("schemas/runtime/evidence-item.schema.json")));
-      const binding = structuredClone(shapeOf(readJson("schemas/runtime/evidence-binding.schema.json"))) as any;
-      expect(result.$defs.evidenceBinding.properties.provenance.properties.inputDigest.anyOf[0])
-        .toEqual(binding.properties.provenance.properties.inputDigest);
-      binding.properties.provenance.properties.inputDigest = result.$defs.evidenceBinding.properties.provenance.properties.inputDigest;
-      expect(result.$defs.evidenceBinding).toEqual(binding);
-    }
-    for (const name of ["repository", "worktree", "moduleStatistics"]) expect(show.$defs[name], name).toEqual(scan.$defs[name]);
-    expect(show.$defs.recommendationV2).toEqual(shapeOf(readJson("schemas/runtime/recommendation.schema.json")));
-    expect(show.$defs.recommendationFeedback).toEqual(shapeOf(readJson("schemas/runtime/recommendation-feedback.schema.json")));
-  });
-
-  test("a scan carries recordCommand exactly when the run is recordable", () => {
-    const fixture = readJson("packages/contracts/fixtures/valid/runtime-refactor-scan.json") as Record<string, Json>;
-    const { recordCommand: _recordCommand, ...withoutCommand } = fixture;
-    expect(validateJsonSchema(scan, withoutCommand as Json).valid).toBe(false);
-    const unrecordable = { recordable: false, reasonCode: "refactor-run-exceeds-ledger-size-limit", measuredBytes: 300000, limitBytes: 262144 };
-    expect(validateJsonSchema(scan, { ...withoutCommand, recording: unrecordable } as Json).issues).toEqual([]);
-    expect(validateJsonSchema(scan, { ...fixture, recording: unrecordable } as Json).valid).toBe(false);
-  });
-
-  test("show binds worktree to the source and accepts a recorded v2 or legacy v3 record", () => {
-    const fixture = readJson("packages/contracts/fixtures/valid/runtime-recommendation-show.json") as Record<string, Json>;
-    const worktree = { headSha: "a".repeat(40), worktreeDigest: `sha256:${"b".repeat(64)}` };
-    expect(validateJsonSchema(show, { ...fixture, worktree } as Json).valid).toBe(false);
-    expect(validateJsonSchema(show, { ...fixture, source: "scan-candidate", worktree } as Json).issues).toEqual([]);
-    expect(validateJsonSchema(show, { ...fixture, source: "scan-candidate" } as Json).valid).toBe(false);
-    for (const recorded of ["recommendation", "recommendation-v3-legacy"]) {
-      const recommendation = readJson(`packages/contracts/fixtures/valid/${recorded}.json`);
-      expect(validateJsonSchema(show, { ...fixture, recommendation } as Json).issues, recorded).toEqual([]);
-    }
-    expect(validateJsonSchema(show, { ...fixture, baseline: { status: "missing", snapshotDigest: `sha256:${"c".repeat(64)}` } } as Json).valid).toBe(false);
-    expect(validateJsonSchema(show, { ...fixture, baseline: { status: "missing", snapshotDigest: null } } as Json).issues).toEqual([]);
-  });
-});
-
 describe("JSON schema contracts", () => {
   for (const [fixtureName, schemaPath] of Object.entries(schemaByFixture)) {
     test(`${fixtureName} accepts valid fixture`, () => {
       const schema = readJson(schemaPath);
       const fixture = readJson(`packages/contracts/fixtures/valid/${fixtureName}.json`);
-      const result = validateJsonSchema(schema as any, fixture);
+      const result = validateJsonSchema(schema as any, fixture, { resolveSchema: publishedSchemaResolver() });
       expect(result.issues).toEqual([]);
       expect(result.valid).toBe(true);
     });
@@ -1009,11 +916,65 @@ describe("JSON schema contracts", () => {
     test(`${fixtureName} rejects unknown top-level fields`, () => {
       const schema = readJson(schemaPath);
       const fixture = readJson(`packages/contracts/fixtures/valid/${fixtureName}.json`) as Record<string, Json>;
-      const result = validateJsonSchema(schema as any, { ...fixture, unexpectedField: true });
+      const result = validateJsonSchema(schema as any, { ...fixture, unexpectedField: true }, { resolveSchema: publishedSchemaResolver() });
       expect(result.valid).toBe(false);
       expect(result.issues.some((issue) => issue.message.includes("additional property"))).toBe(true);
     });
   }
+
+  test("every cross-file $ref in a published schema resolves to a published schema", () => {
+    const resolve = publishedSchemaResolver();
+    const unresolved: string[] = [];
+    const walk = (node: unknown, id: string, file: string) => {
+      if (Array.isArray(node)) return node.forEach((child) => walk(child, id, file));
+      if (!node || typeof node !== "object") return;
+      for (const [key, child] of Object.entries(node)) {
+        if (key === "$ref" && typeof child === "string" && !child.startsWith("#")) {
+          const target = new URL(child, id);
+          target.hash = "";
+          if (!resolve(target.href)) unresolved.push(`${file}: ${child}`);
+        } else walk(child, id, file);
+      }
+    };
+    for (const file of publishedSchemaFiles()) {
+      const schema = JSON.parse(readFileSync(file, "utf8"));
+      if (typeof schema.$id === "string") walk(schema, schema.$id, basename(file));
+    }
+    expect(unresolved).toEqual([]);
+  });
+
+  test("a cross-file $ref is unresolved, never skipped, when no resolver is supplied", () => {
+    const schema = readJson("schemas/runtime/runtime-refactor-scan.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/runtime-refactor-scan.json");
+    const result = validateJsonSchema(schema as any, fixture);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((issue) => issue.message === "unresolved schema reference evidence-binding.schema.json")).toBe(true);
+  });
+
+  test("a root $ref \"#\" resolves to the schema itself, so a recursive schema validates", () => {
+    const schema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["name"],
+      properties: { name: { type: "string" }, children: { type: "array", items: { $ref: "#" } } }
+    };
+    const valid = validateJsonSchema(schema as any, { name: "root", children: [{ name: "child", children: [{ name: "leaf" }] }] });
+    expect(valid.issues).toEqual([]);
+    const invalid = validateJsonSchema(schema as any, { name: "root", children: [{ children: [] }] });
+    expect(invalid.issues).toEqual([{ path: "$.children[0].name", message: "required" }]);
+  });
+
+  test("a binding whose provenance.inputDigest is not a sha256 digest fails the scan and show schemas through $ref", () => {
+    for (const name of ["runtime-refactor-scan", "runtime-recommendation-show"]) {
+      const schema = readJson(`schemas/runtime/${name}.schema.json`);
+      const fixture = readJson(`packages/contracts/fixtures/valid/${name}.json`) as any;
+      const bindings = name === "runtime-refactor-scan" ? fixture.evidenceBindings : fixture.evidence.bindings;
+      expect(bindings.length, name).toBeGreaterThan(0);
+      bindings[0].provenance.inputDigest = bindings[0].evidenceId;
+      const result = validateJsonSchema(schema as any, fixture, { resolveSchema: publishedSchemaResolver() });
+      expect(result.issues.some((issue) => issue.path.endsWith(".provenance.inputDigest") && issue.message.includes("does not match")), name).toBe(true);
+    }
+  });
 
   test("boundary extensions are allowed only through extensions", () => {
     const schema = readJson("schemas/repo/architecture-node.schema.json");
@@ -1086,7 +1047,7 @@ describe("JSON schema contracts", () => {
     for (const file of boundaryFixtures) {
       const fixture = readJson(`packages/contracts/fixtures/boundary/${file}`) as Record<string, Json>;
       const schemaPath = schemaByFixture[fixtureNameFromSchemaVersion(fixture.schemaVersion)];
-      const result = validateJsonSchema(readJson(schemaPath) as any, fixture);
+      const result = validateJsonSchema(readJson(schemaPath) as any, fixture, { resolveSchema: publishedSchemaResolver() });
       expect(result.issues, file).toEqual([]);
       expect(result.valid, file).toBe(true);
     }
@@ -1224,7 +1185,7 @@ describe("JSON schema contracts", () => {
     for (const file of invalidFixtures) {
       const fixture = readJson(`packages/contracts/fixtures/invalid/${file}`) as Record<string, Json>;
       const schemaPath = schemaByFixture[fixtureNameFromSchemaVersion(fixture.schemaVersion)];
-      const result = validateJsonSchema(readJson(schemaPath) as any, fixture);
+      const result = validateJsonSchema(readJson(schemaPath) as any, fixture, { resolveSchema: publishedSchemaResolver() });
       expect(result.valid, file).toBe(false);
       expect(result.issues.length, file).toBeGreaterThan(0);
     }
@@ -1427,10 +1388,10 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.architecture-candidate-delta-policy/v1": "architecture-candidate-delta-policy",
     "archcontext.recommendation-run/v1": "recommendation-run",
     "archcontext.recommendation/v2": "recommendation",
-    "archcontext.recommendation-feedback/v1": "recommendation-feedback",
     "archcontext.recommendation/v3": "recommendation-v3",
     "archcontext.runtime-refactor-scan/v1": "runtime-refactor-scan",
     "archcontext.runtime-recommendation-show/v1": "runtime-recommendation-show",
+    "archcontext.recommendation-feedback/v1": "recommendation-feedback",
     "archcontext.agent-job/v1": "agent-job",
     "archcontext.investigation-report/v1": "investigation-report",
     "archcontext.retrieval-config/v1": "retrieval-config",

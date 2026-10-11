@@ -26,6 +26,7 @@ import {
   makeSnapshot,
   makeTargetDelta
 } from "../../refactor-assessment/test/factories";
+import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import {
   REFACTOR_ACTIVE_RECOMMENDATION_STATUSES,
   REFACTOR_DECIDED_RECOMMENDATION_STATUSES,
@@ -264,6 +265,10 @@ describe("planRefactorRecommendationRun observations", () => {
       expect(binding).toBeDefined();
       expect(binding!.target.kind).toBe("recommendation");
       expect(binding!.evidenceId).toBe(baseline!.evidenceId);
+      // Derived from the same measurement as the item it binds: its input digest, never its id.
+      expect(binding!.provenance.inputDigest).toBe(baseline!.provenance.inputDigest);
+      expect(binding!.provenance.inputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(publishedSchemaIssues("runtime/evidence-binding.schema.json", binding)).toEqual([]);
       expect(record.evidenceBindingIds).toEqual([binding!.bindingId]);
     }
     expect(plan.run.metrics.evidenceBindingCount).toBe(plan.evidenceBindings.length);

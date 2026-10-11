@@ -1,0 +1,578 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/structural-observation-payload.schema.json",
+  "title": "StructuralObservationPayloadV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "assessmentDigest",
+    "kind",
+    "affectedNodeIds",
+    "baselineSnapshotDigest",
+    "derivedOutcomes",
+    "metrics",
+    "signalIds",
+    "evidence"
+  ],
+  "properties": {
+    "assessmentDigest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "kind": {
+      "enum": [
+        "cycle",
+        "direction-violation",
+        "evidence-gap",
+        "ownership-ambiguous",
+        "undeclared-footprint",
+        "unowned-paths"
+      ]
+    },
+    "affectedNodeIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "baselineSnapshotDigest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "derivedOutcomes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/targetOutcome"
+      }
+    },
+    "metrics": {
+      "$ref": "#/$defs/observationMetrics"
+    },
+    "signalIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence": {
+      "$ref": "#/$defs/observationEvidence"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "cycle"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "kind": {
+                "const": "cycle"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "direction-violation"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "kind": {
+                "const": "direction-violation"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "evidence-gap"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "kind": {
+                "const": "evidence-gap"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "ownership-ambiguous"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "kind": {
+                "const": "ownership-ambiguous"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "undeclared-footprint"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "kind": {
+                "const": "undeclared-footprint"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "unowned-paths"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "kind": {
+                "const": "unowned-paths"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "repoRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!(?:.*/)?\\.\\.(?:/|$)).+$"
+    },
+    "evidenceLine": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "evidenceSpecifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "evidenceIdList": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "observationMetrics": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "number",
+          "null"
+        ]
+      }
+    },
+    "evidenceImportEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromPath",
+        "fromLine",
+        "toPath",
+        "specifier",
+        "fromNodeId",
+        "toNodeId"
+      ],
+      "properties": {
+        "fromPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "fromLine": {
+          "$ref": "#/$defs/evidenceLine"
+        },
+        "toPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "specifier": {
+          "$ref": "#/$defs/evidenceSpecifier"
+        },
+        "fromNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "toNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      }
+    },
+    "evidenceDirectionViolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromPath",
+        "fromLine",
+        "toPath",
+        "specifier",
+        "fromNodeId",
+        "toNodeId",
+        "constraintId"
+      ],
+      "properties": {
+        "fromPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "fromLine": {
+          "$ref": "#/$defs/evidenceLine"
+        },
+        "toPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "specifier": {
+          "$ref": "#/$defs/evidenceSpecifier"
+        },
+        "fromNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "toNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "constraintId": {
+          "type": "string"
+        }
+      }
+    },
+    "evidencePath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "candidateOwnerNodeIds",
+        "candidateOwnerCount"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "candidateOwnerNodeIds": {
+          "$ref": "#/$defs/evidenceIdList"
+        },
+        "candidateOwnerCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "evidenceUnresolvedImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromPath",
+        "fromLine",
+        "specifier"
+      ],
+      "properties": {
+        "fromPath": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "fromLine": {
+          "$ref": "#/$defs/evidenceLine"
+        },
+        "specifier": {
+          "$ref": "#/$defs/evidenceSpecifier"
+        }
+      }
+    },
+    "observationEvidence": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "memberNodeIds",
+            "edges",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "cycle"
+            },
+            "memberNodeIds": {
+              "$ref": "#/$defs/evidenceIdList"
+            },
+            "edges": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceImportEdge"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "constraintIds",
+            "constraintCount",
+            "violations",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "direction-violation"
+            },
+            "constraintIds": {
+              "$ref": "#/$defs/evidenceIdList"
+            },
+            "constraintCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "violations": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceDirectionViolation"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "paths",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "ownership-ambiguous",
+                "undeclared-footprint",
+                "unowned-paths"
+              ]
+            },
+            "paths": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidencePath"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "coverage",
+            "reasonCodes",
+            "unresolvedImports",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "evidence-gap"
+            },
+            "coverage": {
+              "enum": [
+                "complete",
+                "partial",
+                "unknown"
+              ]
+            },
+            "reasonCodes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "caller-coverage-unknown",
+                  "code-facts-missing",
+                  "code-facts-truncated",
+                  "major-change-detected",
+                  "multi-node-scope",
+                  "node-footprint-undeclared",
+                  "ownership-ambiguous",
+                  "single-node-scope",
+                  "target-unresolved",
+                  "unowned-paths"
+                ]
+              }
+            },
+            "unresolvedImports": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceUnresolvedImport"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "targetOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcomeId",
+        "metric",
+        "subjectSelectorId",
+        "nodeId",
+        "operator",
+        "value",
+        "required"
+      ],
+      "properties": {
+        "outcomeId": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "subjectSelectorId": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operator": {
+          "enum": [
+            "absent",
+            "equals",
+            "greater_than",
+            "less_than",
+            "present"
+          ]
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "if": {
+        "properties": {
+          "operator": {
+            "enum": [
+              "absent",
+              "present"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "value": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

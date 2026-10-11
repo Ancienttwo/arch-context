@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { architectureCandidateDeltaDigest, architectureSubjectSelectorDigest, digestJson, type Json, type NormalizedCodeContext } from "@archcontext/contracts";
+import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import { buildArchitectureCandidateDelta, compileArchitectureFactChanges, compileEvidenceStateChanges, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "../src/index";
 import {
   representativeArchitectureChangeScenarios,
@@ -144,6 +145,9 @@ describe("@archcontext/core/architecture-delta", () => {
     expect(first.evidenceBindings.some((binding) => binding.target.kind === "candidate-delta")).toBe(true);
     expect(JSON.stringify(first)).not.toContain("const secret");
     expect(JSON.stringify(first)).not.toContain("diff --git");
+    // The published schema, with its cross-file evidence-item/binding `$ref`s resolved, over the
+    // wire form (JSON drops the in-memory `undefined` optionals).
+    expect(publishedSchemaIssues("runtime/architecture-candidate-delta.schema.json", JSON.parse(JSON.stringify(first)))).toEqual([]);
   });
 
   test("normalizes path moves without emitting delete plus add churn", () => {
