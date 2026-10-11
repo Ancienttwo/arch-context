@@ -1190,8 +1190,10 @@ function acceptedArchitectureChange(args: string[]): AcceptedArchitectureChangeR
 }
 
 
-function architectureProjectionProfile(args: string[]): ArchitectureProjectionProfile {
-  const profile = readFlag(args, "--profile") ?? "default";
+/** Without `--profile`, the daemon uses the profile of the committed manifest (#293). */
+function architectureProjectionProfile(args: string[]): ArchitectureProjectionProfile | undefined {
+  const profile = readFlag(args, "--profile");
+  if (profile === undefined) return undefined;
   if (profile !== "default" && profile !== REPO_HARNESS_PROJECTION_PROFILE) {
     throw new Error(`architecture-docs-profile-unsupported: ${profile}`);
   }

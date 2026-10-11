@@ -391,6 +391,58 @@ test("CLI projection check under repo-harness/v1 is fresh after apply when a mem
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
 
+test("CLI docs commands without --profile keep the profile of the committed manifest (#293)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-docs-committed-profile-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Docs Committed Profile App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const commit = (message: string) => {
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", message);
+  };
+  const gitOutput = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+  const generatedPaths = () => gitOutput("ls-files", "--others", "--cached", "--exclude-standard", "docs/architecture").trim().split("\n").sort();
+  try {
+    seedProjectionProtocolFixture(root);
+    // No manifest yet: the default profile applies.
+    const firstPlan = await cli("docs", ["plan"]);
+    expect(firstPlan.ok, JSON.stringify(firstPlan)).toBe(true);
+    expect((firstPlan.data as any).drift.ok).toBe(false);
+    const defaultDrift = await cli("docs", ["drift"]);
+    expect((defaultDrift.data as any).profile).toBe("default");
+
+    const applied = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    commit("project architecture documentation");
+    const committedPaths = generatedPaths();
+
+    // The runbook commands name no profile; they keep the committed repo-harness/v1 layout.
+    const drift = await cli("docs", ["drift"]);
+    expect(drift.ok, JSON.stringify(drift)).toBe(true);
+    expect((drift.data as any).profile).toBe("repo-harness/v1");
+    expect((drift.data as any).drift.ok).toBe(true);
+    const reapplied = await cli("docs", ["apply", "--approved"]);
+    expect(reapplied.ok, JSON.stringify(reapplied)).toBe(true);
+    expect((reapplied.data as any).status).toBe("noop");
+    expect(gitOutput("status", "--porcelain", "docs/architecture")).toBe("");
+    expect(generatedPaths()).toEqual(committedPaths);
+
+    // An explicit --profile still selects the layout.
+    const explicitDefault = await cli("docs", ["drift", "--profile", "default"]);
+    expect((explicitDefault.data as any).profile).toBe("default");
+    expect((explicitDefault.data as any).drift.ok).toBe(false);
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
 test("CLI projection check never starts a runtime, writes runtime state or needs a task session (#259)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-check-daemonless-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
