@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { type RmDirOptions, mkdirSync, mkdtempSync, readdirSync, rmSync as nodeRmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stableYaml, type CapabilityDependenciesV1, type JsonEnvelope } from "@archcontext/contracts";
@@ -8,6 +8,21 @@ import { codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-ada
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { runCli } from "../src/main";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
+
+// Windows can hold a temp repo briefly after a CodeGraph or daemon process exits; cleanup must not fail the test.
+function rmSync(path: string, options?: RmDirOptions): void {
+  try {
+    nodeRmSync(path, { maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100, ...options });
+  } catch (error) {
+    if (isIgnorableWindowsCleanupError(error)) return;
+    throw error;
+  }
+}
+
+function isIgnorableWindowsCleanupError(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
+}
 
 let root = "";
 let stateRoot = "";

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, type ChangeSetOwnershipDeltaV1, type JsonEnvelope } from "@archcontext/contracts";
@@ -10,6 +10,7 @@ import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-fact
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { createStartedDaemon } from "../src/index";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
+import { rmSync } from "./runtime-test-fixtures";
 
 const PREVIOUS_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-ownership-read-state-"));
