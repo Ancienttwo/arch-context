@@ -57,6 +57,7 @@ import {
 } from "../src/product-version";
 import { ERROR_CATALOG, digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
+import { publishedSchemaFiles, publishedSchemaResolver } from "./published-schemas";
 import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
 import { architectureDocsProjectionManifestIssues, isArchitectureScaleBucket } from "../src/projection-manifest";
 import {
@@ -892,7 +893,7 @@ describe("JSON schema contracts", () => {
     test(`${fixtureName} accepts valid fixture`, () => {
       const schema = readJson(schemaPath);
       const fixture = readJson(`packages/contracts/fixtures/valid/${fixtureName}.json`);
-      const result = validateJsonSchema(schema as any, fixture);
+      const result = validateJsonSchema(schema as any, fixture, { resolveSchema: publishedSchemaResolver() });
       expect(result.issues).toEqual([]);
       expect(result.valid).toBe(true);
     });
@@ -900,11 +901,52 @@ describe("JSON schema contracts", () => {
     test(`${fixtureName} rejects unknown top-level fields`, () => {
       const schema = readJson(schemaPath);
       const fixture = readJson(`packages/contracts/fixtures/valid/${fixtureName}.json`) as Record<string, Json>;
-      const result = validateJsonSchema(schema as any, { ...fixture, unexpectedField: true });
+      const result = validateJsonSchema(schema as any, { ...fixture, unexpectedField: true }, { resolveSchema: publishedSchemaResolver() });
       expect(result.valid).toBe(false);
       expect(result.issues.some((issue) => issue.message.includes("additional property"))).toBe(true);
     });
   }
+
+  test("every cross-file $ref in a published schema resolves to a published schema", () => {
+    const resolve = publishedSchemaResolver();
+    const unresolved: string[] = [];
+    const walk = (node: unknown, id: string, file: string) => {
+      if (Array.isArray(node)) return node.forEach((child) => walk(child, id, file));
+      if (!node || typeof node !== "object") return;
+      for (const [key, child] of Object.entries(node)) {
+        if (key === "$ref" && typeof child === "string" && !child.startsWith("#")) {
+          const target = new URL(child, id);
+          target.hash = "";
+          if (!resolve(target.href)) unresolved.push(`${file}: ${child}`);
+        } else walk(child, id, file);
+      }
+    };
+    for (const file of publishedSchemaFiles()) {
+      const schema = JSON.parse(readFileSync(file, "utf8"));
+      if (typeof schema.$id === "string") walk(schema, schema.$id, basename(file));
+    }
+    expect(unresolved).toEqual([]);
+  });
+
+  test("a cross-file $ref is unresolved, never skipped, when no resolver is supplied", () => {
+    const schema = readJson("schemas/runtime/runtime-refactor-scan.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/runtime-refactor-scan.json");
+    const result = validateJsonSchema(schema as any, fixture);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((issue) => issue.message === "unresolved schema reference evidence-binding.schema.json")).toBe(true);
+  });
+
+  test("a binding whose provenance.inputDigest is not a sha256 digest fails the scan and show schemas through $ref", () => {
+    for (const name of ["runtime-refactor-scan", "runtime-recommendation-show"]) {
+      const schema = readJson(`schemas/runtime/${name}.schema.json`);
+      const fixture = readJson(`packages/contracts/fixtures/valid/${name}.json`) as any;
+      const bindings = name === "runtime-refactor-scan" ? fixture.evidenceBindings : fixture.evidence.bindings;
+      expect(bindings.length, name).toBeGreaterThan(0);
+      bindings[0].provenance.inputDigest = bindings[0].evidenceId;
+      const result = validateJsonSchema(schema as any, fixture, { resolveSchema: publishedSchemaResolver() });
+      expect(result.issues.some((issue) => issue.path.endsWith(".provenance.inputDigest") && issue.message.includes("does not match")), name).toBe(true);
+    }
+  });
 
   test("boundary extensions are allowed only through extensions", () => {
     const schema = readJson("schemas/repo/architecture-node.schema.json");
@@ -977,7 +1019,7 @@ describe("JSON schema contracts", () => {
     for (const file of boundaryFixtures) {
       const fixture = readJson(`packages/contracts/fixtures/boundary/${file}`) as Record<string, Json>;
       const schemaPath = schemaByFixture[fixtureNameFromSchemaVersion(fixture.schemaVersion)];
-      const result = validateJsonSchema(readJson(schemaPath) as any, fixture);
+      const result = validateJsonSchema(readJson(schemaPath) as any, fixture, { resolveSchema: publishedSchemaResolver() });
       expect(result.issues, file).toEqual([]);
       expect(result.valid, file).toBe(true);
     }
@@ -1115,7 +1157,7 @@ describe("JSON schema contracts", () => {
     for (const file of invalidFixtures) {
       const fixture = readJson(`packages/contracts/fixtures/invalid/${file}`) as Record<string, Json>;
       const schemaPath = schemaByFixture[fixtureNameFromSchemaVersion(fixture.schemaVersion)];
-      const result = validateJsonSchema(readJson(schemaPath) as any, fixture);
+      const result = validateJsonSchema(readJson(schemaPath) as any, fixture, { resolveSchema: publishedSchemaResolver() });
       expect(result.valid, file).toBe(false);
       expect(result.issues.length, file).toBeGreaterThan(0);
     }

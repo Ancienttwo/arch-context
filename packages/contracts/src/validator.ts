@@ -11,6 +11,7 @@ export interface ValidationResult {
 }
 
 type JsonSchema = {
+  $id?: string;
   $ref?: string;
   $defs?: Record<string, JsonSchema>;
   type?: string | string[];
@@ -39,26 +40,60 @@ type JsonSchema = {
   maximum?: number;
 };
 
-export function validateJsonSchema(schema: JsonSchema, value: Json): ValidationResult {
+/**
+ * Loads the schema document whose `$id` is the given absolute URI (no fragment). A non-local
+ * `$ref` — one that does not start with `#` — resolves against the enclosing document's `$id` and
+ * is read through this resolver; without one, every such reference is reported as unresolved
+ * instead of being skipped, so a published schema can never pass on a reference it did not check.
+ */
+export type JsonSchemaResolver = (uri: string) => JsonSchema | undefined;
+
+export interface ValidateJsonSchemaOptions {
+  resolveSchema?: JsonSchemaResolver;
+}
+
+/**
+ * A resolver over a fixed set of schema documents, keyed by their `$id`. Every document must carry
+ * a unique absolute `$id`; the set is the whole universe a validation may reference.
+ */
+export function jsonSchemaResolver(documents: readonly JsonSchema[]): JsonSchemaResolver {
+  const byId = new Map<string, JsonSchema>();
+  for (const document of documents) {
+    if (typeof document.$id !== "string" || document.$id.length === 0) throw new Error("json-schema-resolver-document-missing-id");
+    const id = new URL(document.$id).href;
+    if (byId.has(id)) throw new Error(`json-schema-resolver-duplicate-id: ${id}`);
+    byId.set(id, document);
+  }
+  return (uri) => byId.get(uri);
+}
+
+export function validateJsonSchema(schema: JsonSchema, value: Json, options: ValidateJsonSchemaOptions = {}): ValidationResult {
   const issues: ValidationIssue[] = [];
-  visit(schema, value, "$", issues, schema);
+  visit(schema, value, "$", issues, schema, options.resolveSchema);
   return { valid: issues.length === 0, issues };
 }
 
-function visit(schema: JsonSchema, value: Json, path: string, issues: ValidationIssue[], root: JsonSchema): void {
+/** `root` is the document the current subschema belongs to; local `#/...` references resolve inside it. */
+function visit(
+  schema: JsonSchema,
+  value: Json,
+  path: string,
+  issues: ValidationIssue[],
+  root: JsonSchema,
+  resolveSchema: JsonSchemaResolver | undefined
+): void {
   if (schema.$ref) {
-    if (!schema.$ref.startsWith("#/")) return;
-    const resolved = resolveLocalRef(root, schema.$ref);
-    if (!resolved) {
+    const target = resolveRef(root, resolveSchema, schema.$ref);
+    if (!target) {
       issues.push({ path, message: `unresolved schema reference ${schema.$ref}` });
       return;
     }
-    visit(resolved, value, path, issues, root);
+    visit(target.schema, value, path, issues, target.root, resolveSchema);
   }
   if (schema.oneOf) {
     const matched = schema.oneOf.filter((candidate) => {
       const candidateIssues: ValidationIssue[] = [];
-      visit(candidate, value, path, candidateIssues, root);
+      visit(candidate, value, path, candidateIssues, root, resolveSchema);
       return candidateIssues.length === 0;
     }).length;
     if (matched !== 1) {
@@ -69,21 +104,21 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
   if (schema.anyOf) {
     const matched = schema.anyOf.some((candidate) => {
       const candidateIssues: ValidationIssue[] = [];
-      visit(candidate, value, path, candidateIssues, root);
+      visit(candidate, value, path, candidateIssues, root, resolveSchema);
       return candidateIssues.length === 0;
     });
     if (!matched) issues.push({ path, message: "expected at least one matching schema" });
   }
-  for (const candidate of schema.allOf ?? []) visit(candidate, value, path, issues, root);
+  for (const candidate of schema.allOf ?? []) visit(candidate, value, path, issues, root, resolveSchema);
   if (schema.if) {
     const conditionIssues: ValidationIssue[] = [];
-    visit(schema.if, value, path, conditionIssues, root);
+    visit(schema.if, value, path, conditionIssues, root, resolveSchema);
     const branch = conditionIssues.length === 0 ? schema.then : schema.else;
-    if (branch) visit(branch, value, path, issues, root);
+    if (branch) visit(branch, value, path, issues, root, resolveSchema);
   }
   if (schema.not) {
     const candidateIssues: ValidationIssue[] = [];
-    visit(schema.not, value, path, candidateIssues, root);
+    visit(schema.not, value, path, candidateIssues, root, resolveSchema);
     if (candidateIssues.length === 0) issues.push({ path, message: "matched forbidden schema" });
   }
   if (schema.const !== undefined && JSON.stringify(value) !== JSON.stringify(schema.const)) {
@@ -120,12 +155,12 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
     if (schema.uniqueItems && new Set(value.map(canonicalize)).size !== value.length) {
       issues.push({ path, message: "expected unique items" });
     }
-    if (schema.items) value.forEach((item, index) => visit(schema.items!, item, `${path}[${index}]`, issues, root));
+    if (schema.items) value.forEach((item, index) => visit(schema.items!, item, `${path}[${index}]`, issues, root, resolveSchema));
     if (schema.contains) {
       const minContains = schema.minContains ?? 1;
       const matched = value.filter((item, index) => {
         const candidateIssues: ValidationIssue[] = [];
-        visit(schema.contains!, item, `${path}[${index}]`, candidateIssues, root);
+        visit(schema.contains!, item, `${path}[${index}]`, candidateIssues, root, resolveSchema);
         return candidateIssues.length === 0;
       }).length;
       if (matched < minContains) issues.push({ path, message: `expected at least ${minContains} items matching contains` });
@@ -137,7 +172,7 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
       if (!(key in objectValue)) issues.push({ path: `${path}.${key}`, message: "required" });
     }
     for (const [key, child] of Object.entries(schema.properties ?? {})) {
-      if (key in objectValue) visit(child, objectValue[key], `${path}.${key}`, issues, root);
+      if (key in objectValue) visit(child, objectValue[key], `${path}.${key}`, issues, root, resolveSchema);
     }
     if (schema.additionalProperties === false && schema.properties) {
       for (const key of Object.keys(objectValue)) {
@@ -145,6 +180,31 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
       }
     }
   }
+}
+
+function resolveRef(
+  root: JsonSchema,
+  resolveSchema: JsonSchemaResolver | undefined,
+  ref: string
+): { schema: JsonSchema; root: JsonSchema } | undefined {
+  if (ref.startsWith("#")) {
+    const schema = resolveLocalRef(root, ref);
+    return schema ? { schema, root } : undefined;
+  }
+  if (!resolveSchema || typeof root.$id !== "string") return undefined;
+  let absolute: URL;
+  try {
+    absolute = new URL(ref, root.$id);
+  } catch {
+    return undefined;
+  }
+  const fragment = absolute.hash;
+  absolute.hash = "";
+  const document = resolveSchema(absolute.href);
+  if (!document) return undefined;
+  if (fragment === "" || fragment === "#") return { schema: document, root: document };
+  const schema = resolveLocalRef(document, fragment);
+  return schema ? { schema, root: document } : undefined;
 }
 
 function resolveLocalRef(root: JsonSchema, ref: string): JsonSchema | undefined {

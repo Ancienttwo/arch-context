@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,8 +9,6 @@ import {
   moduleStatisticsSnapshotInvariantIssues,
   refactorProposalDigest,
   refactorScanInvariantIssues,
-  validateJsonSchema,
-  type Json,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
   type RefactorAssessmentV1,
@@ -25,6 +23,7 @@ import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-fact
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { REPOSITORY_REFACTOR_REQUEST, refactorRequestId } from "../src/refactor-scan";
 import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "../src/index";
+import { publishedSchemaIssues as publishedRuntimeSchemaIssues } from "../../../contracts/test/published-schemas";
 
 const PREVIOUS_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-refactor-scan-state-"));
@@ -671,9 +670,9 @@ describe("deciding a scan candidate", () => {
 });
 
 /** Validates a real daemon response against the published runtime schema (#282). */
+/** Full validation: every `$ref`, including the cross-file evidence-item/binding ones, is resolved. */
 function publishedSchemaIssues(schemaFile: string, value: unknown) {
-  const schema = JSON.parse(readFileSync(join(import.meta.dir, "../../../../schemas/runtime", schemaFile), "utf8"));
-  return validateJsonSchema(schema, value as Json).issues;
+  return publishedRuntimeSchemaIssues(`runtime/${schemaFile}`, value);
 }
 
 describe("scan-time evidence and recommendations show", () => {

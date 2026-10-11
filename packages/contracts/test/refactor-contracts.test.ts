@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { publishedSchemaResolver } from "./published-schemas";
 import {
   ERROR_CATALOG,
   type ArchContextErrorCode
@@ -1411,7 +1412,8 @@ describe("refactor JSON schemas", () => {
   const payloadSchema = schema("structural-observation-payload.schema.json");
   const scanSchema = schema("runtime-refactor-scan.schema.json");
   const showSchema = schema("runtime-recommendation-show.schema.json");
-  const issuesOf = (target: unknown, value: unknown) => validateJsonSchema(target as never, value as Json).issues;
+  const issuesOf = (target: unknown, value: unknown) =>
+    validateJsonSchema(target as never, value as Json, { resolveSchema: publishedSchemaResolver() }).issues;
   const structural = (payload: Partial<StructuralObservationPayloadV1> = {}, overrides: Partial<RecommendationV3Base> = {}) =>
     makeRecommendationV3(
       { enforcement: "advisory", authoredBy: { kind: "daemon", id: "archctxd", source: "daemon" }, ...overrides },
