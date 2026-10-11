@@ -52,6 +52,15 @@ export const REPOSITORY_REFACTOR_REQUEST: RefactorRequestV1 = {
 };
 
 /**
+ * The repository-scope request at one import-node read limit. No limit gives the default request
+ * itself, so a default re-measure keeps the default `requestId`. A limit gives the request, and so
+ * the `requestId`, that `refactor scan --import-node-limit <n>` measured.
+ */
+export function repositoryRefactorRequest(importNodeLimit: number | undefined): RefactorRequestV1 {
+  return importNodeLimit === undefined ? REPOSITORY_REFACTOR_REQUEST : { ...REPOSITORY_REFACTOR_REQUEST, importNodeLimit };
+}
+
+/**
  * A scan failure the caller can act on. The daemon maps `code` straight onto the envelope; any
  * other throw is a defect and surfaces as `AC_SCHEMA_INVALID`.
  */

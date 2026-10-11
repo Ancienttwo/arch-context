@@ -344,13 +344,58 @@ describe("capability documentation projection inputs from the code index", () =>
     });
   });
 
-  test("reports a saturated index dump as truncated instead of as a complete edge set", () => {
-    const { root, binary } = seedWorkspace({ withIndex: true });
-    const footprintOnly = { nodes: [{ ...model.nodes[0], source: { include: ["packages/docs/**"] } }], relations: [] };
+  // The fake index always replies with its 6 import nodes, whatever `-l` asks for.
+  const footprintOnly = { nodes: [{ ...model.nodes[0], source: { include: ["packages/docs/**"] } }], relations: [] };
+  const importQueryLimits = (log: string) => readFileSync(log, "utf8").trim().split("\n")
+    .map((line) => JSON.parse(line) as string[])
+    .filter((argv) => argv[0] === "query")
+    .map((argv) => argv[argv.indexOf("-l") + 1]);
+
+  test("reads the whole import population when the limit equals the import count", () => {
+    const { root, binary, log } = seedWorkspace({ withIndex: true });
     try {
-      const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeLimit: 6 });
-      expect(inputs.importGraphs[0].truncated).toBe(true);
+      const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeLimit: 6, importNodeCount: 6 });
+      expect(importQueryLimits(log)).toEqual(["7"]);
+      expect(inputs.importGraphs[0].truncated).toBe(false);
+      expect(inputs.importGraphs[0].importNodeLimitExceeded).toBeUndefined();
+      expect(inputs.importGraphs[0].edges).toHaveLength(3);
       expect(inputs.selectorEvidence).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reports a reply shorter than the index import count as truncated", () => {
+    const { root, binary, log } = seedWorkspace({ withIndex: true });
+    try {
+      const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeCount: 8 });
+      expect(importQueryLimits(log)).toEqual(["9"]);
+      expect(inputs.importGraphs[0].truncated).toBe(true);
+      expect(inputs.importGraphs[0].importNodeLimitExceeded).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reports a limit below the import count apart from truncation", () => {
+    for (const importNodeCount of [6, null]) {
+      const { root, binary, log } = seedWorkspace({ withIndex: true });
+      try {
+        const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeLimit: 5, importNodeCount });
+        expect(importQueryLimits(log)).toEqual(["6"]);
+        expect(inputs.importGraphs[0].importNodeLimitExceeded).toBe(true);
+        expect(inputs.importGraphs[0].truncated).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("refuses an import node limit that is not a positive integer", () => {
+    const { root, binary } = seedWorkspace({ withIndex: true });
+    try {
+      expect(() => loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeLimit: 0 }))
+        .toThrow("import node limit must be a positive integer, got 0");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

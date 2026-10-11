@@ -126,6 +126,13 @@ means the read returned fewer nodes than the index reported, or no index answere
 The scan measures the `HEAD` tree only. `untrackedExcludedCount` counts the worktree files that Git
 does not ignore and that `HEAD` does not carry (untracked and newly staged files). A commit that
 adds them changes the numbers for the same model (capability `refactor-scan-untracked-count-v1`).
+
+A scan-candidate decision and a scan-candidate `recommendations show` measure again with the
+`importNodeLimit` the caller gives (CLI `--import-node-limit`). Give the limit of the scan that
+found the candidate; the request and its `requestId` are then the same as that scan's.
+`refactor verify` measures again with the request field `importNodeLimit` (CLI
+`--import-node-limit`). Without it, verify uses the limit of the recorded baseline snapshot. A
+baseline recorded before `importNodeCount` existed uses the default.
 `recommendations list --status <status>` returns the latest record of every recorded
 recommendation in that status with no item or byte budget; `book recommendations` keeps its budget.
 

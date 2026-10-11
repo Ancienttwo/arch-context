@@ -29,10 +29,12 @@ import {
 import {
   REPOSITORY_REFACTOR_REQUEST,
   RefactorScanError,
+  repositoryRefactorRequest,
   runRefactorScan,
   type RefactorScanResultV1
 } from "./refactor-scan";
 import {
+  baselineImportNodeLimit,
   baselineSnapshotForRecommendation,
   findResolutionEvidence,
   refactorVerifyIngressIssues,
@@ -122,11 +124,15 @@ export class RecommendationsService {
         }
       } as unknown as Json);
     };
+    // Checked for every command, so a bad value is refused even where no scan reads it.
+    if (input.importNodeLimit !== undefined && !(Number.isInteger(input.importNodeLimit) && input.importNodeLimit >= 1)) {
+      return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendations ${command} importNodeLimit must be a positive integer`);
+    }
     if (command === "metrics") return readMetrics();
     if (command === "list") return this.listRecommendations(repositoryRoot, input.status);
     if (command === "show") {
       if (!input.recommendationId) return errorEnvelope("recommendations.show", "AC_SCHEMA_INVALID", "recommendations show requires --id");
-      return this.showRecommendation(repositoryRoot, input.recommendationId);
+      return this.showRecommendation(repositoryRoot, input.recommendationId, input.importNodeLimit);
     }
     if (!isRecommendationLifecycleCliAction(command)) {
       return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics|show|list");
@@ -216,6 +222,9 @@ export class RecommendationsService {
    * Recording is the whole scan run, exactly as `refactor record` would write it: a run is the
    * unit the ledger's run identity, output digest and evidence bindings are computed over, and
    * recording a subset of it would persist a run whose digests describe records it never wrote.
+   *
+   * The scan reads at `input.importNodeLimit`, so a candidate from `refactor scan
+   * --import-node-limit <n>` is found, and recorded under the same `requestId`, with the same limit.
    */
   private async decideScanCandidate(
     root: string,
@@ -226,7 +235,11 @@ export class RecommendationsService {
   ): Promise<JsonEnvelope> {
     const surface = `recommendations.${command}`;
     const recommendationId = input.recommendationId!;
-    const measured = await this.measureRepository(repositoryRoot, REPOSITORY_REFACTOR_REQUEST, `recommendations ${command}`);
+    const measured = await this.measureRepository(
+      repositoryRoot,
+      repositoryRefactorRequest(input.importNodeLimit),
+      `recommendations ${command}`
+    );
     if (!measured.ok) {
       return errorEnvelope(
         surface,
@@ -332,9 +345,14 @@ export class RecommendationsService {
    *
    * A recorded id is answered from the ledger alone. An id the ledger does not hold is answered
    * from the repository scan at the tree that is here now, under the same identity a decision on
-   * it would record, so a UI can show a candidate and then decide it by the same id.
+   * it would record, so a UI can show a candidate and then decide it by the same id. The scan reads
+   * at `importNodeLimit`, the limit a decision on the candidate must also be given.
    */
-  private async showRecommendation(repositoryRoot: string, recommendationId: string): Promise<JsonEnvelope> {
+  private async showRecommendation(
+    repositoryRoot: string,
+    recommendationId: string,
+    importNodeLimit: number | undefined
+  ): Promise<JsonEnvelope> {
     const scope = await this.context.architectureLedgerScope(repositoryRoot);
     const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
     const artifacts = recommendationArtifactsFromEvents(replay.events);
@@ -358,7 +376,7 @@ export class RecommendationsService {
         worktree: null
       });
     }
-    const measured = await this.measureRepository(repositoryRoot, REPOSITORY_REFACTOR_REQUEST, "recommendations show");
+    const measured = await this.measureRepository(repositoryRoot, repositoryRefactorRequest(importNodeLimit), "recommendations show");
     if (!measured.ok) {
       return errorEnvelope(
         "recommendations.show",
@@ -842,11 +860,14 @@ export class RecommendationsService {
         });
       }
 
+      const baseline = baselineSnapshotForRecommendation(replay.evidenceState, recommendation.recommendationId);
+      // AFTER reads the import population BEFORE read, unless the caller names a limit.
+      const importNodeLimit = input.importNodeLimit ?? baselineImportNodeLimit(baseline?.snapshot);
       let scan: RefactorScanResultV1;
       try {
         scan = runRefactorScan({
           root: repositoryRoot,
-          request: REPOSITORY_REFACTOR_REQUEST,
+          request: repositoryRefactorRequest(importNodeLimit),
           repository: gitScope.repository,
           worktree: gitScope.worktree,
           previousRecommendations: artifacts.recommendations,
@@ -856,7 +877,6 @@ export class RecommendationsService {
         if (error instanceof RefactorScanError) return errorEnvelope("refactor.verify", error.code, error.message, error.reasonCode);
         return errorEnvelope("refactor.verify", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
       }
-      const baseline = baselineSnapshotForRecommendation(replay.evidenceState, recommendation.recommendationId);
       let plan: ReturnType<typeof runRefactorVerify>;
       try {
         plan = runRefactorVerify({
@@ -1055,11 +1075,15 @@ function decodeRuntimeRefactorVerifyInput(value: unknown): RuntimeRefactorVerify
       throw new RuntimeRefactorInputError(`refactor verify ${field} must be a non-empty string`);
     }
   }
+  if (input.importNodeLimit !== undefined && typeof input.importNodeLimit !== "number") {
+    throw new RuntimeRefactorInputError("refactor verify importNodeLimit must be a positive integer");
+  }
   const request: RuntimeRefactorVerifyInput = {
     schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
     recommendationId: input.recommendationId,
     ...(typeof input.expectedHeadSha === "string" ? { expectedHeadSha: input.expectedHeadSha } : {}),
     ...(typeof input.expectedWorktreeDigest === "string" ? { expectedWorktreeDigest: input.expectedWorktreeDigest } : {}),
+    ...(typeof input.importNodeLimit === "number" ? { importNodeLimit: input.importNodeLimit } : {}),
     ...(input.executionEvidenceRefs === undefined
       ? {}
       : { executionEvidenceRefs: decodeRuntimeExecutionEvidenceRefs(input.executionEvidenceRefs) })

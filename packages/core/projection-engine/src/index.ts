@@ -263,8 +263,17 @@ export interface CapabilityImportGraph {
   files: string[];
   /** Edges whose `from` is one of `files`; `to` may sit outside the footprint. */
   edges: CapabilityImportEdge[];
-  /** The index dump hit its budget, so `edges` may be incomplete. Printed, never hidden. */
+  /**
+   * The index read returned a different number of import nodes than the index reported (the index
+   * changed during the read), so `edges` may be incomplete. Printed, never hidden.
+   */
   truncated: boolean;
+  /**
+   * Present only when the index holds more import nodes than the read limit. `edges` then come
+   * from the first limit nodes. This is a configured limit, not an incomplete index, so
+   * `truncated` stays false.
+   */
+  importNodeLimitExceeded?: true;
 }
 
 const SOURCE_FOOTPRINT_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
