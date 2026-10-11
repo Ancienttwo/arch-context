@@ -234,16 +234,18 @@ test("check, plan and apply agree on orphaned module documents after a node is r
 async function withProtocolFixture(prefix: string, run: (context: {
   root: string;
   daemon: Awaited<ReturnType<typeof createStartedDaemon>>;
+  localStore: TestLocalStore;
   cli: (command: string, args: string[]) => ReturnType<typeof runCli>;
   request: (mode: ProjectionRequestV1["mode"], requestId: string, extra?: Partial<ProjectionRequestV1>) => ProjectionRequestV1;
   projectionRun: (request: unknown) => ReturnType<typeof runCli>;
 }) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), prefix));
   const stateRoot = join(dirname(root), `.archctx-state-${basename(root)}`);
+  const localStore = new TestLocalStore();
   const daemon = await createStartedDaemon({
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
     codeGraphProviderFactory: () => new MockCodeGraphProvider(),
-    localStore: new TestLocalStore()
+    localStore
   });
   const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
   const request = (mode: ProjectionRequestV1["mode"], requestId: string, extra: Partial<ProjectionRequestV1> = {}): ProjectionRequestV1 => ({
@@ -262,7 +264,7 @@ async function withProtocolFixture(prefix: string, run: (context: {
     const baseline = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
     expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
     commitAll(root, "project architecture documentation");
-    await run({ root, daemon, cli, request, projectionRun });
+    await run({ root, daemon, localStore, cli, request, projectionRun });
   } finally {
     await daemon.stop();
     rmSync(stateRoot, { recursive: true, force: true });
@@ -319,6 +321,35 @@ test("projection apply accepts the major change it observes in one request (#261
     expect(after.status).toBe("noop");
     // With nothing left to accept, the flag is a plain apply.
     expect(projectionResult(await projectionRun(request("apply", "projection_request.observed_noop", { acceptObservedMajorChange: true }))).status).toBe("noop");
+  });
+}, TEST_TIMEOUT_MS);
+
+test("acceptObservedMajorChange is declined, not ignored, when a capability proof is unprovable (#275)", async () => {
+  await withProtocolFixture("archctx-projection-declined-", async ({ root, request, projectionRun }) => {
+    editKeptSummary(root);
+    // A capability with no flow has an unprovable P2 proof, so no observed change can be accepted.
+    rmSync(join(root, ".archcontext/model/flows/flow.automation-budget.yaml"));
+    const docsBefore = docsSnapshot(root);
+
+    // Without the flag the result is unchanged: an unresolved major change, no acceptance field.
+    const withoutFlag = projectionResult(await projectionRun(request("apply", "projection_request.declined_without_flag")));
+    expect(withoutFlag.status).toBe("human-action-required");
+    expect(withoutFlag.humanActions.map((action) => action.reasonCode)).toEqual(["unresolved-major-change"]);
+    expect(withoutFlag.majorChangeAcceptance).toBeUndefined();
+
+    // With the flag, apply and adopt both say it was declined and name the unprovable capability.
+    // The adoption plan is never reached: the declined change stops adopt before adoption runs.
+    for (const declinedRequest of [
+      request("apply", "projection_request.declined_apply", { acceptObservedMajorChange: true }),
+      request("adopt", "projection_request.declined_adopt", { acceptObservedMajorChange: true, adoptionPlanId: "adoption_plan.not_reached" })
+    ]) {
+      const declined = projectionResult(await projectionRun(declinedRequest));
+      expect(declined.status, declinedRequest.mode).toBe("human-action-required");
+      expect(declined.majorChangeAcceptance).toBe("declined-unprovable-proof");
+      expect(declined.humanActions.map((action) => [action.reasonCode, action.affectedNodeIds])).toEqual([["unprovable-required-flow", [REMOVED]]]);
+      expect(declined.applyReceipt).toBeUndefined();
+    }
+    expect(docsSnapshot(root)).toEqual(docsBefore);
   });
 }, TEST_TIMEOUT_MS);
 
@@ -442,6 +473,59 @@ test("a repeated accepted apply returns the committed result without applying ag
     expect(readback.ok, JSON.stringify(readback)).toBe(true);
     expect((readback.data as any).receipt.result.receiptDigest).toBe(first.receiptDigest);
     expect((readback.data as any).receipt.recovery.requestDigest).toBe(digestJson(original as any));
+  });
+}, TEST_TIMEOUT_MS);
+
+test("AC_PROJECTION_APPLY_COMMITTED details are a readback request a flag-only caller can send (#278)", async () => {
+  await withProtocolFixture("archctx-projection-committed-readback-", async ({ root, localStore, cli, request, projectionRun }) => {
+    editKeptSummary(root);
+    // The caller never holds an acceptedChange: it applies with the flag only.
+    const original = request("apply", "projection_request.committed_readback", { acceptObservedMajorChange: true });
+    const first = projectionResult(await projectionRun(original));
+    expect(first.status).toBe("applied");
+    const readBack = async (details: any) => {
+      // Followed literally: the details' readback request goes to `projection readback` unchanged.
+      const readback = await cli("projection", ["readback", "--request-json", JSON.stringify(details.readbackRequest)]);
+      expect(readback.ok, JSON.stringify(readback)).toBe(true);
+      expect((readback.data as any).receipt.result).toEqual(first);
+    };
+
+    const different = await projectionRun({ ...original, changedPaths: [`.archcontext/model/nodes/${KEPT}.yaml`] });
+    expect(different.ok).toBe(false);
+    const differs = (different as any).error;
+    expect(differs).toMatchObject({
+      code: "AC_PROJECTION_APPLY_COMMITTED",
+      reasonCode: "projection-apply-request-differs",
+      details: {
+        requestId: original.requestId,
+        lookupKey: first.applyReceipt!.lookupKey,
+        applyId: first.applyReceipt!.applyId,
+        requestDigest: digestJson(original as any),
+        readbackRequest: { requestId: original.requestId, mode: "apply", acceptedChange: first.applyReceipt!.acceptedChange }
+      }
+    });
+    expect(differs.message).toContain("new requestId");
+    expect(differs.message).toContain("error.details.readbackRequest");
+    await readBack(differs.details);
+
+    // A pre-#265 receipt recorded no request digest: no request can be proven equal to it, so the
+    // same request under that requestId stays refused, and the details still read it back.
+    const journals = (localStore as any).changeSetJournals as Map<string, { projectionApplyReceipt?: { recovery?: { requestDigest?: string } } }>;
+    const committed = [...journals.values()].find((entry) => entry.projectionApplyReceipt?.recovery?.requestDigest !== undefined);
+    if (!committed) throw new Error("fixture committed no receipt with a request digest");
+    delete committed.projectionApplyReceipt!.recovery!.requestDigest;
+    const unrecorded = await projectionRun(original);
+    expect(unrecorded.ok).toBe(false);
+    const legacy = (unrecorded as any).error;
+    expect(legacy).toMatchObject({
+      code: "AC_PROJECTION_APPLY_COMMITTED",
+      reasonCode: "projection-apply-request-digest-unrecorded",
+      retryable: false,
+      details: { requestId: original.requestId, lookupKey: first.applyReceipt!.lookupKey, applyId: first.applyReceipt!.applyId }
+    });
+    expect(legacy.details.requestDigest).toBeUndefined();
+    expect(legacy.message).toContain("new requestId");
+    await readBack(legacy.details);
   });
 }, TEST_TIMEOUT_MS);
 

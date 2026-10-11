@@ -66,6 +66,7 @@ import {
   archctxCapabilities,
   projectionApplyAbsenceInvariantIssues,
   projectionApplyLookupKey,
+  projectionApplyReadbackRequestFromReceipt,
   projectionApplyReadbackRequestInvariantIssues,
   projectionApplyRecoveryProofInvariantIssues,
   projectionApplyRecoveryProofDigest,
@@ -78,6 +79,7 @@ import {
   projectionResultRequestModeIssues,
   type ArchitectureRefreshSignalV1,
   type ProjectionApplyRecoveryProofV1,
+  type ProjectionApplyReceiptV1,
   type ProjectionApplyRecoveryIntentV1,
   type ProjectionApplyRecoveryResultV1,
   type ProjectionFreshnessV1,
@@ -499,6 +501,27 @@ test("projection readback schema embeds canonical request and result contracts",
     .toContain("readback request contains unsupported fields");
 });
 
+test("a committed receipt yields the exact readback request its recovery binding approved (#278)", () => {
+  const fixture = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
+  const acceptedChange = { changeSetId: "changeset.observed", eventId: "event.observed", reasonCodes: ["responsibility-changed" as const], affectedNodeIds: ["capability.example"] };
+  const recovery = { targets: ["agent-context", "architecture-docs"], changedPaths: ["src/a.ts"], originalExpectedSnapshot: fixture.expected };
+  const receipt = { result: { requestId: "projection_request.observed" }, identity: { acceptedChange }, recovery } as unknown as ProjectionApplyReceiptV1;
+  const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
+  expect(readbackRequest).toEqual({
+    schemaVersion: "archcontext.projection-request/v1",
+    requestId: "projection_request.observed",
+    profile: "repo-harness/v1",
+    mode: "apply",
+    targets: ["agent-context", "architecture-docs"],
+    changedPaths: ["src/a.ts"],
+    expected: fixture.expected,
+    acceptedChange
+  });
+  expect(projectionApplyReadbackRequestInvariantIssues(readbackRequest!)).toEqual([]);
+  // Without a recovery binding readback cannot prove the receipt, so no request is offered.
+  expect(projectionApplyReadbackRequestFromReceipt({ ...receipt, recovery: undefined })).toBeUndefined();
+});
+
 test("projection absence binds the original request and exact current snapshot", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
   const request: ProjectionRequestV1 = { ...fixture, mode: "apply", acceptedChange: {
@@ -756,6 +779,34 @@ test("a replayed result keeps the committed receipt digest and needs a committed
   expect(projectionResultInvariantIssues(plannedReplay)).toContain("replayed is only allowed on a committed apply result with applyReceipt");
   expect(validateJsonSchema(schema as any, plannedReplay as any).valid).toBe(false);
   expect(validateJsonSchema(schema as any, { ...replayed, replayed: false } as any).valid).toBe(false);
+});
+
+test("a declined acceptObservedMajorChange is explicit and replaces the unresolved major change (#275)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const requestPayloadDigest = `sha256:${"e".repeat(64)}` as const;
+  const result = (status: ProjectionResultV2["status"], humanActions: ProjectionResultV2["humanActions"], majorChangeAcceptance: unknown = "declined-unprovable-proof") => {
+    const { receiptDigest: _receiptDigest, ...payload } = valid;
+    const withoutReceipt = { ...payload, status, humanActions, majorChangeAcceptance } as Omit<ProjectionResultV2, "receiptDigest">;
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+  };
+  const unprovable = { reasonCode: "unprovable-required-flow" as const, affectedNodeIds: ["capability.api"], requestPayloadDigest };
+  const declined = result("human-action-required", [unprovable]);
+  expect(projectionResultInvariantIssues(declined)).toEqual([]);
+  expect(validateJsonSchema(schema as any, declined as any).valid).toBe(true);
+
+  const requirement = "majorChangeAcceptance requires human-action-required with unprovable-required-flow in place of unresolved-major-change";
+  expect(projectionResultInvariantIssues(result("planned", []))).toContain(requirement);
+  expect(validateJsonSchema(schema as any, result("planned", []) as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(result("human-action-required", [{ ...unprovable, reasonCode: "unresolved-major-change" }]))).toContain(requirement);
+  const both = result("human-action-required", [unprovable, { ...unprovable, reasonCode: "unresolved-major-change" }]);
+  expect(projectionResultInvariantIssues(both)).toContain(requirement);
+  expect(validateJsonSchema(schema as any, both as any).valid).toBe(false);
+  const withoutUnprovable = result("human-action-required", [{ ...unprovable, reasonCode: "manual-region-conflict" }]);
+  expect(projectionResultInvariantIssues(withoutUnprovable)).toContain(requirement);
+  expect(validateJsonSchema(schema as any, withoutUnprovable as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(result("human-action-required", [unprovable], "declined"))).toContain("majorChangeAcceptance is unsupported");
+  expect(validateJsonSchema(schema as any, result("human-action-required", [unprovable], "declined") as any).valid).toBe(false);
 });
 
 test("a committed projection apply is a distinct, non-retryable error code (#265)", () => {

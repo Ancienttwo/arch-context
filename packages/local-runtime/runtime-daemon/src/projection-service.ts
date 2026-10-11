@@ -5,7 +5,7 @@ import { ProjectionSourceFilesUnavailableError, findRepositoryRoot, readHeadSha 
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import { PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV2, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -449,6 +449,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   // re-checks under its writer lock before the ChangeSet touches a file (#261).
   let observed: ReturnType<typeof buildArchitectureDocsProjection> | undefined;
   let acceptedChange = request.acceptedChange;
+  let declinedUnprovableNodeIds: string[] | undefined;
   if (request.acceptObservedMajorChange === true) {
     try {
       observed = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE);
@@ -456,7 +457,9 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     } catch (error) {
       return projectionFailureEnvelope("projection.run", error);
     }
-    acceptedChange = observedMajorChangeAcceptance(request, observed);
+    const acceptance = observedMajorChangeAcceptance(request, observed);
+    if (acceptance && "acceptedChange" in acceptance) acceptedChange = acceptance.acceptedChange;
+    else if (acceptance) declinedUnprovableNodeIds = acceptance.unprovableNodeIds;
   }
   if (request.mode === "apply" && acceptedChange) {
     try {
@@ -471,7 +474,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       if (existing.found === true) {
         if (!existing.receipt) throw new Error("committed projection apply receipt lookup returned no receipt");
         // Another request already applied this exact accepted change.
-        return projectionApplyCommittedEnvelope(existing.receipt, "projection-accepted-change-committed");
+        return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed");
       }
     } catch (error) {
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
@@ -491,7 +494,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   }
 
   const blocked = projectionProtocolHumanStatus(request, projection);
-  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies);
+  if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies, undefined, declinedUnprovableNodeIds);
 
   if (request.mode === "adopt") {
     const expectedWorktreeDigest = computeWorktreeDigest(root);
@@ -603,6 +606,7 @@ async function replayCommittedProjectionApply(
   if (!match) {
     const latest = [...committed].sort((left, right) => left.committedAt < right.committedAt ? -1 : left.committedAt > right.committedAt ? 1 : 0).at(-1)!;
     return projectionApplyCommittedEnvelope(
+      "projection.run",
       latest.receipt,
       latest.receipt.recovery?.requestDigest === undefined ? "projection-apply-request-digest-unrecorded" : "projection-apply-request-differs"
     );
@@ -615,36 +619,65 @@ async function replayCommittedProjectionApply(
   return projectionProtocolResultEnvelope({ ...committedResult, replayed: true });
 }
 
-function projectionApplyCommittedEnvelope(receipt: ProjectionApplyReceiptV1, reasonCode: string): JsonEnvelope {
+/**
+ * AC_PROJECTION_APPLY_COMMITTED carries everything needed to read the committed apply back: the
+ * receipt's own readback request (`details.readbackRequest`, sent unchanged to `projection
+ * readback`) and, when recorded, the original request digest. A caller that applied with
+ * `acceptObservedMajorChange` never held the accepted change, so it cannot rebuild that request
+ * itself (#278). A receipt without a request digest cannot be proven equal to any request, so its
+ * requestId is never reused: the caller must pick a new one.
+ */
+export function projectionApplyCommittedEnvelope(
+  envelopeRequestId: string,
+  receipt: ProjectionApplyReceiptV1,
+  reasonCode: "projection-accepted-change-committed" | "projection-apply-request-differs" | "projection-apply-request-digest-unrecorded"
+): JsonEnvelope {
+  const requestId = receipt.result.requestId;
+  const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
+  const requestDigest = receipt.recovery?.requestDigest;
+  const cause = {
+    "projection-accepted-change-committed": `this accepted change was already applied under requestId ${requestId}`,
+    "projection-apply-request-differs": `requestId ${requestId} already committed an apply for a different request; send this request under a new requestId`,
+    "projection-apply-request-digest-unrecorded": `requestId ${requestId} committed an apply before request digests were recorded, so no request can be proven equal to it and the requestId cannot be reused; send this request under a new requestId`
+  }[reasonCode];
+  const readback = readbackRequest
+    ? "to read the committed result, send error.details.readbackRequest unchanged as the projection readback request (CLI: projection readback --request-json); deliver pending refresh signals with projection recover and error.details requestId, lookupKey and applyId"
+    : "the committed receipt has no recovery binding, so projection readback and projection recover cannot prove it";
   return errorEnvelope(
-    "projection.run",
+    envelopeRequestId,
     "AC_PROJECTION_APPLY_COMMITTED",
-    `projection apply already committed for requestId ${receipt.result.requestId}; read it back with projection readback or deliver it with projection recover`,
+    `${cause}; ${readback}`,
     reasonCode,
     {
-      requestId: receipt.result.requestId,
+      requestId,
       lookupKey: receipt.identity.lookupKey,
-      applyId: receipt.identity.applyId
+      applyId: receipt.identity.applyId,
+      ...(requestDigest === undefined ? {} : { requestDigest }),
+      ...(readbackRequest === undefined ? {} : { readbackRequest: readbackRequest as unknown as Json })
     }
   );
 }
 
 /**
  * The accepted change `acceptObservedMajorChange` authorizes: exactly the major change this run
- * classified. Undefined when there is none, or when it cannot be accepted because a capability
- * proof is unprovable; the request then reports the same `human-action-required` result it would
- * without the flag. The provider-generated ids are content-addressed over the expected snapshot
- * and the observed change, so one observation always yields one reference and one lookup key.
+ * classified. Undefined when there is none. When a capability proof is unprovable no observed
+ * change can be accepted, and the flag is declined with those capability ids: the result reports
+ * `unprovable-required-flow` and `majorChangeAcceptance: "declined-unprovable-proof"` instead of
+ * the `unresolved-major-change` an absent flag gets (#275). The provider-generated ids are
+ * content-addressed over the expected snapshot and the observed change, so one observation always
+ * yields one reference and one lookup key.
  */
 function observedMajorChangeAcceptance(
   request: ProjectionRequestV1,
   observed: ReturnType<typeof buildArchitectureDocsProjection>
-): AcceptedArchitectureChangeReferenceV1 | undefined {
+): { acceptedChange: AcceptedArchitectureChangeReferenceV1 } | { unprovableNodeIds: string[] } | undefined {
   const majorChange = observed.plan.majorChange;
   if (majorChange.mode !== "human-action-required") return undefined;
-  const unprovable = observed.plan.semanticState.capabilities.some((capability) =>
-    capability.proofStatus.p1 === "unprovable" || capability.proofStatus.p2 === "unprovable");
-  if (unprovable) return undefined;
+  const unprovableNodeIds = observed.plan.semanticState.capabilities
+    .filter((capability) => capability.proofStatus.p1 === "unprovable" || capability.proofStatus.p2 === "unprovable")
+    .map((capability) => capability.capabilityId)
+    .sort();
+  if (unprovableNodeIds.length > 0) return { unprovableNodeIds };
   const key = digestJson({
     schemaVersion: "archcontext.observed-major-change-acceptance/v1",
     expected: request.expected,
@@ -653,10 +686,12 @@ function observedMajorChangeAcceptance(
     resultingDigests: observed.plan.architectureDigests
   } as unknown as Json).replace(/^sha256:/, "").slice(0, 16);
   return {
-    changeSetId: `changeset.observed-major-change-${key}`,
-    eventId: `projection_event.observed_major_change.${key}`,
-    reasonCodes: [...majorChange.reasonCodes],
-    affectedNodeIds: [...majorChange.affectedNodeIds]
+    acceptedChange: {
+      changeSetId: `changeset.observed-major-change-${key}`,
+      eventId: `projection_event.observed_major_change.${key}`,
+      reasonCodes: [...majorChange.reasonCodes],
+      affectedNodeIds: [...majorChange.affectedNodeIds]
+    }
   };
 }
 
@@ -970,9 +1005,10 @@ function projectionProtocolEnvelope(
   status: ProjectionResultV2["status"],
   output: ReturnType<typeof buildArchitectureDocsProjection>,
   priorCommittedApplies: ProjectionPriorCommittedApplyV1[],
-  freshness?: ProjectionFreshnessV1
+  freshness?: ProjectionFreshnessV1,
+  declinedUnprovableNodeIds?: string[]
 ): JsonEnvelope {
-  return projectionProtocolResultEnvelope(projectionProtocolResult(request, input, status, output, undefined, undefined, priorCommittedApplies, freshness));
+  return projectionProtocolResultEnvelope(projectionProtocolResult(request, input, status, output, undefined, undefined, priorCommittedApplies, freshness, declinedUnprovableNodeIds));
 }
 
 function projectionProtocolResult(
@@ -986,7 +1022,8 @@ function projectionProtocolResult(
     refreshSignals: ArchitectureRefreshSignalV1[];
   },
   priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = [],
-  freshness?: ProjectionFreshnessV1
+  freshness?: ProjectionFreshnessV1,
+  declinedUnprovableNodeIds?: string[]
 ): ProjectionResultV2 {
   const inputSnapshot = projectionProtocolSnapshot(request, input);
   const outputSnapshot = projectionProtocolSnapshot(request, output);
@@ -998,7 +1035,11 @@ function projectionProtocolResult(
   if (status === "adoption-required") {
     humanActions.push({ reasonCode: "adoption-required", affectedNodeIds, requestPayloadDigest });
   } else if (status === "human-action-required") {
-    if (input.plan.refreshSignals.some((signal) => signal.mode === "human-action-required")) {
+    if (declinedUnprovableNodeIds) {
+      // The flag was declined: name the capabilities whose proof blocks acceptance, so the caller
+      // does not retry the flag against the same unresolved change.
+      humanActions.push({ reasonCode: "unprovable-required-flow", affectedNodeIds: declinedUnprovableNodeIds, requestPayloadDigest });
+    } else if (input.plan.refreshSignals.some((signal) => signal.mode === "human-action-required")) {
       humanActions.push({ reasonCode: "unresolved-major-change", affectedNodeIds, requestPayloadDigest });
     } else if (input.plan.rejected.some((diff) => diff.reasonCode !== "projection-adoption-required")) {
       humanActions.push({ reasonCode: "manual-region-conflict", affectedNodeIds, requestPayloadDigest });
@@ -1023,7 +1064,8 @@ function projectionProtocolResult(
     refreshSignals,
     ...(applyReceipt ? { applyReceipt } : {}),
     ...(priorCommittedApplies.length > 0 ? { priorCommittedApplies } : {}),
-    ...(freshness ? { freshness } : {})
+    ...(freshness ? { freshness } : {}),
+    ...(declinedUnprovableNodeIds && status === "human-action-required" ? { majorChangeAcceptance: "declined-unprovable-proof" as const } : {})
   };
   const receiptDigest = projectionResultReceiptDigest(withoutReceipt);
   const result: ProjectionResultV2 = {
