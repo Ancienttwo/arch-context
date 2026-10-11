@@ -8,6 +8,7 @@ import {
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION as CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION,
+  ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION,
   PROJECTION_TARGET_SCHEMA_VERSION,
   architectureDocsProjectionManifestIssues,
   architectureDocsProjectionProvenanceIssues,
@@ -20,6 +21,7 @@ import {
   type ArchitectureDigestSetV1,
   type ArchitectureDocsProjectionManifestV2,
   type ArchitectureDocumentationProjectionProvenanceV3,
+  type ArchitectureFlowSelectorCheckV1,
   type ArchitectureFlowV1,
   type ArchitectureNodeSourceV2,
   type ArchitectureProjectionSemanticBaselineV1,
@@ -47,8 +49,10 @@ import {
   type ProjectionLayoutTargetDraft
 } from "./layout";
 import {
+  checkSemanticFlowSelectors,
   compileSemanticCapabilityDiagrams,
   type ArchitectureSelectorEvidenceV1,
+  type SemanticArchitectureNode,
   type SemanticCapabilityDiagramCompilation
 } from "./semantic-diagrams";
 import {
@@ -304,15 +308,10 @@ export function renderArchitectureDocumentationProjection(input: {
   const scaleSignalsByNodeId = new Map((input.sourceScaleSignals ?? []).map((signal) => [signal.nodeId, signal]));
   // One structured value per node: the module document prints it and the manifest records it.
   const scaleByNodeId = new Map([...scaleSignalsByNodeId].map(([nodeId, signal]) => [nodeId, architectureCapabilityScale(signal)]));
+  const semanticNodes = semanticArchitectureNodes(model);
   const semanticCompilationsByNodeId = new Map(model.nodes.map((node) => [node.id, compileSemanticCapabilityDiagrams({
     capabilityId: node.id,
-    nodes: model.nodes.map((entry) => ({
-      id: entry.id,
-      kind: entry.kind,
-      name: entry.name,
-      ...(entry.parent ? { parent: entry.parent } : {}),
-      ...(nativeNodeSource(entry) ? { source: nativeNodeSource(entry) } : {})
-    })),
+    nodes: semanticNodes,
     relations: model.relations,
     flows: model.flows ?? [],
     evidence: input.selectorEvidence
@@ -1098,6 +1097,40 @@ export function loadArchitectureProjectionManifestStamps(
     status: "present",
     nodes,
     ...(isV3Provenance ? { provenance: provenance as ArchitectureDocumentationProjectionProvenanceV3 } : {})
+  };
+}
+
+/** The node shape the semantic proof reads. Projection and `flows check` both build it here. */
+function semanticArchitectureNodes(model: NativeModel): SemanticArchitectureNode[] {
+  return model.nodes.map((entry) => ({
+    id: entry.id,
+    kind: entry.kind,
+    name: entry.name,
+    ...(entry.parent ? { parent: entry.parent } : {}),
+    ...(nativeNodeSource(entry) ? { source: nativeNodeSource(entry) } : {})
+  }));
+}
+
+/**
+ * `archctx flows check`: every declared selector's proof status and the P2 proof of every
+ * capability that declares a flow, from the same model normalization and proof code a projection
+ * uses, without rendering anything.
+ */
+export function checkArchitectureFlowSelectors(input: {
+  model: NativeModel;
+  selectorEvidence: ArchitectureSelectorEvidenceV1[];
+  codeGraph: ArchitectureFlowSelectorCheckV1["codeGraph"];
+}): ArchitectureFlowSelectorCheckV1 {
+  const model = normalizeNativeModel(input.model);
+  return {
+    schemaVersion: ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION,
+    codeGraph: input.codeGraph,
+    ...checkSemanticFlowSelectors({
+      nodes: semanticArchitectureNodes(model),
+      relations: model.relations,
+      flows: model.flows ?? [],
+      evidence: input.selectorEvidence
+    })
   };
 }
 

@@ -34,6 +34,26 @@ A repository that cannot build an index declares `codeFacts.required: false`; pr
 
 Consumers detect the typed error through the `code-facts-unavailable-error-v1` capability. A build without it renders a projection with a missing index and reports a flow-proof major change for every capability instead.
 
+### Checking flow selectors before a projection
+
+Run `archctx flows check --json` before an apply when you add or change an entrypoint selector or a flow. It takes seconds; an apply can take more than a minute. It runs the same P2 flow proof as a projection and renders nothing. It runs in-process, starts no daemon, opens no local store and writes no runtime state. Like `projection run` in `check` mode, it runs `codegraph sync` first.
+
+The result (`archcontext.flow-selector-check/v1`, `schemas/runtime/flow-selector-check.schema.json`) lists every declared selector with a `status` and the flow steps that use it. Only `proven` binds a flow step.
+
+| `status` | Meaning | Do this |
+| --- | --- | --- |
+| `proven` | One exact `calls` edge from the source symbol to the sink symbol. | Nothing. |
+| `no-direct-call` | The source does not call the sink. For example, the call goes through an injected dependency. | Select the function that makes the call. |
+| `only-references` | The source passes the sink as a value; it does not call it. | Select the function that calls the value. |
+| `false-builtin-call` | The only call carries a runtime built-in name (for example `resolve` or `existsSync`), and the source file does not import the sink file. CodeGraph matched a Node built-in to a repository function. | Select a real call. |
+| `ambiguous-symbol` | The source or the sink name has more than one declaration in its file. | Rename one declaration, or select another symbol. |
+| `evidence-missing` | No evidence. Usually the CodeGraph index is missing. | Run `codegraph init`. |
+| `evidence-truncated` | The evidence is incomplete. | Report it; this producer does not truncate today. |
+
+`ok` is `false` when a capability that declares a flow has an unprovable P2 proof. `capabilities[]` shows the same P2 status and diagnostics that a projection records. A selector that no flow uses can be unproven and `ok` can still be `true`; `summary.usedUnproven` counts only the selectors that a flow uses. Consumers detect the command through the `flow-selector-check-v1` capability.
+
+A built-in-named call is accepted only when the source file imports the sink file through a relative specifier. A call through a package alias or a re-exporting barrel is not proven this way. A call inside the sink file needs no import.
+
 ## Upgrading from archctx 0.6.3
 
 archctx 0.7.0 changes the committed projection format. It writes renderer `archcontext.docs-renderer/v5`, manifest `archcontext.architecture-docs-projection-manifest/v2` and provenance `archcontext.architecture-docs-projection-provenance/v3`. None of them is read as an older version, and an older one is never translated. Upgrade `archctx` and `archctx-contracts` together, and upgrade every installation that projects the same repository at the same time. An older archctx rewrites the new manifest back to the old format, and the two installations then rewrite each other's output.

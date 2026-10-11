@@ -22,6 +22,7 @@ import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand,
 import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 export { runProjectionCheckInvocation } from "./projection-service";
+export { runFlowSelectorCheckCommand } from "./flow-selector-check";
 import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type DeveloperReviewRunManifest, type DeveloperReviewRun, type DeveloperReviewRunPreparation, type DeveloperReviewRunCleanup, type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunRecovery } from "./developer-review-run";
 export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
 import { RecommendationsService, recommendationArtifactsFromEvents, type RuntimeRecommendationInput, type RuntimeRefactorScanInput, type RuntimeRefactorRecordInput } from "./recommendations";
