@@ -59,6 +59,7 @@ export const ARCHITECTURE_REFRESH_TARGETS = [
   "capability-index"
 ] as const;
 export const ARCHCTX_FEATURES = [
+  "architecture-change-capabilities-v1",
   "architecture-docs-renderer-v2",
   "architecture-refresh-signal-v1",
   "changeset-entity-operations-v1",
@@ -68,8 +69,10 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-recovery-v1",
   "projection-apply-replay-v1",
   "projection-check-freshness-v1",
+  "projection-manifest-contract-v1",
   "projection-observed-major-change-acceptance-v1",
   "projection-orphan-review-v1",
+  "projection-preview-v1",
   "projection-prior-committed-applies-v1",
   "projection-protocol-v2",
   "recommendation-scan-decision-v1",
@@ -78,6 +81,32 @@ export const ARCHCTX_FEATURES = [
   "refactor-observation-evidence-v1",
   "refactor-resolution-v1"
 ] as const;
+
+/**
+ * The closed set of semantic facets a capability's semantic state digests. Each facet maps to the
+ * major-change reason code it raises when its digest moves.
+ */
+export const ARCHITECTURE_SEMANTIC_FACETS = [
+  "constraints",
+  "entrypoints",
+  "interfaces",
+  "lifecycle",
+  "names",
+  "ownership",
+  "placement",
+  "relations",
+  "responsibilities",
+  "riskBoundaries"
+] as const;
+export const ARCHITECTURE_PROOF_P1_STATUSES = ["proven", "unprovable"] as const;
+export const ARCHITECTURE_PROOF_P2_STATUSES = ["not-applicable", "proven", "unprovable"] as const;
+
+/** `files[].preview.format`: a `create` carries the rendered body, an `update` or `delete` a unified diff. */
+export const PROJECTION_FILE_PREVIEW_FORMATS = ["body", "unified-diff"] as const;
+/** Upper bound, in UTF-8 bytes, on one `files[].preview.content`. */
+export const PROJECTION_FILE_PREVIEW_MAX_BYTES = 65_536;
+/** Upper bound, in UTF-8 bytes, on the sum of every `files[].preview.content` of one result. */
+export const PROJECTION_PREVIEW_TOTAL_MAX_BYTES = 1_048_576;
 
 /**
  * Why a projection is not fresh. Shared by the core freshness evaluator and the `check` result's
@@ -102,7 +131,46 @@ export type ProjectionPriorCommittedApplyOperation = (typeof PROJECTION_PRIOR_CO
 export type ArchitectureMajorChangeReasonCode = (typeof ARCHITECTURE_MAJOR_CHANGE_REASON_CODES)[number];
 export type ArchitectureRefreshTarget = (typeof ARCHITECTURE_REFRESH_TARGETS)[number];
 export type ArchctxFeature = (typeof ARCHCTX_FEATURES)[number];
+export type ArchitectureSemanticFacet = (typeof ARCHITECTURE_SEMANTIC_FACETS)[number];
+export type ProjectionFilePreviewFormat = (typeof PROJECTION_FILE_PREVIEW_FORMATS)[number];
 export type Sha256Digest = `sha256:${string}`;
+
+/** One capability's P1/P2 proof status, as its semantic state records it. */
+export interface ArchitectureCapabilityProofStatusV1 {
+  p1: (typeof ARCHITECTURE_PROOF_P1_STATUSES)[number];
+  p2: (typeof ARCHITECTURE_PROOF_P2_STATUSES)[number];
+}
+
+/**
+ * Why one capability is part of a major change: the reason codes and semantic facets that moved for
+ * it between the committed semantic baseline and this run. `proofStatusBefore` is null when the
+ * baseline has no such capability (or no baseline exists); `proofStatusAfter` is null when the
+ * capability was removed. A capability present on one side only lists no changed facets. A
+ * capability listed only because its current proof is unprovable, while another capability carries
+ * the observed change, lists no reason codes.
+ */
+export interface ArchitectureCapabilityChangeV1 {
+  capabilityId: string;
+  reasonCodes: ArchitectureMajorChangeReasonCode[];
+  changedFacets: ArchitectureSemanticFacet[];
+  proofStatusBefore: ArchitectureCapabilityProofStatusV1 | null;
+  proofStatusAfter: ArchitectureCapabilityProofStatusV1 | null;
+}
+
+/**
+ * What a `plan` would write to one file, returned in the response only and never persisted: the
+ * rendered body of a `create`, or a unified diff (current bytes to rendered bytes) of an `update` or
+ * `delete`. `content` is cut at a line boundary to at most PROJECTION_FILE_PREVIEW_MAX_BYTES UTF-8
+ * bytes, and to whatever remains of PROJECTION_PREVIEW_TOTAL_MAX_BYTES across the result, in path
+ * order; `byteLength` is the UTF-8 length of the complete content and `truncated` says whether
+ * `content` is shorter.
+ */
+export interface ProjectionFilePreviewV1 {
+  format: ProjectionFilePreviewFormat;
+  content: string;
+  byteLength: number;
+  truncated: boolean;
+}
 
 export interface ProjectionExpectedSnapshotV1 {
   repositoryId: string;
@@ -152,6 +220,12 @@ export interface ProjectionFileResultV1 {
   action: "create" | "delete" | "unchanged" | "update";
   preimageDigest: Sha256Digest | null;
   outputDigest: Sha256Digest | null;
+  /**
+   * `plan` results only (#264): what this entry would write. Absent on every other mode, on a
+   * committed receipt, and on an entry whose path the projection rejected for adoption or ownership
+   * repair, because no apply writes that rendered body. Consumers gate on `projection-preview-v1`.
+   */
+  preview?: ProjectionFilePreviewV1;
 }
 
 export interface ProjectionHumanActionV1 {
@@ -206,6 +280,13 @@ export interface ArchitectureRefreshSignalV1 {
   acceptedChange?: AcceptedArchitectureChangeReferenceV1;
   reasonCodes: ArchitectureMajorChangeReasonCode[];
   affectedNodeIds: string[];
+  /**
+   * The observed per-capability breakdown of the semantic delta this signal classifies, sorted by
+   * capabilityId (#264). Every signal this provider produces carries it; it is part of the signal
+   * identity; signals committed before it existed lack it. Consumers gate on
+   * `architecture-change-capabilities-v1`, not on field presence.
+   */
+  capabilities?: ArchitectureCapabilityChangeV1[];
   refreshTargets: ArchitectureRefreshTarget[];
   baseDigests: ArchitectureDigestSetV1;
   resultingDigests: ArchitectureDigestSetV1;
@@ -454,6 +535,17 @@ export function projectionRequestInvariantIssues(input: ProjectionRequestV1): st
   return issues;
 }
 
+/**
+ * Invariants that bind a result to the request mode that produced it, which the result itself does
+ * not carry: only a `plan` result previews what it would write (#264); `check`, `apply` and
+ * `adopt` results never carry `files[].preview`, whatever their status.
+ */
+export function projectionResultRequestModeIssues(input: ProjectionResultV2, mode: ProjectionMode): string[] {
+  return mode !== "plan" && input.files.some((file) => file.preview !== undefined)
+    ? [`files[].preview is only allowed on a plan result, never when mode=${mode}`]
+    : [];
+}
+
 export function projectionResultInvariantIssues(input: ProjectionResultV2): string[] {
   const issues = [
     ...sortedUniqueIssues("affectedNodeIds", input.affectedNodeIds),
@@ -500,6 +592,17 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     if (file.action === "unchanged" && (file.preimageDigest === null || file.outputDigest === null || file.preimageDigest !== file.outputDigest)) {
       issues.push(`${prefix} unchanged requires equal non-null digests`);
     }
+    if (file.preview !== undefined) issues.push(...projectionFilePreviewIssues(file, prefix));
+  }
+  const previewBytes = input.files.reduce((total, file) => total + (file.preview ? utf8ByteLength(file.preview.content) : 0), 0);
+  if (previewBytes > PROJECTION_PREVIEW_TOTAL_MAX_BYTES) {
+    issues.push(`files[].preview.content must not exceed ${PROJECTION_PREVIEW_TOTAL_MAX_BYTES} UTF-8 bytes in total`);
+  }
+  // The result does not carry its request mode; projectionResultRequestModeIssues binds a preview
+  // to mode=plan. On the result alone, a committed apply (and so a persisted receipt) never carries one.
+  if (input.files.some((file) => file.preview !== undefined)
+    && (input.applyReceipt !== undefined || input.status === "applied" || input.status === "applied-reconcile-required")) {
+    issues.push("files[].preview is only allowed on a plan result, never on a committed apply");
   }
   if (input.priorCommittedApplies) {
     issues.push(...projectionPriorCommittedAppliesIssues(input.priorCommittedApplies, input.requestId));
@@ -522,6 +625,33 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     if (signal.worktree.worktreeDigest !== input.outputSnapshot.worktreeDigest) issues.push(`${prefix}.worktreeDigest must match outputSnapshot.worktreeDigest`);
   }
   return issues;
+}
+
+function projectionFilePreviewIssues(file: ProjectionFileResultV1, prefix: string): string[] {
+  const preview = file.preview!;
+  const issues: string[] = [];
+  const expectedFormat: ProjectionFilePreviewFormat | undefined = file.action === "create"
+    ? "body"
+    : file.action === "update" || file.action === "delete" ? "unified-diff" : undefined;
+  if (expectedFormat === undefined) issues.push(`${prefix}.preview is not allowed when action=${file.action}`);
+  else if (preview.format !== expectedFormat) issues.push(`${prefix}.preview.format must be ${expectedFormat} when action=${file.action}`);
+  if (typeof preview.content !== "string" || typeof preview.truncated !== "boolean"
+    || !Number.isSafeInteger(preview.byteLength) || preview.byteLength < 0) {
+    issues.push(`${prefix}.preview must carry string content, a boolean truncated flag and a non-negative integer byteLength`);
+    return issues;
+  }
+  const contentBytes = utf8ByteLength(preview.content);
+  if (contentBytes > PROJECTION_FILE_PREVIEW_MAX_BYTES) issues.push(`${prefix}.preview.content must not exceed ${PROJECTION_FILE_PREVIEW_MAX_BYTES} UTF-8 bytes`);
+  if (preview.truncated ? contentBytes >= preview.byteLength : contentBytes !== preview.byteLength) {
+    issues.push(`${prefix}.preview.truncated must be true exactly when content is shorter than byteLength`);
+  }
+  return issues;
+}
+
+const UTF8 = new TextEncoder();
+
+function utf8ByteLength(value: string): number {
+  return UTF8.encode(value).length;
 }
 
 export function projectionFreshnessIssues(input: ProjectionFreshnessV1): string[] {
@@ -888,6 +1018,7 @@ export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefr
       issues.push(`${prefix}.acceptedChange.affectedNodeIds must match signal affectedNodeIds`);
     }
   }
+  if (input.capabilities !== undefined) issues.push(...architectureCapabilityChangesIssues(input.capabilities, `${prefix}.capabilities`));
   if (input.reasonCodes.length === 0) issues.push(`${prefix}.reasonCodes must contain at least one reason`);
   if (input.affectedNodeIds.length === 0) issues.push(`${prefix}.affectedNodeIds must contain at least one node`);
   if (input.refreshTargets.length === 0) issues.push(`${prefix}.refreshTargets must contain at least one target`);
@@ -904,6 +1035,43 @@ export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefr
     issues.push(`${prefix}.human-action-required forbids acceptedChange`);
   }
   return issues;
+}
+
+/** Shape and canonical order of a per-capability major-change breakdown (#264). */
+export function architectureCapabilityChangesIssues(input: readonly ArchitectureCapabilityChangeV1[], prefix = "capabilities"): string[] {
+  const issues = sortedUniqueIssues(`${prefix}.capabilityId`, input.map((entry) => entry.capabilityId));
+  if (input.length === 0) issues.push(`${prefix} must name at least one capability`);
+  const reasons = new Set<string>(ARCHITECTURE_MAJOR_CHANGE_REASON_CODES);
+  const facets = new Set<string>(ARCHITECTURE_SEMANTIC_FACETS);
+  for (const [index, entry] of input.entries()) {
+    const entryPrefix = `${prefix}[${index}]`;
+    if (typeof entry.capabilityId !== "string" || entry.capabilityId.trim() === "") issues.push(`${entryPrefix}.capabilityId must not be empty`);
+    issues.push(
+      ...sortedUniqueIssues(`${entryPrefix}.reasonCodes`, entry.reasonCodes),
+      ...sortedUniqueIssues(`${entryPrefix}.changedFacets`, entry.changedFacets)
+    );
+    const reason = entry.reasonCodes.find((code) => !reasons.has(code));
+    if (reason !== undefined) issues.push(`${entryPrefix}.reasonCodes contains unsupported reason: ${reason}`);
+    const facet = entry.changedFacets.find((name) => !facets.has(name));
+    if (facet !== undefined) issues.push(`${entryPrefix}.changedFacets contains unsupported facet: ${facet}`);
+    for (const field of ["proofStatusBefore", "proofStatusAfter"] as const) {
+      const status = entry[field];
+      if (status !== null && !isArchitectureCapabilityProofStatus(status)) issues.push(`${entryPrefix}.${field} must be null or a P1/P2 proof status`);
+    }
+    if (entry.proofStatusBefore === null && entry.proofStatusAfter === null) issues.push(`${entryPrefix} must exist before or after the change`);
+    if ((entry.proofStatusBefore === null || entry.proofStatusAfter === null) && entry.changedFacets.length > 0) {
+      issues.push(`${entryPrefix}.changedFacets must be empty for a capability present on one side only`);
+    }
+  }
+  return issues;
+}
+
+export function isArchitectureCapabilityProofStatus(value: unknown): value is ArchitectureCapabilityProofStatusV1 {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length === 2
+    && (ARCHITECTURE_PROOF_P1_STATUSES as readonly unknown[]).includes(record.p1)
+    && (ARCHITECTURE_PROOF_P2_STATUSES as readonly unknown[]).includes(record.p2);
 }
 
 const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;

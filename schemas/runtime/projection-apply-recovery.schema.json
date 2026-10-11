@@ -62,6 +62,27 @@
         "projectionDigest": { "$ref": "#/$defs/digest" }
       }
     },
+    "capabilityChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilityId", "reasonCodes", "changedFacets", "proofStatusBefore", "proofStatusAfter"],
+      "properties": {
+        "capabilityId": { "type": "string", "minLength": 1 },
+        "reasonCodes": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
+        "changedFacets": { "type": "array", "uniqueItems": true, "items": { "enum": ["constraints", "entrypoints", "interfaces", "lifecycle", "names", "ownership", "placement", "relations", "responsibilities", "riskBoundaries"] } },
+        "proofStatusBefore": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/proofStatus" }] },
+        "proofStatusAfter": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/proofStatus" }] }
+      }
+    },
+    "proofStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p1", "p2"],
+      "properties": {
+        "p1": { "enum": ["proven", "unprovable"] },
+        "p2": { "enum": ["not-applicable", "proven", "unprovable"] }
+      }
+    },
     "reasonCode": {
       "enum": ["constraint-changed", "entrypoint-changed", "interface-changed", "lifecycle-changed", "node-added", "node-moved", "node-removed", "node-renamed", "ownership-changed", "relation-changed", "responsibility-changed", "risk-boundary-changed", "verified-flow-proof-changed"]
     },
@@ -167,6 +188,7 @@
         "acceptedChange": { "$ref": "#/$defs/acceptedChange" },
         "reasonCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
         "affectedNodeIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "capabilities": { "type": "array", "minItems": 1, "description": "The observed per-capability breakdown of this signal, sorted by capabilityId (enforced by architectureRefreshSignalInvariantIssues). Part of the signal identity; signals committed before it existed lack it.", "items": { "$ref": "#/$defs/capabilityChange" } },
         "refreshTargets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["architecture-contract-context", "architecture-readiness", "architecture-request-index", "capability-context", "capability-index"] } },
         "baseDigests": { "$ref": "#/$defs/digestSet" },
         "resultingDigests": { "$ref": "#/$defs/digestSet" },

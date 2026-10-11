@@ -17,6 +17,7 @@ import {
   type CapabilitySourceScaleSignal,
   type NativeModel
 } from "../src/index";
+import { fixtureSourceFiles } from "./fixture-source-files";
 
 const sourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 /** The docs capability's footprint digest the seeded documents are stamped with, and a moved one. */
@@ -635,7 +636,7 @@ describe("entity-summary capability documentation projection", () => {
       writeFileSync(join(root, "packages/core/projection-engine/test/index.test.ts"), "x\ny\nz\nw\n");
       writeFileSync(join(root, "node_modules/noise/index.ts"), "should not be counted\n");
 
-      const signals = loadCapabilitySourceScaleSignals(root, model);
+      const signals = loadCapabilitySourceScaleSignals(root, model, fixtureSourceFiles(root));
       expect(signals).toHaveLength(1);
       expect(signals[0]).toEqual({
         nodeId: "capability.docs.projection",
@@ -658,7 +659,7 @@ describe("entity-summary capability documentation projection", () => {
       writeFileSync(join(root, "packages/core/projection-engine/src/other.ts"), "a\n");
       writeFileSync(join(root, "packages/core/projection-engine/test/index.test.ts"), "a\n");
 
-      expect(loadCapabilitySourceFootprints(root, model)).toEqual([
+      expect(loadCapabilitySourceFootprints(root, model, fixtureSourceFiles(root))).toEqual([
         {
           nodeId: "capability.docs.projection",
           files: [

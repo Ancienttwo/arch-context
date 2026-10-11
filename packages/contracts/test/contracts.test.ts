@@ -58,8 +58,11 @@ import {
 import { ERROR_CATALOG, digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
 import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
+import { architectureDocsProjectionManifestIssues, isArchitectureScaleBucket } from "../src/projection-manifest";
 import {
   ARCHCTX_FEATURES,
+  PROJECTION_FILE_PREVIEW_MAX_BYTES,
+  PROJECTION_PREVIEW_TOTAL_MAX_BYTES,
   architectureRefreshSignalInvariantIssues,
   archctxCapabilities,
   projectionApplyAbsenceInvariantIssues,
@@ -73,6 +76,7 @@ import {
   projectionRequestInvariantIssues,
   projectionResultReceiptDigest,
   projectionResultInvariantIssues,
+  projectionResultRequestModeIssues,
   type ArchitectureRefreshSignalV1,
   type ProjectionApplyRecoveryProofV1,
   type ProjectionApplyRecoveryIntentV1,
@@ -143,6 +147,7 @@ const schemaByFixture: Record<string, string> = {
   "projection-target": "schemas/runtime/projection-target.schema.json",
   "projection-request": "schemas/runtime/projection-request.schema.json",
   "projection-result": "schemas/runtime/projection-result.schema.json",
+  "projection-manifest": "schemas/runtime/projection-manifest.schema.json",
   "projection-apply-recovery": "schemas/runtime/projection-apply-recovery.schema.json",
   "architecture-refresh-signal": "schemas/runtime/architecture-refresh-signal.schema.json",
   "archctx-capabilities": "schemas/runtime/archctx-capabilities.schema.json",
@@ -356,6 +361,124 @@ test("projection result keeps its embedded refresh signal schema synchronized", 
   const standalone = readJson("schemas/runtime/architecture-refresh-signal.schema.json") as any;
   const { $schema: _schema, $id: _id, title: _title, $defs: _defs, ...standaloneShape } = standalone;
   expect(resultSchema.$defs.refreshSignal).toEqual(standaloneShape);
+});
+
+test("plan previews are bounded, action-typed and never ride a committed apply (#264)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const fixture = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const withFiles = (files: ProjectionResultV2["files"], extra: Partial<ProjectionResultV2> = {}): ProjectionResultV2 => {
+    const { receiptDigest: _receipt, ...payload } = { ...fixture, status: "planned" as const, ...extra, files };
+    return { ...payload, receiptDigest: projectionResultReceiptDigest(payload) };
+  };
+  const digest = (char: string) => `sha256:${char.repeat(64)}` as const;
+  const created = { path: "docs/architecture/index.md", action: "create" as const, preimageDigest: null, outputDigest: digest("a"), preview: { format: "body" as const, content: "# Index\n", byteLength: 8, truncated: false } };
+  const updated = { path: "docs/architecture/modules/a.md", action: "update" as const, preimageDigest: digest("b"), outputDigest: digest("c"), preview: { format: "unified-diff" as const, content: "--- a/x\n", byteLength: 64, truncated: true } };
+  const valid = withFiles([created, updated]);
+  expect(projectionResultInvariantIssues(valid)).toEqual([]);
+  expect(validateJsonSchema(schema as any, valid as any).issues).toEqual([]);
+
+  const wrongFormat = withFiles([{ ...created, preview: { ...created.preview, format: "unified-diff" } }]);
+  expect(projectionResultInvariantIssues(wrongFormat)).toContain("files[0].preview.format must be body when action=create");
+  expect(validateJsonSchema(schema as any, wrongFormat as any).valid).toBe(false);
+  const unchanged = withFiles([{ path: "a.md", action: "unchanged", preimageDigest: digest("d"), outputDigest: digest("d"), preview: { format: "body", content: "", byteLength: 0, truncated: false } }]);
+  expect(projectionResultInvariantIssues(unchanged)).toContain("files[0].preview is not allowed when action=unchanged");
+  expect(validateJsonSchema(schema as any, unchanged as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues(withFiles([{ ...created, preview: { ...created.preview, truncated: true } }])))
+    .toContain("files[0].preview.truncated must be true exactly when content is shorter than byteLength");
+  expect(validateJsonSchema(schema as any, withFiles([{ ...created, preview: { ...created.preview, extra: 1 } as any }]) as any).valid).toBe(false);
+
+  // Byte bounds are UTF-8 bytes: CJK text is three bytes per character.
+  const wide = "字".repeat(Math.floor(PROJECTION_FILE_PREVIEW_MAX_BYTES / 3) + 1);
+  expect(projectionResultInvariantIssues(withFiles([{ ...created, preview: { format: "body", content: wide, byteLength: wide.length * 3, truncated: false } }])))
+    .toContain(`files[0].preview.content must not exceed ${PROJECTION_FILE_PREVIEW_MAX_BYTES} UTF-8 bytes`);
+  const full = "x".repeat(PROJECTION_FILE_PREVIEW_MAX_BYTES);
+  const many = Array.from({ length: PROJECTION_PREVIEW_TOTAL_MAX_BYTES / PROJECTION_FILE_PREVIEW_MAX_BYTES + 1 }, (_, index) => ({
+    ...created, path: `docs/architecture/m${String(index).padStart(2, "0")}.md`, preview: { format: "body" as const, content: full, byteLength: full.length, truncated: false }
+  }));
+  expect(projectionResultInvariantIssues(withFiles(many))).toContain(`files[].preview.content must not exceed ${PROJECTION_PREVIEW_TOTAL_MAX_BYTES} UTF-8 bytes in total`);
+
+  // A committed apply never carries bodies, so a persisted receipt cannot either.
+  expect(projectionResultInvariantIssues(withFiles([created], { status: "applied" }))).toContain("files[].preview is only allowed on a plan result, never on a committed apply");
+
+  // Bound to its request mode, a preview is rejected on every non-plan result, whatever its status.
+  expect(projectionResultRequestModeIssues(valid, "plan")).toEqual([]);
+  for (const mode of ["check", "apply", "adopt"] as const) {
+    expect(projectionResultRequestModeIssues(valid, mode)).toEqual([`files[].preview is only allowed on a plan result, never when mode=${mode}`]);
+  }
+  const { preview: _preview, ...createdWithoutPreview } = created;
+  expect(projectionResultRequestModeIssues(withFiles([createdWithoutPreview]), "check")).toEqual([]);
+});
+
+test("refresh signals carry a per-capability change breakdown (#264)", () => {
+  const schema = readJson("schemas/runtime/architecture-refresh-signal.schema.json");
+  const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV1;
+  const capabilities: NonNullable<ArchitectureRefreshSignalV1["capabilities"]> = [
+    { capabilityId: "capability.a", reasonCodes: ["node-renamed", "responsibility-changed"], changedFacets: ["names", "responsibilities"], proofStatusBefore: { p1: "proven", p2: "proven" }, proofStatusAfter: { p1: "proven", p2: "unprovable" } },
+    { capabilityId: "capability.b", reasonCodes: ["node-added"], changedFacets: [], proofStatusBefore: null, proofStatusAfter: { p1: "proven", p2: "not-applicable" } }
+  ];
+  const signal = { ...fixture, capabilities };
+  expect(architectureRefreshSignalInvariantIssues(signal)).toEqual([]);
+  expect(validateJsonSchema(schema as any, signal as any).issues).toEqual([]);
+  // Signals committed before the field existed stay valid.
+  expect(validateJsonSchema(schema as any, fixture as any).valid).toBe(true);
+  expect(architectureRefreshSignalInvariantIssues({ ...signal, capabilities: [...capabilities].reverse() }))
+    .toContain("signal.capabilities.capabilityId must be sorted and unique");
+  expect(architectureRefreshSignalInvariantIssues({ ...signal, capabilities: [] })).toContain("signal.capabilities must name at least one capability");
+  const unknownFacet = [{ ...capabilities[0]!, changedFacets: ["names", "tone"] as any }];
+  expect(architectureRefreshSignalInvariantIssues({ ...signal, capabilities: unknownFacet })).toContain("signal.capabilities[0].changedFacets contains unsupported facet: tone");
+  expect(validateJsonSchema(schema as any, { ...signal, capabilities: unknownFacet } as any).valid).toBe(false);
+  const neither = [{ ...capabilities[1]!, proofStatusAfter: null }];
+  expect(architectureRefreshSignalInvariantIssues({ ...signal, capabilities: neither })).toContain("signal.capabilities[0] must exist before or after the change");
+  expect(validateJsonSchema(schema as any, { ...signal, capabilities: [{ ...capabilities[0]!, proofStatusAfter: { p1: "maybe", p2: "proven" } }] } as any).valid).toBe(false);
+});
+
+test("the projection manifest contract matches the schema and the writer's current format (#264)", () => {
+  const schema = readJson("schemas/runtime/projection-manifest.schema.json");
+  const manifest = readJson("packages/contracts/fixtures/valid/projection-manifest.json") as any;
+  expect(architectureDocsProjectionManifestIssues(manifest)).toEqual([]);
+  expect(validateJsonSchema(schema as any, manifest).issues).toEqual([]);
+  const entityIndex = manifest.targets.findIndex((target: any) => target.type === "entity-summary");
+  const withTarget = (patch: Record<string, unknown>, index = entityIndex) => ({
+    ...manifest,
+    targets: manifest.targets.map((target: any, at: number) => at === index ? { ...target, ...patch } : target)
+  });
+  const withoutEvidence = { ...manifest, semanticBaseline: { semanticState: manifest.semanticBaseline.semanticState, digests: manifest.semanticBaseline.digests } };
+  expect(architectureDocsProjectionManifestIssues(withoutEvidence)).toEqual([]);
+  expect(validateJsonSchema(schema as any, withoutEvidence).valid).toBe(true);
+  const rejected: Array<[string, unknown]> = [
+    ["binary digest (#266)", { ...manifest, provenance: { ...manifest.provenance, generatedFrom: { ...manifest.provenance.generatedFrom, codeGraphBinaryDigest: `sha256:${"9".repeat(64)}` } } }],
+    ["provenance v1", { ...manifest, provenance: { ...manifest.provenance, schemaVersion: "archcontext.architecture-docs-projection-provenance/v1" } }],
+    ["older renderer", { ...manifest, rendererVersion: "archcontext.docs-renderer/v4" }],
+    ["scale without footprint", withTarget({ sourceFootprintDigest: undefined })],
+    ["footprint on a non-entity target", withTarget({ sourceFootprintDigest: manifest.targets[entityIndex].sourceFootprintDigest, scale: manifest.targets[entityIndex].scale }, 0)],
+    ["verifiedAgainst", withTarget({ verifiedAgainst: { branch: "main", commit: "abc" } })],
+    ["missing facet", { ...manifest, semanticBaseline: { ...manifest.semanticBaseline, semanticState: { ...manifest.semanticBaseline.semanticState, capabilities: manifest.semanticBaseline.semanticState.capabilities.map((entry: any) => ({ ...entry, facets: { ...entry.facets, names: undefined } })) } } }]
+  ];
+  for (const [label, value] of rejected) {
+    const json = JSON.parse(JSON.stringify(value));
+    expect(architectureDocsProjectionManifestIssues(json), label).not.toEqual([]);
+    expect(validateJsonSchema(schema as any, json).valid, label).toBe(false);
+  }
+  // Enum lookups are own-key only: an inherited Object.prototype key is not a supported value.
+  const first = manifest.targets[0];
+  for (const [field, patch] of [
+    ["type", { type: "constructor" }],
+    ["scope.kind", { scope: { ...first.scope, kind: "constructor" } }],
+    ["ownership", { ownership: "constructor" }],
+    ["format", { format: "constructor" }]
+  ] as const) {
+    expect(architectureDocsProjectionManifestIssues(withTarget(patch, 0)), field).toContain(`manifest.targets[0].${field} is unsupported`);
+  }
+  // The 1-2-5 ladder is beyond JSON Schema; the contract function enforces it.
+  for (const bucket of [{ lower: 0, upper: 1 }, { lower: 1, upper: 2 }, { lower: 2, upper: 5 }, { lower: 5, upper: 10 }, { lower: 100_000, upper: 200_000 }]) {
+    expect(isArchitectureScaleBucket(bucket), JSON.stringify(bucket)).toBe(true);
+  }
+  for (const bucket of [{ lower: 0, upper: 2 }, { lower: 3, upper: 5 }, { lower: 5, upper: 20 }, { lower: 10, upper: 50 }, { lower: 1.5, upper: 2 }]) {
+    expect(isArchitectureScaleBucket(bucket), JSON.stringify(bucket)).toBe(false);
+  }
+  expect(architectureDocsProjectionManifestIssues(withTarget({ scale: { fileCountBucket: { lower: 3, upper: 5 }, lineCountBucket: { lower: 0, upper: 1 } } })))
+    .toContain(`manifest.targets[${entityIndex}].scale.fileCountBucket must be a 1-2-5 magnitude bucket`);
+  expect(architectureDocsProjectionManifestIssues({ ...manifest, targetCount: manifest.targetCount + 1 })).toContain("manifest.targetCount must equal the number of targets");
 });
 
 test("projection readback schema embeds canonical request and result contracts", () => {
@@ -1131,6 +1254,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.architecture-event/v1": "architecture-event",
     "archcontext.architecture-snapshot/v2": "architecture-snapshot",
     "archcontext.projection-target/v1": "projection-target",
+    "archcontext.architecture-docs-projection-manifest/v1": "projection-manifest",
     "archcontext.evidence-item/v2": "evidence-item",
     "archcontext.evidence-binding/v1": "evidence-binding",
     "archcontext.architecture-candidate-delta-policy/v1": "architecture-candidate-delta-policy",

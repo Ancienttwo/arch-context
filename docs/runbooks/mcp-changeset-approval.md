@@ -10,7 +10,15 @@ There is no separate approval command and no approval token.
 
 ## CLI
 
-1. Plan one entity operation. Create, update and delete use the same shape:
+1. Read the expected hash of every file you update or delete. The hash is `digestJson({ body })` of the file's UTF-8 contents, not `sha256sum` of the file, so ask the CLI instead of computing it:
+
+   ```sh
+   archctx hash --path .archcontext/model/nodes/NODE.yaml
+   ```
+
+   It is read-only and prints `{ path, hash }`. It accepts the paths a ChangeSet may write (for example `.archcontext/model/`, plus `.archcontext/manifest.yaml` and `docs/adr/ADR-NNNN-*.md` for the manifest and ADR reference operations), refuses symlinks, and fails for a file that does not exist. Run it again right before planning; do not reuse a hash from a mismatch finding without reviewing the current content.
+
+2. Plan one entity operation. Create, update and delete use the same shape:
 
    ```sh
    archctx plan --id changeset.ID --path .archcontext/model/nodes/NODE.yaml --body '<complete YAML>'
@@ -18,14 +26,24 @@ There is no separate approval command and no approval token.
    archctx plan --id changeset.ID --op delete_entity --path .archcontext/model/flows/FLOW.yaml --expected-hash sha256:CURRENT
    ```
 
-   `--body` is the complete new YAML document, not a field patch. Update and delete require `--expected-hash`; delete accepts no `--body`.
+   `--body` is the complete new YAML document, not a field patch. Give exactly one body source: `--body '<yaml>'`, `--body -` (read stdin) or `--body-file <path>`. Use the file or stdin forms for long entities. `--body-file` (and `--operations-file`) read only repository-relative files inside the repository: absolute paths, `..` and symlinks are rejected before the daemon is contacted. Content from outside the repository must come in through `--body -` (stdin). Update and delete require `--expected-hash`; delete accepts no body.
 
-2. Review `preview`. `preview.allowed` is `false` when a finding blocks the write. A stale or wrong hash shows `Expected hash mismatch: PATH (current sha256:...)`. Re-read the file and plan again; do not copy the reported hash without reviewing the current content.
-3. Apply with the preview's worktree digest:
+   To change several files in one ChangeSet, put the operations in a JSON array in the same shape `archcontext_plan_update` takes and pass it as one plan:
+
+   ```sh
+   archctx plan --id changeset.ID --operations-file operations.json
+   ```
+
+   The file is validated with the MCP operations schema before the daemon is contacted, and `--operations-file` cannot be combined with `--op`, `--path`, `--expected-hash`, `--body` or `--body-file`. Every apply must leave a valid model, so a change whose parts depend on each other (a node edit plus the flow or constraint that points at it) belongs in one ChangeSet: applied as separate ChangeSets, the first one can leave a dangling reference and fail.
+
+3. Review `preview`. `preview.allowed` is `false` when a finding blocks the write. A stale or wrong hash shows `Expected hash mismatch: PATH (current sha256:...)`. Run `archctx hash` again, review the current content and plan again; do not copy the reported hash without reviewing it.
+4. Apply with the preview's worktree digest:
 
    ```sh
    archctx apply --id changeset.ID --approved --expected-worktree-digest WORKTREE_DIGEST
    ```
+
+A planned draft lives in daemon memory only. Planning the same `--id` again replaces it, and a daemon restart between plan and apply drops it: apply then fails with `Unknown ChangeSet`. Plan again with fresh hashes; drafts are not persisted.
 
 ## MCP
 

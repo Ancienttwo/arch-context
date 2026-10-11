@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { evaluateArchitectureProjectionFreshness, loadCapabilitySourceFootprintDigests, type NativeModel } from "@archcontext/core/projection-engine";
 import {
   computeGitChangeFingerprint,
   isTrackedWorktreeClean,
@@ -16,6 +17,8 @@ import {
   readStagedChangeMetadata,
   readWorktreeChangeMetadata,
   findRepositoryRoot,
+  listProjectionSourceFiles,
+  ProjectionSourceFilesUnavailableError,
   removeDetachedReviewWorktree,
   verifyDetachedReviewWorktree
 } from "../src/index";
@@ -325,6 +328,112 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     } finally {
       if (acceptedWorktree) removeDetachedReviewWorktree(acceptedWorktree);
       rmSync(tempRoot, { recursive: true, force: true });
+      removeTempRoot(root);
+    }
+  });
+});
+
+describe("projection source files (#257)", () => {
+  const nodeId = "capability.app";
+  const model: NativeModel = {
+    nodes: [{ id: nodeId, kind: "capability", name: "App", source: { include: ["app/**"], exclude: ["app/test/**"] } }],
+    relations: []
+  };
+  const footprint = (root: string) => loadCapabilitySourceFootprintDigests(root, model, listProjectionSourceFiles(root))
+    .find((entry) => entry.nodeId === nodeId)!;
+
+  function createFootprintFixture(): string {
+    const root = mkdtempSync(join(tmpdir(), "archctx-projection-source-files-"));
+    mkdirSync(join(root, "app/src"), { recursive: true });
+    mkdirSync(join(root, "app/test"), { recursive: true });
+    writeFileSync(join(root, ".gitignore"), "app/dist/\n*.log\n");
+    writeFileSync(join(root, "app/src/index.ts"), "export const app = 1;\n");
+    writeFileSync(join(root, "app/test/index.test.ts"), "test('app');\n");
+    git(root, "init");
+    commitAll(root, "footprint fixture");
+    return root;
+  }
+
+  test("lists tracked and untracked non-ignored regular files, never ignored or deleted ones", () => {
+    const root = createFootprintFixture();
+    try {
+      mkdirSync(join(root, "app/dist"), { recursive: true });
+      writeFileSync(join(root, "app/dist/bundle.js"), "ignored build output\n");
+      writeFileSync(join(root, "app/src/debug.log"), "ignored log\n");
+      writeFileSync(join(root, "app/src/新規.ts"), "export const fresh = 1;\n");
+      writeFileSync(join(root, "app/test/removed.test.ts"), "test('removed');\n");
+      commitAll(root, "track a file that is then deleted locally");
+      rmSync(join(root, "app/test/removed.test.ts"));
+
+      expect(listProjectionSourceFiles(root)).toEqual([
+        ".gitignore",
+        "app/src/index.ts",
+        "app/src/新規.ts",
+        "app/test/index.test.ts"
+      ]);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("an ignored file under source.include never moves the footprint digest; a tracked edit makes the node stale", () => {
+    const root = createFootprintFixture();
+    try {
+      const stamped = footprint(root);
+      expect(stamped.fileCount).toBe(1);
+      const manifest = { status: "present" as const, nodes: [{ nodeId, sourceFootprintDigest: stamped.digest }] };
+
+      // Build output and logs matched by `app/**` but gitignored: same digest, still fresh.
+      mkdirSync(join(root, "app/dist"), { recursive: true });
+      writeFileSync(join(root, "app/dist/bundle.js"), "console.log('built');\n");
+      writeFileSync(join(root, "app/src/build.log"), "built\n");
+      expect(footprint(root)).toEqual(stamped);
+      expect(evaluateArchitectureProjectionFreshness({ model, manifest, sourceFootprints: [footprint(root)] }).ok).toBe(true);
+
+      // An edit to a tracked file inside the footprint — uncommitted, then committed — is stale.
+      writeFileSync(join(root, "app/src/index.ts"), "export const app = 2;\n");
+      const edited = footprint(root);
+      expect(edited.digest).not.toBe(stamped.digest);
+      commitAll(root, "edit tracked footprint file");
+      expect(footprint(root)).toEqual(edited);
+      const stale = evaluateArchitectureProjectionFreshness({ model, manifest, sourceFootprints: [footprint(root)] });
+      expect(stale.ok).toBe(false);
+      expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp"]);
+      expect(stale.staleNodes).toEqual([{ nodeId, stampedDigest: stamped.digest, currentDigest: edited.digest }]);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("a shallow clone measures the same footprint without reading history", () => {
+    const root = createFootprintFixture();
+    const cloneParent = mkdtempSync(join(tmpdir(), "archctx-projection-source-files-clone-"));
+    try {
+      writeFileSync(join(root, "app/src/second.ts"), "export const second = 1;\n");
+      commitAll(root, "second commit");
+      const clone = join(cloneParent, "clone");
+      execFileSync("git", ["clone", "--quiet", "--depth", "1", `file://${root}`, clone], { stdio: ["ignore", "pipe", "pipe"] });
+      expect(gitOut(clone, "rev-parse", "--is-shallow-repository")).toBe("true");
+      expect(footprint(clone)).toEqual(footprint(root));
+    } finally {
+      rmSync(cloneParent, { recursive: true, force: true });
+      removeTempRoot(root);
+    }
+  });
+
+  test("outside a Git worktree it fails closed with a typed error instead of walking the filesystem", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-projection-source-files-no-git-"));
+    try {
+      writeFileSync(join(root, "README.md"), "# not a repository\n");
+      let caught: unknown;
+      try {
+        listProjectionSourceFiles(root);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(ProjectionSourceFilesUnavailableError);
+      expect(caught).toMatchObject({ code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required" });
+    } finally {
       removeTempRoot(root);
     }
   });

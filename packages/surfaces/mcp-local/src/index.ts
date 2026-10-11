@@ -1,7 +1,9 @@
-import { MCP_TOOL_INPUT_SCHEMAS } from "./tool-schemas";
+import { MCP_PLAN_OPERATIONS_SCHEMA, MCP_TOOL_INPUT_SCHEMAS } from "./tool-schemas";
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertNoCallerProvidedAttestationFields, errorEnvelope, productVersionManifest, validateJsonSchema, type Json } from "@archcontext/contracts";
 import { createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-rpc-client";
+
+export { MCP_PLAN_OPERATIONS_SCHEMA };
 
 export type ToolSafety = "read-only" | "idempotent" | "destructive";
 

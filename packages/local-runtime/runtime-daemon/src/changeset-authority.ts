@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import type { ChangeOperation, ChangeSetDraft, ChangeSetEngine } from "@archcontext/core/changeset-engine";
+import { projectionPreimageFindings, type ChangeOperation, type ChangeSetDraft, type ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { architectureLedgerStateDigest, planChangeSetApplyToArchitectureLedgerEvent, type ArchitectureLedgerAppendInput, type ArchitectureLedgerAppendResult, type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { loadPracticeWaiverOwnerRegistry, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
@@ -331,6 +331,10 @@ export class ChangeSetAuthorityService {
           }
         );
       }
+      // A projection body edited after the render read it fails here, under the writer lock and
+      // before any file is written, rather than being overwritten by a body rendered without it.
+      const stalePreimages = projectionPreimageFindings(root, draft);
+      if (stalePreimages.length > 0) return errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", stalePreimages.join("; "));
       const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
       const transitionBase = captureModelTransitionBase(root, approved);
       let ledgerAppend: Json | undefined;
