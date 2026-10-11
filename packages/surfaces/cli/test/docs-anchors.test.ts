@@ -132,6 +132,19 @@ function holdCodeGraphIndexOpen(root: string): Database {
   return holder;
 }
 
+/**
+ * Leaves the index as no live process holds it: the WAL is checkpointed and empty, and neither the
+ * WAL nor the shared-memory file exists. Whether `codegraph init` leaves those files differs by
+ * platform, so the test sets this state itself.
+ */
+function releaseCodeGraphIndex(root: string): void {
+  const index = join(root, ".codegraph", "codegraph.db");
+  const connection = new Database(index);
+  connection.query("PRAGMA wal_checkpoint(TRUNCATE)").get();
+  connection.close();
+  for (const suffix of ["-wal", "-shm"]) rmSync(`${index}${suffix}`, { force: true });
+}
+
 function findings(report: DocsAnchorsReportV1) {
   return report.nodes.flatMap((node) => node.findings.map((finding) => [
     node.nodeId,
@@ -215,7 +228,9 @@ test("docs anchors never reopens an index writable when no process holds it open
   const root = seedFixture();
   try {
     execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    releaseCodeGraphIndex(root);
     const indexFilesBefore = readdirSync(join(root, ".codegraph")).sort();
+    expect(indexFilesBefore.filter((file) => file.endsWith("-shm") || file.endsWith("-wal"))).toEqual([]);
     const report = await runAnchors(root);
     expect(report.codeGraph).toEqual({ availability: "unavailable", reasonCode: "index-open-failed" });
     expect(readdirSync(join(root, ".codegraph")).sort()).toEqual(indexFilesBefore);
