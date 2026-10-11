@@ -34,7 +34,7 @@ There is no separate approval command and no approval token.
    archctx plan --id changeset.ID --operations-file operations.json
    ```
 
-   The file is validated with the MCP operations schema before the daemon is contacted, and `--operations-file` cannot be combined with `--op`, `--path`, `--expected-hash`, `--body` or `--body-file`. Every apply must leave a valid model, so a change whose parts depend on each other (a node edit plus the flow or constraint that points at it) belongs in one ChangeSet: applied as separate ChangeSets, the first one can leave a dangling reference and fail.
+   Use `--operations-file -` to read the array from stdin. Then you do not need a temporary file in the repository. The file is validated with the MCP operations schema before the daemon is contacted, and `--operations-file` cannot be combined with `--op`, `--path`, `--expected-hash`, `--body` or `--body-file`. Every apply must leave a valid model, so a change whose parts depend on each other (a node edit plus the flow or constraint that points at it) belongs in one ChangeSet: applied as separate ChangeSets, the first one can leave a dangling reference and fail.
 
 3. Review `preview`. `preview.allowed` is `false` when a finding blocks the write. A stale or wrong hash shows `Expected hash mismatch: PATH (current sha256:...)`. Run `archctx hash` again, review the current content and plan again; do not copy the reported hash without reviewing it.
 4. Apply with the preview's worktree digest:

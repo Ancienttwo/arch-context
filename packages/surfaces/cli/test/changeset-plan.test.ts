@@ -109,6 +109,17 @@ test("archctx plan --operations-file sends every operation of the MCP shape in o
     expect(calls).toEqual([{ method: "planUpdate", input: { id: "changeset.example", operations } }]);
   }));
 
+test("archctx plan --operations-file - reads the operations array from stdin and validates it the same way", async () => {
+  const { calls, runtimeClient } = recordingClient();
+  const operations = [{ op: "delete_entity", path, expectedHash: hash }];
+  const plan = (stdin: string) => runCli("plan", ["--id", "changeset.example", "--operations-file", "-"], "/absent", { runtimeClient, readStdin: () => stdin });
+  expect(await plan("{")).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+  expect(await plan(JSON.stringify([{ op: "rename_entity", path, expectedHash: hash }]))).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+  expect(calls).toEqual([]);
+  expect((await plan(JSON.stringify(operations))).ok).toBe(true);
+  expect(calls).toEqual([{ method: "planUpdate", input: { id: "changeset.example", operations } }]);
+});
+
 test("archctx plan --operations-file fails closed before reaching the daemon", () =>
   withTempRepo(async (root) => {
     const { calls, runtimeClient } = recordingClient();
