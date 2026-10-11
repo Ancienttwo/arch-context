@@ -659,6 +659,14 @@ function architectureDeltaTask(git: ArchitectureDeltaGitChangeMetadata): string 
 
 /** Import-node dump budget for one repository. Hitting it marks the graph `truncated`. */
 export const CODEGRAPH_IMPORT_NODE_QUERY_LIMIT = 5000;
+/**
+ * Default cap on the import nodes `repositoryImportPairs` reads. The read is sized from the
+ * index's own import count, so this cap only bounds memory and time. One import node costs about
+ * 0.7 KiB of CLI output, so the default is about 35 MiB.
+ */
+export const CODEGRAPH_IMPORT_NODE_READ_LIMIT = 50_000;
+/** Output allowance per import node, so a large read is not cut by the CLI output buffer. */
+const CODEGRAPH_IMPORT_NODE_OUTPUT_BYTES = 4 * 1024;
 export interface CapabilityCodeGraphProjectionInputs {
   importGraphs: CapabilityImportGraph[];
   selectorEvidence: ArchitectureSelectorEvidenceV1[];
@@ -1088,11 +1096,29 @@ export interface RepositoryImportPairV1 {
 
 export interface RepositoryImportPairsV1 {
   pairs: RepositoryImportPairV1[];
+  /**
+   * True when the pairs are not the whole population for a reason other than the limit: no
+   * index answered, or the query returned a different number of import nodes than the index
+   * reported (the index changed during the read).
+   */
   truncated: boolean;
   /** `ready` only when an index exists and reports no pending source changes. */
   availability: "ready" | "unavailable";
   /** The worktree the index attests to, or `null` when it attests to nothing usable. */
   indexedWorktreeDigest: string | null;
+  /**
+   * Import nodes in the index, from `codegraph status` (`nodesByKind.import`). `null` when no
+   * index answered, or when the status gave no count and the read stopped at the limit.
+   */
+  importNodeCount: number | null;
+  /** The read limit this call applied. */
+  importNodeLimit: number;
+  /**
+   * True when the index holds more import nodes than `importNodeLimit`. The pairs then come from
+   * the first `importNodeLimit` nodes. This is a configured limit, not an incomplete index, so
+   * `truncated` stays false.
+   */
+  importNodeLimitExceeded: boolean;
 }
 
 /**
@@ -1102,13 +1128,17 @@ export interface RepositoryImportPairsV1 {
  * boundary is unresolved and a dropped edge is indistinguishable from an absent one. Bare
  * workspace specifiers are deliberately left unresolved here: mapping `@scope/pkg/sub` through a
  * package `exports` map is the builder's job, which keeps this adapter free of resolution rules
- * and keeps the resolution itself unit-testable without an index. The two producers share only
- * `codeGraphImportNodes`; `capabilityImportGraphs` keeps its resolved-only edge set, which the
- * capability projection fixtures pin byte for byte.
+ * and keeps the resolution itself unit-testable without an index. The two producers share no
+ * reader: `capabilityImportGraphs` keeps its fixed-limit `codeGraphImportNodes` dump and its
+ * resolved-only edge set, which the capability projection fixtures pin byte for byte.
  *
  * Freshness is producer-owned evidence, never a caller assertion: the returned
  * `indexedWorktreeDigest` binds the edges to `worktreeDigest` only when the index reports itself
  * clean, so a consumer cannot claim complete coverage over an index that never saw this tree.
+ *
+ * `limit` is a safety cap, not a page size. The read asks the index for its import count first
+ * and then reads that whole population in one query, so a complete index gives complete pairs up
+ * to `limit` import nodes. Above it, `importNodeLimitExceeded` is true and `truncated` stays false.
  */
 export function repositoryImportPairs(
   root: string,
@@ -1116,10 +1146,20 @@ export function repositoryImportPairs(
   limit: number,
   worktreeDigest: string
 ): RepositoryImportPairsV1 {
+  if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
   if (!codeGraphIndexAvailable(root)) {
-    return { pairs: [], truncated: true, availability: "unavailable", indexedWorktreeDigest: null };
+    return {
+      pairs: [],
+      truncated: true,
+      availability: "unavailable",
+      indexedWorktreeDigest: null,
+      importNodeCount: null,
+      importNodeLimit: limit,
+      importNodeLimitExceeded: false
+    };
   }
-  const nodes = codeGraphImportNodes(root, binary, limit);
+  const status = readProjectionCodeGraphStatus(codeGraphCliInvocation(binary, root, ""), root, CODEGRAPH_QUERY_TIMEOUT_MS);
+  const nodes = codeGraphImportPopulation(root, binary, limit, statusImportNodeCount(status));
   const pairs = new Map<string, RepositoryImportPairV1>();
   for (const node of nodes.imports) {
     if (node.kind !== "import") continue;
@@ -1132,14 +1172,56 @@ export function repositoryImportPairs(
     const firstLine = line === undefined ? previousLine : previousLine === undefined ? line : Math.min(line, previousLine);
     pairs.set(key, { from: node.filePath, specifier: node.name, to, ...(firstLine === undefined ? {} : { line: firstLine }) });
   }
-  const status = readProjectionCodeGraphStatus(codeGraphCliInvocation(binary, root, ""), root, CODEGRAPH_QUERY_TIMEOUT_MS);
   const pending = status.pendingChanges;
   const clean = status.initialized && pending !== undefined && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
   return {
     pairs: [...pairs.keys()].sort().map((key) => pairs.get(key)!),
     truncated: nodes.truncated,
     availability: clean ? "ready" : "unavailable",
-    indexedWorktreeDigest: clean ? worktreeDigest : null
+    indexedWorktreeDigest: clean ? worktreeDigest : null,
+    importNodeCount: nodes.count,
+    importNodeLimit: limit,
+    importNodeLimitExceeded: nodes.limitExceeded
+  };
+}
+
+/** The import population the index reports. A status without `nodesByKind` gives no count. */
+function statusImportNodeCount(status: CodeGraphProjectionStatusV1): number | null {
+  if (!status.nodesByKind || typeof status.nodesByKind !== "object") return null;
+  // The status lists only the kinds it holds, so a missing `import` kind is zero import nodes.
+  const count = status.nodesByKind.import ?? 0;
+  return Number.isInteger(count) && count >= 0 ? count : null;
+}
+
+/**
+ * Reads the whole import population in one query. `codegraph query` has no offset, so the query
+ * limit is the count the index reported, plus one: a reply longer or shorter than that count
+ * means the index changed during the read, which is real truncation. Without a reported count,
+ * the read asks for `limit + 1` and reports the reply size as the count.
+ */
+function codeGraphImportPopulation(
+  root: string,
+  binary: string,
+  limit: number,
+  reportedCount: number | null
+): { imports: CodeGraphCliNode[]; count: number | null; truncated: boolean; limitExceeded: boolean } {
+  const queryLimit = Math.min(reportedCount ?? limit, limit) + 1;
+  const output = runCodeGraphCli(
+    binary,
+    root,
+    ["query", "-p", root, "-j", "-l", String(queryLimit), "-k", "import", "import"],
+    Math.max(CODEGRAPH_OUTPUT_MAX_BYTES, queryLimit * CODEGRAPH_IMPORT_NODE_OUTPUT_BYTES)
+  );
+  const imports = (JSON.parse(output) as { node: CodeGraphCliNode }[]).map(({ node }) => node);
+  const limitExceeded = (reportedCount ?? imports.length) > limit;
+  if (limitExceeded) {
+    return { imports: imports.slice(0, limit), count: reportedCount, truncated: false, limitExceeded };
+  }
+  return {
+    imports,
+    count: reportedCount ?? imports.length,
+    truncated: reportedCount !== null && imports.length !== reportedCount,
+    limitExceeded
   };
 }
 
@@ -1217,7 +1299,7 @@ function normalizedIndexPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
-function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[]): string {
+function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[], maxBuffer = CODEGRAPH_OUTPUT_MAX_BYTES): string {
   disableCodeGraphTelemetryByDefault();
   const invocation = codeGraphCliInvocation(binary, workspaceRoot);
   try {
@@ -1225,7 +1307,7 @@ function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[]):
       cwd: workspaceRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
+      maxBuffer,
       timeout: CODEGRAPH_QUERY_TIMEOUT_MS
     });
   } catch (error) {

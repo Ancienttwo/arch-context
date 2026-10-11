@@ -578,6 +578,7 @@
               "items": {
                 "enum": [
                   "caller-coverage-unknown",
+                  "code-facts-import-limit",
                   "code-facts-missing",
                   "code-facts-truncated",
                   "major-change-detected",

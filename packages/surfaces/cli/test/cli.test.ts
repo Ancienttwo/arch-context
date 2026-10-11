@@ -2960,6 +2960,22 @@ describe("archctx CLI", () => {
       expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
       expect(scans).toHaveLength(2);
 
+      // --import-node-limit rides on the request: the repository default alone, or the caller's request.
+      const limited = await runCli("refactor", ["scan", "--import-node-limit", "100000", "--json"], root, { runtimeClient: runtimeClient as any });
+      expect(limited.ok).toBe(true);
+      expect(scans[2]).toEqual({ request: { schemaVersion: "archcontext.refactor-request/v1", scope: { kind: "repository" }, importNodeLimit: 100000 } });
+      const scopedLimited = await runCli("refactor", ["scan", "--request-json", JSON.stringify(request), "--import-node-limit", "7"], root, { runtimeClient: runtimeClient as any });
+      expect(scopedLimited.ok).toBe(true);
+      expect(scans[3]).toEqual({ request: { ...request, importNodeLimit: 7 } });
+      for (const bad of ["0", "-5", "1e3", "abc"]) {
+        const rejected = await runCli("refactor", ["scan", "--import-node-limit", bad], root, { runtimeClient: runtimeClient as any });
+        expect(rejected.ok, bad).toBe(false);
+        expect((rejected as any).error.code).toBe("AC_SCHEMA_INVALID");
+      }
+      const missingValue = await runCli("refactor", ["scan", "--import-node-limit", "--json"], root, { runtimeClient: runtimeClient as any });
+      expect(missingValue.ok).toBe(false);
+      expect(scans).toHaveLength(4);
+
       const recorded = await runCli("refactor", [
         "record",
         "--assessment-digest", `sha256:${"b".repeat(64)}`,

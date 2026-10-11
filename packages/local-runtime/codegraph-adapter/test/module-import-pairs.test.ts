@@ -2,15 +2,24 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { repositoryImportPairs } from "../src/index";
+import { CODEGRAPH_IMPORT_NODE_READ_LIMIT, repositoryImportPairs } from "../src/index";
 
 const WORKTREE_DIGEST = `sha256:${"a".repeat(64)}`;
+
+interface FakeIndexOptions {
+  /** Extra import nodes beyond the seven named ones, to exceed one fixed-size read. */
+  generated?: number;
+  /** Report `nodesByKind.import` in the status, as CodeGraph 1.6.1 does. */
+  reportCount?: boolean;
+  /** Return this many fewer nodes than the status reports, as an index that changed mid-read. */
+  queryShortBy?: number;
+}
 
 /**
  * Fake index CLI. It answers the two query shapes this producer issues and fails loudly on
  * anything else, so an unexpected invocation surfaces as a failure rather than as an empty answer.
  */
-function fakeCli(logPath: string, pending: number, withLines = false): string {
+function fakeCli(logPath: string, pending: number, withLines = false, index: FakeIndexOptions = {}): string {
   return `
 import { appendFileSync } from "node:fs";
 const argv = process.argv.slice(2);
@@ -25,9 +34,13 @@ const importNodes = [
   { name: "../../shared/util", filePath: "packages/docs/src/render.ts" },
   { name: "./helper", filePath: "packages/other/src/index.ts" }
 ];
+for (let i = 0; i < ${index.generated ?? 0}; i += 1) {
+  importNodes.push({ name: "./generated-" + i, filePath: "packages/generated/src/file-" + (i % 100) + ".ts" });
+}
 if (argv[0] === "query") {
   const limit = Number(argv[argv.indexOf("-l") + 1]);
-  process.stdout.write(JSON.stringify(importNodes.slice(0, limit).map((node) => ({
+  const available = importNodes.length - ${index.queryShortBy ?? 0};
+  process.stdout.write(JSON.stringify(importNodes.slice(0, Math.min(limit, available)).map((node) => ({
     node: { id: "import:" + node.filePath + ":" + node.name, kind: "import", name: node.name, filePath: node.filePath, ...(withLines && node.startLine ? { startLine: node.startLine } : {}) }
   }))));
 } else if (argv[0] === "status") {
@@ -36,6 +49,7 @@ if (argv[0] === "query") {
     version: "1.6.1",
     projectPath: process.cwd(),
     lastIndexed: "2026-09-03T00:00:00Z",
+    ...(${index.reportCount ?? false} ? { nodesByKind: { file: 5, import: importNodes.length } } : {}),
     pendingChanges: { added: ${pending}, modified: 0, removed: 0 }
   }));
 } else {
@@ -45,7 +59,7 @@ if (argv[0] === "query") {
 `;
 }
 
-function seedWorkspace(options: { withIndex?: boolean; pending?: number; withLines?: boolean } = {}): { root: string; binary: string; log: string } {
+function seedWorkspace(options: { withIndex?: boolean; pending?: number; withLines?: boolean } & FakeIndexOptions = {}): { root: string; binary: string; log: string } {
   const root = mkdtempSync(join(tmpdir(), "archctx-module-import-pairs-"));
   if (options.withIndex !== false) mkdirSync(join(root, ".codegraph"));
   mkdirSync(join(root, "packages/docs/src"), { recursive: true });
@@ -59,7 +73,7 @@ function seedWorkspace(options: { withIndex?: boolean; pending?: number; withLin
   const log = join(root, "invocations.log");
   writeFileSync(log, "");
   const binary = join(root, "fake-codegraph.js");
-  writeFileSync(binary, fakeCli(log, options.pending ?? 0, options.withLines ?? false));
+  writeFileSync(binary, fakeCli(log, options.pending ?? 0, options.withLines ?? false, options));
   return { root, binary, log };
 }
 
@@ -101,7 +115,8 @@ describe("repository-wide import pairs", () => {
       expect(result.pairs.filter((pair) => pair.from === "packages/docs/src/main.ts" && pair.to === null)).toHaveLength(2);
 
       const invocations = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-      expect(invocations.map((argv) => argv[0])).toEqual(["query", "status"]);
+      // The read is sized from the index's own import count, so the status is read first.
+      expect(invocations.map((argv) => argv[0])).toEqual(["status", "query"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -138,22 +153,72 @@ describe("repository-wide import pairs", () => {
         pairs: [],
         truncated: true,
         availability: "unavailable",
-        indexedWorktreeDigest: null
+        indexedWorktreeDigest: null,
+        importNodeCount: null,
+        importNodeLimit: 100,
+        importNodeLimitExceeded: false
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("a saturated dump is reported as truncated, not as a complete edge set", () => {
+  test("an index larger than the limit is reported as limit exceeded with its count, not as a complete edge set", () => {
+    for (const reportCount of [true, false]) {
+      const { root, binary } = seedWorkspace({ reportCount });
+      try {
+        const result = repositoryImportPairs(root, binary, 3, WORKTREE_DIGEST);
+        expect(result.importNodeLimitExceeded).toBe(true);
+        // The index is complete; only the configured limit cut the read.
+        expect(result.truncated).toBe(false);
+        expect(result.importNodeLimit).toBe(3);
+        // Without a status count the reply only proves "more than the limit".
+        expect(result.importNodeCount).toBe(reportCount ? 7 : null);
+        expect(result.pairs).toEqual([
+          { from: "packages/docs/src/main.ts", specifier: "./render", to: "packages/docs/src/render.ts" },
+          { from: "packages/docs/src/main.ts", specifier: "@archcontext/contracts", to: null }
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("a complete index larger than one fixed-size read gives every pair, not a truncated prefix", () => {
+    // 5007 import nodes: more than the former fixed 5000-node read.
+    const { root, binary, log } = seedWorkspace({ reportCount: true, generated: 5000 });
+    try {
+      const result = repositoryImportPairs(root, binary, CODEGRAPH_IMPORT_NODE_READ_LIMIT, WORKTREE_DIGEST);
+      expect(result.truncated).toBe(false);
+      expect(result.importNodeLimitExceeded).toBe(false);
+      expect(result.importNodeCount).toBe(5007);
+      expect(result.pairs).toHaveLength(5006);
+      expect(result.pairs.filter((pair) => pair.specifier.startsWith("./generated-"))).toHaveLength(5000);
+      expect(result.availability).toBe("ready");
+      // One query sized from the reported count, plus one node to detect an index that grew.
+      const query = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]).find((argv) => argv[0] === "query")!;
+      expect(query[query.indexOf("-l") + 1]).toBe("5008");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a read shorter than the reported population is real truncation, not a limit", () => {
+    const { root, binary } = seedWorkspace({ reportCount: true, queryShortBy: 2 });
+    try {
+      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST);
+      expect(result.truncated).toBe(true);
+      expect(result.importNodeLimitExceeded).toBe(false);
+      expect(result.importNodeCount).toBe(7);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a limit that is not a positive integer", () => {
     const { root, binary } = seedWorkspace();
     try {
-      const result = repositoryImportPairs(root, binary, 3, WORKTREE_DIGEST);
-      expect(result.truncated).toBe(true);
-      expect(result.pairs).toEqual([
-        { from: "packages/docs/src/main.ts", specifier: "./render", to: "packages/docs/src/render.ts" },
-        { from: "packages/docs/src/main.ts", specifier: "@archcontext/contracts", to: null }
-      ]);
+      expect(() => repositoryImportPairs(root, binary, 0, WORKTREE_DIGEST)).toThrow("positive integer");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
