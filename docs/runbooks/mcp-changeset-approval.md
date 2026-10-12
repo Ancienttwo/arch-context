@@ -37,6 +37,7 @@ There is no separate approval command and no approval token.
    Use `--operations-file -` to read the array from stdin. Then you do not need a temporary file in the repository. The file is validated with the MCP operations schema before the daemon is contacted, and `--operations-file` cannot be combined with `--op`, `--path`, `--expected-hash`, `--body` or `--body-file`. Every apply must leave a valid model, so a change whose parts depend on each other (a node edit plus the flow or constraint that points at it) belongs in one ChangeSet: applied as separate ChangeSets, the first one can leave a dangling reference and fail.
 
 3. Review `preview`. `preview.allowed` is `false` when a finding blocks the write. A stale or wrong hash shows `Expected hash mismatch: PATH (current sha256:...)`. Run `archctx hash` again, review the current content and plan again; do not copy the reported hash without reviewing it.
+   When the plan writes a node file, also review `preview.ownershipDelta`. `becameContested` lists the files that the planned include makes multiply owned. `becameOwned`, `ownerChanged` and `becameUnowned` list the other ownership moves. Each list shows up to 50 paths; `count` is the full total. Use `archctx deps --into <node-id>` to see the import edges into a capability before you declare a relation.
 4. Apply with the preview's worktree digest:
 
    ```sh

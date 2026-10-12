@@ -10,6 +10,7 @@ import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-ru
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import { AcceptCommittedChangeInputError, acceptedChangeFromEventV2, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, resolveAcceptanceHeadSha, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
 import type { RuntimeArchitectureLedgerModes, RuntimeArchitectureLedgerWriteMode } from "./ledger-admin";
+import { planOwnershipDelta } from "./ownership-delta-preview";
 import { projectionWorkspaceId, readCurrentBranch } from "./projection-inputs";
 import { assertProjectionInvocationSnapshot, buildArchitectureDocsProjection, projectionApplyCommittedEnvelope, projectionInvocationWrites, validateProjectionInvocation, type ProjectionServiceHost, type RuntimeProjectionInvocation } from "./projection-service";
 import type { RuntimeAcceptCommittedChangeInput, RuntimeApplyUpdateInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeWorktreeDigestProfile } from "./rpc-types";
@@ -233,10 +234,15 @@ export class ChangeSetAuthorityService {
     this.changesets.set(draft.id, draft);
     this.changeSetRoots.set(draft.id, canonicalRepositoryRoot(root));
     this.changeSetWorktreeDigestProfiles.set(draft.id, worktreeDigestProfile);
+    const ownershipDelta = planOwnershipDelta(root, draft);
     return okEnvelope("plan_update", {
       draft,
       changeSetDigest: digestJson(draft as unknown as Json),
-      preview: this.changeSetEngine.preview(root, draft)
+      preview: {
+        ...this.changeSetEngine.preview(root, draft),
+        // Present only when the plan writes a node file; see `planOwnershipDelta`.
+        ...(ownershipDelta === undefined ? {} : { ownershipDelta })
+      }
     } as unknown as Json);
   }
 

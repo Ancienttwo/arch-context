@@ -19,6 +19,7 @@
     }
   },
   "trackedFileCount": 9,
+  "untrackedExcludedCount": 0,
   "snapshot": {
     "schemaVersion": "archcontext.module-statistics/v1",
     "repository": {

@@ -67,6 +67,7 @@ export * from "./adoption";
 export * from "./layout";
 export * from "./major-change";
 export * from "./preview";
+export * from "./prose-anchors";
 export * from "./semantic-diagrams";
 
 export type NativeNodeSource = ArchitectureNodeSourceV2;

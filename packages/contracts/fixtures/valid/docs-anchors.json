@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "archcontext.docs-anchors/v1",
+  "profile": "repo-harness/v1",
+  "codeGraph": {
+    "availability": "ready"
+  },
+  "summary": {
+    "nodes": 3,
+    "documents": 2,
+    "citations": 6,
+    "findings": 4,
+    "unchecked": 1,
+    "byKind": {
+      "line-moved": 1,
+      "line-out-of-range": 1,
+      "missing-path": 1,
+      "missing-symbol": 1
+    }
+  },
+  "nodes": [
+    {
+      "nodeId": "capability.runtime-harness.evals-checks",
+      "documentPath": "docs/architecture/modules/runtime-harness/evals-checks.md",
+      "citationCount": 2,
+      "findings": [
+        {
+          "kind": "missing-symbol",
+          "origin": {
+            "kind": "node-responsibility",
+            "index": 0
+          },
+          "citation": {
+            "text": "is_evidence_producer_command()",
+            "symbol": "is_evidence_producer_command"
+          }
+        }
+      ],
+      "unchecked": []
+    },
+    {
+      "nodeId": "capability.runtime-harness.hook-adapters",
+      "documentPath": "docs/architecture/modules/runtime-harness/hook-adapters.md",
+      "citationCount": 4,
+      "findings": [
+        {
+          "kind": "line-moved",
+          "origin": {
+            "kind": "document",
+            "path": "docs/architecture/modules/runtime-harness/hook-adapters.md",
+            "line": 41
+          },
+          "citation": {
+            "text": "route-registry.ts:52",
+            "path": "route-registry.ts",
+            "resolvedPath": "src/hooks/route-registry.ts",
+            "line": 52,
+            "symbol": "registerRoute"
+          },
+          "currentLines": [
+            54
+          ]
+        },
+        {
+          "kind": "line-out-of-range",
+          "origin": {
+            "kind": "document",
+            "path": "docs/architecture/modules/runtime-harness/hook-adapters.md",
+            "line": 44
+          },
+          "citation": {
+            "text": "src/hooks/runtime.ts:410",
+            "path": "src/hooks/runtime.ts",
+            "line": 410
+          },
+          "lineCount": 362
+        },
+        {
+          "kind": "missing-path",
+          "origin": {
+            "kind": "node-summary"
+          },
+          "citation": {
+            "text": "src/hooks/legacy-adapter.ts",
+            "path": "src/hooks/legacy-adapter.ts"
+          }
+        }
+      ],
+      "unchecked": [
+        {
+          "reasonCode": "path-ambiguous",
+          "origin": {
+            "kind": "document",
+            "path": "docs/architecture/modules/runtime-harness/hook-adapters.md",
+            "line": 50
+          },
+          "citation": {
+            "text": "index.ts:12",
+            "path": "index.ts",
+            "line": 12
+          }
+        }
+      ]
+    }
+  ]
+}

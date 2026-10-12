@@ -1,5 +1,5 @@
 import { LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
-import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
+import { createPrivateControlFile, removePrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { runtimeRpcMethod, type RuntimeRpcMethodName } from "./rpc-methods";
 import { RuntimeRpcInputInvalidError } from "./rpc-argument-codec";
 import { type AddressInfo } from "node:net";
@@ -8,7 +8,7 @@ import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcConnection } from "./rpc-protocol";
 import { acquireDaemonLock, defaultDaemonConnectionPath, defaultDaemonLockPath } from "./daemon-control";
-import { closeSync, mkdirSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { isLoopbackRemote, writeJson } from "./loopback-http";
 import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
@@ -88,6 +88,9 @@ export class ArchctxRuntimeRpcServer {
   private readonly idleTimeoutMs: number;
   private idleTimer?: NodeJS.Timeout;
   private inFlightRpcRequests = 0;
+  // Authorized health checks and RPCs; only the idle exit reads it, to see use during its waits.
+  private authorizedRequests = 0;
+  private idleExitPending = false;
 
   constructor(private readonly daemon: RuntimeRpcServerTarget, private readonly options: RuntimeRpcServerOptions = {}) {
     this.idleTimeoutMs = resolveDaemonIdleTimeoutMs(options.idleTimeoutMs);
@@ -113,11 +116,11 @@ export class ArchctxRuntimeRpcServer {
     this.server = undefined;
     this.connection = undefined;
     if (server) await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
-    if (connection) rmSync(connection.connectionPath, { force: true });
+    if (connection) await removePrivateControlFile(connection.connectionPath);
     if (this.lockFd !== undefined) {
       closeSync(this.lockFd);
       this.lockFd = undefined;
-      rmSync(this.options.lockPath ?? defaultDaemonLockPath(this.options.root ?? process.cwd()), { force: true });
+      await removePrivateControlFile(this.options.lockPath ?? defaultDaemonLockPath(this.options.root ?? process.cwd()));
     }
     if (startedDaemon) await this.daemon.stop().catch(() => undefined);
   }
@@ -174,10 +177,13 @@ export class ArchctxRuntimeRpcServer {
       });
     }
     await this.daemon.stop();
-    if (connection) rmSync(connection.connectionPath, { force: true });
-    if (this.lockFd !== undefined) closeSync(this.lockFd);
-    this.lockFd = undefined;
-    if (connection) rmSync(connection.lockPath, { force: true });
+    try {
+      if (connection) await removePrivateControlFile(connection.connectionPath);
+    } finally {
+      if (this.lockFd !== undefined) closeSync(this.lockFd);
+      this.lockFd = undefined;
+    }
+    if (connection) await removePrivateControlFile(connection.lockPath);
     this.options.onStop?.();
   }
 
@@ -207,15 +213,18 @@ export class ArchctxRuntimeRpcServer {
    * brand-new request is one CLI retry against a freshly spawned daemon.
    */
   private async checkIdleAndMaybeExit(): Promise<void> {
-    if (!this.server || !this.connection) return;
+    if (!this.server || !this.connection || this.idleExitPending) return;
     if (this.inFlightRpcRequests > 0) {
       this.armIdleTimer();
       return;
     }
+    // One idle exit at a time: a request that completes during an await below re-arms the timer.
+    this.idleExitPending = true;
     // Fail-closed: if the activity check itself throws (e.g. the local store hiccups), treat the
     // daemon as busy rather than risk exiting mid-work.
     const hasActiveWork = await this.daemon.hasActiveBackgroundWork().catch(() => true);
     if (hasActiveWork || this.inFlightRpcRequests > 0 || !this.connection) {
+      this.idleExitPending = false;
       this.armIdleTimer();
       return;
     }
@@ -223,10 +232,31 @@ export class ArchctxRuntimeRpcServer {
     // no connection file spawns a fresh daemon immediately (`createOrStartRuntimeRpcClient`)
     // instead of racing this exiting process's own control files or a server about to stop
     // accepting connections.
-    rmSync(this.connection.connectionPath, { force: true });
+    // A removal failure must not skip the orderly stop. A file left here names this exiting pid,
+    // so the next CLI recovers it as stale.
+    const connection = this.connection;
+    const requestsBeforeRemoval = this.authorizedRequests;
+    let cleanupError: unknown;
+    await removePrivateControlFile(connection.connectionPath).catch((error) => { cleanupError = error; });
+    // On Windows the removal can wait seconds for a reader, which is often a CLI about to call
+    // this daemon. An authorized health check or RPC meanwhile cancels the exit: publish the file
+    // again and stay.
+    if (this.server && this.connection && (this.inFlightRpcRequests > 0 || this.authorizedRequests !== requestsBeforeRemoval)) {
+      try {
+        if (!existsSync(connection.connectionPath)) createPrivateControlFile(connection.connectionPath, JSON.stringify(connection, null, 2));
+        this.idleExitPending = false;
+        this.armIdleTimer();
+        return;
+      } catch (error) {
+        cleanupError ??= error;
+      }
+    }
     try {
       await this.stop();
+    } catch (error) {
+      cleanupError ??= error;
     } finally {
+      if (cleanupError) process.stderr.write(`archctxd idle exit cleanup failed: ${(cleanupError as NodeJS.ErrnoException).code ?? "unknown"}\n`);
       // exit must be unconditional: a stop() failure here would otherwise leave the process
       // resident with its connection file already removed — the exact zombie shape this idle
       // exit path exists to eliminate.
@@ -260,6 +290,8 @@ export class ArchctxRuntimeRpcServer {
         writeJson(response, 401, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC token required" });
         return;
       }
+      // A health check does not reset the idle timer, but it shows that a client is about to call.
+      this.authorizedRequests += 1;
       const changeSetRecovery = this.daemon.status().changeSetRecovery;
       writeJson(response, 200, {
         schemaVersion: RUNTIME_RPC_VERSION,
@@ -289,6 +321,7 @@ export class ArchctxRuntimeRpcServer {
     // An accepted request counts as in-flight from here, before its body is read: the idle-exit
     // path must never classify an authorized upload as an idle daemon.
     this.inFlightRpcRequests += 1;
+    this.authorizedRequests += 1;
     try {
       const read = await readRpcRequestBody(request, {
         maxBytes: this.options.maxRequestBodyBytes ?? RUNTIME_RPC_MAX_REQUEST_BODY_BYTES,
@@ -319,7 +352,11 @@ export class ArchctxRuntimeRpcServer {
         throw error;
       });
       writeJson(response, 200, result);
-      if (body.method === "shutdown") setTimeout(() => void this.stop(), 0);
+      if (body.method === "shutdown") {
+        setTimeout(() => void this.stop().catch((error) => {
+          process.stderr.write(`archctxd shutdown cleanup failed: ${(error as NodeJS.ErrnoException).code ?? "unknown"}\n`);
+        }), 0);
+      }
     } finally {
       this.inFlightRpcRequests -= 1;
       this.armIdleTimer();

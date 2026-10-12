@@ -65,7 +65,7 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "archcontext_plan_update",
     inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_plan_update,
-    description: "Create a ChangeSet draft and preview for architecture model updates. Does not write files.",
+    description: "Create a ChangeSet draft and preview for architecture model updates. When the plan writes a node file, preview.ownershipDelta lists the files that become owned, change owner, become contested or become unowned. Does not write files.",
     annotations: { safety: "idempotent", requiresConfirmation: false }
   },
   {
