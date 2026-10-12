@@ -3,6 +3,7 @@ import { closeSync, constants, existsSync, fstatSync, openSync, readFileSync, rm
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
+const WINDOWS_CREATE_TIMEOUT_MS = 60_000;
 // A native read child is killed at this deadline, which also closes its handle.
 const WINDOWS_READ_TIMEOUT_MS = 10_000;
 const REMOVE_RETRY_DELAY_MS = 25;
@@ -80,9 +81,10 @@ function windowsControlFile(operation: "create" | "read", path: string, body?: s
       Buffer.from(WINDOWS_CONTROL_FILE_SCRIPT, "utf16le").toString("base64")
     ], {
       input: JSON.stringify({ operation, path, body }), encoding: "utf8", windowsHide: true,
-      // Fresh Windows startup exceeded the former 10 s create cap in hosted reproduction.
+      // The first powershell.exe launch on a fresh Windows runner is slow whatever the script
+      // does: 323 hosted first creates had p95 12.2 s and max 24.8 s, and one exceeded 30 s.
       // Two daemon startup files fit within its existing 150 s startup budget; reads stay bounded.
-      stdio: ["pipe", "pipe", "pipe"], timeout: operation === "create" ? 30_000 : WINDOWS_READ_TIMEOUT_MS, maxBuffer: 1024 * 1024
+      stdio: ["pipe", "pipe", "pipe"], timeout: operation === "create" ? WINDOWS_CREATE_TIMEOUT_MS : WINDOWS_READ_TIMEOUT_MS, maxBuffer: 1024 * 1024
     });
   } catch (error) {
     // Select scalar metadata only. Never retain cause, command, path, input, stdout or stderr.

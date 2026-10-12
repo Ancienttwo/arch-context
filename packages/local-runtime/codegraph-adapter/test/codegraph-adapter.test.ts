@@ -158,7 +158,7 @@ process.exit(7);
       expect(exited.details.elapsedMs).toBeGreaterThanOrEqual(0);
       expect(readFileSync(calls, "utf8")).toBe("--version\nstatus\n");
       const missing = failureDetails(join(root, "missing-codegraph"));
-      expect(missing.details).toMatchObject({ subcommand: "--version", deadlineMs: 5000, code: "ENOENT", exitCode: null, signal: null });
+      expect(missing.details).toMatchObject({ subcommand: "--version", deadlineMs: 10000, code: "ENOENT", exitCode: null, signal: null });
       expect(missing.details.elapsedMs).toBeGreaterThanOrEqual(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
