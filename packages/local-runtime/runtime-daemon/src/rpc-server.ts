@@ -174,9 +174,12 @@ export class ArchctxRuntimeRpcServer {
       });
     }
     await this.daemon.stop();
-    if (connection) await removePrivateControlFile(connection.connectionPath);
-    if (this.lockFd !== undefined) closeSync(this.lockFd);
-    this.lockFd = undefined;
+    try {
+      if (connection) await removePrivateControlFile(connection.connectionPath);
+    } finally {
+      if (this.lockFd !== undefined) closeSync(this.lockFd);
+      this.lockFd = undefined;
+    }
     if (connection) await removePrivateControlFile(connection.lockPath);
     this.options.onStop?.();
   }
@@ -325,7 +328,11 @@ export class ArchctxRuntimeRpcServer {
         throw error;
       });
       writeJson(response, 200, result);
-      if (body.method === "shutdown") setTimeout(() => void this.stop(), 0);
+      if (body.method === "shutdown") {
+        setTimeout(() => void this.stop().catch((error) => {
+          process.stderr.write(`archctxd shutdown cleanup failed: ${(error as NodeJS.ErrnoException).code ?? "unknown"}\n`);
+        }), 0);
+      }
     } finally {
       this.inFlightRpcRequests -= 1;
       this.armIdleTimer();

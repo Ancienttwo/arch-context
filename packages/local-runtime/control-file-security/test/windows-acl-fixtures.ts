@@ -42,8 +42,8 @@ try {
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => { output += chunk; });
   while (!output.includes("held")) {
-    if (child.exitCode !== null) throw new Error(`reader holder exited early with ${child.exitCode}`);
-    await Promise.race([once(child.stdout, "data"), once(child, "exit")]);
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error(`reader holder exited early with ${child.exitCode ?? child.signalCode}`);
+    await Promise.race([once(child.stdout, "data"), once(child, "exit"), once(child, "error").then(([error]) => { throw error; })]);
   }
   return child;
 }

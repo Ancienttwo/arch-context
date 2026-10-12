@@ -23,7 +23,7 @@ Proof (run 38205449500): another process opens the connection file in read mode 
 
 A direct `rmSync` while the reader holds the file fails with `EBUSY` on Windows Server 2025 with Bun 1.4.3.
 
-P3: the reader keeps delete sharing denied on purpose, so the deleter must tolerate it. `removePrivateControlFile` retries `EBUSY`, `EPERM` and `EACCES` on Windows only, until the native read deadline (10 s). At that deadline the reader child is killed, so its handle closes. Other errors and other platforms fail at once. The RPC server uses it in `stop`, in the failed-start release and in the idle exit. The idle exit always calls `stop` and then exits, also when the removal fails.
+P3: the reader keeps delete sharing denied on purpose, so the deleter must tolerate it. `removePrivateControlFile` retries `EBUSY`, `EPERM` and `EACCES` on Windows only, for the native read deadline (10 s) plus 2 s. At that deadline the reader child is killed, so its handle closes. Other errors and other platforms fail at once. The RPC server uses it in `stop`, in the failed-start release and in the idle exit. The idle exit always calls `stop` and then exits, also when the removal fails. The shutdown RPC logs a cleanup failure instead of an unhandled rejection.
 
 Not changed: `recoverStaleDaemonControlFiles`, `acquireDaemonLock` and the GitHub connection removal in the CLI still use a plain `rmSync`. They are synchronous CLI paths and meet a reader only when two CLI processes act on one stale file.
 

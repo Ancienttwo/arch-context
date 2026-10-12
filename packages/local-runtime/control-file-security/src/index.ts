@@ -6,6 +6,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 const WINDOWS_CREATE_TIMEOUT_MS = 60_000;
 // A native read child is killed at this deadline, which also closes its handle.
 const WINDOWS_READ_TIMEOUT_MS = 10_000;
+// Time for the killed reader to release its handle after its deadline.
+const REMOVE_HANDLE_RELEASE_MARGIN_MS = 2_000;
 const REMOVE_RETRY_DELAY_MS = 25;
 
 // Windows PowerShell 5.1 supplies the .NET Framework FileStream(FileSecurity) constructor.
@@ -153,7 +155,7 @@ export function readPrivateControlFile(path: string): string | undefined {
  * by its own deadline, so a sharing failure is retried until then. Other errors are not retried.
  */
 export async function removePrivateControlFile(path: string): Promise<void> {
-  const deadline = Date.now() + WINDOWS_READ_TIMEOUT_MS;
+  const deadline = Date.now() + WINDOWS_READ_TIMEOUT_MS + REMOVE_HANDLE_RELEASE_MARGIN_MS;
   for (;;) {
     try {
       rmSync(path, { force: true });
