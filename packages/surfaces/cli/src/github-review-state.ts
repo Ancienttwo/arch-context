@@ -157,7 +157,7 @@ export function assertNoCliSecretMaterial(value: unknown): void {
   const serialized = typeof value === "string" ? value : JSON.stringify(value);
   if (!serialized) return;
   if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(serialized)) throw new Error("device-private-key-material-forbidden");
-  for (const [, token] of serialized.matchAll(/(?:^|["'\s])((?:file:\/\/|\.{0,2}\/|~\/)[^"'\s]*)/g)) {
+  for (const [, token] of serialized.matchAll(/(?:^|["'\s])((?:file:\/\/|\.{0,2}\/|~\/)[^"'\s]*)/gi)) {
     if (/private|device|key/i.test(token) && !isStandardBase64Value(token)) throw new Error("device-private-key-file-ref-forbidden");
   }
   if (/(access|refresh|token)_[A-Za-z0-9_-]+/.test(serialized)) throw new Error("github-token-material-forbidden");

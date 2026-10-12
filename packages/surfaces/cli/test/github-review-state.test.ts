@@ -72,7 +72,7 @@ test("base64 signatures that start with a slash are not private key file referen
   const signature = `/abcKEYdef${"A".repeat(76)}==`;
   expect(Buffer.from(signature, "base64").toString("base64")).toBe(signature);
   expect(() => assertNoCliSecretMaterial({ echo: signature })).not.toThrow();
-  for (const ref of ["/Users/x/.archcontext/device-key.pem", "./private/key", "../private/key", "~/keys/device.pem", "file:///home/x/key", "/etc/keys/device"]) {
+  for (const ref of ["/Users/x/.archcontext/device-key.pem", "./private/key", "../private/key", "~/keys/device.pem", "file:///home/x/key", "FILE:///home/x/device-key.pem", "/etc/keys/device"]) {
     expect(() => assertNoCliSecretMaterial({ keyPath: ref })).toThrow("device-private-key-file-ref-forbidden");
     expect(() => assertNoCliSecretMaterial(`load ${ref}`)).toThrow("device-private-key-file-ref-forbidden");
   }
