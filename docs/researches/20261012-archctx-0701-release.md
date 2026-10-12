@@ -5,6 +5,7 @@
 CLI:
 
 - #297, #303: the published 0.7.0 bundle ran the CLI entry before some module constants were set. `plan --operations-file` always failed, and `plan --help` and `hash --help` printed nothing. The entry now runs after every top-level constant is set. `plan --operations-file -` reads the operations from stdin.
+- #315: the CLI secret check reported some standard base64 values as a private key file reference (`device-private-key-file-ref-forbidden`). A value that started with `/` and contained `key`, `device` or `private` matched, for example an echoed review signature. The check now skips a padded base64 value. Real file references, also `FILE:///` ones, are still refused.
 
 Refactor:
 
