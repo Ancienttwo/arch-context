@@ -1,5 +1,5 @@
 import { createPrivateControlFile, readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
-import { grantEveryoneRead } from "../../control-file-security/test/windows-acl-fixtures";
+import { grantEveryoneRead, holdLikePrivateRead } from "../../control-file-security/test/windows-acl-fixtures";
 import { connect as netConnect } from "node:net";
 import { once } from "node:events";
 import { join, dirname } from "node:path";
@@ -445,6 +445,48 @@ test("client disconnect during upload releases the RPC body buffers and in-fligh
       removeTempRepo(root);
     }
   }, 10_000);
+
+  // The idle exit's removal waits for a Windows reader. A request accepted during that wait means
+  // a client uses this daemon, so the exit is cancelled and the connection is published again.
+  test.skipIf(process.platform !== "win32")("idle exit is cancelled by a request accepted while removal waits for a reader", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-reader-token",
+      idleTimeoutMs: 1_000,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      const publishedAtMs = statSync(connection.connectionPath).mtimeMs;
+      const client = new RuntimeRpcClient(connection);
+      // Keep the daemon busy until the reader holds the file, so the idle check meets the hold.
+      let held = false;
+      const keepBusy = (async () => { while (!held) { await client.health(); await sleep(100); } })();
+      const reader = await holdLikePrivateRead(connection.connectionPath, 4_000);
+      held = true;
+      await keepBusy;
+      // The idle check fires about 1 s after the last request and then waits for the reader.
+      await sleep(1_500);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+      expect((await client.health() as { ok?: boolean }).ok).toBe(true);
+      await once(reader, "exit");
+      // Removal and republish run in one turn, so a new write time is the proof of republish.
+      await waitUntil(() => existsSync(connection.connectionPath) && statSync(connection.connectionPath).mtimeMs > publishedAtMs, 10_000, "republished connection file");
+      expect(exitCodes).toEqual([]);
+      expect(daemon.status().running).toBe(true);
+
+      await waitUntil(() => exitCodes.length > 0, 15_000, "idle exit once no reader holds the file");
+      expect(exitCodes).toEqual([0]);
+      expect(existsSync(connection.connectionPath)).toBe(false);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 60_000);
 
 test("idle RPC server does not exit while an audit investigation abort controller is active", async () => {
     const root = tempRepo();
