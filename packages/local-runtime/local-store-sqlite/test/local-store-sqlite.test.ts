@@ -109,10 +109,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     const dbPath = join(root, "runtime.sqlite");
     const db = new Database(dbPath);
     try {
-      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 12)) {
-        for (const statement of migration.statements) db.exec(statement);
-        db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, "2026-07-11T00:00:00.000Z");
-      }
+      applyMigrationPrefix(db, 12, "2026-07-11T00:00:00.000Z");
       const digest = `sha256:${"a".repeat(64)}`;
       db.query(
         `INSERT INTO explorer_projection_cache
@@ -152,10 +149,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     } as unknown as Json).slice("sha256:".length)}`;
     const storageEventId = `${workspaceKey}:${normalized.eventId}`;
     try {
-      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 13)) {
-        for (const statement of migration.statements) db.exec(statement);
-        db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, normalized.timestamp);
-      }
+      applyMigrationPrefix(db, 13, normalized.timestamp);
       db.query(
         `INSERT INTO architecture_events
           (event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, branch, head_sha,
@@ -262,10 +256,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     const db = stallPhase("v2:setup-open", () => new Database(dbPath));
     try {
       stallPhase("v2:setup-migrations", () => {
-      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 14)) {
-        for (const statement of migration.statements) db.exec(statement);
-        db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, "2026-07-11T00:00:00.000Z");
-      }
+      applyMigrationPrefix(db, 14, "2026-07-11T00:00:00.000Z");
       const digest = `sha256:${"a".repeat(64)}`;
       db.prepare(
         `INSERT INTO architecture_snapshots
@@ -321,10 +312,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     const dbPath = join(root, "runtime.sqlite");
     const db = new Database(dbPath);
     try {
-      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 15)) {
-        for (const statement of migration.statements) db.exec(statement);
-        db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, "2026-07-11T00:00:00.000Z");
-      }
+      applyMigrationPrefix(db, 15, "2026-07-11T00:00:00.000Z");
       const digest = `sha256:${"a".repeat(64)}`;
       db.query(
         `INSERT INTO explorer_projection_cache
@@ -393,11 +381,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     const databasePath = join(root, "runtime.sqlite");
     const database = new Database(databasePath);
     try {
-      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 17)) {
-        for (const statement of migration.statements) database.exec(statement);
-        database.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)")
-          .run(migration.id, "2026-07-11T00:00:00.000Z");
-      }
+      applyMigrationPrefix(database, 17, "2026-07-11T00:00:00.000Z");
       const oldColumns = database.prepare("PRAGMA table_info(architecture_evidence_state_checkpoints)").all()
         .map((row) => String((row as Record<string, unknown>).name));
       expect(oldColumns).not.toContain("event_sequence");
@@ -4713,6 +4697,20 @@ function sleepSync(milliseconds: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
+/**
+ * Builds the schema of an older store: the first `count` migrations, marked as applied.
+ * One transaction keeps this to one commit. Per-statement autocommit flushed the disk about
+ * 100 times per fixture and stalled for seconds to minutes on saturated Windows CI disks.
+ */
+function applyMigrationPrefix(db: Database, count: number, appliedAt: string): void {
+  db.transaction(() => {
+    for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, count)) {
+      for (const statement of migration.statements) db.exec(statement);
+      db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, appliedAt);
+    }
+  })();
+}
+
 async function writeTaskState(databasePath: string, taskSessionId: string, state: unknown): Promise<void> {
   const store = new SqliteLocalStore(databasePath);
   await store.migrate();
@@ -4738,10 +4736,7 @@ async function writeOldRuntimeTarget(databasePath: string, taskSessionId: string
   const db = new (bunSqlite as any).Database(databasePath, { create: true });
   try {
     for (const pragma of SQLITE_PRAGMAS) db.exec(pragma);
-    for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 6)) {
-      for (const statement of migration.statements) db.exec(statement);
-      db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, "2026-06-23T00:00:00.000Z");
-    }
+    applyMigrationPrefix(db, 6, "2026-06-23T00:00:00.000Z");
     db.query("INSERT OR REPLACE INTO task_states (task_session_id, payload_json, updated_at) VALUES (?, ?, ?)").run(
       taskSessionId,
       JSON.stringify(state),
