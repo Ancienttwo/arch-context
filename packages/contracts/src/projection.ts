@@ -66,6 +66,7 @@ export const ARCHCTX_FEATURES = [
   "changeset-entity-operations-v1",
   "changeset-ownership-delta-v1",
   "code-facts-unavailable-error-v1",
+  "docs-anchors-v1",
   "flow-selector-check-v1",
   "module-statistics-v1",
   "projection-apply-readback-v1",

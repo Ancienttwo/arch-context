@@ -123,7 +123,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
  * records, so `drift`, `plan` and `apply` keep the layout the repository already has (#293). A
  * repository without a manifest uses `default`. An invalid manifest profile fails closed.
  */
-function committedArchitectureDocsProfile(root: string): ArchitectureProjectionProfile {
+export function committedArchitectureDocsProfile(root: string): ArchitectureProjectionProfile {
   return existsSync(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH)) ? loadArchitectureDocumentationProfile(root) : "default";
 }
 

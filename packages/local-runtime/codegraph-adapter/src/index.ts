@@ -31,7 +31,8 @@ export const CODEGRAPH_TELEMETRY_DISABLED_VALUE = "1";
 const DEFAULT_CODEGRAPH_BINARY = "codegraph";
 const requireFromAdapter = createRequire(import.meta.url);
 // Keep the CommonJS SDK in its installed package so its platform/cache resolver stays relocatable.
-const { CodeGraph } = requireFromAdapter(REQUIRED_CODEGRAPH_PACKAGE) as typeof import("@colbymchenry/codegraph");
+const codeGraphSdk = requireFromAdapter(REQUIRED_CODEGRAPH_PACKAGE) as typeof import("@colbymchenry/codegraph");
+const { CodeGraph } = codeGraphSdk;
 
 type MutableEnv = Record<string, string | undefined>;
 const CODEGRAPH_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
@@ -1031,6 +1032,73 @@ function digestFile(path: string): string {
 /** True when this workspace carries a CodeGraph index the CLI can be pointed at. */
 export function codeGraphIndexAvailable(workspaceRoot: string): boolean {
   return existsSync(join(workspaceRoot, ".codegraph"));
+}
+
+export interface CodeGraphSymbolDeclaration {
+  name: string;
+  qualifiedName: string;
+  startLine: number;
+  endLine: number;
+}
+
+/** Read-only symbol lookups for `docs anchors` (#298). */
+export interface CodeGraphSymbolReader {
+  /** True when CodeGraph has a parser for this path's language. */
+  supportsPath(path: string): boolean;
+  /**
+   * Every declaration parsed from `content` now; the index is not read, so it cannot be stale.
+   * `undefined` when CodeGraph cannot parse the file.
+   */
+  declarationsInSource(path: string, content: string): CodeGraphSymbolDeclaration[] | undefined;
+  /** Declarations named `name` in the CodeGraph index. */
+  declarationsNamed(name: string): CodeGraphSymbolDeclaration[];
+  close(): void;
+}
+
+export type CodeGraphSymbolReaderResult =
+  | { availability: "ready"; reader: CodeGraphSymbolReader }
+  | { availability: "unavailable"; reasonCode: "index-missing" | "index-open-failed" };
+
+/** Kinds that name a reference or a scope, not a declaration a document can cite. */
+const NON_DECLARATION_KINDS: ReadonlySet<string> = new Set(["file", "import", "export", "parameter"]);
+
+/**
+ * Opens the workspace CodeGraph index read-only for symbol lookups. It never opens the index
+ * writable. When the read-only open fails, the result is `index-open-failed`. Whether a read-only
+ * open works with no live holder depends on the SQLite build: Node's `node:sqlite` opens it and
+ * creates the WAL files, and the macOS system SQLite that Bun uses there refuses it.
+ */
+export function openCodeGraphSymbolReader(
+  workspaceRoot: string,
+  openIndex: (root: string, options: { readOnly: true }) => ReturnType<typeof CodeGraph.openSync> = (root, options) => CodeGraph.openSync(root, options)
+): CodeGraphSymbolReaderResult {
+  if (!codeGraphIndexAvailable(workspaceRoot)) return { availability: "unavailable", reasonCode: "index-missing" };
+  disableCodeGraphTelemetryByDefault();
+  let graph: ReturnType<typeof CodeGraph.openSync>;
+  try {
+    graph = openIndex(workspaceRoot, { readOnly: true });
+  } catch {
+    return { availability: "unavailable", reasonCode: "index-open-failed" };
+  }
+  const declarations = (nodes: CodeGraphNode[]): CodeGraphSymbolDeclaration[] => nodes
+    .filter((node) => !NON_DECLARATION_KINDS.has(node.kind))
+    .map((node) => ({ name: node.name, qualifiedName: node.qualifiedName, startLine: node.startLine, endLine: node.endLine }))
+    .sort((left, right) => left.startLine - right.startLine || left.qualifiedName.localeCompare(right.qualifiedName));
+  return {
+    availability: "ready",
+    reader: {
+      supportsPath: (path) => codeGraphSdk.isLanguageSupported(codeGraphSdk.detectLanguage(path)),
+      declarationsInSource: (path, content) => {
+        try {
+          return declarations(graph.extractFromSource(path, content).nodes);
+        } catch {
+          return undefined;
+        }
+      },
+      declarationsNamed: (name) => declarations(graph.getNodesByName(name).filter((node) => node.name === name)),
+      close: () => graph.close()
+    }
+  };
 }
 
 /**
