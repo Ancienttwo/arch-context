@@ -415,6 +415,37 @@ test("client disconnect during upload releases the RPC body buffers and in-fligh
     }
   }, 10_000);
 
+  // A Windows private read denies delete sharing, so the idle exit can meet a failing unlink. A
+  // read-only directory gives the same failure on POSIX: the exit must still happen, not crash.
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("idle exit still exits when its connection file cannot be removed", async () => {
+    const root = tempRepo();
+    const controlDir = mkdtempSync(join(tmpdir(), "archctx-idle-readonly-"));
+    const daemon = await createStartedTestDaemon();
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-unremovable-token",
+      idleTimeoutMs: 200,
+      connectionPath: join(controlDir, "archctxd.json"),
+      lockPath: join(root, "archctxd.lock"),
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      chmodSync(controlDir, 0o500);
+      await waitUntil(() => exitCodes.length > 0, 3_000, "idle-exit callback despite unremovable connection file");
+      expect(exitCodes).toEqual([0]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+      expect(daemon.status().running).toBe(false);
+    } finally {
+      chmodSync(controlDir, 0o700);
+      await rpc.stop().catch(() => undefined);
+      rmSync(controlDir, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  }, 10_000);
+
 test("idle RPC server does not exit while an audit investigation abort controller is active", async () => {
     const root = tempRepo();
     const daemon = await createStartedTestDaemon();

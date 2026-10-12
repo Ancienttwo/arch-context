@@ -1,6 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, constants, existsSync, fstatSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+
+// A native read child is killed at this deadline, which also closes its handle.
+const WINDOWS_READ_TIMEOUT_MS = 10_000;
+const REMOVE_RETRY_DELAY_MS = 25;
 
 // Windows PowerShell 5.1 supplies the .NET Framework FileStream(FileSecurity) constructor.
 // Paths and file contents travel over stdin, never in executable command text or arguments.
@@ -77,7 +82,7 @@ function windowsControlFile(operation: "create" | "read", path: string, body?: s
       input: JSON.stringify({ operation, path, body }), encoding: "utf8", windowsHide: true,
       // Fresh Windows startup exceeded the former 10 s create cap in hosted reproduction.
       // Two daemon startup files fit within its existing 150 s startup budget; reads stay bounded.
-      stdio: ["pipe", "pipe", "pipe"], timeout: operation === "create" ? 30_000 : 10_000, maxBuffer: 1024 * 1024
+      stdio: ["pipe", "pipe", "pipe"], timeout: operation === "create" ? 30_000 : WINDOWS_READ_TIMEOUT_MS, maxBuffer: 1024 * 1024
     });
   } catch (error) {
     // Select scalar metadata only. Never retain cause, command, path, input, stdout or stderr.
@@ -137,5 +142,25 @@ export function readPrivateControlFile(path: string): string | undefined {
     }
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Removes a control file. On Windows a concurrent private read holds its handle with delete
+ * sharing denied, so the unlink fails until that reader closes. The reader's child process ends
+ * by its own deadline, so a sharing failure is retried until then. Other errors are not retried.
+ */
+export async function removePrivateControlFile(path: string): Promise<void> {
+  const deadline = Date.now() + WINDOWS_READ_TIMEOUT_MS;
+  for (;;) {
+    try {
+      rmSync(path, { force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const sharingFailure = process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "EACCES");
+      if (!sharingFailure || Date.now() >= deadline) throw error;
+    }
+    await sleep(REMOVE_RETRY_DELAY_MS);
   }
 }

@@ -1,5 +1,5 @@
 import { LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
-import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
+import { createPrivateControlFile, removePrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { runtimeRpcMethod, type RuntimeRpcMethodName } from "./rpc-methods";
 import { RuntimeRpcInputInvalidError } from "./rpc-argument-codec";
 import { type AddressInfo } from "node:net";
@@ -8,7 +8,7 @@ import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcConnection } from "./rpc-protocol";
 import { acquireDaemonLock, defaultDaemonConnectionPath, defaultDaemonLockPath } from "./daemon-control";
-import { closeSync, mkdirSync, rmSync } from "node:fs";
+import { closeSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { isLoopbackRemote, writeJson } from "./loopback-http";
 import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
@@ -113,11 +113,11 @@ export class ArchctxRuntimeRpcServer {
     this.server = undefined;
     this.connection = undefined;
     if (server) await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
-    if (connection) rmSync(connection.connectionPath, { force: true });
+    if (connection) await removePrivateControlFile(connection.connectionPath);
     if (this.lockFd !== undefined) {
       closeSync(this.lockFd);
       this.lockFd = undefined;
-      rmSync(this.options.lockPath ?? defaultDaemonLockPath(this.options.root ?? process.cwd()), { force: true });
+      await removePrivateControlFile(this.options.lockPath ?? defaultDaemonLockPath(this.options.root ?? process.cwd()));
     }
     if (startedDaemon) await this.daemon.stop().catch(() => undefined);
   }
@@ -174,10 +174,10 @@ export class ArchctxRuntimeRpcServer {
       });
     }
     await this.daemon.stop();
-    if (connection) rmSync(connection.connectionPath, { force: true });
+    if (connection) await removePrivateControlFile(connection.connectionPath);
     if (this.lockFd !== undefined) closeSync(this.lockFd);
     this.lockFd = undefined;
-    if (connection) rmSync(connection.lockPath, { force: true });
+    if (connection) await removePrivateControlFile(connection.lockPath);
     this.options.onStop?.();
   }
 
@@ -223,10 +223,16 @@ export class ArchctxRuntimeRpcServer {
     // no connection file spawns a fresh daemon immediately (`createOrStartRuntimeRpcClient`)
     // instead of racing this exiting process's own control files or a server about to stop
     // accepting connections.
-    rmSync(this.connection.connectionPath, { force: true });
+    // A removal failure must not skip the orderly stop. A file left here names this exiting pid,
+    // so the next CLI recovers it as stale.
+    let cleanupError: unknown;
+    await removePrivateControlFile(this.connection.connectionPath).catch((error) => { cleanupError = error; });
     try {
       await this.stop();
+    } catch (error) {
+      cleanupError ??= error;
     } finally {
+      if (cleanupError) process.stderr.write(`archctxd idle exit cleanup failed: ${(cleanupError as NodeJS.ErrnoException).code ?? "unknown"}\n`);
       // exit must be unconditional: a stop() failure here would otherwise leave the process
       // resident with its connection file already removed — the exact zombie shape this idle
       // exit path exists to eliminate.

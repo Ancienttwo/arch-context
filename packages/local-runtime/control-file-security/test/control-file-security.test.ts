@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { grantEveryoneRead } from "./windows-acl-fixtures";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { once } from "node:events";
+import { grantEveryoneRead, holdLikePrivateRead } from "./windows-acl-fixtures";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createPrivateControlFile, readPrivateControlFile } from "../src/index";
+import { createPrivateControlFile, readPrivateControlFile, removePrivateControlFile } from "../src/index";
 
 
 test("control credentials are private at creation, readable and never overwrite another file", () => {
@@ -41,3 +42,21 @@ test.skipIf(process.platform !== "win32")("native Windows rejects inherited ACLs
     expect(readFileSync(path, "utf8")).toBe("untrusted");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test.skipIf(process.platform !== "win32")("control-file removal waits for a concurrent private read to release its handle", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-control-file-remove-"));
+  const path = join(root, "archctxd.json");
+  try {
+    createPrivateControlFile(path, '{"token":"fixture"}');
+    const reader = await holdLikePrivateRead(path, 1_500);
+    const exited = once(reader, "exit");
+    let directError: NodeJS.ErrnoException | undefined;
+    try { rmSync(path, { force: true }); } catch (error) { directError = error as NodeJS.ErrnoException; }
+    console.info(JSON.stringify({ event: "control-file-remove-while-read", code: directError?.code ?? null }));
+    expect(directError).toBeDefined();
+    expect(existsSync(path)).toBe(true);
+    await removePrivateControlFile(path);
+    expect(existsSync(path)).toBe(false);
+    expect(reader.exitCode ?? (await exited)[0]).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 60_000);
