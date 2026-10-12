@@ -3218,7 +3218,7 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
       () => childError !== undefined || (childExit !== undefined && childExit.code !== DAEMON_OWNED_ELSEWHERE_EXIT_CODE)
     );
     if (!ready) {
-      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", daemonStartFailureMessage(cwd, logPath, childExit, childError));
+      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", daemonStartFailureMessage(cwd, logPath, child.pid, childExit, childError));
     }
     return okEnvelope("daemon.start", {
       running: true,
@@ -3457,6 +3457,7 @@ function daemonStartTimeoutMs(args: string[]): number {
 function daemonStartFailureMessage(
   cwd: string,
   logPath: string,
+  childPid: number | undefined,
   childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined,
   childError: Error | undefined
 ): string {
@@ -3465,10 +3466,10 @@ function daemonStartFailureMessage(
     : childExit
       ? `childExit=${childExit.code ?? "null"}/${childExit.signal ?? "none"}`
       : "childState=still-running";
-  const lockOwnerPid = childExit?.code === DAEMON_OWNED_ELSEWHERE_EXIT_CODE && !existsSync(defaultDaemonConnectionPath(cwd))
-    ? liveDaemonLockOwnerPid(cwd)
-    : undefined;
-  const owner = lockOwnerPid === undefined ? "" : `; ${orphanedDaemonMessage(lockOwnerPid)}`;
+  // A slow child can still be starting at the deadline, so the lock owner is named whether or not
+  // the child exited; only the child's own lock is not a foreign owner.
+  const lockOwnerPid = existsSync(defaultDaemonConnectionPath(cwd)) ? undefined : liveDaemonLockOwnerPid(cwd);
+  const owner = lockOwnerPid === undefined || lockOwnerPid === childPid ? "" : `; ${orphanedDaemonMessage(lockOwnerPid)}`;
   return `archctxd did not become ready; ${childState}${owner}; log=${logPath}; logTail=${readFileTail(logPath)}`;
 }
 
