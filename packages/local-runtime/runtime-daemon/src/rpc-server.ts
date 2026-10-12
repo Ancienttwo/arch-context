@@ -88,7 +88,8 @@ export class ArchctxRuntimeRpcServer {
   private readonly idleTimeoutMs: number;
   private idleTimer?: NodeJS.Timeout;
   private inFlightRpcRequests = 0;
-  private acceptedRpcRequests = 0;
+  // Authorized health checks and RPCs; only the idle exit reads it, to see use during its waits.
+  private authorizedRequests = 0;
   private idleExitPending = false;
 
   constructor(private readonly daemon: RuntimeRpcServerTarget, private readonly options: RuntimeRpcServerOptions = {}) {
@@ -234,12 +235,13 @@ export class ArchctxRuntimeRpcServer {
     // A removal failure must not skip the orderly stop. A file left here names this exiting pid,
     // so the next CLI recovers it as stale.
     const connection = this.connection;
-    const acceptedBeforeRemoval = this.acceptedRpcRequests;
+    const requestsBeforeRemoval = this.authorizedRequests;
     let cleanupError: unknown;
     await removePrivateControlFile(connection.connectionPath).catch((error) => { cleanupError = error; });
     // On Windows the removal can wait seconds for a reader, which is often a CLI about to call
-    // this daemon. A request accepted meanwhile cancels the exit: publish the file again and stay.
-    if (this.server && this.connection && (this.inFlightRpcRequests > 0 || this.acceptedRpcRequests !== acceptedBeforeRemoval)) {
+    // this daemon. An authorized health check or RPC meanwhile cancels the exit: publish the file
+    // again and stay.
+    if (this.server && this.connection && (this.inFlightRpcRequests > 0 || this.authorizedRequests !== requestsBeforeRemoval)) {
       try {
         if (!existsSync(connection.connectionPath)) createPrivateControlFile(connection.connectionPath, JSON.stringify(connection, null, 2));
         this.idleExitPending = false;
@@ -288,6 +290,8 @@ export class ArchctxRuntimeRpcServer {
         writeJson(response, 401, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC token required" });
         return;
       }
+      // A health check does not reset the idle timer, but it shows that a client is about to call.
+      this.authorizedRequests += 1;
       const changeSetRecovery = this.daemon.status().changeSetRecovery;
       writeJson(response, 200, {
         schemaVersion: RUNTIME_RPC_VERSION,
@@ -317,7 +321,7 @@ export class ArchctxRuntimeRpcServer {
     // An accepted request counts as in-flight from here, before its body is read: the idle-exit
     // path must never classify an authorized upload as an idle daemon.
     this.inFlightRpcRequests += 1;
-    this.acceptedRpcRequests += 1;
+    this.authorizedRequests += 1;
     try {
       const read = await readRpcRequestBody(request, {
         maxBytes: this.options.maxRequestBodyBytes ?? RUNTIME_RPC_MAX_REQUEST_BODY_BYTES,
