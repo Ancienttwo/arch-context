@@ -20,4 +20,13 @@ The committed projection format does not change. CodeGraph remains pinned to `@c
 
 ## Verification
 
-Filled in from the release-prep run.
+All candidate commands use Bun 1.4.3. The candidate is `3eff74d2` (main after #319) plus this release commit.
+
+- `bun run verify` exits 0 on macOS: typecheck, package and mock audits, architecture Mermaid render, practices, the CodeGraph selector check, `bun test` (2649 pass, 3 skip, 0 fail), Explorer, packaged CLI smoke, privacy and security readbacks, acceptance ledgers, sprint status and evals. The host load average was 10 to 19.
+- `bun install --frozen-lockfile` passes. `bun install` changed only the five workspace versions in `bun.lock`.
+- The practice catalog digest was recomputed with `loadPracticeCatalog`. The committed `catalog.yaml` equals the generated manifest.
+- The version-bound deterministic records (fg4, fg6) were regenerated with their record scripts. `modelDigest` and `generatedAt` changed. A second run after the rebase on `3eff74d2` changed only `generatedAt`, so that run was not kept.
+- The `archctx-contracts` npm preflight is ready (`archctx-contracts@0.7.2`, 199 files, not yet published).
+- The #319 PR CI passed on all 11 jobs (macOS, Ubuntu and Windows on Node 22, 24 and 25, Linux arm64, Governance Verify) before the merge.
+
+Publish both npm packages after the release-prep CI passes. Rebuild the tarballs from the merged main commit. Create tag `v0.7.2` and the GitHub Release only after both npm publishes succeed.
