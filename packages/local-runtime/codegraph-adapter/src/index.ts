@@ -844,7 +844,9 @@ export function prepareProjectionCodeFacts(
     ? codeGraphCliInvocation(options.binary, root, "")
     : packagedCodeGraphCliInvocation();
   const binaryPath = invocation.argsPrefix[0] ?? invocation.command;
-  const actualVersion = runProjectionCodeGraph(invocation, root, ["--version"], options.timeouts?.versionMs ?? 5_000).trim();
+  // `--version` starts the same launcher chain as `status`, so it gets the same stall budget. On
+  // Windows CI it takes 94 ms (p50) and 2.4 s cold; a runner stall once pushed it past 5 s.
+  const actualVersion = runProjectionCodeGraph(invocation, root, ["--version"], options.timeouts?.versionMs ?? 10_000).trim();
   if (actualVersion !== REQUIRED_CODEGRAPH_VERSION) {
     throw new Error(`CodeGraph ${REQUIRED_CODEGRAPH_VERSION} required, got actual binary ${actualVersion || "unknown"}`);
   }

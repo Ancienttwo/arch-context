@@ -26,8 +26,9 @@ const CLI_ENTRY = join(REPOSITORY_ROOT, "packages/surfaces/cli/src/main.ts");
 const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
 const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
-// These scenarios perform the full adoption flow plus repeated real CodeGraph syncs.
-const PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 120_000;
+// These scenarios perform the full adoption flow plus repeated real CodeGraph syncs. One scenario
+// runs 19 CodeGraph handshakes (95 CLI launches): 62 s alone on macOS, 114 s on a loaded host.
+const PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS = 240_000;
 
 function rmSync(path: string, options?: RmDirOptions): void {
   try {
