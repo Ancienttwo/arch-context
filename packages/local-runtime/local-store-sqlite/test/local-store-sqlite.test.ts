@@ -303,10 +303,10 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       await store.migrate();
       expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_snapshots")).toBe(0);
       const migratedDb = stallPhase("v2:verify-open", () => new Database(dbPath));
-      const columns = migratedDb.prepare("PRAGMA table_info(architecture_snapshots)").all().map((row) => String((row as Record<string, unknown>).name));
-      const eventColumns = migratedDb.prepare("PRAGMA table_info(architecture_events)").all().map((row) => String((row as Record<string, unknown>).name));
-      const immutableTrigger = migratedDb.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'architecture_events_immutable_delete'").get();
-      migratedDb.close();
+      const columns = stallPhase("v2:verify-snapshot-columns", () => migratedDb.prepare("PRAGMA table_info(architecture_snapshots)").all().map((row) => String((row as Record<string, unknown>).name)));
+      const eventColumns = stallPhase("v2:verify-event-columns", () => migratedDb.prepare("PRAGMA table_info(architecture_events)").all().map((row) => String((row as Record<string, unknown>).name)));
+      const immutableTrigger = stallPhase("v2:verify-trigger", () => migratedDb.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'architecture_events_immutable_delete'").get());
+      stallPhase("v2:verify-close", () => migratedDb.close());
       expect(columns).toEqual(expect.arrayContaining(["snapshot_schema_version", "last_event_sequence", "evidence_digest", "state_digest"]));
       expect(eventColumns).toEqual(expect.arrayContaining(["source_storage_workspace_id", "scope_event_count"]));
       expect(immutableTrigger).toBeDefined();

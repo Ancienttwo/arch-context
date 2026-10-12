@@ -11,7 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: sqlite-windows-stall-probe-${{ github.ref }}
+  # One group per commit: a probe-only fix push must not cancel a run that is still collecting evidence.
+  group: sqlite-windows-stall-probe-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
