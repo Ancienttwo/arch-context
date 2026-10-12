@@ -17,7 +17,8 @@ import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledg
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
-import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, createRuntimeRpcClientFromConnectionFile, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, CapabilityDependenciesError, readCapabilityDependencies } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, createRuntimeRpcClientFromConnectionFile, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, CapabilityDependenciesError, readCapabilityDependencies } from "@archcontext/local-runtime/runtime-daemon";
+import { RuntimeRpcTransportError, type RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { MCP_PLAN_OPERATIONS_SCHEMA, runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
@@ -2984,10 +2985,11 @@ async function createOrStartRuntimeRpcClient(cwd: string): Promise<RuntimeDaemon
   if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
   const client = createRuntimeRpcClientFromConnectionFile(cwd);
   if (client) {
-    const health = await client.health().catch(() => undefined);
+    const { health, unresponsivePid } = await probeDaemonHealth(client);
     const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
     if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
     if ((health as any)?.ok === true) return client;
+    if (unresponsivePid !== undefined) throw new Error(unresponsiveDaemonMessage(unresponsivePid));
     recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
   } else {
     recoverStaleDaemonControlFiles(cwd);
@@ -3086,14 +3088,16 @@ async function runDaemonCommand(args: string[], cwd: string) {
         return okEnvelope("daemon.status", incompatibleDaemonStatus(compatibilityIssue) as any);
       }
       const recovery = recoverStaleDaemonControlFiles(cwd);
+      const lockOwnerPid = liveDaemonLockOwnerPid(cwd);
       return okEnvelope("daemon.status", {
         running: false,
         protocol: "http-loopback",
         connectionPath: defaultDaemonConnectionPath(cwd),
+        ...(lockOwnerPid === undefined ? {} : { lockOwnerPid, action: orphanedDaemonMessage(lockOwnerPid) }),
         ...recoveryData(recovery)
       } as any);
     }
-    const health = await client.health().catch(() => undefined);
+    const { health, unresponsivePid } = await probeDaemonHealth(client);
     const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
     if (healthIssue) {
       return okEnvelope("daemon.status", incompatibleDaemonStatus(healthIssue) as any);
@@ -3113,6 +3117,16 @@ async function runDaemonCommand(args: string[], cwd: string) {
         productVersionCompatible: true,
         ...client.connectionInfo(),
         token: "stored-in-connection-file"
+      } as any);
+    }
+    if (unresponsivePid !== undefined) {
+      return okEnvelope("daemon.status", {
+        running: true,
+        responding: false,
+        pid: unresponsivePid,
+        protocol: "http-loopback",
+        connectionPath: client.connectionInfo().connectionPath,
+        action: unresponsiveDaemonMessage(unresponsivePid)
       } as any);
     }
     const recovery = recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
@@ -3152,6 +3166,9 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
   const discovered = await discoverRunningDaemonInfo(cwd, { recoverStale: true });
   if (discovered.compatibilityIssue?.pidAlive) {
     return errorEnvelope("daemon.start", "AC_RUNTIME_VERSION_UNSUPPORTED", runtimeVersionUnsupportedMessage(discovered.compatibilityIssue));
+  }
+  if (discovered.unresponsivePid !== undefined) {
+    return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", unresponsiveDaemonMessage(discovered.unresponsivePid));
   }
   if (discovered.info) {
     return okEnvelope("daemon.start", {
@@ -3201,7 +3218,7 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
       () => childError !== undefined || (childExit !== undefined && childExit.code !== DAEMON_OWNED_ELSEWHERE_EXIT_CODE)
     );
     if (!ready) {
-      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", daemonStartFailureMessage(logPath, childExit, childError));
+      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", daemonStartFailureMessage(cwd, logPath, childExit, childError));
     }
     return okEnvelope("daemon.start", {
       running: true,
@@ -3280,7 +3297,7 @@ async function discoverRunningDaemonInfo(cwd: string, options: { recoverStale?: 
       recovery: options.recoverStale ? recoverStaleDaemonControlFiles(cwd) : emptyRecovery(cwd)
     };
   }
-  const health = await client.health().catch(() => undefined);
+  const { health, unresponsivePid } = await probeDaemonHealth(client);
   const compatibilityIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health)
     ?? cliEntryStalenessIssue(cwd);
   if (compatibilityIssue) {
@@ -3292,6 +3309,9 @@ async function discoverRunningDaemonInfo(cwd: string, options: { recoverStale?: 
   }
   if ((health as any)?.ok === true) {
     return { info: client.connectionInfo(), compatibilityIssue: undefined, recovery: emptyRecovery(cwd) };
+  }
+  if (unresponsivePid !== undefined) {
+    return { info: undefined, compatibilityIssue: undefined, unresponsivePid, recovery: emptyRecovery(cwd) };
   }
   return {
     info: undefined,
@@ -3370,6 +3390,33 @@ function runtimeVersionUnsupportedMessage(issue: RuntimeRpcCompatibilityIssue): 
   return `archctxd RPC version ${issue.received} is incompatible with this CLI (${issue.expected}); run ${issue.upgradeCommand} to replace the local daemon.`;
 }
 
+/**
+ * A health timeout means the daemon accepted the connection but did not answer in time: it is
+ * busy, not gone. Its connection file must stay. Without it the live process keeps the store and
+ * the lock, no client can reach it, and every new daemon start loses to it (#318).
+ */
+async function probeDaemonHealth(client: RuntimeRpcClient): Promise<{ health: unknown; unresponsivePid?: number }> {
+  try {
+    return { health: await client.health() };
+  } catch (error) {
+    const pid = client.connectionInfo().pid;
+    const busy = error instanceof RuntimeRpcTransportError && error.code === "RPC_TIMEOUT" && typeof pid === "number" && isPidAlive(pid);
+    return { health: undefined, ...(busy ? { unresponsivePid: pid } : {}) };
+  }
+}
+
+function stopProcessCommand(pid: number): string {
+  return process.platform === "win32" ? `taskkill /PID ${pid}` : `kill -TERM ${pid}`;
+}
+
+function unresponsiveDaemonMessage(pid: number): string {
+  return `archctxd pid ${pid} is alive but did not answer its health check in time; it is likely busy, so its connection file was kept. Retry later, or stop it with \`${stopProcessCommand(pid)}\` and run the command again.`;
+}
+
+function orphanedDaemonMessage(pid: number): string {
+  return `the daemon lock names live pid ${pid}, but no connection file points to it; stop it with \`${stopProcessCommand(pid)}\`, then run the command again.`;
+}
+
 async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -3408,6 +3455,7 @@ function daemonStartTimeoutMs(args: string[]): number {
 }
 
 function daemonStartFailureMessage(
+  cwd: string,
   logPath: string,
   childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined,
   childError: Error | undefined
@@ -3417,7 +3465,11 @@ function daemonStartFailureMessage(
     : childExit
       ? `childExit=${childExit.code ?? "null"}/${childExit.signal ?? "none"}`
       : "childState=still-running";
-  return `archctxd did not become ready; ${childState}; log=${logPath}; logTail=${readFileTail(logPath)}`;
+  const lockOwnerPid = childExit?.code === DAEMON_OWNED_ELSEWHERE_EXIT_CODE && !existsSync(defaultDaemonConnectionPath(cwd))
+    ? liveDaemonLockOwnerPid(cwd)
+    : undefined;
+  const owner = lockOwnerPid === undefined ? "" : `; ${orphanedDaemonMessage(lockOwnerPid)}`;
+  return `archctxd did not become ready; ${childState}${owner}; log=${logPath}; logTail=${readFileTail(logPath)}`;
 }
 
 async function waitForDaemonReady(cwd: string, timeoutMs: number, shouldStop?: () => boolean) {

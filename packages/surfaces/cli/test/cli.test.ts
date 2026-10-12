@@ -1,6 +1,8 @@
 import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { createServer as createHttpServer, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -4075,6 +4077,82 @@ describe("archctx CLI", () => {
       await stopDaemonAndWait(root);
       if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
       else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI keeps a live daemon's connection file when its health check times out (#318)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-busy-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    const previousStartTimeout = process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS;
+    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
+    process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS = "500";
+    // A daemon whose event loop is blocked: the kernel accepts the connection, nothing answers.
+    const pending = new Set<ServerResponse>();
+    const busy = createHttpServer((_request, response) => { pending.add(response); });
+    await new Promise<void>((resolveListen) => busy.listen(0, "127.0.0.1", resolveListen));
+    try {
+      const { daemonConnectionPath: connectionPath, daemonLockPath: lockPath } = testRuntimePaths(root);
+      mkdirSync(testRuntimePaths(root).workspaceStateDir, { recursive: true });
+      createPrivateControlFile(connectionPath, JSON.stringify({
+        schemaVersion: RUNTIME_RPC_VERSION,
+        protocol: "http-loopback",
+        version: 1,
+        root,
+        url: `http://127.0.0.1:${(busy.address() as AddressInfo).port}/`,
+        token: "busy-token",
+        pid: process.pid,
+        lockPath,
+        connectionPath,
+        startedAt: new Date().toISOString()
+      }, null, 2));
+
+      const daemonStatus = await runCli("daemon", ["status"], root);
+      expect(daemonStatus.data).toMatchObject({ running: true, responding: false, pid: process.pid });
+      expect(existsSync(connectionPath)).toBe(true);
+
+      await expect(runCli("status", [], root)).rejects.toThrow(`archctxd pid ${process.pid} is alive but did not answer`);
+      expect(existsSync(connectionPath)).toBe(true);
+      // No replacement daemon was spawned against the busy owner.
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      for (const response of pending) response.destroy();
+      await new Promise<void>((resolveClose) => busy.close(() => resolveClose()));
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+      if (previousStartTimeout === undefined) delete process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS;
+      else process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS = previousStartTimeout;
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI names the live daemon lock owner when no connection file exists (#318)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-orphan-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    const previousStartTimeout = process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS;
+    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
+    process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS = "3000";
+    const owner = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    try {
+      const { daemonLockPath: lockPath } = testRuntimePaths(root);
+      mkdirSync(testRuntimePaths(root).workspaceStateDir, { recursive: true });
+      createPrivateControlFile(lockPath, JSON.stringify({ pid: owner.pid, root, startedAt: new Date().toISOString() }, null, 2));
+
+      const daemonStatus = await runCli("daemon", ["status"], root);
+      expect(daemonStatus.data).toMatchObject({ running: false, lockOwnerPid: owner.pid });
+
+      const started = await runCli("daemon", ["start"], root);
+      expect(started.ok).toBe(false);
+      expect((started as JsonEnvelope).error?.message).toContain(`daemon lock names live pid ${owner.pid}`);
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      owner.kill("SIGKILL");
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+      if (previousStartTimeout === undefined) delete process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS;
+      else process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS = previousStartTimeout;
       removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);

@@ -121,6 +121,21 @@ export function acquireDaemonLock(lockPath: string, root: string): number {
   }
 }
 
+/**
+ * The live pid the daemon lock names, if any. With no connection file, such a process still owns
+ * the store and the lock, so every new daemon start loses to it (#318).
+ */
+export function liveDaemonLockOwnerPid(root = process.cwd()): number | undefined {
+  try {
+    const body = readPrivateControlFile(defaultDaemonLockPath(root));
+    if (body === undefined) return undefined;
+    const pid = (JSON.parse(body) as { pid?: unknown }).pid;
+    return typeof pid === "number" && pid > 0 && isProcessAlive(pid) ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function isValidRuntimeRpcConnection(value: RuntimeRpcConnection): value is RuntimeRpcConnection {
   return value.schemaVersion === RUNTIME_RPC_VERSION
     && value.protocol === "http-loopback"
