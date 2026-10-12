@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
@@ -277,18 +277,32 @@ export function readTrackedSourceFiles(root: string, options: { include?: string
 
 /**
  * Workspace manifests as declared by the root `package.json`, so a consumer can resolve a bare
- * workspace specifier through the owning package's `exports` map. Workspace entries are read as
- * literal directories; a glob entry would fail loudly here rather than silently measure nothing.
+ * workspace specifier through the owning package's `exports` map. An entry is a literal directory
+ * or `dir/*`, which names every direct subdirectory of `dir` that has a `package.json`. Any other
+ * glob shape fails loudly here rather than silently measure nothing.
  */
 export function readWorkspacePackages(root: string): WorkspacePackageV1[] {
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { workspaces?: string[] };
   return (manifest.workspaces ?? [])
+    .flatMap((entry) => expandWorkspaceEntry(root, entry))
     .map((directory) => {
       const path = join(root, ...directory.split("/"), "package.json");
       const packageManifest = JSON.parse(readFileSync(path, "utf8")) as { name: string; exports?: Record<string, string> };
       return { name: packageManifest.name, root: directory, exports: packageManifest.exports ?? {} };
     })
     .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+}
+
+function expandWorkspaceEntry(root: string, entry: string): string[] {
+  if (!entry.includes("*")) return [entry];
+  const base = entry.slice(0, -2);
+  if (!entry.endsWith("/*") || base.includes("*")) throw new Error(`workspace-glob-unsupported: ${entry}`);
+  const directory = join(root, ...base.split("/"));
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true })
+    .filter((child) => child.isDirectory() && existsSync(join(directory, child.name, "package.json")))
+    .map((child) => `${base}/${child.name}`)
+    .sort();
 }
 
 export function isDetachedHead(root: string): boolean {

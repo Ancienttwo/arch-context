@@ -42,6 +42,11 @@
       "type": "integer",
       "minimum": 0
     },
+    "untrackedExcludedCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Worktree files that Git does not ignore and that the HEAD tree does not carry (untracked and newly staged files). The scan measures HEAD only, so it excludes them. Optional: a scan from an older archctx does not report it."
+    },
     "snapshot": {
       "$ref": "#/$defs/moduleStatisticsSnapshot"
     },

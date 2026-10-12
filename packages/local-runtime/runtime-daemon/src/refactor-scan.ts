@@ -37,7 +37,7 @@ import {
   codeGraphIndexAvailable,
   repositoryImportPairs
 } from "@archcontext/local-runtime/codegraph-adapter";
-import { readHeadCommitterDate, readTrackedSourceFiles, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
+import { readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import { planRefactorRunWithRecording, previousRecommendationsV3, type RefactorRunRecordingV1 } from "./refactor-recording";
 
@@ -105,6 +105,12 @@ export interface RefactorScanResultV1 {
   /** The limits that shaped `proposedRecommendations`, so a cut is visible to the caller. */
   limits: RefactorScanLimitsV1;
   trackedFileCount: number;
+  /**
+   * Files in the worktree, not ignored by Git, that the `HEAD` tree does not carry: untracked files
+   * and newly staged files. The scan measures `HEAD` only, so it excludes them; a commit that adds
+   * them changes the numbers for the same model.
+   */
+  untrackedExcludedCount: number;
 }
 
 export interface RefactorScanLimitsV1 extends RefactorCandidateBudget {
@@ -221,7 +227,8 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
       maxEvidenceSampleLimit: REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
       ...plan.candidateBudget
     },
-    trackedFileCount: trackedFiles.length
+    trackedFileCount: trackedFiles.length,
+    untrackedExcludedCount: countFilesOutsideHead(input.root)
   };
 }
 
@@ -355,12 +362,18 @@ function readWorktreeFiles(root: string): string[] {
   return [...new Set(output.split("\0").filter(Boolean))].sort();
 }
 
+/** Worktree files Git does not ignore that the `HEAD` tree does not carry. */
+function countFilesOutsideHead(root: string): number {
+  const head = new Set(readTrackedTreeEntries(root).map((entry) => entry.path));
+  return readWorktreeFiles(root).filter((path) => !head.has(path)).length;
+}
+
 /**
  * A repository with no root manifest declares no workspaces, so there is no `exports` map for a
  * bare specifier to resolve through and nothing to read. This is the measured answer, not a
  * relaxed one: such a specifier stays unresolved and is counted as such by the snapshot.
  */
-function declaredWorkspacePackages(root: string): ReturnType<typeof readWorkspacePackages> {
+export function declaredWorkspacePackages(root: string): ReturnType<typeof readWorkspacePackages> {
   return existsSync(join(root, "package.json")) ? readWorkspacePackages(root) : [];
 }
 
