@@ -5,7 +5,7 @@
   "sourceDigest": "sha256:b3918fa54a4f985a07f2449b82c45e71b92163f1a4a55bda3c4618b6b8c56f36",
   "provenance": {
     "schemaVersion": "archcontext.architecture-docs-projection-provenance/v3",
-    "sourceTreeDigest": "sha256:be5ae977836e20e07127421dc58ffce0c61aba40047566d3bdd8f898e64b6d32",
+    "sourceTreeDigest": "sha256:5faddf4c669479c6d303654c8a33f0ef0443ce6e9face343c350c54a0715205d",
     "modelDigest": "sha256:1dcb1354470ec891057581bbf13e9979e33eb56ca57b42f5c0ca3b15daf03dbd",
     "rendererVersion": "archcontext.docs-renderer/v5",
     "layoutVersion": "archcontext.docs-layout/v1",
@@ -13,9 +13,9 @@
       "codeGraphPackage": "@colbymchenry/codegraph",
       "codeGraphVersion": "1.6.1"
     },
-    "projectionInputDigest": "sha256:ef4fcbfdf9882b1a7150de2058ea40ca85e8c37f27821cc1220ac2da2215697f"
+    "projectionInputDigest": "sha256:e010d81f98334d35134bb7bdd6bdd97db1c367a4afb5e0022679bf85b6d13986"
   },
-  "projectionDigest": "sha256:da783842e9d145f44f208956971c288fd867d55c02b07e92ab0a005e19cd2ab0",
+  "projectionDigest": "sha256:9767a044f3fd5c3cfdc33d6e42db9f07c380fefedbee022d1621402c3f33c26a",
   "semanticBaseline": {
     "semanticState": {
       "schemaVersion": "archcontext.architecture-semantic-state/v1",
@@ -75,7 +75,7 @@
             "module.architecture-context.tooling"
           ],
           "semanticFingerprint": "sha256:eebe2f739b26e7796545d7412bf0a4e3f7e43ece216cba4a8a7b0024c9e6621f",
-          "flowProofFingerprint": "sha256:fdd36b84cb5297db10e11953d2dec0f6a179d535e9d8733a6fc0c4e3e0519a2f",
+          "flowProofFingerprint": "sha256:a00fe5cca6b4552ef4f63915e46a9b06d48fba1b6af2b02d1d728d57c089d877",
           "proofStatus": {
             "p1": "proven",
             "p2": "proven"
@@ -95,21 +95,21 @@
         }
       ],
       "semanticFingerprint": "sha256:487765a6e5fca7f81700cdec4ff2e6156d5f8c5371f221b1e2056abf1ebfe66d",
-      "flowProofFingerprint": "sha256:08260b7bfa51a930169e8b0f932340add8ddb28fb6f8b538d113805d8e8a7e18"
+      "flowProofFingerprint": "sha256:8ccd86b7c7417675545653cd90384cde05ef1ab1bf5b0cff636bce626a23e149"
     },
     "digests": {
       "modelDigest": "sha256:1dcb1354470ec891057581bbf13e9979e33eb56ca57b42f5c0ca3b15daf03dbd",
-      "sourceTreeDigest": "sha256:be5ae977836e20e07127421dc58ffce0c61aba40047566d3bdd8f898e64b6d32",
-      "flowProofDigest": "sha256:08260b7bfa51a930169e8b0f932340add8ddb28fb6f8b538d113805d8e8a7e18",
-      "projectionDigest": "sha256:da783842e9d145f44f208956971c288fd867d55c02b07e92ab0a005e19cd2ab0"
+      "sourceTreeDigest": "sha256:5faddf4c669479c6d303654c8a33f0ef0443ce6e9face343c350c54a0715205d",
+      "flowProofDigest": "sha256:8ccd86b7c7417675545653cd90384cde05ef1ab1bf5b0cff636bce626a23e149",
+      "projectionDigest": "sha256:9767a044f3fd5c3cfdc33d6e42db9f07c380fefedbee022d1621402c3f33c26a"
     },
     "evidence": {
-      "sourceTreeDigest": "sha256:be5ae977836e20e07127421dc58ffce0c61aba40047566d3bdd8f898e64b6d32",
+      "sourceTreeDigest": "sha256:5faddf4c669479c6d303654c8a33f0ef0443ce6e9face343c350c54a0715205d",
       "selectorEvidenceDigest": "sha256:fdbe97147c64af2d165cf000f0a08183a87779d57f37d23831676dc7c0115f02",
       "rendererVersion": "archcontext.docs-renderer/v5"
     }
   },
-  "receiptDigest": "sha256:44cb0066ba8e5837a01f08256ab92327b0f5e4b454623634983c23cf92daf12c",
+  "receiptDigest": "sha256:8502d1cf5c80bbe3bd72b3a865e921ce8eac1b483b2c73394b6ed6d2f1c764f0",
   "targetCount": 7,
   "fileCount": 7,
   "targets": [
@@ -138,9 +138,9 @@
       "ownership": "mixed",
       "rendererVersion": "archcontext.docs-renderer/v5",
       "format": "markdown",
-      "sourceDigest": "sha256:4e28579f79119802f0a6a7f9968a3b323802384715341b8f2b85116fb1c96672",
-      "outputDigest": "sha256:7d0af2b583842a50cdbaf02b5fdc1544ddddbaae8fb1012005e15fcda14c0a77",
-      "sourceFootprintDigest": "sha256:148d5e78ec1a6067e56bd58fdd4951e68c11f45dd3aab3bc0cb75a0a38856ee4",
+      "sourceDigest": "sha256:852e0e01c1765445e32955b254e9877d9f11851c7a294386d80fccca72cda8ff",
+      "outputDigest": "sha256:d631ae9969de11b644743a80886a64128b9fedeebb7d76901f39840205cde8f3",
+      "sourceFootprintDigest": "sha256:7bd104ba3587502058c9d4aeaef545d7b2eeb4b230610de70986fef3687d3490",
       "scale": {
         "fileCountBucket": {
           "lower": 100,
