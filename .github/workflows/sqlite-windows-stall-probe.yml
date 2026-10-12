@@ -1,0 +1,99 @@
+# STALL-PROBE (probe branch only, never merge).
+name: SQLite Windows Stall Probe
+
+on:
+  push:
+    branches:
+      - claude/probe-windows-sqlite-stall
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sqlite-windows-stall-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  file-loop:
+    name: file loop / shard ${{ matrix.shard }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - name: Loop local-store-sqlite tests with the stall probe
+        shell: bash
+        run: |
+          end=$((SECONDS + 1920))
+          i=0
+          while [ "$SECONDS" -lt "$end" ]; do
+            i=$((i + 1))
+            echo "=== iteration $i at ${SECONDS}s"
+            bun test --timeout 300000 --preload ./scripts/probes/sqlite-stall-probe.ts \
+              packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts > "iter-$i.log" 2>&1 || true
+            cat "iter-$i.log" >> probe.log
+            grep -E "stall-probe\] .*(STALL|SLOW)|\(fail\)|timed out|^ *[0-9]+ (pass|fail)$" "iter-$i.log" || true
+          done
+          echo "iterations=$i"
+      - name: Summarize
+        if: always()
+        shell: bash
+        run: |
+          echo "--- target test durations"
+          grep -h "snapshot anchor V2 migration removes digest-only V1 rows" probe.log | sed -E 's/.*\[([0-9.]+m?s)\].*/\1/' | tr '\n' ' '; echo
+          echo "--- STALL lines (>=5s)"
+          grep -E "STALL [0-9]+ms \(>=(5000|10000|20000|30000|45000|60000|90000|120000|180000|240000)\)" probe.log || true
+          echo "--- SLOW leaf phase counts (label truncated)"
+          grep -oE "SLOW leaf [0-9]+ms :: .*" probe.log | sed -E 's/SLOW leaf [0-9]+ms :: (test#[0-9]+ > )?//' | cut -c1-110 | sort | uniq -c | sort -rn | head -40
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: stall-probe-file-loop-${{ matrix.shard }}
+          path: probe.log
+
+  full-suite:
+    name: full suite / shard ${{ matrix.shard }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - name: Full bun test suite with the stall probe
+        shell: bash
+        run: |
+          bun test --timeout 300000 --preload ./scripts/probes/sqlite-stall-probe.ts > probe.log 2>&1 || true
+          grep -E "stall-probe\] .*(STALL|SLOW)|\(fail\)|timed out|^ *[0-9]+ (pass|fail)$" probe.log || true
+      - name: Summarize
+        if: always()
+        shell: bash
+        run: |
+          echo "--- STALL lines (>=5s)"
+          grep -E "STALL [0-9]+ms \(>=(5000|10000|20000|30000|45000|60000|90000|120000|180000|240000)\)" probe.log || true
+          echo "--- SLOW leaf phase counts (label truncated)"
+          grep -oE "SLOW leaf [0-9]+ms :: .*" probe.log | sed -E 's/SLOW leaf [0-9]+ms :: (test#[0-9]+ > )?//' | cut -c1-110 | sort | uniq -c | sort -rn | head -40
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: stall-probe-full-suite-${{ matrix.shard }}
+          path: probe.log

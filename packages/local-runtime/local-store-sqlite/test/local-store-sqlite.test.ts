@@ -46,7 +46,17 @@ import { TestLocalStore } from "./factories";
 const LEGACY_SQLITE_MIGRATION_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 const LOCAL_STORE_SLOW_TEST_TIMEOUT_MS = 15_000;
 
+// STALL-PROBE (probe branch only, never merge).
+function stallPhase<T>(label: string, fn: () => T): T {
+  const probe = (globalThis as { __archctxStallProbe?: { phase<R>(label: string, fn: () => R): R } }).__archctxStallProbe;
+  return probe ? probe.phase(label, fn) : fn();
+}
+
 function rmSync(path: string, options?: RmDirOptions): void {
+  stallPhase("test:rmSync", () => rmSyncUnprobed(path, options));
+}
+
+function rmSyncUnprobed(path: string, options?: RmDirOptions): void {
   try {
     nodeRmSync(path, { maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100, ...options });
   } catch (error) {
@@ -249,8 +259,9 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   test("snapshot anchor V2 migration removes digest-only V1 rows", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-snapshot-v2-migration-"));
     const dbPath = join(root, "runtime.sqlite");
-    const db = new Database(dbPath);
+    const db = stallPhase("v2:setup-open", () => new Database(dbPath));
     try {
+      stallPhase("v2:setup-migrations", () => {
       for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 14)) {
         for (const statement of migration.statements) db.exec(statement);
         db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, "2026-07-11T00:00:00.000Z");
@@ -283,14 +294,15 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         stableJsonFixture({ schemaVersion: "archcontext.architecture-snapshot/v1" }),
         "2026-07-11T00:00:00.000Z"
       );
+      });
     } finally {
-      db.close();
+      stallPhase("v2:setup-close", () => db.close());
     }
     const store = new SqliteLocalStore(dbPath);
     try {
       await store.migrate();
       expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_snapshots")).toBe(0);
-      const migratedDb = new Database(dbPath);
+      const migratedDb = stallPhase("v2:verify-open", () => new Database(dbPath));
       const columns = migratedDb.prepare("PRAGMA table_info(architecture_snapshots)").all().map((row) => String((row as Record<string, unknown>).name));
       const eventColumns = migratedDb.prepare("PRAGMA table_info(architecture_events)").all().map((row) => String((row as Record<string, unknown>).name));
       const immutableTrigger = migratedDb.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'architecture_events_immutable_delete'").get();
@@ -4631,6 +4643,10 @@ function sqliteEvidenceBinding(evidenceId: string): EvidenceBindingV1 {
 }
 
 async function sqliteScalar(databasePath: string, sql: string): Promise<any> {
+  return stallPhase("test:sqliteScalar", () => sqliteScalarUnprobed(databasePath, sql));
+}
+
+async function sqliteScalarUnprobed(databasePath: string, sql: string): Promise<any> {
   const bunSqlite = await import("bun:sqlite");
   const db = new (bunSqlite as any).Database(databasePath, { readonly: true });
   try {
@@ -4664,6 +4680,10 @@ catch (error) { process.stdout.write(error instanceof Error ? error.message : St
 }
 
 function removeTempRoot(root: string): void {
+  stallPhase("test:removeTempRoot", () => removeTempRootUnprobed(root));
+}
+
+function removeTempRootUnprobed(root: string): void {
   const maxAttempts = process.platform === "win32" ? 20 : 1;
   let lastError: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {

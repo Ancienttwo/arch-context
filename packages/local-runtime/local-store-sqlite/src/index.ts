@@ -1707,6 +1707,28 @@ type SqliteStatement = {
   all: (...params: unknown[]) => Record<string, unknown>[];
 };
 
+// STALL-PROBE (probe branch only, never merge): names phases for scripts/probes/sqlite-stall-probe.ts.
+type StallProbe = { phase<T>(label: string, fn: () => T): T };
+function stallPhase<T>(label: string, fn: () => T): T {
+  const probe = (globalThis as { __archctxStallProbe?: StallProbe }).__archctxStallProbe;
+  return probe ? probe.phase(label, fn) : fn();
+}
+function stallSqlLabel(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim().slice(0, 90);
+}
+const STALL_STATEMENT_METHODS = new Set(["run", "get", "all", "values", "iterate", "finalize"]);
+function stallWrapStatement(statement: any, sql: string): any {
+  const label = stallSqlLabel(sql);
+  return new Proxy(statement, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      if (!STALL_STATEMENT_METHODS.has(String(property))) return value.bind(target);
+      return (...args: unknown[]) => stallPhase(`sqlite:${String(property)} ${label}`, () => value.apply(target, args));
+    }
+  });
+}
+
 type SqliteDatabase = {
   exec: (sql: string) => unknown;
   prepare: (sql: string) => SqliteStatement;
@@ -1729,11 +1751,13 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   }
 
   async migrate(): Promise<void> {
-    const db = await this.database();
-    applyLocalSqliteMigrations(db);
-    backfillArchitectureEventDirectScope(db);
-    backfillArchitectureChangeFeed(db);
-    collectExplorerProjectionCacheFromDb(db, undefined, this.explorerCachePolicy, canonicalLifecycleTime(this.clock()), "startup-retention");
+    return stallPhase("store.migrate", async () => {
+      const db = await stallPhase("migrate:open", () => this.database());
+      stallPhase("migrate:apply", () => applyLocalSqliteMigrations(db));
+      stallPhase("migrate:backfill-direct-scope", () => backfillArchitectureEventDirectScope(db));
+      stallPhase("migrate:backfill-change-feed", () => backfillArchitectureChangeFeed(db));
+      stallPhase("migrate:cache-gc", () => collectExplorerProjectionCacheFromDb(db, undefined, this.explorerCachePolicy, canonicalLifecycleTime(this.clock()), "startup-retention"));
+    });
   }
 
   async beginSnapshot(snapshot: RepositorySnapshot): Promise<string> {
@@ -6335,6 +6359,7 @@ function applyLocalSqliteMigrations(db: SqliteDatabase): void {
   const applied = readAppliedLocalSqliteMigrations(db);
   for (const migration of LOCAL_SQLITE_MIGRATIONS) {
     if (applied.has(migration.id)) continue;
+    stallPhase(`migration:${migration.id}`, () => {
     db.exec("BEGIN IMMEDIATE");
     try {
       for (const statement of migration.statements) db.exec(statement);
@@ -6345,6 +6370,7 @@ function applyLocalSqliteMigrations(db: SqliteDatabase): void {
       db.exec("ROLLBACK");
       throw error;
     }
+    });
   }
 }
 
@@ -6779,16 +6805,16 @@ function selectSqliteRuntime(): SqliteRuntime {
 }
 
 function adaptBunSqliteDatabase(bunSqlite: any, databasePath: string): SqliteDatabase {
-  const db = new bunSqlite.Database(databasePath);
-  const releaseStatements = () => db.clearQueryCache();
+  const db = stallPhase(`sqlite:open ${databasePath}`, () => new bunSqlite.Database(databasePath));
+  const releaseStatements = () => stallPhase("sqlite:clearQueryCache", () => db.clearQueryCache());
   return {
-    exec: (sql) => db.exec(sql),
-    prepare: (sql) => db.query(sql),
+    exec: (sql) => stallPhase(`sqlite:exec ${stallSqlLabel(sql)}`, () => db.exec(sql)),
+    prepare: (sql) => stallWrapStatement(stallPhase(`sqlite:prepare ${stallSqlLabel(sql)}`, () => db.query(sql)), sql),
     releaseStatements,
-    close: () => {
+    close: () => stallPhase(`sqlite:close ${databasePath}`, () => {
       releaseStatements();
       db.close();
-    }
+    })
   };
 }
 
@@ -6802,8 +6828,8 @@ function adaptNodeSqliteDatabase(nodeSqlite: any, databasePath: string): SqliteD
 }
 
 async function openSqliteDatabase(databasePath: string): Promise<SqliteDatabase> {
-  if (databasePath !== ":memory:") ensurePrivateDir(dirname(databasePath));
-  if (selectSqliteRuntime() === "bun") return adaptBunSqliteDatabase(await import("bun:sqlite"), databasePath);
+  if (databasePath !== ":memory:") stallPhase("open:mkdir", () => ensurePrivateDir(dirname(databasePath)));
+  if (selectSqliteRuntime() === "bun") return adaptBunSqliteDatabase(await stallPhase("open:import", () => import("bun:sqlite")), databasePath);
   return adaptNodeSqliteDatabase(await import("node:sqlite"), databasePath);
 }
 
