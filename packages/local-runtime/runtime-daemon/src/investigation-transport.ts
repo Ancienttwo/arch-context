@@ -249,6 +249,9 @@ function runNodeInvestigationTransport(
       settleResolve(unwrapClaudeCodeEnvelope(code ?? 1, stdout, stderr));
     });
 
+    // A child that exits before it reads all of stdin breaks the pipe (EPIPE). Its exit event
+    // classifies the run; without this listener the write error is unhandled and kills the host.
+    child.stdin?.on("error", () => undefined);
     child.stdin?.end(input.stdin);
   });
 }

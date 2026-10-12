@@ -43,6 +43,17 @@ describe("createNodeInvestigationTransport / unwrapClaudeCodeEnvelope classifica
     expect(JSON.stringify(result)).not.toContain("diff --git");
   });
 
+  test("classifies a process that exits before reading stdin by its exit, not by the broken pipe", async () => {
+    const transport = createNodeInvestigationTransport();
+    // Larger than a pipe buffer, so the write is still pending when the child exits (EPIPE).
+    const result = await transport(baseInput({
+      args: ["-e", "process.stdout.write('not json at all'); process.exit(0);"],
+      stdin: "x".repeat(4 * 1024 * 1024)
+    }));
+    expect(result.exitCode).toBe(1);
+    expect(result.reasonCode).toBe("transport-envelope-not-json");
+  });
+
   test("classifies valid JSON that is not an envelope object (e.g. an array) as transport-envelope-not-json", async () => {
     const transport = createNodeInvestigationTransport();
     const result = await transport(baseInput({
