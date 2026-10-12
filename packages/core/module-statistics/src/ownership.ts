@@ -1,3 +1,12 @@
+import {
+  CHANGESET_OWNERSHIP_DELTA_PATH_LIMIT,
+  CHANGESET_OWNERSHIP_DELTA_SCHEMA_VERSION,
+  digestJson,
+  type ChangeSetOwnershipDeltaComputedV1,
+  type Json,
+  type OwnershipDeltaCategoryV1,
+  type OwnershipDeltaFileV1
+} from "@archcontext/contracts";
 import { ancestorChain, deepestOnOneParentChain, globLiteralPrefixLength, matchesGlob, nativeNodeSource, type NativeNode } from "@archcontext/core/projection-engine";
 
 export { ancestorChain };
@@ -121,4 +130,85 @@ function resolveCandidates(candidates: NativeNode[], parents: Map<string, string
   const owner = deepestOnOneParentChain(ids, parents);
   if (owner !== undefined) return { owners: [owner], ambiguous: false };
   return { owners: ids.sort(), ambiguous: true };
+}
+
+/**
+ * The ownership effect of replacing `before` with `after`, over one file set and under the same
+ * rule as `resolveOwnership`. Each changed file lands in exactly one category, checked in this
+ * order: newly contested, newly owned, newly unowned, owner changed. `changedNodeIds` names the
+ * nodes whose `source.include`, `source.exclude` or `parent` differ, or that exist on one side only.
+ */
+export function ownershipDelta(
+  before: NativeNode[],
+  after: NativeNode[],
+  paths: string[],
+  pathLimit: number = CHANGESET_OWNERSHIP_DELTA_PATH_LIMIT
+): ChangeSetOwnershipDeltaComputedV1 {
+  const changedNodeIds = ownershipRelevantChanges(before, after);
+  const beforeIndex = resolveOwnership(before, paths);
+  // No ownership input moved, so the planned model resolves every file exactly as the current one.
+  const afterIndex = changedNodeIds.length === 0 ? beforeIndex : resolveOwnership(after, paths);
+  const categories: Record<"becameOwned" | "becameContested" | "ownerChanged" | "becameUnowned", OwnershipDeltaFileV1[]> = {
+    becameOwned: [],
+    becameContested: [],
+    ownerChanged: [],
+    becameUnowned: []
+  };
+  for (const path of [...paths].sort()) {
+    const was = beforeIndex.byPath.get(path) ?? { owners: [], ambiguous: false };
+    const now = afterIndex.byPath.get(path) ?? { owners: [], ambiguous: false };
+    if (sameOwners(was.owners, now.owners)) continue;
+    const file = { path, before: [...was.owners].sort(), after: [...now.owners].sort() };
+    if (now.ambiguous && !was.ambiguous) categories.becameContested.push(file);
+    else if (was.owners.length === 0) categories.becameOwned.push(file);
+    else if (now.owners.length === 0) categories.becameUnowned.push(file);
+    else categories.ownerChanged.push(file);
+  }
+  const summary = (index: OwnershipIndex) => ({
+    ownedFileCount: index.ownedFileCount,
+    multiplyOwnedFileCount: index.multiplyOwnedFileCount,
+    unownedFileCount: index.unownedFileCount
+  });
+  const bounded = (files: OwnershipDeltaFileV1[]): OwnershipDeltaCategoryV1 => {
+    const listed = files.slice(0, pathLimit);
+    return { count: files.length, files: listed, omittedCount: files.length - listed.length };
+  };
+  return {
+    schemaVersion: CHANGESET_OWNERSHIP_DELTA_SCHEMA_VERSION,
+    status: "computed",
+    ownershipRule: "parent-chain",
+    fileUniverse: "head-tracked-files",
+    trackedFileCount: paths.length,
+    changedNodeIds,
+    pathLimit,
+    before: summary(beforeIndex),
+    after: summary(afterIndex),
+    becameOwned: bounded(categories.becameOwned),
+    becameContested: bounded(categories.becameContested),
+    ownerChanged: bounded(categories.ownerChanged),
+    becameUnowned: bounded(categories.becameUnowned)
+  };
+}
+
+/** Node ids whose ownership inputs differ between the two node sets, sorted. */
+function ownershipRelevantChanges(before: NativeNode[], after: NativeNode[]): string[] {
+  const key = (node: NativeNode | undefined): string => {
+    if (node === undefined) return "absent";
+    const source = nativeNodeSource(node);
+    return digestJson({
+      include: source?.include ?? [],
+      exclude: source?.exclude ?? [],
+      parent: node.parent ?? null
+    } as unknown as Json);
+  };
+  const beforeById = new Map(before.map((node) => [node.id, node]));
+  const afterById = new Map(after.map((node) => [node.id, node]));
+  const ids = new Set([...beforeById.keys(), ...afterById.keys()]);
+  return [...ids].filter((id) => key(beforeById.get(id)) !== key(afterById.get(id))).sort();
+}
+
+function sameOwners(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortedRight = [...right].sort();
+  return [...left].sort().every((owner, index) => owner === sortedRight[index]);
 }

@@ -17,7 +17,7 @@ import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledg
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
-import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, createRuntimeRpcClientFromConnectionFile, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, createRuntimeRpcClientFromConnectionFile, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, CapabilityDependenciesError, readCapabilityDependencies } from "@archcontext/local-runtime/runtime-daemon";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { MCP_PLAN_OPERATIONS_SCHEMA, runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
@@ -504,6 +504,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
           revocation: "archctx tunnel --revoke"
         }
       };
+    case "deps":
+      return runDepsCommand(args, cwd);
     case "resolve": {
       if (args.includes("--help") || args.includes("-h")) return okEnvelope("resolve", CLI_RESOLVE_HELP as unknown as Json);
       if (args.includes("--path") && args.includes("--paths-from")) {
@@ -531,8 +533,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel", "flows"],
-          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'"]
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel", "flows", "deps"],
+          examples: ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"]
         }
       };
     }
@@ -3562,12 +3564,50 @@ async function readResolvePathsFrom(args: string[], cwd: string, deps: CliRuntim
 
 const CLI_PLAN_ENTITY_FLAGS = ["--op", "--path", "--expected-hash", "--body", "--body-file"] as const;
 
+const CLI_DEPS_HELP = {
+  command: "archctx deps [--from <node-id>] [--into <node-id>] [--import-node-limit <n>] [--edge-limit <n>] [--json]",
+  description: "Read-only capability x capability import matrix. The command reads the model files, the HEAD tree and the CodeGraph index. It writes nothing and needs no daemon.",
+  rule: "Each file gets its owners from the parent-chain rule refactor scan uses. Each owner rolls up to the nearest kind: capability node on its parent chain. An edge counts in data.matrix only when both files roll up to exactly one capability. Other edges count in data.imports.unattributed by cause.",
+  filters: "--from <node-id> keeps edges whose importing file the node or a descendant owns. --into <node-id> keeps edges whose imported file the node or a descendant owns. An unknown node id is AC_SCHEMA_INVALID.",
+  imports: "data.imports reports coverage, reasonCodes, truncated, importNodeCount, importNodeLimit and importNodeLimitExceeded from the CodeGraph import read. A missing or stale index gives coverage unknown and an empty matrix. --import-node-limit raises the read cap (default 50000).",
+  calls: "Call counts are not available in v1. data.calls.coverage is unknown with reason call-edges-not-exposed, and every cell has calls: null.",
+  edges: "data.edges lists the attributed file-level edges behind the matrix, sorted by path, up to --edge-limit (default 200). data.edges.count is the full total."
+};
+
+/** `archctx deps`: in-process and read-only, like `resolve`, so it starts no daemon and writes no state. */
+function runDepsCommand(args: string[], cwd: string) {
+  if (args.includes("--help") || args.includes("-h")) return okEnvelope("deps", CLI_DEPS_HELP as unknown as Json);
+  const importNodeLimit = readOptionalPositiveIntegerFlag(args, "--import-node-limit", "deps");
+  if (!importNodeLimit.ok) return importNodeLimit.envelope;
+  const edgeLimit = readOptionalNonNegativeIntegerFlag(args, "--edge-limit", "deps");
+  if (!edgeLimit.ok) return edgeLimit.envelope;
+  const from = readFlag(args, "--from");
+  const into = readFlag(args, "--into");
+  for (const [flag, value] of [["--from", from], ["--into", into]] as const) {
+    if (args.includes(flag) && (value === undefined || value.startsWith("--"))) {
+      return errorEnvelope("deps", "AC_SCHEMA_INVALID", `deps ${flag} requires a node id`);
+    }
+  }
+  try {
+    return okEnvelope("deps", readCapabilityDependencies(findRepositoryRoot(cwd), {
+      ...(from === undefined ? {} : { from }),
+      ...(into === undefined ? {} : { into }),
+      ...(importNodeLimit.value === undefined ? {} : { importNodeLimit: importNodeLimit.value }),
+      ...(edgeLimit.value === undefined ? {} : { edgeLimit: edgeLimit.value })
+    }) as unknown as Json);
+  } catch (error) {
+    if (error instanceof CapabilityDependenciesError) return errorEnvelope("deps", error.code, error.message);
+    throw error;
+  }
+}
+
 const CLI_PLAN_HELP = {
   command: "archctx plan --id <changeset.id> (--op <create_entity|update_entity_fields|delete_entity> --path <file> [--expected-hash sha256:<64-hex>] [--body <yaml> | --body - | --body-file <path>] | --operations-file <operations.json | ->)",
   operations: "--operations-file takes a repository-relative path to a JSON array of operations in the archcontext_plan_update MCP shape, or - to read that array from stdin, and plans them as one ChangeSet; it cannot be combined with --op, --path, --expected-hash, --body or --body-file.",
   body: "--body is the complete new YAML document, not a field patch. Give exactly one of --body <yaml>, --body - (stdin) or --body-file <path>. --body-file and --operations-file read only repository-relative files inside the repository (no absolute or .. paths, no symlinks); content from outside the repository must come through stdin (--body - or --operations-file -). delete_entity accepts no body.",
   expectedHash: "digestJson({ body }) of the file's current UTF-8 contents, not sha256sum of the file. Read it with `archctx hash --path <file>`; use `missing` (the create default) for a new file.",
   drafts: "A draft lives in daemon memory. Planning the same --id again replaces it, and a daemon restart between plan and apply drops it: apply then fails with `Unknown ChangeSet`; plan again.",
+  ownershipDelta: "When the plan writes a node file, data.preview.ownershipDelta compares file ownership before and after the planned model over the files the HEAD tree carries, with the parent-chain rule refactor scan uses. becameOwned, becameContested, ownerChanged and becameUnowned each give count, up to 50 files with before and after owners, and omittedCount. status unavailable gives the reason, for example a planned body that does not parse. Read-only.",
   next: "archctx apply --id <changeset.id> --approved --expected-worktree-digest <draft.base.worktreeDigest>"
 };
 
