@@ -121,16 +121,16 @@ export interface DaemonControlListing {
 export function listDaemonControlStates(stateRoot = defaultArchContextStateRoot().path): DaemonControlListing[] {
   return listWorkspaceStateDirs(stateRoot).flatMap(({ storageRepositoryId, storageWorkspaceId, workspaceStateDir }) => {
     const { daemonConnectionPath, daemonLockPath } = daemonControlPaths(workspaceStateDir);
-    const hasConnection = existsSync(daemonConnectionPath);
-    if (!hasConnection && !existsSync(daemonLockPath)) return [];
-    const connection = hasConnection ? readRuntimeRpcConnectionAt(daemonConnectionPath) : undefined;
+    const listed = listedConnectionAt(daemonConnectionPath);
     const lockOwnerPid = liveLockOwnerPidAt(daemonLockPath);
+    if (listed.state === "missing" && !existsSync(daemonLockPath)) return [];
+    const connection = listed.state === "valid" ? listed.connection : undefined;
     return [{
       storageRepositoryId,
       storageWorkspaceId,
       stateDir: workspaceStateDir,
       connectionPath: daemonConnectionPath,
-      connection: connection ? "valid" : hasConnection ? "invalid" : "missing",
+      connection: listed.state,
       ...(connection ? {
         root: connection.root,
         rootExists: existsSync(connection.root),
@@ -183,6 +183,21 @@ export function acquireDaemonLock(lockPath: string, root: string): number {
  */
 export function liveDaemonLockOwnerPid(root = process.cwd()): number | undefined {
   return liveLockOwnerPidAt(defaultDaemonLockPath(root));
+}
+
+/**
+ * A daemon removes its connection file when it exits and creates it when it starts, and on
+ * Windows one read takes a native process launch, so a read can fail because the file is being
+ * removed or written. A failed read is judged by a second look: a file that is gone by then is
+ * `missing`, a file that now reads is `valid`, and a file that fails twice is `invalid`.
+ */
+function listedConnectionAt(path: string): { state: "valid"; connection: RuntimeRpcConnection } | { state: "invalid" | "missing" } {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!existsSync(path)) return { state: "missing" };
+    const connection = readRuntimeRpcConnectionAt(path);
+    if (connection) return { state: "valid", connection };
+  }
+  return { state: "invalid" };
 }
 
 function liveLockOwnerPidAt(lockPath: string): number | undefined {

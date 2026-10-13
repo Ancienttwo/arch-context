@@ -4489,7 +4489,7 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("a real background daemon exits within its idle timeout after its worktree is deleted, and daemon list shows it meanwhile (#322)", async () => {
+  test("a real background daemon exits within its idle timeout after its worktree is deleted (#322)", async () => {
     const parent = mkdtempSync(join(tmpdir(), "archctx-cli-deleted-root-"));
     const root = join(parent, "repo");
     mkdirSync(root);
@@ -4499,7 +4499,10 @@ describe("archctx CLI", () => {
     // storage ids derived from the cwd, are gone too. That is why `daemon stop` from the cwd cannot
     // find such a daemon and the idle exit must not depend on the root.
     const paths = testRuntimePaths(root);
-    const idleTimeoutMs = 1_500;
+    // The idle window runs from the last RPC (`status` below), whether or not the root still
+    // exists. Nothing but the delete runs inside it, so the daemon is still alive when its root
+    // goes; the listing of such a daemon is checked in the next test, where idle exit is off.
+    const idleTimeoutMs = 3_000;
     const env = { ...testStateEnv(root), ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS: String(idleTimeoutMs) };
     const cli = async (cwd: string, ...args: string[]) => JSON.parse((await collectProcess(spawn(process.execPath, [CLI_ENTRY, ...args], { cwd, env }))).stdout);
     try {
@@ -4508,16 +4511,6 @@ describe("archctx CLI", () => {
       const status = await cli(root, "status");
       expect(status.data.sessions).toBeGreaterThanOrEqual(1);
       const pid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
-      const listed = await cli(parent, "daemon", "list");
-      expect(listed.ok).toBe(true);
-      expect(listed.data.daemons).toEqual([expect.objectContaining({
-        storageWorkspaceId: paths.storageWorkspaceId,
-        stateDir: paths.workspaceStateDir,
-        connection: "valid",
-        pid,
-        pidAlive: true,
-        rootExists: true
-      })]);
       expectOutsideWorktree(pid, root);
 
       // The unwrapped rm: a daemon that pins the root makes Windows refuse this delete, and the
@@ -4525,9 +4518,8 @@ describe("archctx CLI", () => {
       nodeRmSync(root, { recursive: true, force: true });
       expect(existsSync(root)).toBe(false);
       const deletedAt = Date.now();
-      const listedAfterDelete = await cli(parent, "daemon", "list");
-      expect(listedAfterDelete.data.daemons).toEqual([expect.objectContaining({ pid, rootExists: false })]);
-      // The listing above is an RPC-free read, so the idle window still runs from the `status` call.
+      // Alive here, so the exit below is the deleted-root idle path and not an exit that came first.
+      expect(process.kill(pid, 0)).toBe(true);
       while (Date.now() - deletedAt < idleTimeoutMs + 5_000) {
         try {
           process.kill(pid, 0);
@@ -4547,7 +4539,7 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("daemon stop --workspace-id and --state-dir stop a daemon whose worktree is deleted; bad targets fail closed (#322)", async () => {
+  test("daemon list shows a daemon whose worktree is deleted, daemon stop --workspace-id and --state-dir stop it, and bad targets fail closed (#322)", async () => {
     const parent = mkdtempSync(join(tmpdir(), "archctx-cli-stop-target-"));
     const root = join(parent, "repo");
     mkdirSync(root);
@@ -4560,9 +4552,14 @@ describe("archctx CLI", () => {
     try {
       expect((await cli(root, "daemon", "start")).ok).toBe(true);
       const firstPid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
+      const listing = { storageWorkspaceId: paths.storageWorkspaceId, stateDir: paths.workspaceStateDir, connection: "valid", pid: firstPid, pidAlive: true };
+      const listed = await cli(parent, "daemon", "list");
+      expect(listed.ok).toBe(true);
+      expect(listed.data.daemons).toEqual([expect.objectContaining({ ...listing, rootExists: true })]);
       expectOutsideWorktree(firstPid, root);
       nodeRmSync(root, { recursive: true, force: true });
       expect(existsSync(root)).toBe(false);
+      expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([expect.objectContaining({ ...listing, rootExists: false })]);
 
       expect((await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir, "--workspace-id", paths.storageWorkspaceId)).error)
         .toMatchObject({ code: "AC_SCHEMA_INVALID", message: "daemon stop accepts at most one of --state-dir or --workspace-id" });
