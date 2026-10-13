@@ -1605,6 +1605,8 @@ function runProjectionFreshnessCliCommand(args: string[], cwd: string): JsonEnve
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === "--json") continue;
+    // Global rendering flag (preflight guarantees it has a value); the process entry reads it, as `flows` does.
+    if (arg === "--format") { index += 1; continue; }
     if (arg === "--changed-path") {
       const value = args[index + 1];
       if (value === undefined || value.startsWith("--")) return errorEnvelope("projection.freshness", "AC_SCHEMA_INVALID", "projection freshness --changed-path requires a path");

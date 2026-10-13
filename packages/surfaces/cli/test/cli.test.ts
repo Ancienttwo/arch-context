@@ -829,6 +829,7 @@ test("CLI projection freshness refuses non-Git roots, paths outside the worktree
   }) as unknown as RuntimeDaemonClient;
   const nonGit = mkdtempSync(join(tmpdir(), "archctx-cli-freshness-non-git-"));
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-freshness-refusals-"));
+  const formatStateRoot = join(dirname(root), `.archctx-freshness-format-state-${basename(root)}`);
   try {
     writeFileSync(join(nonGit, "README.md"), "# tmp\n", "utf8");
     expect(await runCli("projection", ["freshness", "--json"], nonGit, { runtimeClient: noRuntime })).toMatchObject({
@@ -860,12 +861,27 @@ test("CLI projection freshness refuses non-Git roots, paths outside the worktree
     expect(await freshness("--changed-path", "--json")).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
     expect(await freshness("--request-json", "{}")).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
     expect(await freshness("extra")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
+    expect(await freshness("--format")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
+    // The global rendering flag is consumed with its value; the entry point renders it.
+    for (const format of ["human", "json"]) {
+      expect(await freshness("--format", format), format).toMatchObject({ ok: true, requestId: "projection.freshness" });
+      expect(await freshness("--format", format, "--json"), format).toMatchObject({ ok: true, requestId: "projection.freshness" });
+    }
+    expect(await freshness("--format", "human", "--bogus")).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+    const humanOutput = execFileSync("bun", [CLI_ENTRY, "projection", "freshness", "--format", "human"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, ARCHCONTEXT_STATE_DIR: formatStateRoot },
+      timeout: CLI_PROCESS_TIMEOUT_MS
+    });
+    expect(humanOutput.startsWith("OK projection.freshness\n")).toBe(true);
     const help = await freshness("--help");
     expect(help).toMatchObject({ ok: true, data: { capability: "projection-freshness-v1" } });
     expect(ARCHCTX_FEATURES).toContain("projection-freshness-v1");
     // No refusal wrote anything.
     expect(gitOut(root, "status", "--porcelain", "--ignored")).toBe("");
   } finally {
+    rmSync(formatStateRoot, { recursive: true, force: true });
     removeTempRoot(nonGit);
     removeTempRoot(root);
   }
