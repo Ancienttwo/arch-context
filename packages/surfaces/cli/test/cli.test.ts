@@ -2490,6 +2490,17 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("the removed docs --generated-at flag is refused before the runtime (#327)", async () => {
+    const throwingRuntime = new Proxy({}, { get: () => () => { throw new Error("preflight let a handler reach the runtime"); } });
+    for (const subcommand of ["plan", "drift"]) {
+      const rejected = await runCli("docs", [subcommand, "--generated-at", "2020-01-01T00:00:00Z", "--json"], "/absent", { runtimeClient: throwingRuntime as any }) as JsonEnvelope;
+      expect(rejected, `docs ${subcommand}`).toMatchObject({
+        ok: false,
+        error: { code: "AC_SCHEMA_INVALID", message: expect.stringContaining("does not recognize the flag --generated-at") }
+      });
+    }
+  });
+
   test("spawned CLI: --help on commands without their own help, daemon start --help and validate argument errors never start the daemon (#322)", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-help-no-daemon-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
