@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestJson, refactorDecisionPath, type RefactorDecisionV1 } from "@archcontext/contracts";
+import { digestJson, refactorDecisionPath, serializeRefactorDecision, type RefactorDecisionV1 } from "@archcontext/contracts";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
 import { ChangeSetEngine, isRefactorDecisionOnly, type ChangeOperation, type ChangeSetJournalFile, type ChangeSetJournalPort } from "../src/index";
 
-const BODY = readFileSync(join(import.meta.dir, "../../../contracts/fixtures/valid/refactor-decision.json"), "utf8");
-const DECISION = JSON.parse(BODY) as RefactorDecisionV1;
+// The fixture is a committed file: a `core.autocrlf` checkout reads it with CRLF, so the body a
+// write carries is built from the canonical serializer, never taken from the checkout bytes.
+const DECISION = JSON.parse(readFileSync(join(import.meta.dir, "../../../contracts/fixtures/valid/refactor-decision.json"), "utf8")) as RefactorDecisionV1;
+const BODY = serializeRefactorDecision(DECISION);
 const PATH = refactorDecisionPath(DECISION.recommendationId);
 const DIGEST = `sha256:${"a".repeat(64)}`;
 
@@ -124,6 +126,29 @@ describe("write_refactor_decision (ADR-0046)", () => {
       const deferred = BODY.replace("\"rejected\"", "\"deferred\"");
       await expect(engine.apply(root, plan(engine, [decisionOperation({ body: deferred })]), { approved: true })).rejects.toThrow(/Expected hash mismatch/);
       await engine.apply(root, plan(engine, [decisionOperation({ body: deferred, expectedHash: digestJson({ body: BODY }) })]), { approved: true });
+      expect(readFileSync(join(root, PATH), "utf8")).toBe(deferred);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("writes stay LF canonical, and a CRLF checkout of the file it replaces is not refused", async () => {
+    const root = tempModelRoot();
+    try {
+      const engine = engineWith(new RecordingJournal());
+      const crlf = BODY.replaceAll("\n", "\r\n");
+      // A CRLF body is a checkout artefact, never something the daemon writes.
+      expect(engine.preview(root, plan(engine, [decisionOperation({ body: crlf })])).findings.join("\n")).toContain("canonical serialization");
+
+      // The committed decision as a Windows checkout leaves it on disk: the re-decision names the
+      // hash of those bytes, replaces them, and writes the canonical LF body.
+      mkdirSync(join(root, ".archcontext/refactor-decisions"), { recursive: true });
+      writeFileSync(join(root, PATH), crlf);
+      const deferred = serializeRefactorDecision({ ...DECISION, status: "deferred" });
+      await expect(engine.apply(root, plan(engine, [decisionOperation({ body: deferred, expectedHash: digestJson({ body: BODY }) })]), { approved: true }))
+        .rejects.toThrow(/Expected hash mismatch/);
+      const applied = await engine.apply(root, plan(engine, [decisionOperation({ body: deferred, expectedHash: digestJson({ body: crlf }) })]), { approved: true });
+      expect(applied.status).toBe("applied");
       expect(readFileSync(join(root, PATH), "utf8")).toBe(deferred);
     } finally {
       rmSync(root, { recursive: true, force: true });

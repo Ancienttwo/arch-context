@@ -46,7 +46,10 @@ Human decisions on refactor recommendations live in Git, in
 - Decide with `archctx recommendations <verb> --id <id> --reason <text>`. The
   daemon writes the decision file and the ledger audit events in one ChangeSet
   journal boundary. Never hand-edit or create these files; the reader refuses
-  unknown fields, conflict markers and a basename that does not match the id.
+  unknown fields, conflict markers, a basename that does not match the id and
+  any byte that is not the canonical serialization. CRLF line endings from a
+  `core.autocrlf` checkout are accepted; the daemon rewrites the file as LF on
+  the next decision.
 - Commit the decision file. Another worktree or branch sees the decision only
   when its checkout contains that commit. A deleted worktree with an
   uncommitted decision loses it. In the other worktree, `recommendations show`

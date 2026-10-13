@@ -1706,23 +1706,46 @@ describe("refactor JSON schemas", () => {
 });
 
 describe("refactor decision file (ADR-0046)", () => {
-  const body = readFileSync(join(import.meta.dir, "../fixtures/valid/refactor-decision.json"), "utf8");
+  // The fixture as this checkout has it: LF, or CRLF under `core.autocrlf` (Windows).
+  const checkedOut = readFileSync(join(import.meta.dir, "../fixtures/valid/refactor-decision.json"), "utf8");
+  const body = checkedOut.replaceAll("\r\n", "\n");
   const decision = JSON.parse(body) as RefactorDecisionV1;
   const path = refactorDecisionPath(decision.recommendationId);
 
   test("the canonical body parses back to itself and stays under its own id", () => {
     expect(path).toBe(`.archcontext/refactor-decisions/${decision.recommendationId}.json`);
     expect(REFACTOR_DECISION_FILE_PATTERN.test(path)).toBe(true);
-    const parsed = parseRefactorDecisionFile(path, body);
+    const parsed = parseRefactorDecisionFile(path, checkedOut);
     expect(serializeRefactorDecision(parsed)).toBe(body);
     expect(refactorDecisionInvariantIssues(parsed)).toEqual([]);
+  });
+
+  test("a CRLF checkout of a canonical file reads as that file; a lone CR or any other byte change fails closed", () => {
+    const crlf = body.replaceAll("\n", "\r\n");
+    expect(parseRefactorDecisionFile(path, crlf)).toEqual(parseRefactorDecisionFile(path, body));
+    // The serialization does not depend on the key order it is handed.
+    const reordered = Object.fromEntries(Object.entries(decision).reverse()) as unknown as RefactorDecisionV1;
+    expect(serializeRefactorDecision(reordered)).toBe(body);
+    const noncanonical = [
+      body.replace("\n", "\r"),
+      body.replace(",\n", ",\r\r\n"),
+      body.replace("{\n  ", "{\n   "),
+      body.slice(0, -1),
+      `${body}\n`,
+      `${JSON.stringify(reordered, null, 2)}\n`,
+      JSON.stringify(decision)
+    ];
+    for (const variant of noncanonical) {
+      expect(() => parseRefactorDecisionFile(path, variant)).toThrow(/refactor-decision-noncanonical/);
+    }
   });
 
   test("conflict markers, non-JSON, unknown keys, open status, multi-line reasons and a foreign basename are refused", () => {
     const conflicted = body.replace('  "status": "rejected",', '<<<<<<< ours\n  "status": "rejected",\n=======\n  "status": "deferred",\n>>>>>>> theirs');
     expect(() => parseRefactorDecisionFile(path, conflicted)).toThrow(/refactor-decision-conflicted/);
     expect(() => parseRefactorDecisionFile(path, "{")).toThrow(/refactor-decision-malformed/);
-    const variant = (patch: Record<string, unknown>) => serializeRefactorDecision({ ...decision, ...patch } as RefactorDecisionV1);
+    // Raw JSON, not the serializer: the canonical serializer emits only the declared keys.
+    const variant = (patch: Record<string, unknown>) => `${JSON.stringify({ ...decision, ...patch }, null, 2)}\n`;
     expect(() => parseRefactorDecisionFile(path, variant({ extra: true }))).toThrow(/unsupported key/);
     expect(() => parseRefactorDecisionFile(path, variant({ status: "open" }))).toThrow(/status must be one of/);
     expect(() => parseRefactorDecisionFile(path, variant({ reason: "line one\nline two" }))).toThrow(/one line/);

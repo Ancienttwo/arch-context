@@ -474,10 +474,23 @@ try {
   );
   assert(resolvedRecommendation.ok === true, `packaged recommendations resolve must accept the recorded verdict: ${JSON.stringify(resolvedRecommendation.error ?? {})}`);
   assert(resolvedRecommendation.data?.nextStatus === "resolved", "packaged recommendations resolve must close the recommendation");
+  // ADR-0046: a refactor decision, `resolve` included, writes its Git decision file, so the final
+  // tree is the verified tree plus that file and its digest moves past the verified one. The
+  // readback must bind that final tree, which `status` measures live and independently.
+  const resolvedDecisionFile = `.archcontext/refactor-decisions/${proposalRecommendation.recommendationId}.json`;
+  assert(resolvedRecommendation.data?.decisionFile === resolvedDecisionFile, `packaged recommendations resolve must write its Git decision file: ${JSON.stringify(resolvedRecommendation.data?.decisionFile)}`);
+  assert(existsSync(join(repo, resolvedDecisionFile)), "the resolve decision file must exist in the worktree");
+  const statusAfterResolve = await runArchctx("status");
+  assert(statusAfterResolve.ok === true, "status after resolve must succeed");
+  assert(statusAfterResolve.data?.headSha === verified.data.worktree.headSha, "resolve must not move HEAD");
+  assert(
+    typeof statusAfterResolve.data?.worktreeDigest === "string" && statusAfterResolve.data.worktreeDigest !== verified.data.worktree.worktreeDigest,
+    "the resolve decision file must change the worktree digest"
+  );
   const resolvedReadback = await runArchctx("book", "recommendations", "--json");
   assert(resolvedReadback.ok === true, "resolved recommendation readback must succeed");
   assert(resolvedReadback.data?.freshness?.worktree?.headSha === verified.data.worktree.headSha, "recommendation freshness must bind the final HEAD");
-  assert(resolvedReadback.data?.freshness?.worktreeDigest === verified.data.worktree.worktreeDigest, "recommendation freshness must bind the final worktree digest");
+  assert(resolvedReadback.data?.freshness?.worktreeDigest === statusAfterResolve.data.worktreeDigest, "recommendation freshness must bind the final worktree digest");
   assert(resolvedReadback.data?.provenance?.headSha === proposed.data.worktree.headSha, "recommendation provenance must retain the baseline ledger HEAD");
   assert(resolvedReadback.data?.recommendations?.find((entry) => entry.recommendationId === proposalRecommendation.recommendationId)?.status === "resolved", "resolved recommendation must remain visible after HEAD movement");
 

@@ -108,8 +108,11 @@ events are audit. Decisions become visible to other worktrees and branches only 
 file is committed and the other checkout contains that commit; an uncommitted decision stays in its
 own worktree. A decision changes the worktree digest, so rescan after deciding. The decision files
 are the Git-visible ones in that directory (tracked or untracked, not ignored), so an ignored
-`.DS_Store` or editor file is never read; a malformed or conflicted decision file, a symlink, or
-any other Git-visible file there fails every refactor read closed. Refactor decisions held only in
+`.DS_Store` or editor file is never read; a malformed, conflicted or non-canonical decision file, a
+symlink, or any other Git-visible file there fails every refactor read closed. A decision file is
+compared to the canonical serialization after rewriting CRLF pairs to LF, so a Windows
+`core.autocrlf` checkout of a committed decision reads and can be re-decided; the daemon always
+writes LF. Refactor decisions held only in
 SQLite by 0.7.x do not carry over.
 
 A decision that reached a worktree through Git but was never recorded in that worktree's ledger is

@@ -522,6 +522,44 @@ describe("refactor decision write boundary", () => {
     }
   });
 
+  test("a CRLF checkout of a committed decision reads as that decision and can be re-decided; any other byte change fails closed", async () => {
+    const root = createRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const scan = scanData(await daemon.refactorScan(root));
+      const id = candidateFor(scan, "module.decide-a").recommendationId;
+      const decisionPath = `${DECISIONS}/${id}.json`;
+      expect((await daemon.recommendations(root, { command: "accept", approved: true, recommendationId: id, reason: "Worth doing." })).ok).toBe(true);
+      commitAll(root, "accept module.decide-a");
+      const canonical = readFileSync(join(root, decisionPath), "utf8");
+      expect(canonical.includes("\r")).toBe(false);
+
+      // What a `core.autocrlf` checkout of that commit leaves on disk.
+      writeFileSync(join(root, decisionPath), canonical.replaceAll("\n", "\r\n"));
+      expect((await daemon.refactorScan(root)).ok).toBe(true);
+      const shown = await daemon.recommendations(root, { command: "show", recommendationId: id });
+      expect(shown.data).toMatchObject({ status: "accepted", statusAuthority: "git-decision" });
+      const rejected = await daemon.recommendations(root, { command: "reject", approved: true, recommendationId: id, reason: "Not after all." });
+      expect(rejected.ok, JSON.stringify(rejected)).toBe(true);
+      expect(rejected.data).toMatchObject({ previousStatus: "accepted", nextStatus: "rejected", decisionFile: decisionPath });
+      const rewritten = readFileSync(join(root, decisionPath), "utf8");
+      expect(rewritten.includes("\r")).toBe(false);
+      expect(parseRefactorDecisionFile(decisionPath, rewritten)).toMatchObject({ recommendationId: id, status: "rejected" });
+
+      // A lone CR or any other byte that is not the canonical serialization fails every reader.
+      for (const altered of [rewritten.replace("\n", "\r"), rewritten.replace("{\n  ", "{\n   ")]) {
+        writeFileSync(join(root, decisionPath), altered);
+        for (const read of [await daemon.refactorScan(root), await daemon.recommendations(root, { command: "list", status: "rejected" })]) {
+          expect(errorOf(read)).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "refactor-decision-invalid" });
+          expect(errorOf(read).message).toContain("refactor-decision-noncanonical");
+        }
+      }
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   test("a decision file Git ignores fails every reader closed", async () => {
     const root = createRepo();
     const daemon = await startDaemon(new TestLocalStore());

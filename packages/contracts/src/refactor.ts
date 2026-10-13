@@ -1644,9 +1644,43 @@ export function refactorDecisionPath(recommendationId: string): string {
   return `${REFACTOR_DECISION_DIRECTORY}/${recommendationId}.json`;
 }
 
-/** The one serialization the daemon writes: two-space JSON, keys in declaration order, final newline. */
+/**
+ * The one serialization the daemon writes: two-space JSON, LF line endings, keys in declaration
+ * order at every level (`observationMetrics` keys sorted), final newline. It does not depend on the
+ * key order of the value it is given, so a parsed file serializes back to its own bytes only when
+ * it is already canonical.
+ */
 export function serializeRefactorDecision(decision: RefactorDecisionV1): string {
-  return `${JSON.stringify(decision, null, 2)}\n`;
+  const canonical: RefactorDecisionV1 = {
+    schemaVersion: decision.schemaVersion,
+    namespace: decision.namespace,
+    recommendationId: decision.recommendationId,
+    fingerprint: decision.fingerprint,
+    fingerprintSchemaVersion: decision.fingerprintSchemaVersion,
+    category: decision.category,
+    kind: decision.kind,
+    subject: {
+      selectorKind: decision.subject.selectorKind,
+      stableKey: decision.subject.stableKey,
+      subjectSelectorId: decision.subject.subjectSelectorId
+    },
+    affectedNodeIds: decision.affectedNodeIds,
+    affectedNodeCount: decision.affectedNodeCount,
+    regressesFrom: decision.regressesFrom,
+    status: decision.status,
+    observationMetrics: decision.observationMetrics === null
+      ? null
+      : Object.fromEntries(Object.entries(decision.observationMetrics).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))),
+    reason: decision.reason,
+    actor: { kind: decision.actor.kind, id: decision.actor.id },
+    decidedAt: decision.decidedAt,
+    provenance: {
+      headSha: decision.provenance.headSha,
+      assessmentDigest: decision.provenance.assessmentDigest,
+      baselineSnapshotDigest: decision.provenance.baselineSnapshotDigest
+    }
+  };
+  return `${JSON.stringify(canonical, null, 2)}\n`;
 }
 
 /**
@@ -1733,16 +1767,23 @@ export function refactorDecisionInvariantIssues(value: unknown, prefix = "refact
 
 /**
  * Parses one decision file exactly as it sits in the checkout. A file with an unresolved merge
- * conflict, a body that is not one JSON object, a value that breaks the contract, or a basename
- * that is not its own recommendation id is refused with every reason; nothing is repaired.
+ * conflict, a body that is not one JSON object, a value that breaks the contract, a basename that
+ * is not its own recommendation id, or bytes that are not the canonical serialization is refused
+ * with every reason; nothing is repaired.
+ *
+ * The one tolerated difference is CRLF line endings: a checkout with `core.autocrlf` (Windows)
+ * turns every LF of a committed canonical file into CRLF, so the body is compared after rewriting
+ * only `\r\n` pairs to `\n` — the projection digest's rule. A lone CR, or any other byte that
+ * differs from the canonical serialization, still fails closed.
  */
 export function parseRefactorDecisionFile(path: string, body: string): RefactorDecisionV1 {
   const match = REFACTOR_DECISION_FILE_PATTERN.exec(path);
   if (!match) throw new Error(`refactor-decision-path-invalid: ${path} must be ${REFACTOR_DECISION_DIRECTORY}/recommendation.<16-hex>.json`);
-  if (GIT_CONFLICT_MARKER_PATTERN.test(body)) throw new Error(`refactor-decision-conflicted: ${path} carries Git conflict markers; resolve the merge first`);
+  const normalized = body.replaceAll("\r\n", "\n");
+  if (GIT_CONFLICT_MARKER_PATTERN.test(normalized)) throw new Error(`refactor-decision-conflicted: ${path} carries Git conflict markers; resolve the merge first`);
   let value: unknown;
   try {
-    value = JSON.parse(body);
+    value = JSON.parse(normalized);
   } catch (error) {
     throw new Error(`refactor-decision-malformed: ${path} is not JSON (${error instanceof Error ? error.message : String(error)})`);
   }
@@ -1751,6 +1792,9 @@ export function parseRefactorDecisionFile(path: string, body: string): RefactorD
   const decision = value as RefactorDecisionV1;
   if (decision.recommendationId !== match[1]) {
     throw new Error(`refactor-decision-invalid: ${path} must be named after its recommendationId ${decision.recommendationId}`);
+  }
+  if (serializeRefactorDecision(decision) !== normalized) {
+    throw new Error(`refactor-decision-noncanonical: ${path} is not the canonical serialization the daemon writes; decision files are written only by archctx recommendations <verb>`);
   }
   return decision;
 }

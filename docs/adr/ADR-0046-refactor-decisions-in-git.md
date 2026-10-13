@@ -62,8 +62,13 @@ absolute paths, storage ids, source, diffs or evidence bodies. The reader takes 
 files of the directory (tracked plus untracked, not ignored), so ignored OS and editor files are
 never read; it passes over exactly the ChangeSet engine's own backup and temp names of an open
 journal. It rejects symlinks and directories inside it, any other Git-visible file, unknown fields,
-conflict markers, a basename that does not match the id and a namespace that does not match the
-manifest; a single bad file fails the whole read.
+conflict markers, a basename that does not match the id, a namespace that does not match the
+manifest and any byte that is not the canonical serialization (two-space JSON, LF, keys in
+declaration order, final newline); a single bad file fails the whole read. The one tolerated
+difference is CRLF: a `core.autocrlf` checkout (Windows) turns each LF of a committed file into
+CRLF, so the reader compares after rewriting only `\r\n` pairs to `\n`, the rule the projection
+digest uses. A lone CR still fails. Writes are always the LF canonical body; a re-decision over a
+CRLF checkout names the hash of the bytes on disk and replaces them.
 
 The directory is not under `.archcontext/decisions/` (which is part of `listModelFiles` and would
 change `modelDigest`) and not under `.archcontext/waivers/` (practice waivers have their own
