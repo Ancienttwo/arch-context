@@ -216,6 +216,23 @@ Consumers must not re-implement any field, in particular `worktreeDigest`. Its f
 
 `worktreeDigest` covers the Git-visible files only: tracked files plus untracked files that are not ignored (`git ls-files --cached --others --exclude-standard`), minus projection-owned outputs (`docs/architecture/`, `.ai/harness/` and the agent-context targets) and a fixed set of runtime paths. Files under a gitignored path never move it, wherever they are: a nested `node_modules`, build output such as `dist/`, `.DS_Store`, or desktop worktrees under `.claude/worktrees/`. A tracked file deleted locally drops out of the listing, so the deletion still changes the digest. The ChangeSet worktree-digest precondition (`repository` and `architecture-documentation-projection` profiles) uses the same file universe.
 
+### Asking which documents are stale
+
+`archctx projection freshness --json` answers "which stamped documents describe source that changed since they were verified?" without a full `check`:
+
+```bash
+archctx projection freshness --json
+archctx projection freshness --changed-path src/app.ts --changed-path src/lib/util.ts --json
+```
+
+It compares each `entity-summary` target's `sourceFootprintDigest` stamp in `docs/architecture/.projection-manifest.json` with the footprint digest of the Git-visible files now, through the evaluator `projection run` in `check` mode uses. On the same tree `data.freshness.staleNodes` equals the `check` result's `freshness.staleNodes`. The committed manifest's `profile` selects the stamped nodes. The command is read-only and runs in-process: it needs no CodeGraph index, runs no CodeGraph sync, renders nothing, starts no daemon, opens no local store and writes nothing. Outside a Git worktree it fails with `AC_REPO_NOT_FOUND` (`reasonCode: "git-worktree-required"`). Consumers detect it through the `projection-freshness-v1` capability.
+
+`data` carries `profile` (`null` without a readable manifest), `changedPaths` (sorted and unique; empty for the whole tree), `evaluatedNodeIds` (the stamped nodes probed) and `freshness` (the `ProjectionFreshnessV1` shape `check` returns).
+
+`--changed-path` is repeatable. Only the stamped nodes whose `source.include` selects one of the paths, and whose `source.exclude` does not, are resolved, hashed and probed. With a readable manifest, a path that selects no stamped node probes nothing and returns `ok: true`. In this scope the declared source tree digest is not compared, so `projection-source-tree-digest-mismatch` and `projection-snapshot-provenance-missing` are not reported; run without `--changed-path` for the whole-tree answer. A path must be repository-relative POSIX as Git lists it: an absolute path, a backslash or a `..` segment fails with `AC_SCHEMA_INVALID` (`changed-path-outside-worktree`), and `./a`, `a//b` or a trailing `/` with `AC_SCHEMA_INVALID` (`changed-path-not-normalized`).
+
+A stale stamp means a source byte under the footprint changed. It does not say whether the rendered document would change; `projection run` in `check` mode renders and answers that.
+
 ### Previewing a projection before apply
 
 `archctx projection run` in `mode: "plan"` is the only preview path. It plans no daemon ChangeSet and writes nothing; it renders and returns. Every `files[]` entry of a plan result carries `preview`:

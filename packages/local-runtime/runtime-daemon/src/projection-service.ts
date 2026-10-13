@@ -4,11 +4,12 @@ import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
+import { ProjectionFreshnessChangedPathError, evaluateProjectionFreshness, measureProjectionFreshness, projectionFreshnessContract } from "./projection-freshness";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -911,26 +912,18 @@ export function projectionFailureEnvelope(requestId: string, error: unknown): Js
 
 /**
  * `check`'s read-only freshness answer: the committed manifest's per-node stamps against the
- * footprints this run measured, through the same evaluator the `complete` gate uses. It reads
- * repository files only — no daemon call, no runtime state.
+ * footprints this run measured, through the shared evaluator (`evaluateProjectionFreshness`) the
+ * `complete` gate and `projection freshness` use. It reads repository files only — no daemon call,
+ * no runtime state.
  */
 function projectionCheckFreshness(root: string, projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionFreshnessV1 {
-  const evaluation = evaluateArchitectureProjectionSnapshotFreshness({
+  return projectionFreshnessContract(evaluateProjectionFreshness({
     model: projection.loaded.model,
     profile: projection.plan.profile,
     manifest: loadArchitectureProjectionManifestStamps(root),
     sourceFootprints: projection.sourceFootprints,
-    currentSourceTreeDigest: projection.currentSourceTreeDigest
-  });
-  return {
-    ok: evaluation.ok,
-    reasonCodes: [...evaluation.reasonCodes].sort(),
-    staleNodes: evaluation.staleNodes.map((node) => ({
-      nodeId: node.nodeId,
-      stampedDigest: node.stampedDigest as Sha256Digest,
-      currentDigest: node.currentDigest as Sha256Digest
-    }))
-  };
+    scope: { kind: "tree", currentSourceTreeDigest: projection.currentSourceTreeDigest }
+  }));
 }
 
 /** Strict decoder for the daemon reply; an unreadable answer must fail the run, never omit the field. */
@@ -1162,6 +1155,40 @@ export function runProjectionSnapshotCommand(cwd: string): JsonEnvelope {
     } as unknown as Json);
   } catch (error) {
     return projectionFailureEnvelope("projection.snapshot", error);
+  }
+}
+
+/**
+ * `projection freshness` (#327): which stamped documents describe code that moved since they were
+ * verified, from the committed manifest, the model and the Git-visible files only. It answers with
+ * the evaluator `check` uses, so on the same tree its `staleNodes` equal `check`'s, but it needs no
+ * code facts, renders nothing, starts no daemon, opens no local store and writes nothing.
+ * `changedPaths` limits the probe to the stamped nodes whose footprint selects one of the paths. A
+ * root that is not a Git worktree fails with `AC_REPO_NOT_FOUND` (`git-worktree-required`).
+ */
+export function runProjectionFreshnessCommand(cwd: string, options: { changedPaths?: readonly string[] } = {}): JsonEnvelope {
+  let root: string;
+  try {
+    root = findRepositoryRoot(cwd);
+  } catch (error) {
+    return errorEnvelope("projection.freshness", "AC_REPO_NOT_FOUND", error instanceof Error ? error.message : String(error), "git-worktree-required");
+  }
+  try {
+    const measured = measureProjectionFreshness(root, options.changedPaths === undefined ? {} : { changedPaths: options.changedPaths });
+    const freshness = projectionFreshnessContract(measured.evaluation);
+    const issues = projectionFreshnessIssues(freshness);
+    if (issues.length > 0) throw new Error(`projection-freshness-invalid: ${issues.join("; ")}`);
+    return okEnvelope("projection.freshness", {
+      profile: measured.profile,
+      changedPaths: measured.changedPaths,
+      evaluatedNodeIds: measured.evaluatedNodeIds,
+      freshness
+    } as unknown as Json);
+  } catch (error) {
+    if (error instanceof ProjectionFreshnessChangedPathError) {
+      return errorEnvelope("projection.freshness", error.code, error.message, error.reasonCode, { changedPath: error.changedPath });
+    }
+    return projectionFailureEnvelope("projection.freshness", error);
   }
 }
 

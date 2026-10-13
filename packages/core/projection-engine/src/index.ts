@@ -1038,6 +1038,11 @@ export function evaluateArchitectureProjectionFreshness(input: {
   manifest: ArchitectureProjectionManifestStampReadback;
   /** `loadCapabilitySourceFootprintDigests` for the same model, measured now. */
   sourceFootprints: CapabilitySourceFootprintDigest[];
+  /**
+   * Probe only these of the profile's stamped nodes (`projection freshness --changed-path`). Only
+   * these need a measured footprint. Absent, every stamped node is probed.
+   */
+  nodeIds?: readonly string[];
 }): ArchitectureProjectionFreshnessEvaluation {
   if (input.manifest.status === "manifest-missing") {
     return freshnessEvaluation(
@@ -1059,7 +1064,9 @@ export function evaluateArchitectureProjectionFreshness(input: {
   const stampsByNodeId = new Map(input.manifest.nodes.map((entry) => [entry.nodeId, entry.sourceFootprintDigest]));
   const currentByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
   const staleNodes: ArchitectureProjectionFreshnessStaleNode[] = [];
+  const probed = input.nodeIds === undefined ? undefined : new Set(input.nodeIds);
   for (const nodeId of architectureProjectionStampedNodeIds(input.model, input.profile)) {
+    if (probed !== undefined && !probed.has(nodeId)) continue;
     const currentDigest = currentByNodeId.get(nodeId);
     if (currentDigest === undefined) throw new Error(`architecture-projection-freshness-footprint-unmeasured: ${nodeId}`);
     const stamp = stampsByNodeId.get(nodeId);

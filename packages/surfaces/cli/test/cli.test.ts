@@ -593,6 +593,191 @@ test("CLI projection snapshot returns the expected snapshot a request is checked
   }
 }, CLI_PROCESS_TIMEOUT_MS * 2);
 
+test("CLI projection freshness answers check's staleNodes from stamps alone, without code facts, a runtime or writes (#327)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-freshness-command-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Freshness Command App");
+  declareOptionalCodeFacts(root);
+  const nodeId = "capability.runtime-harness.hook-adapters";
+  const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  const stateRoot = join(dirname(root), `.archctx-freshness-state-${basename(root)}`);
+  const commit = (message: string) => {
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", message);
+  };
+  let runtimeAccesses = 0;
+  const noRuntime = new Proxy({}, {
+    get(_target, property) {
+      if (property === "then") return undefined;
+      runtimeAccesses += 1;
+      throw new Error(`projection freshness reached the runtime: ${String(property)}`);
+    }
+  }) as unknown as RuntimeDaemonClient;
+  const freshness = async (...args: string[]) => {
+    const result = await runCli("projection", ["freshness", ...args], root, { runtimeClient: noRuntime });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    expect((result as JsonEnvelope).requestId).toBe("projection.freshness");
+    return (result as JsonEnvelope).data as unknown as {
+      profile: string | null;
+      changedPaths: string[];
+      evaluatedNodeIds: string[];
+      freshness: NonNullable<ProjectionResultV2["freshness"]>;
+    };
+  };
+  const checkFreshness = async (requestId: string) => {
+    const result = await runCli("projection", ["run", "--request-json", JSON.stringify({
+      schemaVersion: "archcontext.projection-request/v1",
+      requestId,
+      profile: "repo-harness/v1",
+      mode: "check",
+      targets: ["agent-context", "architecture-docs"],
+      changedPaths: [],
+      expected: projectionProtocolExpectedSnapshot(root)
+    } satisfies ProjectionRequestV1)], root, { runtimeClient: noRuntime });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    return ((result as JsonEnvelope).data as unknown as ProjectionResultV2).freshness!;
+  };
+  try {
+    seedProjectionProtocolFixture(root);
+    // No manifest yet: the same answer check gives, and no profile to name.
+    const unprojected = await freshness("--json");
+    expect(unprojected).toEqual({
+      profile: null,
+      changedPaths: [],
+      evaluatedNodeIds: [],
+      freshness: { ok: false, reasonCodes: ["projection-manifest-missing", "projection-snapshot-provenance-missing"], staleNodes: [] }
+    });
+    expect(unprojected.freshness).toEqual(await checkFreshness("projection_request.freshness_command_unprojected"));
+
+    // Setup only: one daemon-backed projection is committed, then that daemon is gone.
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore()
+    });
+    try {
+      const applied = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root, { runtimeClient: daemon });
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    } finally {
+      await daemon.stop();
+    }
+    commit("project architecture documentation");
+    const stamped = JSON.parse(readFileSync(manifestPath, "utf8")).targets
+      .find((target: any) => target.type === "entity-summary" && target.scope.id === nodeId).sourceFootprintDigest;
+
+    // Fresh tree: no CodeGraph index exists in this repository, and the answer equals check's.
+    expect(existsSync(join(root, ".codegraph"))).toBe(false);
+    const fresh = await freshness("--json");
+    expect(fresh).toEqual({
+      profile: "repo-harness/v1",
+      changedPaths: [],
+      evaluatedNodeIds: [nodeId],
+      freshness: { ok: true, reasonCodes: [], staleNodes: [] }
+    });
+    expect(fresh.freshness).toEqual(await checkFreshness("projection_request.freshness_command_fresh"));
+
+    // A committed edit inside the footprint makes exactly that node stale, with check's staleNodes.
+    writeFileSync(join(root, "README.md"), "# projection fixture\n\nNew hook routing notes.\n", "utf8");
+    commit("change the declared footprint");
+    const currentDigest = loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
+      .find((entry) => entry.nodeId === nodeId)!.digest as `sha256:${string}`;
+    const stale = await freshness();
+    const checked = await checkFreshness("projection_request.freshness_command_stale");
+    expect(stale.freshness).toEqual({
+      ok: false,
+      reasonCodes: ["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"],
+      staleNodes: [{ nodeId, stampedDigest: stamped, currentDigest }]
+    });
+    expect(stale.freshness.staleNodes).toEqual(checked.staleNodes);
+    expect(stale.freshness).toEqual(checked);
+
+    // --changed-path that the footprint selects: only that node is probed, with the same staleNodes.
+    const matching = await freshness("--changed-path", "src/unrelated.ts", "--changed-path", "README.md", "--changed-path", "README.md", "--json");
+    expect(matching).toEqual({
+      profile: "repo-harness/v1",
+      changedPaths: ["README.md", "src/unrelated.ts"],
+      evaluatedNodeIds: [nodeId],
+      freshness: { ok: false, reasonCodes: ["projection-source-changed-since-stamp"], staleNodes: checked.staleNodes }
+    });
+    // --changed-path that no footprint selects: nothing is probed or hashed.
+    expect(await freshness("--changed-path", "src/unrelated.ts")).toEqual({
+      profile: "repo-harness/v1",
+      changedPaths: ["src/unrelated.ts"],
+      evaluatedNodeIds: [],
+      freshness: { ok: true, reasonCodes: [], staleNodes: [] }
+    });
+    expect(runtimeAccesses).toBe(0);
+
+    // A real process with no runtime client: same answer, no runtime state, repository untouched.
+    const worktreeBefore = gitOut(root, "status", "--porcelain", "--ignored");
+    const manifestBefore = readFileSync(manifestPath, "utf8");
+    const processOutput = execFileSync("bun", [CLI_ENTRY, "projection", "freshness", "--json"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, ARCHCONTEXT_STATE_DIR: stateRoot },
+      timeout: CLI_PROCESS_TIMEOUT_MS
+    });
+    expect(JSON.parse(processOutput).data).toEqual(stale);
+    expect(existsSync(stateRoot)).toBe(false);
+    expect(gitOut(root, "status", "--porcelain", "--ignored")).toBe(worktreeBefore);
+    expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
+  } finally {
+    rmSync(stateRoot, { recursive: true, force: true });
+    removeTempRoot(root);
+  }
+}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+
+test("CLI projection freshness refuses non-Git roots, paths outside the worktree and unknown flags before reading anything (#327)", async () => {
+  const noRuntime = new Proxy({}, {
+    get(_target, property) {
+      if (property === "then") return undefined;
+      throw new Error(`projection freshness reached the runtime: ${String(property)}`);
+    }
+  }) as unknown as RuntimeDaemonClient;
+  const nonGit = mkdtempSync(join(tmpdir(), "archctx-cli-freshness-non-git-"));
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-freshness-refusals-"));
+  try {
+    writeFileSync(join(nonGit, "README.md"), "# tmp\n", "utf8");
+    expect(await runCli("projection", ["freshness", "--json"], nonGit, { runtimeClient: noRuntime })).toMatchObject({
+      ok: false,
+      requestId: "projection.freshness",
+      error: { code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required" }
+    });
+
+    writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+    initializeArchContextModel(root, "Projection Freshness Refusals App");
+    seedProjectionProtocolFixture(root);
+    const freshness = (...args: string[]) => runCli("projection", ["freshness", ...args], root, { runtimeClient: noRuntime });
+    for (const outside of ["/etc/passwd", resolve(root, "README.md"), "../README.md", "src/../../README.md", "src\\app.ts", "C:/repo/a.ts"]) {
+      expect(await freshness("--changed-path", outside), outside).toMatchObject({
+        ok: false,
+        requestId: "projection.freshness",
+        error: { code: "AC_SCHEMA_INVALID", reasonCode: "changed-path-outside-worktree", details: { changedPath: outside } }
+      });
+    }
+    for (const unnormalized of ["./README.md", "src//app.ts", "src/", "src/./app.ts", "."]) {
+      expect(await freshness("--changed-path", unnormalized), unnormalized).toMatchObject({
+        ok: false,
+        error: { code: "AC_SCHEMA_INVALID", reasonCode: "changed-path-not-normalized" }
+      });
+    }
+    // The flag table refuses unknown flags and a missing value before the handler runs.
+    expect(await freshness("--bogus")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
+    expect(await freshness("--changed-path")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
+    expect(await freshness("--changed-path", "--json")).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+    expect(await freshness("--request-json", "{}")).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+    expect(await freshness("extra")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
+    const help = await freshness("--help");
+    expect(help).toMatchObject({ ok: true, data: { capability: "projection-freshness-v1" } });
+    expect(ARCHCTX_FEATURES).toContain("projection-freshness-v1");
+    // No refusal wrote anything.
+    expect(gitOut(root, "status", "--porcelain", "--ignored")).toBe("");
+  } finally {
+    removeTempRoot(nonGit);
+    removeTempRoot(root);
+  }
+}, CLI_PROCESS_TIMEOUT_MS);
+
 test("CLI flows check reports each selector proof status from a real index without a runtime or runtime state (#300)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-flows-check-"));
   const checkStateRoot = join(dirname(root), `.archctx-flows-check-state-${basename(root)}`);

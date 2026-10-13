@@ -198,6 +198,21 @@ describe("architecture projection freshness", () => {
     expect(evaluation.detail).toContain("capability.review.gate");
   });
 
+  test("nodeIds probes only the named stamped nodes, and only they need a measured footprint (#327)", () => {
+    const moved = [currentFootprints[0]!, { ...currentFootprints[1]!, digest: movedDigest }];
+    const scoped = evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: moved, nodeIds: ["capability.review.gate"] });
+    expect(scoped.reasonCodes).toEqual(["projection-source-changed-since-stamp"]);
+    expect(scoped.staleNodes).toEqual([{ nodeId: "capability.review.gate", stampedDigest: reviewDigest, currentDigest: movedDigest }]);
+    // The other node's footprint is neither measured nor probed.
+    const other = evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: [currentFootprints[0]!], nodeIds: ["capability.docs.projection"] });
+    expect(other).toMatchObject({ ok: true, reasonCodes: [], staleNodes: [] });
+    expect(evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: [], nodeIds: [] }))
+      .toMatchObject({ ok: true, reasonCodes: [], staleNodes: [] });
+    // A named node must still have its footprint measured.
+    expect(() => evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: [currentFootprints[0]!], nodeIds: ["capability.review.gate"] }))
+      .toThrow("architecture-projection-freshness-footprint-unmeasured: capability.review.gate");
+  });
+
   test("overlapping footprints both report stale; ownership ambiguity never drops the signal", () => {
     const evaluation = evaluateArchitectureProjectionFreshness({
       model,

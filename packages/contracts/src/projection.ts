@@ -78,6 +78,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-replay-v1",
   "projection-architecture-debt-v1",
   "projection-check-freshness-v1",
+  "projection-freshness-v1",
   "projection-manifest-contract-v2",
   "projection-observed-major-change-acceptance-v1",
   "projection-orphan-review-v1",
