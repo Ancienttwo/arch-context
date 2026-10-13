@@ -968,6 +968,8 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
     command: subcommand as RuntimeRecommendationInput["command"],
     recommendationId,
     reason,
+    // The one-shot verb is the explicit, narrow approval of this single decision write (ADR-0046).
+    approved: true,
     actor: readFlag(args, "--actor") ?? "developer",
     ...(readFlag(args, "--actor-kind") === undefined ? {} : { actorKind: readFlag(args, "--actor-kind")! as any }),
     ...(readFlag(args, "--source") === undefined ? {} : { source: readFlag(args, "--source")! as any }),

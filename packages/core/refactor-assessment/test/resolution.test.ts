@@ -102,12 +102,22 @@ function observationRecommendation(derivedOutcomes: RefactorTargetOutcomeV1[]): 
   const payload: StructuralObservationPayloadV1 = {
     assessmentDigest: digestOf("assessment.rf4"),
     kind: "cycle",
-    affectedNodeIds: ["component.a"],
+    affectedNodeIds: ["component.a", "module.c"],
     baselineSnapshotDigest: BEFORE.snapshotDigest,
     derivedOutcomes,
-    metrics: { memberCount: 2, cycleEdgeCount: 2 },
+    metrics: { backwardEdgeCount: 1, forwardEdgeCount: 1, thinDirectionEdgeCount: 1, totalEdgeCount: 2 },
     signalIds: ["signal.cycle.rf4-fixture"],
-    evidence: { kind: "cycle", memberNodeIds: ["component.a", "module.c"], edges: [], totalCount: 0, truncated: false }
+    evidence: {
+      kind: "cycle",
+      memberNodeIds: ["component.a", "module.c"],
+      directions: [
+        { fromNodeId: "component.a", toNodeId: "module.c", totalCount: 1, sampledCount: 0 },
+        { fromNodeId: "module.c", toNodeId: "component.a", totalCount: 1, sampledCount: 0 }
+      ],
+      edges: [],
+      totalCount: 2,
+      truncated: true
+    }
   };
   return {
     ...proposalRecommendation({ targetOutcomes: [] }),
@@ -138,10 +148,10 @@ function residualCodes(evidence: { residuals: { code: string }[] }): string[] {
 describe("REFACTOR_RESOLUTION_METRICS", () => {
   test("is a closed, sorted, unique vocabulary of pure field paths", () => {
     expect([...REFACTOR_RESOLUTION_METRICS]).toEqual([...new Set(REFACTOR_RESOLUTION_METRICS)].sort());
-    expect(REFACTOR_RESOLUTION_METRICS).toHaveLength(28);
+    expect(REFACTOR_RESOLUTION_METRICS).toHaveLength(30);
     for (const metric of REFACTOR_RESOLUTION_METRICS) {
       expect(metric).not.toContain("<");
-      expect(metric.startsWith("repositorySummary.") || metric.startsWith("module.") || metric.startsWith("killList."))
+      expect(metric.startsWith("repositorySummary.") || metric.startsWith("module.") || metric.startsWith("moduleDependencies.") || metric.startsWith("killList."))
         .toBe(true);
     }
   });
@@ -174,6 +184,17 @@ describe("readSnapshotMetric", () => {
     expect(readSnapshotMetric(AFTER, "module.dependencyGraph.cycleCount", "component.dissolved")).toBeNull();
     expect(readSnapshotMetric(AFTER, "killList.path.present", null)).toBeNull();
   });
+
+  test("pair and residual metrics read the module dependency table of the recorded members", () => {
+    const pair = ["component.a", "module.c"];
+    expect(readSnapshotMetric(BEFORE, "moduleDependencies.pairThinDirectionEdgeCount", null, pair)).toBe(1);
+    expect(readSnapshotMetric(AFTER, "moduleDependencies.pairThinDirectionEdgeCount", null, pair)).toBe(0);
+    // A pure pair leaves no residual cycle once its thin direction is set aside.
+    expect(readSnapshotMetric(BEFORE, "moduleDependencies.residualCycleMemberCount", null, pair)).toBe(0);
+    // No member list, or no measured graph, cannot answer.
+    expect(readSnapshotMetric(BEFORE, "moduleDependencies.pairThinDirectionEdgeCount", null)).toBeNull();
+    expect(readSnapshotMetric(AFTER_FOREIGN_INDEX, "moduleDependencies.pairThinDirectionEdgeCount", null, pair)).toBeNull();
+  });
 });
 
 describe("deriveObservationOutcomes", () => {
@@ -183,10 +204,12 @@ describe("deriveObservationOutcomes", () => {
       deriveObservationOutcomes({ kind, subjectSelectorId: "repository:repo.rf2", affectedNodeIds: ["component.a", "module.c"] })
     ]));
 
-    expect(derived.cycle!.map((entry) => [entry.metric, entry.nodeId, entry.operator])).toEqual([
-      ["module.dependencyGraph.cycleCount", "component.a", "absent"],
-      ["module.dependencyGraph.cycleCount", "module.c", "absent"]
-    ].sort((left, right) => String(left[1]).localeCompare(String(right[1]))));
+    expect(derived.cycle!.map((entry) => [entry.metric, entry.nodeId, entry.memberNodeIds, entry.operator])).toEqual([
+      ["moduleDependencies.pairThinDirectionEdgeCount", null, ["component.a", "module.c"], "absent"]
+    ]);
+    expect(derived["residual-cycle"]!.map((entry) => [entry.metric, entry.nodeId, entry.memberNodeIds, entry.operator])).toEqual([
+      ["moduleDependencies.residualCycleMemberCount", null, ["component.a", "module.c"], "absent"]
+    ]);
     expect(derived["direction-violation"]!.map((entry) => entry.metric))
       .toEqual(["module.dependencyGraph.directionViolationCount", "module.dependencyGraph.directionViolationCount"]);
     expect(derived["ownership-ambiguous"]!.every((entry) => entry.metric === "module.uncertainty.ambiguousOwnership")).toBe(true);
@@ -359,15 +382,15 @@ describe("evaluateResolution disposition ladder", () => {
     expect(refactorResolutionEvidenceInvariantIssues(evidence)).toEqual([]);
   });
 
-  test("a dissolved subject module observes null plus a residual rather than failing closed", () => {
+  test("a dissolved pair end observes no pair plus a residual rather than failing closed", () => {
     const evidence = evaluate({
       recommendation: observationRecommendation(
-        deriveObservationOutcomes({ kind: "cycle", subjectSelectorId: "repository:repo.rf2", affectedNodeIds: ["component.dissolved"] })
+        deriveObservationOutcomes({ kind: "cycle", subjectSelectorId: "pair:component.a|component.dissolved", affectedNodeIds: ["component.a", "component.dissolved"] })
       ),
       beforeSnapshot: BEFORE
     });
 
-    expect(evidence.observedOutcomes[0]).toMatchObject({ observedValue: null, satisfied: true, direction: "unknown" });
+    expect(evidence.observedOutcomes[0]).toMatchObject({ observedValue: 0, satisfied: true });
     expect(evidence.residuals).toContainEqual({ code: "outcome-subject-absent", subject: "component.dissolved", severity: "warning" });
     expect(evidence.disposition).toBe("resolved");
     expect(refactorResolutionEvidenceInvariantIssues(evidence)).toEqual([]);

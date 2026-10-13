@@ -50,6 +50,19 @@ import {
   refactorAssessmentDigest,
   refactorAssessmentInvariantIssues,
   refactorObservationEvidenceIssues,
+  refactorPairSampleAllocation,
+  sampleRefactorPairEvidence,
+  REFACTOR_DECISION_FILE_PATTERN,
+  REFACTOR_DECISION_STATUSES,
+  REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION,
+  refactorRecommendationStatusView,
+  isRefactorDecisionStatus,
+  parseRefactorDecisionFile,
+  refactorDecisionInvariantIssues,
+  refactorDecisionPath,
+  refactorNamespaceIssues,
+  serializeRefactorDecision,
+  type RefactorDecisionV1,
   refactorProposalDigest,
   refactorProposalInvariantIssues,
   refactorRequestInvariantIssues,
@@ -211,13 +224,14 @@ function makeSnapshot(overrides: Partial<ModuleStatisticsSnapshotV1> = {}): Modu
       reasonCodes: []
     },
     modules: [makeModule()],
+    moduleDependencies: [],
     repositorySummary: {
       moduleCount: 1,
       undeclaredFootprintNodeCount: 0,
       ownedFileCount: 12,
       unownedFileCount: 3,
       multiplyOwnedFileCount: 0,
-      crossModuleEdgeCount: 5,
+      crossModuleEdgeCount: 0,
       crossModuleCycleCount: 0,
       stronglyConnectedComponentCount: 0,
       unresolvedImportCount: 1,
@@ -242,10 +256,16 @@ function makeEdge(overrides: Partial<RefactorEvidenceImportEdgeV1> = {}): Refact
   };
 }
 
+const PAIR_METRICS = { backwardEdgeCount: 1, forwardEdgeCount: 1, thinDirectionEdgeCount: 1, totalEdgeCount: 2 };
+
 function makeCycleEvidence(overrides: Partial<Extract<RefactorObservationEvidenceV1, { kind: "cycle" }>> = {}): RefactorObservationEvidenceV1 {
   return {
     kind: "cycle",
     memberNodeIds: ["component.core", "component.local-runtime"],
+    directions: [
+      { fromNodeId: "component.core", toNodeId: "component.local-runtime", totalCount: 1, sampledCount: 1 },
+      { fromNodeId: "component.local-runtime", toNodeId: "component.core", totalCount: 1, sampledCount: 1 }
+    ],
     edges: [
       makeEdge(),
       makeEdge({
@@ -263,12 +283,35 @@ function makeCycleEvidence(overrides: Partial<Extract<RefactorObservationEvidenc
   };
 }
 
+function makeResidualObservation(
+  evidence: Partial<Extract<RefactorObservationEvidenceV1, { kind: "residual-cycle" }>> = {},
+  metrics: Record<string, number | null> = { memberCount: 2, cycleEdgeCount: 2 }
+): RefactorObservationV1 {
+  const pair = makeCycleEvidence() as Extract<RefactorObservationEvidenceV1, { kind: "cycle" }>;
+  return {
+    kind: "residual-cycle",
+    subjectSelectorId: "cycle:scc.core-runtime",
+    affectedNodeIds: ["component.core", "component.local-runtime"],
+    signalIds: ["signal.residual-cycle.core-runtime"],
+    metrics,
+    evidence: {
+      kind: "residual-cycle",
+      memberNodeIds: ["component.core", "component.local-runtime"],
+      edges: pair.edges,
+      totalCount: 2,
+      truncated: false,
+      ...evidence
+    },
+  };
+}
+
 function makeObservation(overrides: Partial<RefactorObservationV1> = {}): RefactorObservationV1 {
   return {
     kind: "cycle",
-    subjectSelectorId: "selector.node.core",
+    subjectSelectorId: "pair:component.core|component.local-runtime",
+    affectedNodeIds: ["component.core", "component.local-runtime"],
     signalIds: ["signal.cycle.core-runtime"],
-    metrics: { cycleCount: 1, instability: null, memberCount: 2 },
+    metrics: PAIR_METRICS,
     evidence: makeCycleEvidence(),
     ...overrides
   };
@@ -281,7 +324,7 @@ function makeObservationPayload(overrides: Partial<StructuralObservationPayloadV
     affectedNodeIds: ["component.core", "component.local-runtime"],
     baselineSnapshotDigest: makeSnapshot().snapshotDigest,
     derivedOutcomes: [makeOutcome()],
-    metrics: { cycleCount: 1, instability: null, memberCount: 2 },
+    metrics: PAIR_METRICS,
     signalIds: ["signal.cycle.core-runtime"],
     evidence: makeCycleEvidence(),
     ...overrides
@@ -883,7 +926,7 @@ describe("observation evidence validators", () => {
     expect(located).toContain("observation.evidence.edges.fromPath must be a repo-relative POSIX path");
     expect(located).toContain("observation.evidence.edges.fromLine must be null or a positive integer");
     expect(refactorObservationEvidenceIssues(makeObservation({
-      evidence: makeCycleEvidence({ edges: [makeEdge({ fromLine: null })], totalCount: 1 })
+      evidence: makeCycleEvidence({ edges: [makeEdge({ fromLine: null }), second!] })
     }))).toEqual([]);
   });
 
@@ -898,19 +941,64 @@ describe("observation evidence validators", () => {
     }
   });
 
-  test("cycle edges stay inside the component", () => {
-    const issues = refactorObservationEvidenceIssues(makeObservation({
-      evidence: makeCycleEvidence({ edges: [makeEdge({ toNodeId: "component.outside" })], totalCount: 1 })
+  test("pair edges run between the pair's two ends; residual edges stay inside the component", () => {
+    const [, back] = (makeCycleEvidence() as Extract<RefactorObservationEvidenceV1, { kind: "cycle" }>).edges;
+    const pair = refactorObservationEvidenceIssues(makeObservation({
+      evidence: makeCycleEvidence({ edges: [makeEdge({ toNodeId: "component.outside" }), back!] })
     }));
-    expect(issues).toContain("observation.evidence.edges must stay inside the component's member nodes");
+    expect(pair).toContain("observation.evidence.edges must run between the pair's two ends");
+    const residual = refactorObservationEvidenceIssues(makeResidualObservation({
+      edges: [makeEdge({ toNodeId: "component.outside" })]
+    }));
+    expect(residual).toContain("observation.evidence.edges must stay inside the component's member nodes");
+  });
+
+  test("a pair names its thin direction first and its metrics agree with both directions", () => {
+    expect(refactorObservationEvidenceIssues(makeObservation())).toEqual([]);
+    const [thin, thick] = (makeCycleEvidence() as Extract<RefactorObservationEvidenceV1, { kind: "cycle" }>).directions;
+    expect(refactorObservationEvidenceIssues(makeObservation({ evidence: makeCycleEvidence({ directions: [thick!, thin!] }) })))
+      .toContain("observation.evidence.directions must be [thin, thick] by the pair's distinct file edge counts");
+    expect(refactorObservationEvidenceIssues(makeObservation({ metrics: { ...PAIR_METRICS, thinDirectionEdgeCount: 2 } })))
+      .toContain("observation.evidence requires metrics.thinDirectionEdgeCount = min(forwardEdgeCount, backwardEdgeCount)");
+    expect(refactorObservationEvidenceIssues(makeObservation({ affectedNodeIds: ["component.core", "component.other"] })))
+      .toContain("observation.evidence.memberNodeIds must equal the observation affectedNodeIds");
+  });
+
+  test("a single thin edge survives thirty thick edges in the sample", () => {
+    const thinEdge = makeEdge({ fromNodeId: "component.local-runtime", toNodeId: "component.core", fromPath: "packages/local-runtime/src/thin.ts", toPath: "packages/core/src/index.ts", specifier: "@archcontext/core" });
+    const thickEdges = Array.from({ length: 30 }, (_, index) => makeEdge({ fromPath: `packages/core/src/f${String(index).padStart(2, "0")}.ts` }));
+    const population = {
+      kind: "cycle" as const,
+      memberNodeIds: ["component.core", "component.local-runtime"],
+      directions: [
+        { fromNodeId: "component.local-runtime", toNodeId: "component.core", totalCount: 1, sampledCount: 1 },
+        { fromNodeId: "component.core", toNodeId: "component.local-runtime", totalCount: 30, sampledCount: 30 }
+      ],
+      edges: [...thickEdges, thinEdge].sort((left, right) => left.fromPath.localeCompare(right.fromPath)),
+      totalCount: 31,
+      truncated: false
+    };
+    const sampled = sampleRefactorPairEvidence(population, REFACTOR_OBSERVATION_EVIDENCE_LIMIT);
+    expect(sampled.edges).toHaveLength(REFACTOR_OBSERVATION_EVIDENCE_LIMIT);
+    expect(sampled.edges).toContainEqual(thinEdge);
+    expect(sampled.directions.map((direction) => direction.sampledCount)).toEqual([1, REFACTOR_OBSERVATION_EVIDENCE_LIMIT - 1]);
+    expect(sampled.truncated).toBe(true);
+    // A planner cut to two entries still keeps one of each direction.
+    expect(sampleRefactorPairEvidence(sampled, 2).edges.map((edge) => edge.fromNodeId).sort()).toEqual(["component.core", "component.local-runtime"]);
+    expect(refactorPairSampleAllocation(1, 30, 1)).toEqual({ thin: 1, thick: 0 });
+    const observation = makeObservation({
+      metrics: { forwardEdgeCount: 30, backwardEdgeCount: 1, thinDirectionEdgeCount: 1, totalEdgeCount: 31 },
+      evidence: sampled
+    });
+    expect(refactorObservationEvidenceIssues(observation)).toEqual([]);
   });
 
   test("every id list is a bounded prefix of its counted population", () => {
     const ids = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => `${prefix}.${String(index).padStart(3, "0")}`);
-    const cycle = (memberCount: number, memberNodeIds: string[]) => refactorObservationEvidenceIssues(makeObservation({
-      metrics: { cycleCount: 1, instability: null, memberCount },
-      evidence: makeCycleEvidence({ memberNodeIds })
-    }));
+    const cycle = (memberCount: number, memberNodeIds: string[]) => refactorObservationEvidenceIssues(makeResidualObservation(
+      { memberNodeIds },
+      { memberCount, cycleEdgeCount: 2 }
+    ));
     const members = [...ids(REFACTOR_EVIDENCE_ID_LIST_LIMIT - 2, "component.a"), "component.core", "component.local-runtime"].sort();
     expect(cycle(REFACTOR_EVIDENCE_ID_LIST_LIMIT, members)).toEqual([]);
     // A truncated member list cannot vouch for edge membership, so it is not checked against it.
@@ -1456,7 +1544,8 @@ describe("refactor JSON schemas", () => {
       { category: "structural_observation", payload: makeObservationPayload(payload) }
     );
   const evidenceByKind: Record<string, Pick<StructuralObservationPayloadV1, "metrics" | "evidence">> = {
-    cycle: { metrics: { memberCount: 2 }, evidence: makeCycleEvidence() },
+    cycle: { metrics: PAIR_METRICS, evidence: makeCycleEvidence() },
+    "residual-cycle": { metrics: { memberCount: 2, cycleEdgeCount: 2 }, evidence: makeResidualObservation().evidence },
     "direction-violation": {
       metrics: { directionViolationCount: 1 },
       evidence: { kind: "direction-violation", constraintIds: ["constraint.core-down"], constraintCount: 1, violations: [{ ...makeEdge(), constraintId: "constraint.core-down" }], totalCount: 1, truncated: false }
@@ -1539,7 +1628,7 @@ describe("refactor JSON schemas", () => {
     expect(defs.targetOutcome.properties.operator.enum).toEqual([...REFACTOR_OUTCOME_OPERATORS]);
     expect(defs.killListEntry.properties.kind.enum).toEqual([...REFACTOR_KILL_LIST_KINDS]);
     expect(defs.observationEvidence.oneOf.flatMap((variant: any) => variant.properties.kind.const ?? variant.properties.kind.enum).sort()).toEqual([...REFACTOR_OBSERVATION_KINDS]);
-    expect(defs.observationEvidence.oneOf[3].properties.reasonCodes.items.enum).toEqual([...REFACTOR_SCALE_REASON_CODES]);
+    expect(defs.observationEvidence.oneOf[4].properties.reasonCodes.items.enum).toEqual([...REFACTOR_SCALE_REASON_CODES]);
     expect(defs.evidenceIdList.maxItems).toBe(REFACTOR_EVIDENCE_ID_LIST_LIMIT);
     expect(defs.evidenceSpecifier.maxLength).toBe(REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH);
     for (const variant of defs.observationEvidence.oneOf) {
@@ -1613,5 +1702,51 @@ describe("refactor JSON schemas", () => {
     expect(issuesOf(showSchema, { ...show, baseline: { status: "missing", snapshotDigest: ZERO_DIGEST } }).length).toBeGreaterThan(0);
     const legacy = JSON.parse(readFileSync(join(repoRoot, "packages/contracts/fixtures/invalid/recommendation-v3-structural-before-evidence.json"), "utf8"));
     expect(issuesOf(showSchema, { ...show, recommendation: legacy }).length).toBeGreaterThan(0);
+  });
+});
+
+describe("refactor decision file (ADR-0046)", () => {
+  const body = readFileSync(join(import.meta.dir, "../fixtures/valid/refactor-decision.json"), "utf8");
+  const decision = JSON.parse(body) as RefactorDecisionV1;
+  const path = refactorDecisionPath(decision.recommendationId);
+
+  test("the canonical body parses back to itself and stays under its own id", () => {
+    expect(path).toBe(`.archcontext/refactor-decisions/${decision.recommendationId}.json`);
+    expect(REFACTOR_DECISION_FILE_PATTERN.test(path)).toBe(true);
+    const parsed = parseRefactorDecisionFile(path, body);
+    expect(serializeRefactorDecision(parsed)).toBe(body);
+    expect(refactorDecisionInvariantIssues(parsed)).toEqual([]);
+  });
+
+  test("conflict markers, non-JSON, unknown keys, open status, multi-line reasons and a foreign basename are refused", () => {
+    const conflicted = body.replace('  "status": "rejected",', '<<<<<<< ours\n  "status": "rejected",\n=======\n  "status": "deferred",\n>>>>>>> theirs');
+    expect(() => parseRefactorDecisionFile(path, conflicted)).toThrow(/refactor-decision-conflicted/);
+    expect(() => parseRefactorDecisionFile(path, "{")).toThrow(/refactor-decision-malformed/);
+    const variant = (patch: Record<string, unknown>) => serializeRefactorDecision({ ...decision, ...patch } as RefactorDecisionV1);
+    expect(() => parseRefactorDecisionFile(path, variant({ extra: true }))).toThrow(/unsupported key/);
+    expect(() => parseRefactorDecisionFile(path, variant({ status: "open" }))).toThrow(/status must be one of/);
+    expect(() => parseRefactorDecisionFile(path, variant({ reason: "line one\nline two" }))).toThrow(/one line/);
+    expect(() => parseRefactorDecisionFile(path, variant({ namespace: "Not A Namespace" }))).toThrow(/refactor-decision-invalid/);
+    expect(() => parseRefactorDecisionFile(refactorDecisionPath("recommendation.0000000000000000"), body)).toThrow(/named after its recommendationId/);
+    expect(() => parseRefactorDecisionFile(".archcontext/decisions/x.json", body)).toThrow(/refactor-decision-path-invalid/);
+    expect(() => parseRefactorDecisionFile(path, variant({ affectedNodeIds: ["b", "a"], affectedNodeCount: 2 }))).toThrow(/sorted/);
+  });
+
+  test("status comes from the Git decision, else a ledger machine status; a ledger human status alone is audit", () => {
+    expect(refactorRecommendationStatusView("open", "rejected")).toEqual({ status: "rejected", authority: "git-decision" });
+    expect(refactorRecommendationStatusView("superseded", undefined)).toEqual({ status: "superseded", authority: "ledger" });
+    expect(refactorRecommendationStatusView("open", undefined)).toEqual({ status: "open", authority: "ledger" });
+    // Never `open`: the recorded human status is kept as history and labelled audit only.
+    expect(refactorRecommendationStatusView("rejected", undefined)).toEqual({ status: "rejected", authority: "ledger-audit" });
+    expect(REFACTOR_DECISION_STATUSES.every((status) => isRefactorDecisionStatus(status))).toBe(true);
+    expect(isRefactorDecisionStatus("open")).toBe(false);
+  });
+
+  test("the fingerprint schema moved to v3 with the namespace-scoped selector", () => {
+    expect(REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION).toBe("archcontext.recommendation-fingerprint/v3");
+    expect(refactorNamespaceIssues("product.architecture-context", "namespace")).toEqual([]);
+    for (const invalid of ["", "product", "Product.x", "product..x", " product.x"]) {
+      expect(refactorNamespaceIssues(invalid, "namespace").length, invalid).toBeGreaterThan(0);
+    }
   });
 });

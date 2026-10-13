@@ -1,5 +1,6 @@
 import {
   architectureLedgerBookSubjects,
+  architectureLedgerPayload,
   architectureLedgerProjectionDigest,
   diffArchitectureLedgerBookStates,
   projectArchitectureLedgerStateToYamlFiles,
@@ -13,7 +14,12 @@ import {
   type ArchitectureLedgerGraphState,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import { errorEnvelope, okEnvelope, type ArchitectureEventV1, type Json, type JsonEnvelope } from "@archcontext/contracts";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { REFACTOR_DECISION_DIRECTORY, errorEnvelope, okEnvelope, type ArchitectureEventV1, type Json, type JsonEnvelope, type RefactorDecisionStatus } from "@archcontext/contracts";
+import { findRepositoryRoot } from "@archcontext/local-runtime/git-adapter";
+import { readRefactorDecisionSet } from "./refactor-decisions";
+import { RefactorScanError } from "./refactor-scan";
 import { type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import type { RuntimeBookInput } from "./rpc-types";
@@ -42,6 +48,11 @@ interface ArchitectureBookContext {
   architectureLedgerGitScope(root: string): Promise<ArchitectureLedgerScope>;
   architectureLedgerReadback(root: string): Promise<ArchitectureBookLedgerReadback>;
   localStore: Pick<RuntimeLocalStore, "replayArchitectureLedger" | "queryArchitectureLedgerFts" | "readArchitectureLedgerNeighborhood">;
+}
+
+function eventCarriesRefactorRecommendation(event: ArchitectureEventV1): boolean {
+  return (architectureLedgerPayload(event).recommendations ?? []).some((recommendation) =>
+    "category" in recommendation && (recommendation.category === "refactor_proposal" || recommendation.category === "structural_observation"));
 }
 
 export class ArchitectureBookService {
@@ -187,8 +198,20 @@ export class ArchitectureBookService {
     if (command === "recommendations") {
       // Lifecycle readback describes the current checkout; provenance retains the ledger scope.
       const gitScope = await this.context.architectureLedgerGitScope(root);
+      // Refactor status is the checkout's Git decisions (ADR-0046), read only when any are in play.
+      let refactorDecisionStatuses = new Map<string, RefactorDecisionStatus>();
+      const repositoryRoot = findRepositoryRoot(root);
+      if (replay.events.some(eventCarriesRefactorRecommendation) || existsSync(join(repositoryRoot, REFACTOR_DECISION_DIRECTORY))) {
+        try {
+          const decisions = readRefactorDecisionSet(repositoryRoot);
+          refactorDecisionStatuses = new Map(decisions.decisions.map((decision) => [decision.recommendationId, decision.status]));
+        } catch (error) {
+          if (error instanceof RefactorScanError) return errorEnvelope("book.recommendations", error.code, error.message, error.reasonCode);
+          throw error;
+        }
+      }
       return okEnvelope("book.recommendations", {
-        ...queryArchitectureLedgerBookRecommendations({ events: replay.events, openOnly: input.openOnly, explain: input.explain, ...budget }),
+        ...queryArchitectureLedgerBookRecommendations({ events: replay.events, openOnly: input.openOnly, explain: input.explain, refactorDecisionStatuses, ...budget }),
         freshness: {
           ...freshness,
           repository: gitScope.repository,

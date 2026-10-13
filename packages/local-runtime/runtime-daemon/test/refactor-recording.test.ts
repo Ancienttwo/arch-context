@@ -62,6 +62,8 @@ import {
   planRefactorRunWithRecording,
   refactorClassifierRulesetDigest
 } from "../src/refactor-recording";
+import { readRefactorNamespace } from "../src/refactor-scan";
+import type { RefactorDecisionSetV1 } from "../src/refactor-decisions";
 import {
   ArchctxRuntimeRpcServer,
   RuntimeRpcClient,
@@ -137,6 +139,7 @@ function measured(overrides: Partial<RefactorAssessmentInputV1> = {}): {
 function registerAt(daemon: Awaited<ReturnType<typeof startDaemon>>, root: string, overrides: Partial<RefactorAssessmentInputV1> = {}) {
   const { snapshot, assessment, proposal } = measured(overrides);
   const digest = daemon.registerRefactorAssessment({
+    namespace: readRefactorNamespace(root),
     snapshot,
     assessment,
     ...(proposal ? { proposal } : {}),
@@ -225,6 +228,7 @@ describe("RefactorAssessmentRegistry", () => {
     const entry = (digest: string) => ({
       snapshot: {} as ModuleStatisticsSnapshotV1,
       assessment: { assessmentDigest: digest } as RefactorAssessmentV1,
+      namespace: "product.rf2-fixture",
       headSha: "sha",
       worktreeDigest: "digest"
     });
@@ -547,6 +551,7 @@ describe("refactorRecord", () => {
       await daemon.init(root, "Refactor Recording App");
       const { snapshot, assessment, proposal } = measured();
       const digest = daemon.registerRefactorAssessment({
+    namespace: readRefactorNamespace(root),
         snapshot,
         assessment,
         ...(proposal ? { proposal } : {}),
@@ -574,6 +579,7 @@ describe("refactorRecord", () => {
         request: makeRequest({ proposal: makeProposal({ scopePaths: ["src/m/a/x.ts"] }) })
       });
       const digest = daemon.registerRefactorAssessment({
+    namespace: readRefactorNamespace(root),
         snapshot,
         assessment,
         proposal: { ...proposal!, authoredBy: { kind: "daemon", id: "archctxd", source: "daemon" } },
@@ -599,6 +605,7 @@ describe("refactorRecord", () => {
       await daemon.init(root, "Refactor Recording App");
       const { snapshot, assessment } = measured();
       const digest = daemon.registerRefactorAssessment({
+    namespace: readRefactorNamespace(root),
         snapshot: makeSnapshot(),
         assessment,
         headSha: gitOut(root, "rev-parse", "HEAD"),
@@ -629,7 +636,7 @@ describe("recommendations resolve gate", () => {
       const recommendationId = ((recorded.data as any).recommendationIds as string[])[0]!;
 
       const missing = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId,
         reason: "resolved after the structural change landed",
         now: "2026-09-03T09:00:00.000Z"
@@ -641,7 +648,7 @@ describe("recommendations resolve gate", () => {
       // RF4 replaced the always-reject arm with the evidence lookup: an unrecorded digest is
       // now `evidence-unknown`, and no digest RF3 ever wrote can pass it.
       const supplied = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId,
         reason: "resolved after the structural change landed",
         evidenceDigest: digestJson({ evidence: "never-verified" } as unknown as Json),
@@ -653,7 +660,7 @@ describe("recommendations resolve gate", () => {
       expect(errorOf(supplied).message).toContain("refactor verify");
 
       const accepted = await daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId,
         reason: "accepted for planning",
         now: "2026-09-03T09:02:00.000Z"
@@ -674,7 +681,7 @@ describe("recommendations resolve gate", () => {
       const seeded = await seedV2Practice(store, root, "2026-09-03T07:50:00.000Z");
 
       const beforeMigration = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: seeded.recommendationId,
         reason: "resolved after the practice was adopted",
         now: "2026-09-03T09:03:00.000Z"
@@ -692,7 +699,7 @@ describe("recommendations resolve gate", () => {
       expect((migrated.data as any).upgradedCount).toBe(1);
 
       const resolved = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: seeded.recommendationId,
         reason: "resolved after the practice was adopted",
         now: "2026-09-03T09:04:00.000Z"
@@ -784,7 +791,7 @@ describe("ledger migrate --recommendation-v3", () => {
       const seeded = await seedV2Practice(store, root, "2026-09-03T07:53:00.000Z");
 
       const acknowledged = await daemon.recommendations(root, {
-        command: "acknowledge",
+        command: "acknowledge", approved: true,
         recommendationId: seeded.recommendationId,
         reason: "acknowledged before the v3 migration",
         now: "2026-09-03T07:54:00.000Z"
@@ -845,6 +852,13 @@ describe("refactor_scan event size", () => {
     }
   };
   const NOW = "2026-09-03T08:00:00.000Z";
+  /** An empty Git decision set under the fixture namespace. */
+  const FIXTURE_DECISIONS: RefactorDecisionSetV1 = {
+    namespace: "product.rf2-fixture",
+    decisions: [],
+    byId: new Map(),
+    digest: digestJson({ seed: "refactor-decision-set.empty" } as Json)
+  };
 
   /** A repo-relative path of about 160 characters. */
   function longPath(tag: string, index: number): string {
@@ -871,13 +885,15 @@ describe("refactor_scan event size", () => {
     for (let index = 0; index < 23; index += 1) {
       const tag = `scc-${String(index).padStart(2, "0")}`;
       const members = ids(`component.${tag}`, REFACTOR_EVIDENCE_ID_LIST_LIMIT);
+      // A residual cycle carries the widest id list and an edge sample at the cap.
       observations.push({
-        kind: "cycle",
-        subjectSelectorId: `scc:${tag}`,
-        signalIds: [`signal.cycle.${tag}`],
+        kind: "residual-cycle",
+        subjectSelectorId: `cycle:${tag}`,
+        affectedNodeIds: members,
+        signalIds: [`signal.residual-cycle.${tag}`],
         metrics: { memberCount: REFACTOR_EVIDENCE_ID_LIST_LIMIT + 8, cycleEdgeCount: 60 },
         evidence: {
-          kind: "cycle",
+          kind: "residual-cycle",
           memberNodeIds: members,
           edges: Array.from({ length: limit }, (_, line) => edge(tag, line, members[0]!, members[1]!)),
           totalCount: 60,
@@ -890,6 +906,7 @@ describe("refactor_scan event size", () => {
     observations.push({
       kind: "direction-violation",
       subjectSelectorId: violator!,
+      affectedNodeIds: [violator!],
       signalIds: ["signal.direction-violation.size"],
       metrics: { directionViolationCount: 30 },
       evidence: {
@@ -904,6 +921,7 @@ describe("refactor_scan event size", () => {
     observations.push({
       kind: "ownership-ambiguous",
       subjectSelectorId: contested!,
+      affectedNodeIds: [contested!],
       signalIds: ["signal.ownership-ambiguous.size"],
       metrics: { ownedFileCount: 50 },
       evidence: {
@@ -936,8 +954,9 @@ describe("refactor_scan event size", () => {
   function build(registered: { snapshot: ModuleStatisticsSnapshotV1; assessment: RefactorAssessmentV1 }) {
     return buildRefactorRecordEvent({
       ...LEDGER_SCOPE,
-      registered: { ...registered, headSha: LEDGER_SCOPE.worktree.headSha, worktreeDigest: registered.snapshot.worktree.worktreeDigest },
+      registered: { ...registered, namespace: FIXTURE_DECISIONS.namespace, headSha: LEDGER_SCOPE.worktree.headSha, worktreeDigest: registered.snapshot.worktree.worktreeDigest },
       previousRecommendations: [],
+      decisions: FIXTURE_DECISIONS,
       evidenceState: emptyArchitectureLedgerEvidenceState(),
       graphDigest: digestJson("graph.rf2" as Json),
       catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
@@ -951,6 +970,8 @@ describe("refactor_scan event size", () => {
       ...LEDGER_SCOPE,
       snapshot: registered.snapshot,
       assessment: registered.assessment,
+      recommendationNamespace: FIXTURE_DECISIONS.namespace,
+      decisionSetDigest: FIXTURE_DECISIONS.digest,
       catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
       now: NOW
     });
@@ -976,7 +997,7 @@ describe("refactor_scan event size", () => {
       expect(recommendationV3InvariantIssues(record)).toEqual([]);
       const evidence = (record.payload as StructuralObservationPayloadV1).evidence as unknown as Record<string, unknown>;
       const original = observationsBySubject.get(record.subject)!.evidence as unknown as Record<string, unknown>;
-      const field = ({ cycle: "edges", "direction-violation": "violations", "ownership-ambiguous": "paths" } as Record<string, string>)[evidence.kind as string]!;
+      const field = ({ "residual-cycle": "edges", "direction-violation": "violations", "ownership-ambiguous": "paths" } as Record<string, string>)[evidence.kind as string]!;
       // An honest prefix: the true population, flagged truncated, id lists untouched.
       expect(evidence[field]).toEqual((original[field] as unknown[]).slice(0, limit));
       expect(evidence.totalCount).toBe(original.totalCount);
@@ -1021,6 +1042,8 @@ describe("refactor_scan event size", () => {
       ...LEDGER_SCOPE,
       snapshot: registered.snapshot,
       assessment: registered.assessment,
+      recommendationNamespace: FIXTURE_DECISIONS.namespace,
+      decisionSetDigest: FIXTURE_DECISIONS.digest,
       catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
       now: NOW
     });
@@ -1034,6 +1057,8 @@ describe("refactor_scan event size", () => {
       ...LEDGER_SCOPE,
       snapshot: oversizedRun().snapshot,
       assessment: oversizedRun().assessment,
+      recommendationNamespace: FIXTURE_DECISIONS.namespace,
+      decisionSetDigest: FIXTURE_DECISIONS.digest,
       catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
       now: NOW
     });

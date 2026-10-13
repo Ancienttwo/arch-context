@@ -37,6 +37,47 @@ archctx agents budget --format json
 archctx jobs stats --format json
 ```
 
+## refactor-decisions
+
+Human decisions on refactor recommendations live in Git, in
+`.archcontext/refactor-decisions/<recommendationId>.json` (ADR-0046), not in
+`runtime.sqlite`.
+
+- Decide with `archctx recommendations <verb> --id <id> --reason <text>`. The
+  daemon writes the decision file and the ledger audit events in one ChangeSet
+  journal boundary. Never hand-edit or create these files; the reader refuses
+  unknown fields, conflict markers and a basename that does not match the id.
+- Commit the decision file. Another worktree or branch sees the decision only
+  when its checkout contains that commit. A deleted worktree with an
+  uncommitted decision loses it. In the other worktree, `recommendations show`
+  answers it from the file, and any decision verb records it in that
+  worktree's ledger; `refactor verify` needs that local record first. Record
+  it in the consumer worktree before changing the code, with the command
+  `refactor verify` names in `details.recordCommand`: it is the verb of the
+  status the file states, so the Git decision keeps its status. A `resolved`
+  file names no command.
+- A SQLite human status whose decision file the checkout lacks is
+  `ledger-audit`: history, not the current status. Deciding that id is refused
+  (`AC_REFACTOR_STALE`, `ledger-audit-generation`); decide
+  `details.currentRecommendationId` instead, after `refactor scan` when
+  `details.currentRecorded` is false. `book recommendations` without `--open`
+  lists such ids in `ledgerAuditRecommendationIds`.
+- `recommendations metrics` reports ledger counts. It includes audit-only
+  records and does not read the decision files, so it is not the current
+  decision state of the checkout.
+- Only Git-visible files in the directory are read. Ignore editor and OS files
+  (`.DS_Store`, swap files) in `.gitignore`; any other untracked file there
+  blocks refactor reads until it is removed.
+- A merge conflict in a decision file blocks every refactor read
+  (`AC_SCHEMA_INVALID`) until the conflict is resolved to one valid file.
+- Upgrading from 0.7.x: refactor decisions recorded only in SQLite do not carry
+  over. Refactor ids change (they are now scoped by the manifest `product.id`,
+  and cycles are reported per module pair), so earlier decisions cannot match.
+  The old ledger events stay as audit. Rescan and decide again.
+- A repository without `product.id` in `.archcontext/manifest.yaml` gets
+  `AC_MODEL_ADOPTION_REQUIRED` from refactor commands; add it through a
+  ChangeSet.
+
 ## incident
 
 Signal: An architecture-ledger operation reports `AC_CONTEXT_STALE`,

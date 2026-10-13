@@ -52,11 +52,14 @@ export class GitVisibleFilesUnavailableError extends Error {
  * digest. Reads the index and the worktree only, never history, so it behaves the same in a
  * shallow clone. Paths that are not regular files in the worktree (a tracked file deleted locally,
  * a symlink, a submodule) are dropped: there are no bytes to digest.
+ *
+ * `pathspec` narrows the listing to one repo-relative directory (`git ls-files -- <pathspec>`) for a
+ * reader that needs only that directory; paths stay relative to `root`.
  */
-export function listGitVisibleFiles(root: string): string[] {
+export function listGitVisibleFiles(root: string, pathspec?: string): string[] {
   let output: string;
   try {
-    output = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
+    output = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", ...(pathspec === undefined ? [] : ["--", pathspec])], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],

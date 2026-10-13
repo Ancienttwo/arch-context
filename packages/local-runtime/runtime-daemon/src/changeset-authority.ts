@@ -26,6 +26,8 @@ interface ChangeSetAuthorityContext {
   openSession(root: string): Promise<RepositorySession>;
   /** The daemon's single writer lock; every ChangeSet apply and acceptance runs inside it. */
   withWriter<T>(run: () => Promise<T>): Promise<T>;
+  /** Throws unless the caller is already inside `withWriter`; the lock is not reentrant. */
+  assertWriterHeld(): void;
   appendArchitectureEventsWithFeed(root: string, input: ArchitectureLedgerAppendInput, journalId?: string): Promise<ArchitectureLedgerAppendResult>;
   projectionHost(): ProjectionServiceHost;
   projection(root: string, input: RuntimeProjectionInvocation): Promise<JsonEnvelope>;
@@ -55,6 +57,11 @@ function decodeRuntimePlanUpdateInput(value: unknown): RuntimePlanUpdateInput {
   }
   if (!Array.isArray(input.operations)) {
     throw new RuntimeUpdateInputError("plan_update operations must be an array");
+  }
+  // A refactor decision file is written only by the decision verbs, which build the body and the
+  // ledger events themselves (ADR-0046); no plan/apply caller can author one.
+  if (input.operations.some((operation) => operation !== null && typeof operation === "object" && (operation as { op?: unknown }).op === "write_refactor_decision")) {
+    throw new RuntimeUpdateInputError("plan_update cannot carry write_refactor_decision; use archctx recommendations <verb>");
   }
   let worktreeDigestPrecondition: RuntimePlanUpdateInput["worktreeDigestPrecondition"];
   if (input.worktreeDigestPrecondition !== undefined) {
@@ -374,6 +381,57 @@ export class ChangeSetAuthorityService {
         }
       } as unknown as Json);
     });
+  }
+
+  /**
+   * Writes refactor decision files and appends their ledger events as one journal boundary
+   * (ADR-0046). The caller already holds the writer lock (the decision verb took it), so this never
+   * takes it again. The files are written through the ChangeSet engine as a decision-only draft —
+   * expected-hash preimages, the no-follow path check and journal rollback — and the events are
+   * appended inside `afterModelValidatedBeforeCommit` with the journal id, so the append and the
+   * journal commit are one transaction. If the append fails, the engine rolls the files back.
+   * Runs in every ledger write mode: these events are the decision's audit, not a model change.
+   */
+  async applyRefactorDecisionWithinWriter(
+    root: string,
+    input: { writes: { path: string; expectedHash: string; body: string }[]; events: ArchitectureEventV1[] }
+  ): Promise<{ changeSetId: string; journalId: string; append: ArchitectureLedgerAppendResult }> {
+    this.assertRunning();
+    this.context.assertWriterHeld();
+    if (input.writes.length === 0) throw new Error("refactor decision ChangeSet requires at least one decision write");
+    const session = await this.openSession(root);
+    const model = await this.readModelStore.validateModel(session.workspace);
+    const operations: ChangeOperation[] = input.writes.map((write) => ({
+      op: "write_refactor_decision",
+      path: write.path,
+      expectedHash: write.expectedHash,
+      body: write.body
+    }));
+    const changeSetId = `changeset.refactor-decision-${digestJson({
+      operations: operations as unknown as Json,
+      eventIds: input.events.map((event) => event.eventId)
+    }).slice("sha256:".length, "sha256:".length + 16)}`;
+    const draft = this.changeSetEngine.plan({
+      id: changeSetId,
+      base: { headSha: session.workspace.headSha, worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)), modelDigest: model.modelDigest },
+      reason: { taskSessionId: "task_refactor_decision" },
+      operations
+    });
+    const preview = this.changeSetEngine.preview(root, draft);
+    if (!preview.allowed) throw new Error(`refactor decision ChangeSet refused: ${preview.findings.join("; ")}`);
+    let journal: string | undefined;
+    let append: ArchitectureLedgerAppendResult | undefined;
+    await this.changeSetEngine.apply(root, this.changeSetEngine.approve(draft), {
+      approved: true,
+      afterModelValidatedBeforeCommit: async ({ journalId }) => {
+        if (!journalId) throw new Error("refactor decision requires a durable ChangeSet journal");
+        journal = journalId;
+        append = await this.appendArchitectureEventsWithFeed(root, { writer: "runtime-daemon", events: input.events }, journalId);
+        return { journalCommitted: true };
+      }
+    });
+    if (!journal || !append) throw new Error("refactor decision ChangeSet committed without its ledger append");
+    return { changeSetId, journalId: journal, append };
   }
 
   private async appendAppliedChangeSetToArchitectureLedger(root: string, session: RepositorySession, draft: ChangeSetDraft, journalId?: string) {

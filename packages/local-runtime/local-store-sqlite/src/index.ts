@@ -7849,6 +7849,7 @@ export function committedChangeSetFileOperation(operation: string, journalId: st
     case "write_waiver":
     case "render_projection":
     case "render_agent_context":
+    case "write_refactor_decision":
       return "write";
     default:
       throw new Error(`changeset-journal-file-malformed: ${journalId}:${path}:${operation}`);

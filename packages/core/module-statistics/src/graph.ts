@@ -13,8 +13,21 @@ export interface ModuleGraphEdgeCounts {
   cycleCount: number;
 }
 
+/** One ordered cross-module dependency: how many distinct file edges `from` has into `to`. */
+export interface ModuleDependencyEdge {
+  fromNodeId: string;
+  toNodeId: string;
+  distinctFileEdgeCount: number;
+}
+
 export interface ModuleGraph {
   countsByNode: Map<string, ModuleGraphEdgeCounts>;
+  /**
+   * Every ordered cross-module pair with at least one attributed file edge, sorted by
+   * `(fromNodeId, toNodeId)`. Same attribution as the counts: a contested file speaks for each
+   * claimant, and a same-owner edge is internal, never a dependency.
+   */
+  dependencies: ModuleDependencyEdge[];
   /** Distinct ordered module pairs `(from, to)` with `from !== to`. */
   crossModuleEdgeCount: number;
   /** Distinct ordered cross-module pairs whose endpoints share one strongly connected component. */
@@ -70,6 +83,7 @@ export function buildModuleGraph(
     cycleCount: 0
   }]));
   const successors = new Map<string, Set<string>>(nodeIds.map((id) => [id, new Set<string>()]));
+  const dependencies: ModuleDependencyEdge[] = [];
   let crossModuleEdgeCount = 0;
   for (const [from, targets] of pairCounts) {
     for (const [to, edgeCount] of targets) {
@@ -77,6 +91,7 @@ export function buildModuleGraph(
         counts.get(from)!.internalEdgeCount += edgeCount;
         continue;
       }
+      dependencies.push({ fromNodeId: from, toNodeId: to, distinctFileEdgeCount: edgeCount });
       successors.get(from)!.add(to);
       counts.get(from)!.outboundModuleEdges += edgeCount;
       counts.get(from)!.fanOut += 1;
@@ -112,7 +127,126 @@ export function buildModuleGraph(
     }
   }
 
-  return { countsByNode: counts, crossModuleEdgeCount, crossModuleCycleCount, stronglyConnectedComponentCount };
+  dependencies.sort(compareDependencies);
+  return { countsByNode: counts, dependencies, crossModuleEdgeCount, crossModuleCycleCount, stronglyConnectedComponentCount };
+}
+
+/**
+ * One pair of modules that depend on each other directly. `nodeIds` is the canonical (sorted)
+ * order; `forward` counts `nodeIds[0] -> nodeIds[1]`, `backward` the reverse. The thin direction is
+ * the smaller count, ties going to `forward`, so the choice is total and stable.
+ */
+export interface BidirectionalModulePair {
+  nodeIds: [string, string];
+  forwardEdgeCount: number;
+  backwardEdgeCount: number;
+  thinDirectionEdgeCount: number;
+  totalEdgeCount: number;
+  thinDirection: { fromNodeId: string; toNodeId: string };
+}
+
+/**
+ * Every bidirectional module pair, ordered by `(thinDirectionEdgeCount, totalEdgeCount, A, B)`
+ * ascending: the cheapest cut first.
+ */
+export function bidirectionalModulePairs(dependencies: readonly ModuleDependencyEdge[]): BidirectionalModulePair[] {
+  const counts = dependencyCounts(dependencies);
+  const pairs: BidirectionalModulePair[] = [];
+  for (const [from, targets] of counts) {
+    for (const [to, forward] of targets) {
+      if (!(from < to)) continue;
+      const backward = counts.get(to)?.get(from) ?? 0;
+      if (forward <= 0 || backward <= 0) continue;
+      const forwardIsThin = forward <= backward;
+      pairs.push({
+        nodeIds: [from, to],
+        forwardEdgeCount: forward,
+        backwardEdgeCount: backward,
+        thinDirectionEdgeCount: Math.min(forward, backward),
+        totalEdgeCount: forward + backward,
+        thinDirection: forwardIsThin ? { fromNodeId: from, toNodeId: to } : { fromNodeId: to, toNodeId: from }
+      });
+    }
+  }
+  return pairs.sort((left, right) => left.thinDirectionEdgeCount - right.thinDirectionEdgeCount
+    || left.totalEdgeCount - right.totalEdgeCount
+    || compareText(left.nodeIds[0], right.nodeIds[0])
+    || compareText(left.nodeIds[1], right.nodeIds[1]));
+}
+
+/** One strongly connected component that survives cutting the thin direction of every pair. */
+export interface ResidualModuleCycle {
+  /** Sorted members, at least three: a two-member component is always a bidirectional pair. */
+  memberNodeIds: string[];
+  /** The residual module edges that stay inside the component, sorted by `(from, to)`. */
+  edges: ModuleDependencyEdge[];
+}
+
+/**
+ * The cycles that remain after removing only the thin direction of every bidirectional pair from
+ * a copy of the module graph. No edge is added, so every reported cycle exists in the measured
+ * graph; removing only the thin direction (never both) keeps mixed cycles such as A<->B plus
+ * A->C->B visible. This is a topology diagnostic, not a minimum cut: the pairs' thin cuts are cost
+ * hints, and a residual says that applying all of them would still leave this cycle.
+ */
+export function residualModuleCycles(
+  nodeIds: readonly string[],
+  dependencies: readonly ModuleDependencyEdge[]
+): ResidualModuleCycle[] {
+  const cut = new Set(bidirectionalModulePairs(dependencies)
+    .map((pair) => JSON.stringify([pair.thinDirection.fromNodeId, pair.thinDirection.toNodeId])));
+  const residual = dependencies.filter((edge) => !cut.has(JSON.stringify([edge.fromNodeId, edge.toNodeId])));
+  const known = [...new Set([...nodeIds, ...residual.flatMap((edge) => [edge.fromNodeId, edge.toNodeId])])].sort(compareText);
+  const successors = new Map<string, Set<string>>(known.map((id) => [id, new Set<string>()]));
+  for (const edge of residual) successors.get(edge.fromNodeId)!.add(edge.toNodeId);
+  const cycles: ResidualModuleCycle[] = [];
+  for (const members of tarjanComponents(known, successors)) {
+    if (members.length < 2) continue;
+    const inside = new Set(members);
+    cycles.push({
+      memberNodeIds: [...members].sort(compareText),
+      edges: residual.filter((edge) => inside.has(edge.fromNodeId) && inside.has(edge.toNodeId)).sort(compareDependencies)
+    });
+  }
+  return cycles.sort((left, right) => compareText(JSON.stringify(left.memberNodeIds), JSON.stringify(right.memberNodeIds)));
+}
+
+/**
+ * The members of `memberNodeIds` that still lie on a residual cycle among themselves: the residual
+ * graph of `dependencies`, restricted to those members, then Tarjan. `0` means the recorded
+ * residual cycle is gone.
+ */
+export function residualCycleMemberCount(
+  memberNodeIds: readonly string[],
+  dependencies: readonly ModuleDependencyEdge[]
+): number {
+  const members = new Set(memberNodeIds);
+  const inside = dependencies.filter((edge) => members.has(edge.fromNodeId) && members.has(edge.toNodeId));
+  return residualModuleCycles([...members], inside).reduce((total, cycle) => total + cycle.memberNodeIds.length, 0);
+}
+
+/** The id a strongly connected component is named by: a digest of its sorted members. */
+export function moduleComponentId(members: readonly string[]): string {
+  return stronglyConnectedComponentIdFor([...members]);
+}
+
+function dependencyCounts(dependencies: readonly ModuleDependencyEdge[]): Map<string, Map<string, number>> {
+  const counts = new Map<string, Map<string, number>>();
+  for (const edge of dependencies) {
+    if (edge.fromNodeId === edge.toNodeId) continue;
+    const targets = counts.get(edge.fromNodeId) ?? new Map<string, number>();
+    targets.set(edge.toNodeId, (targets.get(edge.toNodeId) ?? 0) + edge.distinctFileEdgeCount);
+    counts.set(edge.fromNodeId, targets);
+  }
+  return counts;
+}
+
+function compareDependencies(left: ModuleDependencyEdge, right: ModuleDependencyEdge): number {
+  return compareText(left.fromNodeId, right.fromNodeId) || compareText(left.toNodeId, right.toNodeId);
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 /** Collapses repeated `(from, to)` file edges: two imports of the same target are one edge. */

@@ -385,6 +385,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       assertFreshWorktree: (root, digest, command) => this.assertFreshWorktree(root, digest, command),
       shortDigest,
       appendArchitectureEventsWithFeed: (root, input) => this.appendArchitectureEventsWithFeed(root, input),
+      applyRefactorDecision: (root, input) => this.changeSetAuthority.applyRefactorDecisionWithinWriter(root, input),
       localStore: this.localStore
     });
     this.architectureBook = new ArchitectureBookService({
@@ -432,6 +433,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       clock: this.clock,
       openSession: (root) => this.openSession(root),
       withWriter: (run) => this.withWriter(run),
+      assertWriterHeld: () => {
+        if (!this.writerLocked) throw new Error("refactor decision apply requires the runtime writer lock");
+      },
       appendArchitectureEventsWithFeed: (root, input, journalId) => this.appendArchitectureEventsWithFeed(root, input, journalId),
       projectionHost: () => this.projectionHost(),
       projection: (root, input) => this.projection(root, input),

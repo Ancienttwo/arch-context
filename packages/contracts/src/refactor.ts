@@ -1,6 +1,7 @@
 import { RECOMMENDATION_CATEGORIES, RECOMMENDATION_V3_SCHEMA_VERSION } from "./ledger";
 import type {
   ArchitectureActorKind,
+  ArchitectureSubjectSelectorKind,
   ArchitectureRepositoryIdentityV1,
   ArchitectureWorktreeIdentityV1,
   EvidenceCoverageLevelV2,
@@ -8,6 +9,7 @@ import type {
   RecommendationAuthorV1,
   RecommendationCategory,
   RecommendationPayloadV1,
+  RecommendationStatus,
   RecommendationV3,
   RecommendationV3Base,
   RefactorProposalPayloadV1,
@@ -47,6 +49,22 @@ export const REFACTOR_VERIFICATION_REQUEST_KEYS = [
   "schemaVersion"
 ] as const;
 
+/**
+ * The grammar of the refactor identity namespace: the manifest `product.id`, which scopes every
+ * refactor subject selector so one subject has one recommendation id in every worktree, branch and
+ * clone (ADR-0046). It is the declared-id grammar node ids use, without the cross-repo prefix.
+ */
+export const REFACTOR_NAMESPACE_PATTERN = /^[a-z][a-z0-9]*(\.[a-z0-9][a-z0-9-]*)+$/;
+
+/** Issues with a refactor namespace value; empty when it is a well-formed `product.id`. */
+export function refactorNamespaceIssues(value: unknown, label = "product.id"): string[] {
+  if (typeof value !== "string") return [`${label} must be a string`];
+  if (value.trim() === "") return [`${label} must not be blank`];
+  return REFACTOR_NAMESPACE_PATTERN.test(value)
+    ? []
+    : [`${label} must match ${REFACTOR_NAMESPACE_PATTERN.source}`];
+}
+
 export const REFACTOR_REQUEST_SCHEMA_VERSION = "archcontext.refactor-request/v1" as const;
 export const REFACTOR_PROPOSAL_SCHEMA_VERSION = "archcontext.refactor-proposal/v1" as const;
 export const MODULE_STATISTICS_SCHEMA_VERSION = "archcontext.module-statistics/v1" as const;
@@ -74,11 +92,16 @@ export const REFACTOR_SCALE_REASON_CODES = [
   "target-unresolved",
   "unowned-paths"
 ] as const;
+/**
+ * `cycle` is one bidirectional module pair; `residual-cycle` is a strongly connected component that
+ * survives cutting the thin direction of every pair (ADR-0046).
+ */
 export const REFACTOR_OBSERVATION_KINDS = [
   "cycle",
   "direction-violation",
   "evidence-gap",
   "ownership-ambiguous",
+  "residual-cycle",
   "undeclared-footprint",
   "unowned-paths"
 ] as const;
@@ -137,6 +160,11 @@ export interface RefactorTargetOutcomeV1 {
   metric: string;
   subjectSelectorId: string;
   nodeId: string | null;
+  /**
+   * The module set a `moduleDependencies.*` metric is measured over: the two ends of a pair, or the
+   * members of a residual cycle. Present exactly for that metric family, sorted and unique.
+   */
+  memberNodeIds?: string[];
   operator: RefactorOutcomeOperator;
   value: number | null;
   required: boolean;
@@ -282,6 +310,17 @@ export interface ModuleStatisticsV1 {
   extensions?: Record<string, Json>;
 }
 
+/**
+ * One ordered cross-module dependency of the measured graph: `distinctFileEdgeCount` distinct
+ * file-to-file import edges whose source file `fromNodeId` owns and whose target `toNodeId` owns.
+ * A contested file is attributed to each claimant, exactly as the module counts are.
+ */
+export interface ModuleDependencyV1 {
+  fromNodeId: string;
+  toNodeId: string;
+  distinctFileEdgeCount: number;
+}
+
 export interface ModuleStatisticsSnapshotV1 {
   schemaVersion: typeof MODULE_STATISTICS_SCHEMA_VERSION;
   repository: ArchitectureRepositoryIdentityV1;
@@ -308,6 +347,12 @@ export interface ModuleStatisticsSnapshotV1 {
     reasonCodes: RefactorScaleReasonCode[];
   };
   modules: ModuleStatisticsV1[];
+  /**
+   * The module dependency table the graph counts were measured from, sorted by
+   * `(fromNodeId, toNodeId)`; one entry per `repositorySummary.crossModuleEdgeCount`. Empty when the
+   * graph was not measured (`codeFacts.coverage: unknown`).
+   */
+  moduleDependencies: ModuleDependencyV1[];
   repositorySummary: {
     moduleCount: number;
     undeclaredFootprintNodeCount: number;
@@ -396,8 +441,28 @@ interface RefactorEvidenceSampleV1 {
  * `memberNodeIds` is the prefix of the component's members; its population is the observation's
  * `metrics.memberCount`.
  */
+/**
+ * One direction of a bidirectional pair: its import-edge population and how many of the sampled
+ * `edges` it holds. The thin direction (fewer distinct file edges, ties to the canonical forward
+ * direction) is listed first and is sampled first.
+ */
+export interface RefactorEvidencePairDirectionV1 {
+  fromNodeId: string;
+  toNodeId: string;
+  totalCount: number;
+  sampledCount: number;
+}
+
 export type RefactorObservationEvidenceV1 =
-  | ({ kind: "cycle"; memberNodeIds: string[]; edges: RefactorEvidenceImportEdgeV1[] } & RefactorEvidenceSampleV1)
+  | ({
+    kind: "cycle";
+    /** The pair, sorted: `[A, B]`. */
+    memberNodeIds: string[];
+    /** `[thin, thick]`; `totalCount` is their sum. */
+    directions: RefactorEvidencePairDirectionV1[];
+    edges: RefactorEvidenceImportEdgeV1[];
+  } & RefactorEvidenceSampleV1)
+  | ({ kind: "residual-cycle"; memberNodeIds: string[]; edges: RefactorEvidenceImportEdgeV1[] } & RefactorEvidenceSampleV1)
   | ({
     kind: "direction-violation";
     constraintIds: string[];
@@ -416,6 +481,12 @@ export type RefactorObservationEvidenceV1 =
 export interface RefactorObservationV1 {
   kind: RefactorObservationKind;
   subjectSelectorId: string;
+  /**
+   * The declared nodes this observation is about, sorted and unique, authored by the producer that
+   * measured it: a node subject is `[nodeId]`, a pair its two ends, a residual cycle its members, a
+   * repository-wide fact `[]`. Scopes filter on it and the planner copies it; nothing re-derives it.
+   */
+  affectedNodeIds: string[];
   signalIds: string[];
   metrics: Record<string, number | null>;
   evidence: RefactorObservationEvidenceV1;
@@ -762,6 +833,7 @@ export function moduleStatisticsSnapshotInvariantIssues(snapshot: ModuleStatisti
   for (const [field, value] of Object.entries(snapshot.repositorySummary)) {
     issues.push(...nonNegativeIntegerIssues(`${prefix}.repositorySummary.${field}`, value));
   }
+  issues.push(...moduleDependencyIssues(snapshot, prefix));
   if (snapshot.repositorySummary.moduleCount !== snapshot.modules.length) {
     issues.push(`${prefix}.repositorySummary.moduleCount must equal the module count`);
   }
@@ -773,6 +845,83 @@ export function moduleStatisticsSnapshotInvariantIssues(snapshot: ModuleStatisti
     issues.push(`${prefix}.snapshotDigest must bind the measured snapshot payload`);
   }
   return issues;
+}
+
+/**
+ * The dependency table binds the graph counts it was measured with: sorted and unique by
+ * `(fromNodeId, toNodeId)`, positive counts, no self edge, both ends measured modules, one entry per
+ * counted cross-module edge, and nothing at all when the graph was not measured.
+ */
+function moduleDependencyIssues(snapshot: ModuleStatisticsSnapshotV1, prefix: string): string[] {
+  const label = `${prefix}.moduleDependencies`;
+  const dependencies = (snapshot as { moduleDependencies?: unknown }).moduleDependencies;
+  if (!Array.isArray(dependencies)) return [`${label} must be an array`];
+  const issues: string[] = [];
+  const modules = new Set(snapshot.modules.map((module) => module.nodeId));
+  for (const [index, entry] of (dependencies as ModuleDependencyV1[]).entries()) {
+    if (!entry || typeof entry !== "object") {
+      issues.push(`${label}[${index}] must be an object`);
+      continue;
+    }
+    if (!modules.has(entry.fromNodeId) || !modules.has(entry.toNodeId)) issues.push(`${label}[${index}] must name measured modules`);
+    if (entry.fromNodeId === entry.toNodeId) issues.push(`${label}[${index}] must not be a self dependency`);
+    if (!Number.isInteger(entry.distinctFileEdgeCount) || entry.distinctFileEdgeCount < 1) {
+      issues.push(`${label}[${index}].distinctFileEdgeCount must be a positive integer`);
+    }
+    const previous = (dependencies as ModuleDependencyV1[])[index - 1];
+    if (previous && (compareText(previous.fromNodeId, entry.fromNodeId) || compareText(previous.toNodeId, entry.toNodeId)) >= 0) {
+      issues.push(`${label} must be sorted and unique by (fromNodeId, toNodeId)`);
+    }
+  }
+  if (dependencies.length !== snapshot.repositorySummary.crossModuleEdgeCount) {
+    issues.push(`${label} must hold one entry per repositorySummary.crossModuleEdgeCount`);
+  }
+  if (snapshot.codeFacts.coverage === "unknown" && dependencies.length > 0) {
+    issues.push(`${label} must be empty when codeFacts.coverage is unknown`);
+  }
+  return [...new Set(issues)];
+}
+
+/**
+ * How a pair's evidence sample of `limit` entries is split: the thin direction first, but one slot
+ * is kept for the thick direction whenever there are two or more slots, so both directions are
+ * always shown. Taking the thin direction first is what keeps a single thin edge visible beside
+ * any number of thick ones. Resampling a sample with a smaller limit gives exactly this split of
+ * the population, so the planner's evidence cut stays on the same rule.
+ */
+export function refactorPairSampleAllocation(thinTotal: number, thickTotal: number, limit: number): { thin: number; thick: number } {
+  const slots = Math.max(0, Math.min(limit, thinTotal + thickTotal));
+  const reserve = thickTotal > 0 && slots >= 2 ? 1 : 0;
+  const thin = Math.min(thinTotal, slots - reserve);
+  return { thin, thick: Math.min(thickTotal, slots - thin) };
+}
+
+/**
+ * Cuts a pair's evidence to `limit` entries under `refactorPairSampleAllocation`. `evidence.edges`
+ * may be the whole population or an earlier sample of it: each direction keeps its first entries in
+ * canonical order, and the result is re-sorted canonically.
+ */
+export function sampleRefactorPairEvidence(
+  evidence: Extract<RefactorObservationEvidenceV1, { kind: "cycle" }>,
+  limit: number
+): Extract<RefactorObservationEvidenceV1, { kind: "cycle" }> {
+  const [thin, thick] = evidence.directions as [RefactorEvidencePairDirectionV1, RefactorEvidencePairDirectionV1];
+  const allocation = refactorPairSampleAllocation(thin.totalCount, thick.totalCount, Math.min(limit, REFACTOR_OBSERVATION_EVIDENCE_LIMIT));
+  const sorted = [...evidence.edges].sort(compareRefactorEvidenceImportEdges);
+  const inDirection = (direction: RefactorEvidencePairDirectionV1) => sorted.filter((edge) =>
+    edge.fromNodeId === direction.fromNodeId && edge.toNodeId === direction.toNodeId);
+  const thinEdges = inDirection(thin).slice(0, allocation.thin);
+  const thickEdges = inDirection(thick).slice(0, allocation.thick);
+  const edges = [...thinEdges, ...thickEdges].sort(compareRefactorEvidenceImportEdges);
+  return {
+    ...evidence,
+    directions: [
+      { ...thin, sampledCount: thinEdges.length },
+      { ...thick, sampledCount: thickEdges.length }
+    ],
+    edges,
+    truncated: evidence.totalCount > edges.length
+  };
 }
 
 export function refactorAssessmentInvariantIssues(assessment: RefactorAssessmentV1, prefix = "assessment"): string[] {
@@ -800,6 +949,9 @@ export function refactorAssessmentInvariantIssues(assessment: RefactorAssessment
   for (const [index, observation] of assessment.observations.entries()) {
     if (observation.subjectSelectorId.trim() === "") issues.push(`${prefix}.observations[${index}].subjectSelectorId must not be empty`);
     issues.push(...sortedUniqueIssues(`${prefix}.observations[${index}].signalIds`, observation.signalIds));
+    issues.push(...(Array.isArray(observation.affectedNodeIds)
+      ? sortedUniqueIssues(`${prefix}.observations[${index}].affectedNodeIds`, observation.affectedNodeIds)
+      : [`${prefix}.observations[${index}].affectedNodeIds must be an array`]));
     issues.push(...refactorObservationEvidenceIssues(observation, `${prefix}.observations[${index}]`));
   }
   issues.push(...ratioIssues(`${prefix}.confidence.callerCoverage`, assessment.confidence.callerCoverage));
@@ -888,6 +1040,13 @@ export function refactorObservationEvidenceIssues(observation: RefactorObservati
     case "cycle": {
       sample(evidence.edges, "edges");
       ordered(evidence.edges, "edges", compareRefactorEvidenceImportEdges);
+      issues.push(...pairEvidenceIssues(observation, evidence, label));
+      for (const edge of evidence.edges) edgeIssues(edge, "edges");
+      break;
+    }
+    case "residual-cycle": {
+      sample(evidence.edges, "edges");
+      ordered(evidence.edges, "edges", compareRefactorEvidenceImportEdges);
       idList(evidence.memberNodeIds, observation.metrics.memberCount, "memberNodeIds", "metrics.memberCount");
       // Membership is checkable only against the complete member list.
       const complete = evidence.memberNodeIds.length === observation.metrics.memberCount;
@@ -941,6 +1100,66 @@ export function refactorObservationEvidenceIssues(observation: RefactorObservati
       issues.push(`${label}.kind is unsupported`);
   }
   return [...new Set(issues)];
+}
+
+/**
+ * A pair's evidence explains exactly that pair: its two ends are the observation's affected nodes,
+ * every edge runs between them in one of the two listed directions, the thin direction (by the
+ * observation's own distinct-file-edge counts, ties to the forward direction) comes first, each
+ * direction's `sampledCount` is the number of its edges in the sample, and the split is the one
+ * `refactorPairSampleAllocation` prescribes for the sample size.
+ */
+function pairEvidenceIssues(
+  observation: RefactorObservationV1,
+  evidence: Extract<RefactorObservationEvidenceV1, { kind: "cycle" }>,
+  label: string
+): string[] {
+  const issues: string[] = [];
+  const members = evidence.memberNodeIds;
+  if (!Array.isArray(members) || members.length !== 2 || !(members[0]! < members[1]!)) {
+    return [`${label}.memberNodeIds must be the two pair ends, sorted`];
+  }
+  const [first, second] = members as [string, string];
+  if (Array.isArray(observation.affectedNodeIds) && (observation.affectedNodeIds.length !== 2
+    || observation.affectedNodeIds[0] !== first || observation.affectedNodeIds[1] !== second)) {
+    issues.push(`${label}.memberNodeIds must equal the observation affectedNodeIds`);
+  }
+  const forward = observation.metrics.forwardEdgeCount;
+  const backward = observation.metrics.backwardEdgeCount;
+  if (!Number.isInteger(forward) || !Number.isInteger(backward) || (forward as number) < 1 || (backward as number) < 1) {
+    issues.push(`${label} requires positive integer metrics.forwardEdgeCount and metrics.backwardEdgeCount`);
+    return issues;
+  }
+  if (observation.metrics.thinDirectionEdgeCount !== Math.min(forward as number, backward as number)) {
+    issues.push(`${label} requires metrics.thinDirectionEdgeCount = min(forwardEdgeCount, backwardEdgeCount)`);
+  }
+  if (observation.metrics.totalEdgeCount !== (forward as number) + (backward as number)) {
+    issues.push(`${label} requires metrics.totalEdgeCount = forwardEdgeCount + backwardEdgeCount`);
+  }
+  const directions = evidence.directions;
+  if (!Array.isArray(directions) || directions.length !== 2) return [...issues, `${label}.directions must list the thin then the thick direction`];
+  const [thin, thick] = directions as [RefactorEvidencePairDirectionV1, RefactorEvidencePairDirectionV1];
+  const forwardIsThin = (forward as number) <= (backward as number);
+  const expectedThin = forwardIsThin ? [first, second] : [second, first];
+  if (thin.fromNodeId !== expectedThin[0] || thin.toNodeId !== expectedThin[1]
+    || thick.fromNodeId !== expectedThin[1] || thick.toNodeId !== expectedThin[0]) {
+    issues.push(`${label}.directions must be [thin, thick] by the pair's distinct file edge counts`);
+  }
+  for (const direction of directions) {
+    if (!Number.isInteger(direction.totalCount) || direction.totalCount < 1) issues.push(`${label}.directions totalCount must be a positive integer`);
+    const sampled = evidence.edges.filter((edge) => edge.fromNodeId === direction.fromNodeId && edge.toNodeId === direction.toNodeId).length;
+    if (direction.sampledCount !== sampled) issues.push(`${label}.directions sampledCount must count the sampled edges of that direction`);
+    if (sampled > direction.totalCount) issues.push(`${label}.directions sample must not exceed the direction population`);
+  }
+  if (thin.totalCount + thick.totalCount !== evidence.totalCount) issues.push(`${label}.totalCount must be the sum of both directions`);
+  if (evidence.edges.some((edge) => !((edge.fromNodeId === first && edge.toNodeId === second) || (edge.fromNodeId === second && edge.toNodeId === first)))) {
+    issues.push(`${label}.edges must run between the pair's two ends`);
+  }
+  const allocation = refactorPairSampleAllocation(thin.totalCount, thick.totalCount, evidence.edges.length);
+  if (thin.sampledCount !== allocation.thin || thick.sampledCount !== allocation.thick) {
+    issues.push(`${label}.edges must sample the thin direction first and keep one slot for the thick direction`);
+  }
+  return issues;
 }
 
 export function refactorResolutionEvidenceInvariantIssues(
@@ -1051,7 +1270,14 @@ export function recommendationV3InvariantIssues(recommendation: RecommendationV3
       issues.push(
         ...sortedUniqueIssues(`${prefix}.payload.signalIds`, payload.signalIds),
         ...refactorObservationEvidenceIssues(
-          { kind: payload.kind, subjectSelectorId: recommendation.subject, signalIds: payload.signalIds, metrics: payload.metrics, evidence: payload.evidence },
+          {
+            kind: payload.kind,
+            subjectSelectorId: recommendation.subject,
+            affectedNodeIds: payload.affectedNodeIds,
+            signalIds: payload.signalIds,
+            metrics: payload.metrics,
+            evidence: payload.evidence
+          },
           `${prefix}.payload`
         )
       );
@@ -1254,6 +1480,13 @@ function fingerprintPayloadSubset(category: RecommendationCategory, payload: Rec
 function outcomeIssues(label: string, outcomes: readonly RefactorTargetOutcomeV1[]): string[] {
   const issues = sortedUniqueIssues(`${label}.outcomeId`, outcomes.map((outcome) => outcome.outcomeId));
   for (const outcome of outcomes) {
+    if (outcome.memberNodeIds !== undefined) {
+      if (!Array.isArray(outcome.memberNodeIds) || outcome.memberNodeIds.length < 2) {
+        issues.push(`${label} memberNodeIds must list at least two modules`);
+      } else {
+        issues.push(...sortedUniqueIssues(`${label}.memberNodeIds`, outcome.memberNodeIds));
+      }
+    }
     const valueless = outcome.operator === "absent" || outcome.operator === "present";
     if (valueless && outcome.value !== null) issues.push(`${label} operator ${outcome.operator} must not carry a value`);
     if (!valueless && outcome.value === null) issues.push(`${label} operator ${outcome.operator} requires a value`);
@@ -1301,4 +1534,250 @@ function sortedUniqueIssues(label: string, values: readonly string[]): string[] 
   return expected.length === values.length && expected.every((value, index) => value === values[index])
     ? []
     : [`${label} must be sorted and unique`];
+}
+
+/**
+ * The fingerprint schema every refactor recommendation id is derived under. v3 is the first whose
+ * subject selector is scoped by the product namespace instead of the worktree path (ADR-0046).
+ * Owned here so the planner and the Git decision contract can never name two different versions.
+ */
+export const REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION = "archcontext.recommendation-fingerprint/v3" as const;
+
+export const REFACTOR_DECISION_SCHEMA_VERSION = "archcontext.refactor-decision/v1" as const;
+/** Git-visible home of human refactor decisions; outside `listModelFiles`, so never in `modelDigest`. */
+export const REFACTOR_DECISION_DIRECTORY = ".archcontext/refactor-decisions" as const;
+export const REFACTOR_DECISION_FILE_PATTERN = /^\.archcontext\/refactor-decisions\/(recommendation\.[a-f0-9]{16})\.json$/;
+export const REFACTOR_RECOMMENDATION_ID_PATTERN = /^recommendation\.[a-f0-9]{16}$/;
+/** The six human statuses. `open` is a machine status and is never a decision. */
+export const REFACTOR_DECISION_STATUSES = ["acknowledged", "accepted", "deferred", "rejected", "resolved", "waived"] as const;
+export const REFACTOR_DECISION_REASON_MAX_LENGTH = 1024;
+export const REFACTOR_DECISION_ACTOR_ID_MAX_LENGTH = 128;
+export const REFACTOR_DECISION_STABLE_KEY_MAX_LENGTH = 512;
+const REFACTOR_DECISION_ACTOR_KINDS: readonly ArchitectureActorKind[] = ["cli", "daemon", "developer", "hook", "mcp", "migration", "subagent", "system"];
+const REFACTOR_DECISION_SELECTOR_KINDS: readonly ArchitectureSubjectSelectorKind[] = ["node", "repository"];
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+const GIT_CONFLICT_MARKER_PATTERN = /^(<{7}|={7}|>{7}|\|{7})( |$)/m;
+
+export type RefactorDecisionStatus = (typeof REFACTOR_DECISION_STATUSES)[number];
+
+/**
+ * The latest human decision for one refactor recommendation generation, stored in Git at
+ * `.archcontext/refactor-decisions/<recommendationId>.json` (ADR-0046). It carries identity and the
+ * decided measurement only: no absolute path, storage id, source, diff or evidence body.
+ */
+export interface RefactorDecisionV1 {
+  schemaVersion: typeof REFACTOR_DECISION_SCHEMA_VERSION;
+  /** The manifest `product.id` the subject selector is scoped by. */
+  namespace: string;
+  recommendationId: string;
+  fingerprint: string;
+  fingerprintSchemaVersion: typeof REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION;
+  category: "refactor_proposal" | "structural_observation";
+  /** The observation kind; `null` for a refactor proposal. */
+  kind: RefactorObservationKind | null;
+  subject: {
+    selectorKind: ArchitectureSubjectSelectorKind;
+    stableKey: string;
+    subjectSelectorId: string;
+  };
+  /** Sorted prefix of the affected nodes, bounded by `REFACTOR_EVIDENCE_ID_LIST_LIMIT`. */
+  affectedNodeIds: string[];
+  affectedNodeCount: number;
+  regressesFrom: string | null;
+  status: RefactorDecisionStatus;
+  /** The measurement the decision was taken against; `null` when the record carries none. */
+  observationMetrics: Record<string, number | null> | null;
+  reason: string;
+  actor: { kind: ArchitectureActorKind; id: string };
+  decidedAt: string;
+  provenance: {
+    headSha: string;
+    assessmentDigest: string;
+    baselineSnapshotDigest: string;
+  };
+}
+
+const REFACTOR_DECISION_KEYS = [
+  "actor",
+  "affectedNodeCount",
+  "affectedNodeIds",
+  "category",
+  "decidedAt",
+  "fingerprint",
+  "fingerprintSchemaVersion",
+  "kind",
+  "namespace",
+  "observationMetrics",
+  "provenance",
+  "reason",
+  "recommendationId",
+  "regressesFrom",
+  "schemaVersion",
+  "status",
+  "subject"
+] as const;
+
+export function isRefactorDecisionStatus(status: RecommendationStatus | string): status is RefactorDecisionStatus {
+  return (REFACTOR_DECISION_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Who states a refactor recommendation's status (ADR-0046): its Git decision file
+ * (`git-decision`), a machine status the ledger holds (`ledger`), or nobody — a human status the
+ * ledger recorded whose Git file this checkout does not carry is audit only (`ledger-audit`): it
+ * keeps its recorded status as history, is never reported as the current status of the subject,
+ * and never appears in an open or status listing.
+ */
+export type RefactorStatusAuthority = "git-decision" | "ledger" | "ledger-audit";
+
+/** The one status rule every reader shares. */
+export function refactorRecommendationStatusView(
+  ledgerStatus: RecommendationStatus,
+  decided: RefactorDecisionStatus | undefined
+): { status: RecommendationStatus; authority: RefactorStatusAuthority } {
+  if (decided !== undefined) return { status: decided, authority: "git-decision" };
+  return { status: ledgerStatus, authority: isRefactorDecisionStatus(ledgerStatus) ? "ledger-audit" : "ledger" };
+}
+
+/** The repository path of the decision file for one recommendation id. */
+export function refactorDecisionPath(recommendationId: string): string {
+  return `${REFACTOR_DECISION_DIRECTORY}/${recommendationId}.json`;
+}
+
+/** The one serialization the daemon writes: two-space JSON, keys in declaration order, final newline. */
+export function serializeRefactorDecision(decision: RefactorDecisionV1): string {
+  return `${JSON.stringify(decision, null, 2)}\n`;
+}
+
+/**
+ * Validates a decision value: closed key sets at every level, the frozen vocabularies, bounded
+ * one-line strings and sorted bounded id lists. Identity that needs the core hashers (the
+ * recommendation id from fingerprint and `regressesFrom`, the namespace-scoped selector) is checked
+ * by the reader that has them.
+ */
+export function refactorDecisionInvariantIssues(value: unknown, prefix = "refactorDecision"): string[] {
+  if (!isPlainObject(value)) return [`${prefix} must be an object`];
+  const issues: string[] = [];
+  const unknownKeys = Object.keys(value).filter((key) => !(REFACTOR_DECISION_KEYS as readonly string[]).includes(key)).sort();
+  if (unknownKeys.length > 0) issues.push(`${prefix} has unsupported key(s): ${unknownKeys.join(", ")}`);
+  const missing = REFACTOR_DECISION_KEYS.filter((key) => !(key in value));
+  if (missing.length > 0) issues.push(`${prefix} is missing key(s): ${missing.join(", ")}`);
+  if (issues.length > 0) return issues;
+  const decision = value as unknown as RefactorDecisionV1;
+  if (decision.schemaVersion !== REFACTOR_DECISION_SCHEMA_VERSION) issues.push(`${prefix}.schemaVersion must be ${REFACTOR_DECISION_SCHEMA_VERSION}`);
+  issues.push(...refactorNamespaceIssues(decision.namespace, `${prefix}.namespace`));
+  if (typeof decision.recommendationId !== "string" || !REFACTOR_RECOMMENDATION_ID_PATTERN.test(decision.recommendationId)) {
+    issues.push(`${prefix}.recommendationId must match ${REFACTOR_RECOMMENDATION_ID_PATTERN.source}`);
+  }
+  if (typeof decision.fingerprint !== "string") issues.push(`${prefix}.fingerprint must be a sha256:<64-hex> digest`);
+  else issues.push(...digestIssues(`${prefix}.fingerprint`, decision.fingerprint));
+  if (decision.fingerprintSchemaVersion !== REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION) {
+    issues.push(`${prefix}.fingerprintSchemaVersion must be ${REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION}`);
+  }
+  if (decision.category !== "structural_observation" && decision.category !== "refactor_proposal") {
+    issues.push(`${prefix}.category must be structural_observation or refactor_proposal`);
+  } else if (decision.category === "structural_observation"
+    ? !(REFACTOR_OBSERVATION_KINDS as readonly unknown[]).includes(decision.kind)
+    : decision.kind !== null) {
+    issues.push(`${prefix}.kind must be an observation kind for structural_observation and null for refactor_proposal`);
+  }
+  issues.push(...decisionSubjectIssues(decision.subject, `${prefix}.subject`));
+  if (!Array.isArray(decision.affectedNodeIds) || decision.affectedNodeIds.some((id) => typeof id !== "string" || id.trim() === "")) {
+    issues.push(`${prefix}.affectedNodeIds must be an array of node ids`);
+  } else {
+    issues.push(...sortedUniqueIssues(`${prefix}.affectedNodeIds`, decision.affectedNodeIds));
+    if (!Number.isInteger(decision.affectedNodeCount) || decision.affectedNodeCount < 0) {
+      issues.push(`${prefix}.affectedNodeCount must be a non-negative integer`);
+    } else if (decision.affectedNodeIds.length !== Math.min(decision.affectedNodeCount, REFACTOR_EVIDENCE_ID_LIST_LIMIT)) {
+      issues.push(`${prefix}.affectedNodeIds must hold min(affectedNodeCount, ${REFACTOR_EVIDENCE_ID_LIST_LIMIT}) entries`);
+    }
+  }
+  if (decision.regressesFrom !== null
+    && (typeof decision.regressesFrom !== "string" || !REFACTOR_RECOMMENDATION_ID_PATTERN.test(decision.regressesFrom))) {
+    issues.push(`${prefix}.regressesFrom must be null or a recommendation id`);
+  }
+  if (!isRefactorDecisionStatus(String(decision.status))) {
+    issues.push(`${prefix}.status must be one of ${REFACTOR_DECISION_STATUSES.join(", ")}`);
+  }
+  if (decision.observationMetrics !== null) {
+    if (!isPlainObject(decision.observationMetrics)
+      || Object.entries(decision.observationMetrics).some(([key, metric]) =>
+        key.trim() === "" || !(metric === null || (typeof metric === "number" && Number.isFinite(metric))))) {
+      issues.push(`${prefix}.observationMetrics must be null or a map of finite numbers and nulls`);
+    }
+  }
+  issues.push(...boundedLineIssues(`${prefix}.reason`, decision.reason, REFACTOR_DECISION_REASON_MAX_LENGTH));
+  if (!isPlainObject(decision.actor) || Object.keys(decision.actor).sort().join(",") !== "id,kind") {
+    issues.push(`${prefix}.actor must carry exactly kind and id`);
+  } else {
+    if (!REFACTOR_DECISION_ACTOR_KINDS.includes(decision.actor.kind)) issues.push(`${prefix}.actor.kind is unsupported`);
+    issues.push(...boundedLineIssues(`${prefix}.actor.id`, decision.actor.id, REFACTOR_DECISION_ACTOR_ID_MAX_LENGTH));
+  }
+  if (typeof decision.decidedAt !== "string" || !ISO_TIMESTAMP_PATTERN.test(decision.decidedAt)) {
+    issues.push(`${prefix}.decidedAt must be an ISO-8601 timestamp`);
+  }
+  if (!isPlainObject(decision.provenance)
+    || Object.keys(decision.provenance).sort().join(",") !== "assessmentDigest,baselineSnapshotDigest,headSha") {
+    issues.push(`${prefix}.provenance must carry exactly headSha, assessmentDigest and baselineSnapshotDigest`);
+  } else {
+    if (typeof decision.provenance.headSha !== "string" || !GIT_HEAD_SHA_PATTERN.test(decision.provenance.headSha)) {
+      issues.push(`${prefix}.provenance.headSha must be a 40-hex Git commit sha`);
+    }
+    for (const field of ["assessmentDigest", "baselineSnapshotDigest"] as const) {
+      const digest = decision.provenance[field];
+      issues.push(...(typeof digest === "string" ? digestIssues(`${prefix}.provenance.${field}`, digest) : [`${prefix}.provenance.${field} must be a digest`]));
+    }
+  }
+  return issues;
+}
+
+/**
+ * Parses one decision file exactly as it sits in the checkout. A file with an unresolved merge
+ * conflict, a body that is not one JSON object, a value that breaks the contract, or a basename
+ * that is not its own recommendation id is refused with every reason; nothing is repaired.
+ */
+export function parseRefactorDecisionFile(path: string, body: string): RefactorDecisionV1 {
+  const match = REFACTOR_DECISION_FILE_PATTERN.exec(path);
+  if (!match) throw new Error(`refactor-decision-path-invalid: ${path} must be ${REFACTOR_DECISION_DIRECTORY}/recommendation.<16-hex>.json`);
+  if (GIT_CONFLICT_MARKER_PATTERN.test(body)) throw new Error(`refactor-decision-conflicted: ${path} carries Git conflict markers; resolve the merge first`);
+  let value: unknown;
+  try {
+    value = JSON.parse(body);
+  } catch (error) {
+    throw new Error(`refactor-decision-malformed: ${path} is not JSON (${error instanceof Error ? error.message : String(error)})`);
+  }
+  const issues = refactorDecisionInvariantIssues(value, path);
+  if (issues.length > 0) throw new Error(`refactor-decision-invalid: ${issues.join("; ")}`);
+  const decision = value as RefactorDecisionV1;
+  if (decision.recommendationId !== match[1]) {
+    throw new Error(`refactor-decision-invalid: ${path} must be named after its recommendationId ${decision.recommendationId}`);
+  }
+  return decision;
+}
+
+function decisionSubjectIssues(subject: unknown, label: string): string[] {
+  if (!isPlainObject(subject) || Object.keys(subject).sort().join(",") !== "selectorKind,stableKey,subjectSelectorId") {
+    return [`${label} must carry exactly selectorKind, stableKey and subjectSelectorId`];
+  }
+  const issues: string[] = [];
+  if (!REFACTOR_DECISION_SELECTOR_KINDS.includes(subject.selectorKind as ArchitectureSubjectSelectorKind)) {
+    issues.push(`${label}.selectorKind must be node or repository`);
+  }
+  issues.push(...boundedLineIssues(`${label}.stableKey`, subject.stableKey, REFACTOR_DECISION_STABLE_KEY_MAX_LENGTH));
+  if (typeof subject.subjectSelectorId !== "string" || !/^subject\.(node|repository)\.[a-f0-9]{16}$/.test(subject.subjectSelectorId)) {
+    issues.push(`${label}.subjectSelectorId must be a refactor subject selector id`);
+  }
+  return issues;
+}
+
+function boundedLineIssues(label: string, value: unknown, maxLength: number): string[] {
+  if (typeof value !== "string" || value.trim() === "" || value !== value.trim()) {
+    return [`${label} must be a non-empty string without leading or trailing whitespace`];
+  }
+  if (value.length > maxLength) return [`${label} must be at most ${maxLength} characters`];
+  return /[\u0000-\u001f\u007f]/.test(value) ? [`${label} must be one line without control characters`] : [];
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

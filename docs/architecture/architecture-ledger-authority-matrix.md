@@ -13,7 +13,7 @@ schema plan: AL0 defines authority before AL2 adds tables.
 | Component | Responsibility | Strong dependencies | Cannot do |
 |---|---|---|---|
 | Code + CodeGraph | Observed code facts, selectors, changed symbols, changed edges | Git HEAD/worktree, CodeGraph adapter | Declare architecture truth or update projections |
-| `.archcontext/` in Git | Reviewable declared architecture, policies, waivers, deterministic projections | ChangeSet engine, renderer, Git merge/review | Store mutable runtime state or local investigation output |
+| `.archcontext/` in Git | Reviewable declared architecture, policies, waivers, human refactor decisions (`.archcontext/refactor-decisions/`, ADR-0046), deterministic projections | ChangeSet engine, renderer, Git merge/review | Store mutable runtime state or local investigation output |
 | Local SQLite runtime | Operational events, snapshots, evidence bindings, recommendation runs, agent jobs, freshness | Runtime daemon, migrations, WAL, repository/worktree identity | Become the only recoverable copy before ledger-authoritative promotion |
 | ChangeSet engine | Preview, validate, approve, apply, rollback architecture-affecting mutations | Policy engine, path allowlist, expected digests | Apply stale or out-of-scope writes |
 | Runtime daemon | Single writer for event append, snapshot creation, queue/job state, and dual writes | Local store, model store, CodeGraph adapter, CLI/MCP adapters | Let CLI/MCP/hooks bypass mutation rules |
@@ -28,6 +28,7 @@ schema plan: AL0 defines authority before AL2 adds tables.
 | Observed | CodeGraph adapter and deterministic runtime probes | Selector digest scoped by repository and worktree identity | Observed facts can support evidence but cannot overwrite declared facts | May become evidence only after typed selector/provenance is recorded |
 | Verified | Deterministic checks, test/readback artifacts, accepted attestations | Verification subject plus evidence digest | New verification supersedes older verification only at the same HEAD/worktree cursor | May promote recommendation authority only through `EvidenceBinding/v1` |
 | Proposed | ChangeSet drafts and subagent investigation proposals | Proposal ID plus idempotency key | Proposal remains non-authoritative until validated and approved | Requires deterministic validation and ChangeSet approval |
+| Human refactor decision | Dedicated daemon ChangeSet operation `write_refactor_decision` (one file per recommendation generation, ADR-0046) | `recommendationId` derived from the v3 fingerprint, whose subject selector is scoped by manifest `product.id`, not by worktree path | A Git conflict or a malformed decision file fails the whole decision read closed; SQLite lifecycle events are audit and never override the file | Authoritative in the current checkout from the moment it is written; reaches other worktrees and branches only through Git commits. Not a ledger-authoritative promotion |
 | Projected | Renderer from accepted architecture state | Projection target path plus source snapshot digest | Human edits outside generated regions become drift requiring explicit reconcile | Runtime may read projected state only in `yaml`; later modes treat it as review/rebuild boundary |
 
 ## Repository And Worktree Scoping
@@ -44,11 +45,21 @@ share mutable current-state rows unless the repository/worktree identity and
 cursor match. Stale jobs may remain as history, but they cannot append new
 events or update projections.
 
+Refactor recommendation selectors are the exception to repository-scoped
+identity: they are scoped by the manifest `product.id` (ADR-0046), so the same
+subject has the same recommendation id in every worktree and branch. This is
+portable human intent carried by Git files, not a shared mutable row: the
+ledger partition, cursor isolation and every event's repository/worktree
+identity are unchanged.
+
 ## Mutation Contract
 
 The only allowed mutation paths are:
 
 1. ChangeSet preview and apply for Git-visible `.archcontext/` projections.
+   Refactor decision files are written only by the daemon-built
+   `write_refactor_decision` operation, whose ledger records append in the same
+   journal boundary as the file write.
 2. Daemon-owned transactional event append for accepted ledger records.
 3. Daemon-owned dual operation that performs both sides and can recover or
    rollback consistently.

@@ -263,6 +263,8 @@ function buildBenchmarkFixture(name: FixtureSize, sampleCount: number) {
   const recommendations = queryArchitectureLedgerBookRecommendations({
     events: [recommendationEvent as any],
     openOnly: true,
+    // A synthetic ledger with no checkout: no refactor decision files exist.
+    refactorDecisionStatuses: new Map(),
     explain: true,
     maxItems: 10,
     maxBytes: 32_768
