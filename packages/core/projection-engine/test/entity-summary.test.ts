@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   architectureDocumentationProjectionProvenance,
   architectureProofEvidenceDigests,
+  loadArchitectureDocumentationFiles,
   loadCapabilitySourceFootprints,
   loadCapabilitySourceScaleSignals,
   renderArchitectureDocumentationProjection,
@@ -625,6 +626,46 @@ describe("entity-summary capability documentation projection", () => {
     expect(edited.drift.diffs.some((diff) =>
       diff.path === seeded.path && diff.reasonCode === "projection-generated-region-manually-edited"
     )).toBe(true);
+  });
+
+  test("a CRLF checkout of the projected documents is not drift; a hand edit inside a machine region still is", () => {
+    // `core.autocrlf` checkouts (Windows) write every projected document and the manifest with CRLF.
+    const first = render();
+    const root = mkdtempSync(join(tmpdir(), "archctx-crlf-docs-"));
+    try {
+      const writeCrlf = (path: string, body: string) => {
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), body.replaceAll("\n", "\r\n"));
+      };
+      for (const file of [...first.files, first.manifest]) writeCrlf(file.path, file.body);
+
+      const reprojected = render({ existingFiles: loadArchitectureDocumentationFiles(root, model) });
+      expect(reprojected.drift).toMatchObject({ ok: true, reasonCodes: [], diffs: [] });
+      // The re-render is the canonical LF body, so an apply on a CRLF checkout writes stable bytes.
+      expect(reprojected.files.map(({ path, body }) => ({ path, body }))).toEqual(first.files.map(({ path, body }) => ({ path, body })));
+      expect(reprojected.manifest.body).toBe(first.manifest.body);
+
+      const seeded = entityFile(first, "capability.docs.projection");
+      const tampered = seeded.body.replace("- 規模量級:`2–5` 個文件", "- 規模量級:`999–1000` 個文件");
+      expect(tampered).not.toBe(seeded.body);
+      writeCrlf(seeded.path, tampered);
+      const edited = render({ existingFiles: loadArchitectureDocumentationFiles(root, model) });
+      expect(edited.drift.diffs).toEqual([expect.objectContaining({
+        path: seeded.path,
+        reasonCode: "projection-generated-region-manually-edited"
+      })]);
+
+      // A lone CR is content, not a line ending.
+      const lineEnd = seeded.body.indexOf("\n", seeded.body.indexOf("- 規模量級:"));
+      writeFileSync(join(root, seeded.path), `${seeded.body.slice(0, lineEnd)}\r${seeded.body.slice(lineEnd + 1)}`);
+      const loneCr = render({ existingFiles: loadArchitectureDocumentationFiles(root, model) });
+      expect(loneCr.drift.diffs).toEqual([expect.objectContaining({
+        path: seeded.path,
+        reasonCode: "projection-generated-region-manually-edited"
+      })]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("fails closed when a node declares source.include but carries no footprint digest", () => {
