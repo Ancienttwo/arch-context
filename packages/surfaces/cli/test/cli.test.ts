@@ -4502,7 +4502,9 @@ describe("archctx CLI", () => {
     // The idle window runs from the last RPC (`status` below), whether or not the root still
     // exists. Nothing but the delete runs inside it, so the daemon is still alive when its root
     // goes; the listing of such a daemon is checked in the next test, where idle exit is off.
-    const idleTimeoutMs = 3_000;
+    // The window must outlast the gap between two CLI launches. On a loaded Windows runner the three
+    // launches below took 20 s, so a 3 s window let the daemon idle-exit before `status` ran.
+    const idleTimeoutMs = process.platform === "win32" ? 20_000 : 3_000;
     const env = { ...testStateEnv(root), ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS: String(idleTimeoutMs) };
     const cli = async (cwd: string, ...args: string[]) => JSON.parse((await collectProcess(spawn(process.execPath, [CLI_ENTRY, ...args], { cwd, env }))).stdout);
     try {
