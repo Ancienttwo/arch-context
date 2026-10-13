@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodeGraphAdapter } from "../../../local-runtime/codegraph-adapter/src/index";
 import { MockCodeGraphProvider } from "../../../local-runtime/codegraph-adapter/test/factories";
+import { listGitVisibleFiles } from "../../../local-runtime/git-adapter/src/index";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { digestJson, type CodeFactsPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
@@ -16,6 +18,7 @@ import { checkpointTask, completeTask, prepareTask } from "../src/index";
 
 function tempModel(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-m2-"));
+  execFileSync("git", ["init", "--quiet"], { cwd: root });
   writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
   initializeArchContextModel(root, "M2 App");
   return root;
@@ -253,7 +256,7 @@ describe("M2 architecture control loop", () => {
         schemaVersion: "archcontext.practice-checkpoint-snapshot/v1" as const,
         task: prepared.context.task,
         headSha: workspace.headSha,
-        worktreeDigest: computeWorktreeDigest(root),
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)),
         contextDigest: prepared.context.extensions.digest,
         practiceGuidanceDigest: prepared.context.extensions.practiceGuidanceDigest,
         catalogDigest: prepared.context.practiceGuidance.catalogDigest,
@@ -262,6 +265,7 @@ describe("M2 architecture control loop", () => {
 
       const noOp = await checkpointTask({
         workspace,
+        worktreeFiles: listGitVisibleFiles(root),
         taskSessionId: "task_test",
         task: prepared.context.task,
         event: "post-edit",
@@ -279,6 +283,7 @@ describe("M2 architecture control loop", () => {
 
       const stale = await checkpointTask({
         workspace,
+        worktreeFiles: listGitVisibleFiles(root),
         taskSessionId: "task_test",
         task: prepared.context.task,
         event: "post-edit",
@@ -292,6 +297,7 @@ describe("M2 architecture control loop", () => {
 
       const staleCatalog = await checkpointTask({
         workspace,
+        worktreeFiles: listGitVisibleFiles(root),
         taskSessionId: "task_test",
         task: prepared.context.task,
         event: "post-edit",
@@ -310,6 +316,7 @@ describe("M2 architecture control loop", () => {
 
       const normalizedPaths = await checkpointTask({
         workspace,
+        worktreeFiles: listGitVisibleFiles(root),
         taskSessionId: "task_test",
         task: prepared.context.task,
         event: "post-edit",
@@ -335,6 +342,7 @@ describe("M2 architecture control loop", () => {
 
       const result = await checkpointTask({
         workspace: { root, repositoryId: "repo.test", headSha: "abc" },
+        worktreeFiles: listGitVisibleFiles(root),
         taskSessionId: "task_paths",
         task: "inspect changed path classes",
         event: "post-edit",
@@ -385,7 +393,7 @@ describe("M2 architecture control loop", () => {
         schemaVersion: "archcontext.practice-checkpoint-snapshot/v1" as const,
         task: prepared.context.task,
         headSha: workspace.headSha,
-        worktreeDigest: computeWorktreeDigest(root),
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)),
         contextDigest: prepared.context.extensions.digest,
         practiceGuidanceDigest: prepared.context.extensions.practiceGuidanceDigest,
         catalogDigest: prepared.context.practiceGuidance.catalogDigest,
@@ -395,6 +403,7 @@ describe("M2 architecture control loop", () => {
       cycleObserved = true;
       const added = await checkpointTask({
         workspace,
+        worktreeFiles: listGitVisibleFiles(root),
         taskSessionId: "task_cycle",
         task: prepared.context.task,
         event: "post-edit",
@@ -409,6 +418,7 @@ describe("M2 architecture control loop", () => {
       cycleObserved = false;
       const removed = await checkpointTask({
         workspace,
+        worktreeFiles: listGitVisibleFiles(root),
         taskSessionId: "task_cycle",
         task: prepared.context.task,
         event: "post-edit",

@@ -19,8 +19,10 @@ export function rmSync(path: string, options?: RmDirOptions): void {
   }
 }
 
+/** An uncommitted Git worktree: worktree digests hash Git-visible files, so fixtures are Git roots. */
 export function tempRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-"));
+  execFileSync("git", ["init", "--quiet"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
   return root;
 }

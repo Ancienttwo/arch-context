@@ -38,6 +38,8 @@ export interface CheckpointTaskInput {
   toolCallId?: string;
   expectedHeadSha?: string;
   expectedWorktreeDigest?: string;
+  /** The Git-visible universe of `workspace.root` the worktree digest is computed over. */
+  worktreeFiles: readonly string[];
   previous?: PracticeCheckpointSnapshotV1;
   codeFacts: CodeFactsPort;
   modelStore: ModelStorePort;
@@ -86,8 +88,9 @@ export async function prepareTask(input: PrepareTaskInput) {
   };
 }
 
-export function checkpoint(input: { root: string; expectedWorktreeDigest: string }) {
-  const current = computeWorktreeDigest(input.root);
+/** `worktreeFiles` is the Git-visible universe of `root`, as `computeWorktreeDigest` takes it. */
+export function checkpoint(input: { root: string; worktreeFiles: readonly string[]; expectedWorktreeDigest: string }) {
+  const current = computeWorktreeDigest(input.root, input.worktreeFiles);
   return {
     fresh: current === input.expectedWorktreeDigest,
     currentWorktreeDigest: current,
@@ -105,7 +108,7 @@ export async function checkpointTask(input: CheckpointTaskInput): Promise<Practi
     budget: input.budget ?? { maxBytes: 12_288, maxItems: 12 },
     changedPaths: input.changedPaths ?? []
   });
-  const worktreeDigest = computeWorktreeDigest(input.workspace.root);
+  const worktreeDigest = computeWorktreeDigest(input.workspace.root, input.worktreeFiles);
   const nextSnapshot: PracticeCheckpointSnapshotV1 = {
     schemaVersion: "archcontext.practice-checkpoint-snapshot/v1",
     task: input.task,

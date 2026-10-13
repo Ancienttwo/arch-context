@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { digestJson } from "@archcontext/contracts";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
@@ -15,6 +16,8 @@ import { runCli } from "@archcontext/surfaces/cli";
 
 function tempModel(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-mcp-"));
+  // Worktree digests hash Git-visible files, so every fixture is a Git worktree.
+  git(root, "init");
   writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
   initializeArchContextModel(root, "MCP App");
   return root;
@@ -22,7 +25,6 @@ function tempModel(): string {
 
 function tempGitModel(): string {
   const root = tempModel();
-  git(root, "init");
   git(root, "config", "user.email", "archcontext@example.test");
   git(root, "config", "user.name", "ArchContext Test");
   git(root, "add", ".");
@@ -113,6 +115,21 @@ describe("local MCP server", () => {
     });
   });
 
+  test("MCP tools outside a Git worktree return the typed git-worktree-required envelope (#323)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-mcp-non-git-"));
+    try {
+      writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+      const server = await createTestServer();
+      const typed = { ok: false, error: { code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required" } };
+      const checkpoint = await server.callTool("archcontext_checkpoint", { root, taskSessionId: "task_non_git" });
+      expect(checkpoint.content).toMatchObject({ ...typed, requestId: "checkpoint" });
+      const planned = await server.callTool("archcontext_plan_update", { root, id: "changeset.non-git", operations: [] });
+      expect(planned.content).toMatchObject({ ...typed, requestId: "plan_update" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("large prepare output is returned as summary plus Resource URI", async () => {
     const root = tempModel();
     try {
@@ -184,7 +201,7 @@ describe("local MCP server", () => {
       await daemon.init(root, "MCP Book App");
       const rebuild = await daemon.ledgerRebuild(root, {
         fromGit: true,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(rebuild.ok).toBe(true);
       const server = new McpLocalServer(daemon);
@@ -290,7 +307,7 @@ describe("local MCP server", () => {
     const root = tempModel();
     try {
       const server = await createTestServer();
-      const expectedWorktreeDigest = computeWorktreeDigest(root);
+      const expectedWorktreeDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
       await server.callTool("archcontext_plan_update", {
         root,
         id: "changeset.mcp",

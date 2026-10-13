@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Test stand-in for the local runtime's Git listing (`listProjectionSourceFiles`): every regular
+ * Test stand-in for the local runtime's Git listing (`listGitVisibleFiles`): every regular
  * file under `root`, repo-relative and sorted. Core fixtures are plain directories, not Git
  * repositories, and core itself never walks the filesystem for the footprint universe.
  */

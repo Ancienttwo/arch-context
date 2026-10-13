@@ -21,7 +21,7 @@ import {
   type ArchitectureDocumentationProjectionPlan
 } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter, loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
-import { listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
@@ -167,9 +167,9 @@ function writeArchitectureDocsProjection(root: string): void {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root)),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listProjectionSourceFiles(root)),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listProjectionSourceFiles(root) }),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listGitVisibleFiles(root) }),
     sourceDigest,
     provenance: projectionReadbackProvenance(sourceDigest)
   });
@@ -192,9 +192,9 @@ function docsProjectionDriftOk(root: string): boolean {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root)),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listProjectionSourceFiles(root)),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listProjectionSourceFiles(root) }),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listGitVisibleFiles(root) }),
     sourceDigest: architectureDocumentationSourceDigest({
       model: loaded.model,
       decisions: loaded.decisions

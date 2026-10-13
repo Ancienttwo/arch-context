@@ -17,7 +17,7 @@ import {
 } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { readTrackedSourceFiles } from "@archcontext/local-runtime/git-adapter";
+import { readTrackedSourceFiles, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
@@ -249,7 +249,7 @@ describe("daemon refactorScan", () => {
       const data = scanData(await daemon.refactorScan(root));
       const recorded = await daemon.refactorRecord(root, {
         assessmentDigest: data.assessment.assessmentDigest,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(recorded.ok).toBe(true);
       expect((recorded.data as { assessmentDigest: string }).assessmentDigest).toBe(data.assessment.assessmentDigest);
@@ -268,7 +268,7 @@ describe("daemon refactorScan", () => {
       // Event #1: after this the ledger scope carries the identity of the tree as it is now.
       const seed = scanData(await daemon.refactorScan(root));
       const seededDigest = seed.worktree.worktreeDigest;
-      expect(seededDigest).toBe(computeWorktreeDigest(root));
+      expect(seededDigest).toBe(computeWorktreeDigest(root, listGitVisibleFiles(root)));
       expect(seed.worktree.headSha).toBe(gitOut(root, "rev-parse", "HEAD"));
       const seedRecord = await daemon.refactorRecord(root, {
         assessmentDigest: seed.assessment.assessmentDigest,
@@ -279,7 +279,7 @@ describe("daemon refactorScan", () => {
       // Move the tree, so the last stored event's worktree identity is no longer current.
       writeFileSync(join(root, EXTRA_FILE), "export const extra = 1;\n", "utf8");
       commitFixture(root, "extra tracked file", SECOND_COMMITTER_DATE);
-      const liveDigest = computeWorktreeDigest(root);
+      const liveDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
       expect(liveDigest).not.toBe(seededDigest);
 
       const scan = scanData(await daemon.refactorScan(root));
@@ -357,7 +357,7 @@ describe("daemon refactorScan", () => {
         request: {
           schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION,
           scope: { kind: "repository" },
-          expectedWorktreeDigest: computeWorktreeDigest(root)
+          expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
         }
       });
       expect(current.ok).toBe(true);
@@ -615,7 +615,7 @@ describe("deciding a scan candidate", () => {
       // The tree moves between scan and decision; the observation does not.
       writeFileSync(join(root, EXTRA_FILE), "export const extra = 1;\n", "utf8");
       commitFixture(root, "extra tracked file", SECOND_COMMITTER_DATE);
-      const liveDigest = computeWorktreeDigest(root);
+      const liveDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
       expect(liveDigest).not.toBe(scan.worktree.worktreeDigest);
 
       const rejected = lifecycleData(await daemon.recommendations(root, {

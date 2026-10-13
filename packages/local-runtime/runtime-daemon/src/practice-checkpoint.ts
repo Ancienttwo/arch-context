@@ -3,6 +3,7 @@ import type { ArchitectureContextLedgerPort } from "@archcontext/core/context-co
 import { practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { loadPracticeWaiverOwnerRegistry, loadPracticeWaivers } from "@archcontext/core/practice-engine";
 import { digestJson, errorEnvelope, okEnvelope, type CodeFactsPort, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import type { ExternalDocumentationService } from "./external-documentation";
 import type { RuntimeCheckpointInput } from "./rpc-types";
@@ -125,6 +126,7 @@ export class PracticeCheckpointService {
       toolCallId: input.toolCallId,
       expectedHeadSha: input.expectedHeadSha,
       expectedWorktreeDigest: input.expectedWorktreeDigest,
+      worktreeFiles: listGitVisibleFiles(session.workspace.root),
       previous: baseline,
       codeFacts: this.codeFacts,
       modelStore: this.readModelStore,

@@ -4,7 +4,7 @@ Use this skill when installing or initializing ArchContext in a repository.
 
 ## SOP
 
-1. Run `archctx init`.
+1. Run `archctx init` from a Git worktree; outside one it fails with `AC_REPO_NOT_FOUND` (`git-worktree-required`).
 2. Run `archctx validate`.
 3. Run `archctx status`.
 4. Do not manually edit `.archcontext/model`; future writes go through ChangeSet tools.

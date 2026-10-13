@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { assertAdrReferenceOperation, type AdrReferenceReplacement, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { canonicalize, type Json } from "@archcontext/contracts";
 import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
@@ -125,7 +126,7 @@ async function main(args: string[]) {
   if (approved) {
     if (expectedProposalDigest !== digest) throw new Error("approved apply requires the exact preview proposal digest");
     if (!expectedWorktreeDigest) throw new Error("approved apply requires --expected-worktree-digest");
-    if (computeWorktreeDigest(repo) !== expectedWorktreeDigest) throw new Error("worktree changed after proposal preview");
+    if (computeWorktreeDigest(repo, listGitVisibleFiles(repo)) !== expectedWorktreeDigest) throw new Error("worktree changed after proposal preview");
   }
   const daemon = await createStartedDaemon({ localStorePath: defaultLocalStorePath(repo) });
   try {

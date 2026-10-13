@@ -31,6 +31,7 @@ import {
   validateArchitectureLedgerEvent
 } from "@archcontext/core/architecture-ledger";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   RECOMMENDATION_SCHEDULER_ENGINE_VERSION,
   planRecommendationRun,
@@ -140,13 +141,13 @@ function registerAt(daemon: Awaited<ReturnType<typeof startDaemon>>, root: strin
     assessment,
     ...(proposal ? { proposal } : {}),
     headSha: gitOut(root, "rev-parse", "HEAD"),
-    worktreeDigest: computeWorktreeDigest(root)
+    worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
   });
   return { digest, snapshot, assessment, proposal };
 }
 
 function recordInput(root: string, assessmentDigest: string): RuntimeRefactorRecordInput {
-  return { assessmentDigest, expectedWorktreeDigest: computeWorktreeDigest(root) };
+  return { assessmentDigest, expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)) };
 }
 
 function recordedRecommendations(store: TestLocalStore): RecommendationV3[] {
@@ -168,7 +169,7 @@ async function seedV2Practice(store: TestLocalStore, root: string, now: string) 
     storageWorkspaceId: paths.storageWorkspaceId,
     branch: gitOut(root, "branch", "--show-current") || "HEAD",
     headSha: gitOut(root, "rev-parse", "HEAD"),
-    worktreeDigest: computeWorktreeDigest(root)
+    worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
   };
   const plan = planRecommendationRun({
     repository,
@@ -334,7 +335,7 @@ describe("refactorRecord", () => {
       writeFileSync(join(root, "README.md"), "# measured changed checkout\n");
       if (committed) commitAll(root, "advance after ledger recording");
       const head = gitOut(root, "rev-parse", "HEAD");
-      const digest = computeWorktreeDigest(root);
+      const digest = computeWorktreeDigest(root, listGitVisibleFiles(root));
       expect(digest).not.toBe(ledgerWorktree.worktreeDigest);
       const input = recordInput(root, registerAt(daemon, root).digest);
       const result = await daemon.refactorRecord(root, input);
@@ -524,7 +525,7 @@ describe("refactorRecord", () => {
     try {
       await daemon.init(root, "Refactor Recording App");
       const { digest } = registerAt(daemon, root);
-      const staleDigest = computeWorktreeDigest(root);
+      const staleDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
       writeFileSync(join(root, "moved.ts"), "export const moved = 1;\n", "utf8");
       commitAll(root, "move the worktree");
 
@@ -550,7 +551,7 @@ describe("refactorRecord", () => {
         assessment,
         ...(proposal ? { proposal } : {}),
         headSha: "0000000000000000000000000000000000000000",
-        worktreeDigest: computeWorktreeDigest(root)
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
 
       const result = await daemon.refactorRecord(root, recordInput(root, digest));
@@ -577,7 +578,7 @@ describe("refactorRecord", () => {
         assessment,
         proposal: { ...proposal!, authoredBy: { kind: "daemon", id: "archctxd", source: "daemon" } },
         headSha: gitOut(root, "rev-parse", "HEAD"),
-        worktreeDigest: computeWorktreeDigest(root)
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
 
       const result = await daemon.refactorRecord(root, recordInput(root, digest));
@@ -601,7 +602,7 @@ describe("refactorRecord", () => {
         snapshot: makeSnapshot(),
         assessment,
         headSha: gitOut(root, "rev-parse", "HEAD"),
-        worktreeDigest: computeWorktreeDigest(root)
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(snapshot.snapshotDigest).not.toBe(makeSnapshot().snapshotDigest);
 
@@ -685,7 +686,7 @@ describe("recommendations resolve gate", () => {
       const migrated = await daemon.ledgerMigrate(root, {
         recommendationV3: true,
         dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(migrated.ok).toBe(true);
       expect((migrated.data as any).upgradedCount).toBe(1);
@@ -735,7 +736,7 @@ describe("ledger migrate --recommendation-v3", () => {
 
       const before = await daemon.ledgerRebuild(root, {
         fromGit: true,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(before.ok).toBe(true);
       const beforeDigest = (before.data as any).graphDigest as string;
@@ -743,7 +744,7 @@ describe("ledger migrate --recommendation-v3", () => {
       const migrated = await daemon.ledgerMigrate(root, {
         recommendationV3: true,
         dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(migrated.ok).toBe(true);
       expect((migrated.data as any).status).toBe("verified");
@@ -754,7 +755,7 @@ describe("ledger migrate --recommendation-v3", () => {
 
       const after = await daemon.ledgerRebuild(root, {
         fromGit: true,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(after.ok).toBe(true);
       expect((after.data as any).graphDigest).toBe(beforeDigest);
@@ -762,7 +763,7 @@ describe("ledger migrate --recommendation-v3", () => {
       const secondMigration = await daemon.ledgerMigrate(root, {
         recommendationV3: true,
         dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(secondMigration.ok).toBe(true);
       expect((secondMigration.data as any).upgradedCount).toBe(0);
@@ -795,7 +796,7 @@ describe("ledger migrate --recommendation-v3", () => {
       const migrated = await daemon.ledgerMigrate(root, {
         recommendationV3: true,
         dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
 
       expect(migrated.ok).toBe(true);

@@ -21,7 +21,7 @@ import { ProjectionApplyService } from "./projection-apply";
 import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
 import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
-export { runProjectionCheckInvocation } from "./projection-service";
+export { runProjectionCheckInvocation, runProjectionSnapshotCommand } from "./projection-service";
 export { runDocsAnchorsCommand } from "./docs-anchors";
 export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
 export { runFlowSelectorCheckCommand } from "./flow-selector-check";
@@ -76,7 +76,7 @@ import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationA
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
-import { listProjectionSourceFiles, readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { listGitVisibleFiles, readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
@@ -596,6 +596,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   async init(root: string, productName?: string): Promise<JsonEnvelope> {
     this.assertRunning();
     return this.withWriter(async () => {
+      // archctx requires a Git worktree: refuse before writing, so a non-Git root keeps no partial model.
+      listGitVisibleFiles(root);
       try {
         initializeArchContextModel(root, productName);
       } catch (error) {
@@ -768,7 +770,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       throw error;
     }
     const projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
-    const worktreeDigest = computeWorktreeDigest(session.workspace.root);
+    const worktreeDigest = computeWorktreeDigest(session.workspace.root, listGitVisibleFiles(session.workspace.root));
     // Constraints and the review policy are read through the model store port, so the ledger read
     // mode sees the same model `validate` does.
     const modelFiles = (await this.readModelStore.loadModel(session.workspace)).filter(isModelFile);
@@ -990,7 +992,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
 
   private architectureLedgerProjectionGitScope(root: string): ArchitectureLedgerScope {
     const headSha = readHeadSha(root);
-    const binding = bindRepository(root, headSha);
+    const binding = bindRepository(root, headSha, listGitVisibleFiles(root));
     const paths = runtimeStatePaths(root);
     return {
       repository: {
@@ -1020,14 +1022,14 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         storageWorkspaceId: paths.storageWorkspaceId,
         branch: readCurrentBranch(root),
         headSha: session.workspace.headSha,
-        worktreeDigest: computeWorktreeDigest(root)
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       }
     };
   }
 
   private assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string): void {
     if (!expectedWorktreeDigest) throw new Error(`${command} requires expectedWorktreeDigest`);
-    const current = computeWorktreeDigest(root);
+    const current = computeWorktreeDigest(root, listGitVisibleFiles(root));
     if (current !== expectedWorktreeDigest) throw new Error(`Worktree digest changed before ${command}`);
   }
 
@@ -1187,14 +1189,14 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       ...status,
       repositoryId,
       headSha: session?.workspace.headSha ?? readHeadSha(root),
-      worktreeDigest: computeWorktreeDigest(root)
+      worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
     } as unknown as Json);
   }
 
   async openSession(root: string): Promise<RepositorySession> {
     this.assertRunning();
     const headSha = readHeadSha(root);
-    const binding = bindRepository(root, headSha);
+    const binding = bindRepository(root, headSha, listGitVisibleFiles(root));
     const workspace: WorkspaceRef = {
       root: binding.root,
       repositoryId: binding.repositoryId,
@@ -1320,7 +1322,7 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
       storageWorkspaceId: paths.storageWorkspaceId,
       branch: readCurrentBranch(workspace.root),
       headSha: workspace.headSha,
-      worktreeDigest: computeWorktreeDigest(workspace.root)
+      worktreeDigest: computeWorktreeDigest(workspace.root, listGitVisibleFiles(workspace.root))
     }
   };
 }
@@ -1594,7 +1596,7 @@ function completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFr
   const manifest = loadArchitectureProjectionManifestStamps(root);
   if (manifest.status === "manifest-missing") return undefined;
   const model = loadNativeModelFromArchContext(root);
-  const sourceFiles = listProjectionSourceFiles(root);
+  const sourceFiles = listGitVisibleFiles(root);
   return evaluateArchitectureProjectionSnapshotFreshness({
     model,
     // The committed manifest's profile decides which nodes carry a stamp, as it decides the layout

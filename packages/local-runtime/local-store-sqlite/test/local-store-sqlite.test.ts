@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, computeWorktreeDigest, createLandscape, landscapeYaml } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
   applyArchitectureLedgerEvidenceEvent,
@@ -53,6 +54,13 @@ function rmSync(path: string, options?: RmDirOptions): void {
     if (process.platform === "win32" && isTransientWindowsCleanupError(error)) return;
     throw error;
   }
+}
+
+/** Runtime-state recovery binds a worktree digest over Git-visible files, so the root is a Git worktree. */
+function gitWorktreeTempDir(prefix: string): string {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  execFileSync("git", ["init", "--quiet"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  return root;
 }
 
 describe("@archcontext/local-runtime/local-store-sqlite", () => {
@@ -1101,7 +1109,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   });
 
   test("runtime-state recovery dry-run fingerprints an incomplete default target without mutation", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-inspect-repo-"));
+    const root = gitWorktreeTempDir("archctx-state-recovery-inspect-repo-");
     const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-inspect-root-"));
     try {
       const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
@@ -1126,7 +1134,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   });
 
   test("runtime-state recovery preserves verified bytes, publishes current schema, and writes a private receipt", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-write-repo-"));
+    const root = gitWorktreeTempDir("archctx-state-recovery-write-repo-");
     const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-write-root-"));
     try {
       const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
@@ -1142,7 +1150,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         root,
         env,
         expectedTargetFingerprint: inspection.targetFingerprint!,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
 
       expect(result.status).toBe("target-published-rebuild-required");
@@ -1157,7 +1165,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         schemaVersion: "archcontext.runtime-state-recovery-receipt/v1",
         status: "target-published-rebuild-required",
         targetFingerprint: inspection.targetFingerprint,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(JSON.stringify(receipt)).not.toMatch(/sourceBody|rawDiff|prompt|completion|event_json/);
       const completion = completeRuntimeStateRecovery({
@@ -1174,7 +1182,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   });
 
   test("runtime-state recovery detects a schema-current target whose startup backfill fails", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-startup-repo-"));
+    const root = gitWorktreeTempDir("archctx-state-recovery-startup-repo-");
     const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-startup-root-"));
     try {
       const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
@@ -1199,7 +1207,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         root,
         env,
         expectedTargetFingerprint: inspection.targetFingerprint!,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(result.targetIntegrity).toBe("ok");
       expect(inspectRuntimeStateRecovery(root, env)).toMatchObject({ status: "not-required", reasonCode: "target-current" });
@@ -1210,7 +1218,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   });
 
   test("runtime-state recovery rejects stale fingerprints, current or overridden targets, and insufficient disk", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-guards-repo-"));
+    const root = gitWorktreeTempDir("archctx-state-recovery-guards-repo-");
     const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-guards-root-"));
     try {
       const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
@@ -1228,7 +1236,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         root,
         env,
         expectedTargetFingerprint: `sha256:${"f".repeat(64)}`,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       })).toThrow("runtime-state-recovery-target-fingerprint-mismatch");
       expect(readFileSync(paths.localStorePath)).toEqual(before);
       expect(existsSync(join(paths.workspaceStateDir, "quarantine"))).toBe(false);
@@ -1240,7 +1248,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         root,
         env,
         expectedTargetFingerprint: `sha256:${"0".repeat(64)}`,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       })).toThrow("runtime-state-recovery-not-required:target-current");
 
       const overrideEnv = { ARCHCONTEXT_STATE_DIR: stateRoot, ARCHCONTEXT_LOCAL_STORE_PATH: join(stateRoot, "override.sqlite") };
@@ -1249,7 +1257,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         root,
         env: overrideEnv,
         expectedTargetFingerprint: `sha256:${"0".repeat(64)}`,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       })).toThrow("runtime-state-recovery-explicit-local-store-override-forbidden");
       expect(() => assertRuntimeStateRecoveryDiskBudget(1024, 2048)).toThrow("runtime-state-recovery-insufficient-disk:1024<2048");
 
@@ -1267,7 +1275,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   });
 
   test("runtime-state recovery lock contention leaves the invalid target byte-identical", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-lock-repo-"));
+    const root = gitWorktreeTempDir("archctx-state-recovery-lock-repo-");
     const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-lock-root-"));
     try {
       const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
@@ -1281,7 +1289,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         root,
         env,
         expectedTargetFingerprint: inspection.targetFingerprint!,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       })).toThrow("Legacy SQLite migration already in progress");
       expect(readFileSync(paths.localStorePath)).toEqual(before);
       expect(existsSync(join(paths.workspaceStateDir, "quarantine"))).toBe(false);
@@ -1292,7 +1300,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   });
 
   test("runtime-state recovery refuses an incomplete target while a daemon control PID is live", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-daemon-repo-"));
+    const root = gitWorktreeTempDir("archctx-state-recovery-daemon-repo-");
     const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-daemon-root-"));
     try {
       const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
@@ -1306,7 +1314,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         root,
         env,
         expectedTargetFingerprint: inspection.targetFingerprint!,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       })).toThrow(`runtime-state-recovery-daemon-running:${process.pid}`);
       expect(readFileSync(paths.localStorePath)).toEqual(before);
       expect(existsSync(join(paths.workspaceStateDir, "quarantine"))).toBe(false);

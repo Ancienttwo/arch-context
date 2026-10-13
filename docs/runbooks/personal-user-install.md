@@ -42,7 +42,7 @@ that artifact.
 
 ## First Run
 
-Run from an ordinary Git repository:
+Run from an ordinary Git repository. archctx requires a Git worktree; outside one, `archctx init` and the commands that bind a worktree digest fail with `AC_REPO_NOT_FOUND` (`reasonCode: "git-worktree-required"`). Run `git init` first in a new directory.
 
 ```bash
 cd /path/to/your/repo

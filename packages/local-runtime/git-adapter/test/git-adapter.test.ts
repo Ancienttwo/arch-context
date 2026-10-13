@@ -17,8 +17,8 @@ import {
   readStagedChangeMetadata,
   readWorktreeChangeMetadata,
   findRepositoryRoot,
-  listProjectionSourceFiles,
-  ProjectionSourceFilesUnavailableError,
+  listGitVisibleFiles,
+  GitVisibleFilesUnavailableError,
   removeDetachedReviewWorktree,
   verifyDetachedReviewWorktree
 } from "../src/index";
@@ -362,7 +362,7 @@ describe("projection source files (#257)", () => {
     nodes: [{ id: nodeId, kind: "capability", name: "App", source: { include: ["app/**"], exclude: ["app/test/**"] } }],
     relations: []
   };
-  const footprint = (root: string) => loadCapabilitySourceFootprintDigests(root, model, listProjectionSourceFiles(root))
+  const footprint = (root: string) => loadCapabilitySourceFootprintDigests(root, model, listGitVisibleFiles(root))
     .find((entry) => entry.nodeId === nodeId)!;
 
   function createFootprintFixture(): string {
@@ -388,7 +388,7 @@ describe("projection source files (#257)", () => {
       commitAll(root, "track a file that is then deleted locally");
       rmSync(join(root, "app/test/removed.test.ts"));
 
-      expect(listProjectionSourceFiles(root)).toEqual([
+      expect(listGitVisibleFiles(root)).toEqual([
         ".gitignore",
         "app/src/index.ts",
         "app/src/新規.ts",
@@ -450,11 +450,11 @@ describe("projection source files (#257)", () => {
       writeFileSync(join(root, "README.md"), "# not a repository\n");
       let caught: unknown;
       try {
-        listProjectionSourceFiles(root);
+        listGitVisibleFiles(root);
       } catch (error) {
         caught = error;
       }
-      expect(caught).toBeInstanceOf(ProjectionSourceFilesUnavailableError);
+      expect(caught).toBeInstanceOf(GitVisibleFilesUnavailableError);
       expect(caught).toMatchObject({ code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required" });
     } finally {
       removeTempRoot(root);

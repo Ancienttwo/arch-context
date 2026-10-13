@@ -6,7 +6,7 @@ import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { architectureLedgerPayload, architectureLedgerStateDigest, planAuditRunToArchitectureLedgerEvent, type ArchitectureAuditRunV1, type ArchitectureLedgerAppendInput, type ArchitectureLedgerAppendResult, type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { buildInvestigationContextBundleFromLedgerQuery, createClaudeCodeInvestigationRunner, createInvestigationAgentJob, planInvestigationReportProposal, runInvestigationWithRetry, type CommandInvestigationRunnerTransport, type InvestigationReportProposalPlan } from "@archcontext/core/agent-orchestrator";
 import { digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
-import { findRepositoryRoot } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
 import { findExistingGithubIssueByMarker, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueCreatedRecord, type GithubIssueExecutorPort, type GithubIssueListedRecord } from "./github-issue-executor";
@@ -718,7 +718,7 @@ export class AuditService {
         storageWorkspaceId: paths.storageWorkspaceId,
         branch: readCurrentBranch(root),
         headSha: session.workspace.headSha,
-        worktreeDigest: computeWorktreeDigest(root)
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       },
       runId: input.runId,
       jobId: input.jobId,

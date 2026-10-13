@@ -14,7 +14,7 @@ import {
 import { compileArchitectureFactChanges, compileEvidenceStateChanges } from "@archcontext/core/architecture-delta";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { digestJson, errorEnvelope, okEnvelope, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type AuthorityCursorV1, type CodeFactsPort, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type Json, type JsonEnvelope, type NormalizedCodeContext, type PracticeCheckpointSnapshotV1 } from "@archcontext/contracts";
-import { readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import {
@@ -185,7 +185,7 @@ export class ExplorerProjectionService {
       createdAt: this.clock(),
       command: "archctx explorer projection"
     }) : undefined;
-    if (yamlPlan && (readHeadSha(root) !== gitScope.worktree.headSha || computeWorktreeDigest(root) !== gitScope.worktree.worktreeDigest)) {
+    if (yamlPlan && (readHeadSha(root) !== gitScope.worktree.headSha || computeWorktreeDigest(root, listGitVisibleFiles(root)) !== gitScope.worktree.worktreeDigest)) {
       throw new ExplorerProjectionCompileError("precondition-failed", "Explorer authority input changed during projection planning");
     }
     const ledgerMatchesGit = yamlPlan !== undefined && ledgerAuthority?.authorityCursor.graphDigest === yamlPlan.graphDigest;
@@ -364,7 +364,7 @@ export class ExplorerProjectionService {
         ])
       };
     }
-    if (yamlPlan && (readHeadSha(root) !== gitScope.worktree.headSha || computeWorktreeDigest(root) !== gitScope.worktree.worktreeDigest)) {
+    if (yamlPlan && (readHeadSha(root) !== gitScope.worktree.headSha || computeWorktreeDigest(root, listGitVisibleFiles(root)) !== gitScope.worktree.worktreeDigest)) {
       throw new ExplorerProjectionCompileError("precondition-failed", "Explorer authority input changed before projection compilation");
     }
     const projectionInput = {

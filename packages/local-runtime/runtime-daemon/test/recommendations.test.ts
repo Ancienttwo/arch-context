@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { digestJson } from "@archcontext/contracts";
 import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
@@ -118,7 +119,7 @@ async function appendRecommendationRunFixture(store: TestLocalStore, root: strin
     storageWorkspaceId: paths.storageWorkspaceId,
     branch: gitOut(root, "branch", "--show-current") || "HEAD",
     headSha: gitOut(root, "rev-parse", "HEAD"),
-    worktreeDigest: computeWorktreeDigest(root)
+    worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
   };
   const plan = planRecommendationRun({
     repository,

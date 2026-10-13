@@ -21,6 +21,9 @@ const repo = mkdtempSync(join(tmpdir(), "archctx-packaged-cli-"));
 const stateRoot = mkdtempSync(join(tmpdir(), "archctx-packaged-state-"));
 
 try {
+  // archctx requires a Git worktree: worktree digests hash the Git-visible files, so the smoke repo
+  // is a Git repository before the first archctx command.
+  gitInRepo(["init", "--quiet"]);
   writeFileSync(join(repo, "README.md"), "# packaged cli smoke\n", "utf8");
   // The subject of the refactor proposal below: one tracked file a declared node owns, deleted
   // between `refactor record` and `refactor verify` so the kill-list outcome is decidable.
@@ -301,10 +304,8 @@ try {
   await waitForRemoved(lockPath, "lock file");
 
   // `refactor scan` reads Git-tracked HEAD blobs, so the smoke repo only becomes measurable once
-  // it is a committed repository. Committing here, after the last `apply` and after the daemon
-  // bound to the pre-Git identity has stopped, leaves every worktree-digest assertion above
-  // measuring exactly the tree it was written against.
-  gitInRepo(["init"]);
+  // it has a commit. Committing here, after the last `apply` and after the daemon has stopped,
+  // leaves every worktree-digest assertion above measuring exactly the tree it was written against.
   gitInRepo(["add", "-A"]);
   gitInRepo([
     "-c",
@@ -322,10 +323,12 @@ try {
   // is rebuilt here rather than the ladder being read as a verdict about the refactor.
   reindexSmokeRepo();
 
-  // Git membership is part of the repository identity, so the runtime paths move with the commit.
-  const gitPaths = await runArchctx("paths");
-  assert(gitPaths.ok === true, "paths must succeed once the smoke repo is a Git repository");
-  assert(gitPaths.data?.storageRepositoryId !== paths.data.storageRepositoryId, "git init must rebind the storage repository identity");
+  // The repository was a Git worktree from the start, so its first commit must not move the runtime
+  // identity: the runtime state written before the commit stays the state of this repository.
+  const committedPaths = await runArchctx("paths");
+  assert(committedPaths.ok === true, "paths must succeed once the smoke repo has a commit");
+  assert(committedPaths.data?.storageRepositoryId === paths.data.storageRepositoryId, "the first commit must keep the storage repository identity");
+  assert(committedPaths.data?.storageWorkspaceId === paths.data.storageWorkspaceId, "the first commit must keep the storage workspace identity");
 
   const scanned = await runArchctx("refactor", "scan", "--json");
   assert(scanned.ok === true, `packaged refactor scan must succeed: ${JSON.stringify(scanned.error ?? {})}`);
@@ -497,8 +500,8 @@ try {
 
   const stoppedAfterScan = await runArchctx("daemon", "stop");
   assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
-  await waitForRemoved(gitPaths.data.daemonConnectionPath, "connection file");
-  await waitForRemoved(gitPaths.data.daemonLockPath, "lock file");
+  await waitForRemoved(committedPaths.data.daemonConnectionPath, "connection file");
+  await waitForRemoved(committedPaths.data.daemonLockPath, "lock file");
 
   // The required flag is the whole point of the verb: without a subject there is nothing to verify,
   // and answering with a default would measure a recommendation nobody named. Run with the daemon
@@ -516,12 +519,12 @@ try {
     `packaged refactor verify rejection must name the flag: ${JSON.stringify(verifyWithoutRequest.error ?? {})}`
   );
   assert(
-    existsSync(gitPaths.data.daemonConnectionPath) === false,
-    `packaged refactor verify rejection must not start a daemon: ${gitPaths.data.daemonConnectionPath} exists`
+    existsSync(committedPaths.data.daemonConnectionPath) === false,
+    `packaged refactor verify rejection must not start a daemon: ${committedPaths.data.daemonConnectionPath} exists`
   );
   assert(
-    existsSync(gitPaths.data.daemonLockPath) === false,
-    `packaged refactor verify rejection must not start a daemon: ${gitPaths.data.daemonLockPath} exists`
+    existsSync(committedPaths.data.daemonLockPath) === false,
+    `packaged refactor verify rejection must not start a daemon: ${committedPaths.data.daemonLockPath} exists`
   );
 
   console.log("[packaged-cli-smoke] OK");

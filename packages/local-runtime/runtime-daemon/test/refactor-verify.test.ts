@@ -25,6 +25,7 @@ import {
   type RefactorTargetOutcomeV1
 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION } from "@archcontext/core/architecture-ledger";
 import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
@@ -108,7 +109,7 @@ function worktreeIdentity(root: string, overrides: Partial<ArchitectureWorktreeI
     storageWorkspaceId: paths.storageWorkspaceId,
     branch: gitOut(root, "branch", "--show-current") || "HEAD",
     headSha: gitOut(root, "rev-parse", "HEAD"),
-    worktreeDigest: computeWorktreeDigest(root),
+    worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)),
     ...overrides
   };
 }
@@ -178,9 +179,9 @@ async function recordCycleProposal(
     assessment: assessed.assessment,
     ...(assessed.proposal ? { proposal: assessed.proposal } : {}),
     headSha: gitOut(root, "rev-parse", "HEAD"),
-    worktreeDigest: computeWorktreeDigest(root)
+    worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
   });
-  const recorded = await daemon.refactorRecord(root, { assessmentDigest: digest, expectedWorktreeDigest: computeWorktreeDigest(root) });
+  const recorded = await daemon.refactorRecord(root, { assessmentDigest: digest, expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)) });
   expect(recorded.ok, JSON.stringify(recorded)).toBe(true);
   const recommendation = ((recorded.data as any).recommendations as RecommendationV3[])
     .find((record) => record.category === "refactor_proposal")!;
@@ -607,7 +608,7 @@ describe("daemon refactorVerify", () => {
       const migrated = await daemon.ledgerMigrate(root, {
         recommendationV3: true,
         dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       expect(migrated.ok, JSON.stringify(migrated)).toBe(true);
 
@@ -1006,7 +1007,7 @@ describe("recommendations resolve evidence lookup", () => {
       const original = readFileSync(join(root, "README.md"), "utf8");
       writeFileSync(join(root, "README.md"), `${original}re-introduced without committing\n`, "utf8");
       expect(gitOut(root, "rev-parse", "HEAD")).toBe(verifiedHeadSha);
-      expect(computeWorktreeDigest(root)).not.toBe(plan.evidence.verifiedWorktreeDigest);
+      expect(computeWorktreeDigest(root, listGitVisibleFiles(root))).not.toBe(plan.evidence.verifiedWorktreeDigest);
 
       const drifted = await daemon.recommendations(root, {
         command: "resolve",
@@ -1027,7 +1028,7 @@ describe("recommendations resolve evidence lookup", () => {
 
       // Control: the edit is the only variable. Put the tree back and the same call succeeds.
       writeFileSync(join(root, "README.md"), original, "utf8");
-      expect(computeWorktreeDigest(root)).toBe(plan.evidence.verifiedWorktreeDigest);
+      expect(computeWorktreeDigest(root, listGitVisibleFiles(root))).toBe(plan.evidence.verifiedWorktreeDigest);
 
       const resolved = await daemon.recommendations(root, {
         command: "resolve",
@@ -1054,7 +1055,7 @@ describe("recommendations resolve evidence lookup", () => {
       await daemon.ledgerMigrate(root, {
         recommendationV3: true,
         dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
 
       const resolved = await daemon.recommendations(root, {

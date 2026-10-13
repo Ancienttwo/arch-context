@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -118,7 +119,7 @@ async function prepareAcceptedMajorChange(root: string, options: { codeGraphRead
   const adopted = await runTestCli("docs", [
     "adopt", "--profile", "repo-harness/v1", "--approved",
     "--adoption-plan-id", (preview.data as any).adoptionPlanId,
-    "--expected-worktree-digest", computeWorktreeDigest(root)
+    "--expected-worktree-digest", computeWorktreeDigest(root, listGitVisibleFiles(root))
   ], root);
   expect(adopted.ok, JSON.stringify(adopted)).toBe(true);
   const clean = await runTestCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root);
@@ -203,7 +204,7 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
       requestId: "projection_request.recovery_race_semantic_drift",
       expected: {
         ...request.expected,
-        worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
+        worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
       }
     })], root, racingClient);
 
