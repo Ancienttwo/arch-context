@@ -119,13 +119,38 @@ The re-baseline does not classify the model against the old baseline, so operato
 fixed point (`check` = `noop`) on 0.7.x and drain pending apply receipts before upgrading. The
 contracts package takes a breaking minor change.
 
-### 6. Phase 1 isolation preview
+### 6. Phase 1 capability isolation
 
-The per-target rows and per-capability entries are the identity a later change uses for Phase 1
-isolation (issue #327, slice S7): when the only blockers are capabilities that are unprovable with
-an unchanged semantic fingerprint, the other targets apply as a drift repair while the blocked
-capabilities' documents, rows and entries are carried forward byte for byte. This ADR does not
-implement isolation. Until it lands, `declined-unprovable-proof` still blocks the whole apply.
+The per-target rows and per-capability entries are the identity Phase 1 isolation uses (issue
+#327, slice S7). `projection run` in `check`, `plan` and `apply` mode without an accepted change
+asks the renderer to isolate (`isolateBlockedCapabilities`); the `docs` commands and `adopt` never
+do.
+
+- The blocked set is every capability the major change names: its P1 or P2 proof is unprovable,
+  or its flow proof moved since the committed baseline without an accepted change. It is closed
+  over the targets that depend on it: an `entity-summary` target whose node, or a node it stamps,
+  is a member of a blocked capability is blocked, also when it depends on a clean capability too.
+- Isolation applies only when every blocked capability kept its semantic fingerprint, so it is
+  blocked by its proof alone and everything else classifies as `none`. Then the other targets are
+  written as a drift repair without a receipt. The blocked documents are not written, and the
+  manifest keeps the blocked targets' rows and the blocked capabilities' baseline entries byte for
+  byte, so a later run classifies them against the same baseline. A blocked capability whose
+  proof returns to its baseline needs no further write.
+- `check` and `plan` return `planned-partial` and `apply` returns `applied-partial`, with
+  `coverage { complete: false, blockedCapabilityIds, blockedTargets[{ targetId, path,
+  capabilityIds, reasonCodes }], appliedTargetIds }`. A complete result omits `coverage`. A
+  partial result carries no human action, no refresh signal and no apply receipt, and the
+  contracts refuse a receipt or a complete status with `coverage`. A partial result is never
+  acceptance: the complete render that `docs drift`, `complete` and `ledger accept-committed`
+  use still reports the blocked capabilities.
+- The whole run stays blocked when anything else stands in the way: a semantic change in a
+  blocked capability, an added or removed capability, an accepted change, an adoption or
+  ownership rejection, an orphan that needs review, a blocked document that is not exactly the
+  output its row records, a manifest header from another renderer, profile, layout or CodeGraph
+  version, or nothing else to write. Global failures (invalid or superseded manifest, invalid
+  model, missing code facts, expected-snapshot or preimage drift) fail before classification.
+- Capability `projection-capability-isolation-v1`. Partial writes that accept a semantic change
+  with row-scoped receipts (Phase 2) are not implemented.
 
 ## Consequences
 
@@ -135,6 +160,8 @@ implement isolation. Until it lands, `declined-unprovable-proof` still blocks th
   the rows. They equal the values the runtime reports for the same tree.
 - Under `repo-harness/v1`, a component or module footprint change names that node in
   `staleNodes`.
+- A capability blocked by its proof alone no longer stops the stamps and documents of the
+  others; its own documents stay as committed until its flow is fixed or its change accepted.
 - Every repository re-baselines once. A 0.7.x installation cannot read a v3 manifest, so all
   installations that project a repository upgrade together.
 - Agent-context markers still carry a model-global `sourceDigest`; that is a separate change with
