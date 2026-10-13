@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { buildModuleGraph, buildModuleStatisticsSnapshot } from "../src/index";
+import {
+  bidirectionalModulePairs,
+  buildModuleGraph,
+  buildModuleStatisticsSnapshot,
+  moduleComponentId,
+  residualCycleMemberCount,
+  residualModuleCycles
+} from "../src/index";
 import { makeInput } from "./factories";
 
 const NODE_IDS = ["module.a", "module.b", "module.c"];
@@ -139,3 +146,46 @@ describe("module import graph and strongly connected components", () => {
 function graphPairCount(snapshot: ReturnType<typeof buildModuleStatisticsSnapshot>): number {
   return snapshot.modules.reduce((total, module) => total + (module.dependencyGraph?.fanOut ?? 0), 0);
 }
+
+describe("module dependency table, pairs and residual cycles", () => {
+  const edge = (fromNodeId: string, toNodeId: string, distinctFileEdgeCount = 1) => ({ fromNodeId, toNodeId, distinctFileEdgeCount });
+
+  test("the graph carries one sorted dependency entry per ordered module pair with its distinct file edges", () => {
+    const graph = buildModuleGraph(NODE_IDS, [
+      { from: "a1.ts", to: "b1.ts" },
+      { from: "a2.ts", to: "b1.ts" },
+      { from: "a1.ts", to: "a2.ts" },
+      { from: "c1.ts", to: "a1.ts" },
+      { from: "orphan.ts", to: "a1.ts" }
+    ], OWNERS);
+    expect(graph.dependencies).toEqual([edge("module.a", "module.b", 2), edge("module.c", "module.a", 1)]);
+    expect(graph.dependencies).toHaveLength(graph.crossModuleEdgeCount);
+  });
+
+  test("a bidirectional pair names its thin direction, ties to the forward direction", () => {
+    expect(bidirectionalModulePairs([edge("module.a", "module.b", 4), edge("module.b", "module.a", 1), edge("module.b", "module.c")])).toEqual([{
+      nodeIds: ["module.a", "module.b"],
+      forwardEdgeCount: 4,
+      backwardEdgeCount: 1,
+      thinDirectionEdgeCount: 1,
+      totalEdgeCount: 5,
+      thinDirection: { fromNodeId: "module.b", toNodeId: "module.a" }
+    }]);
+    expect(bidirectionalModulePairs([edge("module.a", "module.b", 2), edge("module.b", "module.a", 2)])[0]!.thinDirection)
+      .toEqual({ fromNodeId: "module.a", toNodeId: "module.b" });
+  });
+
+  test("residual cycles are what survives removing every pair's thin direction", () => {
+    const ids = ["module.a", "module.b", "module.c", "module.d", "module.e"];
+    // a <-> b is a pair; c -> d -> e -> c is a cycle with no pair; b -> c links them.
+    const deps = [
+      edge("module.a", "module.b"), edge("module.b", "module.a", 3), edge("module.b", "module.c"),
+      edge("module.c", "module.d"), edge("module.d", "module.e"), edge("module.e", "module.c")
+    ];
+    expect(residualModuleCycles(ids, deps).map((cycle) => cycle.memberNodeIds)).toEqual([["module.c", "module.d", "module.e"]]);
+    expect(residualCycleMemberCount(["module.c", "module.d", "module.e"], deps)).toBe(3);
+    expect(residualCycleMemberCount(["module.a", "module.b"], deps)).toBe(0);
+    expect(residualCycleMemberCount(["module.c", "module.d", "module.e"], deps.filter((entry) => entry.fromNodeId !== "module.e"))).toBe(0);
+    expect(moduleComponentId(["module.e", "module.c", "module.d"])).toBe(moduleComponentId(["module.c", "module.d", "module.e"]));
+  });
+});

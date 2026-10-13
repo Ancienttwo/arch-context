@@ -5,6 +5,8 @@ import {
   architectureEventHash,
   baseModelBlockingErrors,
   digestJson,
+  parseRefactorDecisionFile,
+  serializeRefactorDecision,
   type ArchitectureCandidateChangeV1,
   type ArchitectureCandidateDeltaPolicyAction,
   type ArchitectureCandidateDeltaPolicyDecisionV1,
@@ -33,7 +35,8 @@ export type ChangeOperationKind =
   | "write_policy"
   | "write_waiver"
   | "render_projection"
-  | "render_agent_context";
+  | "render_agent_context"
+  | "write_refactor_decision";
 
 export interface ChangeSetBase {
   headSha: string;
@@ -222,7 +225,10 @@ export class ChangeSetEngine {
       operations: input.operations,
       preconditions: ["schema-valid-before", "expected-digest-match"],
       postconditions: input.operations.some(operation => operation.op === "update_manifest_fields")
-        ? ["schema-valid-after", "manifest-fields-updated"] : ["schema-valid-after", "projection-rebuilt"],
+        ? ["schema-valid-after", "manifest-fields-updated"]
+        : isRefactorDecisionOnly(input.operations)
+          ? ["schema-valid-after", "refactor-decision-written"]
+          : ["schema-valid-after", "projection-rebuilt"],
       requiresConfirmation: input.requiresConfirmation ?? true,
       idempotencyKey: `idem_${input.id}`
     };
@@ -243,9 +249,12 @@ export class ChangeSetEngine {
       try { this.manifestUpdateBody(root, draft); }
       catch (error) { findings.push(error instanceof Error ? error.message : String(error)); }
     }
+    try { assertRefactorDecisionDraft(draft); }
+    catch (error) { findings.push(error instanceof Error ? error.message : String(error)); }
     for (const operation of draft.operations) {
       try {
         if (operation.op === "update_adr_references") this.adrReferenceBody(root, operation);
+        if (operation.op === "write_refactor_decision") refactorDecisionBody(root, operation);
         for (const file of operation.projectionFiles ?? []) {
           if ("delete" in file) assertProjectionDeleteAllowed(operation.op, file);
           else if (operation.op === "render_agent_context") this.validateRootContractWrite(root, file);
@@ -281,6 +290,7 @@ export class ChangeSetEngine {
     const approved = options.approved || draft.status === "approved";
     if (!approved) throw new Error("ChangeSet must be approved before apply");
     const deps = this.requireDeps();
+    assertRefactorDecisionDraft(draft);
     await this.validateModel(root, draft, deps, "before");
     const agentContextPaths = this.agentContextPathsFor(root, draft);
     const manifestBody = draft.operations.some(operation => operation.op === "update_manifest_fields")
@@ -310,7 +320,11 @@ export class ChangeSetEngine {
           continue;
         }
         if (!operation.path) throw new Error(`Change operation requires path: ${operation.op}`);
-        await this.applyFileOperation(root, operation.path, operation.expectedHash, operation.op === "update_manifest_fields" ? manifestBody! : operation.op === "update_adr_references" ? this.adrReferenceBody(root, operation) : operation.body ?? "", operation.op, backups, journalId, applied + 1, agentContextPaths);
+        const body = operation.op === "update_manifest_fields" ? manifestBody!
+          : operation.op === "update_adr_references" ? this.adrReferenceBody(root, operation)
+          : operation.op === "write_refactor_decision" ? refactorDecisionBody(root, operation)
+          : operation.body ?? "";
+        await this.applyFileOperation(root, operation.path, operation.expectedHash, body, operation.op, backups, journalId, applied + 1, agentContextPaths);
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
@@ -321,7 +335,9 @@ export class ChangeSetEngine {
         (operation.op === "render_projection" || operation.op === "render_agent_context") &&
         operation.projectionFiles !== undefined && operation.projectionFiles.length > 0
       );
-      if (!explicitProjectionOnly && manifestBody === undefined) {
+      // A decision-only draft writes Git-visible decision files, which are not model input: no
+      // generated projection can change, so none is planned (ADR-0046).
+      if (!explicitProjectionOnly && manifestBody === undefined && !isRefactorDecisionOnly(draft.operations)) {
         for (const projection of deps.projection.planGeneratedProjection(root)) {
           await this.applyFileOperation(
             root,
@@ -442,6 +458,11 @@ export class ChangeSetEngine {
       });
     }
     // Recheck after the asynchronous journal append, immediately before touching files.
+    if (operation === "write_refactor_decision") {
+      assertPathHasNoSymlinkSegments(root, path);
+      if (existsSync(absolute)) assertExpectedHash(absolute, expectedHash);
+      else if (expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${path}`);
+    }
     if (operation === "update_adr_references" || (operation === "render_agent_context" && (path === "AGENTS.md" || path === "CLAUDE.md"))) {
       assertPathHasNoSymlinkSegments(root, path);
       assertExpectedHash(absolute, expectedHash);
@@ -804,9 +825,48 @@ function operationTargetPaths(operation: ChangeOperation): string[] {
 
 function pathScope(operation: ChangeOperationKind, agentContextPaths: ReadonlySet<string>): ArchContextPathScope {
   return {
-    operation: operation === "render_agent_context" ? "agent-context" : operation === "update_manifest_fields" ? "manifest" : operation === "update_adr_references" ? "adr-reference" : "default",
+    operation: operation === "render_agent_context" ? "agent-context"
+      : operation === "update_manifest_fields" ? "manifest"
+      : operation === "update_adr_references" ? "adr-reference"
+      : operation === "write_refactor_decision" ? "refactor-decision"
+      : "default",
     agentContextPaths
   };
+}
+
+/** True when every operation of a non-empty draft writes a refactor decision file. */
+export function isRefactorDecisionOnly(operations: readonly ChangeOperation[]): boolean {
+  return operations.length > 0 && operations.every((operation) => operation.op === "write_refactor_decision");
+}
+
+/**
+ * A decision write never shares a draft with another operation kind: the daemon builds it as a
+ * decision-only ChangeSet, so it can skip projection planning without hiding a model change.
+ */
+function assertRefactorDecisionDraft(draft: ChangeSetDraft): void {
+  if (draft.operations.some((operation) => operation.op === "write_refactor_decision") && !isRefactorDecisionOnly(draft.operations)) {
+    throw new Error("write_refactor_decision must not be combined with other ChangeSet operations");
+  }
+}
+
+/**
+ * The bytes of one decision write, checked before anything is touched: a no-follow path that is
+ * exactly a decision file, a body that parses as that file's `RefactorDecisionV1` and is already in
+ * the one canonical serialization, and the expected preimage hash.
+ */
+function refactorDecisionBody(root: string, operation: ChangeOperation): string {
+  if (!operation.path || operation.body === undefined) throw new Error("write_refactor_decision requires path and body");
+  if (operation.fields !== undefined || operation.references !== undefined || operation.projectionFiles !== undefined || operation.entityId !== undefined) {
+    throw new Error("write_refactor_decision carries only path, expectedHash and body");
+  }
+  const absolute = assertPathHasNoSymlinkSegments(root, operation.path);
+  const decision = parseRefactorDecisionFile(operation.path, operation.body);
+  if (serializeRefactorDecision(decision) !== operation.body) {
+    throw new Error(`write_refactor_decision body must be the canonical serialization: ${operation.path}`);
+  }
+  if (existsSync(absolute)) assertExpectedHash(absolute, operation.expectedHash);
+  else if (operation.expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${operation.path}`);
+  return operation.body;
 }
 
 function assertSafeTarget(root: string, path: string, scope?: ArchContextPathScope): void {

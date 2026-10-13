@@ -34,7 +34,7 @@ describe("daemon recommendations", () => {
       const recommendationId = plan.recommendations[0].recommendationId;
 
       await expect(daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId,
         reason: "token=super-secret-value",
         actor: "developer",
@@ -44,7 +44,7 @@ describe("daemon recommendations", () => {
       expect(store.architectureEvents).toHaveLength(1);
 
       const accepted = await daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId,
         reason: "accepted after agent-assisted local readback",
         actor: "worker.al8",
@@ -95,7 +95,7 @@ describe("daemon recommendations", () => {
       });
 
       const duplicate = await daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId,
         reason: "duplicate accept should not append",
         now: "2026-06-26T12:12:00.000Z"

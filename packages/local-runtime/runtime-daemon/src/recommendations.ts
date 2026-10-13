@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { findRepositoryRoot, readTrackedSourceFiles } from "@archcontext/local-runtime/git-adapter";
 import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
@@ -13,6 +15,7 @@ import {
   aggregateRecommendationLifecycleMetrics,
   createRecommendationFeedback,
   recommendationLifecycleLedgerPayload,
+  refactorRecommendationId,
   transitionRecommendationLifecycle,
   type RecommendationFeedbackAction
 } from "@archcontext/core/recommendation-engine";
@@ -33,6 +36,15 @@ import {
   runRefactorScan,
   type RefactorScanResultV1
 } from "./refactor-scan";
+import {
+  buildRefactorDecision,
+  isRefactorRecommendation,
+  readRefactorDecisionSet,
+  refactorDecisionSetWithout,
+  refactorDecisionWrite,
+  refactorStatusView,
+  type RefactorDecisionSetV1
+} from "./refactor-decisions";
 import {
   baselineImportNodeLimit,
   baselineSnapshotForRecommendation,
@@ -62,6 +74,8 @@ import {
 import {
   RECOMMENDATION_STATUSES,
   RECOMMENDATION_V3_SCHEMA_VERSION,
+  REFACTOR_DECISION_DIRECTORY,
+  isRefactorDecisionStatus,
   REFACTOR_EXECUTION_EVIDENCE_KINDS,
   REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN,
   REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE,
@@ -70,7 +84,9 @@ import {
   refactorScanInvariantIssues,
   refactorVerificationRequestInvariantIssues,
   type RecommendationV3,
+  type RefactorDecisionV1,
   type RefactorExecutionEvidenceRefV1,
+  type RefactorStatusAuthority,
   type RefactorProposalPayloadV1,
   type RefactorRequestV1,
   type RefactorResolutionEvidenceV1,
@@ -88,6 +104,14 @@ interface RecommendationsContext {
   assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string): void;
   shortDigest(digest: string): string;
   appendArchitectureEventsWithFeed(root: string, input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
+  /**
+   * Writes refactor decision files and appends `events` in one ChangeSet journal boundary
+   * (ADR-0046). Must be called inside `withWriter`; it never takes the lock itself.
+   */
+  applyRefactorDecision(
+    root: string,
+    input: { writes: { path: string; expectedHash: string; body: string }[]; events: ArchitectureEventV1[] }
+  ): Promise<{ changeSetId: string; journalId: string; append: ArchitectureLedgerAppendResult }>;
   localStore: Pick<RuntimeLocalStore, "replayArchitectureLedger" | "resolveArchitectureLedgerScope">;
 }
 
@@ -158,14 +182,37 @@ export class RecommendationsService {
       const scope = await this.context.architectureLedgerScope(repositoryRoot);
       const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
       const artifacts = recommendationArtifactsFromEvents(replay.events);
-      const current = latestRecommendationById(artifacts.recommendations, input.recommendationId!);
-      if (!current) {
+      const ledgerCurrent = latestRecommendationById(artifacts.recommendations, input.recommendationId!);
+      if (!ledgerCurrent) {
         // `resolve` closes a record against `refactor verify` evidence bound to that record, so an
         // id the ledger has never held has nothing to resolve; every other decision is an opinion
         // about one observation identity and may be taken on a current scan candidate directly.
-        if (command === "resolve") return recommendationNotFound(command, input.recommendationId!, "recorded");
+        if (command === "resolve") {
+          const gitOnly = this.readGitOnlyDecision(repositoryRoot, input.recommendationId!, `recommendations.${command}`);
+          if (gitOnly) return "error" in gitOnly ? gitOnly.error : gitDecisionNotRecordedHere(`recommendations.${command}`, gitOnly.decision);
+          return recommendationNotFound(command, input.recommendationId!, "recorded");
+        }
+        const unapproved = refactorDecisionApprovalError(command, input);
+        if (unapproved) return unapproved;
         return this.decideScanCandidate(root, repositoryRoot, input, command, now);
       }
+      // A refactor decision is a Git write: it needs the explicit approval, and it transitions from
+      // the status the checkout states, not from whatever the ledger last recorded (ADR-0046).
+      let decisions: RefactorDecisionSetV1 | undefined;
+      if (isRefactorRecommendation(ledgerCurrent)) {
+        const unapproved = refactorDecisionApprovalError(command, input);
+        if (unapproved) return unapproved;
+        try {
+          decisions = readRefactorDecisionSet(repositoryRoot);
+        } catch (error) {
+          return refactorScanErrorEnvelope(`recommendations.${command}`, error);
+        }
+      }
+      const view = refactorStatusView(ledgerCurrent, decisions);
+      if (view.authority === "ledger-audit" && isRefactorRecommendation(ledgerCurrent)) {
+        return ledgerAuditDecisionRefused(`recommendations.${command}`, ledgerCurrent, artifacts.recommendations, decisions!);
+      }
+      const current = view.record;
       let gatedWorktree: { headSha: string; worktreeDigest: string } | undefined;
       if (command === "resolve") {
         // The live HEAD, not the ledger scope's: the stored scope carries the identity of the last
@@ -193,17 +240,34 @@ export class RecommendationsService {
           );
         }
       }
-      const append = await this.context.appendArchitectureEventsWithFeed(root, {
-        writer: "runtime-daemon",
-        events: [event]
-      });
+      let append: ArchitectureLedgerAppendResult;
+      let decisionFile: string | null = null;
+      if (decisions) {
+        const written = await this.writeRefactorDecision(repositoryRoot, {
+          namespace: decisions.namespace,
+          next: next as RecommendationV3,
+          command,
+          input,
+          now,
+          headSha: (gatedWorktree ?? (await this.context.architectureLedgerGitScope(repositoryRoot)).worktree).headSha,
+          events: [event]
+        });
+        if ("error" in written) return written.error;
+        append = written.append;
+        decisionFile = written.path;
+      } else {
+        append = await this.context.appendArchitectureEventsWithFeed(root, {
+          writer: "runtime-daemon",
+          events: [event]
+        });
+      }
       const metrics = aggregateRecommendationLifecycleMetrics({
         recommendationRuns: artifacts.recommendationRuns,
         recommendations: [...artifacts.recommendations, next],
         feedback: [...artifacts.feedback, feedback],
         generatedAt: now
       });
-      return lifecycleEnvelope({ command, current, next, feedback, metrics, append, implicitRecord: null });
+      return lifecycleEnvelope({ command, current, next, feedback, metrics, append, implicitRecord: null, decisionFile });
     });
   }
 
@@ -238,7 +302,8 @@ export class RecommendationsService {
     const measured = await this.measureRepository(
       repositoryRoot,
       repositoryRefactorRequest(input.importNodeLimit),
-      `recommendations ${command}`
+      `recommendations ${command}`,
+      recommendationId
     );
     if (!measured.ok) {
       return errorEnvelope(
@@ -248,13 +313,23 @@ export class RecommendationsService {
         measured.reasonCode
       );
     }
-    const { gitScope, storageScope, replay, artifacts, result } = measured;
+    const { gitScope, storageScope, replay, artifacts, decisions, planningDecisions, result } = measured;
+    const gitDecision = decisions.byId.get(recommendationId);
     if (!result.proposedRecommendations.some((candidate) => candidate.recommendationId === recommendationId)) {
+      if (gitDecision) {
+        return errorEnvelope(
+          surface,
+          "AC_REFACTOR_STALE",
+          `recommendation ${recommendationId} is decided in Git (${gitDecision.status}) but the current refactor scan does not observe that generation of its subject, so it cannot be recorded here; run archctx refactor scan`,
+          "git-decision-subject-not-observed"
+        );
+      }
       return recommendationNotFound(command, recommendationId, "recorded-or-scanned");
     }
     const registered: RegisteredRefactorAssessmentV1 = {
       snapshot: result.snapshot,
       assessment: result.assessment,
+      namespace: result.namespace,
       headSha: gitScope.worktree.headSha,
       worktreeDigest: gitScope.worktree.worktreeDigest
     };
@@ -267,6 +342,7 @@ export class RecommendationsService {
         worktree: storageScope.worktree,
         registered,
         previousRecommendations: artifacts.recommendations,
+        decisions: planningDecisions,
         evidenceState: replay.evidenceState,
         graphDigest: replay.graphDigest,
         catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
@@ -288,13 +364,17 @@ export class RecommendationsService {
         "scan-candidate-not-recorded"
       );
     }
+    // A Git-only decision transitions from the status its file states, not from the `open` the
+    // materialized record carries.
+    const current = refactorStatusView(recorded as RecommendationLedgerRecordV1, decisions).record;
     const decision = this.lifecycleDecision({
       scope: storageScope,
       graphDigest: replay.graphDigest,
-      current: recorded as RecommendationLedgerRecordV1,
+      current,
       command,
       input,
-      now
+      now,
+      allowSameStatus: gitDecision !== undefined
     });
     if ("error" in decision) return decision.error;
     const { next, feedback, event } = decision;
@@ -308,10 +388,17 @@ export class RecommendationsService {
         `worktree ${moved.join(" and ")} changed before the recommendations ${command} append; run it again`
       );
     }
-    const append = await this.context.appendArchitectureEventsWithFeed(root, {
-      writer: "runtime-daemon",
+    const written = await this.writeRefactorDecision(repositoryRoot, {
+      namespace: decisions.namespace,
+      next: next as RecommendationV3,
+      command,
+      input,
+      now,
+      headSha: gitScope.worktree.headSha,
       events: [built.event, event]
     });
+    if ("error" in written) return written.error;
+    const append = written.append;
     const metrics = aggregateRecommendationLifecycleMetrics({
       recommendationRuns: [...artifacts.recommendationRuns, built.plan.run],
       recommendations: [...artifacts.recommendations, ...built.plan.recommendations as RecommendationLedgerRecordV1[], next],
@@ -320,7 +407,7 @@ export class RecommendationsService {
     });
     return lifecycleEnvelope({
       command,
-      current: recorded as RecommendationLedgerRecordV1,
+      current,
       next,
       feedback,
       metrics,
@@ -334,8 +421,49 @@ export class RecommendationsService {
         recommendationIds: built.plan.recommendations.map((recommendation) => recommendation.recommendationId),
         evidenceItemIds: built.plan.evidenceItems.map((item) => item.evidenceId),
         eventId: built.event.eventId
-      }
+      },
+      decisionFile: written.path
     });
+  }
+
+  /**
+   * The Git half of one refactor decision: builds the decision file for `next` and hands it, with
+   * the ledger `events`, to the daemon's ChangeSet authority as one journal boundary. Called inside
+   * the decision verb's writer lock.
+   */
+  private async writeRefactorDecision(
+    repositoryRoot: string,
+    input: {
+      namespace: string;
+      next: RecommendationV3;
+      command: RecommendationFeedbackAction;
+      input: RuntimeRecommendationInput;
+      now: string;
+      headSha: string;
+      events: ArchitectureEventV1[];
+    }
+  ): Promise<{ append: ArchitectureLedgerAppendResult; path: string } | { error: JsonEnvelope }> {
+    const surface = `recommendations.${input.command}`;
+    if (!isRefactorDecisionStatus(input.next.status)) {
+      return { error: errorEnvelope(surface, "AC_PRECONDITION_FAILED", `recommendations ${input.command} produced ${input.next.status}, which is not a human decision`) };
+    }
+    let write: ReturnType<typeof refactorDecisionWrite>;
+    try {
+      const decision = buildRefactorDecision({
+        namespace: input.namespace,
+        record: input.next,
+        status: input.next.status,
+        reason: input.input.reason!,
+        actor: { kind: recommendationActorKind(input.input), id: input.input.actor ?? "developer" },
+        decidedAt: input.now,
+        headSha: input.headSha
+      });
+      write = refactorDecisionWrite(repositoryRoot, decision);
+    } catch (error) {
+      return { error: refactorScanErrorEnvelope(surface, error) };
+    }
+    const applied = await this.context.applyRefactorDecision(repositoryRoot, { writes: [write], events: input.events });
+    return { append: applied.append, path: write.path };
   }
 
   /**
@@ -347,6 +475,10 @@ export class RecommendationsService {
    * from the repository scan at the tree that is here now, under the same identity a decision on
    * it would record, so a UI can show a candidate and then decide it by the same id. The scan reads
    * at `importNodeLimit`, the limit a decision on the candidate must also be given.
+   *
+   * An id this ledger never recorded but whose decision this checkout carries in Git (decided in
+   * another worktree or branch) is answered from that decision file alone, marked
+   * `source: "git-decision"` with no ledger record, evidence or baseline (ADR-0046).
    */
   private async showRecommendation(
     repositoryRoot: string,
@@ -356,7 +488,17 @@ export class RecommendationsService {
     const scope = await this.context.architectureLedgerScope(repositoryRoot);
     const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
     const artifacts = recommendationArtifactsFromEvents(replay.events);
-    const recorded = latestRecommendationById(artifacts.recommendations, recommendationId);
+    const ledgerRecorded = latestRecommendationById(artifacts.recommendations, recommendationId);
+    let decisions: RefactorDecisionSetV1 | undefined;
+    if (ledgerRecorded && isRefactorRecommendation(ledgerRecorded)) {
+      try {
+        decisions = readRefactorDecisionSet(repositoryRoot);
+      } catch (error) {
+        return refactorScanErrorEnvelope("recommendations.show", error);
+      }
+    }
+    const view = ledgerRecorded ? refactorStatusView(ledgerRecorded, decisions) : undefined;
+    const recorded = view?.record;
     if (recorded) {
       const bindings = replay.evidenceState.evidenceBindings
         .filter((binding) => binding.target.kind === "recommendation" && binding.target.id === recommendationId)
@@ -364,6 +506,8 @@ export class RecommendationsService {
       const baseline = baselineSnapshotForRecommendation(replay.evidenceState, recommendationId);
       return recommendationShowEnvelope({
         source: "ledger",
+        statusAuthority: view!.authority,
+        gitDecision: decisions?.byId.get(recommendationId) ?? null,
         recommendation: recorded,
         bindings,
         items: evidenceItemsFor(replay.evidenceState.evidenceItems, bindings),
@@ -373,6 +517,21 @@ export class RecommendationsService {
             ? { status: "measured", snapshotDigest: baseline.snapshotDigest, snapshot: baseline.snapshot }
             : { status: "unverifiable", snapshotDigest: baseline.snapshotDigest },
         decisions: artifacts.feedback.filter((feedback) => feedback.recommendationId === recommendationId),
+        worktree: null
+      });
+    }
+    const gitOnly = this.readGitOnlyDecision(repositoryRoot, recommendationId, "recommendations.show");
+    if (gitOnly) {
+      if ("error" in gitOnly) return gitOnly.error;
+      return recommendationShowEnvelope({
+        source: "git-decision",
+        statusAuthority: "git-decision",
+        gitDecision: gitOnly.decision,
+        recommendation: null,
+        bindings: [],
+        items: [],
+        baseline: { status: "missing", snapshotDigest: null },
+        decisions: [],
         worktree: null
       });
     }
@@ -397,6 +556,8 @@ export class RecommendationsService {
       .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
     return recommendationShowEnvelope({
       source: "scan-candidate",
+      statusAuthority: "scan-candidate",
+      gitDecision: null,
       recommendation: candidate as RecommendationLedgerRecordV1,
       bindings,
       items: evidenceItemsFor(measured.result.evidenceItems, bindings),
@@ -421,13 +582,37 @@ export class RecommendationsService {
     }
     const scope = await this.context.architectureLedgerScope(repositoryRoot);
     const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
-    const recommendations = latestRecommendationsById(recommendationArtifactsFromEvents(replay.events).recommendations)
-      .filter((recommendation) => recommendation.status === status);
+    const latest = latestRecommendationsById(recommendationArtifactsFromEvents(replay.events).recommendations);
+    let decisions: RefactorDecisionSetV1 | undefined;
+    if (refactorDecisionsInPlay(repositoryRoot, latest)) {
+      try {
+        decisions = readRefactorDecisionSet(repositoryRoot);
+      } catch (error) {
+        return refactorScanErrorEnvelope("recommendations.list", error);
+      }
+    }
+    // Refactor status is the checkout's (ADR-0046); practice status is the ledger's. A recorded
+    // human status the checkout carries no Git file for is audit only: it is never listed as the
+    // subject's status, only reported under `ledgerAudit` with the status the ledger recorded.
+    const views = latest.map((recommendation) => refactorStatusView(recommendation, decisions));
+    const recommendations = views
+      .filter((view) => view.authority !== "ledger-audit" && view.record.status === status)
+      .map((view) => view.record);
+    const ledgerAudit = views
+      .filter((view) => view.authority === "ledger-audit" && view.record.status === status)
+      .map((view) => view.record);
+    const recorded = new Set(latest.map((recommendation) => recommendation.recommendationId));
+    // Decisions this checkout carries for ids this workspace's ledger never recorded (another
+    // worktree or branch decided them and the decision came through Git).
+    const gitOnlyDecisions = (decisions?.decisions ?? [])
+      .filter((decision) => decision.status === status && !recorded.has(decision.recommendationId));
     return okEnvelope("recommendations.list", {
       schemaVersion: "archcontext.runtime-recommendation-list/v1",
       status,
-      count: recommendations.length,
+      count: recommendations.length + gitOnlyDecisions.length,
       recommendations,
+      decisions: gitOnlyDecisions,
+      ledgerAudit,
       ledgerCursor: {
         eventCount: replay.cursor.eventCount,
         lastEventId: replay.cursor.lastEventId,
@@ -443,6 +628,27 @@ export class RecommendationsService {
     } as unknown as Json);
   }
 
+  /**
+   * The Git decision for an id this ledger never recorded, when the checkout carries one. Read
+   * only when the decision directory exists, so an unknown id in a repository without decisions
+   * stays a plain not-found; a decision set that cannot be read fails closed.
+   */
+  private readGitOnlyDecision(
+    repositoryRoot: string,
+    recommendationId: string,
+    surface: string
+  ): { decision: RefactorDecisionV1 } | { error: JsonEnvelope } | undefined {
+    if (!existsSync(join(repositoryRoot, REFACTOR_DECISION_DIRECTORY))) return undefined;
+    let decisions: RefactorDecisionSetV1;
+    try {
+      decisions = readRefactorDecisionSet(repositoryRoot);
+    } catch (error) {
+      return { error: refactorScanErrorEnvelope(surface, error) };
+    }
+    const decision = decisions.byId.get(recommendationId);
+    return decision ? { decision } : undefined;
+  }
+
   /** The transition, its explicit feedback and the lifecycle event, shared by both decide paths. */
   private lifecycleDecision(input: {
     scope: ArchitectureLedgerScope;
@@ -451,6 +657,11 @@ export class RecommendationsService {
     command: RecommendationFeedbackAction;
     input: RuntimeRecommendationInput;
     now: string;
+    /**
+     * Recording a Git-only decision in this ledger with the verb of the status its file states is
+     * a first record here, not a no-op, so the unchanged status is accepted on that path only.
+     */
+    allowSameStatus?: boolean;
   }): { next: RecommendationLedgerRecordV1; feedback: RecommendationFeedbackV1; event: ArchitectureEventV1 } | { error: JsonEnvelope } {
     const { scope, graphDigest, current, command, now } = input;
     const request = input.input;
@@ -471,7 +682,7 @@ export class RecommendationsService {
         )
       };
     }
-    if (next.status === current.status) {
+    if (next.status === current.status && !input.allowSameStatus) {
       return {
         error: errorEnvelope(
           `recommendations.${command}`,
@@ -552,7 +763,8 @@ export class RecommendationsService {
   private async measureRepository(
     repositoryRoot: string,
     request: RefactorRequestV1,
-    label: string
+    label: string,
+    materializeRecommendationId?: string
   ): Promise<
     | {
       ok: true;
@@ -560,6 +772,12 @@ export class RecommendationsService {
       storageScope: ArchitectureLedgerScope;
       replay: Awaited<ReturnType<RecommendationsContext["localStore"]["replayArchitectureLedger"]>>;
       artifacts: ReturnType<typeof recommendationArtifactsFromEvents>;
+      decisions: RefactorDecisionSetV1;
+      /**
+       * The set the scan was planned with: `decisions`, or `decisions` without the one Git
+       * decision being materialized, so that decided generation is planned as a record again.
+       */
+      planningDecisions: RefactorDecisionSetV1;
       result: RefactorScanResultV1;
     }
     | { ok: false; code: ArchContextErrorCode; message: string; reasonCode?: string }
@@ -569,13 +787,23 @@ export class RecommendationsService {
     const replay = await this.context.localStore.replayArchitectureLedger({ ...storageScope, mode: "genesis" });
     const artifacts = recommendationArtifactsFromEvents(replay.events);
     let result: RefactorScanResultV1;
+    let decisions: RefactorDecisionSetV1;
+    let planningDecisions: RefactorDecisionSetV1;
     try {
+      decisions = readRefactorDecisionSet(repositoryRoot);
+      // A decided generation this ledger never recorded is suppressed by its own Git decision.
+      // Planning without that one decision materializes exactly that generation again: its id is
+      // derived from fingerprint and `regressesFrom`, so the planned record is the same generation.
+      planningDecisions = materializeRecommendationId !== undefined && decisions.byId.has(materializeRecommendationId)
+        ? refactorDecisionSetWithout(decisions, materializeRecommendationId)
+        : decisions;
       result = runRefactorScan({
         root: repositoryRoot,
         request,
         repository: gitScope.repository,
         worktree: gitScope.worktree,
         previousRecommendations: artifacts.recommendations,
+        decisions: planningDecisions,
         catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)
       });
     } catch (error) {
@@ -596,7 +824,7 @@ export class RecommendationsService {
         message: `worktree ${movedDuringScan.join(" and ")} changed while ${label} was reading the repository; run ${label} again`
       };
     }
-    return { ok: true, gitScope, storageScope, replay, artifacts, result };
+    return { ok: true, gitScope, storageScope, replay, artifacts, decisions, planningDecisions, result };
   }
 
   /**
@@ -628,6 +856,7 @@ export class RecommendationsService {
       snapshot: result.snapshot,
       assessment: result.assessment,
       ...(result.proposal ? { proposal: result.proposal } : {}),
+      namespace: result.namespace,
       headSha: gitScope.worktree.headSha,
       worktreeDigest: gitScope.worktree.worktreeDigest
     });
@@ -636,6 +865,7 @@ export class RecommendationsService {
       repository: gitScope.repository,
       worktree: gitScope.worktree,
       requestId: result.requestId,
+      namespace: result.namespace,
       request,
       trackedFileCount: result.trackedFileCount,
       untrackedExcludedCount: result.untrackedExcludedCount,
@@ -725,6 +955,21 @@ export class RecommendationsService {
 
       const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
       const artifacts = recommendationArtifactsFromEvents(replay.events);
+      // Re-read under the writer: a decision committed or checked out since the scan is the
+      // authority the record must plan against, and the product id must still be the scanned one.
+      let decisions: RefactorDecisionSetV1;
+      try {
+        decisions = readRefactorDecisionSet(repositoryRoot);
+      } catch (error) {
+        return refactorScanErrorEnvelope("refactor.record", error);
+      }
+      if (decisions.namespace !== registered.namespace) {
+        return errorEnvelope(
+          "refactor.record",
+          "AC_REFACTOR_STALE",
+          `product.id changed from ${registered.namespace} to ${decisions.namespace} since refactor scan; run refactor scan again`
+        );
+      }
       let built: ReturnType<typeof buildRefactorRecordEvent>;
       try {
         built = buildRefactorRecordEvent({
@@ -732,6 +977,7 @@ export class RecommendationsService {
           worktree: scope.worktree,
           registered,
           previousRecommendations: artifacts.recommendations,
+          decisions,
           evidenceState: replay.evidenceState,
           graphDigest: replay.graphDigest,
           catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
@@ -830,10 +1076,21 @@ export class RecommendationsService {
       const scope = await this.context.localStore.resolveArchitectureLedgerScope(gitScope);
       const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
       const artifacts = recommendationArtifactsFromEvents(replay.events);
-      const current = latestRecommendationById(artifacts.recommendations, input.recommendationId);
-      if (!current) {
+      const ledgerCurrent = latestRecommendationById(artifacts.recommendations, input.recommendationId);
+      if (!ledgerCurrent) {
+        // A Git-only decision has no baseline in this ledger; nothing is synthesized or rebound.
+        const gitOnly = this.readGitOnlyDecision(repositoryRoot, input.recommendationId, "refactor.verify");
+        if (gitOnly) return "error" in gitOnly ? gitOnly.error : gitDecisionNotRecordedHere("refactor.verify", gitOnly.decision);
         return errorEnvelope("refactor.verify", "AC_SCHEMA_INVALID", `recommendation not found: ${input.recommendationId}`);
       }
+      let decisions: RefactorDecisionSetV1;
+      try {
+        decisions = readRefactorDecisionSet(repositoryRoot);
+      } catch (error) {
+        return refactorScanErrorEnvelope("refactor.verify", error);
+      }
+      // The terminal check below reads the status the checkout states (ADR-0046).
+      const current = refactorStatusView(ledgerCurrent, decisions).record;
       if (current.schemaVersion !== RECOMMENDATION_V3_SCHEMA_VERSION) {
         return errorEnvelope(
           "refactor.verify",
@@ -871,6 +1128,7 @@ export class RecommendationsService {
           repository: gitScope.repository,
           worktree: gitScope.worktree,
           previousRecommendations: artifacts.recommendations,
+          decisions,
           catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)
         });
       } catch (error) {
@@ -1220,8 +1478,13 @@ function evidenceItemsFor(items: readonly EvidenceItemV2[], bindings: readonly E
 }
 
 function recommendationShowEnvelope(input: {
-  source: "ledger" | "scan-candidate";
-  recommendation: RecommendationLedgerRecordV1;
+  source: "ledger" | "scan-candidate" | "git-decision";
+  /** Who states `status`: see `refactorRecommendationStatusView`; `scan-candidate` for a candidate. */
+  statusAuthority: RefactorStatusAuthority | "scan-candidate";
+  /** The checkout's Git decision for this id, when it carries one. */
+  gitDecision: RefactorDecisionV1 | null;
+  /** `null` exactly for `source: "git-decision"`: this worktree's ledger holds no record of the id. */
+  recommendation: RecommendationLedgerRecordV1 | null;
   bindings: EvidenceBindingV1[];
   items: EvidenceItemV2[];
   baseline:
@@ -1232,8 +1495,8 @@ function recommendationShowEnvelope(input: {
   /** The tree a scan candidate was measured at; `null` for a recorded recommendation. */
   worktree: { headSha: string; worktreeDigest: string } | null;
 }): JsonEnvelope {
-  const recommendation = input.recommendation as RecommendationV2 | RecommendationV3;
-  const affectedNodeIds = "category" in recommendation && recommendation.category !== "practice"
+  const recommendation = input.recommendation as RecommendationV2 | RecommendationV3 | null;
+  const affectedNodeIds = recommendation !== null && "category" in recommendation && recommendation.category !== "practice"
     ? new Set((recommendation.payload as StructuralObservationPayloadV1 | RefactorProposalPayloadV1).affectedNodeIds)
     : new Set<string>();
   // Statistics come only from a baseline body that still proves its own digest: an unverifiable
@@ -1243,9 +1506,11 @@ function recommendationShowEnvelope(input: {
     : [];
   return okEnvelope("recommendations.show", {
     schemaVersion: "archcontext.runtime-recommendation-show/v1",
-    recommendationId: input.recommendation.recommendationId,
+    recommendationId: input.recommendation?.recommendationId ?? input.gitDecision!.recommendationId,
     source: input.source,
-    status: input.recommendation.status,
+    status: input.recommendation?.status ?? input.gitDecision!.status,
+    statusAuthority: input.statusAuthority,
+    ...(input.gitDecision ? { gitDecision: input.gitDecision } : {}),
     recommendation: input.recommendation,
     evidence: { items: input.items, bindings: input.bindings },
     baseline: { status: input.baseline.status, snapshotDigest: input.baseline.snapshotDigest },
@@ -1270,6 +1535,8 @@ function lifecycleEnvelope(input: {
   append: ArchitectureLedgerAppendResult;
   /** Present exactly when the decided id was a scan candidate recorded in the same append. */
   implicitRecord: Record<string, Json> | null;
+  /** The Git decision file a refactor decision wrote; `null` for a ledger-only practice decision. */
+  decisionFile: string | null;
 }): JsonEnvelope {
   return okEnvelope(`recommendations.${input.command}`, {
     schemaVersion: "archcontext.runtime-recommendation-lifecycle/v1",
@@ -1281,6 +1548,7 @@ function lifecycleEnvelope(input: {
     feedback: input.feedback,
     metrics: input.metrics,
     implicitRecord: input.implicitRecord,
+    decisionFile: input.decisionFile,
     append: {
       status: "appended",
       appendedEventCount: input.append.appendedEvents.length,
@@ -1291,13 +1559,118 @@ function lifecycleEnvelope(input: {
       constraintCount: input.append.constraintCount
     },
     privacy: {
-      writes: "architecture-ledger-event-only",
+      writes: input.decisionFile === null ? "architecture-ledger-event-only" : "architecture-ledger-event-and-refactor-decision-file",
       rawSourcePersisted: false,
       rawDiffPersisted: false,
       promptPersisted: false,
       implicitAcceptance: false
     }
   } as unknown as Json);
+}
+
+/**
+ * Whether a read must consult the decision set: a refactor record is in the answer, or the
+ * checkout carries decisions. A repository with neither has no refactor status to state.
+ */
+function refactorDecisionsInPlay(repositoryRoot: string, records: readonly RecommendationLedgerRecordV1[]): boolean {
+  return records.some(isRefactorRecommendation) || existsSync(join(repositoryRoot, REFACTOR_DECISION_DIRECTORY));
+}
+
+/**
+ * Deciding a `ledger-audit` id would write a Git decision for a generation the planner no longer
+ * holds as current: its human status lives only in this ledger, so the planner emits (or already
+ * emitted) a newer generation of the same fingerprint that regresses from it. The refusal names
+ * that generation. Each generation's id is derived from its fingerprint and the id it regresses
+ * from, so the chain is walked forward from this id through every generation this ledger or this
+ * checkout holds; when the last one held is itself ledger audit, the current generation is the
+ * next id, which the scan emits and records.
+ */
+function ledgerAuditDecisionRefused(
+  surface: string,
+  record: RecommendationV3,
+  recommendations: readonly RecommendationLedgerRecordV1[],
+  decisions: RefactorDecisionSetV1
+): JsonEnvelope {
+  let head = record.recommendationId;
+  let headIsAudit = true;
+  for (;;) {
+    const successor = refactorRecommendationId(record.fingerprint, head);
+    const recorded = latestRecommendationById(recommendations, successor);
+    if (!recorded && !decisions.byId.has(successor)) break;
+    head = successor;
+    headIsAudit = recorded !== undefined && refactorStatusView(recorded, decisions).authority === "ledger-audit";
+  }
+  const currentRecommendationId = headIsAudit ? refactorRecommendationId(record.fingerprint, head) : head;
+  const currentRecorded = !headIsAudit && latestRecommendationById(recommendations, currentRecommendationId) !== undefined;
+  return errorEnvelope(
+    surface,
+    "AC_REFACTOR_STALE",
+    `recommendation ${record.recommendationId} is ledger audit: its ${record.status} decision is not in this checkout, so it is not the current generation of its subject and no Git decision is written for it; decide the current generation ${currentRecommendationId} instead${currentRecorded ? "" : " (run archctx refactor scan to observe it)"}`,
+    "ledger-audit-generation",
+    { currentRecommendationId, currentRecorded }
+  );
+}
+
+/**
+ * The decision verb that records the generation a Git decision names in a worktree whose ledger
+ * does not hold it, keeping the status the file states. `resolved` has none: it is terminal and is
+ * reached only through `refactor verify` evidence in the worktree that holds the baseline.
+ */
+const GIT_DECISION_RECORD_VERB: Record<Exclude<RefactorDecisionV1["status"], "resolved">, Exclude<RecommendationFeedbackAction, "resolve">> = {
+  acknowledged: "acknowledge",
+  accepted: "accept",
+  deferred: "defer",
+  rejected: "reject",
+  waived: "waive"
+};
+
+/**
+ * `refactor verify` and `resolve` on an id that is decided in Git but was never recorded in this
+ * worktree's ledger: there is no baseline here to verify against, and none is synthesized or
+ * borrowed. The suggested command is the verb of the status the file states, so following it
+ * records the current scan's generation here without changing the Git decision; verification can
+ * follow that. A `resolved` file suggests no command: it is already closed.
+ */
+function gitDecisionNotRecordedHere(surface: string, decision: RefactorDecisionV1): JsonEnvelope {
+  const recommendationId = decision.recommendationId;
+  if (decision.status === "resolved") {
+    return errorEnvelope(
+      surface,
+      "AC_REFACTOR_EVIDENCE_REQUIRED",
+      `recommendation ${recommendationId} is resolved in Git but not recorded in this worktree's ledger; resolved is terminal, so there is nothing to record or verify here`,
+      "git-decision-not-recorded",
+      { decisionStatus: decision.status }
+    );
+  }
+  const verb = GIT_DECISION_RECORD_VERB[decision.status];
+  const recordCommand = `archctx recommendations ${verb} --id ${recommendationId} --reason <why>`;
+  const verifyCommand = `archctx refactor verify --request-json '{"schemaVersion":"${REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION}","recommendationId":"${recommendationId}"}'`;
+  return errorEnvelope(
+    surface,
+    "AC_REFACTOR_EVIDENCE_REQUIRED",
+    `recommendation ${recommendationId} is decided in Git (${decision.status}) but not recorded in this worktree's ledger, so it has no baseline to verify against here; record it in this worktree before changing the code with \`${recordCommand}\` (the Git status stays ${decision.status}), then run \`${verifyCommand}\``,
+    "git-decision-not-recorded",
+    { decisionStatus: decision.status, recordCommand, verifyCommand }
+  );
+}
+
+/**
+ * A refactor decision writes a Git file, so it needs the explicit approval: the CLI verb passes it,
+ * every other ingress must pass `approved: true` itself (ADR-0046).
+ */
+function refactorDecisionApprovalError(command: RecommendationFeedbackAction, input: RuntimeRecommendationInput): JsonEnvelope | undefined {
+  if (input.approved === true) return undefined;
+  return errorEnvelope(
+    `recommendations.${command}`,
+    "AC_USER_CONFIRMATION_REQUIRED",
+    `recommendations ${command} on a refactor recommendation writes ${REFACTOR_DECISION_DIRECTORY}/<id>.json; call again with approved: true (the CLI verb is the approval)`
+  );
+}
+
+/** A typed failure from the decision set or scan inputs keeps its code; anything else is a defect. */
+function refactorScanErrorEnvelope(surface: string, error: unknown): JsonEnvelope {
+  if (error instanceof RefactorScanError) return errorEnvelope(surface, error.code, error.message, error.reasonCode);
+  return errorEnvelope(surface, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
 }
 
 /**

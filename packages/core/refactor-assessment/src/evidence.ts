@@ -4,6 +4,7 @@ import {
   compareRefactorEvidenceDirectionViolations,
   compareRefactorEvidenceImportEdges,
   compareRefactorEvidenceUnresolvedImports,
+  sampleRefactorPairEvidence,
   type ModuleStatisticsSnapshotV1,
   type RefactorEvidenceDirectionViolationV1,
   type RefactorEvidenceImportEdgeV1,
@@ -33,9 +34,51 @@ export class ObservationEvidenceBuilder {
     this.resolvedEdges = structure.importEdges.filter((edge) => edge.to !== null);
   }
 
-  /** File edges whose two owners are distinct members of one strongly connected component. */
-  cycle(memberNodeIds: readonly string[]): RefactorObservationEvidenceV1 {
-    const members = new Set(memberNodeIds);
+  /**
+   * The import edges of one bidirectional pair and nothing else: both directions, attributed by the
+   * module graph's rule, sampled thin direction first (`sampleRefactorPairEvidence`), so the
+   * cheapest cut is always visible however many edges run the other way.
+   */
+  pair(nodeIds: readonly [string, string], thinDirection: { fromNodeId: string; toNodeId: string }): RefactorObservationEvidenceV1 {
+    const [first, second] = nodeIds;
+    const population = uniqueSorted(this.attributedEdges(new Set(nodeIds)), compareRefactorEvidenceImportEdges);
+    const thick = { fromNodeId: thinDirection.toNodeId, toNodeId: thinDirection.fromNodeId };
+    const count = (direction: { fromNodeId: string; toNodeId: string }) => population
+      .filter((edge) => edge.fromNodeId === direction.fromNodeId && edge.toNodeId === direction.toNodeId).length;
+    return sampleRefactorPairEvidence({
+      kind: "cycle",
+      memberNodeIds: [first, second],
+      directions: [
+        { ...thinDirection, totalCount: count(thinDirection), sampledCount: count(thinDirection) },
+        { ...thick, totalCount: count(thick), sampledCount: count(thick) }
+      ],
+      edges: population,
+      totalCount: population.length,
+      truncated: false
+    }, REFACTOR_OBSERVATION_EVIDENCE_LIMIT);
+  }
+
+  /**
+   * A bounded witness of one residual cycle: the import edges behind the residual module edges that
+   * stay inside it. The thin directions cut from the residual graph are not part of it.
+   */
+  residualCycle(memberNodeIds: readonly string[], residualEdges: readonly { fromNodeId: string; toNodeId: string }[]): RefactorObservationEvidenceV1 {
+    const allowed = new Set(residualEdges.map((edge) => JSON.stringify([edge.fromNodeId, edge.toNodeId])));
+    const edges = this.attributedEdges(new Set(memberNodeIds))
+      .filter((edge) => allowed.has(JSON.stringify([edge.fromNodeId, edge.toNodeId])));
+    const sample = boundedSample(edges, compareRefactorEvidenceImportEdges);
+    // The population size rides in the observation's `metrics.memberCount`.
+    return {
+      kind: "residual-cycle",
+      memberNodeIds: boundedIds([...memberNodeIds]).ids,
+      edges: sample.entries,
+      totalCount: sample.totalCount,
+      truncated: sample.truncated
+    };
+  }
+
+  /** File edges whose two owners are distinct members of `members`, one entry per owner pair. */
+  private attributedEdges(members: ReadonlySet<string>): RefactorEvidenceImportEdgeV1[] {
     const edges: RefactorEvidenceImportEdgeV1[] = [];
     for (const edge of this.resolvedEdges) {
       // Same attribution rule as the module graph: a contested file speaks for each claimant.
@@ -46,9 +89,7 @@ export class ObservationEvidenceBuilder {
         }
       }
     }
-    const sample = boundedSample(edges, compareRefactorEvidenceImportEdges);
-    // The population size rides in the observation's `metrics.memberCount`.
-    return { kind: "cycle", memberNodeIds: boundedIds([...members]).ids, edges: sample.entries, totalCount: sample.totalCount, truncated: sample.truncated };
+    return edges;
   }
 
   /** The `forbid-dependency` violations this module's own files commit. */
@@ -166,9 +207,14 @@ function importEdge(edge: ModuleStatisticsImportEdgeV1, fromNodeId: string, toNo
   return { fromPath: edge.from, fromLine: edge.line ?? null, toPath: edge.to!, specifier: edge.specifier, fromNodeId, toNodeId };
 }
 
+/** Sorts and drops exact duplicates under the comparator. */
+function uniqueSorted<T>(entries: readonly T[], compare: (left: T, right: T) => number): T[] {
+  return [...entries].sort(compare).filter((entry, index, sorted) => index === 0 || compare(sorted[index - 1]!, entry) !== 0);
+}
+
 /** Sorts, drops exact duplicates under the comparator, and keeps the first `limit` entries. */
 function boundedSample<T>(entries: readonly T[], compare: (left: T, right: T) => number): { entries: T[]; totalCount: number; truncated: boolean } {
-  const unique = [...entries].sort(compare).filter((entry, index, sorted) => index === 0 || compare(sorted[index - 1]!, entry) !== 0);
+  const unique = uniqueSorted(entries, compare);
   return {
     entries: unique.slice(0, REFACTOR_OBSERVATION_EVIDENCE_LIMIT),
     totalCount: unique.length,

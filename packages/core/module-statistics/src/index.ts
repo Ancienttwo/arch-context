@@ -27,7 +27,18 @@ import { buildModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
 import { ancestorChain, resolveOwnership, type OwnershipIndex } from "./ownership";
 
 export { ownershipDelta, resolveOwnership, type OwnershipIndex, type OwnershipResolution } from "./ownership";
-export { buildModuleGraph, type ModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
+export {
+  bidirectionalModulePairs,
+  buildModuleGraph,
+  moduleComponentId,
+  residualCycleMemberCount,
+  residualModuleCycles,
+  type BidirectionalModulePair,
+  type ModuleDependencyEdge,
+  type ModuleGraph,
+  type ModuleGraphEdgeCounts,
+  type ResidualModuleCycle
+} from "./graph";
 
 /** Whether the code index answered at all. Mirrors the index handshake's own two states. */
 export type ModuleStatisticsIndexAvailability = "ready" | "unavailable";
@@ -487,6 +498,8 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
     modelDigest: modelDigest(input.model, constraints),
     codeFacts,
     modules,
+    // The table the graph counts above were taken from, so a pair's counts are read, not re-derived.
+    moduleDependencies: graph.dependencies.map((edge) => ({ ...edge })),
     repositorySummary: {
       moduleCount: modules.length,
       undeclaredFootprintNodeCount: modules.filter((module) => !module.footprintDeclared).length,

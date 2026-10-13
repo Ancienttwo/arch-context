@@ -39,6 +39,7 @@ import {
   type RefactorRecommendationRunPlan
 } from "@archcontext/core/recommendation-engine";
 import { deriveObservationOutcomes } from "@archcontext/core/refactor-assessment";
+import type { RefactorDecisionSetV1 } from "./refactor-decisions";
 
 /**
  * A scan holds its measured snapshot and assessment in memory only. The cap keeps the daemon
@@ -54,6 +55,11 @@ export interface RegisteredRefactorAssessmentV1 {
   assessment: RefactorAssessmentV1;
   /** The proposal returned by `assessRefactor`, carrying resolved `unresolvedTargets`. */
   proposal?: RefactorProposalV1;
+  /**
+   * The manifest `product.id` the scan scoped its selectors by. Carried so a record or a decision
+   * re-plans the measured run under exactly the identity the scan previewed.
+   */
+  namespace: string;
   headSha: string;
   worktreeDigest: string;
 }
@@ -130,6 +136,8 @@ export interface RefactorRecordEventInput {
   worktree: ArchitectureWorktreeIdentityV1;
   registered: RegisteredRefactorAssessmentV1;
   previousRecommendations: readonly RecommendationLedgerRecordV1[];
+  /** The decision set read under the same writer lock as the record; the human-status authority. */
+  decisions: RefactorDecisionSetV1;
   evidenceState: EvidenceStateAtCursorV1;
   graphDigest: string;
   catalogDigest: string;
@@ -148,13 +156,18 @@ export interface RefactorRecordEventPlan {
  * to the same `graphDigest` with or without this event.
  */
 export function buildRefactorRecordEvent(input: RefactorRecordEventInput): RefactorRecordEventPlan {
+  if (input.decisions.namespace !== input.registered.namespace) {
+    throw new Error(`AC_REFACTOR_STALE: product.id changed from ${input.registered.namespace} to ${input.decisions.namespace} since the scan; run refactor scan again`);
+  }
   const plan = planRefactorRun({
     repository: input.repository,
     worktree: input.worktree,
     snapshot: input.registered.snapshot,
     assessment: input.registered.assessment,
     ...(input.registered.proposal ? { proposal: input.registered.proposal } : {}),
-    previousRecommendations: previousRecommendationsV3(input.previousRecommendations),
+    recommendationNamespace: input.registered.namespace,
+    decisionSetDigest: input.decisions.digest,
+    previousRecommendations: previousRecommendationsFromAuthority(input.previousRecommendations, input.decisions),
     catalogDigest: input.catalogDigest,
     now: input.now
   });
@@ -310,15 +323,35 @@ export function planRefactorRun(input: PlanRefactorRecommendationRunInput): Refa
   return plan;
 }
 
-/** The planner's view of ledger records; shared by the scan preview and the record. */
-export function previousRecommendationsV3(recommendations: readonly RecommendationLedgerRecordV1[]): PreviousRecommendationV3[] {
-  return recommendations.map((recommendation) => ({
+/**
+ * The planner's priors, shared by the scan preview and the record (ADR-0046): every Git decision
+ * with `git` authority, and every ledger record with `ledger` authority. A ledger record keeps its
+ * own status; the planner gives a ledger human status no suppression authority, and within one
+ * generation a Git decision outranks every ledger record of it.
+ */
+export function previousRecommendationsFromAuthority(
+  recommendations: readonly RecommendationLedgerRecordV1[],
+  decisions: RefactorDecisionSetV1
+): PreviousRecommendationV3[] {
+  const fromLedger: PreviousRecommendationV3[] = recommendations.map((recommendation) => ({
     recommendationId: recommendation.recommendationId,
     fingerprint: recommendation.fingerprint,
     status: recommendation.status,
     updatedAt: recommendation.updatedAt,
+    regressesFrom: ("relations" in recommendation ? recommendation.relations?.regressesFrom : undefined) ?? null,
+    decisionAuthority: "ledger",
     observationMetrics: observationMetricsOf(recommendation)
   }));
+  const fromGit: PreviousRecommendationV3[] = decisions.decisions.map((decision) => ({
+    recommendationId: decision.recommendationId,
+    fingerprint: decision.fingerprint,
+    status: decision.status,
+    updatedAt: decision.decidedAt,
+    regressesFrom: decision.regressesFrom,
+    decisionAuthority: "git",
+    observationMetrics: decision.observationMetrics === null ? null : { ...decision.observationMetrics }
+  }));
+  return [...fromLedger, ...fromGit];
 }
 
 /**

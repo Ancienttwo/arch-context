@@ -132,6 +132,7 @@ const schemaByFixture: Record<string, string> = {
   "constraint": "schemas/repo/constraint.schema.json",
   "architecture-intervention": "schemas/repo/architecture-intervention.schema.json",
   "compatibility-contract": "schemas/repo/compatibility-contract.schema.json",
+  "refactor-decision": "schemas/repo/refactor-decision.schema.json",
   "practice": "schemas/repo/practices/practice.schema.json",
   "practice-profile": "schemas/repo/practices/practice-profile.schema.json",
   "practice-source": "schemas/repo/practices/practice-source.schema.json",
@@ -783,16 +784,30 @@ test("a replayed result keeps the committed receipt digest and needs a committed
   const { receiptDigest: _fixtureReceipt, ...payload } = valid;
   const committedPayload = { ...payload, applyReceipt };
   const committed: ProjectionResultV2 = { ...committedPayload, receiptDigest: projectionResultReceiptDigest(committedPayload) };
-  const replayed: ProjectionResultV2 = { ...committed, replayed: true };
-  expect(projectionResultReceiptDigest({ ...committedPayload, replayed: true })).toBe(committed.receiptDigest);
+  const replayed: ProjectionResultV2 = { ...committed, replayed: true, written: false };
+  expect(projectionResultReceiptDigest({ ...committedPayload, replayed: true, written: false })).toBe(committed.receiptDigest);
+  expect(projectionResultReceiptDigest({ ...committedPayload, replayed: true, written: true })).toBe(committed.receiptDigest);
   expect(projectionResultInvariantIssues(replayed)).toEqual([]);
   expect(validateJsonSchema(schema as any, replayed as any).valid).toBe(true);
+  const restored: ProjectionResultV2 = { ...committed, replayed: true, written: true };
+  expect(projectionResultInvariantIssues(restored)).toEqual([]);
+  expect(validateJsonSchema(schema as any, restored as any).valid).toBe(true);
 
-  const withoutReceipt: ProjectionResultV2 = { ...valid, replayed: true };
+  // A replay always says whether it wrote, and only a replay carries `written` (#325).
+  const unsaid: ProjectionResultV2 = { ...committed, replayed: true };
+  expect(projectionResultInvariantIssues(unsaid)).toContain("written must be present exactly when replayed is present");
+  expect(validateJsonSchema(schema as any, unsaid as any).valid).toBe(false);
+  const writtenOnly: ProjectionResultV2 = { ...committed, written: false };
+  expect(projectionResultInvariantIssues(writtenOnly)).toContain("written must be present exactly when replayed is present");
+  expect(validateJsonSchema(schema as any, writtenOnly as any).valid).toBe(false);
+  expect(projectionResultInvariantIssues({ ...replayed, written: "no" } as any)).toContain("written must be a boolean when present");
+  expect(validateJsonSchema(schema as any, { ...replayed, written: "no" } as any).valid).toBe(false);
+
+  const withoutReceipt: ProjectionResultV2 = { ...valid, replayed: true, written: false };
   expect(projectionResultInvariantIssues(withoutReceipt)).toContain("replayed is only allowed on a committed apply result with applyReceipt");
   expect(validateJsonSchema(schema as any, withoutReceipt as any).valid).toBe(false);
   const planned = { ...committedPayload, status: "planned" as const };
-  const plannedReplay: ProjectionResultV2 = { ...planned, receiptDigest: projectionResultReceiptDigest(planned), replayed: true };
+  const plannedReplay: ProjectionResultV2 = { ...planned, receiptDigest: projectionResultReceiptDigest(planned), replayed: true, written: false };
   expect(projectionResultInvariantIssues(plannedReplay)).toContain("replayed is only allowed on a committed apply result with applyReceipt");
   expect(validateJsonSchema(schema as any, plannedReplay as any).valid).toBe(false);
   expect(validateJsonSchema(schema as any, { ...replayed, replayed: false } as any).valid).toBe(false);
@@ -1467,6 +1482,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.constraint/v1": "constraint",
     "archcontext.intervention/v1": "architecture-intervention",
     "archcontext.compatibility/v1": "compatibility-contract",
+    "archcontext.refactor-decision/v1": "refactor-decision",
     "archcontext.practice/v1": "practice",
     "archcontext.practice-profile/v1": "practice-profile",
     "archcontext.practice-source/v1": "practice-source",

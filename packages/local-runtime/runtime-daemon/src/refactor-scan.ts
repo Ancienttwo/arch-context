@@ -6,6 +6,7 @@ import {
   REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   REFACTOR_REQUEST_SCHEMA_VERSION,
   digestJson,
+  refactorNamespaceIssues,
   refactorRequestInvariantIssues,
   type ArchContextErrorCode,
   type ArchitectureRepositoryIdentityV1,
@@ -39,7 +40,8 @@ import {
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
-import { planRefactorRunWithRecording, previousRecommendationsV3, type RefactorRunRecordingV1 } from "./refactor-recording";
+import type { RefactorDecisionSetV1 } from "./refactor-decisions";
+import { planRefactorRunWithRecording, previousRecommendationsFromAuthority, type RefactorRunRecordingV1 } from "./refactor-recording";
 
 /** The CodeGraph CLI name the adapter resolves package-locally when PATH has no answer. */
 const CODEGRAPH_BINARY = "codegraph";
@@ -82,11 +84,18 @@ export interface RefactorScanInputV1 {
    * never writes them; `refactor record` re-plans against the same ledger under its own clock.
    */
   previousRecommendations: readonly RecommendationLedgerRecordV1[];
+  /**
+   * The Git decision set of this checkout, read once by the caller (`readRefactorDecisionSet`); it
+   * carries the manifest namespace the selectors are scoped by and is the human-status authority.
+   */
+  decisions: RefactorDecisionSetV1;
   catalogDigest: string;
 }
 
 export interface RefactorScanResultV1 {
   requestId: string;
+  /** The manifest `product.id` the refactor selectors of this scan are scoped by (ADR-0046). */
+  namespace: string;
   snapshot: ModuleStatisticsSnapshotV1;
   assessment: RefactorAssessmentV1;
   /** Present exactly when the request carried one, with `unresolvedTargets` resolved. */
@@ -143,6 +152,7 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
   assertRequestedStateIsCurrent(input.request, input.worktree);
 
   const model = loadModel(input.root);
+  const namespace = input.decisions.namespace;
   // Malformed constraints are `validate`'s to report; the scan measures the well-formed ones.
   const constraints = readDependencyConstraints(listModelFiles(input.root)).constraints;
   const createdAt = readHeadCommitterDate(input.root);
@@ -203,7 +213,9 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
       snapshot,
       assessment: assessed.assessment,
       ...(assessed.proposal ? { proposal: assessed.proposal } : {}),
-      previousRecommendations: previousRecommendationsV3(input.previousRecommendations),
+      recommendationNamespace: namespace,
+      decisionSetDigest: input.decisions.digest,
+      previousRecommendations: previousRecommendationsFromAuthority(input.previousRecommendations, input.decisions),
       catalogDigest: input.catalogDigest,
       now: createdAt
     });
@@ -214,6 +226,7 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
 
   return {
     requestId,
+    namespace,
     snapshot,
     assessment: assessed.assessment,
     ...(assessed.proposal ? { proposal: assessed.proposal } : {}),
@@ -396,6 +409,50 @@ function assertRequestedStateIsCurrent(request: RefactorRequestV1, worktree: Arc
       `refactor scan expected worktree digest ${request.expectedWorktreeDigest}, current ${worktree.worktreeDigest}`
     );
   }
+}
+
+export const REFACTOR_NAMESPACE_MANIFEST_PATH = ".archcontext/manifest.yaml" as const;
+
+/**
+ * The refactor identity namespace: the manifest `product.id`, read strictly (ADR-0046).
+ *
+ * A manifest or `product.id` that is not there is a model that has not adopted a product identity
+ * yet (`AC_MODEL_ADOPTION_REQUIRED`); one that is there but blank, unparsable or outside the id
+ * grammar is a broken declaration (`AC_SCHEMA_INVALID`). Nothing is derived in its place: the
+ * worktree-path `repositoryId`, the storage id, a remote or a package name would each give the same
+ * subject a different id somewhere else.
+ */
+export function readRefactorNamespace(root: string): string {
+  const path = join(root, REFACTOR_NAMESPACE_MANIFEST_PATH);
+  if (!existsSync(path)) {
+    throw new RefactorScanError(
+      "AC_MODEL_ADOPTION_REQUIRED",
+      `${REFACTOR_NAMESPACE_MANIFEST_PATH} is missing; refactor recommendations are scoped by its product.id; run archctx init`,
+      "product-id-missing"
+    );
+  }
+  let manifest: Json;
+  try {
+    manifest = parseJsonOrStableYaml(readFileSync(path, "utf8"), REFACTOR_NAMESPACE_MANIFEST_PATH);
+  } catch (error) {
+    throw new RefactorScanError(
+      "AC_SCHEMA_INVALID",
+      `${REFACTOR_NAMESPACE_MANIFEST_PATH} is unreadable: ${error instanceof Error ? error.message : String(error)}`,
+      "product-id-invalid"
+    );
+  }
+  const product = manifest !== null && typeof manifest === "object" && !Array.isArray(manifest) ? manifest.product : undefined;
+  const id = product !== null && typeof product === "object" && !Array.isArray(product) ? product.id : undefined;
+  if (id === undefined || id === null) {
+    throw new RefactorScanError(
+      "AC_MODEL_ADOPTION_REQUIRED",
+      `${REFACTOR_NAMESPACE_MANIFEST_PATH} declares no product.id; refactor recommendations are scoped by it; add it through a ChangeSet`,
+      "product-id-missing"
+    );
+  }
+  const issues = refactorNamespaceIssues(id, `${REFACTOR_NAMESPACE_MANIFEST_PATH} product.id`);
+  if (issues.length > 0) throw new RefactorScanError("AC_SCHEMA_INVALID", issues.join("; "), "product-id-invalid");
+  return id as string;
 }
 
 /** A repository with no declared architecture has nothing to measure modules against. */

@@ -45,11 +45,6 @@ export interface ArchitectureDocumentationLayout {
   entityPathByNodeId: ReadonlyMap<string, string>;
 }
 
-export interface ArchitectureDocumentationExistingFileLike {
-  path: string;
-  body: string;
-}
-
 const FIXED_TARGETS: ProjectionLayoutTargetDraft[] = [
   layoutTarget("projection_target.architecture.index", "architecture-index", { kind: "repository" }, "docs/architecture/index.md", "mixed", "markdown"),
   layoutTarget("projection_target.decision.index", "decision-index", { kind: "decision" }, "docs/architecture/decisions/index.md", "mixed", "markdown"),
@@ -177,7 +172,7 @@ export function contractFilesForNode(node: ProjectionLayoutNode): string[] {
 export function loadArchitectureFilesForLayout(
   root: string,
   layout: ArchitectureDocumentationLayout
-): ArchitectureDocumentationExistingFileLike[] {
+): ProjectionOwnedFile[] {
   const paths = new Set<string>();
   for (const path of layout.expectedPaths) {
     const absolute = resolveSafeRegularPath(root, path, false);
@@ -186,7 +181,36 @@ export function loadArchitectureFilesForLayout(
   for (const orphanRoot of layout.orphanRoots) {
     for (const path of recursiveMarkdownPaths(root, orphanRoot)) paths.add(path);
   }
-  return [...paths].sort().map((path) => ({ path, body: readFileSync(resolve(root, path), "utf8") }));
+  return [...paths].sort().map((path) => readProjectionOwnedFile(resolve(root, path), path));
+}
+
+/**
+ * A projection-owned file as one read saw it. `body` is the text with CRLF line endings normalized
+ * to LF: the renderer only emits LF, so a checkout that applies `core.autocrlf` (Windows runners
+ * and developer machines) would otherwise fail every byte comparison against the rendered body.
+ * Line endings carry no projection meaning; every other byte, a lone CR included, still compares
+ * exactly. `onDisk` is the raw bytes the same read returned: write and delete preconditions
+ * (`expectedHash`) hash it, so they bind to exactly what the render classified.
+ */
+export interface ProjectionOwnedFile {
+  path: string;
+  body: string;
+  onDisk: string;
+}
+
+export function readProjectionOwnedFile(absolute: string, path: string): ProjectionOwnedFile {
+  const onDisk = readFileSync(absolute, "utf8");
+  return { path, body: onDisk.replaceAll("\r\n", "\n"), onDisk };
+}
+
+/**
+ * The bytes an apply writes for a projection-owned file: the canonical LF body, converted to CRLF
+ * when the file on disk already uses CRLF. Re-projecting a `core.autocrlf` checkout then rewrites
+ * the bytes Git checked out instead of flipping every file to LF, which Git reports as modified
+ * although the normalized content is unchanged. Plans, manifests and digests keep the LF body.
+ */
+export function projectionOwnedWriteBody(body: string, onDisk: string | undefined): string {
+  return onDisk?.includes("\r\n") ? body.replaceAll("\n", "\r\n") : body;
 }
 
 export function primarySourceDirectory(pattern: string): string {

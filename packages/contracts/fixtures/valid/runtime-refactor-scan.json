@@ -12,6 +12,7 @@
     "worktreeDigest": "sha256:96cbb5ccf708d8b7c56c2633e8937311338957998b7154879461706460d4c467"
   },
   "requestId": "refactor_request.d514edefd58b7a9e",
+  "namespace": "product.architecture-context",
   "request": {
     "schemaVersion": "archcontext.refactor-request/v1",
     "scope": {
@@ -111,6 +112,7 @@
         "moduleDigest": "sha256:32d887790fe89e1415d1cb0e68557509e025b4026184ad8a463f4d886a3de182"
       }
     ],
+    "moduleDependencies": [],
     "repositorySummary": {
       "moduleCount": 2,
       "undeclaredFootprintNodeCount": 1,
@@ -140,6 +142,7 @@
       {
         "kind": "evidence-gap",
         "subjectSelectorId": "repository:repo.537182127c5f2134",
+        "affectedNodeIds": [],
         "metrics": {
           "unresolvedImportCount": 0,
           "edgeLimit": 5000
@@ -164,6 +167,9 @@
       {
         "kind": "undeclared-footprint",
         "subjectSelectorId": "capability.architecture.context",
+        "affectedNodeIds": [
+          "capability.architecture.context"
+        ],
         "metrics": {},
         "evidence": {
           "kind": "undeclared-footprint",

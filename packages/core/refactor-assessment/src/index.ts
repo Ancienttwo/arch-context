@@ -20,7 +20,13 @@ import {
   type RefactorScale,
   type RefactorScaleReasonCode
 } from "@archcontext/contracts";
-import { resolveOwnership, type ModuleStructureV1 } from "@archcontext/core/module-statistics";
+import {
+  bidirectionalModulePairs,
+  moduleComponentId,
+  residualModuleCycles,
+  resolveOwnership,
+  type ModuleStructureV1
+} from "@archcontext/core/module-statistics";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { ObservationEvidenceBuilder } from "./evidence";
 import { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaDerivationV1 } from "./target-delta";
@@ -52,6 +58,7 @@ const SIGNAL_ID_LENGTH = 16;
  */
 const PRESSURE_WEIGHTS: Readonly<Record<RefactorObservationKind, number>> = {
   cycle: 25,
+  "residual-cycle": 25,
   "direction-violation": 25,
   "ownership-ambiguous": 15,
   "unowned-paths": 15,
@@ -67,9 +74,15 @@ const PRESSURE_WEIGHTS: Readonly<Record<RefactorObservationKind, number>> = {
  * so `ownership-ambiguous` has no severity metric; `edgeLimit` is scan configuration; and
  * `evidence-gap` as a whole is a gap in the code facts, not a finding about the architecture, so
  * no change in coverage reopens a decision about it. `undeclared-footprint` carries no metric.
+ *
+ * A pair `cycle` gets worse only when its thin direction grows: that is the cut the decision was
+ * about, and a module joining the surrounding component, or the thick direction growing, does not
+ * make it harder. A `residual-cycle` is identified by its members, so only a new module edge inside
+ * the same members makes it worse.
  */
 export const REFACTOR_OBSERVATION_SEVERITY_METRICS: Readonly<Record<RefactorObservationKind, readonly string[]>> = {
-  cycle: ["cycleEdgeCount", "memberCount"],
+  cycle: ["thinDirectionEdgeCount"],
+  "residual-cycle": ["cycleEdgeCount"],
   "direction-violation": ["directionViolationCount"],
   "evidence-gap": [],
   "ownership-ambiguous": [],
@@ -153,7 +166,14 @@ export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssess
     throw new Error(`AC_SCHEMA_INVALID: request.scope.nodeId is not declared: ${input.request.scope.nodeId}`);
   }
 
-  const observations = buildObservations(input.snapshot, input.structure, input.model);
+  // The whole graph is measured and observed first; the scope only selects among the observations.
+  // Cutting the graph to the scope first would hide a cycle that merely passes through it.
+  const observations = scopeObservations(
+    buildObservations(input.snapshot, input.structure, input.model),
+    input.request.scope,
+    input.model,
+    input.trackedFiles
+  );
   const proposal = input.request.proposal;
   const classification = proposal
     ? classifyProposal({
@@ -178,7 +198,7 @@ export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssess
     scaleReasonCodes: classification.reasonCodes,
     affectedNodeIds: classification.affectedNodeIds,
     majorChangeReasons: classification.majorChangeReasons,
-    pressure: derivePressure(observations),
+    pressure: derivePressure(observations, input.snapshot),
     confidence: buildConfidence(input.snapshot, classification),
     createdAt: input.createdAt,
     assessmentDigest: ""
@@ -201,16 +221,24 @@ export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssess
 interface ObservationDraft {
   kind: RefactorObservationKind;
   subjectSelectorId: string;
+  affectedNodeIds: string[];
   metrics: Record<string, number | null>;
   evidence: RefactorObservationEvidenceV1;
+}
+
+/** The subject of a bidirectional pair; node ids carry no `|`, so the pair is unambiguous. */
+export function refactorPairSubject(nodeIds: readonly [string, string]): string {
+  return `pair:${nodeIds[0]}|${nodeIds[1]}`;
 }
 
 /**
  * The closed observation set, derived from the snapshot alone.
  *
- * `cycle` is emitted once per strongly connected component rather than once per member: the
- * component is the fact, and one record per member would report a single cycle N times and weight
- * the pressure score by component size.
+ * Cycles are reported per bidirectional module pair, not per strongly connected component: a pair
+ * is an actionable cut whose identity does not move when an unrelated module joins the component.
+ * `cycle` is one pair `{A, B}`; its metrics are the pair's own distinct file edge counts from
+ * `snapshot.moduleDependencies`. `residual-cycle` is each component that survives cutting the thin
+ * direction of every pair, so a cycle with no bidirectional pair (A -> B -> C -> A) is never lost.
  */
 export function buildObservations(
   snapshot: ModuleStatisticsSnapshotV1,
@@ -221,23 +249,27 @@ export function buildObservations(
   const evidence = new ObservationEvidenceBuilder(snapshot, structure, model);
   const drafts: ObservationDraft[] = [];
 
-  const componentMembers = new Map<string, ModuleStatisticsV1[]>();
-  for (const module of snapshot.modules) {
-    const componentId = module.dependencyGraph?.stronglyConnectedComponentId;
-    if (!componentId) continue;
-    const members = componentMembers.get(componentId);
-    if (members) members.push(module);
-    else componentMembers.set(componentId, [module]);
-  }
-  for (const [componentId, members] of componentMembers) {
+  for (const pair of bidirectionalModulePairs(snapshot.moduleDependencies)) {
     drafts.push({
       kind: "cycle",
-      subjectSelectorId: `scc:${componentId}`,
+      subjectSelectorId: refactorPairSubject(pair.nodeIds),
+      affectedNodeIds: [...pair.nodeIds],
       metrics: {
-        memberCount: members.length,
-        cycleEdgeCount: members.reduce((total, member) => total + (member.dependencyGraph?.cycleCount ?? 0), 0)
+        forwardEdgeCount: pair.forwardEdgeCount,
+        backwardEdgeCount: pair.backwardEdgeCount,
+        thinDirectionEdgeCount: pair.thinDirectionEdgeCount,
+        totalEdgeCount: pair.totalEdgeCount
       },
-      evidence: evidence.cycle(members.map((member) => member.nodeId))
+      evidence: evidence.pair(pair.nodeIds, pair.thinDirection)
+    });
+  }
+  for (const cycle of residualModuleCycles(snapshot.modules.map((module) => module.nodeId), snapshot.moduleDependencies)) {
+    drafts.push({
+      kind: "residual-cycle",
+      subjectSelectorId: `cycle:${moduleComponentId(cycle.memberNodeIds)}`,
+      affectedNodeIds: [...cycle.memberNodeIds],
+      metrics: { memberCount: cycle.memberNodeIds.length, cycleEdgeCount: cycle.edges.length },
+      evidence: evidence.residualCycle(cycle.memberNodeIds, cycle.edges)
     });
   }
 
@@ -247,6 +279,7 @@ export function buildObservations(
       drafts.push({
         kind: "ownership-ambiguous",
         subjectSelectorId: module.nodeId,
+        affectedNodeIds: [module.nodeId],
         metrics: { ownedFileCount: module.footprint?.fileCount ?? null },
         evidence: evidence.ownershipAmbiguous(module.nodeId)
       });
@@ -255,6 +288,7 @@ export function buildObservations(
       drafts.push({
         kind: "undeclared-footprint",
         subjectSelectorId: module.nodeId,
+        affectedNodeIds: [module.nodeId],
         metrics: {},
         evidence: evidence.undeclaredFootprint(module.nodeId)
       });
@@ -264,6 +298,7 @@ export function buildObservations(
       drafts.push({
         kind: "direction-violation",
         subjectSelectorId: module.nodeId,
+        affectedNodeIds: [module.nodeId],
         metrics: { directionViolationCount: violations },
         evidence: evidence.directionViolation(module.nodeId)
       });
@@ -275,6 +310,7 @@ export function buildObservations(
     drafts.push({
       kind: "unowned-paths",
       subjectSelectorId: repositorySubject,
+      affectedNodeIds: [],
       metrics: { unownedFileCount: snapshot.repositorySummary.unownedFileCount },
       evidence: evidence.unownedPaths()
     });
@@ -283,6 +319,7 @@ export function buildObservations(
     drafts.push({
       kind: "evidence-gap",
       subjectSelectorId: repositorySubject,
+      affectedNodeIds: [],
       metrics: {
         unresolvedImportCount: snapshot.repositorySummary.unresolvedImportCount,
         edgeLimit: snapshot.codeFacts.edgeLimit,
@@ -292,9 +329,41 @@ export function buildObservations(
     });
   }
 
+  // Pairs keep the cheapest-cut order `bidirectionalModulePairs` produced; every other kind is
+  // ordered by subject. The planner's cap reads candidates in this order within one score.
   return drafts
-    .map((draft) => ({ ...draft, signalIds: [signalIdFor(draft)] }))
-    .sort((left, right) => compare(left.kind, right.kind) || compare(left.subjectSelectorId, right.subjectSelectorId));
+    .map((draft, index) => ({ draft, order: draft.kind === "cycle" ? index : 0 }))
+    .sort((left, right) => compare(left.draft.kind, right.draft.kind)
+      || left.order - right.order
+      || compare(left.draft.subjectSelectorId, right.draft.subjectSelectorId))
+    .map(({ draft }) => ({
+      kind: draft.kind,
+      subjectSelectorId: draft.subjectSelectorId,
+      affectedNodeIds: draft.affectedNodeIds,
+      signalIds: [signalIdFor(draft)],
+      metrics: draft.metrics,
+      evidence: draft.evidence
+    }));
+}
+
+/**
+ * Keeps the observations a scoped request is about: those whose `affectedNodeIds` intersect the
+ * scope's nodes. A `node` scope is that one node; a `paths` scope is every owner of the given
+ * tracked files under the snapshot's ownership rule (contested files count for each claimant).
+ * Repository-wide observations name no node and drop out of a scoped request; the coverage they
+ * describe stays visible in `codeFacts` and `confidence`.
+ */
+function scopeObservations(
+  observations: RefactorObservationV1[],
+  scope: RefactorRequestV1["scope"],
+  model: NativeModel,
+  trackedFiles: readonly string[]
+): RefactorObservationV1[] {
+  if (scope.kind === "repository") return observations;
+  const scopeNodes = scope.kind === "node"
+    ? new Set([scope.nodeId])
+    : new Set(resolveScopePaths(model, trackedFiles, scope.paths).owners);
+  return observations.filter((observation) => observation.affectedNodeIds.some((nodeId) => scopeNodes.has(nodeId)));
 }
 
 interface ProposalClassification {
@@ -509,8 +578,24 @@ function buildConfidence(
   };
 }
 
-function derivePressure(observations: RefactorObservationV1[]): RefactorAssessmentV1["pressure"] {
-  const score = Math.min(100, observations.reduce((total, observation) => total + PRESSURE_WEIGHTS[observation.kind], 0));
+/**
+ * Cycle pressure counts each strongly connected component of the measured graph once, however
+ * many pairs and residual cycles it splits into: the component is the structural problem, and one
+ * weight per pair would score a dense component by its size.
+ */
+function derivePressure(observations: RefactorObservationV1[], snapshot: ModuleStatisticsSnapshotV1): RefactorAssessmentV1["pressure"] {
+  const componentOf = new Map(snapshot.modules.map((module) => [module.nodeId, module.dependencyGraph?.stronglyConnectedComponentId ?? null]));
+  const components = new Set<string>();
+  let score = 0;
+  for (const observation of observations) {
+    if (observation.kind === "cycle" || observation.kind === "residual-cycle") {
+      const component = componentOf.get(observation.affectedNodeIds[0] ?? "") ?? observation.subjectSelectorId;
+      if (components.has(component)) continue;
+      components.add(component);
+    }
+    score += PRESSURE_WEIGHTS[observation.kind];
+  }
+  score = Math.min(100, score);
   return {
     level: score >= 60 ? "high" : score >= 30 ? "medium" : "low",
     score,
@@ -520,6 +605,7 @@ function derivePressure(observations: RefactorObservationV1[]): RefactorAssessme
 
 /** The signal names the measured fact (kind, subject, metrics); its evidence sample is not part of it. */
 function signalIdFor(draft: ObservationDraft): string {
+  // The signal names the measured fact: kind, subject, affected nodes and metrics.
   const { evidence: _evidence, ...fact } = draft;
   const digest = digestJson(fact as unknown as Json);
   return `signal.${draft.kind}.${digest.slice(DIGEST_PREFIX_LENGTH, DIGEST_PREFIX_LENGTH + SIGNAL_ID_LENGTH)}`;

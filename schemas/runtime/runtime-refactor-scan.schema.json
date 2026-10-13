@@ -9,6 +9,7 @@
     "repository",
     "worktree",
     "requestId",
+    "namespace",
     "request",
     "trackedFileCount",
     "snapshot",
@@ -34,6 +35,11 @@
     "requestId": {
       "type": "string",
       "pattern": "^refactor_request\\.[a-f0-9]{16}$"
+    },
+    "namespace": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$",
+      "description": "The manifest product.id every refactor subject selector of this scan is scoped by (ADR-0046)."
     },
     "request": {
       "$ref": "#/$defs/refactorRequest"
@@ -389,6 +395,7 @@
           "required": [
             "kind",
             "memberNodeIds",
+            "directions",
             "edges",
             "totalCount",
             "truncated"
@@ -396,6 +403,80 @@
           "properties": {
             "kind": {
               "const": "cycle"
+            },
+            "memberNodeIds": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "directions": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "[thin, thick] direction of the pair, each with its import-edge population and sampled count.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "fromNodeId",
+                  "toNodeId",
+                  "totalCount",
+                  "sampledCount"
+                ],
+                "properties": {
+                  "fromNodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "toNodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "totalCount": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "sampledCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "edges": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceImportEdge"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "memberNodeIds",
+            "edges",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "residual-cycle"
             },
             "memberNodeIds": {
               "$ref": "#/$defs/evidenceIdList"
@@ -575,6 +656,16 @@
             "string",
             "null"
           ]
+        },
+        "memberNodeIds": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Present exactly for moduleDependencies.* metrics: the pair ends or the residual cycle members, sorted."
         },
         "operator": {
           "enum": [
@@ -867,6 +958,7 @@
             "direction-violation",
             "evidence-gap",
             "ownership-ambiguous",
+            "residual-cycle",
             "undeclared-footprint",
             "unowned-paths"
           ]
@@ -975,6 +1067,26 @@
                 "properties": {
                   "kind": {
                     "const": "ownership-ambiguous"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "residual-cycle"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "residual-cycle"
                   }
                 }
               }
@@ -1719,6 +1831,7 @@
         "modelDigest",
         "codeFacts",
         "modules",
+        "moduleDependencies",
         "repositorySummary",
         "createdAt",
         "snapshotDigest"
@@ -1818,6 +1931,33 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/moduleStatistics"
+          }
+        },
+        "moduleDependencies": {
+          "type": "array",
+          "description": "Ordered cross-module dependency table, sorted by (fromNodeId, toNodeId).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "fromNodeId",
+              "toNodeId",
+              "distinctFileEdgeCount"
+            ],
+            "properties": {
+              "fromNodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "toNodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "distinctFileEdgeCount": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
           }
         },
         "repositorySummary": {
@@ -2095,6 +2235,7 @@
       "required": [
         "kind",
         "subjectSelectorId",
+        "affectedNodeIds",
         "signalIds",
         "metrics",
         "evidence"
@@ -2106,6 +2247,7 @@
             "direction-violation",
             "evidence-gap",
             "ownership-ambiguous",
+            "residual-cycle",
             "undeclared-footprint",
             "unowned-paths"
           ]
@@ -2114,6 +2256,15 @@
           "type": "string",
           "minLength": 1,
           "pattern": "\\S"
+        },
+        "affectedNodeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Declared nodes the observation is about, sorted and unique; [] for a repository-wide fact."
         },
         "signalIds": {
           "type": "array",
@@ -2204,6 +2355,26 @@
                 "properties": {
                   "kind": {
                     "const": "ownership-ambiguous"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "residual-cycle"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "residual-cycle"
                   }
                 }
               }

@@ -6,7 +6,11 @@ import {
   RECOMMENDATION_SCHEMA_VERSION,
   RECOMMENDATION_V3_SCHEMA_VERSION,
   REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
+  REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION,
   digestJson,
+  isRefactorDecisionStatus,
+  refactorNamespaceIssues,
+  sampleRefactorPairEvidence,
   recommendationV3FingerprintInput,
   recommendationV3InvariantIssues,
   type ArchitectureEventSource,
@@ -37,7 +41,7 @@ import {
   type RefactorProposalV1,
   type StructuralObservationPayloadV1
 } from "@archcontext/contracts";
-import { architectureSubjectSelectorId } from "@archcontext/core/architecture-delta";
+import { refactorSubjectSelectorId } from "@archcontext/core/architecture-delta";
 import { observationSeverityWorsened } from "@archcontext/core/refactor-assessment";
 
 export const RECOMMENDATION_SCHEDULER_ENGINE_VERSION = "archcontext.recommendation-scheduler/v1" as const;
@@ -936,13 +940,24 @@ function digestSuffix(digest: string): string {
   return digest.replace(/^sha256:/, "").slice(0, 16);
 }
 
-export const REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION = "archcontext.recommendation-fingerprint/v2" as const;
+/** Owned by contracts, beside the Git decision contract that records it. */
+export { REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION };
 
 export interface PreviousRecommendationV3 {
   recommendationId: string;
   fingerprint: string;
   status: RecommendationStatus;
   updatedAt: string;
+  /** The generation this one regresses from; generations of one fingerprint form one chain. */
+  regressesFrom: string | null;
+  /**
+   * Where `status` comes from (ADR-0046). `git` is a decision file in the current checkout, the only
+   * authority for a human status. `ledger` is a SQLite record: authoritative for the machine
+   * statuses (`open`, `superseded`, `expired`) only. A human status with `ledger` authority is audit
+   * of a decision that is not in this checkout; it suppresses nothing, and its fingerprint is
+   * emitted as a new generation that regresses from it, never as `open` under the decided id.
+   */
+  decisionAuthority: "git" | "ledger";
   /**
    * The prior record's `payload.metrics` when it is a `structural_observation` that carries them,
    * otherwise `null`: the measurement a `rejected` or `waived` decision was taken against.
@@ -957,6 +972,14 @@ export interface PlanRefactorRecommendationRunInput {
   assessment: RefactorAssessmentV1;
   /** The proposal returned by `assessRefactor`, carrying resolved `unresolvedTargets`. */
   proposal?: RefactorProposalV1;
+  /**
+   * The manifest `product.id` every refactor subject selector is scoped by (ADR-0046). The runtime
+   * reads and validates it; the planner never derives it from `repository`, whose `repositoryId`
+   * is a digest of the worktree path.
+   */
+  recommendationNamespace: string;
+  /** Digest of the Git decision set `previousRecommendations` was materialized from. */
+  decisionSetDigest: string;
   previousRecommendations?: PreviousRecommendationV3[];
   cooldowns?: RecommendationCooldownState[];
   catalogDigest: string;
@@ -1006,7 +1029,8 @@ export interface RefactorCandidateBudget {
 /**
  * `practice` delegates to the RF0-frozen hasher: `recommendationId` is derived from
  * `fingerprint`, so a migrated v2 record must keep the identity it was written with. Refactor
- * categories hash the contract-owned canonical input under a v2 fingerprint schema tag.
+ * categories hash the contract-owned canonical input under a v3 fingerprint schema tag; v3 is the
+ * first whose subject selector is scoped by the product namespace rather than the worktree path.
  */
 export function recommendationV3Fingerprint(
   recommendation: Pick<RecommendationV3, "category" | "subject" | "subjectSelectorId" | "practiceId" | "payload" | "evidenceBindingIds">
@@ -1038,6 +1062,8 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
   const schedulerPolicy = normalizeRecommendationSchedulerPolicy(input.schedulerPolicy);
   const policyMode = input.policyMode ?? schedulerPolicy.policyMode;
   const now = input.now;
+  const namespaceIssues = refactorNamespaceIssues(input.recommendationNamespace, "recommendationNamespace");
+  if (namespaceIssues.length > 0) throw new Error(`AC_SCHEMA_INVALID: ${namespaceIssues.join("; ")}`);
   const evidenceSampleLimit = input.evidenceSampleLimit ?? REFACTOR_OBSERVATION_EVIDENCE_LIMIT;
   if (!Number.isInteger(evidenceSampleLimit) || evidenceSampleLimit < 0 || evidenceSampleLimit > REFACTOR_OBSERVATION_EVIDENCE_LIMIT) {
     throw new Error(`AC_SCHEMA_INVALID: evidenceSampleLimit must be an integer between 0 and ${REFACTOR_OBSERVATION_EVIDENCE_LIMIT}`);
@@ -1054,6 +1080,10 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
   if (schedulerPolicy.enabled) {
     for (const draft of rankRefactorDrafts(candidateDrafts)) {
       const previous = latestByFingerprint.get(draft.fingerprint);
+      if (previous && unbackedHumanDecision(previous)) {
+        eligible.push({ draft, previous });
+        continue;
+      }
       if (previous && REFACTOR_ACTIVE_RECOMMENDATION_STATUSES.has(previous.status)) {
         suppressed.push({
           reasonCode: "duplicate-active-fingerprint",
@@ -1086,6 +1116,8 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
     policyMode,
     schedulerPolicy,
     catalogDigest: input.catalogDigest,
+    recommendationNamespace: input.recommendationNamespace,
+    decisionSetDigest: input.decisionSetDigest,
     snapshotDigest: input.snapshot.snapshotDigest,
     assessmentDigest: input.assessment.assessmentDigest,
     proposalDigest: input.assessment.proposalDigest,
@@ -1101,6 +1133,8 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       fingerprint: recommendation.fingerprint,
       status: recommendation.status,
       updatedAt: recommendation.updatedAt,
+      regressesFrom: recommendation.regressesFrom,
+      decisionAuthority: recommendation.decisionAuthority,
       observationMetrics: recommendation.observationMetrics
     })),
     cooldowns: input.cooldowns ?? [],
@@ -1134,7 +1168,7 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
     // A resolved prior, or a rejected/waived one that got worse, is never touched:
     // the re-detection is a new record that points back at it, never `open` under the old id.
     const relations: RecommendationRelationsV1 = previous !== undefined
-      && (previous.status === "resolved" || REFACTOR_DECIDED_RECOMMENDATION_STATUSES.has(previous.status))
+      && (previous.status === "resolved" || REFACTOR_DECIDED_RECOMMENDATION_STATUSES.has(previous.status) || unbackedHumanDecision(previous))
       ? { regressesFrom: previous.recommendationId }
       : {};
     const recommendationId = refactorRecommendationId(draft.fingerprint, relations.regressesFrom ?? null);
@@ -1271,7 +1305,7 @@ export function refactorRecommendationRunLedgerPayload(plan: RefactorRecommendat
  * resolved record a regression points back at. Binding `regressesFrom` into the id keeps every
  * link in a regression chain a distinct row.
  */
-function refactorRecommendationId(fingerprint: string, regressesFrom: string | null): string {
+export function refactorRecommendationId(fingerprint: string, regressesFrom: string | null): string {
   return `recommendation.${digestSuffix(digestJson({ fingerprint, regressesFrom } as unknown as Json))}`;
 }
 
@@ -1294,16 +1328,38 @@ interface RefactorRecommendationDraft {
 
 /**
  * Same order as `budgetRecommendationCandidates`: highest score first, then stable tiebreakers so
- * truncation is deterministic. When the cap bites, the surviving drafts are the highest-scoring
- * unsuppressed ones, and within an equal score the lowest `subjectSelectorId`, then the lowest
- * `fingerprint`.
+ * truncation is deterministic. Within an equal score, bidirectional pairs come first, cheapest cut
+ * first (`thinDirectionEdgeCount`, `totalEdgeCount`, then the two ends); every other draft follows
+ * by the lowest `subjectSelectorId`, then the lowest `fingerprint`. When the cap bites, the
+ * surviving drafts are the highest-scoring unsuppressed ones in that order.
  */
 function rankRefactorDrafts(drafts: readonly RefactorRecommendationDraft[]): RefactorRecommendationDraft[] {
-  return [...drafts].sort((left, right) =>
-    right.score - left.score
-    || left.subjectSelectorId.localeCompare(right.subjectSelectorId)
-    || left.fingerprint.localeCompare(right.fingerprint)
-  );
+  return [...drafts].sort((left, right) => {
+    const leftPair = pairRankKey(left);
+    const rightPair = pairRankKey(right);
+    return right.score - left.score
+      || (leftPair ? 0 : 1) - (rightPair ? 0 : 1)
+      || (leftPair && rightPair
+        ? leftPair.thin - rightPair.thin
+          || leftPair.total - rightPair.total
+          || leftPair.first.localeCompare(rightPair.first)
+          || leftPair.second.localeCompare(rightPair.second)
+        : 0)
+      || left.subjectSelectorId.localeCompare(right.subjectSelectorId)
+      || left.fingerprint.localeCompare(right.fingerprint);
+  });
+}
+
+function pairRankKey(draft: RefactorRecommendationDraft): { thin: number; total: number; first: string; second: string } | undefined {
+  if (draft.category !== "structural_observation") return undefined;
+  const payload = draft.payload as StructuralObservationPayloadV1;
+  if (payload.kind !== "cycle") return undefined;
+  return {
+    thin: payload.metrics.thinDirectionEdgeCount ?? 0,
+    total: payload.metrics.totalEdgeCount ?? 0,
+    first: payload.affectedNodeIds[0] ?? "",
+    second: payload.affectedNodeIds[1] ?? ""
+  };
 }
 
 function refactorSchedulerBudget(
@@ -1350,6 +1406,7 @@ const DAEMON_AUTHOR: RecommendationAuthorV1 = { kind: "daemon", id: "archctxd", 
 
 const OBSERVATION_RISK_SIGNALS: Readonly<Record<RefactorObservationKind, readonly RecommendationRiskSignal[]>> = {
   "cycle": ["cycle-detected"],
+  "residual-cycle": ["cycle-detected"],
   "direction-violation": ["boundary-change"],
   "evidence-gap": [],
   "ownership-ambiguous": ["ownership-change"],
@@ -1377,7 +1434,8 @@ function observationDrafts(input: PlanRefactorRecommendationRunInput, evidenceSa
   const baselineEvidenceId = baselineSnapshotEvidenceItem(input).evidenceId;
   return input.assessment.observations.map((assessed) => {
     const observation = { ...assessed, evidence: limitEvidenceSample(assessed.evidence, evidenceSampleLimit) };
-    const affectedNodeIds = observationAffectedNodeIds(input.snapshot, observation);
+    // Producer-authored: the assessment measured which nodes the observation is about.
+    const affectedNodeIds = [...observation.affectedNodeIds];
     const payload: StructuralObservationPayloadV1 = {
       assessmentDigest: input.assessment.assessmentDigest,
       kind: observation.kind,
@@ -1419,6 +1477,9 @@ function limitEvidenceSample(evidence: RefactorObservationEvidenceV1, limit: num
   const truncated = evidence.totalCount > limit;
   switch (evidence.kind) {
     case "cycle":
+      // A pair is cut by direction, thin first, so its cheapest cut is never the part cut away.
+      return sampleRefactorPairEvidence(evidence, limit);
+    case "residual-cycle":
       return { ...evidence, edges: evidence.edges.slice(0, limit), truncated };
     case "direction-violation":
       return { ...evidence, violations: evidence.violations.slice(0, limit), truncated };
@@ -1443,11 +1504,23 @@ export function observationExplanation(observation: RefactorObservationV1, affec
     : [];
   switch (evidence.kind) {
     case "cycle": {
-      // The contract requires it for a cycle; the record validator rejects one without it.
+      // The contract requires these for a pair; the record validator rejects one without them.
+      const [thin, thick] = evidence.directions;
+      const thinEdges = evidence.edges.filter((edge) => edge.fromNodeId === thin!.fromNodeId && edge.toNodeId === thin!.toNodeId);
+      const thickEdges = evidence.edges.filter((edge) => edge.fromNodeId === thick!.fromNodeId && edge.toNodeId === thick!.toNodeId);
+      const examples = [...thinEdges, ...thickEdges].slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `${evidence.memberNodeIds[0]} and ${evidence.memberNodeIds[1]} import each other: ${observation.metrics.forwardEdgeCount} file edge(s) ${evidence.memberNodeIds[0]} → ${evidence.memberNodeIds[1]}, ${observation.metrics.backwardEdgeCount} back.`,
+        `The thinner direction is ${thin!.fromNodeId} → ${thin!.toNodeId} (${observation.metrics.thinDirectionEdgeCount} file edge(s)); removing it breaks this pair. It is a cost hint, not an approved change.`,
+        ...examples.map((edge) => `${edgeText(edge)} (${edge.fromNodeId} → ${edge.toNodeId}).`),
+        ...more(examples.length)
+      ];
+    }
+    case "residual-cycle": {
       const memberCount = observation.metrics.memberCount as number;
       const examples = evidence.edges.slice(0, EXPLANATION_EXAMPLE_LIMIT);
       return [
-        `Import cycle between ${memberCount} modules (${idListText(evidence.memberNodeIds, memberCount)}): ${evidence.totalCount} file-level import edge(s) keep them mutually dependent.`,
+        `Import cycle between ${memberCount} modules (${idListText(evidence.memberNodeIds, memberCount)}) that remains even after the thinner direction of every mutually importing pair is removed: ${observation.metrics.cycleEdgeCount} module dependency edge(s) keep it closed.`,
         ...examples.map((edge) => `${edgeText(edge)} (${edge.fromNodeId} → ${edge.toNodeId}).`),
         ...more(examples.length)
       ];
@@ -1510,6 +1583,7 @@ function importLimitText(metrics: RefactorObservationV1["metrics"]): string {
 function evidenceLength(evidence: RefactorObservationEvidenceV1): number {
   switch (evidence.kind) {
     case "cycle":
+    case "residual-cycle":
       return evidence.edges.length;
     case "direction-violation":
       return evidence.violations.length;
@@ -1538,24 +1612,41 @@ function locationText(path: string, line: number | null): string {
 }
 
 /**
- * Canonical selector identity for an observation subject, so a refactor record and an
- * architecture-delta subject name the same thing. RF2 subjects come in three shapes: a declared
- * node id, `repository:<id>`, and `scc:<componentId>`. There is no `scc` arm in
- * `ArchitectureSubjectSelectorKind`, so a strongly connected component is addressed as a
- * repository-kind selector whose stableKey carries the component id — the component is a
- * repository-level fact, not a declared node.
+ * Canonical refactor selector identity for an observation subject, scoped by the product namespace
+ * (ADR-0046). Subjects come in four shapes: a declared node id, `repository:<id>`, `pair:A|B` and
+ * `cycle:<componentId>`. A pair or a residual cycle is not a declared node, so it is addressed as a
+ * repository-kind selector whose stableKey is the subject itself: a pair's key is its two ends and
+ * nothing else, so a module joining the surrounding component never moves it. A repository-wide
+ * fact keys on the constant `repository`, never on the worktree-path `repositoryId`.
  */
 function observationSubjectSelectorId(
   input: PlanRefactorRecommendationRunInput,
   observation: RefactorObservationV1
 ): string {
-  const repositoryId = input.repository.repositoryId;
-  const subject = observation.subjectSelectorId;
-  if (input.snapshot.modules.some((module) => module.nodeId === subject)) {
-    return architectureSubjectSelectorId("node", repositoryId, `node:${subject}`);
+  const key = refactorRecommendationSubjectKey("structural_observation", observation.subjectSelectorId, observation.affectedNodeIds);
+  return refactorSubjectSelectorId(key.selectorKind, input.recommendationNamespace, key.stableKey);
+}
+
+/**
+ * The selector kind and stable key a refactor recommendation's subject is hashed under, from the
+ * record alone: a proposal addresses its node set (`nodes:<sorted>|...`) or the repository; an
+ * observation on a pair or a residual component is a repository-level fact keyed by that subject,
+ * a repository observation is keyed `repository`, and any other observation subject is a module
+ * node keyed `node:<id>`. The planner and the Git decision reader share this one rule.
+ */
+export function refactorRecommendationSubjectKey(
+  category: "refactor_proposal" | "structural_observation",
+  subject: string,
+  affectedNodeIds: readonly string[]
+): { selectorKind: "node" | "repository"; stableKey: string } {
+  if (category === "refactor_proposal") {
+    return affectedNodeIds.length === 0
+      ? { selectorKind: "repository", stableKey: "repository" }
+      : { selectorKind: "node", stableKey: `nodes:${[...affectedNodeIds].sort().join("|")}` };
   }
-  if (subject.startsWith("scc:")) return architectureSubjectSelectorId("repository", repositoryId, subject);
-  return architectureSubjectSelectorId("repository", repositoryId, "repository");
+  if (subject.startsWith("pair:") || subject.startsWith("cycle:")) return { selectorKind: "repository", stableKey: subject };
+  if (subject.startsWith("repository:")) return { selectorKind: "repository", stableKey: "repository" };
+  return { selectorKind: "node", stableKey: `node:${subject}` };
 }
 
 function proposalDrafts(input: PlanRefactorRecommendationRunInput): RefactorRecommendationDraft[] {
@@ -1592,7 +1683,7 @@ function proposalDrafts(input: PlanRefactorRecommendationRunInput): RefactorReco
     subject: input.assessment.affectedNodeIds.length === 1
       ? input.assessment.affectedNodeIds[0]!
       : `repository:${input.repository.repositoryId}`,
-    subjectSelectorId: proposalSubjectSelectorId(input.repository.repositoryId, input.assessment.affectedNodeIds),
+    subjectSelectorId: proposalSubjectSelectorId(input.recommendationNamespace, input.assessment.affectedNodeIds),
     payload,
     authoredBy: proposal.authoredBy,
     enforcement: scale === "architecture" ? ("complete" as const) : ("checkpoint" as const),
@@ -1669,7 +1760,7 @@ function sealEvidenceItem(draft: EvidenceItemV2): EvidenceItemV2 {
 
 function modelAdoptionEvidenceItems(input: PlanRefactorRecommendationRunInput): EvidenceItemV2[] {
   if (!input.proposal || input.assessment.scale !== "model_adoption_required") return [];
-  const subject = proposalSubjectSelectorId(input.repository.repositoryId, input.assessment.affectedNodeIds);
+  const subject = proposalSubjectSelectorId(input.recommendationNamespace, input.assessment.affectedNodeIds);
   return [sealEvidenceItem({
     schemaVersion: EVIDENCE_ITEM_SCHEMA_VERSION,
     evidenceId: `evidence.refactor_model_adoption.${digestSuffix(input.assessment.assessmentDigest)}`,
@@ -1704,44 +1795,64 @@ function draftFingerprint(
   } as Pick<RecommendationV3, "category" | "subject" | "subjectSelectorId" | "practiceId" | "payload" | "evidenceBindingIds">);
 }
 
-function proposalSubjectSelectorId(repositoryId: string, affectedNodeIds: readonly string[]): string {
-  return affectedNodeIds.length === 0
-    ? architectureSubjectSelectorId("repository", repositoryId, "repository")
-    : architectureSubjectSelectorId("node", repositoryId, `nodes:${[...affectedNodeIds].sort().join("|")}`);
-}
-
-function observationAffectedNodeIds(snapshot: ModuleStatisticsSnapshotV1, observation: RefactorObservationV1): string[] {
-  const direct = snapshot.modules.find((module) => module.nodeId === observation.subjectSelectorId);
-  if (direct) return [direct.nodeId];
-  if (observation.subjectSelectorId.startsWith("scc:")) {
-    const componentId = observation.subjectSelectorId.slice("scc:".length);
-    return snapshot.modules
-      .filter((module) => module.dependencyGraph?.stronglyConnectedComponentId === componentId)
-      .map((module) => module.nodeId)
-      .sort();
-  }
-  return [];
+function proposalSubjectSelectorId(namespace: string, affectedNodeIds: readonly string[]): string {
+  const key = refactorRecommendationSubjectKey("refactor_proposal", "", affectedNodeIds);
+  return refactorSubjectSelectorId(key.selectorKind, namespace, key.stableKey);
 }
 
 function coverageUncertaintySignals(snapshot: ModuleStatisticsSnapshotV1): RecommendationUncertaintySignal[] {
   return snapshot.codeFacts.coverage === "complete" ? [] : ["low-coverage"];
 }
 
+/** A human status the current checkout does not back with a decision file: audit only. */
+function unbackedHumanDecision(previous: PreviousRecommendationV3): boolean {
+  return previous.decisionAuthority === "ledger" && isRefactorDecisionStatus(previous.status);
+}
+
+/**
+ * The head generation of each fingerprint. Generations of one fingerprint form one chain
+ * (`recommendationId` is derived from `fingerprint` and `regressesFrom`), so the head is decided by
+ * lineage, never by comparing clocks of different machines or stores: it is the generation no other
+ * generation regresses from. Within one generation (one id), a Git decision wins over every ledger
+ * record of it; among ledger records the latest `updatedAt` wins, then the later entry. If a gap
+ * leaves several unreferenced generations, the deepest chain wins, then the latest `updatedAt`.
+ */
 function latestRecommendationV3ByFingerprint(
   previous: readonly PreviousRecommendationV3[]
 ): Map<string, PreviousRecommendationV3> {
-  const latest = new Map<string, PreviousRecommendationV3>();
+  const byFingerprint = new Map<string, Map<string, PreviousRecommendationV3>>();
   for (const recommendation of previous) {
-    const current = latest.get(recommendation.fingerprint);
+    const generations = byFingerprint.get(recommendation.fingerprint) ?? new Map<string, PreviousRecommendationV3>();
+    const current = generations.get(recommendation.recommendationId);
     if (
       !current
-      || recommendation.updatedAt.localeCompare(current.updatedAt) > 0
-      // Same id at the same instant is one record decided in the same append: the later event wins.
-      || (recommendation.updatedAt === current.updatedAt
-        && recommendation.recommendationId.localeCompare(current.recommendationId) >= 0)
+      || (current.decisionAuthority === "ledger" && recommendation.decisionAuthority === "git")
+      || (current.decisionAuthority === recommendation.decisionAuthority
+        && recommendation.updatedAt.localeCompare(current.updatedAt) >= 0)
     ) {
-      latest.set(recommendation.fingerprint, recommendation);
+      generations.set(recommendation.recommendationId, recommendation);
     }
+    byFingerprint.set(recommendation.fingerprint, generations);
+  }
+  const latest = new Map<string, PreviousRecommendationV3>();
+  for (const [fingerprint, generations] of byFingerprint) {
+    const referenced = new Set([...generations.values()].map((generation) => generation.regressesFrom).filter((id): id is string => id !== null));
+    const depth = (generation: PreviousRecommendationV3): number => {
+      let count = 0;
+      const seen = new Set<string>();
+      for (let cursor: PreviousRecommendationV3 | undefined = generation; cursor && !seen.has(cursor.recommendationId);) {
+        seen.add(cursor.recommendationId);
+        count += 1;
+        cursor = cursor.regressesFrom === null ? undefined : generations.get(cursor.regressesFrom);
+      }
+      return count;
+    };
+    const heads = [...generations.values()]
+      .filter((generation) => !referenced.has(generation.recommendationId))
+      .sort((left, right) => depth(right) - depth(left)
+        || right.updatedAt.localeCompare(left.updatedAt)
+        || left.recommendationId.localeCompare(right.recommendationId));
+    if (heads[0]) latest.set(fingerprint, heads[0]);
   }
   return latest;
 }

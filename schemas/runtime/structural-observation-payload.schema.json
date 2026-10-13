@@ -24,6 +24,7 @@
         "direction-violation",
         "evidence-gap",
         "ownership-ambiguous",
+        "residual-cycle",
         "undeclared-footprint",
         "unowned-paths"
       ]
@@ -132,6 +133,26 @@
             "properties": {
               "kind": {
                 "const": "ownership-ambiguous"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "residual-cycle"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "kind": {
+                "const": "residual-cycle"
               }
             }
           }
@@ -344,6 +365,7 @@
           "required": [
             "kind",
             "memberNodeIds",
+            "directions",
             "edges",
             "totalCount",
             "truncated"
@@ -351,6 +373,80 @@
           "properties": {
             "kind": {
               "const": "cycle"
+            },
+            "memberNodeIds": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "directions": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "[thin, thick] direction of the pair, each with its import-edge population and sampled count.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "fromNodeId",
+                  "toNodeId",
+                  "totalCount",
+                  "sampledCount"
+                ],
+                "properties": {
+                  "fromNodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "toNodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "totalCount": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "sampledCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "edges": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceImportEdge"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "memberNodeIds",
+            "edges",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "residual-cycle"
             },
             "memberNodeIds": {
               "$ref": "#/$defs/evidenceIdList"
@@ -530,6 +626,16 @@
             "string",
             "null"
           ]
+        },
+        "memberNodeIds": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Present exactly for moduleDependencies.* metrics: the pair ends or the residual cycle members, sorted."
         },
         "operator": {
           "enum": [

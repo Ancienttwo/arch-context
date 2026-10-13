@@ -17,7 +17,7 @@ import { initializeArchContextModel, listModelFiles, planGeneratedProjection, Ya
 import { ChangeSetEngine, type ApplyOptions, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
 import { createNodeGithubIssueExecutor, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueExecutorPort, type GithubIssuePreflightDraft } from "../src/github-issue-executor";
-import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, type ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
+import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, type ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, runtimeDefaultClock } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
@@ -98,7 +98,7 @@ function architectureDocsProjectionOperation(root: string) {
     op: "render_projection" as const,
     expectedHash: "missing",
     projectionFiles: [...plan.files.map((file) => ({ path: file.path, body: file.body })), plan.manifest]
-      .map((file) => ({ path: file.path, expectedHash: currentBodyHash(root, file.path), body: file.body }))
+      .map((file) => ({ path: file.path, expectedHash: currentBodyHash(root, file.path), body: projectionOwnedWriteBody(file.body, currentBody(root, file.path)) }))
   };
 }
 
@@ -153,14 +153,19 @@ function agentContextProjectionOperation(root: string) {
     projectionFiles: plan.files.map((file) => ({
       path: file.path,
       expectedHash: currentBodyHash(root, file.path),
-      body: file.body
+      body: projectionOwnedWriteBody(file.body, currentBody(root, file.path))
     }))
   };
 }
 
-function currentBodyHash(root: string, path: string): string {
+function currentBody(root: string, path: string): string | undefined {
   const absolute = resolve(root, path);
-  return existsSync(absolute) ? digestJson({ body: readFileSync(absolute, "utf8") } as unknown as Json) : "missing";
+  return existsSync(absolute) ? readFileSync(absolute, "utf8") : undefined;
+}
+
+function currentBodyHash(root: string, path: string): string {
+  const body = currentBody(root, path);
+  return body === undefined ? "missing" : digestJson({ body } as unknown as Json);
 }
 
 function countingCheckpointFacts(): { port: CodeFactsPort; counts: () => { sync: number; buildTaskContext: number } } {
@@ -918,6 +923,76 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("a core.autocrlf checkout of the projected documents passes the drift gate and re-projects in place", async () => {
+    // Windows runners and developer machines check the LF documents out with CRLF. Line endings are
+    // not drift; a hand edit inside a machine region still is.
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:45:00.000Z" });
+      await daemon.init(root, "Projection CRLF App");
+      declareOptionalCodeFacts(root);
+      execFileSync("git", ["config", "core.autocrlf", "true"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`,
+        "utf8"
+      );
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src/app.ts"), "export const app = 1;\n", "utf8");
+      const projected = await daemon.docsProjection(root, { action: "apply", approved: true, id: "changeset.docs-crlf" });
+      expect(projected).toMatchObject({ ok: true });
+      gitCommitAll(root, "project architecture documentation");
+      // `readText` folds CRLF; this test compares the bytes on disk.
+      const rawText = (path: string) => readFileSync(path, "utf8");
+      const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+      const lfManifest = rawText(manifestPath);
+      const docPath = join(root, "docs/architecture/modules/capability-architecture-context.md");
+      const lfDoc = rawText(docPath);
+      expect(lfDoc).toContain("<!-- BEGIN ARCHCONTEXT:generated");
+      expect(lfDoc).not.toContain("\r");
+      const checkOutWithCrlf = () => {
+        rmSync(join(root, "docs/architecture"), { recursive: true, force: true });
+        execFileSync("git", ["checkout", "--", "docs/architecture"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+        expect(rawText(docPath)).toBe(lfDoc.replaceAll("\n", "\r\n"));
+        expect(rawText(manifestPath)).toBe(lfManifest.replaceAll("\n", "\r\n"));
+      };
+      checkOutWithCrlf();
+
+      const complete = await daemon.completeTask(root, {
+        taskSessionId: "task_docs_crlf",
+        task: "finish on a CRLF checkout"
+      });
+      expect((complete.data as any).result).toBe("pass");
+      expect((complete.data as any).extensions.projectionDriftGate).toBeUndefined();
+      expect((complete.data as any).extensions.projectionFreshnessGate).toBeUndefined();
+
+      // `archctx docs apply` on this checkout: the ChangeSet preconditions hash the CRLF bytes on
+      // disk, and the write keeps each file's CRLF line endings, so Git sees no change at all.
+      const reapplied = await daemon.docsProjection(root, { action: "apply", approved: true, id: "changeset.docs-crlf-reapply" });
+      expect(reapplied).toMatchObject({ ok: true });
+      expect(rawText(docPath)).toBe(lfDoc.replaceAll("\n", "\r\n"));
+      expect(rawText(manifestPath)).toBe(lfManifest.replaceAll("\n", "\r\n"));
+      expect(gitOut(root, "status", "--porcelain")).toBe("");
+      const drift = await daemon.docsProjection(root, { action: "drift" });
+      expect((drift.data as any).drift).toMatchObject({ ok: true, reasonCodes: [], diffs: [], orphans: [] });
+
+      checkOutWithCrlf();
+      const generatedLine = rawText(docPath).split("\r\n").findIndex((line) => line.startsWith("- 規模量級:"));
+      expect(generatedLine).toBeGreaterThan(0);
+      writeFileSync(docPath, rawText(docPath).split("\r\n").map((line, index) => index === generatedLine ? `${line} (hand edit)` : line).join("\r\n"), "utf8");
+      const edited = await daemon.completeTask(root, {
+        taskSessionId: "task_docs_crlf",
+        task: "finish after a hand edit inside the machine region"
+      });
+      expect((edited.data as any).result).toBe("fail_action_required");
+      expect((edited.data as any).extensions.projectionDriftGate.reasonCodes).toEqual(["projection-generated-region-manually-edited"]);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("a second process cannot start on a store whose live writer is mid-ChangeSet; cold start still recovers (#160)", async () => {
     // Process A holds writer ownership with a pending journal: original moved to backup, temp file
     // half written. Before #160, process B's startup recovery treated that live transaction as crash
@@ -1249,6 +1324,43 @@ setInterval(() => undefined, 1 << 30);
       await expect(daemon.applyUpdate(root, { id: "changeset.root-forged", approved: true, expectedWorktreeDigest: (denied.data as any).draft.base.worktreeDigest })).rejects.toThrow();
       expect(readText(join(root, "AGENTS.md"))).toBe(operation.projectionFiles.find(file => file.path === "AGENTS.md")!.body);
     } finally { await daemon?.stop(); removeTempRepo(root); }
+  });
+
+  test("agent-context apply on CRLF root contracts keeps the human bytes and leaves git clean", async () => {
+    const root = createGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-08-08T10:50:00.000Z" });
+      await daemon.init(root, "Root Contract CRLF App");
+      execFileSync("git", ["config", "core.autocrlf", "false"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      const nodePath = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
+      writeFileSync(nodePath, `${readText(nodePath)}extensions:\n  contractFiles:\n    agents: "AGENTS.md"\n    claude: "CLAUDE.md"\n`);
+      const human = "# Human routing\r\n\r\nKeep these trailing spaces.  \r\n\r\n\r\n";
+      for (const path of ["AGENTS.md", "CLAUDE.md"]) writeFileSync(join(root, path), human);
+      gitCommitAll(root, "declare root contracts with CRLF human text");
+      const rawText = (path: string) => readFileSync(join(root, path), "utf8");
+
+      // First apply goes through `validateRootWrite` against CRLF files: the human text above the
+      // markers is untouched and the generated region is written with the file's CRLF endings.
+      const first = await daemon.agentContextProjection(root, { action: "apply", approved: true, id: "changeset.agent-context-crlf" });
+      expect(first).toMatchObject({ ok: true });
+      for (const path of ["AGENTS.md", "CLAUDE.md"]) {
+        expect(rawText(path).startsWith(human)).toBe(true);
+        expect(rawText(path).length).toBeGreaterThan(human.length);
+        expect(rawText(path).replaceAll("\r\n", "")).not.toContain("\n");
+      }
+      gitCommitAll(root, "project root contracts");
+      const projected = { agents: rawText("AGENTS.md"), claude: rawText("CLAUDE.md") };
+
+      const again = await daemon.agentContextProjection(root, { action: "apply", approved: true, id: "changeset.agent-context-crlf-again" });
+      expect(again).toMatchObject({ ok: true });
+      expect(rawText("AGENTS.md")).toBe(projected.agents);
+      expect(rawText("CLAUDE.md")).toBe(projected.claude);
+      expect(gitOut(root, "status", "--porcelain")).toBe("");
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
   });
 
   test("agent-context projection applies through its own ChangeSet operation kind and is idempotent", async () => {

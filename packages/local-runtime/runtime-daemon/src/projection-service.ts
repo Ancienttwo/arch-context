@@ -6,9 +6,9 @@ import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -159,7 +159,7 @@ export function buildArchitectureDocsProjection(
   root: string,
   generatedAt: string,
   profile: ArchitectureProjectionProfile = "default",
-  existingFilesOverride?: { path: string; body: string }[],
+  existingFilesOverride?: ProjectionOwnedFile[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   const inputs = measureArchitectureDocsProjectionInputs(root, profile);
@@ -201,7 +201,7 @@ function rerenderArchitectureDocsProjection(
   root: string,
   previous: ReturnType<typeof buildArchitectureDocsProjection>,
   generatedAt: string,
-  existingFiles: { path: string; body: string }[],
+  existingFiles: ProjectionOwnedFile[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   const { inputs } = previous;
@@ -221,7 +221,7 @@ function renderArchitectureDocsProjectionFromInputs(
   root: string,
   inputs: ReturnType<typeof measureArchitectureDocsProjectionInputs>,
   generatedAt: string,
-  existingFiles: { path: string; body: string }[],
+  existingFiles: ProjectionOwnedFile[],
   acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined
 ) {
   const { profile, sourceDigest, codeGraphInputs, sourceFootprints } = inputs;
@@ -318,14 +318,14 @@ async function runArchitectureDocsAdoptionCommand(
   const simulatedByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file]));
   // The protocol write also deletes generated-only orphans, so the fixed point is proven without them.
   if (protocolRequest) for (const orphan of projectionDeletableOrphans(projection)) simulatedByPath.delete(orphan.path);
-  for (const file of [...projection.files, ...adoption.files]) simulatedByPath.set(file.path, file);
+  for (const file of [...projection.files, ...adoption.files]) simulatedByPath.set(file.path, simulatedProjectionFile(file));
   const canonicalFirst = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...simulatedByPath.values()]);
   const canonicalExistingByPath = new Map(simulatedByPath);
-  for (const file of canonicalFirst.files) canonicalExistingByPath.set(file.path, file);
+  for (const file of canonicalFirst.files) canonicalExistingByPath.set(file.path, simulatedProjectionFile(file));
   // Adoption changes whole-document digests. Refresh signal IDs then settle against that
   // canonical baseline in the manifest before a final render can prove the fixed point.
   const canonicalBaseline = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...canonicalExistingByPath.values()]);
-  for (const file of canonicalBaseline.files) canonicalExistingByPath.set(file.path, file);
+  for (const file of canonicalBaseline.files) canonicalExistingByPath.set(file.path, simulatedProjectionFile(file));
   const canonical = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...canonicalExistingByPath.values()]);
   if (!canonical.plan.drift.ok || canonical.plan.rejected.length > 0 || canonical.plan.projectionDigest !== canonicalFirst.plan.projectionDigest) {
     const reasons = canonical.plan.rejected.map((entry) => entry.reasonCode).join(",") || "none";
@@ -545,8 +545,11 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       const existing = inspected.data as { found?: boolean; receipt?: ProjectionApplyReceiptV1 };
       if (existing.found === true) {
         if (!existing.receipt) throw new Error("committed projection apply receipt lookup returned no receipt");
-        // Another request already applied this exact accepted change.
-        return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed");
+        // Another request already applied this exact accepted change. Its outputs are proven, or
+        // restored under the original receipt, before the refusal points the caller at readback (#325).
+        const outputs = await proveOrRestoreCommittedProjectionApply(existing.receipt, root, daemon);
+        if (outputs.kind === "failed") return outputs.envelope;
+        return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed", outputs.kind === "restored");
       }
     } catch (error) {
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
@@ -590,7 +593,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     let fixedPointProjection: ReturnType<typeof buildArchitectureDocsProjection>;
     try {
       fixedPointProjection = acceptedChange
-        ? rerenderArchitectureDocsProjection(root, projection, generatedAt, projection.files)
+        ? rerenderArchitectureDocsProjection(root, projection, generatedAt, projection.files.map(simulatedProjectionFile))
         : projection;
       if (acceptedChange && (
         fixedPointProjection.plan.rejected.length > 0
@@ -685,12 +688,124 @@ async function replayCommittedProjectionApply(
       latest.receipt.recovery?.requestDigest === undefined ? "projection-apply-request-digest-unrecorded" : "projection-apply-request-differs"
     );
   }
+  const outputs = await proveOrRestoreCommittedProjectionApply(match.receipt, root, daemon);
+  if (outputs.kind === "failed") return outputs.envelope;
   // A receipt whose refresh signals were never delivered answers as the first run would have
   // without its delivery: applied, reconcile required, recover with the receipt to deliver.
   const committedResult = match.delivered
     ? match.receipt.result
     : projectionResultDelivery(match.receipt.result, "applied-reconcile-required", []);
-  return projectionProtocolResultEnvelope({ ...committedResult, replayed: true });
+  return projectionProtocolResultEnvelope({ ...committedResult, replayed: true, written: outputs.kind === "restored" });
+}
+
+type CommittedProjectionApplyOutputs =
+  /** The receipt has no recovery binding, so its outputs can be neither proven nor restored. */
+  | { kind: "unprovable" }
+  /** HEAD or the projection worktree digest moved since the approval; nothing is proven or written. */
+  | { kind: "snapshot-moved" }
+  /** The readback proof passed: the projection-owned outputs are the committed fixed point. */
+  | { kind: "proven" }
+  /** The outputs differed at the approved snapshot and the committed fixed point was written again. */
+  | { kind: "restored" }
+  | { kind: "failed"; envelope: JsonEnvelope };
+
+/**
+ * Before a replay or a repeated accepted change answers with a committed apply, its
+ * projection-owned outputs go through the proof `projection readback` runs (#325). When the
+ * current snapshot still equals the approved one and the proof fails, the outputs were changed
+ * after the commit (a restored `docs/architecture/`, a lost response followed by a checkout). The
+ * approved request is then rendered again, and its fixed point is written through the ordinary
+ * ChangeSet path under the daemon writer lock, but only after it reproduces the receipt's recorded
+ * resulting digests and owned-output digest byte for byte. Anything else fails closed: a human
+ * edit inside `docs/architecture/`, another renderer, or a moved snapshot is never overwritten.
+ * The receipt, its delivery checkpoint and its refresh signals are not touched; the write is an
+ * own journal entry (`changeset.docs-projection-restore-<applyId>`) under the receipt's requestId.
+ */
+async function proveOrRestoreCommittedProjectionApply(
+  receipt: ProjectionApplyReceiptV1,
+  root: string,
+  daemon: ProjectionServiceHost
+): Promise<CommittedProjectionApplyOutputs> {
+  const binding = receipt.recovery;
+  const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
+  if (!binding || !readbackRequest?.acceptedChange) return { kind: "unprovable" };
+  const model = loadNativeModelFromArchContext(root);
+  try {
+    assertProjectionExpectedSnapshotAgainstModel(readbackRequest, root, model);
+  } catch (error) {
+    // Only a snapshot that was read and differs is a moved snapshot; a failed read is an error.
+    if (error instanceof ProjectionExpectedSnapshotMismatchError) return { kind: "snapshot-moved" };
+    throw error;
+  }
+  const readback = await daemon.readbackProjectionApply(root, readbackRequest);
+  if (readback.ok) {
+    if ((readback.data as { schemaVersion?: unknown } | undefined)?.schemaVersion !== PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION) {
+      return { kind: "failed", envelope: errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "committed projection apply receipt was unavailable for its readback proof") };
+    }
+    return { kind: "proven" };
+  }
+  if (readback.error?.code !== "AC_PRECONDITION_FAILED") return { kind: "failed", envelope: readback };
+
+  const generatedAt = new Date(0).toISOString();
+  let input: ReturnType<typeof buildArchitectureDocsProjection>;
+  let fixedPoint: ReturnType<typeof buildArchitectureDocsProjection>;
+  try {
+    input = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, readbackRequest.acceptedChange);
+    assertProjectionExpectedSnapshot(readbackRequest, root, input);
+    // Like the first apply, the fixed point reuses the input render's measured inputs (#324).
+    fixedPoint = rerenderArchitectureDocsProjection(root, input, generatedAt, input.files);
+  } catch (error) {
+    return { kind: "failed", envelope: projectionFailureEnvelope("projection.run", error) };
+  }
+  // No drift against the approved render means the proof failed on something the outputs do not
+  // decide (provenance, CodeGraph); a write cannot repair that, so the proof failure stands.
+  if (input.plan.drift.ok) return { kind: "failed", envelope: readback };
+  const issues: string[] = [];
+  if (projectionProtocolHumanStatus(readbackRequest, input) !== null) issues.push("the approved change no longer renders without a human action");
+  if (fixedPoint.plan.rejected.length > 0 || fixedPoint.plan.majorChange.mode !== "none" || fixedPoint.plan.refreshSignals.length > 0) {
+    issues.push("the approved change no longer renders a no-accepted-change semantic fixed point");
+  }
+  if (fixedPoint.plan.provenance.rendererVersion !== binding.rendererVersion || fixedPoint.plan.provenance.layoutVersion !== binding.layoutVersion) {
+    issues.push("the current renderer or layout differs from the approved result");
+  }
+  if (digestJson(fixedPoint.plan.architectureDigests as unknown as Json) !== digestJson(binding.expectedResultingDigests as unknown as Json)) {
+    issues.push("the rendered model, source, flow-proof, or projection digest differs from the approved result");
+  }
+  if (projectionOwnedOutputDigest(fixedPoint) !== binding.ownedOutputDigest) {
+    issues.push("the rendered projection-owned output bytes differ from the approved result");
+  }
+  if (issues.length > 0) {
+    return {
+      kind: "failed",
+      envelope: errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `committed projection apply outputs differ from the approved result and cannot be restored: ${issues.join("; ")}`)
+    };
+  }
+  const orphanDeletes = projectionOrphanDeleteOperations(input);
+  const changeSetId = `changeset.docs-projection-restore-${receipt.identity.applyId.replace(/^sha256:/, "").slice(0, 16)}`;
+  const planned = await daemon.planUpdate(root, {
+    id: changeSetId,
+    reason: { taskSessionId: receipt.result.requestId },
+    operations: [architectureDocsRenderProjectionOperation(input.loaded.existingFiles, fixedPoint.files, orphanDeletes.map((orphan) => orphan.operation))],
+    worktreeDigestPrecondition: {
+      profile: "architecture-documentation-projection",
+      expectedDigest: binding.originalExpectedSnapshot.worktreeDigest
+    }
+  });
+  if (!planned.ok) return { kind: "failed", envelope: planned };
+  const applied = await daemon.applyUpdate(root, {
+    id: changeSetId,
+    approved: true,
+    expectedWorktreeDigest: binding.originalExpectedSnapshot.worktreeDigest,
+    worktreeDigestProfile: "architecture-documentation-projection"
+  });
+  if (!applied.ok) return { kind: "failed", envelope: applied };
+  // The restore counts only once readback proves the receipt again against what is now on disk.
+  const proven = await daemon.readbackProjectionApply(root, readbackRequest);
+  if (!proven.ok) return { kind: "failed", envelope: proven };
+  if ((proven.data as { schemaVersion?: unknown } | undefined)?.schemaVersion !== PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION) {
+    return { kind: "failed", envelope: errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "restored projection apply outputs were unavailable for their readback proof") };
+  }
+  return { kind: "restored" };
 }
 
 /**
@@ -699,12 +814,15 @@ async function replayCommittedProjectionApply(
  * readback`) and, when recorded, the original request digest. A caller that applied with
  * `acceptObservedMajorChange` never held the accepted change, so it cannot rebuild that request
  * itself (#278). A receipt without a request digest cannot be proven equal to any request, so its
- * requestId is never reused: the caller must pick a new one.
+ * requestId is never reused: the caller must pick a new one. `written` is set by `projection run`
+ * after it proved the committed outputs (`false`) or restored them under the original receipt
+ * (`true`, #325); the writer-time guard refuses before any write, so it passes `false`.
  */
 export function projectionApplyCommittedEnvelope(
   envelopeRequestId: string,
   receipt: ProjectionApplyReceiptV1,
-  reasonCode: "projection-accepted-change-committed" | "projection-apply-request-differs" | "projection-apply-request-digest-unrecorded"
+  reasonCode: "projection-accepted-change-committed" | "projection-apply-request-differs" | "projection-apply-request-digest-unrecorded",
+  written?: boolean
 ): JsonEnvelope {
   const requestId = receipt.result.requestId;
   const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
@@ -717,17 +835,21 @@ export function projectionApplyCommittedEnvelope(
   const readback = readbackRequest
     ? "to read the committed result, send error.details.readbackRequest unchanged as the projection readback request (CLI: projection readback --request-json); deliver pending refresh signals with projection recover and error.details requestId, lookupKey and applyId"
     : "the committed receipt has no recovery binding, so projection readback and projection recover cannot prove it";
+  const restored = written === true
+    ? "; its projection-owned outputs differed from the approved result at the approved snapshot and were written again under the original receipt"
+    : "";
   return errorEnvelope(
     envelopeRequestId,
     "AC_PROJECTION_APPLY_COMMITTED",
-    `${cause}; ${readback}`,
+    `${cause}${restored}; ${readback}`,
     reasonCode,
     {
       requestId,
       lookupKey: receipt.identity.lookupKey,
       applyId: receipt.identity.applyId,
       ...(requestDigest === undefined ? {} : { requestDigest }),
-      ...(readbackRequest === undefined ? {} : { readbackRequest: readbackRequest as unknown as Json })
+      ...(readbackRequest === undefined ? {} : { readbackRequest: readbackRequest as unknown as Json }),
+      ...(written === undefined ? {} : { written })
     }
   );
 }
@@ -1056,7 +1178,15 @@ function assertProjectionExpectedSnapshotAgainstModel(
 ): void {
   const actual = currentProjectionExpectedSnapshot(root, model);
   for (const field of ["repositoryId", "workspaceId", "headSha", "worktreeDigest"] as const) {
-    if (request.expected[field] !== actual[field]) throw new Error(`projection request expected snapshot mismatch: ${field}`);
+    if (request.expected[field] !== actual[field]) throw new ProjectionExpectedSnapshotMismatchError(field);
+  }
+}
+
+/** The current snapshot was read and differs from the expected one; any other failure is not a mismatch. */
+class ProjectionExpectedSnapshotMismatchError extends Error {
+  constructor(field: "repositoryId" | "workspaceId" | "headSha" | "worktreeDigest") {
+    super(`projection request expected snapshot mismatch: ${field}`);
+    this.name = "ProjectionExpectedSnapshotMismatchError";
   }
 }
 
@@ -1097,13 +1227,14 @@ function projectionOrphanDeleteOperations(projection: ReturnType<typeof buildArc
   operation: { path: string; expectedHash: string; delete: true };
   result: ProjectionResultV2["files"][number];
 }> {
-  const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
+  const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.onDisk]));
   return projectionDeletableOrphans(projection).map((orphan) => {
-    const body = existingByPath.get(orphan.path);
-    if (body === undefined) throw new Error(`projection orphan was classified without its body: ${orphan.path}`);
+    const onDisk = existingByPath.get(orphan.path);
+    if (onDisk === undefined) throw new Error(`projection orphan was classified without its on-disk bytes: ${orphan.path}`);
     return {
-      operation: { path: orphan.path, expectedHash: digestJson({ body } as unknown as Json), delete: true as const },
-      result: { path: orphan.path, action: "delete" as const, preimageDigest: orphan.actualDigest as Sha256Digest, outputDigest: null }
+      operation: { path: orphan.path, expectedHash: digestJson({ body: onDisk } as unknown as Json), delete: true as const },
+      // The physical preimage, like the update entries: `orphan.actualDigest` hashes the LF-normalized body.
+      result: { path: orphan.path, action: "delete" as const, preimageDigest: digestJson({ path: orphan.path, body: onDisk } as unknown as Json) as Sha256Digest, outputDigest: null }
     };
   });
 }
@@ -1301,20 +1432,15 @@ function projectionProtocolFilesForExpectedOutput(
   projection: ReturnType<typeof buildArchitectureDocsProjection>
 ): ProjectionResultV2["files"] {
   return projection.files.flatMap<ProjectionResultV2["files"][number]>((file) => {
-    const preimageDigest = currentProjectionFileDigest(root, file.path);
-    const outputDigest = digestJson({ path: file.path, body: file.body } as unknown as Json) as Sha256Digest;
+    const absolute = resolve(root, file.path);
+    const onDisk = existsSync(absolute) ? readFileSync(absolute, "utf8") : undefined;
+    const preimageDigest = onDisk === undefined ? "missing" : digestJson({ path: file.path, body: onDisk } as unknown as Json);
+    const outputDigest = digestJson({ path: file.path, body: projectionOwnedWriteBody(file.body, onDisk) } as unknown as Json) as Sha256Digest;
     if (preimageDigest === outputDigest) return [];
     return preimageDigest === "missing"
       ? [{ path: file.path, action: "create" as const, preimageDigest: null, outputDigest }]
       : [{ path: file.path, action: "update" as const, preimageDigest: preimageDigest as Sha256Digest, outputDigest }];
   }).sort((left, right) => left.path.localeCompare(right.path));
-}
-
-function currentProjectionFileDigest(root: string, path: string): string {
-  const absolute = resolve(root, path);
-  return existsSync(absolute)
-    ? digestJson({ path, body: readFileSync(absolute, "utf8") } as unknown as Json)
-    : "missing";
 }
 
 function projectionProtocolAffectedNodes(
@@ -1406,13 +1532,14 @@ function buildAgentContextProjection(root: string) {
 }
 
 /**
- * Each write's precondition is the body the render read, never a fresh disk read: the render
- * preserves human text outside generated markers from exactly those bytes, so an edit made after
- * that read fails the ChangeSet hash recheck under the daemon writer lock instead of being
- * overwritten by a body rendered without it.
+ * Each write's precondition hashes the raw bytes (`onDisk`) of the render's own read, never a
+ * fresh disk read: the render preserves human text outside generated markers from exactly those
+ * bytes, so an edit made after that read fails the ChangeSet hash recheck under the daemon writer
+ * lock instead of being overwritten by a body rendered without it. The written body keeps the
+ * line endings of those bytes.
  */
 function architectureDocsRenderProjectionOperation(
-  renderInput: readonly { path: string; body: string }[],
+  renderInput: readonly ProjectionOwnedFile[],
   files: { path: string; body: string }[],
   deletes: { path: string; expectedHash: string; delete: true }[] = []
 ) {
@@ -1426,22 +1553,36 @@ function architectureDocsRenderProjectionOperation(
   };
 }
 
-/** `missing` when the render read no body at that path, so a file created since fails closed too. */
-function projectionFilesBoundToRenderInput(
-  renderInput: readonly { path: string; body: string }[],
+/**
+ * `missing` when the render read no body at that path, so a file created since fails closed too.
+ * The precondition hashes the raw bytes the render read and the written body keeps those bytes'
+ * line endings (see `projectionOwnedWriteBody`), so a `core.autocrlf` checkout re-projects in place.
+ */
+/**
+ * A rendered file standing in for the post-apply state in an adoption fixed-point simulation. No
+ * ChangeSet precondition is ever built from these, so `onDisk` is the rendered body itself.
+ */
+function simulatedProjectionFile<T extends { path: string; body: string }>(file: T): T & ProjectionOwnedFile {
+  return { ...file, onDisk: file.body };
+}
+
+export function projectionFilesBoundToRenderInput(
+  renderInput: readonly ProjectionOwnedFile[],
   files: readonly { path: string; body: string }[]
 ): { path: string; expectedHash: string; body: string }[] {
-  const readByPath = new Map(renderInput.map((file) => [file.path, file.body]));
+  const readByPath = new Map(renderInput.map((file) => [file.path, file]));
   return files.map((file) => {
     const read = readByPath.get(file.path);
+    if (read === undefined) return { path: file.path, expectedHash: "missing", body: file.body };
+    // The type requires `onDisk`; this guards untyped callers, because a hash of anything else would not bind to the read bytes.
+    if (read.onDisk === undefined) throw new Error(`projection render input carries no on-disk bytes: ${file.path}`);
     return {
       path: file.path,
-      expectedHash: read === undefined ? "missing" : digestJson({ body: read } as unknown as Json),
-      body: file.body
+      expectedHash: digestJson({ body: read.onDisk } as unknown as Json),
+      body: projectionOwnedWriteBody(file.body, read.onDisk)
     };
   });
 }
-
 
 function projectionInputRecord(value: unknown, allowed: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("projection input must be an object");

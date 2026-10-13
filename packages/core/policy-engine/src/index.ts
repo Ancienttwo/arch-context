@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { assertRepoRelativePath } from "@archcontext/core/architecture-domain";
 import {
   ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION,
+  REFACTOR_DECISION_FILE_PATTERN,
   architectureCandidateDeltaPolicyDecisionDigest,
   architectureCandidateDeltaPolicyEvaluationDigest,
   type ArchitectureCandidateChangeV1,
@@ -195,9 +196,12 @@ function shortDigest(digest: string): string {
  * passes the exact path set it derived from the model for this operation, and only that set is
  * widened, only for `render_agent_context` operations. The manifest scope grants exactly
  * `.archcontext/manifest.yaml`; ChangeSetEngine restricts it to the typed field-update operation.
+ * The refactor-decision scope grants exactly `.archcontext/refactor-decisions/<recommendationId>.json`
+ * and only to the daemon-built `write_refactor_decision` operation (ADR-0046); that directory is
+ * never on the default allowlist.
  */
 export interface ArchContextPathScope {
-  operation: "default" | "agent-context" | "manifest" | "adr-reference";
+  operation: "default" | "agent-context" | "manifest" | "adr-reference" | "refactor-decision";
   /** The exact repo-relative paths the model's agent-context derivation produced. */
   agentContextPaths: ReadonlySet<string>;
 }
@@ -224,7 +228,8 @@ export function assertAllowedArchContextPath(root: string, relativePath: string,
   const normalized = relativePath.endsWith("/") ? relativePath : relativePath;
   if (!ALLOWLIST.some((prefix) => normalized.startsWith(prefix)) && !isAgentContextScopedPath(relativePath, scope)
       && !(scope?.operation === "manifest" && relativePath === ".archcontext/manifest.yaml")
-      && !(scope?.operation === "adr-reference" && /^docs\/adr\/ADR-[0-9]{4}-[a-z0-9][a-z0-9-]*\.md$/.test(relativePath))) {
+      && !(scope?.operation === "adr-reference" && /^docs\/adr\/ADR-[0-9]{4}-[a-z0-9][a-z0-9-]*\.md$/.test(relativePath))
+      && !(scope?.operation === "refactor-decision" && REFACTOR_DECISION_FILE_PATTERN.test(relativePath))) {
     throw new Error(`Path is outside ArchContext write allowlist: ${relativePath}`);
   }
   const absoluteRoot = resolve(root);

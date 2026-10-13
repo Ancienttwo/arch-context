@@ -830,6 +830,23 @@ export function architectureSubjectSelectorId(
   return `subject.${kind}.${shortDigest(digestJson({ repositoryId, stableKey } as unknown as Json))}`;
 }
 
+export const REFACTOR_SUBJECT_IDENTITY_VERSION = "archcontext.refactor-subject/v1" as const;
+
+/**
+ * The selector identity of a refactor recommendation subject. Unlike `architectureSubjectSelectorId`
+ * it is scoped by the product namespace (the manifest `product.id`), never by the worktree-path
+ * `repositoryId`, so the same subject names the same selector in every worktree, branch and clone
+ * (ADR-0046). The `subject.<kind>.` prefix is shared, the hashed input is not: a refactor selector
+ * can never collide with a repository-scoped one.
+ */
+export function refactorSubjectSelectorId(
+  kind: ArchitectureSubjectSelectorKind,
+  namespace: string,
+  stableKey: string
+): string {
+  return `subject.${kind}.${shortDigest(digestJson({ identityVersion: REFACTOR_SUBJECT_IDENTITY_VERSION, namespace, stableKey } as unknown as Json))}`;
+}
+
 function addSelector(
   state: MutableBuildState,
   input: Omit<ArchitectureSubjectSelectorV1, "schemaVersion" | "selectorId" | "digest">
