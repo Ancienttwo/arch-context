@@ -4499,19 +4499,57 @@ describe("archctx CLI", () => {
     // storage ids derived from the cwd, are gone too. That is why `daemon stop` from the cwd cannot
     // find such a daemon and the idle exit must not depend on the root.
     const paths = testRuntimePaths(root);
-    // The idle window runs from the last RPC (`status` below), whether or not the root still
-    // exists. Nothing but the delete runs inside it, so the daemon is still alive when its root
-    // goes; the listing of such a daemon is checked in the next test, where idle exit is off.
+    // Cold Windows CLI launches and native ACL discovery can outlast this idle window. Keep
+    // setup alive through the first published connection, which cannot silently replace its
+    // daemon. Stop and drain these RPCs before the final status and the unwrapped delete.
     const idleTimeoutMs = 3_000;
     const env = { ...testStateEnv(root), ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS: String(idleTimeoutMs) };
     const cli = async (cwd: string, ...args: string[]) => JSON.parse((await collectProcess(spawn(process.execPath, [CLI_ENTRY, ...args], { cwd, env }))).stdout);
+    let pinnedClient: RuntimeRpcClient | undefined;
+    let setupRpc: Promise<void> | undefined;
+    let setupError: unknown;
+    const keepAlive = setInterval(() => {
+      if (setupRpc || setupError) return;
+      try {
+        if (!pinnedClient) {
+          if (!existsSync(paths.daemonConnectionPath)) return;
+          // This is our isolated test fixture, read without the production client's ACL probe.
+          const connection = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8"));
+          pinnedClient = new RuntimeRpcClient(connection);
+        }
+        setupRpc = pinnedClient.runtimeStatus().then((status) => {
+          if (!status.ok) throw new Error("daemon setup keepalive failed");
+        }).catch((error) => { setupError = error; }).finally(() => { setupRpc = undefined; });
+      } catch (error) {
+        // Publication can be observed before the new file's JSON is complete, or before unlink.
+        if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === "ENOENT") return;
+        setupError = error;
+      }
+    }, 50);
     try {
-      expect((await cli(root, "daemon", "start")).ok).toBe(true);
-      await cli(root, "validate");
+      const started = await cli(root, "daemon", "start");
+      expect(started.ok).toBe(true);
+      expect(started.data.background).toBe(true);
+      expect((await cli(root, "validate")).ok).toBe(true);
+      // Exercise setup that takes longer than the idle window, as cold Windows CLI launches can.
+      await new Promise((resolve) => setTimeout(resolve, idleTimeoutMs + 500));
       const status = await cli(root, "status");
+      expect(status.ok).toBe(true);
       expect(status.data.sessions).toBeGreaterThanOrEqual(1);
-      const pid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
+
+      clearInterval(keepAlive);
+      await setupRpc;
+      if (setupError) throw setupError;
+      if (!pinnedClient) throw new Error("daemon never published its setup connection");
+      const pid = pinnedClient.connectionInfo().pid;
+      expect(pid).toBe(started.data.childPid);
+      expect(JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid).toBe(pid);
       expectOutsideWorktree(pid, root);
+      // Re-arm the same daemon immediately before deletion, with no CLI startup or keepalive
+      // left inside the measured idle window. A replacement process cannot satisfy this call.
+      const ready = await pinnedClient.runtimeStatus();
+      expect(ready.ok).toBe(true);
+      expect((ready.data as { sessions: number }).sessions).toBeGreaterThanOrEqual(1);
 
       // The unwrapped rm: a daemon that pins the root makes Windows refuse this delete, and the
       // test must see that instead of a cleanup helper swallowing it.
@@ -4533,6 +4571,8 @@ describe("archctx CLI", () => {
       expect(existsSync(paths.daemonConnectionPath)).toBe(false);
       expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([]);
     } finally {
+      clearInterval(keepAlive);
+      await setupRpc;
       await runCli("daemon", ["stop", "--state-dir", paths.workspaceStateDir], parent).catch(() => undefined);
       rmSync(testStateRoot(root), { recursive: true, force: true });
       rmSync(parent, { recursive: true, force: true });
