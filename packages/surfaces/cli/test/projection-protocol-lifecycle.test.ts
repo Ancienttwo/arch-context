@@ -791,3 +791,153 @@ test("plan previews each file as a bounded body or unified diff and writes nothi
     expect(JSON.stringify(inspected)).not.toContain("\"preview\"");
   });
 }, TEST_TIMEOUT_MS);
+
+const MANIFEST_PATH = "docs/architecture/.projection-manifest.json";
+const LEGACY_TARGET_ID = "projection_target.diagram.legacy";
+const LEGACY_PATH = "docs/architecture/diagrams/legacy.mmd";
+const LEGACY_BODY = "flowchart LR\n  legacy_a --> legacy_b\n";
+
+/**
+ * Records a whole-file output the current layout no longer renders: a committed manifest row for
+ * `legacy.mmd` and the file itself. A whole-file output carries no marker, so that row is the only
+ * record that the file is projection output (#327).
+ */
+function seedWholeFileOrphan(root: string, onDiskBody: string): void {
+  const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8"));
+  const mermaid = manifest.targets.find((row: { path: string }) => row.path.endsWith("/architecture.mmd"));
+  if (!mermaid) throw new Error("fixture manifest has no Mermaid diagram row");
+  manifest.targets.push({
+    ...mermaid,
+    targetId: LEGACY_TARGET_ID,
+    path: LEGACY_PATH,
+    outputDigest: digestJson({ targetId: LEGACY_TARGET_ID, body: LEGACY_BODY } as any)
+  });
+  writeFileSync(join(root, MANIFEST_PATH), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  writeFileSync(join(root, LEGACY_PATH), onDiskBody, "utf8");
+  commitAll(root, "a whole-file output the layout no longer renders");
+}
+
+function manifestRowPaths(root: string): string[] {
+  return JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8")).targets.map((row: { path: string }) => row.path);
+}
+
+for (const lineEnding of ["lf", "crlf"] as const) {
+  test(`docs apply deletes an intact whole-file orphan and drops its manifest row (${lineEnding}, #327)`, async () => {
+    await withProtocolFixture(`archctx-projection-orphan-${lineEnding}-`, async ({ root, request, projectionRun, cli }) => {
+      const onDisk = lineEnding === "crlf" ? LEGACY_BODY.replaceAll("\n", "\r\n") : LEGACY_BODY;
+      seedWholeFileOrphan(root, onDisk);
+
+      // check and plan both name the delete apply performs, bound to the bytes on disk.
+      const expectedDelete = { path: LEGACY_PATH, action: "delete", preimageDigest: digestJson({ path: LEGACY_PATH, body: onDisk } as any), outputDigest: null };
+      for (const mode of ["check", "plan"] as const) {
+        const result = projectionResult(await projectionRun(request(mode, `projection_request.legacy_orphan_${mode}`)));
+        expect(result.status).toBe("planned");
+        expect(result.files.find((file) => file.path === LEGACY_PATH)).toMatchObject(expectedDelete);
+      }
+      const docsDrift = await cli("docs", ["drift", "--profile", "repo-harness/v1"]);
+      expect((docsDrift.data as any).drift.orphans).toEqual([expect.objectContaining({ path: LEGACY_PATH, disposition: "delete" })]);
+
+      const applied = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
+      // The one transactional apply removed the file and the row that owned it.
+      expect(existsSync(join(root, LEGACY_PATH))).toBe(false);
+      expect(manifestRowPaths(root)).not.toContain(LEGACY_PATH);
+
+      // Reloaded from disk, the projection is a clean fixed point.
+      const drift = await cli("docs", ["drift", "--profile", "repo-harness/v1"]);
+      expect(drift.data, JSON.stringify(drift)).toMatchObject({ ok: true, drift: { orphans: [] } });
+      const checked = projectionResult(await projectionRun(request("check", "projection_request.legacy_orphan_after")));
+      expect(checked.status).toBe("noop");
+      expect(checked.files).toEqual([]);
+    });
+  }, TEST_TIMEOUT_MS);
+}
+
+test("docs apply refuses a manually edited whole-file orphan and keeps its manifest row (#327)", async () => {
+  await withProtocolFixture("archctx-projection-orphan-edited-", async ({ root, request, projectionRun, cli }) => {
+    const edited = `${LEGACY_BODY}  legacy_b --> hand_added\n`;
+    seedWholeFileOrphan(root, edited);
+    const docsBefore = docsSnapshot(root);
+
+    for (const action of ["plan", "apply"] as const) {
+      const refused = await cli("docs", [action, "--profile", "repo-harness/v1", ...(action === "apply" ? ["--approved"] : [])]);
+      expect(refused.ok, JSON.stringify(refused)).toBe(false);
+      expect((refused as any).error.code).toBe("AC_PRECONDITION_FAILED");
+      expect((refused as any).error.message).toContain(`${LEGACY_PATH} (projection-orphaned)`);
+    }
+    // Nothing was written: the edited file and the row that keeps it visible both remain.
+    expect(docsSnapshot(root)).toEqual(docsBefore);
+    expect(manifestRowPaths(root)).toContain(LEGACY_PATH);
+
+    const drift = await cli("docs", ["drift", "--profile", "repo-harness/v1"]);
+    expect((drift.data as any).drift.orphans).toEqual([expect.objectContaining({ path: LEGACY_PATH, disposition: "human-review" })]);
+    const checked = projectionResult(await projectionRun(request("check", "projection_request.legacy_orphan_edited_check")));
+    expect(checked.status).toBe("human-action-required");
+    expect(checked.humanActions.map((action) => [action.reasonCode, action.path])).toEqual([["orphaned-document-review", LEGACY_PATH]]);
+    expect(checked.files.find((file) => file.path === LEGACY_PATH)).toBeUndefined();
+  });
+}, TEST_TIMEOUT_MS);
+
+const V5_RENDERER_VERSION = "archcontext.docs-renderer/v5";
+const V5_SOURCE_DIGEST = `sha256:${"5".repeat(64)}`;
+
+/**
+ * Turns the committed v6 outputs into what the v5 renderer wrote for the same bodies: every marked
+ * region's marker carries a source digest and the v5 renderer version, and every whole-file output
+ * is wrapped in such a marker. Generated bodies stay byte-equal, so only the markers differ.
+ */
+function rewriteOutputsAsV5(root: string, lineEnding: "lf" | "crlf"): string[] {
+  const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8"));
+  const changed: string[] = [];
+  for (const row of manifest.targets as Array<{ targetId: string; path: string; ownership: string; outputDigest: string }>) {
+    const absolute = join(root, row.path);
+    const body = readFileSync(absolute, "utf8");
+    const v5Marker = (targetId: string, outputDigest: string) =>
+      `<!-- BEGIN ARCHCONTEXT:generated target="${targetId}" sourceDigest="${V5_SOURCE_DIGEST}" rendererVersion="${V5_RENDERER_VERSION}" outputDigest="${outputDigest}" -->`;
+    const next = row.ownership === "generated"
+      ? `${v5Marker(row.targetId, row.outputDigest)}\n${body.trimEnd()}\n<!-- END ARCHCONTEXT:generated target="${row.targetId}" -->\n`
+      : body.replace(
+        /<!-- BEGIN ARCHCONTEXT:generated target="([^"]+)" rendererVersion="[^"]+" outputDigest="([^"]+)" -->/g,
+        (_match, targetId: string, outputDigest: string) => v5Marker(targetId, outputDigest)
+      );
+    const written = lineEnding === "crlf" ? next.replaceAll("\n", "\r\n") : next;
+    if (written === body) continue;
+    writeFileSync(absolute, written, "utf8");
+    changed.push(row.path);
+  }
+  return changed.sort();
+}
+
+for (const lineEnding of ["lf", "crlf"] as const) {
+  test(`plan and check list every file a marker-only v5 upgrade rewrites, and apply writes exactly those (${lineEnding}, #327)`, async () => {
+    await withProtocolFixture(`archctx-projection-v5-${lineEnding}-`, async ({ root, request, projectionRun }) => {
+      const v5Paths = rewriteOutputsAsV5(root, lineEnding);
+      expect(v5Paths.length).toBeGreaterThan(0);
+      commitAll(root, "outputs as the v5 renderer wrote them");
+      const docsBefore = docsSnapshot(root);
+
+      const planned = projectionResult(await projectionRun(request("plan", "projection_request.v5_plan")));
+      const checked = projectionResult(await projectionRun(request("check", "projection_request.v5_check")));
+      expect(planned.status).toBe("planned");
+      expect(checked.files.map(({ path, action }) => ({ path, action }))).toEqual(planned.files.map(({ path, action }) => ({ path, action })));
+      const plannedPaths = planned.files.map((file) => file.path);
+      expect(plannedPaths).toEqual(v5Paths);
+      expect(planned.files.every((file) => file.action === "update")).toBe(true);
+
+      const applied = projectionResult(await projectionRun(request("apply", "projection_request.v5_apply")));
+      expect(applied.status).toBe("applied");
+      // The plan is the preview of this apply: the same files with the same digests, and the files
+      // that actually changed on disk are exactly those.
+      expect(applied.files.map(({ path, action, preimageDigest, outputDigest }) => ({ path, action, preimageDigest, outputDigest })))
+        .toEqual(planned.files.map(({ path, action, preimageDigest, outputDigest }) => ({ path, action, preimageDigest, outputDigest })));
+      const docsAfter = docsSnapshot(root);
+      const written = Object.keys({ ...docsBefore, ...docsAfter }).filter((path) => docsBefore[path] !== docsAfter[path]).sort();
+      expect(written).toEqual(plannedPaths);
+      for (const path of written) expect(docsAfter[path]).not.toContain("sourceDigest=");
+
+      const after = projectionResult(await projectionRun(request("check", "projection_request.v5_after")));
+      expect(after.status).toBe("noop");
+      expect(after.files).toEqual([]);
+    });
+  }, TEST_TIMEOUT_MS);
+}

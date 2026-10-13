@@ -31,6 +31,7 @@ import {
   type Json,
   type ModelExportResult,
   type ProjectionFreshnessReasonCode,
+  type ProjectionMixedTargetV1,
   type ProjectionTargetV1
 } from "@archcontext/contracts";
 import { assertRepoRelativePath, computeWorktreeDigest, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
@@ -44,6 +45,8 @@ import {
   loadArchitectureFilesForLayout,
   primarySourceDirectory,
   readProjectionOwnedFile,
+  committedGeneratedOutputs,
+  type CommittedGeneratedOutput,
   type ProjectionOwnedFile,
   resolveArchitectureDocumentationLayout,
   type ArchitectureDocumentationLayout,
@@ -171,6 +174,8 @@ export type ArchitectureDocumentationDriftReason =
   | "projection-generated-region-missing"
   | "projection-generated-region-stale"
   | "projection-generated-region-manually-edited"
+  | "projection-generated-file-stale"
+  | "projection-generated-file-manually-edited"
   | "projection-ambiguous-ownership"
   | "projection-orphaned";
 
@@ -313,7 +318,6 @@ export function renderArchitectureDocumentationProjection(input: {
   sourceScaleSignals: CapabilitySourceScaleSignal[];
   importGraphs: CapabilityImportGraph[];
   selectorEvidence: ArchitectureSelectorEvidenceV1[];
-  generatedAt?: string;
   decisions?: ArchitectureDecisionRecord[];
   timeline?: ArchitectureDocumentationTimelineEntry[];
   existingFiles?: ArchitectureDocumentationExistingFile[];
@@ -338,7 +342,6 @@ export function renderArchitectureDocumentationProjection(input: {
   const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile: input.profile });
   const existingByPath = new Map((input.existingFiles ?? []).map((file) => [file.path, file.body]));
   const provenance = input.provenance;
-  const generatedAt = input.generatedAt ?? "1970-01-01T00:00:00.000Z";
   const scaleSignalsByNodeId = new Map((input.sourceScaleSignals ?? []).map((signal) => [signal.nodeId, signal]));
   // One structured value per node: the module document prints it and the manifest records it.
   const scaleByNodeId = new Map([...scaleSignalsByNodeId].map(([nodeId, signal]) => [nodeId, architectureCapabilityScale(signal)]));
@@ -379,10 +382,11 @@ export function renderArchitectureDocumentationProjection(input: {
   // reads the stamp from the manifest (`loadArchitectureProjectionManifestStamps`).
   //
   // The plan-wide `input.sourceDigest` (the moving tree) is deliberately not folded into the
-  // per-entity key either: it would couple every entity document to unrelated commits. `generatedAt`
-  // does not enter entity bodies (only architecture-index prints it), so it cannot perturb the key.
+  // per-entity key either: it would couple every entity document to unrelated commits. No body
+  // prints a wall-clock or run time, so two runs over the same inputs render the same bytes.
   // Index/diagram/decision/relation/changelog targets render no per-node measurement, so they keep
-  // recording the plan-wide `input.sourceDigest`.
+  // recording the plan-wide `input.sourceDigest`. No marker carries it: a marker records only the
+  // target, the renderer version and the output digest of its own body.
   const docsLanguage = input.docsLanguage === undefined ? undefined : assertArchitectureDocsLanguage(input.docsLanguage);
   const targetDrafts = architectureDocumentationTargetDrafts(model, layout, docsLanguage);
   const stampedNodeIds = new Set(architectureProjectionStampedNodeIds(model, layout.profile));
@@ -394,7 +398,6 @@ export function renderArchitectureDocumentationProjection(input: {
     // — a node that declares `source.include` with no measured scale signal throws
     // `architecture-docs-projection-scale-signal-missing` here.
     const generatedBody = renderTargetGeneratedBody(draft, model, {
-      generatedAt,
       scaleSignalsByNodeId,
       scaleByNodeId,
       semanticCompilationsByNodeId,
@@ -427,8 +430,12 @@ export function renderArchitectureDocumentationProjection(input: {
       sourceDigest: targetSourceDigest,
       outputDigest: generatedBodyDigest
     });
-    const wrapped = wrapGeneratedRegion(target, generatedBody);
-    const body = mergeGeneratedRegion(target, wrapped, existing, draft.skeleton);
+    // A `generated` target owns its whole file, so the file is exactly the rendered body: a JSON,
+    // Mermaid or LikeC4 file stays valid in its own format and carries no ownership marker. The
+    // manifest row's `outputDigest` is what proves the file is projection output.
+    const body = target.ownership === "generated"
+      ? generatedBody
+      : mergeGeneratedRegion(target, wrapGeneratedRegion(target, generatedBody), existing, draft.skeleton);
     return {
       path: target.path,
       body,
@@ -1509,21 +1516,25 @@ function projectionTarget(input: ProjectionTargetDraft & {
   sourceDigest: string;
   outputDigest: string;
 }): ProjectionTargetV1 {
-  return {
+  const common = {
     schemaVersion: PROJECTION_TARGET_SCHEMA_VERSION,
     targetId: input.targetId,
     type: input.type,
     scope: input.scope,
     path: input.path,
-    ownership: input.ownership,
-    generatedRegion: {
-      startMarker: generatedStartMarker(input.targetId, input.sourceDigest, input.rendererVersion, input.outputDigest),
-      endMarker: generatedEndMarker(input.targetId)
-    },
     rendererVersion: input.rendererVersion,
     format: input.format,
     sourceDigest: input.sourceDigest,
     outputDigest: input.outputDigest
+  };
+  if (input.ownership === "generated") return { ...common, ownership: "generated" };
+  return {
+    ...common,
+    ownership: "mixed",
+    generatedRegion: {
+      startMarker: generatedStartMarker(input.targetId, input.rendererVersion, input.outputDigest),
+      endMarker: generatedEndMarker(input.targetId)
+    }
   };
 }
 
@@ -1531,7 +1542,6 @@ function renderTargetGeneratedBody(
   target: ProjectionTargetDraft,
   model: NativeModel,
   input: {
-    generatedAt: string;
     scaleSignalsByNodeId: Map<string, CapabilitySourceScaleSignal>;
     scaleByNodeId: Map<string, ArchitectureCapabilityScaleV1>;
     semanticCompilationsByNodeId: Map<string, SemanticCapabilityDiagramCompilation>;
@@ -1540,7 +1550,7 @@ function renderTargetGeneratedBody(
     layout: ArchitectureDocumentationLayout;
   }
 ): string {
-  if (target.type === "architecture-index") return renderArchitectureIndex(model, input.generatedAt, input.layout);
+  if (target.type === "architecture-index") return renderArchitectureIndex(model, input.layout);
   if (target.type === "entity-summary") {
     const node = model.nodes.find((entry) => entry.id === target.scope.id)!;
     return renderEntitySummary(node, model, {
@@ -1559,11 +1569,9 @@ function renderTargetGeneratedBody(
   return "";
 }
 
-function renderArchitectureIndex(model: NativeModel, generatedAt: string, layout: ArchitectureDocumentationLayout): string {
+function renderArchitectureIndex(model: NativeModel, layout: ArchitectureDocumentationLayout): string {
   const lines = [
     "# Architecture Index",
-    "",
-    `Generated: ${generatedAt}`,
     "",
     "## Entities",
     "",
@@ -1871,7 +1879,7 @@ function renderArchitectureChangelog(timeline: ArchitectureDocumentationTimeline
   return `${lines.join("\n")}\n`;
 }
 
-function wrapGeneratedRegion(target: ProjectionTargetV1, generatedBody: string): string {
+function wrapGeneratedRegion(target: ProjectionMixedTargetV1, generatedBody: string): string {
   return [
     target.generatedRegion.startMarker,
     generatedBody.trimEnd(),
@@ -1881,19 +1889,14 @@ function wrapGeneratedRegion(target: ProjectionTargetV1, generatedBody: string):
 }
 
 function mergeGeneratedRegion(
-  target: ProjectionTargetV1,
+  target: ProjectionMixedTargetV1,
   wrapped: string,
   existing?: string,
   skeleton?: { prefix: string; suffix: string }
 ): string {
   if (!existing) return skeleton ? `${skeleton.prefix}${wrapped}${skeleton.suffix}` : wrapped;
   const region = findGeneratedRegion(existing, target.targetId);
-  if (!region) {
-    if (target.ownership === "mixed") {
-      return `${existing.trimEnd()}\n\n${wrapped}`;
-    }
-    return wrapped;
-  }
+  if (!region) return `${existing.trimEnd()}\n\n${wrapped}`;
   return `${existing.slice(0, region.start)}${wrapped}${existing.slice(region.end)}`;
 }
 
@@ -1931,6 +1934,8 @@ function architectureDocumentationProjectionDrift(input: {
 
   const existingManifest = existingByPath.get(input.expectedManifest.path);
   const committedEntityTargets = committedEntitySummaryTargets(existingManifest?.body);
+  const committedGenerated = committedGeneratedOutputs(existingManifest?.body);
+  const committedGeneratedByTargetId = new Map(committedGenerated.map((output) => [output.targetId, output]));
   if (!existingManifest) {
     diffs.push({
       path: input.expectedManifest.path,
@@ -1965,28 +1970,30 @@ function architectureDocumentationProjectionDrift(input: {
       diffs.push({ path: expected.path, targetId: expected.target.targetId, reasonCode: "projection-file-missing", expectedDigest: expected.digest });
       continue;
     }
+    if (expected.target.ownership === "generated") {
+      const diff = generatedFileDrift(expected, existing, committedGeneratedByTargetId.get(expected.target.targetId));
+      if (diff) diffs.push(diff);
+      continue;
+    }
     const region = findGeneratedRegion(existing.body, expected.target.targetId);
     if (!region) {
       diffs.push({
         path: expected.path,
         targetId: expected.target.targetId,
-        reasonCode: expected.target.ownership === "generated" ? "projection-ambiguous-ownership" : "projection-adoption-required",
+        reasonCode: "projection-adoption-required",
         expectedDigest: expected.digest,
         actualDigest: digestJson({ path: existing.path, body: existing.body } as unknown as Json)
       });
       continue;
     }
+    // Integrity first: a region whose body no longer digests to the output its own marker records
+    // holds machine text someone edited, whatever this run renders.
     const metadata = parseGeneratedRegionMetadata(region.startMarker);
-    if (metadata.sourceDigest !== expected.target.sourceDigest || metadata.rendererVersion !== expected.target.rendererVersion) {
-      diffs.push({ path: expected.path, targetId: expected.target.targetId, reasonCode: "projection-generated-region-stale", expectedDigest: expected.digest, actualDigest: digestJson({ path: existing.path, body: existing.body } as unknown as Json) });
-      continue;
-    }
     const actualGeneratedBodyDigest = digestJson({
       targetId: expected.target.targetId,
       body: `${region.body.trimEnd()}\n`
     } as unknown as Json);
     if (actualGeneratedBodyDigest !== metadata.outputDigest) {
-      // The region body no longer digests to what its own marker records: someone edited machine text.
       diffs.push({
         path: expected.path,
         targetId: expected.target.targetId,
@@ -1996,12 +2003,9 @@ function architectureDocumentationProjectionDrift(input: {
       });
       continue;
     }
-    if (metadata.outputDigest !== expected.generatedBodyDigest) {
-      // Internally consistent, but not what this run renders. Entity targets key their marker on
-      // the canonical body digest, so a moved body input (status flip, summary edit, re-measured
-      // footprint) is already caught by the sourceDigest check above; what survives to here is a
-      // region whose inputs match but whose stamp decision moved the body. Either way this is a
-      // document awaiting re-verification, a stale projection, not a hand edit.
+    // Intact, but not the marker this run writes: another renderer version, or an output this run
+    // no longer renders. A document awaiting re-verification, not a hand edit.
+    if (region.startMarker !== expected.target.generatedRegion.startMarker) {
       diffs.push({
         path: expected.path,
         targetId: expected.target.targetId,
@@ -2012,9 +2016,25 @@ function architectureDocumentationProjectionDrift(input: {
     }
   }
 
+  const currentPathByTargetId = new Map(input.targets.map((target) => [target.targetId, target.path]));
+  const committedGeneratedByPath = new Map(committedGenerated.map((output) => [output.path, output]));
   for (const existing of input.existingFiles) {
-    if (existing.path === input.expectedManifest.path) continue;
-    if (!isManagedArchitectureDocumentationPath(existing.path) || expectedByPath.has(existing.path)) continue;
+    if (existing.path === input.expectedManifest.path || expectedByPath.has(existing.path)) continue;
+    // A whole-file output is an orphan when the committed manifest records it and the current
+    // layout no longer renders that target at that path. Its manifest row, not a marker, says so.
+    const generated = committedGeneratedByPath.get(existing.path);
+    if (generated && currentPathByTargetId.get(generated.targetId) !== generated.path) {
+      const actualDigest = digestJson({ path: existing.path, body: existing.body } as unknown as Json);
+      diffs.push({ path: existing.path, targetId: generated.targetId, reasonCode: "projection-orphaned", actualDigest });
+      orphans.push({
+        path: existing.path,
+        targetId: generated.targetId,
+        actualDigest,
+        disposition: generatedOutputDigest(generated.targetId, existing.body) === generated.outputDigest ? "delete" : "human-review"
+      });
+      continue;
+    }
+    if (!isManagedArchitectureDocumentationMarkdownPath(existing.path)) continue;
     const region = findAnyGeneratedRegion(existing.body);
     if (region && !targetIds.has(region.targetId)) {
       const actualDigest = digestJson({ path: existing.path, body: existing.body } as unknown as Json);
@@ -2034,6 +2054,44 @@ function architectureDocumentationProjectionDrift(input: {
     reasonCodes,
     diffs: diffs.sort((left, right) => left.path.localeCompare(right.path) || (left.targetId ?? "").localeCompare(right.targetId ?? "")),
     orphans: orphans.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+  };
+}
+
+/** The digest a manifest row records for a whole-file output: the same shape as a region's `outputDigest`. */
+function generatedOutputDigest(targetId: string, body: string): string {
+  return digestJson({ targetId, body } as unknown as Json);
+}
+
+/**
+ * Drift of one `generated` (whole-file) target. The file carries no marker, so ownership and state
+ * come from the bytes and the committed manifest row: bytes equal to this run's render are fresh;
+ * bytes equal to the committed row are the projection's own earlier output, stale; any other bytes
+ * under a committed row were edited by hand. Without a committed row for the target at this path,
+ * nothing proves the projection wrote the file, so it is not overwritten.
+ */
+function generatedFileDrift(
+  expected: ArchitectureDocumentationProjectionFile,
+  existing: ArchitectureDocumentationExistingFile,
+  committed: CommittedGeneratedOutput | undefined
+): ArchitectureDocumentationProjectionDrift | undefined {
+  if (existing.body === expected.body) return undefined;
+  const targetId = expected.target.targetId;
+  const actualOutputDigest = generatedOutputDigest(targetId, existing.body);
+  if (!committed || committed.path !== expected.path) {
+    return {
+      path: expected.path,
+      targetId,
+      reasonCode: "projection-ambiguous-ownership",
+      expectedDigest: expected.digest,
+      actualDigest: digestJson({ path: existing.path, body: existing.body } as unknown as Json)
+    };
+  }
+  return {
+    path: expected.path,
+    targetId,
+    reasonCode: actualOutputDigest === committed.outputDigest ? "projection-generated-file-stale" : "projection-generated-file-manually-edited",
+    expectedDigest: expected.generatedBodyDigest,
+    actualDigest: actualOutputDigest
   };
 }
 
@@ -2115,44 +2173,36 @@ function findAnyGeneratedRegion(body: string): { targetId: string } | undefined 
   return match ? { targetId: match[1] } : undefined;
 }
 
-function parseGeneratedRegionMetadata(marker: string): {
-  sourceDigest?: string;
-  rendererVersion?: string;
-  outputDigest?: string;
-} {
-  return {
-    sourceDigest: marker.match(/sourceDigest="([^"]+)"/)?.[1],
-    rendererVersion: marker.match(/rendererVersion="([^"]+)"/)?.[1],
-    outputDigest: marker.match(/outputDigest="([^"]+)"/)?.[1]
-  };
+function parseGeneratedRegionMetadata(marker: string): { outputDigest?: string } {
+  return { outputDigest: marker.match(/outputDigest="([^"]+)"/)?.[1] };
 }
 
 /**
  * Marker attributes are limited to what identifies the region and what a reader can verify against
- * the body in front of them. The source-footprint stamp is deliberately absent: a marker that
- * carried it would rewrite the document every time the code under the node's footprint moved. The
- * stamp of record is the projection manifest.
+ * the body in front of them: the target, the renderer version and the digest of the region body.
+ * No source digest enters it. The model-wide digest would rewrite every repository-wide document on
+ * each model change although its output did not change, and the source-footprint stamp would
+ * rewrite a module document every time the code under the node's footprint moved. The stamps of
+ * record are in the projection manifest.
  */
 function generatedStartMarker(
   targetId: string,
-  sourceDigest: string,
   rendererVersion: string,
   outputDigest: string
 ): string {
-  return `${ARCHITECTURE_DOCS_GENERATED_BEGIN_PREFIX} target="${targetId}" sourceDigest="${sourceDigest}" rendererVersion="${rendererVersion}" outputDigest="${outputDigest}" -->`;
+  return `${ARCHITECTURE_DOCS_GENERATED_BEGIN_PREFIX} target="${targetId}" rendererVersion="${rendererVersion}" outputDigest="${outputDigest}" -->`;
 }
 
 function generatedEndMarker(targetId: string): string {
   return `${ARCHITECTURE_DOCS_GENERATED_END_PREFIX} target="${targetId}" -->`;
 }
 
-function isManagedArchitectureDocumentationPath(path: string): boolean {
+/** The Markdown documents a `mixed` target can own a marked region in; only these are scanned for markers. */
+function isManagedArchitectureDocumentationMarkdownPath(path: string): boolean {
   return /^docs\/architecture\/(modules|relations)\/.+\.md$/.test(path)
-    || /^docs\/architecture\/diagrams\/architecture\.(mmd|likec4|structurizr\.json)$/.test(path)
     || path === "docs/architecture/index.md"
     || path === "docs/architecture/changelog.md"
-    || path === "docs/architecture/decisions/index.md"
-    || path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH;
+    || path === "docs/architecture/decisions/index.md";
 }
 
 function pathSegment(id: string): string {

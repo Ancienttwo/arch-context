@@ -29,10 +29,8 @@ Script ownership and cleanup rules are frozen in
 - [ ] 2026-09-09T00:45:34+0800 [medium] `package.json` -> [root](requests/root.md)
 <!-- END ARCHITECTURE PENDING REQUESTS -->
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:b3918fa54a4f985a07f2449b82c45e71b92163f1a4a55bda3c4618b6b8c56f36" rendererVersion="archcontext.docs-renderer/v5" outputDigest="sha256:01ff7e024eeb975610b75d506e5456a76484d0f4a30781d534ee0df96767ef46" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" rendererVersion="archcontext.docs-renderer/v6" outputDigest="sha256:639ab0dadea49841f1ae3fa869608b90cbb93fb092c17bd7f925333406cc4fb4" -->
 # Architecture Index
-
-Generated: 1970-01-01T00:00:00.000Z
 
 ## Entities
 

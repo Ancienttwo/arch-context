@@ -20,6 +20,7 @@ import { DevicePrivateKeyStore, InMemoryCredentialSecretStore } from "@archconte
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
 import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { createFixtureGithubConnectionReader } from "./github-connection-fixture";
+import { createDaemonSetupKeepalive } from "./daemon-setup-keepalive";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { CLI_COMMAND_FLAGS, resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
@@ -111,7 +112,7 @@ test("CLI capabilities exposes the exact local protocol and renderer handshake w
   // Consumers gate on this handshake, not on field presence, because the result field is omitted
   // whenever no earlier attempt of the request committed.
   expect(capabilities.features).toContain("projection-prior-committed-applies-v1");
-  expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v5");
+  expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v6");
   const processOutput = execFileSync("bun", [CLI_ENTRY, "capabilities", "--json"], { encoding: "utf8" });
   expect(JSON.parse(processOutput)).toEqual(capabilities);
   expect(await runCli("capabilities", [], "/path/that/does/not/exist")).toEqual(capabilities);
@@ -2784,6 +2785,17 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("the removed docs --generated-at flag is refused before the runtime (#327)", async () => {
+    const throwingRuntime = new Proxy({}, { get: () => () => { throw new Error("preflight let a handler reach the runtime"); } });
+    for (const subcommand of ["plan", "drift"]) {
+      const rejected = await runCli("docs", [subcommand, "--generated-at", "2020-01-01T00:00:00Z", "--json"], "/absent", { runtimeClient: throwingRuntime as any }) as JsonEnvelope;
+      expect(rejected, `docs ${subcommand}`).toMatchObject({
+        ok: false,
+        error: { code: "AC_SCHEMA_INVALID", message: expect.stringContaining("does not recognize the flag --generated-at") }
+      });
+    }
+  });
+
   test("spawned CLI: --help on commands without their own help, daemon start --help and validate argument errors never start the daemon (#322)", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-help-no-daemon-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
@@ -4793,19 +4805,41 @@ describe("archctx CLI", () => {
     // storage ids derived from the cwd, are gone too. That is why `daemon stop` from the cwd cannot
     // find such a daemon and the idle exit must not depend on the root.
     const paths = testRuntimePaths(root);
-    // The idle window runs from the last RPC (`status` below), whether or not the root still
-    // exists. Nothing but the delete runs inside it, so the daemon is still alive when its root
-    // goes; the listing of such a daemon is checked in the next test, where idle exit is off.
+    // Cold Windows CLI launches and native ACL discovery can outlast this idle window. Keep
+    // setup alive through the first published connection, which cannot silently replace its
+    // daemon. Stop and drain these RPCs before the final status and the unwrapped delete.
     const idleTimeoutMs = 3_000;
     const env = { ...testStateEnv(root), ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS: String(idleTimeoutMs) };
     const cli = async (cwd: string, ...args: string[]) => JSON.parse((await collectProcess(spawn(process.execPath, [CLI_ENTRY, ...args], { cwd, env }))).stdout);
+    const setup = createDaemonSetupKeepalive({
+      // Isolated fixture: avoid the production ACL probe while waiting for private publication.
+      readConnection: () => JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")),
+      createClient: (connection) => new RuntimeRpcClient(connection),
+      timeoutMs: CLI_PROCESS_TIMEOUT_MS
+    });
+    const keepAlive = setInterval(() => { void setup.poll(); }, 50);
     try {
-      expect((await cli(root, "daemon", "start")).ok).toBe(true);
-      await cli(root, "validate");
+      const started = await cli(root, "daemon", "start");
+      expect(started.ok).toBe(true);
+      expect(started.data.background).toBe(true);
+      expect((await cli(root, "validate")).ok).toBe(true);
+      // Exercise setup that takes longer than the idle window, as cold Windows CLI launches can.
+      await new Promise((resolve) => setTimeout(resolve, idleTimeoutMs + 500));
       const status = await cli(root, "status");
+      expect(status.ok).toBe(true);
       expect(status.data.sessions).toBeGreaterThanOrEqual(1);
-      const pid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
+
+      clearInterval(keepAlive);
+      const pinnedClient = await setup.finish();
+      const pid = pinnedClient.connectionInfo().pid;
+      expect(pid).toBe(started.data.childPid);
+      expect(JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid).toBe(pid);
       expectOutsideWorktree(pid, root);
+      // Re-arm the same daemon immediately before deletion, with no CLI startup or keepalive
+      // left inside the measured idle window. A replacement process cannot satisfy this call.
+      const ready = await pinnedClient.runtimeStatus();
+      expect(ready.ok).toBe(true);
+      expect((ready.data as { sessions: number }).sessions).toBeGreaterThanOrEqual(1);
 
       // The unwrapped rm: a daemon that pins the root makes Windows refuse this delete, and the
       // test must see that instead of a cleanup helper swallowing it.
@@ -4827,6 +4861,9 @@ describe("archctx CLI", () => {
       expect(existsSync(paths.daemonConnectionPath)).toBe(false);
       expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([]);
     } finally {
+      clearInterval(keepAlive);
+      // The main path reports setup errors; cleanup must still drain an RPC on earlier failure.
+      await setup.finish().catch(() => undefined);
       await runCli("daemon", ["stop", "--state-dir", paths.workspaceStateDir], parent).catch(() => undefined);
       rmSync(testStateRoot(root), { recursive: true, force: true });
       rmSync(parent, { recursive: true, force: true });
@@ -5893,7 +5930,7 @@ describe("archctx CLI", () => {
       expect((second.data as any).status).toBe("noop");
       expect((second.data as any).provenance).toMatchObject({
         schemaVersion: "archcontext.architecture-docs-projection-provenance/v3",
-        rendererVersion: "archcontext.docs-renderer/v5",
+        rendererVersion: "archcontext.docs-renderer/v6",
         layoutVersion: "archcontext.docs-layout/v1",
         generatedFrom: {
           codeGraphPackage: "@colbymchenry/codegraph",

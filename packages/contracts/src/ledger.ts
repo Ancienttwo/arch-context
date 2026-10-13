@@ -600,20 +600,31 @@ export interface ProjectionTargetScopeV1 {
   entityKind?: string;
 }
 
-export interface ProjectionTargetV1 {
+interface ProjectionTargetBaseV1 {
   schemaVersion: typeof PROJECTION_TARGET_SCHEMA_VERSION;
   targetId: string;
   type: ProjectionTargetType;
   scope: ProjectionTargetScopeV1;
   path: string;
-  ownership: ProjectionTargetOwnership;
-  generatedRegion: ProjectionTargetGeneratedRegionV1;
   rendererVersion: string;
   format: ProjectionTargetFormat;
   sourceDigest: string;
   outputDigest: string;
   extensions?: Record<string, Json>;
 }
+
+/**
+ * A `mixed` target owns one marked region inside a human-owned document, so it carries the region
+ * markers. A `generated` target owns its whole file and carries no marker: the projection manifest
+ * row's `outputDigest` is what proves the file is projection output.
+ */
+export type ProjectionTargetV1 = ProjectionTargetBaseV1 & (
+  | { ownership: Extract<ProjectionTargetOwnership, "mixed">; generatedRegion: ProjectionTargetGeneratedRegionV1 }
+  | { ownership: Extract<ProjectionTargetOwnership, "generated">; generatedRegion?: never }
+);
+
+/** A target that owns one marked region inside a document. */
+export type ProjectionMixedTargetV1 = Extract<ProjectionTargetV1, { ownership: "mixed" }>;
 
 export interface RecommendationRunV1 {
   schemaVersion: typeof RECOMMENDATION_RUN_SCHEMA_VERSION;

@@ -27,7 +27,6 @@ function render(existingFiles: { path: string; body: string }[]) {
     sourceScaleSignals: [],
     importGraphs: [],
     selectorEvidence: [],
-    generatedAt: "2026-06-26T00:00:00.000Z",
     existingFiles
   });
 }
@@ -77,7 +76,6 @@ test("an untouched renderer-written document of a removed node is deletable; one
     sourceScaleSignals: [],
     importGraphs: [],
     selectorEvidence: [],
-    generatedAt: "2026-06-26T00:00:00.000Z",
     existingFiles: []
   });
   const existing = [...written.files.map(({ path, body }) => ({ path, body })), written.manifest];

@@ -626,7 +626,7 @@ function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): Projecti
     codeGraphDigest: digest,
     indexedWorktreeDigest: digest,
     projectionInputDigest: digest,
-    rendererVersion: "archcontext.docs-renderer/v5" as const,
+    rendererVersion: "archcontext.docs-renderer/v6" as const,
     layoutVersion: "archcontext.docs-layout/v1" as const,
     generatedFrom: {
       codeGraphPackage: "@colbymchenry/codegraph" as const,
@@ -1206,6 +1206,25 @@ describe("JSON schema contracts", () => {
     };
     expect(validateJsonSchema(schema as any, agentContextFixture as Json).valid).toBe(true);
     expect(validateJsonSchema(schema as any, { ...fixture, type: "agent-contexts" } as Json).valid).toBe(false);
+  });
+
+  test("projection-target schema gives region markers to mixed targets only (#327)", () => {
+    const schema = readJson("schemas/runtime/projection-target.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/projection-target.json") as Record<string, Json>;
+    const { generatedRegion: _generatedRegion, ...withoutRegion } = fixture;
+    const wholeFile = {
+      ...withoutRegion,
+      targetId: "projection_target.diagram.structurizr",
+      type: "diagram-structurizr",
+      scope: { kind: "diagram", id: "architecture" },
+      path: "docs/architecture/diagrams/architecture.structurizr.json",
+      ownership: "generated",
+      format: "structurizr-json"
+    };
+
+    expect(validateJsonSchema(schema as any, wholeFile as Json).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, { ...wholeFile, generatedRegion: fixture.generatedRegion } as Json).valid).toBe(false);
+    expect(validateJsonSchema(schema as any, withoutRegion as Json).valid).toBe(false);
   });
 
   test("practice policy schema accepts explicit fail-open and fail-closed modes", () => {
@@ -1916,4 +1935,28 @@ describe("GitHub governance contracts", () => {
       expect(validateJsonSchema(schema, { ...fixture, [field]: "private content" }).valid, field).toBe(false);
     }
   });
+});
+
+test("JSON Schema validation counts only own properties, never inherited ones (#327)", () => {
+  const schema = {
+    type: "object",
+    required: ["toString", "inherited"],
+    properties: { name: { type: "string" }, valueOf: { type: "string" } },
+    additionalProperties: false
+  };
+  // An inherited key, from Object.prototype or from a prototype chain, does not satisfy `required`.
+  const instance = Object.assign(Object.create({ inherited: "from the prototype" }), { name: "kept" });
+  expect(validateJsonSchema(schema as any, instance).issues).toEqual([
+    { path: "$.toString", message: "required" },
+    { path: "$.inherited", message: "required" }
+  ]);
+  // A declared property absent from the instance is not validated against what the prototype holds.
+  const own = { type: "object", properties: { valueOf: { type: "string" } } };
+  expect(validateJsonSchema(own as any, {}).valid).toBe(true);
+  // A key that only the schema's prototype knows is still an additional property.
+  for (const key of ["constructor", "__proto__", "hasOwnProperty"]) {
+    const parsed = JSON.parse(`{"name":"kept",${JSON.stringify(key)}:1}`);
+    expect(validateJsonSchema({ type: "object", properties: { name: { type: "string" } }, additionalProperties: false } as any, parsed).issues)
+      .toEqual([{ path: `$.${key}`, message: "additional property denied" }]);
+  }
 });

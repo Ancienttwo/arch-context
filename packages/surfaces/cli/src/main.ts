@@ -19,6 +19,7 @@ import { completeRuntimeStateRecovery, defaultArchContextStateRoot, defaultLocal
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { listWorkspaceStateDirs } from "@archcontext/local-runtime/runtime-state-paths";
 import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, CapabilityDependenciesError, readCapabilityDependencies } from "@archcontext/local-runtime/runtime-daemon";
+import { inspectRepositoryCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
 import { RuntimeRpcTransportError, type RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
@@ -259,7 +260,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     }
   },
   "docs": {
-    value: ["--accepted-change-set-id", "--accepted-event-id", "--adoption-plan-id", "--affected-node", "--expected-worktree-digest", "--generated-at", "--id", "--intent", "--library", "--library-id", "--major-reason", "--profile", "--query", "--task-session-id", "--version"],
+    value: ["--accepted-change-set-id", "--accepted-event-id", "--adoption-plan-id", "--affected-node", "--expected-worktree-digest", "--id", "--intent", "--library", "--library-id", "--major-reason", "--profile", "--query", "--task-session-id", "--version"],
     boolean: ["--all", "--allow-network", "--approved", "--force-refresh"],
     subcommands: { anchors: { value: ["--profile"], boolean: [] } }
   },
@@ -1553,7 +1554,6 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       action: action as RuntimeDocsProjectionInput["action"],
       profile: architectureProjectionProfile(args),
       acceptedChange: acceptedArchitectureChange(args),
-      generatedAt: readFlag(args, "--generated-at"),
       id: readFlag(args, "--id"),
       taskSessionId: readFlag(args, "--task-session-id"),
       approved: args.includes("--approved"),
@@ -2976,6 +2976,8 @@ async function doctorReport(cwd: string, args: string[] = []) {
   const git = doctorGit(cwd);
   const sqlite = doctorSqlite(cwd);
   const permissions = doctorPermissions(cwd);
+  // Informational: read-only `--version` + `status -j`, never part of `ok`.
+  const codeFacts = inspectRepositoryCodeFacts(("root" in git && git.root) || cwd);
   const auditRoot = auditManifestGateRoot(cwd);
   const hardening = diagnostics(localEgressStatus(process.env, {
     auditEnabled: auditGithubIssuesEnabled(cwd),
@@ -3004,6 +3006,7 @@ async function doctorReport(cwd: string, args: string[] = []) {
     }),
     paths,
     codeGraph: product.runtime.codeGraph,
+    codeFacts,
     git,
     permissions,
     egress,
@@ -3890,7 +3893,16 @@ function paginate(value: any, args: string[]) {
 function renderResult(result: any, format: string): string {
   if (format !== "human") return JSON.stringify(result, null, 2);
   if (!result.ok) return `ERROR ${result.error?.code}: ${result.error?.message}`;
-  return `OK ${result.requestId}\n${JSON.stringify(result.data, null, 2)}`;
+  const codeFactsLine = result.requestId === "doctor" ? `${doctorCodeFactsLine(result.data?.codeFacts)}\n` : "";
+  return `OK ${result.requestId}\n${codeFactsLine}${JSON.stringify(result.data, null, 2)}`;
+}
+
+function doctorCodeFactsLine(codeFacts: any): string {
+  if (!codeFacts) return "code facts: not reported";
+  if (codeFacts.state === "unavailable") return `code facts: unavailable (${codeFacts.message})`;
+  if (codeFacts.state === "index-missing") return "code facts: index missing; run `codegraph init`";
+  const issues = codeFacts.issues.length === 0 ? "" : ` (${codeFacts.issues.map((issue: { code: string }) => issue.code).join(", ")})`;
+  return `code facts: ${codeFacts.state}${issues}; CodeGraph ${codeFacts.codeGraphVersion}`;
 }
 
 /**

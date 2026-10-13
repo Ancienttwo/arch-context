@@ -1,13 +1,13 @@
 {
   "schemaVersion": "archcontext.architecture-docs-projection-manifest/v2",
-  "rendererVersion": "archcontext.docs-renderer/v5",
+  "rendererVersion": "archcontext.docs-renderer/v6",
   "profile": "repo-harness/v1",
   "sourceDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
   "provenance": {
     "schemaVersion": "archcontext.architecture-docs-projection-provenance/v3",
     "sourceTreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     "modelDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "rendererVersion": "archcontext.docs-renderer/v5",
+    "rendererVersion": "archcontext.docs-renderer/v6",
     "layoutVersion": "archcontext.docs-layout/v1",
     "generatedFrom": {
       "codeGraphPackage": "@colbymchenry/codegraph",
@@ -57,7 +57,7 @@
     "evidence": {
       "sourceTreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       "selectorEvidenceDigest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "rendererVersion": "archcontext.docs-renderer/v5"
+      "rendererVersion": "archcontext.docs-renderer/v6"
     }
   },
   "receiptDigest": "sha256:9f11bf3efe26f8ba7654d036e39316176e8d78b3270b886760e526a83b617e58",
@@ -72,7 +72,7 @@
       },
       "path": "docs/architecture/index.md",
       "ownership": "mixed",
-      "rendererVersion": "archcontext.docs-renderer/v5",
+      "rendererVersion": "archcontext.docs-renderer/v6",
       "format": "markdown",
       "sourceDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
       "outputDigest": "sha256:64f1a29733be5033316aa99f657bfeb543df2fca99a2ba8b4103be22d46eeb57"
@@ -87,7 +87,7 @@
       },
       "path": "docs/architecture/modules/example/billing.md",
       "ownership": "mixed",
-      "rendererVersion": "archcontext.docs-renderer/v5",
+      "rendererVersion": "archcontext.docs-renderer/v6",
       "format": "markdown",
       "sourceDigest": "sha256:b817894a048392bcfd08bcf0cb2db65be60c93b52adeba3c3858aab88fff2e55",
       "outputDigest": "sha256:2963da98797bba21c3e87b86e60dca3b7c19f75a592723e4c98e0f41b2eb8f58",
@@ -111,7 +111,7 @@
       },
       "path": "docs/architecture/decisions/index.md",
       "ownership": "mixed",
-      "rendererVersion": "archcontext.docs-renderer/v5",
+      "rendererVersion": "archcontext.docs-renderer/v6",
       "format": "markdown",
       "sourceDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
       "outputDigest": "sha256:34055a2aa0fbe868ce5dea7df5354de5da63830e5972ff683d9647f97374ec26"
@@ -124,7 +124,7 @@
       },
       "path": "docs/architecture/changelog.md",
       "ownership": "mixed",
-      "rendererVersion": "archcontext.docs-renderer/v5",
+      "rendererVersion": "archcontext.docs-renderer/v6",
       "format": "markdown",
       "sourceDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
       "outputDigest": "sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6"
@@ -138,7 +138,7 @@
       },
       "path": "docs/architecture/diagrams/architecture.mmd",
       "ownership": "generated",
-      "rendererVersion": "archcontext.docs-renderer/v5",
+      "rendererVersion": "archcontext.docs-renderer/v6",
       "format": "mermaid",
       "sourceDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
       "outputDigest": "sha256:cab3b5ef19166b5dafbd869ba6060eb52a05f14670db938fa1b13ca4b8bb31bd"
@@ -152,7 +152,7 @@
       },
       "path": "docs/architecture/diagrams/architecture.structurizr.json",
       "ownership": "generated",
-      "rendererVersion": "archcontext.docs-renderer/v5",
+      "rendererVersion": "archcontext.docs-renderer/v6",
       "format": "structurizr-json",
       "sourceDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
       "outputDigest": "sha256:c886230580a87c89ee758db91fc26f6fb2100eb1017cfe0619a3e2332171c42d"
@@ -166,7 +166,7 @@
       },
       "path": "docs/architecture/diagrams/architecture.likec4",
       "ownership": "generated",
-      "rendererVersion": "archcontext.docs-renderer/v5",
+      "rendererVersion": "archcontext.docs-renderer/v6",
       "format": "likec4",
       "sourceDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
       "outputDigest": "sha256:99c534ffdd668102413d47529127887cba120ef9a3f4c2cd62b40e41ef8757e5"

@@ -222,7 +222,6 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
     sourceDigest,
-    generatedAt: new Date(0).toISOString(),
     refreshContext: {
       repositoryId: repositoryFingerprint(root),
       workspaceId: runtimeProjectionWorkspaceId(root),

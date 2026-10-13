@@ -487,7 +487,7 @@ export class ChangeSetAuthorityService {
         for (const ref of input.journals) journals.push(await this.localStore.readCommittedChangeSet(canonicalRoot, ref.journalId));
         const model = loadNativeModelFromArchContext(canonicalRoot);
         const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(canonicalRoot, model, listGitVisibleFiles(canonicalRoot));
-        const projection = buildArchitectureDocsProjection(this.projectionHost(), canonicalRoot, new Date(0).toISOString(), "repo-harness/v1");
+        const projection = buildArchitectureDocsProjection(this.projectionHost(), canonicalRoot, "repo-harness/v1");
         const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest, resolveAcceptanceHeadSha(canonicalRoot));
         const manifestWrite = await this.localStore.readLatestCommittedChangeSetFile(canonicalRoot, "docs/architecture/.projection-manifest.json");
         const acceptance = planCommittedChangeAcceptance(canonicalRoot, {

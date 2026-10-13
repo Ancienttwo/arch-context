@@ -76,7 +76,7 @@
           "$ref": "#/$defs/digest"
         },
         "rendererVersion": {
-          "const": "archcontext.docs-renderer/v5"
+          "const": "archcontext.docs-renderer/v6"
         },
         "layoutVersion": {
           "const": "archcontext.docs-layout/v1"
@@ -1364,7 +1364,7 @@
           "$ref": "#/$defs/digestSet"
         },
         "rendererVersion": {
-          "const": "archcontext.docs-renderer/v5"
+          "const": "archcontext.docs-renderer/v6"
         },
         "layoutVersion": {
           "const": "archcontext.docs-layout/v1"

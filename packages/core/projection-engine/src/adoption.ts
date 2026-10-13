@@ -143,11 +143,15 @@ function entityAdoptionRange(path: string, body: string): { start: number; end: 
 }
 
 function extractRenderedRegion(candidate: ArchitectureAdoptionCandidate): string {
-  const start = candidate.renderedBody.lastIndexOf(candidate.target.generatedRegion.startMarker);
+  // Only a `mixed` target owns a marked region a human document can adopt; a `generated` target
+  // owns its whole file.
+  if (candidate.target.ownership !== "mixed") throw new Error(`projection-adoption-target-not-mixed: ${candidate.path}`);
+  const { startMarker, endMarker } = candidate.target.generatedRegion;
+  const start = candidate.renderedBody.lastIndexOf(startMarker);
   if (start < 0) throw new Error(`projection-adoption-rendered-region-missing: ${candidate.path}`);
-  const endMarkerStart = candidate.renderedBody.indexOf(candidate.target.generatedRegion.endMarker, start);
+  const endMarkerStart = candidate.renderedBody.indexOf(endMarker, start);
   if (endMarkerStart < 0) throw new Error(`projection-adoption-rendered-region-missing: ${candidate.path}`);
-  const end = endMarkerStart + candidate.target.generatedRegion.endMarker.length;
+  const end = endMarkerStart + endMarker.length;
   return `${candidate.renderedBody.slice(start, end).trimEnd()}\n`;
 }
 

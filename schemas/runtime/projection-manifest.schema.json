@@ -23,7 +23,7 @@
       "const": "archcontext.architecture-docs-projection-manifest/v2"
     },
     "rendererVersion": {
-      "const": "archcontext.docs-renderer/v5"
+      "const": "archcontext.docs-renderer/v6"
     },
     "profile": {
       "enum": [
@@ -92,7 +92,7 @@
           "$ref": "#/$defs/digest"
         },
         "rendererVersion": {
-          "const": "archcontext.docs-renderer/v5"
+          "const": "archcontext.docs-renderer/v6"
         },
         "layoutVersion": {
           "const": "archcontext.docs-layout/v1"
@@ -430,7 +430,7 @@
           ]
         },
         "rendererVersion": {
-          "const": "archcontext.docs-renderer/v5"
+          "const": "archcontext.docs-renderer/v6"
         },
         "format": {
           "enum": [
