@@ -112,7 +112,7 @@ function currentRepoProjectionReadback() {
     existingFiles: loaded.existingFiles,
     sourceFootprints: loadCapabilitySourceFootprintDigests(REPO_ROOT, loaded.model, listGitVisibleFiles(REPO_ROOT)),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(REPO_ROOT, loaded.model, listGitVisibleFiles(REPO_ROOT)),
-    ...loadCapabilityCodeGraphProjectionInputs(REPO_ROOT, loaded.model, { sourceFiles: listGitVisibleFiles(REPO_ROOT) }),
+    ...loadCapabilityCodeGraphProjectionInputs(REPO_ROOT, loaded.model),
     sourceDigest,
     provenance: projectionReadbackProvenance(sourceDigest)
   });
@@ -221,7 +221,7 @@ function ambiguousOwnershipIsRejected(root: string): boolean {
     existingFiles: withoutMarker,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listGitVisibleFiles(root) }),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest: projectionSourceDigest(loaded),
     provenance: projectionReadbackProvenance(projectionSourceDigest(loaded))
   });

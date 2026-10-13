@@ -67,7 +67,7 @@ function writeArchitectureDocsProjection(root: string, profile: ArchitectureProj
     existingFiles: loaded.existingFiles,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listGitVisibleFiles(root) }),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest,
     provenance: projectionTestProvenance(root, loaded.model)
   });
@@ -90,7 +90,7 @@ function architectureDocsProjectionOperation(root: string) {
     existingFiles: loaded.existingFiles,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listGitVisibleFiles(root) }),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest: architectureDocumentationSourceDigest({ model: loaded.model, decisions: loaded.decisions }),
     provenance: projectionTestProvenance(root, loaded.model)
   });

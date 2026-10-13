@@ -433,6 +433,51 @@ test("an observed-change apply never overwrites a human note added after classif
   });
 }, TEST_TIMEOUT_MS);
 
+test("an observed-change apply renders the accepted change over the observation only while the repository is unchanged (#324)", async () => {
+  await withProtocolFixture("archctx-projection-observed-reuse-", async ({ root, daemon, request, projectionRun }) => {
+    editKeptSummary(root);
+    const docsBefore = docsSnapshot(root);
+    // The accepted render reuses the observation's measured inputs only under equal digests. A file
+    // added after classification moves the worktree digest, so the run stops instead of rendering
+    // the accepted change over a snapshot that is no longer current.
+    const lookup = editAfterClassification(daemon, () => writeFileSync(join(root, "added-after-classification.txt"), "late\n", "utf8"));
+
+    const requestId = "projection_request.observed_reuse_moved";
+    const refused = await projectionRun(request("apply", requestId, { acceptObservedMajorChange: true }));
+    expect(lookup.state.lookupKey).toBeString();
+    expect(refused.ok, JSON.stringify(refused)).toBe(false);
+    expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
+    expect((refused as any).error.message).toBe("architecture-docs-projection-inputs-changed-during-run: worktreeDigest");
+    expect(await lookup.inspect(root, lookup.state.lookupKey)).toMatchObject({ ok: true, data: { found: false } });
+    expect(docsSnapshot(root)).toEqual(docsBefore);
+  });
+}, TEST_TIMEOUT_MS);
+
+test("an observed-change apply stops when only the Git index moves after classification (#324)", async () => {
+  await withProtocolFixture("archctx-projection-observed-reuse-index-", async ({ root, daemon, request, projectionRun }) => {
+    // An ignored file under `.ai/harness`: the projection worktree digest skips that directory even
+    // when Git lists a file there, so only the Git-visible file list can see it enter the index.
+    writeFileSync(join(root, ".gitignore"), ".ai/harness/late-index.log\n", "utf8");
+    mkdirSync(join(root, ".ai/harness"), { recursive: true });
+    writeFileSync(join(root, ".ai/harness/late-index.log"), "unchanged bytes\n", "utf8");
+    commitAll(root, "ignore a local harness log");
+    editKeptSummary(root);
+    const docsBefore = docsSnapshot(root);
+    // Force-adding it changes only the Git index: same bytes, same HEAD, same projection worktree
+    // digest, but the Git-visible file list the observation measured is no longer current.
+    const lookup = editAfterClassification(daemon, () => git(root, "add", "-f", ".ai/harness/late-index.log"));
+
+    const requestId = "projection_request.observed_reuse_index_moved";
+    const refused = await projectionRun(request("apply", requestId, { acceptObservedMajorChange: true }));
+    expect(lookup.state.lookupKey).toBeString();
+    expect(refused.ok, JSON.stringify(refused)).toBe(false);
+    expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
+    expect((refused as any).error.message).toBe("architecture-docs-projection-inputs-changed-during-run: sourceFiles");
+    expect(await lookup.inspect(root, lookup.state.lookupKey)).toMatchObject({ ok: true, data: { found: false } });
+    expect(docsSnapshot(root)).toEqual(docsBefore);
+  });
+}, TEST_TIMEOUT_MS);
+
 test("a repeated accepted apply returns the committed result without applying again (#265)", async () => {
   await withProtocolFixture("archctx-projection-replay-", async ({ root, daemon, request, projectionRun }) => {
     editKeptSummary(root);
