@@ -7,7 +7,7 @@ import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projec
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -164,13 +164,19 @@ function withProjectionMetadata(
   };
 }
 
+/**
+ * `isolateBlockedCapabilities`: `projection run` only (check, plan and apply without an accepted
+ * change). See `renderArchitectureDocumentationProjection`.
+ */
+type ArchitectureDocsRenderOptions = { rebaselineSupersededManifest?: boolean; isolateBlockedCapabilities?: boolean };
+
 export function buildArchitectureDocsProjection(
   _host: ProjectionServiceHost | undefined,
   root: string,
   profile: ArchitectureProjectionProfile = "default",
   existingFilesOverride?: ProjectionOwnedFile[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1,
-  options: { rebaselineSupersededManifest?: boolean } = {}
+  options: ArchitectureDocsRenderOptions = {}
 ) {
   const inputs = measureArchitectureDocsProjectionInputs(root, profile);
   return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange, options);
@@ -219,7 +225,8 @@ function rerenderArchitectureDocsProjection(
   root: string,
   previous: ReturnType<typeof buildArchitectureDocsProjection>,
   existingFiles: ProjectionOwnedFile[],
-  acceptedChange?: AcceptedArchitectureChangeReferenceV1
+  acceptedChange?: AcceptedArchitectureChangeReferenceV1,
+  options: ArchitectureDocsRenderOptions = {}
 ) {
   const { inputs } = previous;
   const measured = inputs.codeGraphInputs;
@@ -231,7 +238,7 @@ function rerenderArchitectureDocsProjection(
   if (sourceFiles.length !== measured.sourceFiles.length || sourceFiles.some((path, index) => path !== measured.sourceFiles[index])) {
     throw new Error("architecture-docs-projection-inputs-changed-during-run: sourceFiles");
   }
-  return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFiles, acceptedChange);
+  return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFiles, acceptedChange, options);
 }
 
 function renderArchitectureDocsProjectionFromInputs(
@@ -239,7 +246,7 @@ function renderArchitectureDocsProjectionFromInputs(
   inputs: ReturnType<typeof measureArchitectureDocsProjectionInputs>,
   existingFiles: ProjectionOwnedFile[],
   acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined,
-  options: { rebaselineSupersededManifest?: boolean } = {}
+  options: ArchitectureDocsRenderOptions = {}
 ) {
   const { profile, sourceDigest, codeGraphInputs, sourceFootprints } = inputs;
   const loaded = { ...inputs.loaded, existingFiles };
@@ -257,6 +264,7 @@ function renderArchitectureDocsProjectionFromInputs(
     provenance,
     sourceDigest,
     ...(options.rebaselineSupersededManifest ? { rebaselineSupersededManifest: true } : {}),
+    ...(options.isolateBlockedCapabilities ? { isolateBlockedCapabilities: true } : {}),
     refreshContext: {
       repositoryId: repositoryFingerprint(root),
       workspaceId: projectionWorkspaceId(root),
@@ -407,7 +415,8 @@ async function applyProjectionProtocolFixedPoint(
         refreshSignals: committedSignals
       })
     : undefined;
-  const appliedResult = projectionProtocolResult(request, input, "applied", fixedPoint, applyIdentity, {
+  // A partial plan has no accepted change, so it never reaches a receipt (#327, Phase 1).
+  const appliedResult = projectionProtocolResult(request, input, fixedPoint.plan.isolation ? "applied-partial" : "applied", fixedPoint, applyIdentity, {
     files: committedFiles,
     refreshSignals: committedSignals
   }, priorCommittedApplies);
@@ -573,13 +582,17 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   // The flag path renders the accepted change against the documents it classified. The semantic
   // baseline is in the projection manifest, which the expected worktree digest does not cover, so
   // re-reading it here could apply a broader change than the one the receipt records.
+  // Without an accepted change, `plan` and `apply` isolate capabilities blocked by their proof
+  // alone (#327, Phase 1); `adopt` always covers every target.
+  const isolation: { isolateBlockedCapabilities?: boolean } = request.mode !== "adopt" && acceptedChange === undefined ? { isolateBlockedCapabilities: true } : {};
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
     projection = observed === undefined
-      ? buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange)
-      : acceptedChange === undefined
+      ? buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange, isolation)
+      // A declined flag renders once more with isolation; nothing else in `observed` can isolate.
+      : acceptedChange === undefined && (isolation.isolateBlockedCapabilities !== true || observed.plan.majorChange.mode !== "human-action-required")
         ? observed
-        : rerenderArchitectureDocsProjection(root, observed, observed.loaded.existingFiles, acceptedChange);
+        : rerenderArchitectureDocsProjection(root, observed, observed.loaded.existingFiles, acceptedChange, isolation);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return projectionFailureEnvelope("projection.run", error);
@@ -622,8 +635,13 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, docsProjectionChangeSetId(fixedPointProjection), root, daemon, priorCommittedApplies, acceptedChange);
   }
 
-  const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
-  return projectionProtocolEnvelope(request, projection, status, projection, priorCommittedApplies);
+  return projectionProtocolEnvelope(request, projection, projectionPlannedStatus(projection), projection, priorCommittedApplies);
+}
+
+/** `check` and `plan` without a human action: nothing to write, a complete plan, or a partial one. */
+function projectionPlannedStatus(projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionResultV2["status"] {
+  if (projection.plan.isolation) return "planned-partial";
+  return projection.plan.drift.ok ? "noop" : "planned";
 }
 
 /**
@@ -639,13 +657,14 @@ export function runProjectionCheckCommand(request: ProjectionRequestV1, root: st
   }
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
-    projection = buildArchitectureDocsProjection(undefined, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
+    projection = buildArchitectureDocsProjection(undefined, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange,
+      request.acceptedChange === undefined ? { isolateBlockedCapabilities: true } : {});
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return projectionFailureEnvelope("projection.run", error);
   }
   const freshness = projectionCheckFreshness(root, projection);
-  const status = projectionProtocolHumanStatus(request, projection) ?? (projection.plan.drift.ok ? "noop" : "planned");
+  const status = projectionProtocolHumanStatus(request, projection) ?? projectionPlannedStatus(projection);
   return projectionProtocolEnvelope(request, projection, status, projection, [], freshness);
 }
 
@@ -1348,7 +1367,8 @@ function projectionProtocolResult(
     ...(priorCommittedApplies.length > 0 ? { priorCommittedApplies } : {}),
     ...(freshness ? { freshness } : {}),
     ...(architectureDebt ? { architectureDebt } : {}),
-    ...(declinedUnprovableNodeIds && status === "human-action-required" ? { majorChangeAcceptance: "declined-unprovable-proof" as const } : {})
+    ...(declinedUnprovableNodeIds && status === "human-action-required" ? { majorChangeAcceptance: "declined-unprovable-proof" as const } : {}),
+    ...(status === "planned-partial" || status === "applied-partial" ? { coverage: projectionCoverage(input) } : {})
   };
   const receiptDigest = projectionResultReceiptDigest(withoutReceipt);
   const result: ProjectionResultV2 = {
@@ -1359,6 +1379,18 @@ function projectionProtocolResult(
   const issues = [...projectionResultInvariantIssues(result), ...projectionResultRequestModeIssues(result, request.mode)];
   if (issues.length > 0) throw new Error(`projection result invariant failed: ${issues.join("; ")}`);
   return result;
+}
+
+/** A partial result's coverage: what the isolated plan carried forward and what it applies. */
+function projectionCoverage(projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionCoverageV1 {
+  const isolation = projection.plan.isolation;
+  if (!isolation) throw new Error("projection-partial-result-without-isolation");
+  return {
+    complete: false,
+    blockedCapabilityIds: [...isolation.blockedCapabilityIds],
+    blockedTargets: isolation.blockedTargets.map((target) => ({ ...target, capabilityIds: [...target.capabilityIds], reasonCodes: [...target.reasonCodes] })),
+    appliedTargetIds: [...isolation.appliedTargetIds]
+  };
 }
 
 function projectionProtocolResultEnvelope(result: ProjectionResultV2): JsonEnvelope {

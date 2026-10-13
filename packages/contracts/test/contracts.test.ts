@@ -90,7 +90,9 @@ import {
   projectionApplyRecoveryProofDigest,
   projectionApplyRecoveryResultInvariantIssues,
   projectionApplyRecoveryIntentInvariantIssues,
+  projectionApplyReceiptInvariantIssues,
   projectionArchitectureDebtIssues,
+  projectionCoverageIssues,
   projectionFreshnessIssues,
   projectionRequestInvariantIssues,
   projectionResultReceiptDigest,
@@ -908,6 +910,78 @@ test("a declined acceptObservedMajorChange is explicit and replaces the unresolv
   expect(validateJsonSchema(schema as any, result("human-action-required", [unprovable], "declined") as any).valid).toBe(false);
 });
 
+test("a partial projection carries coverage, never counts as acceptance and never writes a carried-forward target (#327)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const coverage: NonNullable<ProjectionResultV2["coverage"]> = {
+    complete: false,
+    blockedCapabilityIds: ["capability.web"],
+    blockedTargets: [{ targetId: "projection_target.entity.capability.web", path: "docs/architecture/modules/web.md", capabilityIds: ["capability.web"], reasonCodes: ["unprovable-required-flow", "verified-flow-proof-changed"] }],
+    appliedTargetIds: ["projection_target.architecture.index", "projection_target.entity.capability.api"]
+  };
+  const result = (extra: Record<string, unknown>) => {
+    const { receiptDigest: _receiptDigest, ...payload } = valid;
+    const withoutReceipt = { ...payload, ...extra } as Omit<ProjectionResultV2, "receiptDigest">;
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+  };
+  for (const status of ["planned-partial", "applied-partial"] as const) {
+    const partial = result({ status, coverage });
+    expect(projectionResultInvariantIssues(partial), status).toEqual([]);
+    expect(validateJsonSchema(schema as any, partial as any).issues, status).toEqual([]);
+  }
+  expect(projectionResultRequestModeIssues(result({ status: "planned-partial", coverage }), "check")).toEqual([]);
+  expect(projectionResultRequestModeIssues(result({ status: "planned-partial", coverage }), "apply")).toContain("planned-partial is only allowed on a check or plan result, never when mode=apply");
+  expect(projectionResultRequestModeIssues(result({ status: "applied-partial", coverage }), "plan")).toContain("applied-partial is only allowed on an apply result, never when mode=plan");
+
+  // complete: false is never acceptance: a complete status, a receipt or a signal never carries it.
+  const presence = "coverage must be present exactly when status is planned-partial or applied-partial";
+  const applied = result({ status: "applied", coverage });
+  expect(projectionResultInvariantIssues(applied)).toContain(presence);
+  expect(validateJsonSchema(schema as any, applied as any).valid).toBe(false);
+  const fixture = readJson("packages/contracts/fixtures/invalid/projection-result-applied-incomplete-coverage.json") as any;
+  expect(fixture.status).toBe("applied");
+  expect(fixture.coverage.complete).toBe(false);
+  expect(validateJsonSchema(schema as any, fixture).valid).toBe(false);
+  expect(projectionResultInvariantIssues(result({ status: "planned-partial" }))).toContain(presence);
+  expect(validateJsonSchema(schema as any, result({ status: "planned-partial" }) as any).valid).toBe(false);
+  const complete = result({ status: "planned-partial", coverage: { ...coverage, complete: true } });
+  expect(projectionResultInvariantIssues(complete)).toContain("coverage.complete must be false; a result that covers every target omits coverage");
+  expect(validateJsonSchema(schema as any, complete as any).valid).toBe(false);
+  const applyReceipt = { schemaVersion: "archcontext.projection-apply-identity/v1" } as unknown as ProjectionResultV2["applyReceipt"];
+  const receipted = result({ status: "applied-partial", coverage, applyReceipt });
+  expect(projectionResultInvariantIssues(receipted)).toContain("applied-partial status never carries applyReceipt");
+  expect(validateJsonSchema(schema as any, receipted as any).valid).toBe(false);
+  const identity = {
+    schemaVersion: "archcontext.projection-apply-identity/v1",
+    repositoryId: "repo.example",
+    workspaceId: "ws.example",
+    acceptedChange: { changeSetId: "changeset.x", eventId: "event.x", reasonCodes: ["verified-flow-proof-changed"], affectedNodeIds: ["capability.web"] },
+    semanticCommit: { changeSetId: "changeset.x", idempotencyKey: "idem_changeset.x" }
+  };
+  const receipt = { identity, result: result({ status: "applied-partial", coverage, applyReceipt: identity }) } as unknown as ProjectionApplyReceiptV1;
+  expect(projectionApplyReceiptInvariantIssues(receipt)).toEqual(expect.arrayContaining([
+    "projection apply receipt result status must be applied",
+    "projection apply receipt result must cover every target"
+  ]));
+
+  // A carried-forward target is never also written, and every blocked capability blocks a target.
+  expect(projectionResultInvariantIssues(result({ status: "applied-partial", coverage, files: [{ path: "docs/architecture/modules/web.md", action: "update", preimageDigest: `sha256:${"b".repeat(64)}`, outputDigest: `sha256:${"c".repeat(64)}` }] })))
+    .toContain("files[] must not write the carried-forward target path docs/architecture/modules/web.md");
+  expect(projectionCoverageIssues({ ...coverage, blockedCapabilityIds: ["capability.api", "capability.web"] })).toContain("coverage.blockedCapabilityIds names capability.api, which blocks no target");
+  expect(projectionCoverageIssues({ ...coverage, blockedTargets: [{ ...coverage.blockedTargets[0]!, capabilityIds: ["capability.other"] }] }))
+    .toContain("coverage.blockedTargets[0].capabilityIds names capability.other, which is not a blocked capability");
+  expect(projectionCoverageIssues({ ...coverage, appliedTargetIds: [...coverage.appliedTargetIds, coverage.blockedTargets[0]!.targetId].sort() }))
+    .toContain("coverage.blockedTargets[0].targetId must not also be an applied target");
+  expect(projectionCoverageIssues({ ...coverage, blockedTargets: [{ ...coverage.blockedTargets[0]!, reasonCodes: ["unresolved-major-change" as never] }] }))
+    .toContain("coverage.blockedTargets[0].reasonCodes contains unsupported reason: unresolved-major-change");
+  expect(projectionCoverageIssues({ ...coverage, blockedCapabilityIds: [], blockedTargets: [] })).toEqual(expect.arrayContaining([
+    "coverage.blockedCapabilityIds must name at least one capability",
+    "coverage.blockedTargets must name at least one target"
+  ]));
+  expect(validateJsonSchema(schema as any, result({ status: "planned-partial", coverage: { ...coverage, blockedTargets: [] } }) as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, result({ status: "planned-partial", coverage: { ...coverage, extra: true } }) as any).valid).toBe(false);
+});
+
 test("a committed projection apply is a distinct, non-retryable error code (#265)", () => {
   expect(ERROR_CATALOG.AC_PROJECTION_APPLY_COMMITTED).toEqual({
     code: "AC_PROJECTION_APPLY_COMMITTED",
@@ -1074,6 +1148,7 @@ test("capabilities fixture is the exact static handshake advertised by contracts
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
   expect(fixture.features).toContain("projection-prior-committed-applies-v1");
   expect(fixture.features).toContain("projection-check-freshness-v1");
+  expect(fixture.features).toContain("projection-capability-isolation-v1");
   expect(fixture.features).toContain("changeset-entity-operations-v1");
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
@@ -1609,6 +1684,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.architecture-event/v1": "architecture-event",
     "archcontext.architecture-snapshot/v2": "architecture-snapshot",
     "archcontext.projection-target/v1": "projection-target",
+    "archcontext.projection-result/v2": "projection-result",
     "archcontext.architecture-docs-projection-manifest/v3": "projection-manifest",
     "archcontext.evidence-item/v2": "evidence-item",
     "archcontext.evidence-binding/v1": "evidence-binding",
