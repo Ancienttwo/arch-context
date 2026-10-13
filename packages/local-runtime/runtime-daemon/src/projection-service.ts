@@ -752,7 +752,8 @@ async function proveOrRestoreCommittedProjectionApply(
   try {
     input = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, readbackRequest.acceptedChange);
     assertProjectionExpectedSnapshot(readbackRequest, root, input);
-    fixedPoint = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, input.files);
+    // Like the first apply, the fixed point reuses the input render's measured inputs (#324).
+    fixedPoint = rerenderArchitectureDocsProjection(root, input, generatedAt, input.files);
   } catch (error) {
     return { kind: "failed", envelope: projectionFailureEnvelope("projection.run", error) };
   }
