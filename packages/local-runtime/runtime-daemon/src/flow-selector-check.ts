@@ -18,7 +18,6 @@ export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: str
     const sourceFiles = listGitVisibleFiles(root);
     const prepared = prepareProjectionCodeFacts(root, model, {
       sourceTreeDigest: architectureDocumentationSourceTreeDigest(root, model, sourceFiles),
-      sourceFiles,
       importGraphs: false,
       ...(options.binary ? { binary: options.binary } : {})
     });

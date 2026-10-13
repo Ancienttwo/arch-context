@@ -13,10 +13,11 @@ import {
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   architectureDocumentationProjectionProvenance,
   architectureDocumentationProjectionWorktreeDigest,
-  architectureDocumentationSourceTreeDigest,
+  digestArchitectureDocumentationSourceTree,
   loadCapabilitySourceFootprints,
   nativeNodeSource,
   type ArchitectureSelectorEvidenceV1,
+  type CapabilitySourceFootprint,
   type CapabilityImportEdge,
   type CapabilityImportGraph,
   type ArchitectureDocumentationProjectionRuntimeSnapshot,
@@ -736,6 +737,12 @@ export interface PreparedArchitectureDocumentationProjectionSnapshot extends Pre
    * agrees on which files exist.
    */
   sourceFiles: string[];
+  /**
+   * `loadCapabilitySourceFootprints` over `sourceFiles`, resolved once for the whole snapshot. The
+   * source tree digest and the import graphs read it, and callers stamp footprint digests and scale
+   * signals from it, so one build matches the globs once (#324).
+   */
+  footprints: CapabilitySourceFootprint[];
 }
 
 /** Single snapshot assembly shared by CLI, daemon completion gates, and verification tests. */
@@ -751,9 +758,10 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
   const baseHeadSha = readProjectionHeadSha(root);
   const sourceFiles = listGitVisibleFiles(root);
   const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(root, model, sourceFiles);
-  const sourceTreeDigest = architectureDocumentationSourceTreeDigest(root, model, sourceFiles);
+  const footprints = loadCapabilitySourceFootprints(root, model, sourceFiles);
+  const sourceTreeDigest = digestArchitectureDocumentationSourceTree(root, model, footprints);
   const modelDigest = digestJson(model as unknown as Json);
-  const prepared = prepareProjectionCodeFacts(root, model, { ...options, sourceTreeDigest, sourceFiles });
+  const prepared = prepareProjectionCodeFacts(root, model, { ...options, sourceTreeDigest, footprints });
   if (architectureDocumentationProjectionWorktreeDigest(root, model, listGitVisibleFiles(root)) !== worktreeDigest) {
     throw new Error("architecture-docs-projection-worktree-changed-during-codegraph-sync");
   }
@@ -777,7 +785,8 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
       indexedWorktreeDigest: prepared.handshake.indexedWorktreeDigest,
       codeGraphStatus: prepared.handshake.availability
     },
-    sourceFiles
+    sourceFiles,
+    footprints
   };
 }
 
@@ -831,8 +840,8 @@ export function prepareProjectionCodeFacts(
   model: NativeModel,
   options: {
     sourceTreeDigest: string;
-    /** Git-visible files to resolve footprints over; listed from `root` when omitted. */
-    sourceFiles?: readonly string[];
+    /** Footprints resolved over the Git-visible files; resolved from `root` when omitted. */
+    footprints?: readonly CapabilitySourceFootprint[];
     binary?: string;
     importNodeLimit?: number;
     timeouts?: { versionMs?: number; statusMs?: number; syncMs?: number };
@@ -886,7 +895,7 @@ export function prepareProjectionCodeFacts(
   assertProjectionCodeGraphStatus(postStatus, root, "post-sync");
   assertProjectionCodeGraphClean(postStatus, "post-sync");
   const inputs = loadCapabilityCodeGraphProjectionInputs(root, model, {
-    ...(options.sourceFiles ? { sourceFiles: options.sourceFiles } : {}),
+    ...(options.footprints ? { footprints: options.footprints } : {}),
     binary: binaryPath,
     importNodeLimit: options.importNodeLimit,
     importNodeCount: statusImportNodeCount(postStatus),
@@ -1114,8 +1123,8 @@ export function loadCapabilityCodeGraphProjectionInputs(
   root: string,
   model: NativeModel,
   options: {
-    /** Git-visible files to resolve footprints over; listed from `root` when omitted. */
-    sourceFiles?: readonly string[];
+    /** Footprints resolved over the Git-visible files; resolved from `root` when omitted. */
+    footprints?: readonly CapabilitySourceFootprint[];
     binary?: string;
     /** Safety cap on the import nodes read; `CODEGRAPH_IMPORT_NODE_READ_LIMIT` when omitted. */
     importNodeLimit?: number;
@@ -1132,7 +1141,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
   const declaresFootprint = options.importGraphs !== false
     && model.nodes.some((node) => (nativeNodeSource(node)?.include ?? []).length > 0);
   const footprints = declaresFootprint
-    ? loadCapabilitySourceFootprints(root, model, options.sourceFiles ?? listGitVisibleFiles(root))
+    ? options.footprints ?? loadCapabilitySourceFootprints(root, model, listGitVisibleFiles(root))
     : [];
   const entrypointNodes = model.nodes
     .map((node) => ({ nodeId: node.id, entrypoints: nativeNodeSource(node)?.entrypoints ?? [] }))
@@ -1317,7 +1326,7 @@ function codeGraphImportPopulation(
 function capabilityImportGraphs(
   root: string,
   binary: string,
-  footprints: { nodeId: string; files: string[] }[],
+  footprints: readonly CapabilitySourceFootprint[],
   limit: number,
   reportedCount: number | null
 ): CapabilityImportGraph[] {

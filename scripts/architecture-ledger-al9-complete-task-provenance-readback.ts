@@ -169,7 +169,7 @@ function writeArchitectureDocsProjection(root: string): void {
     existingFiles: loaded.existingFiles,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listGitVisibleFiles(root) }),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest,
     provenance: projectionReadbackProvenance(sourceDigest)
   });
@@ -194,7 +194,7 @@ function docsProjectionDriftOk(root: string): boolean {
     existingFiles: loaded.existingFiles,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listGitVisibleFiles(root) }),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest: architectureDocumentationSourceDigest({
       model: loaded.model,
       decisions: loaded.decisions

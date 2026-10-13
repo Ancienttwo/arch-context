@@ -1,6 +1,6 @@
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, errorEnvelope, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, digestCapabilitySourceFootprints, loadArchitectureDocumentationInputs, measureCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
@@ -216,8 +216,8 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     docsLanguage: loaded.docsLanguage,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, codeGraphInputs.sourceFiles),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.sourceFiles),
+    sourceFootprints: digestCapabilitySourceFootprints(root, loaded.model, codeGraphInputs.footprints),
+    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, codeGraphInputs.footprints),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,

@@ -579,8 +579,16 @@ function architectureProjectionSemanticBaseline(body: string | undefined): Pick<
 }
 
 export function architectureDocumentationSourceTreeDigest(root: string, model: NativeModel, sourceFiles: readonly string[]): string {
+  return digestArchitectureDocumentationSourceTree(root, model, loadCapabilitySourceFootprints(root, model, sourceFiles));
+}
+
+/**
+ * `architectureDocumentationSourceTreeDigest` over footprints the caller already resolved for this
+ * run (`loadCapabilitySourceFootprints`), so one build matches the globs once (#324).
+ */
+export function digestArchitectureDocumentationSourceTree(root: string, model: NativeModel, footprints: readonly CapabilitySourceFootprint[]): string {
   const agentContextOutputs = new Set(agentContextTargetPaths(model.nodes).map((target) => target.path));
-  const files = loadCapabilitySourceFootprints(root, model, sourceFiles)
+  const files = footprints
     .flatMap((footprint) => footprint.files)
     .filter((path) => path !== "docs/architecture" && !path.startsWith("docs/architecture/") && !agentContextOutputs.has(path))
     .filter((path, index, all) => all.indexOf(path) === index)
@@ -676,7 +684,12 @@ export function loadArchitectureDocumentationInputs(root: string, profile: Archi
  * explicit "not derivable" note for them instead of a zero that reads like a measurement.
  */
 export function loadCapabilitySourceScaleSignals(root: string, model: NativeModel, sourceFiles: readonly string[]): CapabilitySourceScaleSignal[] {
-  return loadCapabilitySourceFootprints(root, model, sourceFiles).map((footprint) => ({
+  return measureCapabilitySourceScaleSignals(root, loadCapabilitySourceFootprints(root, model, sourceFiles));
+}
+
+/** `loadCapabilitySourceScaleSignals` over footprints the caller already resolved for this run. */
+export function measureCapabilitySourceScaleSignals(root: string, footprints: readonly CapabilitySourceFootprint[]): CapabilitySourceScaleSignal[] {
+  return footprints.map((footprint) => ({
     nodeId: footprint.nodeId,
     fileCount: footprint.files.length,
     lineCount: footprint.files.reduce((total, path) => total + countFileLines(resolve(root, path)), 0),
@@ -948,8 +961,13 @@ export function projectionOwnedPaths(model: NativeModel): string[] {
  * moves a stamp; the digest reads file contents, never Git history.
  */
 export function loadCapabilitySourceFootprintDigests(root: string, model: NativeModel, sourceFiles: readonly string[]): CapabilitySourceFootprintDigest[] {
+  return digestCapabilitySourceFootprints(root, model, loadCapabilitySourceFootprints(root, model, sourceFiles));
+}
+
+/** `loadCapabilitySourceFootprintDigests` over footprints the caller already resolved for this run. */
+export function digestCapabilitySourceFootprints(root: string, model: NativeModel, footprints: readonly CapabilitySourceFootprint[]): CapabilitySourceFootprintDigest[] {
   const ownedPathPatterns = projectionOwnedPaths(model);
-  return loadCapabilitySourceFootprints(root, model, sourceFiles).map((footprint) => {
+  return footprints.map((footprint) => {
     const files = footprint.files.filter((path) => !ownedPathPatterns.some((pattern) => matchesGlob(path, pattern)));
     return {
       nodeId: footprint.nodeId,
@@ -2505,13 +2523,40 @@ export function matchesGlob(path: string, pattern: string): boolean {
   return globToRegExp(pattern).test(path);
 }
 
+/**
+ * Compiled globs by pattern, so each distinct pattern is compiled once per process instead of once
+ * per (node, file, pattern) match: recompiling dominated a projection build (#324). The regexes have
+ * no `g`/`y` flag, so `test` keeps no state and one instance is safe to share. Patterns come from
+ * repository models (`source.include`/`exclude`) and the paths derived from them, which a
+ * long-lived daemon re-reads as they change, so the cache drops its oldest entry past a fixed size
+ * instead of growing with every pattern it has ever seen.
+ */
+const GLOB_REGEXP_CACHE_LIMIT = 4096;
+const globRegExpCache = new Map<string, RegExp>();
+let globRegExpCompilations = 0;
+
+/** Test seam: how many globs this process has compiled (cache misses), never a cache hit. */
+export function globRegExpCompilationCount(): number {
+  return globRegExpCompilations;
+}
+
+function globToRegExp(pattern: string): RegExp {
+  const cached = globRegExpCache.get(pattern);
+  if (cached !== undefined) return cached;
+  const compiled = compileGlob(pattern);
+  globRegExpCompilations += 1;
+  if (globRegExpCache.size >= GLOB_REGEXP_CACHE_LIMIT) globRegExpCache.delete(globRegExpCache.keys().next().value!);
+  globRegExpCache.set(pattern, compiled);
+  return compiled;
+}
+
 /** Length of the glob's literal prefix (before its first `*`/`?`); used as the ADR-0043 specificity score. */
 export function globLiteralPrefixLength(pattern: string): number {
   const index = pattern.search(/[*?]/);
   return index === -1 ? pattern.length : index;
 }
 
-function globToRegExp(pattern: string): RegExp {
+function compileGlob(pattern: string): RegExp {
   let out = "";
   let index = 0;
   while (index < pattern.length) {

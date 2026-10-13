@@ -7,7 +7,7 @@ import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projec
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -161,13 +161,71 @@ export function buildArchitectureDocsProjection(
   existingFilesOverride?: { path: string; body: string }[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
-  const loadedFromDisk = loadArchitectureDocumentationInputs(root, profile);
-  const loaded = { ...loadedFromDisk, existingFiles: existingFilesOverride ?? loadedFromDisk.existingFiles };
+  const inputs = measureArchitectureDocsProjectionInputs(root, profile);
+  return renderArchitectureDocsProjectionFromInputs(root, inputs, generatedAt, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange);
+}
+
+/**
+ * Everything a projection build reads from the repository before it renders: the model, decisions
+ * and existing documents, the CodeGraph snapshot, and the footprint digests and scale signals of
+ * that snapshot's footprints. The render is a function of these, the existing documents it is
+ * given and the accepted change.
+ */
+function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile) {
+  const loaded = loadArchitectureDocumentationInputs(root, profile);
   const sourceDigest = architectureDocumentationSourceDigest({ model: loaded.model, profile, decisions: loaded.decisions });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
+  return {
+    profile,
+    loaded,
+    sourceDigest,
+    codeGraphInputs,
+    sourceFootprints: digestCapabilitySourceFootprints(root, loaded.model, codeGraphInputs.footprints),
+    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, codeGraphInputs.footprints)
+  };
+}
+
+/**
+ * Renders `previous`'s measured inputs again against other existing documents or another accepted
+ * change, without measuring the repository a second time (#324). The inputs are reused only when
+ * they are provably equal: HEAD, the projection worktree digest (the bytes of every Git-visible
+ * file outside projection outputs and harness state) and the whole Git-visible file list (which
+ * also covers the paths that digest skips) must all equal what `previous` measured. Otherwise this
+ * throws; it never renders over inputs it cannot prove current. The existing documents are always
+ * passed in: they are projection-owned outputs outside the worktree digest, so no digest proves
+ * them unchanged.
+ */
+function rerenderArchitectureDocsProjection(
+  root: string,
+  previous: ReturnType<typeof buildArchitectureDocsProjection>,
+  generatedAt: string,
+  existingFiles: { path: string; body: string }[],
+  acceptedChange?: AcceptedArchitectureChangeReferenceV1
+) {
+  const { inputs } = previous;
+  const measured = inputs.codeGraphInputs;
+  const sourceFiles = listGitVisibleFiles(root);
+  if (readHeadSha(root) !== measured.runtimeSnapshot.headSha) throw new Error("architecture-docs-projection-inputs-changed-during-run: headSha");
+  if (architectureDocumentationProjectionWorktreeDigest(root, inputs.loaded.model, sourceFiles) !== measured.runtimeSnapshot.worktreeDigest) {
+    throw new Error("architecture-docs-projection-inputs-changed-during-run: worktreeDigest");
+  }
+  if (sourceFiles.length !== measured.sourceFiles.length || sourceFiles.some((path, index) => path !== measured.sourceFiles[index])) {
+    throw new Error("architecture-docs-projection-inputs-changed-during-run: sourceFiles");
+  }
+  return renderArchitectureDocsProjectionFromInputs(root, inputs, generatedAt, existingFiles, acceptedChange);
+}
+
+function renderArchitectureDocsProjectionFromInputs(
+  root: string,
+  inputs: ReturnType<typeof measureArchitectureDocsProjectionInputs>,
+  generatedAt: string,
+  existingFiles: { path: string; body: string }[],
+  acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined
+) {
+  const { profile, sourceDigest, codeGraphInputs, sourceFootprints } = inputs;
+  const loaded = { ...inputs.loaded, existingFiles };
   const provenance = codeGraphInputs.provenance;
-  const sourceFootprints = loadCapabilitySourceFootprintDigests(root, loaded.model, codeGraphInputs.sourceFiles);
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     profile,
@@ -175,7 +233,7 @@ export function buildArchitectureDocsProjection(
     existingFiles: loaded.existingFiles,
     docsLanguage: loaded.docsLanguage,
     sourceFootprints,
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.sourceFiles),
+    sourceScaleSignals: inputs.sourceScaleSignals,
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
@@ -190,6 +248,8 @@ export function buildArchitectureDocsProjection(
     }
   });
   return {
+    /** What this render measured; `rerenderArchitectureDocsProjection` reuses it when it is still current. */
+    inputs,
     loaded,
     plan,
     runtimeSnapshot: codeGraphInputs.runtimeSnapshot,
@@ -495,9 +555,11 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   // re-reading it here could apply a broader change than the one the receipt records.
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
-    projection = observed !== undefined && acceptedChange === undefined
-      ? observed
-      : buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, observed?.loaded.existingFiles, acceptedChange);
+    projection = observed === undefined
+      ? buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange)
+      : acceptedChange === undefined
+        ? observed
+        : rerenderArchitectureDocsProjection(root, observed, generatedAt, observed.loaded.existingFiles, acceptedChange);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return projectionFailureEnvelope("projection.run", error);
@@ -526,7 +588,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     let fixedPointProjection: ReturnType<typeof buildArchitectureDocsProjection>;
     try {
       fixedPointProjection = acceptedChange
-        ? buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, projection.files)
+        ? rerenderArchitectureDocsProjection(root, projection, generatedAt, projection.files)
         : projection;
       if (acceptedChange && (
         fixedPointProjection.plan.rejected.length > 0

@@ -69,7 +69,7 @@ import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agen
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, architectureDocumentationSourceTreeDigest, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, digestArchitectureDocumentationSourceTree, digestCapabilitySourceFootprints, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprints, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
@@ -1563,8 +1563,8 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     docsLanguage: loaded.docsLanguage,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, codeGraphInputs.sourceFiles),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.sourceFiles),
+    sourceFootprints: digestCapabilitySourceFootprints(root, loaded.model, codeGraphInputs.footprints),
+    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, codeGraphInputs.footprints),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
@@ -1596,14 +1596,14 @@ function completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFr
   const manifest = loadArchitectureProjectionManifestStamps(root);
   if (manifest.status === "manifest-missing") return undefined;
   const model = loadNativeModelFromArchContext(root);
-  const sourceFiles = listGitVisibleFiles(root);
+  const footprints = loadCapabilitySourceFootprints(root, model, listGitVisibleFiles(root));
   return evaluateArchitectureProjectionSnapshotFreshness({
     model,
     // The committed manifest's profile decides which nodes carry a stamp, as it decides the layout
     // `completeTaskProjectionDrift` renders. An unreadable manifest has no profile to read.
     profile: manifest.status === "present" ? loadArchitectureDocumentationProfile(root) : undefined,
     manifest,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, model, sourceFiles),
-    currentSourceTreeDigest: architectureDocumentationSourceTreeDigest(root, model, sourceFiles)
+    sourceFootprints: digestCapabilitySourceFootprints(root, model, footprints),
+    currentSourceTreeDigest: digestArchitectureDocumentationSourceTree(root, model, footprints)
   });
 }
