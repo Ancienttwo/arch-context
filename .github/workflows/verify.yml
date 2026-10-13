@@ -76,8 +76,9 @@ jobs:
     name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     runs-on: ${{ matrix.os }}
     # Windows Node 22 completed its tests at 29 min, then hit the 30 min job limit.
+    # Green Windows jobs now take 31-45 min, and several were cancelled at the 45 min limit.
     # Give the full verification and packaging steps room to finish.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
 
     strategy:
       fail-fast: false
