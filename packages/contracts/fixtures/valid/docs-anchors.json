@@ -14,7 +14,8 @@
       "line-moved": 1,
       "line-out-of-range": 1,
       "missing-path": 1,
-      "missing-symbol": 1
+      "missing-symbol": 1,
+      "unknown-selector": 0
     }
   },
   "nodes": [

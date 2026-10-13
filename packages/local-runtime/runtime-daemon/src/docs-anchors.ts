@@ -7,6 +7,7 @@ import {
   loadArchitectureFilesForLayout,
   loadCapabilitySourceFootprints,
   loadNativeModelFromArchContext,
+  modelSelectorIds,
   resolveArchitectureDocumentationLayout,
   type ArchitectureProjectionProfile,
   type ProseAnchorCodeGraph,
@@ -41,6 +42,7 @@ export function runDocsAnchorsCommand(cwd: string, options: { profile?: Architec
       : { availability: "unavailable", reasonCode: opened.reasonCode };
     const report = checkProseAnchors({
       profile,
+      selectorIds: modelSelectorIds(model),
       codeGraph,
       tree,
       nodes: model.nodes.map((node) => {

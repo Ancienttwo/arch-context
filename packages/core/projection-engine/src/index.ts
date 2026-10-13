@@ -94,6 +94,23 @@ export function nativeNodeSource(node: NativeNode): NativeNodeSource | undefined
   return value as unknown as NativeNodeSource;
 }
 
+/**
+ * The ids a `<id>#symbol` selector may name in `model`: node ids, the entrypoint ids and sink ids
+ * under `source.entrypoints`, and flow ids.
+ */
+export function modelSelectorIds(model: { nodes: readonly NativeNode[]; flows?: readonly { id: string }[] }): string[] {
+  const ids = new Set<string>();
+  for (const node of model.nodes) {
+    ids.add(node.id);
+    for (const entrypoint of nativeNodeSource(node)?.entrypoints ?? []) {
+      ids.add(entrypoint.id);
+      for (const symbol of entrypoint.symbols) for (const sink of symbol.sinks) ids.add(sink.id);
+    }
+  }
+  for (const flow of model.flows ?? []) ids.add(flow.id);
+  return [...ids].sort();
+}
+
 export interface NativeRelation extends Record<string, Json> {
   id: string;
   kind: string;
