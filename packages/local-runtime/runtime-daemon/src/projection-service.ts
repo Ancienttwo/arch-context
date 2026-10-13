@@ -439,7 +439,13 @@ async function applyProjectionProtocolFixedPoint(
   const planned = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: request.requestId },
-    operations: [architectureDocsRenderProjectionOperation(input.loaded.existingFiles, fixedPoint.files, orphanDeletes.map((orphan) => orphan.operation))],
+    operations: [architectureDocsRenderProjectionOperation(
+      input.loaded.existingFiles,
+      fixedPoint.files,
+      orphanDeletes.map((orphan) => orphan.operation),
+      // A partial apply's manifest keeps the blocked rows only while their documents are unchanged.
+      fixedPoint.plan.isolation?.blockedTargets.map((target) => target.path) ?? []
+    )],
     worktreeDigestPrecondition: {
       profile: "architecture-documentation-projection",
       expectedDigest: request.expected.worktreeDigest
@@ -1607,16 +1613,35 @@ function buildAgentContextProjection(root: string) {
 function architectureDocsRenderProjectionOperation(
   renderInput: readonly ProjectionOwnedFile[],
   files: { path: string; body: string }[],
-  deletes: { path: string; expectedHash: string; delete: true }[] = []
+  deletes: { path: string; expectedHash: string; delete: true }[] = [],
+  carriedPaths: readonly string[] = []
 ) {
   return {
     op: "render_projection" as const,
     expectedHash: "missing",
     projectionFiles: [
       ...projectionFilesBoundToRenderInput(renderInput, files),
-      ...deletes
+      ...deletes,
+      ...projectionGuardsBoundToRenderInput(renderInput, carriedPaths)
     ]
   };
+}
+
+/**
+ * A carried-forward document is written by no operation, and the request's worktree digest leaves
+ * projection-owned outputs out, so only a guard binds it: the commit requires the raw bytes the
+ * render read (`onDisk`) at that path, and an edit or delete since fails the whole apply.
+ */
+function projectionGuardsBoundToRenderInput(
+  renderInput: readonly ProjectionOwnedFile[],
+  paths: readonly string[]
+): { path: string; expectedHash: string; guard: true }[] {
+  const readByPath = new Map(renderInput.map((file) => [file.path, file]));
+  return paths.map((path) => {
+    const read = readByPath.get(path);
+    if (read?.onDisk === undefined) throw new Error(`projection render input carries no on-disk bytes for a carried file: ${path}`);
+    return { path, expectedHash: digestJson({ body: read.onDisk } as unknown as Json), guard: true as const };
+  });
 }
 
 /**

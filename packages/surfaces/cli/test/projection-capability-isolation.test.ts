@@ -163,7 +163,33 @@ function entityTargetId(manifest: string, nodeId: string): string {
   return entry[0];
 }
 
-async function isolationScenario(prefix: string, crlf: boolean): Promise<void> {
+type StartedDaemon = Awaited<ReturnType<typeof createStartedDaemon>>;
+
+/** Runs `drift` once, after the render and the ChangeSet plan, immediately before the daemon applies it. */
+function driftBeforeApply(daemon: StartedDaemon, drift: () => void): { drifted: boolean } {
+  const host = daemon as unknown as Record<"applyUpdate", (...args: unknown[]) => Promise<unknown>>;
+  const apply = host.applyUpdate.bind(daemon);
+  const state = { drifted: false };
+  host.applyUpdate = async (...args: unknown[]) => {
+    if (!state.drifted) {
+      state.drifted = true;
+      drift();
+    }
+    return apply(...args);
+  };
+  return state;
+}
+
+interface IsolationFixture {
+  root: string;
+  daemon: StartedDaemon;
+  cli: (command: string, args: string[]) => ReturnType<typeof runCli>;
+  request: (mode: ProjectionRequestV1["mode"], requestId: string, extra?: Partial<ProjectionRequestV1>) => ProjectionRequestV1;
+  run: (value: unknown) => ReturnType<typeof runCli>;
+}
+
+/** A fixture whose baseline projection is applied and committed, with CRLF line endings when asked. */
+async function withIsolationFixture(prefix: string, crlf: boolean, scenario: (fixture: IsolationFixture) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), prefix));
   const stateRoot = join(dirname(root), `.archctx-state-${basename(root)}`);
   const daemon = await createStartedDaemon({
@@ -192,14 +218,28 @@ async function isolationScenario(prefix: string, crlf: boolean): Promise<void> {
       for (const [path, body] of Object.entries(docsSnapshot(root))) writeFileSync(join(root, path), body.replaceAll("\n", "\r\n"), "utf8");
     }
     commitAll(root, "project architecture documentation");
+    await scenario({ root, daemon, cli, request, run });
+  } finally {
+    await daemon.stop();
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/** The renderer's flow loses its call evidence and the catalog's sources move; no model edit. */
+function blockRendererAndMoveCatalog(root: string): void {
+  write(root, "src/renderer/main.ts", REFERENCE_ONLY);
+  write(root, "src/catalog/list.ts", "export const entries: string[] = [\"first\"];\n");
+}
+
+async function isolationScenario(prefix: string, crlf: boolean): Promise<void> {
+  await withIsolationFixture(prefix, crlf, async ({ root, cli, request, run }) => {
     const committed = docsSnapshot(root);
     const baseManifest = committed[MANIFEST]!;
     expect(JSON.parse(baseManifest).semanticBaseline.capabilities.map((entry: any) => [entry.capabilityId, entry.proofStatus.p2])).toEqual([[CATALOG, "not-applicable"], [RENDERER, "proven"]]);
     expect(projectionResult(await run(request("check", "projection_request.isolation_baseline"))).status).toBe("noop");
 
-    // The renderer's flow loses its call evidence and the catalog's sources move; no model edit.
-    write(root, "src/renderer/main.ts", REFERENCE_ONLY);
-    write(root, "src/catalog/list.ts", "export const entries: string[] = [\"first\"];\n");
+    blockRendererAndMoveCatalog(root);
     const stale = request("apply", "projection_request.isolation_stale");
 
     for (const mode of ["check", "plan"] as const) {
@@ -262,11 +302,7 @@ async function isolationScenario(prefix: string, crlf: boolean): Promise<void> {
     // Restoring the call restores the carried-forward baseline: the projection is a clean fixed point.
     write(root, "src/renderer/main.ts", DIRECT_CALL);
     expect(projectionResult(await run(request("check", "projection_request.isolation_restored"))).status).toBe("noop");
-  } finally {
-    await daemon.stop();
-    rmSync(stateRoot, { recursive: true, force: true });
-    rmSync(root, { recursive: true, force: true });
-  }
+  });
 }
 
 test("an unprovable capability blocks only its own targets; the rest is applied without a receipt (#327)", async () => {
@@ -275,4 +311,36 @@ test("an unprovable capability blocks only its own targets; the rest is applied 
 
 test("a CRLF checkout carries the blocked document forward byte for byte and keeps CRLF on the written manifest (#327)", async () => {
   await isolationScenario("archctx-isolation-crlf-", true);
+}, TEST_TIMEOUT_MS);
+
+// The request's worktree digest leaves projection-owned outputs out, so the carried-forward
+// document is bound only by the apply itself: a change after the render refuses the whole apply.
+test.each(["edited", "deleted"] as const)("a partial apply refuses a carried-forward document %s after the render and writes nothing (#327)", async (drift) => {
+  await withIsolationFixture(`archctx-isolation-carried-${drift}-`, false, async ({ root, daemon, request, run }) => {
+    const committed = docsSnapshot(root);
+    blockRendererAndMoveCatalog(root);
+    const rendererPath = join(root, RENDERER_DOC);
+    const edited = `${committed[RENDERER_DOC]!}\nHuman renderer notes.\n`;
+    const hook = driftBeforeApply(daemon, () => {
+      if (drift === "edited") writeFileSync(rendererPath, edited, "utf8");
+      else rmSync(rendererPath);
+    });
+
+    const refused = await run(request("apply", `projection_request.isolation_carried_${drift}`));
+    expect(hook.drifted).toBe(true);
+    expect(refused.ok, JSON.stringify(refused)).toBe(false);
+    expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
+    expect((refused as any).error.message).toContain(`Expected hash mismatch: ${RENDERER_DOC} (current ${drift === "edited" ? "sha256:" : "missing"}`);
+    const expected = { ...committed };
+    if (drift === "edited") expected[RENDERER_DOC] = edited;
+    else delete expected[RENDERER_DOC];
+    expect(docsSnapshot(root)).toEqual(expected);
+
+    // With the document back as rendered, the same partial apply goes through.
+    writeFileSync(rendererPath, committed[RENDERER_DOC]!, "utf8");
+    const applied = projectionResult(await run(request("apply", `projection_request.isolation_carried_${drift}_restored`)));
+    expect(applied.status).toBe("applied-partial");
+    expect(applied.files.map((file) => file.path)).toEqual([MANIFEST]);
+    expect(docsSnapshot(root)[RENDERER_DOC]).toBe(committed[RENDERER_DOC]!);
+  });
 }, TEST_TIMEOUT_MS);
