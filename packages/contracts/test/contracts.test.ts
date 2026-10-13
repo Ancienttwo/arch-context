@@ -1936,3 +1936,27 @@ describe("GitHub governance contracts", () => {
     }
   });
 });
+
+test("JSON Schema validation counts only own properties, never inherited ones (#327)", () => {
+  const schema = {
+    type: "object",
+    required: ["toString", "inherited"],
+    properties: { name: { type: "string" }, valueOf: { type: "string" } },
+    additionalProperties: false
+  };
+  // An inherited key, from Object.prototype or from a prototype chain, does not satisfy `required`.
+  const instance = Object.assign(Object.create({ inherited: "from the prototype" }), { name: "kept" });
+  expect(validateJsonSchema(schema as any, instance).issues).toEqual([
+    { path: "$.toString", message: "required" },
+    { path: "$.inherited", message: "required" }
+  ]);
+  // A declared property absent from the instance is not validated against what the prototype holds.
+  const own = { type: "object", properties: { valueOf: { type: "string" } } };
+  expect(validateJsonSchema(own as any, {}).valid).toBe(true);
+  // A key that only the schema's prototype knows is still an additional property.
+  for (const key of ["constructor", "__proto__", "hasOwnProperty"]) {
+    const parsed = JSON.parse(`{"name":"kept",${JSON.stringify(key)}:1}`);
+    expect(validateJsonSchema({ type: "object", properties: { name: { type: "string" } }, additionalProperties: false } as any, parsed).issues)
+      .toEqual([{ path: `$.${key}`, message: "additional property denied" }]);
+  }
+});
