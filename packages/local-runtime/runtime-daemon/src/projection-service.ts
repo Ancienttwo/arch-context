@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
@@ -72,6 +72,13 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
       { paths: unvouched, action: "remove-whole-file-outputs-and-reapply", commands }
     );
   }
+  // An orphan that may hold human text stops `plan` and `apply` before any write, as it stops the
+  // protocol (#268). Writing the new manifest would drop the row that keeps a whole-file orphan
+  // visible, so the file would silently stop being projection output (#327).
+  const reviewOrphans = projectionReviewOrphans(projection);
+  if (reviewOrphans.length > 0) {
+    return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection has orphaned documents that need human review: ${reviewOrphans.map((orphan) => `${orphan.path} (projection-orphaned)`).join(", ")}`);
+  }
   if (subcommand === "apply" && profile === REPO_HARNESS_PROJECTION_PROFILE && projection.plan.drift.ok) {
     return okEnvelope("docs.apply", {
       schemaVersion: "archcontext.docs-projection-apply/v1",
@@ -87,7 +94,8 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     } as unknown as Json);
   }
   const changeSetId = input.id ?? docsProjectionChangeSetId(projection);
-  const operations = [architectureDocsRenderProjectionOperation(projection.loaded.existingFiles, projection.files)];
+  // Generated-only orphans are deleted in the same ChangeSet that writes the manifest without their rows.
+  const operations = [architectureDocsRenderProjectionOperation(projection.loaded.existingFiles, projection.files, projectionOrphanDeleteOperations(projection).map((orphan) => orphan.operation))];
   const plan = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: input.taskSessionId ?? "task_docs_projection" },
@@ -331,6 +339,10 @@ async function runArchitectureDocsAdoptionCommand(
   if (!adoption.allowed) {
     return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", adoption.issues.join(", "));
   }
+  const reviewOrphans = projectionReviewOrphans(projection);
+  if (reviewOrphans.length > 0) {
+    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", `Architecture documentation projection has orphaned documents that need human review: ${reviewOrphans.map((orphan) => `${orphan.path} (projection-orphaned)`).join(", ")}`);
+  }
   const expectedPlanId = input.adoptionPlanId;
   const expectedWorktreeDigest = input.expectedWorktreeDigest;
   if (!expectedPlanId || !expectedWorktreeDigest) {
@@ -340,8 +352,9 @@ async function runArchitectureDocsAdoptionCommand(
     return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-preview-mismatch");
   }
   const simulatedByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file]));
-  // The protocol write also deletes generated-only orphans, so the fixed point is proven without them.
-  if (protocolRequest) for (const orphan of projectionDeletableOrphans(projection)) simulatedByPath.delete(orphan.path);
+  // The adoption write also deletes generated-only orphans, so the fixed point is proven without them.
+  const orphanDeletes = projectionOrphanDeleteOperations(projection);
+  for (const orphan of orphanDeletes) simulatedByPath.delete(orphan.operation.path);
   for (const file of [...projection.files, ...adoption.files]) simulatedByPath.set(file.path, simulatedProjectionFile(file));
   const canonicalFirst = buildArchitectureDocsProjection(daemon, root, profile, [...simulatedByPath.values()]);
   const canonicalExistingByPath = new Map(simulatedByPath);
@@ -364,7 +377,7 @@ async function runArchitectureDocsAdoptionCommand(
   const planned = await daemon.planUpdate(root, {
     id: adoption.changeSetId,
     reason: { taskSessionId: input.taskSessionId ?? "task_docs_adoption" },
-    operations: [architectureDocsRenderProjectionOperation(projection.loaded.existingFiles, [...filesByPath.values()])]
+    operations: [architectureDocsRenderProjectionOperation(projection.loaded.existingFiles, [...filesByPath.values()], orphanDeletes.map((orphan) => orphan.operation))]
   });
   if (!planned.ok) return planned;
   const applied = await daemon.applyUpdate(root, {
@@ -394,10 +407,7 @@ async function applyProjectionProtocolFixedPoint(
   // before it reached here (projectionProtocolHumanStatus), so `apply` never reports a delete it
   // does not perform (#268).
   const orphanDeletes = projectionOrphanDeleteOperations(input);
-  const committedFiles = [
-    ...projectionProtocolFilesForExpectedOutput(root, fixedPoint),
-    ...orphanDeletes.map((orphan) => orphan.result)
-  ].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  const committedFiles = projectionWriteFileResults(input.loaded.existingFiles, fixedPoint.files, orphanDeletes);
   const committedSignals = acceptedChange
     ? input.plan.refreshSignals.map((signal) => ({
         ...signal,
@@ -1446,27 +1456,53 @@ function projectionProtocolSnapshot(
   };
 }
 
+/**
+ * The files `plan` and `check` report: exactly what `apply` would write, decided by the same
+ * comparison `apply` commits (`projectionWriteFileResults`), so a write the drift digests do not see
+ * — a marker-only renderer upgrade, a CRLF preimage — is never left out of the preview (#327). An
+ * apply over a drift-free projection writes nothing. A path the projection rejected for adoption or
+ * ownership repair is written only by an approved adoption; it is reported from its drift entry.
+ */
 function projectionProtocolFiles(
   projection: ReturnType<typeof buildArchitectureDocsProjection>
 ): ProjectionResultV2["files"] {
-  const deletableOrphanPaths = new Set(projectionDeletableOrphans(projection).map((orphan) => orphan.path));
-  return projection.plan.drift.diffs.flatMap<ProjectionResultV2["files"][number]>((diff) => {
+  if (projection.plan.drift.ok) return [];
+  const rejected = projection.plan.rejected.flatMap<ProjectionResultV2["files"][number]>((diff) => {
     const expected = projectionDigestOrNull(diff.expectedDigest);
     const actual = projectionDigestOrNull(diff.actualDigest);
-    if ((diff.reasonCode === "projection-file-missing" || diff.reasonCode === "projection-manifest-missing") && expected) {
-      return [{ path: diff.path, action: "create", preimageDigest: null, outputDigest: expected }];
-    }
-    if (diff.reasonCode === "projection-orphaned") {
-      // Only a delete `apply` performs is a file action; a review orphan is a human action.
-      return deletableOrphanPaths.has(diff.path) && actual
-        ? [{ path: diff.path, action: "delete", preimageDigest: actual, outputDigest: null }]
-        : [];
-    }
-    if (expected && actual && expected !== actual) {
-      return [{ path: diff.path, action: "update", preimageDigest: actual, outputDigest: expected }];
-    }
-    return [];
-  }).sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+    return expected && actual && expected !== actual
+      ? [{ path: diff.path, action: "update", preimageDigest: actual, outputDigest: expected }]
+      : [];
+  });
+  return [
+    ...projectionWriteFileResults(projection.loaded.existingFiles, projection.files, projectionOrphanDeleteOperations(projection)),
+    ...rejected
+  ].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+}
+
+/**
+ * The one decision of which files a projection write changes. Each rendered file is compared as the
+ * bytes the ChangeSet writes (`projectionFilesBoundToRenderInput`: the full owned body, in the line
+ * endings of the bytes the render read) against those read bytes; equal bytes are no file action.
+ * Digests bind the physical preimage and the written output. Orphan deletes are the operations the
+ * same ChangeSet carries.
+ */
+function projectionWriteFileResults(
+  renderInput: readonly ProjectionOwnedFile[],
+  files: readonly { path: string; body: string }[],
+  orphanDeletes: ReturnType<typeof projectionOrphanDeleteOperations>
+): ProjectionResultV2["files"] {
+  const readByPath = new Map(renderInput.map((file) => [file.path, file.onDisk]));
+  const writes = projectionFilesBoundToRenderInput(renderInput, files).flatMap<ProjectionResultV2["files"][number]>((write) => {
+    const onDisk = readByPath.get(write.path);
+    if (onDisk === write.body) return [];
+    const outputDigest = digestJson({ path: write.path, body: write.body } as unknown as Json) as Sha256Digest;
+    return onDisk === undefined
+      ? [{ path: write.path, action: "create", preimageDigest: null, outputDigest }]
+      : [{ path: write.path, action: "update", preimageDigest: digestJson({ path: write.path, body: onDisk } as unknown as Json) as Sha256Digest, outputDigest }];
+  });
+  return [...writes, ...orphanDeletes.map((orphan) => orphan.result)]
+    .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
 }
 
 /**
@@ -1496,23 +1532,6 @@ function withProjectionPlanPreviews(
     const preview = previewByPath.get(file.path);
     return preview ? { ...file, preview } : file;
   });
-}
-
-/** Committed apply receipts bind the physical preimage and the exact fixed-point output bytes. */
-function projectionProtocolFilesForExpectedOutput(
-  root: string,
-  projection: ReturnType<typeof buildArchitectureDocsProjection>
-): ProjectionResultV2["files"] {
-  return projection.files.flatMap<ProjectionResultV2["files"][number]>((file) => {
-    const absolute = resolve(root, file.path);
-    const onDisk = existsSync(absolute) ? readFileSync(absolute, "utf8") : undefined;
-    const preimageDigest = onDisk === undefined ? "missing" : digestJson({ path: file.path, body: onDisk } as unknown as Json);
-    const outputDigest = digestJson({ path: file.path, body: projectionOwnedWriteBody(file.body, onDisk) } as unknown as Json) as Sha256Digest;
-    if (preimageDigest === outputDigest) return [];
-    return preimageDigest === "missing"
-      ? [{ path: file.path, action: "create" as const, preimageDigest: null, outputDigest }]
-      : [{ path: file.path, action: "update" as const, preimageDigest: preimageDigest as Sha256Digest, outputDigest }];
-  }).sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function projectionProtocolAffectedNodes(
