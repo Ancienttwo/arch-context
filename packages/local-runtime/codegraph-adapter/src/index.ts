@@ -1166,8 +1166,17 @@ export function inspectRepositoryCodeFacts(root: string, options: RepositoryCode
   const versionIssues: ProjectionCodeGraphStatusIssueV1[] = codeGraphVersion === REQUIRED_CODEGRAPH_VERSION
     ? []
     : [{ code: "version-mismatch", message: `CodeGraph ${REQUIRED_CODEGRAPH_VERSION} required, got actual binary ${codeGraphVersion || "unknown"}` }];
-  if (!status) {
+  if (!indexPresent) {
     return { schemaVersion, state: "index-missing", indexPresent: false, requiredVersion: REQUIRED_CODEGRAPH_VERSION, codeGraphVersion, issues: versionIssues };
+  }
+  if (typeof status !== "object" || status === null || Array.isArray(status)) {
+    return {
+      schemaVersion,
+      state: "unavailable",
+      requiredVersion: REQUIRED_CODEGRAPH_VERSION,
+      reasonCode: "codegraph-unavailable",
+      message: "CodeGraph status JSON is not an object"
+    };
   }
   const issues = [...versionIssues, ...projectionCodeGraphStatusIssues(status, root, "repository")];
   const pending = status.pendingChanges;

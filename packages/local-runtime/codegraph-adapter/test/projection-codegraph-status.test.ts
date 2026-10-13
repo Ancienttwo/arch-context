@@ -194,4 +194,13 @@ describe("inspectRepositoryCodeFacts", () => {
       expect(inspectRepositoryCodeFacts(root, { binary: fakeCodeGraph(root, { statusExit: 3 }) }).state).toBe("unavailable");
     });
   });
+
+  test("an existing index whose status JSON is not an object is unavailable, not index-missing", () => {
+    withRoot((root) => {
+      mkdirSync(join(root, ".codegraph"));
+      const facts = inspectRepositoryCodeFacts(root, { binary: fakeCodeGraph(root, { status: null }) });
+      expect(facts).toMatchObject({ state: "unavailable", reasonCode: "codegraph-unavailable", requiredVersion: REQUIRED_CODEGRAPH_VERSION });
+      expect("indexPresent" in facts).toBe(false);
+    });
+  });
 });
