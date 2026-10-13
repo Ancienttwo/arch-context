@@ -944,8 +944,13 @@ export function prepareProjectionCodeFacts(
   };
 }
 
-function readProjectionCodeGraphStatus(invocation: CodeGraphCliInvocation, root: string, timeout: number): CodeGraphProjectionStatusV1 {
-  const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout);
+function readProjectionCodeGraphStatus(
+  invocation: CodeGraphCliInvocation,
+  root: string,
+  timeout: number,
+  envOverrides?: Record<string, string>
+): CodeGraphProjectionStatusV1 {
+  const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout, envOverrides);
   try {
     return JSON.parse(output) as CodeGraphProjectionStatusV1;
   } catch (error) {
@@ -1053,13 +1058,15 @@ function runProjectionCodeGraph(
   invocation: CodeGraphCliInvocation,
   root: string,
   args: string[],
-  timeout: number
+  timeout: number,
+  envOverrides?: Record<string, string>
 ): string {
   disableCodeGraphTelemetryByDefault();
   const startedAt = performance.now();
   try {
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd: root,
+      ...(envOverrides ? { env: { ...process.env, ...envOverrides } } : {}),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
@@ -1140,6 +1147,13 @@ export type RepositoryCodeFactsV1 =
     };
 
 /**
+ * The packaged CodeGraph npm shim downloads its platform bundle from GitHub Releases when the
+ * optional platform package is absent. `CODEGRAPH_NO_DOWNLOAD` (read by the shim's selfHealBundle)
+ * turns that fetch off, so the read-only probe stays local whatever the egress mode is.
+ */
+const CODEGRAPH_NO_DOWNLOAD_ENV: Record<string, string> = { CODEGRAPH_NO_DOWNLOAD: "1" };
+
+/**
  * Inspects the repository's code-facts state with `codegraph --version` and `codegraph status -j`
  * only. It never runs `sync`, never writes the index and never throws for an unavailable CodeGraph.
  */
@@ -1152,8 +1166,8 @@ export function inspectRepositoryCodeFacts(root: string, options: RepositoryCode
     const invocation = options.binary
       ? codeGraphCliInvocation(options.binary, root, "")
       : packagedCodeGraphCliInvocation();
-    codeGraphVersion = runProjectionCodeGraph(invocation, root, ["--version"], options.timeouts?.versionMs ?? 10_000).trim();
-    if (indexPresent) status = readProjectionCodeGraphStatus(invocation, root, options.timeouts?.statusMs ?? 10_000);
+    codeGraphVersion = runProjectionCodeGraph(invocation, root, ["--version"], options.timeouts?.versionMs ?? 10_000, CODEGRAPH_NO_DOWNLOAD_ENV).trim();
+    if (indexPresent) status = readProjectionCodeGraphStatus(invocation, root, options.timeouts?.statusMs ?? 10_000, CODEGRAPH_NO_DOWNLOAD_ENV);
   } catch (error) {
     return {
       schemaVersion,

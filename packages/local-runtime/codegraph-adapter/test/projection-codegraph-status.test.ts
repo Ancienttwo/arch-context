@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   REQUIRED_CODEGRAPH_VERSION,
   inspectRepositoryCodeFacts,
@@ -201,6 +202,60 @@ describe("inspectRepositoryCodeFacts", () => {
       const facts = inspectRepositoryCodeFacts(root, { binary: fakeCodeGraph(root, { status: null }) });
       expect(facts).toMatchObject({ state: "unavailable", reasonCode: "codegraph-unavailable", requiredVersion: REQUIRED_CODEGRAPH_VERSION });
       expect("indexPresent" in facts).toBe(false);
+    });
+  });
+
+  test("always passes CODEGRAPH_NO_DOWNLOAD to both --version and status, whatever the caller environment says", () => {
+    withRoot((root) => {
+      mkdirSync(join(root, ".codegraph"));
+      const log = join(root, "env.log");
+      const binary = join(root, "env-codegraph.js");
+      writeFileSync(binary, [
+        `const { appendFileSync } = require("node:fs");`,
+        `const args = process.argv.slice(2);`,
+        `appendFileSync(${JSON.stringify(log)}, args[0] + "=" + String(process.env.CODEGRAPH_NO_DOWNLOAD) + "\\n");`,
+        `if (args[0] === "--version") { console.log(${JSON.stringify(REQUIRED_CODEGRAPH_VERSION)}); process.exit(0); }`,
+        `if (args[0] === "status") { console.log(${JSON.stringify(JSON.stringify(freshStatus(root)))}); process.exit(0); }`,
+        `process.exit(9);`
+      ].join("\n"), "utf8");
+      const previous = process.env.CODEGRAPH_NO_DOWNLOAD;
+      process.env.CODEGRAPH_NO_DOWNLOAD = "";
+      try {
+        expect(inspectRepositoryCodeFacts(root, { binary }).state).toBe("ready");
+      } finally {
+        if (previous === undefined) delete process.env.CODEGRAPH_NO_DOWNLOAD;
+        else process.env.CODEGRAPH_NO_DOWNLOAD = previous;
+      }
+      expect(readFileSync(log, "utf8")).toBe("--version=1\nstatus=1\n");
+    });
+  });
+
+  test("the packaged shim with no platform bundle is unavailable and does not download", () => {
+    withRoot((root) => {
+      const shimDir = join(root, "shim");
+      mkdirSync(shimDir);
+      // An existing node_modules keeps Bun's resolver from auto-installing the missing platform package.
+      mkdirSync(join(shimDir, "node_modules"));
+      const packageRoot = dirname(createRequire(import.meta.url).resolve("@colbymchenry/codegraph/package.json"));
+      copyFileSync(join(packageRoot, "npm-shim.js"), join(shimDir, "npm-shim.js"));
+      copyFileSync(join(packageRoot, "package.json"), join(shimDir, "package.json"));
+      const installDir = join(root, "install");
+      mkdirSync(installDir);
+      const saved = { dir: process.env.CODEGRAPH_INSTALL_DIR, base: process.env.CODEGRAPH_DOWNLOAD_BASE };
+      process.env.CODEGRAPH_INSTALL_DIR = installDir;
+      // A download attempt would announce itself on stderr and fail against this closed local port.
+      process.env.CODEGRAPH_DOWNLOAD_BASE = "http://127.0.0.1:1";
+      try {
+        const facts = inspectRepositoryCodeFacts(root, { binary: join(shimDir, "npm-shim.js") });
+        expect(facts).toMatchObject({ state: "unavailable", reasonCode: "codegraph-unavailable" });
+        expect("message" in facts && facts.message).toContain("network fallback is disabled");
+        expect("message" in facts && facts.message).not.toContain("downloading");
+      } finally {
+        if (saved.dir === undefined) delete process.env.CODEGRAPH_INSTALL_DIR;
+        else process.env.CODEGRAPH_INSTALL_DIR = saved.dir;
+        if (saved.base === undefined) delete process.env.CODEGRAPH_DOWNLOAD_BASE;
+        else process.env.CODEGRAPH_DOWNLOAD_BASE = saved.base;
+      }
     });
   });
 });
