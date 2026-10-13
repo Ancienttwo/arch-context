@@ -165,6 +165,19 @@ function entityTargetId(manifest: string, nodeId: string): string {
 
 type StartedDaemon = Awaited<ReturnType<typeof createStartedDaemon>>;
 
+/**
+ * The daemon runs in this process, and so does the CodeGraph index it opens to read selector
+ * evidence. Under Bun, closing that index leaves the database, WAL and shared-memory files open
+ * until its prepared statements are collected, and Windows refuses to delete a directory that
+ * still holds open files. The daemon is stopped and a full collection releases those handles
+ * before the fixture is removed; a removal that still fails is a real leak and fails the test.
+ */
+async function stopDaemonAndRemoveFixture(daemon: StartedDaemon, paths: string[]): Promise<void> {
+  await daemon.stop();
+  Bun.gc(true);
+  for (const path of paths) rmSync(path, { recursive: true, force: true });
+}
+
 /** Runs `drift` once, after the render and the ChangeSet plan, immediately before the daemon applies it. */
 function driftBeforeApply(daemon: StartedDaemon, drift: () => void): { drifted: boolean } {
   const host = daemon as unknown as Record<"applyUpdate", (...args: unknown[]) => Promise<unknown>>;
@@ -220,9 +233,7 @@ async function withIsolationFixture(prefix: string, crlf: boolean, scenario: (fi
     commitAll(root, "project architecture documentation");
     await scenario({ root, daemon, cli, request, run });
   } finally {
-    await daemon.stop();
-    rmSync(stateRoot, { recursive: true, force: true });
-    rmSync(root, { recursive: true, force: true });
+    await stopDaemonAndRemoveFixture(daemon, [stateRoot, root]);
   }
 }
 
