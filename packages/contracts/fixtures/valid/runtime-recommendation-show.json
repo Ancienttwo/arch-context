@@ -3,6 +3,7 @@
   "recommendationId": "recommendation.c8c842b3d8529388",
   "source": "ledger",
   "status": "deferred",
+  "statusAuthority": "ledger",
   "recommendation": {
     "schemaVersion": "archcontext.recommendation/v3",
     "recommendationId": "recommendation.c8c842b3d8529388",

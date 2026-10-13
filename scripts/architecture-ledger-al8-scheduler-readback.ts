@@ -119,6 +119,8 @@ export async function buildArchitectureLedgerAl8SchedulerReadbackPacket() {
     const book = queryArchitectureLedgerBookRecommendations({
       events: replay.events,
       openOnly: true,
+      // A synthetic ledger with no checkout: no refactor decision files exist.
+      refactorDecisionStatuses: new Map(),
       explain: true,
       maxItems: 20,
       maxBytes: 32_768

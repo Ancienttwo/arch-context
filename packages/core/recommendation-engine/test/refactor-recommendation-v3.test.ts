@@ -37,10 +37,12 @@ import {
   type PlanRefactorRecommendationRunInput,
   type PreviousRecommendationV3
 } from "../src/index";
-import { architectureSubjectSelectorId } from "@archcontext/core/architecture-delta";
+import { refactorSubjectSelectorId } from "@archcontext/core/architecture-delta";
 
 const NOW = "2026-09-03T07:30:00.000Z";
 const CATALOG_DIGEST = digestOf("refactor-classifier-ruleset");
+const NAMESPACE = "product.rf3-fixture";
+const DECISION_SET_DIGEST = digestOf("refactor-decision-set.empty");
 
 function planFor(
   overrides: Partial<RefactorAssessmentInputV1> = {},
@@ -63,23 +65,31 @@ function planWith(
     snapshot,
     assessment,
     ...(proposal ? { proposal } : {}),
+    recommendationNamespace: NAMESPACE,
+    decisionSetDigest: DECISION_SET_DIGEST,
     catalogDigest: CATALOG_DIGEST,
     now: NOW,
     ...planOverrides
   });
 }
 
-/** The planner's view of a ledger record, as the daemon builds it. */
+/**
+ * The planner's view of a prior, as the daemon builds it: a human status from a Git decision file,
+ * a machine status from a ledger record, unless the test names the authority.
+ */
 function priorOf(
   record: RecommendationV3,
   status: PreviousRecommendationV3["status"],
-  updatedAt = "2026-09-03T07:31:00.000Z"
+  updatedAt = "2026-09-03T07:31:00.000Z",
+  decisionAuthority: PreviousRecommendationV3["decisionAuthority"] = ["open", "superseded", "expired"].includes(status) ? "ledger" : "git"
 ): PreviousRecommendationV3 {
   return {
     recommendationId: record.recommendationId,
     fingerprint: record.fingerprint,
     status,
     updatedAt,
+    regressesFrom: record.relations.regressesFrom ?? null,
+    decisionAuthority,
     observationMetrics: record.category === "structural_observation" ? { ...record.payload.metrics } : null
   };
 }
@@ -89,30 +99,60 @@ function observationOf(snapshot: ModuleStatisticsSnapshotV1, kind: RefactorObser
   const count = (value: number | undefined) => ({ totalCount: value ?? 0, truncated: (value ?? 0) > 0 });
   const moduleId = snapshot.modules[0]!.nodeId;
   const repository = `repository:${snapshot.repository.repositoryId}`;
-  const shapes: Record<RefactorObservationKind, { subjectSelectorId: string; evidence: RefactorObservationEvidenceV1 }> = {
+  const pairSubject = subject ?? "pair:module.pair-a|module.pair-b";
+  const pairEnds = pairSubject.slice("pair:".length).split("|") as [string, string];
+  const forward = metrics.forwardEdgeCount ?? 1;
+  const backward = metrics.backwardEdgeCount ?? 1;
+  const thinFirst = forward <= backward;
+  const residualMembers = Array.from({ length: metrics.memberCount ?? 0 }, (_, index) => `module.member-${String(index).padStart(3, "0")}`);
+  const shapes: Record<RefactorObservationKind, { subjectSelectorId: string; affectedNodeIds: string[]; evidence: RefactorObservationEvidenceV1 }> = {
     cycle: {
-      subjectSelectorId: "scc:fixture",
+      subjectSelectorId: pairSubject,
+      affectedNodeIds: [...pairEnds],
       evidence: {
         kind: "cycle",
-        memberNodeIds: Array.from({ length: Math.min(metrics.memberCount ?? 0, REFACTOR_EVIDENCE_ID_LIST_LIMIT) }, (_, index) => `module.member-${String(index).padStart(3, "0")}`),
+        memberNodeIds: [...pairEnds],
+        directions: [
+          { fromNodeId: thinFirst ? pairEnds[0] : pairEnds[1], toNodeId: thinFirst ? pairEnds[1] : pairEnds[0], totalCount: Math.min(forward, backward), sampledCount: 0 },
+          { fromNodeId: thinFirst ? pairEnds[1] : pairEnds[0], toNodeId: thinFirst ? pairEnds[0] : pairEnds[1], totalCount: Math.max(forward, backward), sampledCount: 0 }
+        ],
+        edges: [],
+        ...count(forward + backward)
+      }
+    },
+    "residual-cycle": {
+      subjectSelectorId: subject ?? "cycle:scc.fixture",
+      affectedNodeIds: residualMembers,
+      evidence: {
+        kind: "residual-cycle",
+        memberNodeIds: residualMembers.slice(0, REFACTOR_EVIDENCE_ID_LIST_LIMIT),
         edges: [],
         ...count(metrics.cycleEdgeCount)
       }
     },
     "direction-violation": {
       subjectSelectorId: moduleId,
+      affectedNodeIds: [moduleId],
       evidence: { kind: "direction-violation", constraintIds: ["constraint.fixture"], constraintCount: 1, violations: [], ...count(metrics.directionViolationCount) }
     },
-    "ownership-ambiguous": { subjectSelectorId: moduleId, evidence: { kind: "ownership-ambiguous", paths: [], ...count(3) } },
-    "undeclared-footprint": { subjectSelectorId: moduleId, evidence: { kind: "undeclared-footprint", paths: [], ...count(0) } },
-    "unowned-paths": { subjectSelectorId: repository, evidence: { kind: "unowned-paths", paths: [], ...count(metrics.unownedFileCount) } },
+    "ownership-ambiguous": { subjectSelectorId: moduleId, affectedNodeIds: [moduleId], evidence: { kind: "ownership-ambiguous", paths: [], ...count(3) } },
+    "undeclared-footprint": { subjectSelectorId: moduleId, affectedNodeIds: [moduleId], evidence: { kind: "undeclared-footprint", paths: [], ...count(0) } },
+    "unowned-paths": { subjectSelectorId: repository, affectedNodeIds: [], evidence: { kind: "unowned-paths", paths: [], ...count(metrics.unownedFileCount) } },
     "evidence-gap": {
       subjectSelectorId: repository,
+      affectedNodeIds: [],
       evidence: { kind: "evidence-gap", coverage: "partial", reasonCodes: [], unresolvedImports: [], ...count(metrics.unresolvedImportCount) }
     }
   };
   const shape = shapes[kind];
-  return { kind, subjectSelectorId: subject ?? shape.subjectSelectorId, signalIds: [`signal.${kind}.fixture`], metrics, evidence: shape.evidence };
+  return {
+    kind,
+    subjectSelectorId: subject ?? shape.subjectSelectorId,
+    affectedNodeIds: shape.affectedNodeIds,
+    signalIds: [`signal.${kind}.fixture`],
+    metrics,
+    evidence: shape.evidence
+  };
 }
 
 /** The default fixture's assessment with its observations replaced, re-digested. */
@@ -214,9 +254,10 @@ describe("planRefactorRecommendationRun observations", () => {
     const plan = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES.map((edge, index) => ({ ...edge, line: index + 3 })) }) });
     const byKind = (kind: string) => plan.recommendations.find((record) => record.category === "structural_observation" && record.payload.kind === kind)!;
     expect(byKind("cycle").explanation).toEqual([
-      "Import cycle between 2 modules (component.a, module.c): 2 file-level import edge(s) keep them mutually dependent.",
-      "src/c/z.ts:4 → src/m/a/x.ts via ../m/a/x (module.c → component.a).",
-      "src/m/a/x.ts:3 → src/c/z.ts via ../../c/z (component.a → module.c)."
+      "component.a and module.c import each other: 1 file edge(s) component.a → module.c, 1 back.",
+      "The thinner direction is component.a → module.c (1 file edge(s)); removing it breaks this pair. It is a cost hint, not an approved change.",
+      "src/m/a/x.ts:3 → src/c/z.ts via ../../c/z (component.a → module.c).",
+      "src/c/z.ts:4 → src/m/a/x.ts via ../m/a/x (module.c → component.a)."
     ]);
     expect(byKind("unowned-paths").explanation).toEqual([
       "1 tracked file(s) under a declared source root are owned by no declared node.",
@@ -387,20 +428,27 @@ describe("dedup, cooldown and regression", () => {
     expectRecordsValid(second.recommendations);
   });
 
-  test("an equal updatedAt on one id resolves to the later ledger entry", () => {
+  test("within one generation a Git decision wins over every ledger record of it, in either order", () => {
     const first = planFor();
     const record = first.recommendations[0]!;
     const at = "2026-09-03T07:31:00.000Z";
-    // A record and its resolution appended under one clock: the resolution is the later entry.
-    const resolvedLast = planFor({}, {
-      previousRecommendations: [priorOf(record, "open", at), priorOf(record, "resolved", at)]
-    });
-    expect(resolvedLast.suppressed.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
-    expect(resolvedLast.recommendations.find((entry) => entry.fingerprint === record.fingerprint)!.relations)
-      .toEqual({ regressesFrom: record.recommendationId });
+    for (const previousRecommendations of [
+      [priorOf(record, "open", at), priorOf(record, "resolved", at)],
+      [priorOf(record, "resolved", at), priorOf(record, "open", "2026-09-03T09:00:00.000Z")]
+    ]) {
+      const plan = planFor({}, { previousRecommendations });
+      expect(plan.suppressed.map((entry) => entry.fingerprint)).not.toContain(record.fingerprint);
+      expect(plan.recommendations.find((entry) => entry.fingerprint === record.fingerprint)!.relations)
+        .toEqual({ regressesFrom: record.recommendationId });
+    }
+  });
 
+  test("an equal updatedAt between two ledger records of one id resolves to the later entry", () => {
+    const first = planFor();
+    const record = first.recommendations[0]!;
+    const at = "2026-09-03T07:31:00.000Z";
     const openLast = planFor({}, {
-      previousRecommendations: [priorOf(record, "resolved", at), priorOf(record, "open", at)]
+      previousRecommendations: [priorOf(record, "superseded", at), priorOf(record, "open", at)]
     });
     expect(openLast.suppressed).toContainEqual({
       reasonCode: "duplicate-active-fingerprint",
@@ -408,6 +456,44 @@ describe("dedup, cooldown and regression", () => {
       subject: record.subjectSelectorId,
       previousRecommendationId: record.recommendationId
     });
+  });
+
+  test("a human status the checkout does not back with a decision file suppresses nothing and never reopens the decided id", () => {
+    const first = planFor();
+    const record = first.recommendations[0]!;
+    for (const status of ["acknowledged", "accepted", "deferred", "rejected", "waived", "resolved"] as const) {
+      const plan = planFor({}, { previousRecommendations: [priorOf(record, status, undefined, "ledger")] });
+      expect(plan.suppressed.map((entry) => entry.fingerprint), status).not.toContain(record.fingerprint);
+      const emitted = plan.recommendations.find((entry) => entry.fingerprint === record.fingerprint)!;
+      expect(emitted.relations, status).toEqual({ regressesFrom: record.recommendationId });
+      expect(emitted.recommendationId, status).not.toBe(record.recommendationId);
+    }
+  });
+
+  test("the head generation is chosen by lineage, not by comparing clocks", () => {
+    const first = planFor();
+    const record = first.recommendations[0]!;
+    const reopened = planFor({}, { previousRecommendations: [priorOf(record, "resolved")] })
+      .recommendations.find((entry) => entry.fingerprint === record.fingerprint)!;
+    // The decision file of the first generation is dated after the ledger record of the second.
+    const plan = planFor({}, {
+      previousRecommendations: [
+        priorOf(record, "resolved", "2026-09-03T12:00:00.000Z"),
+        priorOf(reopened, "open", "2026-09-03T08:00:00.000Z")
+      ]
+    });
+    expect(plan.suppressed).toContainEqual(expect.objectContaining({
+      reasonCode: "duplicate-active-fingerprint",
+      previousRecommendationId: reopened.recommendationId
+    }));
+  });
+
+  test("the decision set digest is part of the run identity", () => {
+    const left = planFor({}, { decisionSetDigest: digestOf("decisions.left") });
+    const right = planFor({}, { decisionSetDigest: digestOf("decisions.right") });
+    expect(left.inputDigest).not.toBe(right.inputDigest);
+    expect(left.run.runId).not.toBe(right.run.runId);
+    expect(left.recommendations.map((record) => record.recommendationId)).toEqual(right.recommendations.map((record) => record.recommendationId));
   });
 
   for (const status of ["rejected", "waived"] as const) {
@@ -435,11 +521,21 @@ describe("dedup, cooldown and regression", () => {
    * re-measurements that are worse on a severity metric, and the ones that are not.
    */
   const SEVERITY_CASES: { kind: RefactorObservationKind; decided: Record<string, number>; worse: Record<string, number>[]; notWorse: Record<string, number>[] }[] = [
+    // A pair is worse only when its thin direction grows; the thick direction growing is not.
     {
       kind: "cycle",
-      decided: { memberCount: 2, cycleEdgeCount: 3 },
-      worse: [{ memberCount: 3, cycleEdgeCount: 3 }, { memberCount: 2, cycleEdgeCount: 4 }],
-      notWorse: [{ memberCount: 2, cycleEdgeCount: 3 }, { memberCount: 2, cycleEdgeCount: 2 }]
+      decided: { forwardEdgeCount: 1, backwardEdgeCount: 3, thinDirectionEdgeCount: 1, totalEdgeCount: 4 },
+      worse: [{ forwardEdgeCount: 2, backwardEdgeCount: 3, thinDirectionEdgeCount: 2, totalEdgeCount: 5 }],
+      notWorse: [
+        { forwardEdgeCount: 1, backwardEdgeCount: 3, thinDirectionEdgeCount: 1, totalEdgeCount: 4 },
+        { forwardEdgeCount: 1, backwardEdgeCount: 30, thinDirectionEdgeCount: 1, totalEdgeCount: 31 }
+      ]
+    },
+    {
+      kind: "residual-cycle",
+      decided: { memberCount: 3, cycleEdgeCount: 3 },
+      worse: [{ memberCount: 3, cycleEdgeCount: 4 }],
+      notWorse: [{ memberCount: 3, cycleEdgeCount: 3 }]
     },
     {
       kind: "direction-violation",
@@ -524,8 +620,10 @@ describe("dedup, cooldown and regression", () => {
 describe("scheduler policy", () => {
   test("decided fingerprints do not take cap slots from a lower-scoring new candidate", () => {
     const snapshot = makeAssessmentInput().snapshot;
-    const cycles = Array.from({ length: 26 }, (_, index) =>
-      observationOf(snapshot, "cycle", { memberCount: 2, cycleEdgeCount: 2 }, `scc:fixture-${String(index).padStart(2, "0")}`));
+    const cycles = Array.from({ length: 26 }, (_, index) => {
+      const suffix = String(index).padStart(2, "0");
+      return observationOf(snapshot, "cycle", { forwardEdgeCount: 1, backwardEdgeCount: 1, thinDirectionEdgeCount: 1, totalEdgeCount: 2 }, `pair:module.p${suffix}-a|module.p${suffix}-b`);
+    });
     const unowned = observationOf(snapshot, "unowned-paths", { unownedFileCount: 1 });
     const { assessment } = assessmentWith([...cycles, unowned]);
     const all = planWith(snapshot, assessment, undefined, { schedulerPolicy: { budgets: { maxRecommendationsPerRun: 100 } } });
@@ -604,36 +702,55 @@ describe("scheduler policy", () => {
 });
 
 describe("canonical subject selectors", () => {
-  test("node, repository and strongly connected component subjects all resolve canonically", () => {
+  test("node, repository and pair subjects resolve through the product namespace, never the repository id", () => {
     const plan = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) });
     const repositoryId = makeSnapshot().repository.repositoryId;
     const bySubject = new Map(plan.recommendations.map((record) => [record.subject, record]));
 
     // A proposal addresses a node *set*, so its stableKey is `nodes:<sorted>|...` even when the
-    // set holds one node; an observation on that same node uses `node:<id>`. Both go through
-    // architectureSubjectSelectorId, so the two ids differ by stableKey, never by derivation.
+    // set holds one node; an observation on that same node uses `node:<id>`.
     const { snapshot, assessment, proposal } = proposalFor("module");
     const node = planWith(snapshot, assessment, proposal).recommendations
       .find((record) => record.category === "refactor_proposal")!;
     expect(node.subject).toBe("component.a");
-    expect(node.subjectSelectorId).toBe(architectureSubjectSelectorId("node", repositoryId, "nodes:component.a"));
+    expect(node.subjectSelectorId).toBe(refactorSubjectSelectorId("node", NAMESPACE, "nodes:component.a"));
 
     const observedNode = planWith(snapshot, assessment, proposal).recommendations
       .find((record) => record.category === "structural_observation" && record.subject === "component.a");
     if (observedNode) {
-      expect(observedNode.subjectSelectorId)
-        .toBe(architectureSubjectSelectorId("node", repositoryId, "node:component.a"));
+      expect(observedNode.subjectSelectorId).toBe(refactorSubjectSelectorId("node", NAMESPACE, "node:component.a"));
     }
 
     const repository = bySubject.get(`repository:${repositoryId}`);
     expect(repository).toBeDefined();
-    expect(repository!.subjectSelectorId).toBe(architectureSubjectSelectorId("repository", repositoryId, "repository"));
+    expect(repository!.subjectSelectorId).toBe(refactorSubjectSelectorId("repository", NAMESPACE, "repository"));
 
-    const scc = [...bySubject.entries()].find(([subject]) => subject.startsWith("scc:"));
-    expect(scc).toBeDefined();
-    // No `scc` arm exists in ArchitectureSubjectSelectorKind: a component is a repository-level
-    // fact, so it is addressed as a repository selector whose stableKey carries the component id.
-    expect(scc![1].subjectSelectorId).toBe(architectureSubjectSelectorId("repository", repositoryId, scc![0]));
+    const pair = [...bySubject.entries()].find(([subject]) => subject.startsWith("pair:"));
+    expect(pair).toBeDefined();
+    expect(pair![1].subjectSelectorId).toBe(refactorSubjectSelectorId("repository", NAMESPACE, pair![0]));
+  });
+
+  test("two worktree paths of one product share ids; another product id does not", () => {
+    const left = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) });
+    // A second `git worktree add` of one repository gets another runtime repository id.
+    const right = planFor({
+      snapshot: makeSnapshot({
+        importEdges: CYCLE_EDGES,
+        repository: { repositoryId: "repo.second-worktree-path", storageRepositoryId: "storage.repo.second-worktree-path" }
+      })
+    });
+    const ids = (plan: { recommendations: RecommendationV3[] }) =>
+      plan.recommendations.filter((record) => !record.subject.startsWith("repository:")).map((record) => record.recommendationId).sort();
+    expect(ids(right)).toEqual(ids(left));
+
+    const otherProduct = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) }, { recommendationNamespace: "product.other" });
+    expect(ids(otherProduct)).not.toEqual(ids(left));
+  });
+
+  test("a missing or malformed namespace fails closed", () => {
+    for (const recommendationNamespace of ["", "Product.Upper", "nodots", "product..x"]) {
+      expect(() => planFor({}, { recommendationNamespace }), recommendationNamespace).toThrow();
+    }
   });
 });
 

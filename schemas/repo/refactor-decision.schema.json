@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/repo/refactor-decision.schema.json",
+  "title": "RefactorDecision",
+  "description": "The latest human decision for one refactor recommendation generation, stored at .archcontext/refactor-decisions/<recommendationId>.json (ADR-0046). Identity that needs the core hashers (recommendationId from fingerprint and regressesFrom, the namespace-scoped subject selector) is checked by the runtime reader.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "namespace",
+    "recommendationId",
+    "fingerprint",
+    "fingerprintSchemaVersion",
+    "category",
+    "kind",
+    "subject",
+    "affectedNodeIds",
+    "affectedNodeCount",
+    "regressesFrom",
+    "status",
+    "observationMetrics",
+    "reason",
+    "actor",
+    "decidedAt",
+    "provenance"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.refactor-decision/v1"
+    },
+    "namespace": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$"
+    },
+    "recommendationId": {
+      "type": "string",
+      "pattern": "^recommendation\\.[a-f0-9]{16}$"
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "fingerprintSchemaVersion": {
+      "const": "archcontext.recommendation-fingerprint/v3"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "refactor_proposal",
+        "structural_observation"
+      ]
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "cycle",
+            "direction-violation",
+            "evidence-gap",
+            "ownership-ambiguous",
+            "residual-cycle",
+            "undeclared-footprint",
+            "unowned-paths"
+          ]
+        }
+      ]
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selectorKind",
+        "stableKey",
+        "subjectSelectorId"
+      ],
+      "properties": {
+        "selectorKind": {
+          "type": "string",
+          "enum": [
+            "node",
+            "repository"
+          ]
+        },
+        "stableKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$"
+        },
+        "subjectSelectorId": {
+          "type": "string",
+          "pattern": "^subject\\.(node|repository)\\.[a-f0-9]{16}$"
+        }
+      }
+    },
+    "affectedNodeIds": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "affectedNodeCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "regressesFrom": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^recommendation\\.[a-f0-9]{16}$"
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "acknowledged",
+        "accepted",
+        "deferred",
+        "rejected",
+        "resolved",
+        "waived"
+      ]
+    },
+    "observationMetrics": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "cli",
+            "daemon",
+            "developer",
+            "hook",
+            "mcp",
+            "migration",
+            "subagent",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$"
+        }
+      }
+    },
+    "decidedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "headSha",
+        "assessmentDigest",
+        "baselineSnapshotDigest"
+      ],
+      "properties": {
+        "headSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "assessmentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "baselineSnapshotDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

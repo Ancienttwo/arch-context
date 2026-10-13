@@ -367,3 +367,26 @@ function evidenceItem(evidenceId: string, coverage: EvidenceItemV2["coverage"]["
     digest: digestJson(draft as unknown as Json)
   };
 }
+
+describe("refactor decision write scope (ADR-0046)", () => {
+  test("only the refactor-decision scope grants exactly one decision file path", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-policy-decision-"));
+    try {
+      const path = ".archcontext/refactor-decisions/recommendation.0123456789abcdef.json";
+      const scope = (operation: "default" | "refactor-decision") => ({ operation, agentContextPaths: new Set<string>() });
+      expect(() => assertAllowedArchContextPath(root, path)).toThrow("outside ArchContext write allowlist");
+      expect(() => assertAllowedArchContextPath(root, path, scope("default"))).toThrow("outside ArchContext write allowlist");
+      expect(() => assertAllowedArchContextPath(root, path, scope("refactor-decision"))).not.toThrow();
+      for (const other of [
+        ".archcontext/refactor-decisions/notes.md",
+        ".archcontext/refactor-decisions/recommendation.0123.json",
+        ".archcontext/refactor-decisions/nested/recommendation.0123456789abcdef.json",
+        ".archcontext/manifest.yaml"
+      ]) {
+        expect(() => assertAllowedArchContextPath(root, other, scope("refactor-decision")), other).toThrow();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

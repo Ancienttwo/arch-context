@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "archcontext.refactor-decision/v1",
+  "namespace": "product.architecture-context",
+  "recommendationId": "recommendation.4aa8477d81e9d473",
+  "fingerprint": "sha256:5fcec35f40c11d3c1fbc62d2ee21c794f4abcd201ada86940fe142773cb736c4",
+  "fingerprintSchemaVersion": "archcontext.recommendation-fingerprint/v3",
+  "category": "structural_observation",
+  "kind": "cycle",
+  "subject": {
+    "selectorKind": "repository",
+    "stableKey": "pair:component.architecture-context.core.changeset-engine|component.architecture-context.core.policy-engine",
+    "subjectSelectorId": "subject.repository.b7c61fc13826e1e3"
+  },
+  "affectedNodeIds": [
+    "component.architecture-context.core.changeset-engine",
+    "component.architecture-context.core.policy-engine"
+  ],
+  "affectedNodeCount": 2,
+  "regressesFrom": null,
+  "status": "open",
+  "observationMetrics": {
+    "backwardEdgeCount": 4,
+    "forwardEdgeCount": 1,
+    "thinDirectionEdgeCount": 1,
+    "totalEdgeCount": 5
+  },
+  "reason": "The policy engine owns the path allowlist; the back edge is the intended seam.",
+  "actor": {
+    "kind": "cli",
+    "id": "developer"
+  },
+  "decidedAt": "2026-10-13T09:00:00.000Z",
+  "provenance": {
+    "headSha": "0c6bc11d00000000000000000000000000000000",
+    "assessmentDigest": "sha256:3c0eb0020e00e35b734ac0396c00ef1c01733543ad7863938edcf7906b89c971",
+    "baselineSnapshotDigest": "sha256:b5bcfda3c89d235c429f584439f5db74f833abd91d4c12f0b7a477ed49b60e80"
+  }
+}

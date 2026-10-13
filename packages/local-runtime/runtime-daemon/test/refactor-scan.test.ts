@@ -551,7 +551,7 @@ describe("deciding a scan candidate", () => {
 
       // No assessment digest, no expected worktree digest: the id alone names the observation.
       const deferred = lifecycleData(await daemon.recommendations(root, {
-        command: "defer",
+        command: "defer", approved: true,
         recommendationId: first!,
         reason: "Not this sprint."
       }));
@@ -569,7 +569,7 @@ describe("deciding a scan candidate", () => {
 
       // The rest of the run is now recorded, so the next decision takes the ordinary path.
       const accepted = lifecycleData(await daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId: second!,
         reason: "Worth doing."
       }));
@@ -579,7 +579,7 @@ describe("deciding a scan candidate", () => {
       // The daemon clock is fixed, so the implicit record and its decision share one `updatedAt`;
       // the decision is the later event and must be what the next transition starts from.
       const revisited = lifecycleData(await daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId: first!,
         reason: "Pulled into this sprint after all."
       }));
@@ -619,7 +619,7 @@ describe("deciding a scan candidate", () => {
       expect(liveDigest).not.toBe(scan.worktree.worktreeDigest);
 
       const rejected = lifecycleData(await daemon.recommendations(root, {
-        command: "reject",
+        command: "reject", approved: true,
         recommendationId: candidate,
         reason: "Generated file; ownership is intentional."
       }));
@@ -636,7 +636,7 @@ describe("deciding a scan candidate", () => {
     const daemon = await startDaemon(store);
     try {
       const missing = await daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId: "recommendation.0000000000000000",
         reason: "Looks right."
       });
@@ -648,7 +648,7 @@ describe("deciding a scan candidate", () => {
       // `resolve` needs verify evidence bound to a record, so it never reaches the scan.
       const scan = scanData(await daemon.refactorScan(root));
       const unrecordedResolve = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: scan.proposedRecommendations[0]!.recommendationId,
         reason: "Done."
       });
@@ -676,7 +676,7 @@ describe("deciding a scan candidate", () => {
           commitFixture(root, "moved under the decision", SECOND_COMMITTER_DATE);
         };
       };
-      const decided = await daemon.recommendations(root, { command: "defer", recommendationId: candidate, reason: "Later." });
+      const decided = await daemon.recommendations(root, { command: "defer", approved: true, recommendationId: candidate, reason: "Later." });
       expect(decided.ok, JSON.stringify(decided)).toBe(false);
       expect(errorOf(decided).code).toBe("AC_REFACTOR_STALE");
       expect(store.architectureEventAppends).toHaveLength(0);
@@ -785,7 +785,7 @@ describe("scan-time evidence and recommendations show", () => {
       expect(before.affectedModules.map((module) => module.nodeId)).toEqual(candidate.payload.affectedNodeIds);
       expect(store.architectureEventAppends).toHaveLength(0);
 
-      const decided = await daemon.recommendations(root, { command: "defer", recommendationId: candidate.recommendationId, reason: "Next quarter." });
+      const decided = await daemon.recommendations(root, { command: "defer", approved: true, recommendationId: candidate.recommendationId, reason: "Next quarter." });
       expect(decided.ok, JSON.stringify(decided)).toBe(true);
 
       const after = showData(await daemon.recommendations(root, { command: "show", recommendationId: candidate.recommendationId }));
@@ -808,7 +808,7 @@ describe("scan-time evidence and recommendations show", () => {
     const daemon = await startDaemon(store);
     try {
       const candidate = scanWithEvidence(await daemon.refactorScan(root)).proposedRecommendations[0]!;
-      const decided = await daemon.recommendations(root, { command: "defer", recommendationId: candidate.recommendationId, reason: "Next quarter." });
+      const decided = await daemon.recommendations(root, { command: "defer", approved: true, recommendationId: candidate.recommendationId, reason: "Next quarter." });
       expect(decided.ok, JSON.stringify(decided)).toBe(true);
       // 0.6.x `refactor record` and `refactor verify` stored the evidence id in provenance.inputDigest.
       // Give the stored binding that shape: replay keeps a binding as written and never rewrites it.
@@ -876,7 +876,7 @@ describe("a rejected or waived suggestion stays decided", () => {
       try {
         const first = scanData(await daemon.refactorScan(root));
         const a = first.proposedRecommendations[0]!.recommendationId;
-        expect(decidedData(await daemon.recommendations(root, { command, recommendationId: a, reason: "Intentional." })).nextStatus).toBe(status);
+        expect(decidedData(await daemon.recommendations(root, { command, approved: true, recommendationId: a, reason: "Intentional." })).nextStatus).toBe(status);
 
         // A new observation B appears at a later commit; A's measured fact does not change.
         const [laterNode] = declareUnfootprintedModules(root, 1, "module.later");
@@ -889,7 +889,7 @@ describe("a rejected or waived suggestion stays decided", () => {
         const b = second.proposedRecommendations.find((candidate) => (candidate as unknown as { subject: string }).subject === laterNode)!.recommendationId;
 
         // B is not recorded yet, so this decision records the whole run and then decides B.
-        const decidedB = decidedData(await daemon.recommendations(root, { command: "accept", recommendationId: b, reason: "Worth doing." }));
+        const decidedB = decidedData(await daemon.recommendations(root, { command: "accept", approved: true, recommendationId: b, reason: "Worth doing." }));
         expect(decidedB.implicitRecord).not.toBeNull();
         expect(decidedB.implicitRecord!.recommendationIds).not.toContain(a);
 
@@ -980,7 +980,7 @@ describe("refactor scan limits", () => {
         expectedWorktreeDigest: data.worktree.worktreeDigest
       }));
       const candidate = data.proposedRecommendations[0]!.recommendationId;
-      expectTooLarge(await daemon.recommendations(root, { command: "defer", recommendationId: candidate, reason: "Later." }));
+      expectTooLarge(await daemon.recommendations(root, { command: "defer", approved: true, recommendationId: candidate, reason: "Later." }));
       expectTooLarge(await daemon.recommendations(root, { command: "show", recommendationId: candidate }));
       expect(store.architectureEventAppends).toHaveLength(0);
     } finally {
@@ -997,7 +997,7 @@ describe("recommendation decisions and listing", () => {
     try {
       const scan = scanData(await daemon.refactorScan(root));
       const stale = await daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId: scan.proposedRecommendations[0]!.recommendationId,
         reason: "Looks right.",
         expectedWorktreeDigest: `sha256:${"1".repeat(64)}`
@@ -1008,7 +1008,7 @@ describe("recommendation decisions and listing", () => {
       expect(store.architectureEventAppends).toHaveLength(0);
 
       const current = await daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId: scan.proposedRecommendations[0]!.recommendationId,
         reason: "Looks right.",
         expectedWorktreeDigest: scan.worktree.worktreeDigest
@@ -1035,7 +1035,7 @@ describe("recommendation decisions and listing", () => {
       const ids = scan.proposedRecommendations.map((candidate) => candidate.recommendationId);
       expect(ids).toHaveLength(25);
       const rejected = ids[0]!;
-      expect((await daemon.recommendations(root, { command: "reject", recommendationId: rejected, reason: "Intentional." })).ok).toBe(true);
+      expect((await daemon.recommendations(root, { command: "reject", approved: true, recommendationId: rejected, reason: "Intentional." })).ok).toBe(true);
 
       const book = await daemon.book(root, { command: "recommendations" });
       expect((book.data as { budget: { truncated: boolean } }).budget.truncated).toBe(true);

@@ -229,7 +229,7 @@ describe("a scan candidate found with a custom import node limit", () => {
       const limited = scanData(await daemon.refactorScan(root, { request: limitedRequest }));
       const recommendationId = importLimitCandidateId(limited);
       const decide = (importNodeLimit?: number) => daemon.recommendations(root, {
-        command: "defer",
+        command: "defer", approved: true,
         recommendationId,
         reason: "Measured with the scan limit.",
         ...(importNodeLimit === undefined ? {} : { importNodeLimit })
@@ -242,8 +242,13 @@ describe("a scan candidate found with a custom import node limit", () => {
       const implicitRecord = (decided.data as { implicitRecord: { assessmentDigest: string; recommendationIds: string[] } }).implicitRecord;
       expect(implicitRecord.assessmentDigest).toBe(limited.assessment.assessmentDigest);
       expect(implicitRecord.recommendationIds).toContain(recommendationId);
+      // The decision is a Git file in the checkout every test here shares (ADR-0046).
+      expect((decided.data as { decisionFile: string }).decisionFile).toBe(`.archcontext/refactor-decisions/${recommendationId}.json`);
     } finally {
       await daemon.stop();
+      // Each test starts its own store, but the checkout is shared: drop the decision so the
+      // candidate is undecided again for the tests that follow.
+      rmSync(join(root, ".archcontext/refactor-decisions"), { recursive: true, force: true });
     }
   }, 120_000);
 

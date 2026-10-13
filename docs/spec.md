@@ -96,14 +96,60 @@ their ledger readback identity.
 
 ### Refactor Suggestion Decisions and Limits
 
-A refactor fingerprint whose latest record is `rejected` or `waived` is suppressed on re-detection
-(`decided-fingerprint`), like `accepted` and `deferred`, including when a later decision records a
-whole scan run. Active and decided suppression run before the `maxRecommendationsPerRun` cap, so a
+Refactor recommendation ids are scoped by the manifest `product.id`, not by the worktree path, so
+one subject has one id in every worktree, branch and clone (ADR-0046). A missing `product.id` fails
+with `AC_MODEL_ADOPTION_REQUIRED`; a blank or malformed one with `AC_SCHEMA_INVALID`. Every human
+decision on a refactor recommendation (`acknowledge`, `accept`, `reject`, `defer`, `waive`,
+`resolve`) writes `.archcontext/refactor-decisions/<recommendationId>.json` through the daemon's
+`write_refactor_decision` ChangeSet operation, with the ledger records in the same journal
+boundary. The one-shot `archctx recommendations <verb> --id --reason` command is the approval for
+that one write. Human status comes only from those files in the current checkout; SQLite lifecycle
+events are audit. Decisions become visible to other worktrees and branches only after the decision
+file is committed and the other checkout contains that commit; an uncommitted decision stays in its
+own worktree. A decision changes the worktree digest, so rescan after deciding. The decision files
+are the Git-visible ones in that directory (tracked or untracked, not ignored), so an ignored
+`.DS_Store` or editor file is never read; a malformed, conflicted or non-canonical decision file, a
+symlink, or any other Git-visible file there fails every refactor read closed. A decision file is
+compared to the canonical serialization after rewriting CRLF pairs to LF, so a Windows
+`core.autocrlf` checkout of a committed decision reads and can be re-decided; the daemon always
+writes LF. Refactor decisions held only in
+SQLite by 0.7.x do not carry over.
+
+A decision that reached a worktree through Git but was never recorded in that worktree's ledger is
+still usable there. `recommendations show` answers it from the decision file with
+`source: "git-decision"`, `statusAuthority: "git-decision"` and no ledger record. Any decision verb
+(`acknowledge`, `accept`, `reject`, `defer`, `waive`) records the current scan's generation of that
+subject in the local ledger under the same id and rewrites the decision file, in one writer-held
+ChangeSet; a subject the current scan no longer observes is refused with `AC_REFACTOR_STALE`
+(`git-decision-subject-not-observed`). The verb of the status the file already states is accepted
+on this path and keeps that status. `refactor verify` and `resolve` on such an id fail with
+`AC_REFACTOR_EVIDENCE_REQUIRED` (`git-decision-not-recorded`) and name that verb in
+`details.recordCommand` (accepted→`accept`, deferred→`defer`, rejected→`reject`, waived→`waive`,
+acknowledged→`acknowledge`), so following it does not change the Git decision; a `resolved` file is
+terminal and names no command. Record the decision in the consumer worktree before changing the
+code: verification measures against the baseline that record binds. No baseline is synthesized and
+no other worktree's verification is reused.
+
+A refactor fingerprint whose decision file says `rejected` or `waived` is suppressed on re-detection
+(`decided-fingerprint`); `accepted`, `deferred` and `acknowledged` are suppressed as active
+(`duplicate-active-fingerprint`); `resolved` is eligible again as a new generation with
+`relations.regressesFrom`. Without a decision file only a machine-recorded `open` record suppresses
+a duplicate; a SQLite human status without a file has no suppression authority, and the id it would
+reuse is emitted as a new generation with `regressesFrom`. Such a record is audit only
+(`statusAuthority: "ledger-audit"`): `show` labels it with the status the ledger recorded, `list`
+reports it under `ledgerAudit` instead of `recommendations`, `book recommendations` without
+`--open` lists its id in `ledgerAuditRecommendationIds`, and it never appears in an open listing or
+`book recommendations --open`. Deciding such an id is refused with `AC_REFACTOR_STALE`
+(`ledger-audit-generation`) and writes nothing: its generation is no longer the subject's current
+one, and `details.currentRecommendationId` names the generation to decide instead
+(`details.currentRecorded: false` means the next `refactor scan` emits it).
+`recommendations metrics` stays report-only: its status and feedback counts are ledger counts, so
+they include audit-only records and do not read the Git decisions. Active and decided suppression run before the `maxRecommendationsPerRun` cap, so a
 suppressed fingerprint never takes a slot from a new candidate and `omittedCandidateCount` counts
 only what the cap cut. A decided structural observation reopens only when a severity metric of its
 kind is higher than in the decided record's `payload.metrics`
-(`REFACTOR_OBSERVATION_SEVERITY_METRICS` in refactor-assessment): `cycle` `memberCount` and
-`cycleEdgeCount`, `direction-violation` `directionViolationCount`, `unowned-paths`
+(`REFACTOR_OBSERVATION_SEVERITY_METRICS` in refactor-assessment): `cycle`
+`thinDirectionEdgeCount`, `residual-cycle` `cycleEdgeCount`, `direction-violation` `directionViolationCount`, `unowned-paths`
 `unownedFileCount`. An equal or lower value does not reopen, and neither does a decided record that
 lacks the metric. `ownership-ambiguous` (its `ownedFileCount` measures module size),
 `evidence-gap` (a gap in the code facts, not a finding; `edgeLimit` is scan configuration) and
@@ -111,6 +157,17 @@ lacks the metric. `ownership-ambiguous` (its `ownedFileCount` measures module si
 record with a new id and `relations.regressesFrom` naming the decided one; the decided id is never
 appended as `open` again. A refactor proposal fingerprints every material field, so a decided
 proposal does not reopen.
+
+A `cycle` observation names one bidirectional module pair: subject `pair:A|B`, affected nodes
+`[A, B]`, `forwardEdgeCount` (A to B), `backwardEdgeCount`, `thinDirectionEdgeCount` and
+`totalEdgeCount`, counted as distinct file-level import edges. Its evidence holds only that pair's
+edges, both directions sampled, thin direction first; its id depends only on the namespace and the
+pair. Cycles that remain after removing the thin direction of every pair are reported as
+`residual-cycle` observations (subject `cycle:<component id>`, affected nodes the members,
+`memberCount` and `cycleEdgeCount`), one per remaining strongly connected component.
+Pairs are ordered by thin count, total, then ids. `refactor verify` resolves a pair when at least
+one direction is zero and a residual cycle when its members no longer form a cycle. A `node` or
+`paths` scan scope keeps only observations whose `affectedNodeIds` intersect the scope.
 
 `refactor scan` is read-only and never fails on the ledger event size limit. It returns
 `recording.recordable`, `recording.measuredBytes` and `recording.limitBytes`, plus `limits` with the

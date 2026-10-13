@@ -47,6 +47,7 @@ import {
 } from "../../../core/refactor-assessment/test/factories";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import { evidenceLifecycleOperations } from "../src/refactor-recording";
+import { readRefactorNamespace } from "../src/refactor-scan";
 import { baselineSnapshotForRecommendation, resolutionEvidenceItems, runRefactorVerify } from "../src/refactor-verify";
 import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "../src/index";
 
@@ -175,6 +176,7 @@ async function recordCycleProposal(
     request: makeRequest({ proposal: cycleProposal() })
   }));
   const digest = daemon.registerRefactorAssessment({
+    namespace: readRefactorNamespace(root),
     snapshot: before,
     assessment: assessed.assessment,
     ...(assessed.proposal ? { proposal: assessed.proposal } : {}),
@@ -442,7 +444,7 @@ describe("daemon refactorVerify", () => {
         .toEqual(["item:create", "item:create", "binding:create"]);
 
       const resolved = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "cross-module cycle removed and re-measured",
         evidenceDigest: plan.evidence.resolutionDigest,
@@ -455,16 +457,21 @@ describe("daemon refactorVerify", () => {
       expect(book.ok).toBe(true);
       const data = book.data as any;
       expect(data.recommendations.find((entry: RecommendationV3) => entry.recommendationId === recommendation.recommendationId).status).toBe("resolved");
-      expect(data.freshness.worktree).toEqual(finalWorktree);
-      expect(data.freshness.headSha).toBe(finalWorktree.headSha);
-      expect(data.freshness.worktreeDigest).toBe(finalWorktree.worktreeDigest);
+      // The resolve wrote its Git decision file, so the checkout the book describes is the one
+      // after that write (ADR-0046): same HEAD, a worktree digest that now includes the decision.
+      const decidedWorktree = worktreeIdentity(root);
+      expect(decidedWorktree.headSha).toBe(finalWorktree.headSha);
+      expect((resolved.data as any).decisionFile).toBe(`.archcontext/refactor-decisions/${recommendation.recommendationId}.json`);
+      expect(data.freshness.worktree).toEqual(decidedWorktree);
+      expect(data.freshness.headSha).toBe(decidedWorktree.headSha);
+      expect(data.freshness.worktreeDigest).toBe(decidedWorktree.worktreeDigest);
       expect(data.provenance.headSha).toBe(recordedWorktree.headSha);
       expect(data.provenance.worktreeDigest).toBe(recordedWorktree.worktreeDigest);
 
       writeFileSync(join(root, "README.md"), "# uncommitted follow-up\n");
       const dirtyBook = await daemon.book(root, { command: "recommendations" });
       expect((dirtyBook.data as any).freshness.worktree).toEqual(worktreeIdentity(root));
-      expect((dirtyBook.data as any).freshness.worktreeDigest).not.toBe(finalWorktree.worktreeDigest);
+      expect((dirtyBook.data as any).freshness.worktreeDigest).not.toBe(decidedWorktree.worktreeDigest);
       expect((dirtyBook.data as any).provenance).toEqual(data.provenance);
       const historical = await daemon.book(root, { command: "evidence", id: recommendation.recommendationId });
       expect((historical.data as any).freshness.worktree).toEqual(recordedWorktree);
@@ -632,7 +639,7 @@ describe("daemon refactorVerify", () => {
       const { recommendation, before } = await recordCycleProposal(daemon, root);
       const plan = await planAndAppendVerification({ store, root, recommendation, before, after: measuredSnapshot(root, []) });
       const resolved = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "cross-module cycle removed and re-measured",
         evidenceDigest: plan.evidence.resolutionDigest,
@@ -858,7 +865,7 @@ describe("recommendations resolve evidence lookup", () => {
       await daemon.init(root, "Refactor Verify App");
       const { recommendation, before } = await recordCycleProposal(daemon, root);
       const accepted = await daemon.recommendations(root, {
-        command: "accept",
+        command: "accept", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "accepted for planning",
         now: "2026-09-03T13:40:00.000Z"
@@ -876,7 +883,7 @@ describe("recommendations resolve evidence lookup", () => {
       expect(plan.evidence.disposition).toBe("not_improved");
 
       const result = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "claiming the cycle is gone",
         evidenceDigest: plan.evidence.resolutionDigest,
@@ -904,7 +911,7 @@ describe("recommendations resolve evidence lookup", () => {
       const { recommendation } = await recordCycleProposal(daemon, root);
 
       const missing = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "no evidence supplied",
         now: "2026-09-03T14:20:00.000Z"
@@ -914,7 +921,7 @@ describe("recommendations resolve evidence lookup", () => {
       expect(errorOf(missing).reasonCode).toBe("evidence-digest-missing");
 
       const unknown = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "digest nobody verified",
         evidenceDigest: digestJson({ evidence: "never-verified" } as unknown as Json),
@@ -941,7 +948,7 @@ describe("recommendations resolve evidence lookup", () => {
         .find((candidate: RecommendationV3) => candidate.category === "structural_observation") as RecommendationV3;
 
       const result = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: observation.recommendationId,
         reason: "borrowing another record's evidence",
         evidenceDigest: plan.evidence.resolutionDigest,
@@ -975,7 +982,7 @@ describe("recommendations resolve evidence lookup", () => {
       expect(plan.evidence.verifiedHeadSha).not.toBe(gitOut(root, "rev-parse", "HEAD"));
 
       const result = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "resolving against a verdict from another commit",
         evidenceDigest: plan.evidence.resolutionDigest,
@@ -1010,7 +1017,7 @@ describe("recommendations resolve evidence lookup", () => {
       expect(computeWorktreeDigest(root, listGitVisibleFiles(root))).not.toBe(plan.evidence.verifiedWorktreeDigest);
 
       const drifted = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "resolving against a verdict whose tree was edited without a commit",
         now: "2026-09-03T14:45:00.000Z",
@@ -1031,7 +1038,7 @@ describe("recommendations resolve evidence lookup", () => {
       expect(computeWorktreeDigest(root, listGitVisibleFiles(root))).toBe(plan.evidence.verifiedWorktreeDigest);
 
       const resolved = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "resolving against the tree the verdict actually measured",
         now: "2026-09-03T14:46:00.000Z",
@@ -1059,7 +1066,7 @@ describe("recommendations resolve evidence lookup", () => {
       });
 
       const resolved = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: seeded.recommendationId,
         reason: "practice adopted",
         now: "2026-09-03T14:50:00.000Z"
@@ -1090,7 +1097,7 @@ describe("persisted evidence is re-proved on read", () => {
       await appendResolutionEvidence({ store, root, evidence: forged, afterSnapshot: after });
 
       const result = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "resolving on a hand-written verdict",
         evidenceDigest: forged.resolutionDigest,
@@ -1126,7 +1133,7 @@ describe("persisted evidence is re-proved on read", () => {
       });
 
       const result = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "resolving on a verdict nobody bound to completion",
         evidenceDigest: plan.evidence.resolutionDigest,
@@ -1175,7 +1182,7 @@ describe("recommendations resolve re-reads the tree before it appends", () => {
       });
 
       const result = await daemon.recommendations(root, {
-        command: "resolve",
+        command: "resolve", approved: true,
         recommendationId: recommendation.recommendationId,
         reason: "resolving while the tree moves",
         evidenceDigest: plan.evidence.resolutionDigest,

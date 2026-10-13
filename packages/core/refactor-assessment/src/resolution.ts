@@ -18,7 +18,12 @@ import {
   type RefactorTargetOutcomeV1,
   type StructuralObservationPayloadV1
 } from "@archcontext/contracts";
-import { resolveOwnership, type ModuleStatisticsTrackedFileV1 } from "@archcontext/core/module-statistics";
+import {
+  bidirectionalModulePairs,
+  residualCycleMemberCount,
+  resolveOwnership,
+  type ModuleStatisticsTrackedFileV1
+} from "@archcontext/core/module-statistics";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 
 const DIGEST_PREFIX_LENGTH = "sha256:".length;
@@ -27,8 +32,15 @@ const OUTCOME_ID_LENGTH = 16;
 /**
  * The closed vocabulary a resolution outcome may name. Every entry is a pure field path into a
  * `ModuleStatisticsSnapshotV1` (or, for `killList.*`, into the verified worktree); the subject is
- * carried by `nodeId`/`subjectSelectorId`, never spliced into the string. Embedding an id in the
- * metric name would fork one outcome's digest on every node rename.
+ * carried by `nodeId`/`subjectSelectorId` (and, for `moduleDependencies.*`, `memberNodeIds`), never
+ * spliced into the string. Embedding an id in the metric name would fork one outcome's digest on
+ * every node rename.
+ *
+ * `moduleDependencies.pairThinDirectionEdgeCount` reads the smaller of the two directions of the
+ * pair in `memberNodeIds` from the snapshot's dependency table: `0` once either direction is gone
+ * (or an end module no longer exists). `moduleDependencies.residualCycleMemberCount` counts the
+ * members of `memberNodeIds` still on a residual cycle among themselves. Both read `null` when the
+ * graph was not measured.
  *
  * An outcome naming anything outside this list is rejected at ingress rather than measured: under
  * the `absent` operator an unreadable metric reads as *satisfied*, so silently tolerating an
@@ -53,6 +65,8 @@ export const REFACTOR_RESOLUTION_METRICS = [
   "module.tests.testFileCount",
   "module.uncertainty.ambiguousOwnership",
   "module.uncertainty.unresolvedImports",
+  "moduleDependencies.pairThinDirectionEdgeCount",
+  "moduleDependencies.residualCycleMemberCount",
   "repositorySummary.crossModuleCycleCount",
   "repositorySummary.crossModuleEdgeCount",
   "repositorySummary.dynamicInvocationRiskCount",
@@ -112,6 +126,8 @@ export interface DeriveObservationOutcomesInputV1 {
   affectedNodeIds: readonly string[];
 }
 
+type ObservationOutcomeScope = "members" | "module" | "repository";
+
 /**
  * The metric each observation kind is measured by, and whether the measurement is per affected
  * node or repository-wide.
@@ -123,9 +139,11 @@ export interface DeriveObservationOutcomesInputV1 {
 const OBSERVATION_OUTCOME_METRICS: Readonly<Record<RefactorObservationKind, {
   metric: RefactorResolutionMetric;
   operator: "absent" | "present";
-  scope: "module" | "repository";
+  scope: ObservationOutcomeScope;
 }>> = {
-  "cycle": { metric: "module.dependencyGraph.cycleCount", operator: "absent", scope: "module" },
+  // A pair is closed when one direction is gone; other cycles its modules sit on are not its fact.
+  "cycle": { metric: "moduleDependencies.pairThinDirectionEdgeCount", operator: "absent", scope: "members" },
+  "residual-cycle": { metric: "moduleDependencies.residualCycleMemberCount", operator: "absent", scope: "members" },
   "direction-violation": { metric: "module.dependencyGraph.directionViolationCount", operator: "absent", scope: "module" },
   "evidence-gap": { metric: "repositorySummary.unresolvedImportCount", operator: "absent", scope: "repository" },
   "ownership-ambiguous": { metric: "module.uncertainty.ambiguousOwnership", operator: "absent", scope: "module" },
@@ -147,6 +165,7 @@ export function refactorResolutionOutcomeId(outcome: Omit<RefactorTargetOutcomeV
     metric: outcome.metric,
     subjectSelectorId: outcome.subjectSelectorId,
     nodeId: outcome.nodeId,
+    ...(outcome.memberNodeIds === undefined ? {} : { memberNodeIds: outcome.memberNodeIds }),
     operator: outcome.operator,
     value: outcome.value,
     required: outcome.required
@@ -165,9 +184,20 @@ export function refactorResolutionOutcomeId(outcome: Omit<RefactorTargetOutcomeV
 export function readSnapshotMetric(
   snapshot: ModuleStatisticsSnapshotV1,
   metric: RefactorResolutionMetric,
-  nodeId: string | null
+  nodeId: string | null,
+  memberNodeIds?: readonly string[]
 ): number | null {
   if (metric.startsWith("killList.")) return null;
+  if (metric.startsWith("moduleDependencies.")) {
+    if (snapshot.codeFacts.coverage === "unknown" || memberNodeIds === undefined) return null;
+    if (metric === "moduleDependencies.residualCycleMemberCount") {
+      return residualCycleMemberCount(memberNodeIds, snapshot.moduleDependencies);
+    }
+    const members = new Set(memberNodeIds);
+    const pair = bidirectionalModulePairs(snapshot.moduleDependencies
+      .filter((edge) => members.has(edge.fromNodeId) && members.has(edge.toNodeId)))[0];
+    return pair?.thinDirectionEdgeCount ?? 0;
+  }
   if (metric.startsWith("repositorySummary.")) {
     const field = metric.slice("repositorySummary.".length) as keyof ModuleStatisticsSnapshotV1["repositorySummary"];
     return snapshot.repositorySummary[field];
@@ -232,6 +262,15 @@ export function refactorOutcomeVocabularyIssues(
       continue;
     }
     const requiresNode = outcome.metric.startsWith("module.");
+    const requiresMembers = outcome.metric.startsWith("moduleDependencies.");
+    if (requiresMembers !== (outcome.memberNodeIds !== undefined)) {
+      issues.push(requiresMembers
+        ? `${label}.memberNodeIds is required for metric ${outcome.metric}`
+        : `${label}.memberNodeIds is only allowed for moduleDependencies.* metrics`);
+    }
+    if (requiresMembers && outcome.metric === "moduleDependencies.pairThinDirectionEdgeCount" && outcome.memberNodeIds?.length !== 2) {
+      issues.push(`${label}.memberNodeIds must name exactly the two ends of the pair`);
+    }
     if (requiresNode && (outcome.nodeId === null || outcome.nodeId.trim() === "")) {
       issues.push(`${label}.nodeId is required for metric ${outcome.metric}`);
     }
@@ -257,6 +296,17 @@ export function refactorOutcomeVocabularyIssues(
  */
 export function deriveObservationOutcomes(input: DeriveObservationOutcomesInputV1): RefactorTargetOutcomeV1[] {
   const spec = OBSERVATION_OUTCOME_METRICS[input.kind];
+  if (spec.scope === "members") {
+    return [sealOutcome({
+      metric: spec.metric,
+      subjectSelectorId: input.subjectSelectorId,
+      nodeId: null,
+      memberNodeIds: [...new Set(input.affectedNodeIds)].sort(),
+      operator: spec.operator,
+      value: null,
+      required: true
+    })];
+  }
   const subjects: (string | null)[] = spec.scope === "repository"
     ? [null]
     : [...new Set(input.affectedNodeIds)].sort();
@@ -484,7 +534,12 @@ function observeOutcome(
     // dissolved. `absent` reads that as satisfied, and the residual keeps the reason visible.
     residuals.push({ code: "outcome-subject-absent", subject: outcome.nodeId, severity: "warning" });
   }
-  const observedValue = readSnapshotMetric(input.afterSnapshot, metric, outcome.nodeId);
+  for (const member of outcome.memberNodeIds ?? []) {
+    if (!input.afterSnapshot.modules.some((module) => module.nodeId === member)) {
+      residuals.push({ code: "outcome-subject-absent", subject: member, severity: "warning" });
+    }
+  }
+  const observedValue = readSnapshotMetric(input.afterSnapshot, metric, outcome.nodeId, outcome.memberNodeIds);
   return {
     outcomeId: outcome.outcomeId,
     observedValue,
@@ -499,7 +554,7 @@ function outcomeDirection(
   before: ModuleStatisticsSnapshotV1 | undefined
 ): RefactorOutcomeDirection {
   if (!before) return "unknown";
-  const beforeValue = readSnapshotMetric(before, outcome.metric as RefactorResolutionMetric, outcome.nodeId);
+  const beforeValue = readSnapshotMetric(before, outcome.metric as RefactorResolutionMetric, outcome.nodeId, outcome.memberNodeIds);
   if (beforeValue === null || observedValue === null) return "unknown";
   if (beforeValue === observedValue) return "unchanged";
   if (LOWER_IS_BETTER.has(outcome.operator)) return observedValue < beforeValue ? "improved" : "regressed";

@@ -3,6 +3,7 @@ import {
   architectureEventHash,
   architectureSnapshotDigest,
   digestJson,
+  refactorRecommendationStatusView,
   type ArchitectureEventV1,
   type ArchitectureLedgerMode,
   type ArchitectureRepositoryIdentityV1,
@@ -17,6 +18,7 @@ import {
   type RecommendationRunV1,
   type RecommendationV2,
   type RecommendationV3,
+  type RefactorDecisionStatus,
   type AgentJobV1
 } from "@archcontext/contracts";
 import type { ChangeSetDraft } from "@archcontext/core/changeset-engine";
@@ -539,6 +541,12 @@ export interface ArchitectureBookRecommendationsResult {
   schemaVersion: "archcontext.architecture-book-recommendations/v1";
   openOnly: boolean;
   recommendations: RecommendationLedgerRecordV1[];
+  /**
+   * The returned refactor recommendations whose human status is audit only (ADR-0046): recorded in
+   * this ledger, but the checkout carries no Git decision for it, so it is history and not the
+   * current status of its subject. Empty when `openOnly`, which never returns them.
+   */
+  ledgerAuditRecommendationIds: string[];
   explanations?: ArchitectureBookSelectionExplanation[];
   budget: ArchitectureBookBudgetReadback;
   reasonCodes: string[];
@@ -851,18 +859,43 @@ export function queryArchitectureLedgerBookEvidence(input: ArchitectureBookBudge
 export function queryArchitectureLedgerBookRecommendations(input: ArchitectureBookBudgetInput & {
   events: ArchitectureEventV1[];
   openOnly?: boolean;
+  /**
+   * The Git decision of every decided refactor recommendation in the checkout, by id (ADR-0046).
+   * A refactor record's status is read through it; practice records keep their ledger status. A
+   * refactor record whose recorded human status has no Git file is audit only and never active.
+   */
+  refactorDecisionStatuses: ReadonlyMap<string, RefactorDecisionStatus>;
 }): ArchitectureBookRecommendationsResult {
-  const recommendations = latestBookRecommendations(input.events)
-    .filter((recommendation) => !input.openOnly || ACTIVE_BOOK_RECOMMENDATION_STATUSES.has(recommendation.status))
+  const entries = latestBookRecommendations(input.events)
+    .map((recommendation) => bookRecommendationStatus(recommendation, input.refactorDecisionStatuses))
+    .filter((entry) => !input.openOnly || (entry.authority !== "ledger-audit" && ACTIVE_BOOK_RECOMMENDATION_STATUSES.has(entry.recommendation.status)));
+  const ledgerAudit = new Set(entries.filter((entry) => entry.authority === "ledger-audit").map((entry) => entry.recommendation.recommendationId));
+  const recommendations = entries
+    .map((entry) => entry.recommendation)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.recommendationId.localeCompare(right.recommendationId));
   const limited = applyArchitectureBookBudget(recommendations, input);
   return {
     schemaVersion: "archcontext.architecture-book-recommendations/v1",
     openOnly: input.openOnly ?? false,
     recommendations: limited.items,
+    ledgerAuditRecommendationIds: limited.items
+      .map((recommendation) => recommendation.recommendationId)
+      .filter((recommendationId) => ledgerAudit.has(recommendationId)),
     ...(input.explain ? { explanations: limited.items.map((recommendation) => explainBookRecommendation(recommendation, input.openOnly ?? false)) } : {}),
     budget: limited.budget,
     reasonCodes: limited.budget.reasonCodes
+  };
+}
+
+function bookRecommendationStatus(
+  recommendation: RecommendationLedgerRecordV1,
+  decisions: ReadonlyMap<string, RefactorDecisionStatus>
+): { recommendation: RecommendationLedgerRecordV1; authority: "git-decision" | "ledger" | "ledger-audit" } {
+  if (!("category" in recommendation) || recommendation.category === "practice") return { recommendation, authority: "ledger" };
+  const view = refactorRecommendationStatusView(recommendation.status, decisions.get(recommendation.recommendationId));
+  return {
+    recommendation: view.status === recommendation.status ? recommendation : { ...recommendation, status: view.status },
+    authority: view.authority
   };
 }
 

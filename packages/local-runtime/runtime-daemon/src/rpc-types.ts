@@ -284,6 +284,13 @@ export interface RuntimeRecommendationInput {
    * recorded recommendation is read from the ledger and needs none.
    */
   importNodeLimit?: number;
+  /**
+   * The explicit approval of one refactor decision write (ADR-0046). A decision on a
+   * `refactor_proposal` or `structural_observation` writes its Git decision file through a
+   * ChangeSet, so it requires `approved: true`; the one-shot CLI verbs pass it, every other ingress
+   * must pass it itself. Practice decisions stay ledger-only and do not read it.
+   */
+  approved?: boolean;
   agentJobId?: string;
   now?: string;
 }

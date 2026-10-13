@@ -93,7 +93,8 @@
                   "write_policy",
                   "write_waiver",
                   "render_projection",
-                  "render_agent_context"
+                  "render_agent_context",
+                  "write_refactor_decision"
                 ]
               },
               "entityId": {

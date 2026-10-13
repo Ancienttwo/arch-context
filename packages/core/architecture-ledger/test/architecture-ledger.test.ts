@@ -346,7 +346,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
     expect(evidence.evidenceItems.length).toBeGreaterThan(0);
     expect(JSON.stringify(evidence)).not.toContain("Checkout calls API");
 
-    const recommendations = queryArchitectureLedgerBookRecommendations({ events: [recommendationEvent as any], openOnly: true, explain: true });
+    const recommendations = queryArchitectureLedgerBookRecommendations({ events: [recommendationEvent as any], openOnly: true, explain: true, refactorDecisionStatuses: new Map() });
     expect(recommendations.recommendations.map((recommendation) => recommendation.recommendationId)).toEqual(["recommendation.api-owner"]);
     expect(recommendations.explanations?.[0]).toMatchObject({
       targetKind: "recommendation",
@@ -356,13 +356,15 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
 
     const latestRecommendations = queryArchitectureLedgerBookRecommendations({
       events: [recommendationEvent as any, acceptedRecommendationEvent as any],
-      explain: true
+      explain: true,
+      refactorDecisionStatuses: new Map()
     });
     expect(latestRecommendations.recommendations).toHaveLength(1);
     expect(latestRecommendations.recommendations[0]?.status).toBe("accepted");
     const activeRecommendations = queryArchitectureLedgerBookRecommendations({
       events: [recommendationEvent as any, acceptedRecommendationEvent as any],
-      openOnly: true
+      openOnly: true,
+      refactorDecisionStatuses: new Map()
     });
     expect(activeRecommendations.recommendations).toEqual([]);
   });
