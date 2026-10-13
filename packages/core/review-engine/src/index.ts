@@ -16,6 +16,8 @@ import { detectCrossRepoPressure } from "@archcontext/core/pressure-engine";
 import { validateCompatibilityContract, type CompatibilityContractInput, type PolicyFinding } from "@archcontext/core/policy-engine";
 import type { ArchitecturePosture } from "@archcontext/core/architecture-domain";
 
+export * from "./architecture-debt";
+
 export interface CompleteTaskInput {
   taskSessionId: string;
   posture: ArchitecturePosture;

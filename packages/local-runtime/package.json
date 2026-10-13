@@ -14,6 +14,7 @@
     "./egress": "./runtime-daemon/src/egress.ts",
     "./egress-admission": "./egress-admission/src/index.ts",
     "./runtime-daemon": "./runtime-daemon/src/index.ts",
+    "./architecture-debt": "./runtime-daemon/src/architecture-debt.ts",
     "./control-file-security": "./control-file-security/src/index.ts",
     "./process-liveness": "./process-liveness/src/index.ts",
     "./runtime-state-paths": "./runtime-state-paths/src/index.ts",

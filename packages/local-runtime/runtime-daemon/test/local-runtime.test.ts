@@ -326,6 +326,8 @@ describe("local runtime foundation", () => {
       expect((checkpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
       expect((checkpoint.data as any).reasonCode).toBe("no-op");
       expect((checkpoint.data as any).delta.unchanged.length).toBeGreaterThan(0);
+      expect((checkpoint.data as any).debt.schemaVersion).toBe("archcontext.architecture-debt/v1");
+      expect((checkpoint.data as any).debt.checks.find((check: any) => check.check === "dependencies").coverage).toBe("unknown");
 
       const status = await daemon.runtimeStatus(root);
       expect((status.data as any).repositoryId).toBe(repositoryFingerprint(root));
@@ -338,6 +340,7 @@ describe("local runtime foundation", () => {
 
   test("checkpoint coalesces repeated hook events without re-running analysis", async () => {
     const root = tempRepo();
+    initializeArchContextModel(root, "Checkpoint Debt App");
     const facts = countingCheckpointFacts();
     try {
       const daemon = await createStartedTestDaemon({ codeFacts: facts.port });
@@ -364,6 +367,7 @@ describe("local runtime foundation", () => {
       expect((last.data as any).hook.skippedAnalysis).toBe(true);
       expect((last.data as any).hook.coalescedEventCount).toBe(10);
       expect((last.data as any).resultDigest).toBe((first.data as any).resultDigest);
+      expect((last.data as any).debt).toEqual((first.data as any).debt);
       expect(facts.counts()).toEqual({ sync: 1, buildTaskContext: 2 });
     } finally {
       removeTempRepo(root);
@@ -372,6 +376,7 @@ describe("local runtime foundation", () => {
 
   test("checkpoint restores persisted baseline after daemon restart", async () => {
     const root = tempRepo();
+    initializeArchContextModel(root, "Checkpoint Debt Restart App");
     const facts = mutableCycleFacts();
     const store = new TestLocalStore();
     let first: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;

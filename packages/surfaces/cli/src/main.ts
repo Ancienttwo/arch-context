@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { LocalEgressPolicyError, localEgressAdmission, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
+import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
 import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, discardLegacyGithubDeveloperReviewState, readGithubDeveloperReviewState, sanitizeGithubDeveloperReviewState, writeGithubDeveloperReviewState, type GitHubDeveloperReviewState } from "./github-review-state";
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
@@ -95,6 +96,7 @@ interface CliFlagSpec {
  * apply to any other first token.
  */
 export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcommands?: Readonly<Record<string, CliFlagSpec>> }>> = {
+  "debt": { value: ["--changed-path"], boolean: [] },
   "agent-context": { value: ["--expected-worktree-digest", "--id", "--task-session-id"], boolean: ["--approved"] },
   "agents": {
     value: [],
@@ -735,6 +737,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
           revocation: "archctx tunnel --revoke"
         }
       };
+    case "debt":
+      return runArchitectureDebtCommand(cwd, { changedPaths: readRepeatedFlag(args, "--changed-path") });
     case "deps":
       return runDepsCommand(args, cwd);
     case "resolve": {
@@ -763,7 +767,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel", "flows", "deps"],
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel", "flows", "deps", "debt"],
           examples: CLI_HELP_EXAMPLES
         }
       };
@@ -806,6 +810,13 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     });
   case "resolve":
     return okEnvelope("resolve", CLI_RESOLVE_HELP as unknown as Json);
+  case "debt":
+    return okEnvelope("debt", {
+      usage: "archctx debt [--changed-path <path>]... [--json]",
+      schemaVersion: "archcontext.architecture-debt/v1",
+      description: "Edit-time ownership and human citation debt for changed paths. Dependency, flow and practice checks are explicit coverage gaps reserved for complete; no source byte stamp is debt.",
+      writes: "none; no daemon, runtime state, rendering or CodeGraph sync"
+    });
   case "deps":
     return okEnvelope("deps", CLI_DEPS_HELP as unknown as Json);
   case "flows":

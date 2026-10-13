@@ -1,5 +1,6 @@
-import type { ProjectionArchitectureDebtCoverageReasonCode, ProjectionArchitectureDebtV1 } from "@archcontext/contracts";
+import type { ProjectionArchitectureDebtV1 } from "@archcontext/contracts";
 import { measureCapabilityDependencies } from "@archcontext/core/module-statistics";
+import { dependencyDebtFromMeasurement } from "@archcontext/core/review-engine";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { CODEGRAPH_IMPORT_NODE_READ_LIMIT, type ProjectionImportPopulationV1 } from "@archcontext/local-runtime/codegraph-adapter";
 import { declaredWorkspacePackages } from "./refactor-scan";
@@ -55,16 +56,7 @@ export function projectionArchitectureDebt(model: NativeModel, evidence: Project
     edgeLimit: 0
   });
   // The run's own attestation rules out `code-facts-stale`; the result invariant rejects any other code.
-  const coverageReasonCodes = [...measured.imports.reasonCodes, ...(workspaces.resolved ? [] : ["workspace-resolution-failed"])]
-    .sort() as ProjectionArchitectureDebtCoverageReasonCode[];
-  const coverage = measured.imports.coverage === "complete" && !workspaces.resolved ? "partial" : measured.imports.coverage;
-  return {
-    coverage,
-    coverageReasonCodes,
-    items: measured.matrix
-      .filter((cell) => cell.from !== cell.to && !cell.declared)
-      .map((cell) => ({ reasonCode: "undeclared-dependency" as const, fromCapabilityId: cell.from, toCapabilityId: cell.to, importEdgeCount: cell.imports }))
-  };
+  return dependencyDebtFromMeasurement(measured, workspaces.resolved ? [] : ["workspace-resolution-failed"]);
 }
 
 /**

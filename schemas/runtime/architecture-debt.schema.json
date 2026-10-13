@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/architecture-debt.schema.json",
+  "title": "ArchitectureDebtReportV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scope",
+    "coverage",
+    "coverageReasonCodes",
+    "checks",
+    "items",
+    "actionsRequired",
+    "digest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.architecture-debt/v1"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "changedPaths",
+        "capabilityIds"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "repository",
+            "changed-paths"
+          ]
+        },
+        "changedPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "capabilityIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    "coverage": {
+      "enum": [
+        "complete",
+        "partial",
+        "unknown"
+      ]
+    },
+    "coverageReasonCodes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "check",
+          "coverage",
+          "reasonCodes"
+        ],
+        "properties": {
+          "check": {
+            "enum": [
+              "ownership",
+              "anchors",
+              "dependencies",
+              "flows",
+              "practices"
+            ]
+          },
+          "coverage": {
+            "enum": [
+              "complete",
+              "partial",
+              "unknown"
+            ]
+          },
+          "reasonCodes": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "nodeIds",
+          "capabilityIds",
+          "paths",
+          "reasonCode",
+          "action",
+          "details"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^debt\\.[a-f0-9]{64}$"
+          },
+          "kind": {
+            "enum": [
+              "unowned-path",
+              "ambiguous-owner",
+              "undeclared-dependency",
+              "flow-proof-failed",
+              "stale-anchor",
+              "practice-regression"
+            ]
+          },
+          "nodeIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          },
+          "capabilityIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          },
+          "paths": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          },
+          "reasonCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "details": {
+            "type": "object",
+            "maxProperties": 12,
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "actionsRequired": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}
