@@ -465,7 +465,8 @@ test("refresh signals carry a per-capability change breakdown (#264)", () => {
 
 test("the projection manifest contract matches the schema and the writer's current format (#264, #327)", () => {
   const schema = readJson("schemas/runtime/projection-manifest.schema.json");
-  const body = readFileSync(join(root, "packages/contracts/fixtures/valid/projection-manifest.json"), "utf8");
+  // The fixture as this checkout has it: LF, or CRLF under `core.autocrlf` (Windows).
+  const body = readFileSync(join(root, "packages/contracts/fixtures/valid/projection-manifest.json"), "utf8").replace(/\r\n/g, "\n");
   const manifest = JSON.parse(body) as any;
   expect(architectureDocsProjectionManifestIssues(manifest)).toEqual([]);
   expect(validateJsonSchema(schema as any, manifest).issues).toEqual([]);
