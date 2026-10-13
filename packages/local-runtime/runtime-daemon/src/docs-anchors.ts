@@ -14,7 +14,7 @@ import {
   type ProseAnchorTree
 } from "@archcontext/core/projection-engine";
 import { openCodeGraphSymbolReader, type CodeGraphSymbolDeclaration, type CodeGraphSymbolReader } from "@archcontext/local-runtime/codegraph-adapter";
-import { findRepositoryRoot, listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { committedArchitectureDocsProfile, projectionFailureEnvelope } from "./projection-service";
 
 /**
@@ -31,7 +31,7 @@ export function runDocsAnchorsCommand(cwd: string, options: { profile?: Architec
     const model = loadNativeModelFromArchContext(root);
     const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile });
     const documents = new Map(loadArchitectureFilesForLayout(root, layout).map((file) => [file.path, file.body]));
-    const files = listProjectionSourceFiles(root);
+    const files = listGitVisibleFiles(root);
     const footprints = new Map(loadCapabilitySourceFootprints(root, model, files).map((footprint) => [footprint.nodeId, footprint.files]));
     const contents = fileContentReader(root);
     const tree = gitVisibleTree(root, files, contents);

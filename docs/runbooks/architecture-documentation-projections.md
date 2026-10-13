@@ -11,6 +11,8 @@
 
 ## Normal Flow
 
+archctx requires a Git worktree. Outside one, projection commands fail with `AC_REPO_NOT_FOUND` (`reasonCode: "git-worktree-required"`).
+
 1. Run `archctx docs drift`.
 2. If drift exists, run `archctx docs plan --id <changeset-id>`.
 3. Review the ChangeSet preview paths and generated-region changes.
@@ -188,6 +190,22 @@ A `requestId` names one apply. Once an accepted apply commits under it, only tha
 Recommended derivation: hash every request field except `requestId` and use the hash in the id. Take the request object without `requestId`: `{schemaVersion, profile, mode, targets, changedPaths, expected: {repositoryId, workspaceId, headSha, worktreeDigest}}` plus whichever of `acceptedChange`, `acceptObservedMajorChange` and `adoptionPlanId` the request carries; omit absent fields, never send them as `null`. Hash it with `digestJson` from the contracts package (`@archcontext/contracts`, published as `archctx-contracts`). `digestJson` returns `sha256:` plus the hex SHA-256 of the UTF-8 bytes of `JSON.stringify` applied after sorting the keys of every object, recursively, by JavaScript's default string sort (UTF-16 code unit order); array order is kept. Use `projection_request.` plus the first 16 hex characters after `sha256:`. `targets` and `changedPaths` are already sorted and unique, because the request requires it. The id must match `^[a-zA-Z0-9_.:-]+$`.
 
 Receipts committed by an older build cannot be replayed or recovered after an upgrade; see [Upgrading from archctx 0.6.3](#upgrading-from-archctx-063).
+
+### Getting the expected snapshot
+
+Every `ProjectionRequestV1` carries `expected: {repositoryId, workspaceId, headSha, worktreeDigest}`, and every mode compares it field by field with the snapshot archctx observes before it renders or writes. A mismatch fails with `AC_PRECONDITION_FAILED` (`projection request expected snapshot mismatch: <field>`).
+
+Get `expected` from archctx. Do not compute it yourself:
+
+```bash
+archctx projection snapshot --json
+```
+
+The result is `data.expected`, the exact object to send as `ProjectionRequestV1.expected`. It is computed by the same function that checks a request, so it cannot drift from what the daemon compares. The command is read-only and runs in-process: it starts no daemon, opens no local store, opens no task session, runs no CodeGraph sync and renders nothing. Outside a Git worktree it fails with `AC_REPO_NOT_FOUND` (`reasonCode: "git-worktree-required"`). Consumers detect it through the `projection-snapshot-v1` capability.
+
+Consumers must not re-implement any field, in particular `worktreeDigest`. Its file universe and exclusions are archctx internals and may change between versions. A consumer copy is a second authority that fails as soon as they differ. The `inputSnapshot` of a `projection run` result echoes the request's `expected`; it is not an independent observation.
+
+`worktreeDigest` covers the Git-visible files only: tracked files plus untracked files that are not ignored (`git ls-files --cached --others --exclude-standard`), minus projection-owned outputs (`docs/architecture/`, `.ai/harness/` and the agent-context targets) and a fixed set of runtime paths. Files under a gitignored path never move it, wherever they are: a nested `node_modules`, build output such as `dist/`, `.DS_Store`, or desktop worktrees under `.claude/worktrees/`. A tracked file deleted locally drops out of the listing, so the deletion still changes the digest. The ChangeSet worktree-digest precondition (`repository` and `architecture-documentation-projection` profiles) uses the same file universe.
 
 ### Previewing a projection before apply
 

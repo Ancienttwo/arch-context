@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { architectureLedgerStateDigest, type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { digestJson, type AgentJobV1, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
@@ -340,7 +341,7 @@ async function runIncrementalAnalysisProbe() {
       for (const path of changedPaths) {
         writeRepoFile(root, path, `export const sample${sample}_${path.match(/\d+/)?.[0] ?? "0"} = ${sample};\n`);
       }
-      const digest = computeWorktreeDigest(root);
+      const digest = computeWorktreeDigest(root, listGitVisibleFiles(root));
       const args = [
         "--task-session-id",
         taskSessionId,

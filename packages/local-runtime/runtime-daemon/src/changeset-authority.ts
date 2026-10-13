@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { projectionPreimageFindings, type ChangeOperation, type ChangeSetDraft, type ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { architectureLedgerStateDigest, planChangeSetApplyToArchitectureLedgerEvent, type ArchitectureLedgerAppendInput, type ArchitectureLedgerAppendResult, type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { loadPracticeWaiverOwnerRegistry, validatePracticeWaiver } from "@archcontext/core/practice-engine";
@@ -387,7 +388,7 @@ export class ChangeSetAuthorityService {
         storageWorkspaceId: paths.storageWorkspaceId,
         branch: readCurrentBranch(root),
         headSha: session.workspace.headSha,
-        worktreeDigest: computeWorktreeDigest(root)
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       }
     };
     const plan = planChangeSetApplyToArchitectureLedgerEvent({
@@ -427,7 +428,7 @@ export class ChangeSetAuthorityService {
         const journals = [];
         for (const ref of input.journals) journals.push(await this.localStore.readCommittedChangeSet(canonicalRoot, ref.journalId));
         const model = loadNativeModelFromArchContext(canonicalRoot);
-        const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(canonicalRoot, model);
+        const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(canonicalRoot, model, listGitVisibleFiles(canonicalRoot));
         const projection = buildArchitectureDocsProjection(this.projectionHost(), canonicalRoot, new Date(0).toISOString(), "repo-harness/v1");
         const scope = acceptedCommittedChangeScope(canonicalRoot, worktreeDigest, resolveAcceptanceHeadSha(canonicalRoot));
         const manifestWrite = await this.localStore.readLatestCommittedChangeSetFile(canonicalRoot, "docs/architecture/.projection-manifest.json");
@@ -502,9 +503,9 @@ export class ChangeSetAuthorityService {
 export function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfile): string {
   switch (profile) {
     case "repository":
-      return computeWorktreeDigest(root);
+      return computeWorktreeDigest(root, listGitVisibleFiles(root));
     case "architecture-documentation-projection":
-      return architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root));
+      return architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root));
     default:
       throw new RuntimeUpdateInputError(`unsupported worktree digest profile: ${String(profile)}`);
   }

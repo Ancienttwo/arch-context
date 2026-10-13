@@ -1,6 +1,7 @@
 import { MCP_PLAN_OPERATIONS_SCHEMA, MCP_TOOL_INPUT_SCHEMAS } from "./tool-schemas";
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertNoCallerProvidedAttestationFields, errorEnvelope, productVersionManifest, validateJsonSchema, type Json } from "@archcontext/contracts";
+import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
 import { createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-rpc-client";
 
 export { MCP_PLAN_OPERATIONS_SCHEMA };
@@ -228,6 +229,7 @@ export class McpLocalServer {
           });
           return { content: result as unknown as Json, dataClassification: "local-architecture" };
         } catch (error) {
+          if (error instanceof GitVisibleFilesUnavailableError) return runtimeUnavailable("apply_update", error);
           return { content: errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error)) as unknown as Json, dataClassification: "local-metadata" };
         }
       }
@@ -375,6 +377,10 @@ function requiredArg(args: Record<string, any>, key: string): string {
 }
 
 function runtimeUnavailable(requestId: string, error: unknown): ToolCallResult {
+  // archctx requires a Git worktree: that refusal keeps its own typed code instead of "runtime unavailable".
+  if (error instanceof GitVisibleFilesUnavailableError) {
+    return { content: errorEnvelope(requestId, error.code, error.message, error.reasonCode) as unknown as Json, dataClassification: "local-metadata" };
+  }
   return {
     content: errorEnvelope(
       requestId,

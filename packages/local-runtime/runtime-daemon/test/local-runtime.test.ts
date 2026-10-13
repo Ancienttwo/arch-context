@@ -9,7 +9,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
-import { listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -65,9 +65,9 @@ function writeArchitectureDocsProjection(root: string, profile: ArchitectureProj
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root)),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listProjectionSourceFiles(root)),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listProjectionSourceFiles(root) }),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listGitVisibleFiles(root) }),
     sourceDigest,
     provenance: projectionTestProvenance(root, loaded.model)
   });
@@ -88,9 +88,9 @@ function architectureDocsProjectionOperation(root: string) {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
-    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root)),
-    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listProjectionSourceFiles(root)),
-    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listProjectionSourceFiles(root) }),
+    sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model, { sourceFiles: listGitVisibleFiles(root) }),
     sourceDigest: architectureDocumentationSourceDigest({ model: loaded.model, decisions: loaded.decisions }),
     provenance: projectionTestProvenance(root, loaded.model)
   });
@@ -135,7 +135,7 @@ function projectionStampDigest(root: string, nodeId: string): string | undefined
 }
 
 function currentFootprintDigest(root: string, nodeId: string): string | undefined {
-  return loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root), listProjectionSourceFiles(root))
+  return loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
     .find((entry) => entry.nodeId === nodeId)?.digest;
 }
 
@@ -997,6 +997,8 @@ setInterval(() => undefined, 1 << 30);
     const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
+      mkdirSync(root, { recursive: true });
+      execFileSync("git", ["init", "--quiet"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
       initializeArchContextModel(root, "Recovery Gate App");
       writeFileSync(absolutePath, original, "utf8");
       const store = new SqliteLocalStore(dbPath);
@@ -1180,7 +1182,7 @@ setInterval(() => undefined, 1 << 30);
       gitCommitAll(root, "add a non-ASCII source path");
 
       const loaded = loadArchitectureDocumentationInputs(root);
-      const footprint = loadCapabilitySourceFootprintDigests(root, loaded.model, listProjectionSourceFiles(root))
+      const footprint = loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root))
         .find((entry) => entry.nodeId === "capability.architecture.context")!;
       expect(footprint.fileCount).toBe(2);
       expect(footprint.digest).not.toBe(stamp);
@@ -1685,7 +1687,7 @@ setInterval(() => undefined, 1 << 30);
       await expect(daemon.applyUpdate(root, {
         id: (plan.data as any).draft.id,
         approved: true,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       })).rejects.toThrow("ChangeSet worktree digest changed before apply");
       expect(existsSync(join(root, ".archcontext/model/nodes/module.stale-worktree.yaml"))).toBe(false);
     } finally {
@@ -1713,7 +1715,7 @@ setInterval(() => undefined, 1 << 30);
       await expect(daemon.applyUpdate(root, {
         id: (plan.data as any).draft.id,
         approved: true,
-        expectedWorktreeDigest: computeWorktreeDigest(root)
+        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       })).rejects.toThrow("ChangeSet HEAD changed before apply");
     } finally {
       removeTempRepo(root);
@@ -2201,7 +2203,7 @@ setInterval(() => undefined, 1 << 30);
         repositories: [repositoryFingerprint(root)],
         repositoryId: repositoryFingerprint(root),
         headSha: (before.data as any).headSha,
-        worktreeDigest: computeWorktreeDigest(root)
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
       });
       await second.stop();
       second = undefined;
@@ -2263,10 +2265,11 @@ setInterval(() => undefined, 1 << 30);
       const connection = await rpc.start();
       const client = new RuntimeRpcClient(connection);
       expect((await client.init(root, "RPC Profile Validation App")).ok).toBe(true);
-      const repositoryDigest = computeWorktreeDigest(root);
+      const repositoryDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
       const projectionDigest = architectureDocumentationProjectionWorktreeDigest(
         root,
-        loadNativeModelFromArchContext(root)
+        loadNativeModelFromArchContext(root),
+        listGitVisibleFiles(root)
       );
       const invalidPlanProfiles = [
         { label: "unknown", profile: "not-a-real-profile", expectedDigest: projectionDigest },
@@ -2341,7 +2344,7 @@ setInterval(() => undefined, 1 << 30);
         });
       }
 
-      expect(computeWorktreeDigest(root)).toBe(repositoryDigest);
+      expect(computeWorktreeDigest(root, listGitVisibleFiles(root))).toBe(repositoryDigest);
       expect(store.changeSetJournals.size).toBe(0);
     } finally {
       await rpc.stop().catch(() => undefined);

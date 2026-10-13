@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   diffArchitectureLedgerBookStates,
   emptyArchitectureLedgerEvidenceState,
@@ -336,7 +337,7 @@ async function buildRuntimeReadback() {
     const deps = { runtimeClient: daemon };
     const init = await runCli("init", ["--name", "AL7 Book Runtime"], root, deps);
     if (!init.ok) throw new Error(`runtime init failed: ${JSON.stringify((init as any).error)}`);
-    const rebuild = await runCli("ledger", ["rebuild", "--from-git", "--expected-worktree-digest", computeWorktreeDigest(root)], root, deps);
+    const rebuild = await runCli("ledger", ["rebuild", "--from-git", "--expected-worktree-digest", computeWorktreeDigest(root, listGitVisibleFiles(root))], root, deps);
     if (!rebuild.ok) throw new Error(`runtime rebuild failed: ${JSON.stringify((rebuild as any).error)}`);
     const server = new McpLocalServer(daemon);
     const pairs = [

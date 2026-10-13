@@ -604,12 +604,17 @@ function sourceFileContentDigest(absolute: string): string {
   return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
-/** Fixed-point worktree digest: projection-owned outputs cannot hash the manifest that embeds it. */
+/**
+ * Fixed-point worktree digest: projection-owned outputs cannot hash the manifest that embeds it.
+ * `files` is the repository's Git-visible universe (`listGitVisibleFiles`), the same one the source
+ * footprints are measured over.
+ */
 export function architectureDocumentationProjectionWorktreeDigest(
   root: string,
-  model: NativeModel
+  model: NativeModel,
+  files: readonly string[]
 ): string {
-  return computeWorktreeDigest(root, {
+  return computeWorktreeDigest(root, files, {
     ignore: [
       ".ai/harness",
       "docs/architecture",
@@ -699,7 +704,7 @@ export interface CapabilitySourceFootprint {
  *
  * `sourceFiles` is the universe the globs are matched against: the repository's Git-visible files
  * (tracked plus untracked, non-ignored), listed by the local runtime's Git adapter
- * (`listProjectionSourceFiles`). Core never walks the filesystem for it, so a gitignored file under
+ * (`listGitVisibleFiles`). Core never walks the filesystem for it, so a gitignored file under
  * a declared include — a build artifact, a cache, a local secret — can never enter a footprint, a
  * stamp or a scale signal. Every listed path must be a readable regular file under `root`.
  */

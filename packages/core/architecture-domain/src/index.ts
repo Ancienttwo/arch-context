@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   REVIEW_FAIL_ON_CATEGORIES,
   canonicalize,
@@ -394,24 +394,36 @@ export function assertAdapterDoesNotOverwriteNativeCore(before: Record<string, J
   }
 }
 
-export function computeWorktreeDigest(root: string, options: WorktreeDigestOptions = {}): string {
+/**
+ * Digest of the worktree files a precondition binds. `files` is the repository's Git-visible
+ * universe (tracked plus untracked, non-ignored regular files), listed by the local runtime's Git
+ * adapter (`listGitVisibleFiles`); core never walks the filesystem for it, so a gitignored tree — a
+ * nested `node_modules`, build output, a desktop worktree — can never move the digest. The fixed
+ * ignores and `options.ignore` exclude further paths from that universe. A tracked file deleted
+ * locally is absent from the listing, so the deletion still changes the digest.
+ */
+export function computeWorktreeDigest(root: string, files: readonly string[], options: WorktreeDigestOptions = {}): string {
+  // An untyped caller that omits the listing must fail, never digest an empty universe.
+  if (!Array.isArray(files)) throw new TypeError("computeWorktreeDigest requires the Git-visible file list");
   // Hook output changes between preview and apply; harness policy remains part of the binding.
-  const ignore = new Set([
+  const ignore = [
     ...DEFAULT_IGNORES,
     ".ai/harness/checks",
     ".ai/harness/evidence",
     ".ai/harness/runs",
     ...(options.ignore ?? [])
-  ]);
-  const files = listRepoFiles(root, ignore);
-  const payload: Json = files.map((path) => {
-    const absolute = resolve(root, path);
-    return {
-      path,
-      size: statSync(absolute).size,
-      digest: createHash("sha256").update(readFileSync(absolute)).digest("hex")
-    };
-  });
+  ];
+  const payload: Json = [...new Set(files)]
+    .filter((path) => !ignore.some((pattern) => path === pattern || path.startsWith(`${pattern}/`)))
+    .sort()
+    .map((path) => {
+      const absolute = resolve(root, path);
+      return {
+        path,
+        size: statSync(absolute).size,
+        digest: createHash("sha256").update(readFileSync(absolute)).digest("hex")
+      };
+    });
   return digestJson(payload);
 }
 
@@ -434,13 +446,14 @@ export function computeReviewWorktreeDigest(input: ReviewWorktreeDigestInput): s
   } as unknown as Json);
 }
 
-export function bindRepository(root: string, headSha: string): RepositoryBinding {
+/** `files` is the Git-visible universe of `root`, as `computeWorktreeDigest` takes it. */
+export function bindRepository(root: string, headSha: string, files: readonly string[]): RepositoryBinding {
   const canonicalRoot = canonicalRepositoryRoot(root);
   return {
     repositoryId: repositoryFingerprint(canonicalRoot),
     root: canonicalRoot,
     headSha,
-    worktreeDigest: computeWorktreeDigest(canonicalRoot)
+    worktreeDigest: computeWorktreeDigest(canonicalRoot, files)
   };
 }
 
@@ -448,35 +461,6 @@ export function assertRepoRelativePath(path: string): void {
   if (!isRepoRelativePosixPath(path)) {
     throw new Error(`Repository path must be relative POSIX path: ${path}`);
   }
-}
-
-export function listRepoFiles(root: string, ignore: Set<string> = DEFAULT_IGNORES): string[] {
-  const out: string[] = [];
-  walk(resolve(root));
-  return out.sort();
-
-  function walk(dir: string): void {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const absolute = resolve(dir, entry.name);
-      const rel = relative(root, absolute).split(sep).join("/");
-      if (!rel || shouldIgnorePath(entry.name, rel, ignore)) continue;
-      if (entry.isDirectory()) {
-        walk(absolute);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      out.push(rel);
-    }
-  }
-}
-
-function shouldIgnorePath(_entryName: string, relativePath: string, ignore: Set<string>): boolean {
-  const rootSegment = relativePath.split("/")[0];
-  if (ignore.has(relativePath) || ignore.has(rootSegment)) return true;
-  for (const pattern of ignore) {
-    if (relativePath.startsWith(`${pattern}/`)) return true;
-  }
-  return false;
 }
 
 function dedupeRepositories(repositories: RepositoryRegistration[]): RepositoryRegistration[] {

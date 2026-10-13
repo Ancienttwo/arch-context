@@ -3,7 +3,7 @@ import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { measureCapabilityDependencies } from "@archcontext/core/module-statistics";
 import { loadNativeModelFromArchContext, type NativeModel } from "@archcontext/core/projection-engine";
 import { CODEGRAPH_IMPORT_NODE_READ_LIMIT, repositoryImportPairs } from "@archcontext/local-runtime/codegraph-adapter";
-import { readHeadSha, readTrackedTreeEntries } from "@archcontext/local-runtime/git-adapter";
+import { readHeadSha, readTrackedTreeEntries, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { declaredWorkspacePackages } from "./refactor-scan";
 
 /** The CodeGraph CLI name the adapter resolves package-locally when PATH has no answer. */
@@ -51,7 +51,7 @@ export function readCapabilityDependencies(root: string, request: CapabilityDepe
     }
   }
   const headSha = readHeadSha(root);
-  const worktreeDigest = computeWorktreeDigest(root);
+  const worktreeDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
   const files = readTrackedTreeEntries(root).filter((entry) => entry.type === "blob").map((entry) => entry.path);
   const imports = readImports(root, importNodeLimit, worktreeDigest);
   const matrix = measureCapabilityDependencies({

@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { architectureLedgerStateDigest, type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { digestJson, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
@@ -380,7 +381,7 @@ async function runFullRollbackProbe() {
       rollbackBackupCreated: existsSync(rollbackData?.backup?.manifestPath ? resolve(root, rollbackData.backup.manifestPath) : ""),
       rollbackCommandPresent: typeof migratedData?.rollback?.command === "string"
         && migratedData.rollback.command.includes("ledger rollback --to-yaml --write"),
-      worktreeDigestAfterRollback: computeWorktreeDigest(root),
+      worktreeDigestAfterRollback: computeWorktreeDigest(root, listGitVisibleFiles(root)),
       outputs: [summarizeEnvelope(migrate), summarizeEnvelope(rollback)]
     };
   } finally {

@@ -3,6 +3,7 @@ import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   architectureDocumentationProjectionProvenance,
+  architectureDocumentationProjectionWorktreeDigest,
   AGENT_CONTEXT_BEGIN_PREFIX,
   AGENT_CONTEXT_END_PREFIX,
   AGENT_CONTEXT_RENDERER_VERSION,
@@ -337,4 +338,9 @@ test("agent-context existing-file loader refuses symlink targets before reading 
     symlinkSync(join(external, "secret.md"), join(root, "AGENTS.md"));
     expect(() => loadAgentContextProjectionFiles(root, rootModel)).toThrow("symlink");
   } finally { rmSync(root, { recursive: true, force: true }); rmSync(external, { recursive: true, force: true }); }
+});
+
+test("projection worktree digest refuses a missing Git-visible file list instead of digesting nothing (#323)", () => {
+  expect(() => architectureDocumentationProjectionWorktreeDigest(process.cwd(), model, undefined as unknown as string[]))
+    .toThrow("computeWorktreeDigest requires the Git-visible file list");
 });

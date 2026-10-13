@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -72,7 +73,7 @@ function projectionRequest(root: string, requestId: string): ProjectionRequestV1
       repositoryId: repositoryFingerprint(root),
       workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as never).replace(/^sha256:/, "").slice(0, 16)}`,
       headSha: gitOut(root, "rev-parse", "HEAD"),
-      worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
+      worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
     }
   };
 }
@@ -139,7 +140,7 @@ async function reachCleanProjection(root: string, daemon: RuntimeDaemonClient): 
   const adopted = await runTestCli("docs", [
     "adopt", "--profile", "repo-harness/v1", "--approved",
     "--adoption-plan-id", (preview.data as { adoptionPlanId: string }).adoptionPlanId,
-    "--expected-worktree-digest", computeWorktreeDigest(root)
+    "--expected-worktree-digest", computeWorktreeDigest(root, listGitVisibleFiles(root))
   ], root, daemon);
   expect(adopted.ok, JSON.stringify(adopted)).toBe(true);
   const applied = await runTestCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root, daemon);

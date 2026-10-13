@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +15,6 @@ import {
   crossRepoImpact,
   landscapeDigest,
   landscapeYaml,
-  listRepoFiles,
   parseCrossRepoRelationFile,
   parseArchitectureDirectionViolationSubject,
   parseLandscapeFile,
@@ -47,7 +45,7 @@ describe("@archcontext/core/architecture-domain", () => {
     try {
       symlinkSync(root, link, "dir");
       expect(repositoryFingerprint(link)).toBe(repositoryFingerprint(root));
-      expect(bindRepository(link, "abc123").root).toBe(realpathSync.native(root));
+      expect(bindRepository(link, "abc123", []).root).toBe(realpathSync.native(root));
     } catch (error) {
       if (!["EPERM", "EACCES", "ENOTSUP"].includes((error as { code?: string }).code ?? "")) throw error;
     } finally {
@@ -56,16 +54,44 @@ describe("@archcontext/core/architecture-domain", () => {
     }
   });
 
+  test("worktree digest hashes exactly the injected Git-visible files", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-domain-"));
+    try {
+      writeFileSync(join(root, "tracked.txt"), "one");
+      writeFileSync(join(root, "untracked.txt"), "visible");
+      writeFileSync(join(root, "gitignored.txt"), "first");
+      const visible = ["untracked.txt", "tracked.txt"];
+      const first = computeWorktreeDigest(root, visible);
+      expect(computeWorktreeDigest(root, [...visible].reverse().concat("tracked.txt"))).toBe(first);
+      writeFileSync(join(root, "gitignored.txt"), "second");
+      expect(computeWorktreeDigest(root, visible)).toBe(first);
+      writeFileSync(join(root, "untracked.txt"), "changed");
+      expect(computeWorktreeDigest(root, visible)).not.toBe(first);
+      writeFileSync(join(root, "untracked.txt"), "visible");
+      expect(computeWorktreeDigest(root, visible)).toBe(first);
+      // A tracked file deleted locally is absent from the listing, so the deletion still moves the digest.
+      expect(computeWorktreeDigest(root, ["untracked.txt"])).not.toBe(first);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("worktree digest refuses a missing or old-style file list instead of digesting nothing", () => {
+    expect(() => computeWorktreeDigest(process.cwd(), undefined as unknown as string[])).toThrow("computeWorktreeDigest requires the Git-visible file list");
+    expect(() => computeWorktreeDigest(process.cwd(), { ignore: ["x"] } as unknown as string[])).toThrow("computeWorktreeDigest requires the Git-visible file list");
+  });
+
   test("worktree digest ignores configured generated state", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-domain-"));
     try {
       writeFileSync(join(root, "tracked.txt"), "one");
       writeFileSync(join(root, "ignored.txt"), "first");
-      const first = computeWorktreeDigest(root, { ignore: ["ignored.txt"] });
+      const files = ["tracked.txt", "ignored.txt"];
+      const first = computeWorktreeDigest(root, files, { ignore: ["ignored.txt"] });
       writeFileSync(join(root, "ignored.txt"), "second");
-      expect(computeWorktreeDigest(root, { ignore: ["ignored.txt"] })).toBe(first);
+      expect(computeWorktreeDigest(root, files, { ignore: ["ignored.txt"] })).toBe(first);
       writeFileSync(join(root, "tracked.txt"), "two");
-      expect(computeWorktreeDigest(root, { ignore: ["ignored.txt"] })).not.toBe(first);
+      expect(computeWorktreeDigest(root, files, { ignore: ["ignored.txt"] })).not.toBe(first);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -78,12 +104,13 @@ describe("@archcontext/core/architecture-domain", () => {
       writeFileSync(join(root, ".claude", ".session-id"), "session-one");
       writeFileSync(join(root, ".claude", ".trace.jsonl"), "trace-one\n");
       writeFileSync(join(root, ".claude", "settings.json"), "{}\n");
-      const first = computeWorktreeDigest(root);
+      const files = [".claude/.session-id", ".claude/.trace.jsonl", ".claude/settings.json"];
+      const first = computeWorktreeDigest(root, files);
       writeFileSync(join(root, ".claude", ".session-id"), "session-two");
       writeFileSync(join(root, ".claude", ".trace.jsonl"), "trace-two\n");
-      expect(computeWorktreeDigest(root)).toBe(first);
+      expect(computeWorktreeDigest(root, files)).toBe(first);
       writeFileSync(join(root, ".claude", "settings.json"), "{\"hooks\":{}}\n");
-      expect(computeWorktreeDigest(root)).not.toBe(first);
+      expect(computeWorktreeDigest(root, files)).not.toBe(first);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -92,42 +119,45 @@ describe("@archcontext/core/architecture-domain", () => {
   test("worktree digest ignores harness runtime writes but binds tracked policy and source", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-domain-harness-"));
     try {
-      execFileSync("git", ["init", "--quiet"], { cwd: root });
       for (const dir of ["checks", "evidence/events", "runs"]) {
         mkdirSync(join(root, ".ai/harness", dir), { recursive: true });
       }
       writeFileSync(join(root, "source.ts"), "export const value = 1;\n");
       writeFileSync(join(root, ".ai/harness/policy.json"), "{}\n");
-      execFileSync("git", ["add", "source.ts", ".ai/harness/policy.json"], { cwd: root });
-      const first = computeWorktreeDigest(root);
-      for (const file of ["checks/post-bash-latest.json", "evidence/events/log.jsonl", "runs/hook-events.jsonl"]) {
+      const runtimeFiles = ["checks/post-bash-latest.json", "evidence/events/log.jsonl", "runs/hook-events.jsonl"];
+      for (const file of runtimeFiles) writeFileSync(join(root, ".ai/harness", file), "initial\n");
+      const files = ["source.ts", ".ai/harness/policy.json", ...runtimeFiles.map((file) => `.ai/harness/${file}`)];
+      const first = computeWorktreeDigest(root, files);
+      for (const file of runtimeFiles) {
         for (const value of ["first\n", "rewritten\n"]) {
           writeFileSync(join(root, ".ai/harness", file), value);
-          expect(computeWorktreeDigest(root)).toBe(first);
+          expect(computeWorktreeDigest(root, files)).toBe(first);
         }
       }
       writeFileSync(join(root, "source.ts"), "export const value = 2;\n");
-      expect(computeWorktreeDigest(root)).not.toBe(first);
+      expect(computeWorktreeDigest(root, files)).not.toBe(first);
       writeFileSync(join(root, "source.ts"), "export const value = 1;\n");
       writeFileSync(join(root, ".ai/harness/policy.json"), '{"version": 2}\n');
-      expect(computeWorktreeDigest(root)).not.toBe(first);
+      expect(computeWorktreeDigest(root, files)).not.toBe(first);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("default ignores apply only at repository roots, not to nested source directories with the same basename", () => {
+  test("fixed ignores apply only at repository roots, not to nested source directories with the same basename", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-domain-"));
     try {
       mkdirSync(join(root, "node_modules"), { recursive: true });
       mkdirSync(join(root, "src", "node_modules"), { recursive: true });
       writeFileSync(join(root, "node_modules", "root-install.js"), "ignored");
       writeFileSync(join(root, "src", "node_modules", "source.ts"), "one");
-      const first = computeWorktreeDigest(root);
+      // Both are listed, as a tracked file would be; only the root entry is a fixed ignore.
+      const files = ["node_modules/root-install.js", "src/node_modules/source.ts"];
+      const first = computeWorktreeDigest(root, files);
       writeFileSync(join(root, "node_modules", "root-install.js"), "still ignored");
-      expect(computeWorktreeDigest(root)).toBe(first);
+      expect(computeWorktreeDigest(root, files)).toBe(first);
       writeFileSync(join(root, "src", "node_modules", "source.ts"), "two");
-      expect(computeWorktreeDigest(root)).not.toBe(first);
+      expect(computeWorktreeDigest(root, files)).not.toBe(first);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -154,16 +184,9 @@ describe("@archcontext/core/architecture-domain", () => {
     })).not.toBe(digest);
   });
 
-  test("repo file listing and path assertion use POSIX repo-relative paths", () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-domain-"));
-    try {
-      writeFileSync(join(root, "a.txt"), "a");
-      expect(listRepoFiles(root)).toEqual(["a.txt"]);
-      expect(() => assertRepoRelativePath("packages/contracts/src/index.ts")).not.toThrow();
-      expect(() => assertRepoRelativePath("../escape")).toThrow();
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+  test("path assertion uses POSIX repo-relative paths", () => {
+    expect(() => assertRepoRelativePath("packages/contracts/src/index.ts")).not.toThrow();
+    expect(() => assertRepoRelativePath("../escape")).toThrow();
   });
 
   test("stable YAML parser and canonical serializer round-trip nested architecture JSON", () => {

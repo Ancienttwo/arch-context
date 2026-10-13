@@ -29,29 +29,31 @@ export function findRepositoryRoot(start: string): string {
 }
 
 /**
- * Thrown when the projection source universe cannot be listed: `root` is not a Git worktree, or
- * `git` cannot run. Projection footprints are defined over Git-visible files, so there is no
- * filesystem fallback that could silently pull ignored files back in. Surfaces map it to
- * `AC_REPO_NOT_FOUND` with reasonCode `git-worktree-required`.
+ * Thrown when the Git-visible file universe cannot be listed: `root` is not a Git worktree, or
+ * `git` cannot run. Projection footprints and worktree digests are defined over Git-visible files,
+ * so there is no filesystem fallback that could silently pull ignored files back in. Surfaces map it
+ * to `AC_REPO_NOT_FOUND` with reasonCode `git-worktree-required`.
  */
-export class ProjectionSourceFilesUnavailableError extends Error {
+export class GitVisibleFilesUnavailableError extends Error {
   readonly code = "AC_REPO_NOT_FOUND" as const;
   readonly reasonCode = "git-worktree-required" as const;
   constructor(readonly root: string, cause: string) {
-    super(`projection source footprints require a Git worktree at ${root}: ${cause}`);
-    this.name = "ProjectionSourceFilesUnavailableError";
+    super(`Git-visible files require a Git worktree at ${root}: ${cause}`);
+    this.name = "GitVisibleFilesUnavailableError";
   }
 }
 
 /**
- * The files projection footprints are measured over: tracked plus untracked, non-ignored files
- * (`git ls-files --cached --others --exclude-standard`), relative to `root`. A gitignored file —
- * a build artifact, a cache, a local secret — is never part of a capability's source, even when a
- * `source.include` glob matches it. Reads the index and the worktree only, never history, so it
- * behaves the same in a shallow clone. Paths that are not regular files in the worktree (a tracked
- * file deleted locally, a symlink, a submodule) are dropped: there are no bytes to digest.
+ * The repository's Git-visible files: tracked plus untracked, non-ignored files
+ * (`git ls-files --cached --others --exclude-standard`), relative to `root`. Projection footprints
+ * are measured over them and every worktree digest (`computeWorktreeDigest`) hashes them. A
+ * gitignored file — a build artifact, a cache, a nested `node_modules`, a local secret — is never
+ * part of a capability's source, even when a `source.include` glob matches it, and never moves a
+ * digest. Reads the index and the worktree only, never history, so it behaves the same in a
+ * shallow clone. Paths that are not regular files in the worktree (a tracked file deleted locally,
+ * a symlink, a submodule) are dropped: there are no bytes to digest.
  */
-export function listProjectionSourceFiles(root: string): string[] {
+export function listGitVisibleFiles(root: string): string[] {
   let output: string;
   try {
     output = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
@@ -63,7 +65,7 @@ export function listProjectionSourceFiles(root: string): string[] {
   } catch (error) {
     const stderr = (error as { stderr?: unknown }).stderr;
     const detail = typeof stderr === "string" && stderr.trim() !== "" ? stderr.trim() : error instanceof Error ? error.message : String(error);
-    throw new ProjectionSourceFilesUnavailableError(root, detail);
+    throw new GitVisibleFilesUnavailableError(root, detail);
   }
   return [...new Set(output.split("\0").filter(Boolean))]
     .filter((path) => {
@@ -107,7 +109,7 @@ export function readHeadCommitterDate(root: string): string {
 
 export function readRepositoryBinding(start: string): RepositoryBinding {
   const root = findRepositoryRoot(start);
-  return bindRepository(root, readHeadSha(root));
+  return bindRepository(root, readHeadSha(root), listGitVisibleFiles(root));
 }
 
 export type GitChangeSource = "commit" | "staged" | "worktree";
@@ -237,7 +239,7 @@ export interface WorkspacePackageV1 {
  * include glob can never enter the footprint; and the bytes are the committed blobs, so editing a
  * tracked file without committing does not move the measurement either. A snapshot therefore
  * describes a commit, not whatever happens to be on disk, which is what makes two scans at the
- * same HEAD comparable. Projection footprints (`listProjectionSourceFiles`) share the population
+ * same HEAD comparable. Projection footprints (`listGitVisibleFiles`) share the population
  * rule — ignored files never count — but deliberately keep working-tree bytes, so an uncommitted
  * edit moves a projection stamp.
  *

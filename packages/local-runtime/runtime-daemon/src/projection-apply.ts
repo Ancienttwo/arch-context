@@ -2,7 +2,7 @@ import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, errorEnvel
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
-import { readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId as runtimeProjectionWorkspaceId } from "./projection-inputs";
 import { projectionFailureEnvelope } from "./projection-service";
@@ -234,7 +234,7 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
     repositoryId: repositoryFingerprint(root),
     workspaceId: runtimeProjectionWorkspaceId(root),
     headSha: readHeadSha(root),
-    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loaded.model),
+    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loaded.model, listGitVisibleFiles(root)),
     baseHeadSha: codeGraphInputs.runtimeSnapshot.headSha,
     sourceTreeDigest: projection.provenance.sourceTreeDigest,
     modelDigest: projection.provenance.modelDigest,

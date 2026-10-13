@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { ProjectionSourceFilesUnavailableError, findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, Sha256Digest } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -84,7 +84,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
   });
   if (!plan.ok) return plan;
   if (subcommand === "apply") {
-    const expectedWorktreeDigest = input.expectedWorktreeDigest ?? computeWorktreeDigest(root);
+    const expectedWorktreeDigest = input.expectedWorktreeDigest ?? computeWorktreeDigest(root, listGitVisibleFiles(root));
     const applied = await daemon.applyUpdate(root, {
       id: changeSetId,
       approved: input.approved === true,
@@ -219,7 +219,7 @@ async function runArchitectureDocsAdoptionCommand(
   if (profile !== REPO_HARNESS_PROJECTION_PROFILE) {
     return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", `docs adopt requires --profile ${REPO_HARNESS_PROJECTION_PROFILE}`);
   }
-  const currentWorktreeDigest = computeWorktreeDigest(root);
+  const currentWorktreeDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
   const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
   const missingCandidate = projection.plan.adoptionCandidates.find((file) => !existingByPath.has(file.path));
   if (missingCandidate) {
@@ -374,7 +374,7 @@ async function applyProjectionProtocolFixedPoint(
   // inputs and can distinguish a concurrent mutation from the already-applied semantic delta.
   let postApplyMatches = false;
   try {
-    postApplyMatches = architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
+    postApplyMatches = architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
       === request.expected.worktreeDigest;
     if (!postApplyMatches) {
       process.stderr.write("warning: projection post-apply worktree digest diverged from the accepted snapshot; refresh delivery deferred to reconcile\n");
@@ -507,7 +507,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   if (blocked) return projectionProtocolEnvelope(request, projection, blocked, projection, priorCommittedApplies, undefined, declinedUnprovableNodeIds);
 
   if (request.mode === "adopt") {
-    const expectedWorktreeDigest = computeWorktreeDigest(root);
+    const expectedWorktreeDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
     const adopted = await runArchitectureDocsAdoptionCommand({
       action: "adopt", profile: REPO_HARNESS_PROJECTION_PROFILE, approved: true,
       adoptionPlanId: request.adoptionPlanId!, expectedWorktreeDigest,
@@ -715,7 +715,7 @@ export function projectionFailureEnvelope(requestId: string, error: unknown): Js
   if (error instanceof ProjectionCodeFactsUnavailableError) {
     return errorEnvelope(requestId, "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
   }
-  if (error instanceof ProjectionSourceFilesUnavailableError) {
+  if (error instanceof GitVisibleFilesUnavailableError) {
     return errorEnvelope(requestId, error.code, error.message, error.reasonCode);
   }
   return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
@@ -937,6 +937,46 @@ function validateProjectionAcceptedChange(value: unknown): void {
   }
 }
 
+/**
+ * The `ProjectionRequestV1.expected` snapshot a projection request is checked against, observed
+ * now. It is the only computation of that snapshot: every `projection run` mode compares the
+ * request's `expected` with it field by field, and `projection snapshot` returns it to consumers,
+ * so no consumer re-implements the worktree digest.
+ */
+export function currentProjectionExpectedSnapshot(
+  root: string,
+  model: ReturnType<typeof loadNativeModelFromArchContext>
+): ProjectionExpectedSnapshotV1 {
+  return {
+    repositoryId: repositoryFingerprint(root),
+    workspaceId: projectionWorkspaceId(root),
+    headSha: readHeadSha(root),
+    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, model, listGitVisibleFiles(root)) as Sha256Digest
+  };
+}
+
+/**
+ * `projection snapshot`: the `expected` snapshot a `projection run` request would be checked
+ * against right now, from `currentProjectionExpectedSnapshot`. Read-only and in-process like
+ * `check`: no daemon, no local store, no task session, no CodeGraph sync and no render. A root
+ * that is not a Git worktree fails with `AC_REPO_NOT_FOUND` (`git-worktree-required`).
+ */
+export function runProjectionSnapshotCommand(cwd: string): JsonEnvelope {
+  let root: string;
+  try {
+    root = findRepositoryRoot(cwd);
+  } catch (error) {
+    return errorEnvelope("projection.snapshot", "AC_REPO_NOT_FOUND", error instanceof Error ? error.message : String(error), "git-worktree-required");
+  }
+  try {
+    return okEnvelope("projection.snapshot", {
+      expected: currentProjectionExpectedSnapshot(root, loadNativeModelFromArchContext(root))
+    } as unknown as Json);
+  } catch (error) {
+    return projectionFailureEnvelope("projection.snapshot", error);
+  }
+}
+
 function assertProjectionExpectedSnapshot(
   request: ProjectionRequestV1,
   root: string,
@@ -950,13 +990,7 @@ function assertProjectionExpectedSnapshotAgainstModel(
   root: string,
   model: ReturnType<typeof loadNativeModelFromArchContext>
 ): void {
-  const workspaceId = projectionWorkspaceId(root);
-  const actual = {
-    repositoryId: repositoryFingerprint(root),
-    workspaceId,
-    headSha: readHeadSha(root),
-    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, model)
-  };
+  const actual = currentProjectionExpectedSnapshot(root, model);
   for (const field of ["repositoryId", "workspaceId", "headSha", "worktreeDigest"] as const) {
     if (request.expected[field] !== actual[field]) throw new Error(`projection request expected snapshot mismatch: ${field}`);
   }
@@ -1264,7 +1298,7 @@ export async function runAgentContextProjectionCommand(input: RuntimeAgentContex
     return daemon.applyUpdate(root, {
       id: changeSetId,
       approved: input.approved === true,
-      expectedWorktreeDigest: input.expectedWorktreeDigest ?? computeWorktreeDigest(root)
+      expectedWorktreeDigest: input.expectedWorktreeDigest ?? computeWorktreeDigest(root, listGitVisibleFiles(root))
     });
   }
   return okEnvelope(channel, {

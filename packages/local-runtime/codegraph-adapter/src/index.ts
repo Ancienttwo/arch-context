@@ -7,7 +7,7 @@ import { basename, delimiter, dirname, isAbsolute, join, posix, resolve } from "
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { parseJsonOrStableYaml, repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
-import { listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
@@ -731,7 +731,7 @@ export interface PreparedArchitectureDocumentationProjectionSnapshot extends Pre
   /** HEAD, worktree and CodeGraph state this snapshot read; runtime receipts only, never committed. */
   runtimeSnapshot: ArchitectureDocumentationProjectionRuntimeSnapshot;
   /**
-   * The Git-visible files (`listProjectionSourceFiles`) this snapshot measured footprints over.
+   * The Git-visible files (`listGitVisibleFiles`) this snapshot measured footprints over.
    * Callers stamp footprints and scale signals from this same list, so every digest of one run
    * agrees on which files exist.
    */
@@ -749,12 +749,12 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
   } = {}
 ): PreparedArchitectureDocumentationProjectionSnapshot {
   const baseHeadSha = readProjectionHeadSha(root);
-  const sourceFiles = listProjectionSourceFiles(root);
-  const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(root, model);
+  const sourceFiles = listGitVisibleFiles(root);
+  const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(root, model, sourceFiles);
   const sourceTreeDigest = architectureDocumentationSourceTreeDigest(root, model, sourceFiles);
   const modelDigest = digestJson(model as unknown as Json);
   const prepared = prepareProjectionCodeFacts(root, model, { ...options, sourceTreeDigest, sourceFiles });
-  if (architectureDocumentationProjectionWorktreeDigest(root, model) !== worktreeDigest) {
+  if (architectureDocumentationProjectionWorktreeDigest(root, model, listGitVisibleFiles(root)) !== worktreeDigest) {
     throw new Error("architecture-docs-projection-worktree-changed-during-codegraph-sync");
   }
   const provenance = architectureDocumentationProjectionProvenance({
@@ -1132,7 +1132,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
   const declaresFootprint = options.importGraphs !== false
     && model.nodes.some((node) => (nativeNodeSource(node)?.include ?? []).length > 0);
   const footprints = declaresFootprint
-    ? loadCapabilitySourceFootprints(root, model, options.sourceFiles ?? listProjectionSourceFiles(root))
+    ? loadCapabilitySourceFootprints(root, model, options.sourceFiles ?? listGitVisibleFiles(root))
     : [];
   const entrypointNodes = model.nodes
     .map((node) => ({ nodeId: node.id, entrypoints: nativeNodeSource(node)?.entrypoints ?? [] }))

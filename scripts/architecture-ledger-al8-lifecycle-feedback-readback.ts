@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { digestJson, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
 import { SqliteLocalStore, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
@@ -82,7 +83,7 @@ export async function buildArchitectureLedgerAl8LifecycleFeedbackReadbackPacket(
       "--actor-kind", "subagent",
       "--source", "subagent",
       "--agent-job-id", "agent_job.al8_lifecycle",
-      "--expected-worktree-digest", computeWorktreeDigest(root),
+      "--expected-worktree-digest", computeWorktreeDigest(root, listGitVisibleFiles(root)),
       "--now", "2026-06-26T12:10:00.000Z"
     ], root, { runtimeClient: daemon as any });
     const bookOpen = await runCli("book", ["recommendations", "--open", "--explain"], root, { runtimeClient: daemon as any });
@@ -192,7 +193,7 @@ async function appendRecommendationRunFixture(store: SqliteLocalStore, root: str
     storageWorkspaceId: paths.storageWorkspaceId,
     branch: gitOut(root, "branch", "--show-current") || "HEAD",
     headSha: gitOut(root, "rev-parse", "HEAD"),
-    worktreeDigest: computeWorktreeDigest(root)
+    worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
   };
   const plan = planRecommendationRun({
     repository,

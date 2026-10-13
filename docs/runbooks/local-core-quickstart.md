@@ -31,7 +31,7 @@ Both paths install or verify one local product command named `archctx`. The publ
 
 ## Start In A Repository
 
-Run the local product from the repository root:
+Run the local product from the repository root. archctx requires a Git worktree: worktree digests and projection footprints are computed over the Git-visible files (`git ls-files --cached --others --exclude-standard`), so gitignored files never count. In a directory that is not a Git worktree, `archctx init` and every command that binds a worktree digest fail with `AC_REPO_NOT_FOUND` (`reasonCode: "git-worktree-required"`). Run `git init` first.
 
 ```bash
 cd /path/to/my-repo

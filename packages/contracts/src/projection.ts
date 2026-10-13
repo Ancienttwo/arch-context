@@ -80,6 +80,7 @@ export const ARCHCTX_FEATURES = [
   "projection-preview-v1",
   "projection-prior-committed-applies-v1",
   "projection-protocol-v2",
+  "projection-snapshot-v1",
   "recommendation-scan-decision-v1",
   "recommendation-v3",
   "refactor-assessment-v1",

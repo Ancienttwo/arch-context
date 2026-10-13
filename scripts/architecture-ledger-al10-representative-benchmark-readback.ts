@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   emptyArchitectureLedgerEvidenceState,
   planYamlToArchitectureLedgerImport,
@@ -252,7 +253,7 @@ async function runRepresentativeFixture(config: RepresentativeFixtureConfig, que
     ], root, deps));
     const query = await measureQuery(root, deps, config, querySamples);
     const changedPath = writeRepresentativeWorktreeChange(root, config);
-    const changedDigest = computeWorktreeDigest(root);
+    const changedDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
     const hookEnqueue = await measureEnvelope(() => daemon!.jobsEnqueueGitHook(root, {
       source: "worktree",
       event: "post-edit",
@@ -281,7 +282,7 @@ async function runRepresentativeFixture(config: RepresentativeFixtureConfig, que
       "--task-session-id",
       taskSessionId(config),
       "--expected-worktree-digest",
-      computeWorktreeDigest(root)
+      computeWorktreeDigest(root, listGitVisibleFiles(root))
     ], root, deps));
     const drift = await runCli("docs", ["drift"], root, deps);
     const complete = await measureEnvelope(() => runCli("complete", [
@@ -294,7 +295,7 @@ async function runRepresentativeFixture(config: RepresentativeFixtureConfig, que
       "rebuild",
       "--from-git",
       "--expected-worktree-digest",
-      computeWorktreeDigest(root)
+      computeWorktreeDigest(root, listGitVisibleFiles(root))
     ], root, deps));
     const postReplayState = await runCli("ledger", ["state"], root, deps);
     const rollbackStatus = await daemon.runtimeStatus(root);

@@ -12,6 +12,7 @@ import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/lo
 import { SqliteLocalStore, type CommittedChangeSetForTaskSession } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   acceptedJournalLinks,
@@ -1045,7 +1046,7 @@ describe("committed change acceptance v2", () => {
     await withFixture(async (fixture) => {
       const added = await change(fixture, "changeset.add", [addComponent()]);
       const previewed = (await preview(fixture, [added])).data as any;
-      expect(previewed.expectedWorktreeDigest).toBe(architectureDocumentationProjectionWorktreeDigest(fixture.root, loadNativeModelFromArchContext(fixture.root)));
+      expect(previewed.expectedWorktreeDigest).toBe(architectureDocumentationProjectionWorktreeDigest(fixture.root, loadNativeModelFromArchContext(fixture.root), listGitVisibleFiles(fixture.root)));
       expect(((await approve(fixture, [added], previewed, { expectedWorktreeDigest: digest("d") })) as any).error.message).toMatch(/expected worktree digest mismatch/);
       expect(((await approve(fixture, [added], previewed, { acceptancePlanId: digest("e") })) as any).error.message).toMatch(/acceptance plan changed since preview/);
 

@@ -9,7 +9,7 @@ import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:c
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadCapabilitySourceFootprintDigests, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
-import { listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { CodeGraphAdapter, codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -80,6 +80,13 @@ function testStateEnv(root: string): NodeJS.ProcessEnv {
 
 function testRuntimePaths(root: string) {
   return runtimeStatePaths(root, testStateEnv(root));
+}
+
+/** Worktree digests hash Git-visible files, so CLI fixtures that bind one are Git roots. */
+function gitTempRoot(prefix: string): string {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  execFileSync("git", ["init", "--quiet"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  return root;
 }
 
 function removeTempRoot(root: string): void {
@@ -165,7 +172,7 @@ function projectionProtocolExpectedSnapshot(root: string): ProjectionRequestV1["
     repositoryId: repositoryFingerprint(root),
     workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
     headSha: gitOut(root, "rev-parse", "HEAD"),
-    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}`
+    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root)) as `sha256:${string}`
   };
 }
 
@@ -297,7 +304,7 @@ test("CLI projection check reports per-node freshness read-only, from content st
     git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "change the declared footprint");
     const manifestBefore = readFileSync(manifestPath, "utf8");
     const stale = await run("check", "projection_request.freshness_stale");
-    const currentDigest = loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root), listProjectionSourceFiles(root))
+    const currentDigest = loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
       .find((entry) => entry.nodeId === nodeId)!.digest as `sha256:${string}`;
     expect(stale.freshness).toEqual({
       ok: false,
@@ -531,6 +538,60 @@ test("CLI projection check never starts a runtime, writes runtime state or needs
     removeTempRoot(root);
   }
 }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+
+test("CLI projection snapshot returns the expected snapshot a request is checked against, without a runtime (#323)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-snapshot-"));
+  writeFileSync(join(root, "README.md"), "# projection snapshot fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Snapshot App");
+  const stateRoot = join(dirname(root), `.archctx-snapshot-state-${basename(root)}`);
+  try {
+    seedProjectionProtocolFixture(root);
+    writeFileSync(join(root, ".gitignore"), "node_modules/\ndist/\n", "utf8");
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "ignore build output");
+    const noRuntime = new Proxy({}, {
+      get(_target, property) {
+        if (property === "then") return undefined;
+        throw new Error(`projection snapshot reached the runtime: ${String(property)}`);
+      }
+    }) as unknown as RuntimeDaemonClient;
+
+    const inProcess = await runCli("projection", ["snapshot", "--json"], root, { runtimeClient: noRuntime });
+    expect(inProcess.ok, JSON.stringify(inProcess)).toBe(true);
+    expect((inProcess as JsonEnvelope).requestId).toBe("projection.snapshot");
+    const expected = ((inProcess as JsonEnvelope).data as unknown as { expected: ProjectionRequestV1["expected"] }).expected;
+    expect(expected).toEqual(projectionProtocolExpectedSnapshot(root));
+
+    // Gitignored output does not move the snapshot; a visible edit does.
+    mkdirSync(join(root, "packages/a/node_modules/dep"), { recursive: true });
+    writeFileSync(join(root, "packages/a/node_modules/dep/index.js"), "module.exports = 1;\n", "utf8");
+    mkdirSync(join(root, "dist"), { recursive: true });
+    writeFileSync(join(root, "dist/out.js"), "console.log(1);\n", "utf8");
+    const afterIgnored = await runCli("projection", ["snapshot"], root, { runtimeClient: noRuntime });
+    expect(((afterIgnored as JsonEnvelope).data as { expected: unknown }).expected).toEqual(expected);
+
+    const processOutput = execFileSync("bun", [CLI_ENTRY, "projection", "snapshot", "--json"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, ARCHCONTEXT_STATE_DIR: stateRoot },
+      timeout: CLI_PROCESS_TIMEOUT_MS
+    });
+    expect(JSON.parse(processOutput).data.expected).toEqual(expected);
+    expect(existsSync(stateRoot)).toBe(false);
+
+    writeFileSync(join(root, "README.md"), "# projection snapshot fixture\n\nEdited.\n", "utf8");
+    const afterEdit = await runCli("projection", ["snapshot", "--json"], root, { runtimeClient: noRuntime });
+    const edited = ((afterEdit as JsonEnvelope).data as unknown as { expected: ProjectionRequestV1["expected"] }).expected;
+    expect(edited.worktreeDigest).not.toBe(expected.worktreeDigest);
+    expect(edited).toEqual(projectionProtocolExpectedSnapshot(root));
+
+    const rejected = await runCli("projection", ["snapshot", "--request-json", "{}"], root, { runtimeClient: noRuntime });
+    expect(rejected).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+  } finally {
+    rmSync(stateRoot, { recursive: true, force: true });
+    removeTempRoot(root);
+  }
+}, CLI_PROCESS_TIMEOUT_MS * 2);
 
 test("CLI flows check reports each selector proof status from a real index without a runtime or runtime state (#300)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-flows-check-"));
@@ -959,7 +1020,7 @@ function expectSafeGithubReviewOutput(data: unknown, challenge: { nonce: string 
 
 describe("archctx CLI", () => {
   test("CLI delegates init and context to the runtime", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
+    const root = gitTempRoot("archctx-cli-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     try {
       const init = await runTestCli("init", ["--name", "CLI App"], root);
@@ -2743,7 +2804,7 @@ describe("archctx CLI", () => {
   });
 
   test("CLI docs commands keep Context7 manual and lockfile explicit", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-docs-"));
+    const root = gitTempRoot("archctx-cli-docs-");
     initializeArchContextModel(root, "Docs App");
     const daemon = await createStartedDaemon({
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -2818,8 +2879,39 @@ describe("archctx CLI", () => {
     expect(develop).toContain("removed/downgraded");
   });
 
+  test("CLI init outside a Git worktree fails closed with a typed envelope, embedded and over RPC (#323)", async () => {
+    // A plain directory: archctx requires a Git worktree, and no ancestor of tmpdir is one.
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-non-git-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore()
+    });
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "cli-non-git-token" });
+    try {
+      const typed = { ok: false, error: { code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required" } };
+      const embedded = await runCli("init", ["--name", "Non Git App"], root, { runtimeClient: daemon });
+      expect(embedded).toMatchObject({ ...typed, requestId: "init" });
+      // The refusal comes before any write, so a retry after `git init` is not blocked by a partial model.
+      expect(existsSync(join(root, ".archcontext"))).toBe(false);
+
+      const connection = await rpc.start();
+      const overRpc = await runCli("init", ["--name", "Non Git App"], root, { runtimeClient: new RuntimeRpcClient(connection) });
+      expect(overRpc).toMatchObject(typed);
+      expect(existsSync(join(root, ".archcontext"))).toBe(false);
+
+      const snapshot = await runCli("projection", ["snapshot", "--json"], root, { runtimeClient: daemon });
+      expect(snapshot).toMatchObject({ ...typed, requestId: "projection.snapshot" });
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      await daemon.stop().catch(() => undefined);
+      removeTempRoot(root);
+    }
+  });
+
   test("CLI discovers a running daemon RPC connection before embedded fallback", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-rpc-"));
+    const root = gitTempRoot("archctx-cli-rpc-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const daemon = await createStartedDaemon({
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -3851,7 +3943,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("foreground daemon subprocess shares runtime state across independent CLI processes", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-foreground-"));
+    const root = gitTempRoot("archctx-cli-foreground-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const daemon = spawn(process.execPath, [CLI_ENTRY, "daemon", "start", "--foreground", "--port", "0"], {
       cwd: root,
@@ -3906,7 +3998,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("background daemon start returns after ready and survives the starter process", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-background-"));
+    const root = gitTempRoot("archctx-cli-background-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const connectionPath = testRuntimePaths(root).daemonConnectionPath;
     const lockPath = testRuntimePaths(root).daemonLockPath;
@@ -3944,7 +4036,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("concurrent cold starts all succeed: starters that lose store ownership wait for the winning daemon (#160)", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-concurrent-cold-start-"));
+    const root = gitTempRoot("archctx-cli-concurrent-cold-start-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     try {
       // Every command finds no daemon and spawns one; only one can own the store, and the others'
@@ -3965,7 +4057,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("MCP stdio runtime tool call auto-starts the background daemon", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-mcp-autostart-"));
+    const root = gitTempRoot("archctx-cli-mcp-autostart-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const connectionPath = testRuntimePaths(root).daemonConnectionPath;
     const lockPath = testRuntimePaths(root).daemonLockPath;
@@ -4010,7 +4102,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI recovers stale daemon control files after a crash and reconnects", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-crash-recovery-"));
+    const root = gitTempRoot("archctx-cli-crash-recovery-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const connectionPath = testRuntimePaths(root).daemonConnectionPath;
     const lockPath = testRuntimePaths(root).daemonLockPath;
@@ -4045,7 +4137,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI downgrades stale daemon connection files instead of failing commands", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-stale-"));
+    const root = gitTempRoot("archctx-cli-stale-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
     process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
@@ -4158,7 +4250,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI reports incompatible daemon versions and replaces them through daemon upgrade", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-upgrade-"));
+    const root = gitTempRoot("archctx-cli-upgrade-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const connectionPath = testRuntimePaths(root).daemonConnectionPath;
     try {
@@ -4268,7 +4360,7 @@ describe("archctx CLI", () => {
     // (e.g. a clock-composition fix). This asserts the CLI now refuses to reuse a daemon whose
     // recorded `startedAt` predates the current entrypoint's mtime, mirroring the existing
     // rpc-version-mismatch handling instead of silently talking to stale in-memory behavior.
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-stale-entry-"));
+    const root = gitTempRoot("archctx-cli-stale-entry-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const connectionPath = testRuntimePaths(root).daemonConnectionPath;
     try {
@@ -4360,8 +4452,8 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI exposes repo and landscape commands without changing single-repo defaults", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
-    const otherRoot = mkdtempSync(join(tmpdir(), "archctx-cli-other-"));
+    const root = gitTempRoot("archctx-cli-");
+    const otherRoot = gitTempRoot("archctx-cli-other-");
     try {
       writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
       writeFileSync(join(otherRoot, "README.md"), "# other\n", "utf8");
@@ -5116,7 +5208,7 @@ describe("archctx CLI", () => {
           repositoryId: repositoryFingerprint(root),
           workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
           headSha: gitOut(root, "rev-parse", "HEAD"),
-          worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}`
+          worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root)) as `sha256:${string}`
         }
       };
       expectUnavailable(await runTestCli("projection", ["run", "--request-json", JSON.stringify(protocolRequest)], root), "projection.run");
@@ -5240,7 +5332,7 @@ describe("archctx CLI", () => {
       expect(unbound.ok).toBe(false);
       expect(readFileSync(join(root, modulePath), "utf8")).toBe(original);
 
-      const expectedWorktreeDigest = computeWorktreeDigest(root);
+      const expectedWorktreeDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
       const mismatched = await runTestCli("docs", [
         "adopt",
         "--profile", "repo-harness/v1",
@@ -5483,7 +5575,7 @@ describe("archctx CLI", () => {
         repositoryId: repositoryFingerprint(root),
         workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
         headSha: gitOut(root, "rev-parse", "HEAD"),
-        worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}`
+        worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root)) as `sha256:${string}`
       };
       const changedPaths = [
         ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml",
@@ -5721,7 +5813,7 @@ describe("archctx CLI", () => {
           requestId: "projection_request.hook_adapters_major_ordinary_retry",
           expected: {
             ...firstApplyRequest.expected,
-            worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
+            worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
           }
         })], root, { runtimeClient: racingClient });
         expect(ordinaryRetry.ok).toBe(false);
@@ -5778,7 +5870,7 @@ describe("archctx CLI", () => {
       if (generatedState === "missing") nodeRmSync(generatedPath);
       const applyRequest: ProjectionRequestV1 = {
         ...protocolRequest,
-        expected: { ...protocolRequest.expected, worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}` },
+        expected: { ...protocolRequest.expected, worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root)) as `sha256:${string}` },
         requestId: "projection_request.hook_adapters_major_apply_clean",
         mode: "apply",
         acceptedChange
@@ -5788,7 +5880,7 @@ describe("archctx CLI", () => {
       const applied = await runCli("projection", ["run", "--request-json", JSON.stringify(applyRequest)], root, { runtimeClient: daemon });
       expect(applied.ok, JSON.stringify(applied)).toBe(true);
       expect(existsSync(generatedPath)).toBe(generatedState === "present");
-      expect(architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))).toBe(applyRequest.expected.worktreeDigest);
+      expect(architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))).toBe(applyRequest.expected.worktreeDigest);
       expect((applied.data as ProjectionResultV2)).toMatchObject({
         status: "applied",
         refreshSignals: [{ signalId: (currentPlan.data as ProjectionResultV2).refreshSignals[0]!.signalId, acceptedChange }],

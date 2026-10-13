@@ -1,7 +1,7 @@
 import { okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import { architectureDocumentationSourceTreeDigest, checkArchitectureFlowSelectors, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { assertProjectionCodeFactsAvailable, prepareProjectionCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
-import { findRepositoryRoot, listProjectionSourceFiles } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { projectionFailureEnvelope } from "./projection-service";
 
 /**
@@ -15,7 +15,7 @@ export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: str
   try {
     const root = findRepositoryRoot(cwd);
     const model = loadNativeModelFromArchContext(root);
-    const sourceFiles = listProjectionSourceFiles(root);
+    const sourceFiles = listGitVisibleFiles(root);
     const prepared = prepareProjectionCodeFacts(root, model, {
       sourceTreeDigest: architectureDocumentationSourceTreeDigest(root, model, sourceFiles),
       sourceFiles,

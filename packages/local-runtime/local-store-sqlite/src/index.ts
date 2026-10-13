@@ -1,4 +1,5 @@
 import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { isProcessAlive } from "../../process-liveness/src/index";
 import { ARCHCONTEXT_LOCAL_STORE_PATH_ENV, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
 export { ARCHCONTEXT_STATE_DIR_ENV, ARCHCONTEXT_LOCAL_STORE_PATH_ENV, defaultArchContextStateRoot, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
@@ -1049,7 +1050,8 @@ export function assertRuntimeStateRecoveryDiskBudget(availableBytes: number, req
 }
 
 export function runtimeStateRecoveryWorktreeDigest(root = process.cwd()): string {
-  return computeWorktreeDigest(runtimeStatePaths(root).repositoryRoot, { ignore: [...RUNTIME_STATE_RECOVERY_WORKTREE_IGNORES] });
+  const repositoryRoot = runtimeStatePaths(root).repositoryRoot;
+  return computeWorktreeDigest(repositoryRoot, listGitVisibleFiles(repositoryRoot), { ignore: [...RUNTIME_STATE_RECOVERY_WORKTREE_IGNORES] });
 }
 
 export function recoverRuntimeStateTarget(input: {
