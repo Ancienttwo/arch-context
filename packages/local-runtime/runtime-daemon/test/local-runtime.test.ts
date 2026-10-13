@@ -130,8 +130,9 @@ async function applyArchitectureDocsProjection(
  */
 function projectionStampDigest(root: string, nodeId: string): string | undefined {
   const manifest = JSON.parse(readText(join(root, "docs/architecture/.projection-manifest.json")));
-  const target = (manifest.targets as any[]).find((entry) => entry.type === "entity-summary" && entry.scope?.id === nodeId);
-  return target?.sourceFootprintDigest;
+  const stamps = Object.values(manifest.targets as Record<string, { sourceStamps?: Record<string, string> }>)
+    .flatMap((row) => Object.entries(row.sourceStamps ?? {}));
+  return stamps.find(([stampedNodeId]) => stampedNodeId === nodeId)?.[1];
 }
 
 function currentFootprintDigest(root: string, nodeId: string): string | undefined {
@@ -705,7 +706,9 @@ describe("local runtime foundation", () => {
       gitCommitAll(root, "declare capability and member source");
       writeArchitectureDocsProjection(root, "repo-harness/v1");
       expect(projectionStampDigest(root, "capability.architecture.context")).toBe(currentFootprintDigest(root, "capability.architecture.context"));
-      expect(projectionStampDigest(root, "component.architecture-context.engine")).toBeUndefined();
+      // The component has no entity target under this profile, so its stamp lives on the row of
+      // its nearest documented ancestor, the capability (#327).
+      expect(projectionStampDigest(root, "component.architecture-context.engine")).toBe(currentFootprintDigest(root, "component.architecture-context.engine"));
 
       const fresh = await daemon.completeTask(root, {
         taskSessionId: "task_projection_profile_freshness",
@@ -714,8 +717,8 @@ describe("local runtime foundation", () => {
       expect((fresh.data as any).extensions.projectionFreshnessGate).toBeUndefined();
       expect((fresh.data as any).findings.some((entry: any) => entry.id === "stale-context")).toBe(false);
 
-      // The member's footprint is outside the capability's footprint. No node is named, and the
-      // declared source tree digest still blocks the task.
+      // The member's footprint is outside the capability's footprint, but its stamp is on the
+      // capability row, so the member is named and the declared source tree digest moves too.
       writeFileSync(join(root, "src/engine/index.ts"), "export const engine = 2;\n", "utf8");
       gitCommitAll(root, "change the member source");
       const stale = await daemon.completeTask(root, {
@@ -725,8 +728,8 @@ describe("local runtime foundation", () => {
       expect((stale.data as any).result).toBe("fail_action_required");
       const gate = (stale.data as any).extensions.projectionFreshnessGate;
       expect(gate.ok).toBe(false);
-      expect(gate.reasonCodes).toEqual(["projection-source-tree-digest-mismatch"]);
-      expect(gate.staleNodes).toEqual([]);
+      expect(gate.reasonCodes).toEqual(["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"]);
+      expect(gate.staleNodes.map((entry: any) => entry.nodeId)).toEqual(["component.architecture-context.engine"]);
     } finally {
       await daemon?.stop();
       removeTempRepo(root);
@@ -1219,8 +1222,10 @@ setInterval(() => undefined, 1 << 30);
         taskSessionId: "task_stamp_injection",
         task: "complete with a hostile projection manifest"
       });
-      expect((complete.data as any).extensions.projectionFreshnessGate.reasonCodes)
-        .toContain("projection-source-stamp-invalid");
+      // The manifest contract requires every stamp to be a digest, so the hostile value is refused
+      // when the manifest is read, before any stamp is compared (#327).
+      expect(complete.ok).toBe(false);
+      expect((complete as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "projection-manifest-invalid" });
 
       expect(readText(sentinel)).toBe("preserve me\n");
       if (process.platform === "win32") expect(existsSync(trap)).toBe(false);
@@ -1446,7 +1451,7 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
-  test("a manifest stamped with commits before content stamps fails closed until re-projected once (#257)", async () => {
+  test("a manifest row without the content stamp of a declared footprint fails closed until re-projected once (#257)", async () => {
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
@@ -1467,12 +1472,11 @@ setInterval(() => undefined, 1 << 30);
 
       const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
       const manifest = JSON.parse(readText(manifestPath));
-      // The pre-#257 shape: a commit stamp and no content stamp. Commit stamps are never read, so
-      // the gate reports the missing content stamp instead of trusting or diffing the commit.
-      for (const target of manifest.targets) {
-        if (!target.sourceFootprintDigest) continue;
-        delete target.sourceFootprintDigest;
-        target.verifiedAgainst = { branch: "main", commit: gitOut(root, "rev-parse", "HEAD"), committedAt: "2026-08-08T10:40:00Z" };
+      // A current-format manifest whose rows carry no content stamp for a declared footprint. The
+      // gate reports the missing stamp instead of trusting the projection (#257, #327).
+      for (const row of Object.values(manifest.targets as Record<string, { sourceStamps?: unknown; scale?: unknown }>)) {
+        delete row.sourceStamps;
+        delete row.scale;
       }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
@@ -1483,12 +1487,13 @@ setInterval(() => undefined, 1 << 30);
       expect((result.data as any).result).toBe("fail_action_required");
       const finding = (result.data as any).findings.find((entry: any) => entry.id === "stale-context");
       expect(finding.message).toContain("projection-source-stamp-missing");
+      // The declared source tree digest is computed from the rows' stamps, so it moves as well.
       expect((result.data as any).extensions.projectionFreshnessGate.reasonCodes)
-        .toEqual(["projection-source-stamp-missing"]);
+        .toEqual(["projection-source-stamp-missing", "projection-source-tree-digest-mismatch"]);
 
       // One re-projection migrates the manifest to content stamps and clears the gate.
       writeArchitectureDocsProjection(root);
-      expect(readText(manifestPath)).not.toContain("verifiedAgainst");
+      expect(readText(manifestPath)).toContain("\"sourceStamps\"");
       const migrated = await daemon.completeTask(root, {
         taskSessionId: "task_projection_freshness_failclosed",
         task: "finish after migrating the projection manifest"

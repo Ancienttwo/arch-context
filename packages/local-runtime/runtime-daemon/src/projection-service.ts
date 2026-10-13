@@ -8,7 +8,7 @@ import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -23,7 +23,8 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
   try {
     profile = input.profile ?? committedArchitectureDocsProfile(root);
     acceptedChange = input.acceptedChange;
-    projection = buildArchitectureDocsProjection(daemon, root, profile, undefined, acceptedChange);
+    // `docs apply` is the one re-baseline of a superseded manifest (#327); every other surface refuses it.
+    projection = buildArchitectureDocsProjection(daemon, root, profile, undefined, acceptedChange, { rebaselineSupersededManifest: subcommand === "apply" });
   } catch (error) {
     return projectionFailureEnvelope(`docs.${subcommand}`, error);
   }
@@ -75,7 +76,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
       receiptDigest: projection.plan.receiptDigest
     } as unknown as Json);
   }
-  const changeSetId = input.id ?? `changeset.docs-projection-${projection.plan.projectionDigest.replace(/^sha256:/, "").slice(0, 16)}`;
+  const changeSetId = input.id ?? docsProjectionChangeSetId(projection);
   const operations = [architectureDocsRenderProjectionOperation(projection.loaded.existingFiles, projection.files)];
   const plan = await daemon.planUpdate(root, {
     id: changeSetId,
@@ -158,10 +159,19 @@ export function buildArchitectureDocsProjection(
   root: string,
   profile: ArchitectureProjectionProfile = "default",
   existingFilesOverride?: ProjectionOwnedFile[],
-  acceptedChange?: AcceptedArchitectureChangeReferenceV1
+  acceptedChange?: AcceptedArchitectureChangeReferenceV1,
+  options: { rebaselineSupersededManifest?: boolean } = {}
 ) {
   const inputs = measureArchitectureDocsProjectionInputs(root, profile);
-  return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange);
+  return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange, options);
+}
+
+/**
+ * A docs projection ChangeSet is named after the projection-owned output bytes it writes, the
+ * manifest included, so equal ids mean equal writes and a stamp-only apply gets its own id.
+ */
+function docsProjectionChangeSetId(projection: ReturnType<typeof buildArchitectureDocsProjection>): string {
+  return `changeset.docs-projection-${projectionOwnedOutputDigest(projection).replace(/^sha256:/, "").slice(0, 16)}`;
 }
 
 /**
@@ -218,7 +228,8 @@ function renderArchitectureDocsProjectionFromInputs(
   root: string,
   inputs: ReturnType<typeof measureArchitectureDocsProjectionInputs>,
   existingFiles: ProjectionOwnedFile[],
-  acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined
+  acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined,
+  options: { rebaselineSupersededManifest?: boolean } = {}
 ) {
   const { profile, sourceDigest, codeGraphInputs, sourceFootprints } = inputs;
   const loaded = { ...inputs.loaded, existingFiles };
@@ -235,6 +246,7 @@ function renderArchitectureDocsProjectionFromInputs(
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
     sourceDigest,
+    ...(options.rebaselineSupersededManifest ? { rebaselineSupersededManifest: true } : {}),
     refreshContext: {
       repositoryId: repositoryFingerprint(root),
       workspaceId: projectionWorkspaceId(root),
@@ -255,8 +267,8 @@ function renderArchitectureDocsProjectionFromInputs(
     currentSourceTreeDigest: codeGraphInputs.provenance.sourceTreeDigest,
     manifest: plan.manifest,
     files: [...plan.files, plan.manifest],
-    /** This render's measured proof evidence; the committed provenance carries no evidence identity. */
-    snapshotEvidence: architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence: codeGraphInputs.selectorEvidence, rendererVersion: plan.rendererVersion })
+    /** This render's measured per-capability proof evidence, which committed acceptance compares with the manifest's. */
+    snapshotEvidence: plan.proofEvidence
   };
 }
 
@@ -489,8 +501,8 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   const root = findRepositoryRoot(cwd);
   // Snapshot the journal before this command can write anything: whatever is committed under this
   // requestId now belongs to an earlier attempt by construction, so no changeSetId comparison is
-  // needed against this run's own commit (the protocol changeSetId is derived from the projection
-  // digest and repeats across attempts of the same request).
+  // needed against this run's own commit (the protocol changeSetId is derived from the owned-output
+  // byte digest and repeats across attempts of the same request).
   let priorCommittedApplies: ProjectionPriorCommittedApplyV1[];
   try {
     const listed = await daemon.listProjectionPriorCommittedApplies(root, request.requestId);
@@ -578,7 +590,6 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   }
 
   if (request.mode === "apply" && !projection.plan.drift.ok) {
-    const changeSetId = `changeset.docs-projection-${projection.plan.projectionDigest.replace(/^sha256:/, "").slice(0, 16)}`;
     // The accepted plan is the authorization boundary, but it is not the state that remains on
     // disk after the acceptance has been incorporated into the projection baseline. Render that
     // no-accepted-change state against the accepted plan's virtual outputs before writing, so the
@@ -598,7 +609,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     } catch (error) {
       return projectionFailureEnvelope("projection.run", error);
     }
-    return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, changeSetId, root, daemon, priorCommittedApplies, acceptedChange);
+    return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, docsProjectionChangeSetId(fixedPointProjection), root, daemon, priorCommittedApplies, acceptedChange);
   }
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";
@@ -892,6 +903,9 @@ function observedMajorChangeAcceptance(
  * whose files footprints could be measured over (`AC_REPO_NOT_FOUND`, `git-worktree-required`).
  */
 export function projectionFailureEnvelope(requestId: string, error: unknown): JsonEnvelope {
+  if (error instanceof ProjectionPreconditionError) {
+    return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error.message, error.reasonCode);
+  }
   if (error instanceof ProjectionCodeFactsUnavailableError) {
     return errorEnvelope(requestId, "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
   }

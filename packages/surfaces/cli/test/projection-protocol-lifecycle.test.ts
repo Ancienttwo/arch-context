@@ -120,7 +120,7 @@ function docsSnapshot(root: string): Record<string, string> {
 
 function manifestTargetPath(root: string, scopeId: string): string {
   const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
-  const target = manifest.targets.find((entry: any) => entry.scope?.id === scopeId);
+  const target = Object.values(manifest.targets as Record<string, any>).find((entry) => entry.scope?.id === scopeId);
   if (!target) throw new Error(`fixture manifest has no target for ${scopeId}`);
   return target.path;
 }
@@ -406,7 +406,7 @@ test("an observed-change apply fails closed when the manifest moves mid-request"
     // moved baseline would also see REMOVED's responsibilities change; the write is bound to the
     // bytes classification read, so the move fails the hash precondition before any file is written.
     const tampered = JSON.parse(classifiedManifest);
-    const removedBaseline = tampered.semanticBaseline.semanticState.capabilities.find((entry: any) => entry.capabilityId === REMOVED);
+    const removedBaseline = tampered.semanticBaseline.capabilities.find((entry: any) => entry.capabilityId === REMOVED);
     removedBaseline.facets.responsibilities = `sha256:${"0".repeat(64)}`;
     removedBaseline.semanticFingerprint = `sha256:${"1".repeat(64)}`;
     const tamperedBody = `${JSON.stringify(tampered, null, 2)}\n`;
@@ -730,7 +730,7 @@ test("plan previews each file as a bounded body or unified diff and writes nothi
     writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("summary: \"Hook Adapters capability.\"", `summary: ${JSON.stringify(summary)}`), "utf8");
     // A missing generated document becomes a create that previews its rendered body.
     const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
-    const changelogPath: string = manifest.targets.find((target: any) => target.type === "architecture-changelog").path;
+    const changelogPath: string = (Object.values(manifest.targets) as any[]).find((target) => target.type === "architecture-changelog").path;
     rmSync(join(root, changelogPath));
     const modulePath = manifestTargetPath(root, KEPT);
 

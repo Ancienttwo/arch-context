@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, isRepoRelativePosixPath, stableId, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, isRepoRelativePosixPath, stableId, type ArchitectureDocsProjectionManifestV3, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
 
 export const REPO_HARNESS_PROJECTION_PROFILE = "repo-harness/v1" as const;
 export const ARCHITECTURE_DOCS_LAYOUT_VERSION = "archcontext.docs-layout/v1" as const;
@@ -185,7 +185,7 @@ export function loadArchitectureFilesForLayout(
   // generated files a projection wrote. One the current layout no longer renders is an orphan.
   if (paths.has(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH)) {
     const manifest = readProjectionOwnedFile(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
-    for (const output of committedGeneratedOutputs(manifest.body)) {
+    for (const output of committedGeneratedOutputs(currentFormatManifest(manifest.body))) {
       if (resolveSafeRegularPath(root, output.path, false)) paths.add(output.path);
     }
   }
@@ -205,30 +205,36 @@ const OUTPUT_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 /**
  * The `generated` (whole-file) targets the committed projection manifest records. A generated file
  * carries no ownership marker, so its manifest row is the one record that the file is projection
- * output and of the bytes that were committed there. A row that is not well formed, or that names a
- * path outside `docs/architecture/`, records nothing. An absent or unparsable manifest records
- * nothing either; the drift check reports the manifest itself.
+ * output and of the bytes that were committed there. A row that names a path outside
+ * `docs/architecture/` records nothing. No current-format manifest records nothing either; the
+ * render reads and refuses the manifest itself.
  */
-export function committedGeneratedOutputs(manifestBody: string | undefined): CommittedGeneratedOutput[] {
-  if (manifestBody === undefined) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(manifestBody);
-  } catch {
-    return [];
-  }
-  const rows = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).targets : undefined;
-  if (!Array.isArray(rows)) return [];
+export function committedGeneratedOutputs(manifest: ArchitectureDocsProjectionManifestV3 | undefined): CommittedGeneratedOutput[] {
+  if (manifest === undefined) return [];
   const outputs: CommittedGeneratedOutput[] = [];
-  for (const row of rows as unknown[]) {
-    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
-    const { targetId, path, ownership, outputDigest } = row as Record<string, unknown>;
-    if (ownership !== "generated" || typeof targetId !== "string" || typeof path !== "string" || typeof outputDigest !== "string") continue;
-    if (!OUTPUT_DIGEST_PATTERN.test(outputDigest) || !isRepoRelativePosixPath(path) || !path.startsWith("docs/architecture/")
-      || path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH) continue;
-    outputs.push({ targetId, path, outputDigest });
+  for (const [targetId, row] of Object.entries(manifest.targets)) {
+    if (row.ownership !== "generated" || !OUTPUT_DIGEST_PATTERN.test(row.outputDigest) || !isRepoRelativePosixPath(row.path)
+      || !row.path.startsWith("docs/architecture/") || row.path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH) continue;
+    outputs.push({ targetId, path: row.path, outputDigest: row.outputDigest });
   }
   return outputs;
+}
+
+/**
+ * The body as a current-format manifest, or undefined when it is not one. Only for listing the
+ * files a layout reads; the render parses the manifest strictly and refuses a superseded or
+ * invalid one.
+ */
+function currentFormatManifest(body: string): ArchitectureDocsProjectionManifestV3 | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  const record = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  if (record?.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION) return undefined;
+  return architectureDocsProjectionManifestIssues(parsed).length === 0 ? parsed as ArchitectureDocsProjectionManifestV3 : undefined;
 }
 
 /**

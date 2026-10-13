@@ -202,8 +202,9 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
       existingFiles: [...clean.files.map(({ path, body }) => ({ path, body })), clean.manifest]
     });
-    // No marker carries the source digest (#327): a moved digest with the same output moves only the manifest.
-    expect(stale.drift.reasonCodes).toEqual(["projection-manifest-stale"]);
+    // Neither a marker nor the manifest carries the model-global source digest (#327): a moved
+    // digest with the same output moves nothing.
+    expect(stale.drift.reasonCodes).toEqual([]);
 
     const grown = renderArchitectureDocumentationProjection({
       sourceFootprints,

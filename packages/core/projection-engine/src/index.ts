@@ -9,22 +9,32 @@ import {
   ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION as CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION,
   ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION,
+  PROJECTION_FOOTPRINT_UNCOVERED,
+  PROJECTION_MANIFEST_INVALID,
+  PROJECTION_MANIFEST_UPGRADE_REQUIRED,
   PROJECTION_TARGET_SCHEMA_VERSION,
+  architectureDocsProjectionManifestDigests,
   architectureDocsProjectionManifestIssues,
+  architectureDocsProjectionManifestSchemaVersion,
+  architectureDocsProjectionManifestSemanticState,
+  architectureDocsProjectionManifestSourceStamps,
   architectureDocsProjectionProvenanceIssues,
-  architectureDigestSetIssues,
-  architectureSemanticStateIssues,
+  architectureProjectionOutputsDigest,
+  architectureSourceStampsDigest,
   digestJson,
+  isSupersededArchitectureDocsProjectionManifestSchemaVersion,
+  serializeArchitectureDocsProjectionManifest,
   stableId,
   type AcceptedArchitectureChangeReferenceV1,
   type ArchitectureCapabilityScaleV1,
   type ArchitectureDigestSetV1,
-  type ArchitectureDocsProjectionManifestV2,
+  type ArchitectureDocsProjectionManifestTargetV3,
+  type ArchitectureDocsProjectionManifestV3,
   type ArchitectureDocumentationProjectionProvenanceV3,
   type ArchitectureFlowSelectorCheckV1,
   type ArchitectureFlowV1,
   type ArchitectureNodeSourceV2,
-  type ArchitectureProjectionSemanticBaselineV1,
+  type ArchitectureProjectionProofEvidenceV1,
   type ArchitectureRefreshSignalV1,
   type ArchitectureScaleBucketV1,
   type ArchitectureSemanticStateV1,
@@ -54,6 +64,7 @@ import {
   type ProjectionLayoutTargetDraft
 } from "./layout";
 import {
+  capabilityProofRelevantSelectorEvidence,
   checkSemanticFlowSelectors,
   compileSemanticCapabilityDiagrams,
   type ArchitectureSelectorEvidenceV1,
@@ -61,7 +72,6 @@ import {
   type SemanticCapabilityDiagramCompilation
 } from "./semantic-diagrams";
 import {
-  architectureProofEvidenceDigests,
   classifyArchitectureMajorChange,
   compileArchitectureSemanticState,
   produceArchitectureRefreshSignals,
@@ -163,6 +173,12 @@ export interface ArchitectureDocumentationProjectionFile extends ArchitectureDoc
   sourceFootprintDigest?: string;
   /** Present exactly with `sourceFootprintDigest`: the scale buckets the document prints (#264). */
   scale?: ArchitectureCapabilityScaleV1;
+  /**
+   * `entity-summary` targets only: the footprint digest of every declared node this target
+   * documents (its own node and each descendant whose nearest ancestor-or-self with an
+   * entity-summary target is this one), by node id. Absent when the target documents none.
+   */
+  sourceStamps?: Record<string, string>;
 }
 
 export type ArchitectureDocumentationDriftReason =
@@ -212,6 +228,8 @@ export interface ArchitectureDocumentationProjectionPlan {
   majorChange: ArchitectureMajorChangeClassificationV1;
   refreshSignals: ArchitectureRefreshSignalV1[];
   receiptDigest: string;
+  /** The non-model inputs the flow proofs were compiled from, per capability, as this run measured them. */
+  proofEvidence: ArchitectureProjectionProofEvidenceV1;
   targets: ProjectionTargetV1[];
   files: ArchitectureDocumentationProjectionFile[];
   manifest: ArchitectureDocumentationExistingFile & { digest: string };
@@ -327,6 +345,12 @@ export function renderArchitectureDocumentationProjection(input: {
    */
   docsLanguage?: ArchitectureDocsLanguage;
   rendererVersion?: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
+  /**
+   * `docs apply` only: an existing manifest of a superseded schema version (v1, v2) is not read,
+   * and this render re-baselines as if no manifest existed. Every other caller is refused with
+   * `projection-manifest-upgrade-required` (#327).
+   */
+  rebaselineSupersededManifest?: boolean;
   refreshContext?: {
     repositoryId: string;
     workspaceId: string;
@@ -357,11 +381,12 @@ export function renderArchitectureDocumentationProjection(input: {
     model,
     compilations: [...semanticCompilationsByNodeId.values()]
   });
-  const previousSemanticBaseline = architectureProjectionSemanticBaseline(
-    existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH)
+  const previousManifest = previousArchitectureDocsProjectionManifest(
+    existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH),
+    input.rebaselineSupersededManifest === true
   );
   const majorChange = classifyArchitectureMajorChange({
-    base: previousSemanticBaseline?.semanticState,
+    base: previousManifest ? architectureDocsProjectionManifestSemanticState(previousManifest) : undefined,
     resulting: semanticState,
     acceptedChange: input.refreshContext?.acceptedChange
   });
@@ -374,23 +399,33 @@ export function renderArchitectureDocumentationProjection(input: {
   // `projection-generated-region-stale` on the one document that carries it instead of every
   // entity target.
   //
-  // The source-footprint stamp is not a body input at all: it lives in the projection manifest and
-  // never reaches the rendered document or its marker attributes. A document body that printed it
-  // would churn whenever anything under the node's footprint moved even though no architecture
-  // assertion changed. Keeping the stamp in the manifest gives one machine-owned file that churn and
-  // lets every `.md` diff mean "the architecture this document asserts changed". The freshness gate
-  // reads the stamp from the manifest (`loadArchitectureProjectionManifestStamps`).
+  // The source-footprint stamps are not a body input at all: they live on the target's manifest
+  // row and never reach the rendered document or its marker attributes. A document body that
+  // printed them would churn whenever anything under the node's footprint moved even though no
+  // architecture assertion changed. The freshness gate reads the stamps from the manifest
+  // (`loadArchitectureProjectionManifestStamps`).
   //
   // The plan-wide `input.sourceDigest` (the moving tree) is deliberately not folded into the
   // per-entity key either: it would couple every entity document to unrelated commits. No body
   // prints a wall-clock or run time, so two runs over the same inputs render the same bytes.
-  // Index/diagram/decision/relation/changelog targets render no per-node measurement, so they keep
-  // recording the plan-wide `input.sourceDigest`. No marker carries it: a marker records only the
-  // target, the renderer version and the output digest of its own body.
+  // Index/diagram/decision/relation/changelog targets render no per-node measurement, so their
+  // runtime target records the plan-wide `input.sourceDigest`. Neither a marker nor a manifest row
+  // carries it: a marker records only the target, the renderer version and the output digest of
+  // its own body, and a row records the output digest and the stamps.
   const docsLanguage = input.docsLanguage === undefined ? undefined : assertArchitectureDocsLanguage(input.docsLanguage);
   const targetDrafts = architectureDocumentationTargetDrafts(model, layout, docsLanguage);
-  const stampedNodeIds = new Set(architectureProjectionStampedNodeIds(model, layout.profile));
+  // Every declared footprint is stamped on the entity-summary target of its nearest
+  // ancestor-or-self that has one; a footprint no target documents is refused, never dropped.
+  const footprintOwners = architectureProjectionFootprintOwners(model, layout.profile);
   const footprintDigestByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
+  const sourceStamps: Record<string, string> = {};
+  for (const nodeId of [...footprintOwners.keys()].sort(compareStrings)) {
+    const digest = footprintDigestByNodeId.get(nodeId);
+    if (digest === undefined || !SOURCE_FOOTPRINT_DIGEST_PATTERN.test(digest)) {
+      throw new Error(`architecture-docs-projection-source-footprint-missing: ${nodeId}`);
+    }
+    sourceStamps[nodeId] = digest;
+  }
   const rendered = targetDrafts.map((draft) => {
     const existing = existingByPath.get(draft.path);
     const nodeId = draft.type === "entity-summary" ? draft.scope.id : undefined;
@@ -410,15 +445,15 @@ export function renderArchitectureDocumentationProjection(input: {
     let targetSourceDigest = input.sourceDigest;
     let sourceFootprintDigest: string | undefined;
     let scale: ArchitectureCapabilityScaleV1 | undefined;
+    let targetStamps: Record<string, string> | undefined;
     if (nodeId !== undefined) {
       targetSourceDigest = digestJson(generatedBody);
-      if (stampedNodeIds.has(nodeId)) {
-        // The stamp is the footprint this render read, so re-projecting is what re-verifies a
-        // document and an unchanged footprint keeps the manifest byte-identical.
-        sourceFootprintDigest = footprintDigestByNodeId.get(nodeId);
-        if (sourceFootprintDigest === undefined || !SOURCE_FOOTPRINT_DIGEST_PATTERN.test(sourceFootprintDigest)) {
-          throw new Error(`architecture-docs-projection-source-footprint-missing: ${nodeId}`);
-        }
+      // The stamps are the footprints this render read, so re-projecting is what re-verifies a
+      // document and unchanged footprints keep the target's manifest row byte-identical.
+      const owned = Object.keys(sourceStamps).filter((stamped) => footprintOwners.get(stamped) === nodeId);
+      if (owned.length > 0) targetStamps = Object.fromEntries(owned.map((stamped) => [stamped, sourceStamps[stamped]!]));
+      if (footprintOwners.get(nodeId) === nodeId) {
+        sourceFootprintDigest = sourceStamps[nodeId];
         scale = scaleByNodeId.get(nodeId);
         if (scale === undefined) throw new Error(`architecture-docs-projection-scale-signal-missing: ${nodeId}`);
       }
@@ -442,34 +477,31 @@ export function renderArchitectureDocumentationProjection(input: {
       target,
       digest: digestJson({ path: target.path, body } as unknown as Json),
       generatedBodyDigest,
-      ...(sourceFootprintDigest && scale ? { sourceFootprintDigest, scale } : {})
+      ...(sourceFootprintDigest && scale ? { sourceFootprintDigest, scale } : {}),
+      ...(targetStamps ? { sourceStamps: targetStamps } : {})
     };
   });
   const targets = rendered.map((file) => file.target);
   const expectedByPath = new Map(rendered.map((file) => [file.path, file]));
-  const projectionDigest = digestJson({
+  // The global digests are functions of the per-target rows, with the formulas a reader of the
+  // committed manifest uses (`architectureDocsProjectionManifestDigests`), so the base digests
+  // read back from a manifest and the resulting digests of a run compare like for like.
+  const projectionDigest = architectureProjectionOutputsDigest({
     rendererVersion,
     profile: layout.profile,
-    sourceDigest: input.sourceDigest,
-    projectionInputDigest: provenance.projectionInputDigest,
-    files: rendered.map((file) => ({
-      path: file.path,
-      targetId: file.target.targetId,
-      digest: file.digest,
-      generatedBodyDigest: file.generatedBodyDigest
-    })).sort((left, right) => left.path.localeCompare(right.path))
-  } as unknown as Json);
+    outputDigests: Object.fromEntries(rendered.map((file) => [file.target.targetId, file.target.outputDigest]))
+  });
   const architectureDigests: ArchitectureDigestSetV1 = {
     modelDigest: provenance.modelDigest as ArchitectureDigestSetV1["modelDigest"],
-    sourceTreeDigest: provenance.sourceTreeDigest as ArchitectureDigestSetV1["sourceTreeDigest"],
+    sourceTreeDigest: architectureSourceStampsDigest(sourceStamps),
     flowProofDigest: semanticState.flowProofFingerprint as ArchitectureDigestSetV1["flowProofDigest"],
-    projectionDigest: projectionDigest as ArchitectureDigestSetV1["projectionDigest"]
+    projectionDigest
   };
-  const baseDigests = previousSemanticBaseline?.digests ?? architectureDigests;
+  const baseDigests = previousManifest ? architectureDocsProjectionManifestDigests(previousManifest) : architectureDigests;
   // The receipt binds the classification without its per-capability breakdown: the breakdown
   // explains reasonCodes and affectedNodeIds, and an unresolved capability's proofStatusBefore moves
-  // from null to its status once a first baseline exists, which would keep the committed manifest
-  // from ever reaching a fixed point.
+  // from null to its status once a first baseline exists, which would keep the classification from
+  // ever reaching a fixed point. The receipt digest is runtime only; the manifest does not record it.
   const { capabilities: _capabilities, ...majorChangeReceipt } = majorChange;
   const receiptDigest = digestJson({
     schemaVersion: "archcontext.architecture-docs-projection-receipt/v1",
@@ -492,53 +524,56 @@ export function renderArchitectureDocumentationProjection(input: {
       projectionReceiptDigest: receiptDigest
     })
     : [];
-  const manifestValue: ArchitectureDocsProjectionManifestV2 = {
+  const proofEvidence: ArchitectureProjectionProofEvidenceV1 = {
+    rendererVersion,
+    selectorEvidenceDigests: Object.fromEntries(semanticState.capabilities.map((capability) => [
+      capability.capabilityId,
+      digestJson(capabilityProofRelevantSelectorEvidence({ capabilityId: capability.capabilityId, flows: model.flows ?? [], evidence: input.selectorEvidence }) as unknown as Json)
+    ])),
+    sourceStamps
+  };
+  const manifestValue: ArchitectureDocsProjectionManifestV3 = {
     schemaVersion: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
     rendererVersion,
     profile: layout.profile,
-    sourceDigest: input.sourceDigest,
-    provenance,
-    projectionDigest,
+    layoutVersion: provenance.layoutVersion,
+    generatedFrom: provenance.generatedFrom,
     semanticBaseline: {
-      semanticState,
-      digests: architectureDigests,
-      // The committed provenance carries no CodeGraph evidence identity, so the baseline records
-      // what its proofs were built from itself.
-      evidence: architectureProofEvidenceDigests({ sourceTreeDigest: input.provenance.sourceTreeDigest, selectorEvidence: input.selectorEvidence, rendererVersion })
+      modelDigest: provenance.modelDigest,
+      capabilities: semanticState.capabilities.map((capability) => ({
+        ...capability,
+        selectorEvidenceDigest: proofEvidence.selectorEvidenceDigests[capability.capabilityId]!
+      }))
     },
-    receiptDigest,
-    targetCount: targets.length,
-    fileCount: rendered.length,
-    // Per-node stamps: each entity-summary target of a node with a declared footprint records that
-    // footprint's content digest. The freshness check (`evaluateArchitectureProjectionFreshness`)
-    // compares it with the current digest and never reads Git history, so it holds after squash
-    // merges, rebases and in shallow clones. The same targets record the structured scale buckets
-    // their module documents print.
-    targets: rendered.map((file) => ({
-      targetId: file.target.targetId,
+    // Per-target rows. Each entity-summary target records the content digest of every declared
+    // footprint it documents; the freshness check (`evaluateArchitectureProjectionFreshness`)
+    // compares those stamps with the current digests and never reads Git history, so it holds after
+    // squash merges, rebases and in shallow clones. The same targets record the structured scale
+    // buckets their module documents print.
+    targets: Object.fromEntries(rendered.map((file) => [file.target.targetId, {
       type: file.target.type,
       scope: file.target.scope,
       path: file.target.path,
       ownership: file.target.ownership,
-      rendererVersion,
       format: file.target.format,
-      sourceDigest: file.target.sourceDigest,
       outputDigest: file.target.outputDigest,
-      ...(file.sourceFootprintDigest && file.scale ? { sourceFootprintDigest: file.sourceFootprintDigest, scale: file.scale } : {})
-    }))
+      ...(file.sourceStamps ? { sourceStamps: file.sourceStamps } : {}),
+      ...(file.scale ? { scale: file.scale } : {})
+    } satisfies ArchitectureDocsProjectionManifestTargetV3]))
   };
   // The writer holds itself to the published contract: a manifest it cannot vouch for is never written.
   const manifestIssues = architectureDocsProjectionManifestIssues(manifestValue);
   if (manifestIssues.length > 0) throw new Error(`architecture-docs-projection-manifest-invalid: ${manifestIssues.join("; ")}`);
   const manifest = {
     path: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
-    body: `${JSON.stringify(manifestValue, null, 2)}\n`,
+    body: serializeArchitectureDocsProjectionManifest(manifestValue),
     digest: digestJson(manifestValue as unknown as Json)
   };
   const drift = architectureDocumentationProjectionDrift({
     targets,
     expectedFiles: rendered,
     expectedManifest: manifest,
+    previousManifest,
     existingFiles: input.existingFiles ?? []
   });
   const rejected = drift.diffs.filter((diff) =>
@@ -560,6 +595,7 @@ export function renderArchitectureDocumentationProjection(input: {
     majorChange,
     refreshSignals,
     receiptDigest,
+    proofEvidence,
     targets,
     files: rendered.filter((file) => !rejected.some((diff) => diff.path === file.path && diff.targetId === file.target.targetId)),
     manifest,
@@ -577,31 +613,109 @@ export function renderArchitectureDocumentationProjection(input: {
 }
 
 /**
- * Reads the committed semantic baseline back. The two fields classification consumes, the semantic
- * state and the digest set, are checked against the published manifest contract and fail closed;
- * the rest of the manifest is the drift check's concern.
+ * A projection precondition with its own reason code: the committed manifest or the model is in a
+ * state the projection refuses, and the operator, not the runtime, resolves it (#327).
  */
-function architectureProjectionSemanticBaseline(body: string | undefined): Pick<ArchitectureProjectionSemanticBaselineV1, "semanticState" | "digests"> | undefined {
-  if (body === undefined) return undefined;
+export abstract class ProjectionPreconditionError extends Error {
+  abstract readonly reasonCode: string;
+}
+
+/**
+ * A committed manifest whose `schemaVersion` names a format an earlier release wrote. Only that
+ * field was read; the manifest's baseline, rows and stamps are not translated. The operator
+ * re-baselines once with `archctx docs apply --approved` (#327).
+ */
+export class ProjectionManifestUpgradeRequiredError extends ProjectionPreconditionError {
+  readonly reasonCode = PROJECTION_MANIFEST_UPGRADE_REQUIRED;
+  constructor(readonly schemaVersion: string) {
+    super(`${PROJECTION_MANIFEST_UPGRADE_REQUIRED}: ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} is ${schemaVersion}, and this archctx reads only ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION}; reach a clean projection on the earlier release first, then re-baseline once with archctx docs apply --approved --profile <default|repo-harness/v1>`);
+  }
+}
+
+/** Declared source footprints that no entity-summary target documents, so no stamp can record them. */
+export class ProjectionFootprintUncoveredError extends ProjectionPreconditionError {
+  readonly reasonCode = PROJECTION_FOOTPRINT_UNCOVERED;
+  constructor(readonly nodeIds: string[], profile: ArchitectureProjectionProfile) {
+    super(`${PROJECTION_FOOTPRINT_UNCOVERED}: ${nodeIds.join(", ")} declare source.include, but neither the node nor an ancestor has an entity-summary target under profile ${profile}`);
+  }
+}
+
+/**
+ * A committed manifest that names the current `schemaVersion` but fails its contract. Nothing in it
+ * is read; the operator restores the committed file from Git.
+ */
+export class ProjectionManifestInvalidError extends ProjectionPreconditionError {
+  readonly reasonCode = PROJECTION_MANIFEST_INVALID;
+  constructor(readonly issues: string[]) {
+    super(`${PROJECTION_MANIFEST_INVALID}: ${issues.join("; ")}; restore ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} from Git`);
+  }
+}
+
+/**
+ * Reads a committed manifest strictly. A superseded `schemaVersion` is refused with
+ * `projection-manifest-upgrade-required`; any other manifest that is not a valid current-format
+ * manifest is refused with `projection-manifest-invalid`.
+ */
+export function parseArchitectureDocsProjectionManifest(body: string): ArchitectureDocsProjectionManifestV3 {
+  const schemaVersion = architectureDocsProjectionManifestSchemaVersion(body);
+  if (isSupersededArchitectureDocsProjectionManifestSchemaVersion(schemaVersion)) throw new ProjectionManifestUpgradeRequiredError(schemaVersion!);
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
-  } catch {
-    return undefined;
+  } catch (error) {
+    throw new ProjectionManifestInvalidError([error instanceof Error ? error.message : String(error)]);
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
-  const baseline = (parsed as Record<string, unknown>).semanticBaseline;
-  if (baseline === undefined) return undefined;
-  if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) {
-    throw new Error("architecture-major-change-semantic-baseline-invalid: semanticBaseline must be an object");
+  const issues = architectureDocsProjectionManifestIssues(parsed);
+  if (issues.length > 0) throw new ProjectionManifestInvalidError(issues);
+  return parsed as ArchitectureDocsProjectionManifestV3;
+}
+
+/**
+ * The manifest the previous projection committed, which carries the semantic baseline this run is
+ * classified against. No manifest, or one that is not JSON or names no recognizable
+ * `schemaVersion`, carries no baseline: the drift check reports it and `apply` rewrites it. A
+ * superseded manifest is refused unless `docs apply` re-baselines; a current-format manifest that
+ * fails its contract is refused.
+ */
+function previousArchitectureDocsProjectionManifest(body: string | undefined, rebaselineSuperseded: boolean): ArchitectureDocsProjectionManifestV3 | undefined {
+  if (body === undefined) return undefined;
+  const schemaVersion = architectureDocsProjectionManifestSchemaVersion(body);
+  if (isSupersededArchitectureDocsProjectionManifestSchemaVersion(schemaVersion)) {
+    if (rebaselineSuperseded) return undefined;
+    throw new ProjectionManifestUpgradeRequiredError(schemaVersion!);
   }
-  const { semanticState, digests } = baseline as Record<string, unknown>;
-  const issues = [
-    ...architectureSemanticStateIssues(semanticState, "semanticBaseline.semanticState"),
-    ...architectureDigestSetIssues(digests, "semanticBaseline.digests")
-  ];
-  if (issues.length > 0) throw new Error(`architecture-major-change-semantic-baseline-invalid: ${issues.join("; ")}`);
-  return { semanticState: semanticState as ArchitectureSemanticStateV1, digests: digests as ArchitectureDigestSetV1 };
+  if (schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION) return undefined;
+  return parseArchitectureDocsProjectionManifest(body);
+}
+
+/**
+ * The entity-summary target node that documents each declared source footprint under `profile`:
+ * the nearest ancestor-or-self of the declaring node that has an entity-summary target. Keys are
+ * every node that declares `source.include`. A declared footprint with no such node throws
+ * `ProjectionFootprintUncoveredError`, naming every uncovered node.
+ */
+export function architectureProjectionFootprintOwners(model: NativeModel, profile: ArchitectureProjectionProfile = "default"): Map<string, string> {
+  const targetNodeIds = new Set(entitySummaryTargetNodes(model.nodes, profile).map((node) => node.id));
+  const nodesById = new Map(model.nodes.map((node) => [node.id, node]));
+  const owners = new Map<string, string>();
+  const uncovered: string[] = [];
+  for (const node of [...model.nodes].sort((left, right) => compareStrings(left.id, right.id))) {
+    if ((nativeNodeSource(node)?.include ?? []).length === 0) continue;
+    const seen = new Set<string>();
+    let current: NativeNode | undefined = node;
+    while (current && !targetNodeIds.has(current.id) && !seen.has(current.id)) {
+      seen.add(current.id);
+      current = typeof current.parent === "string" ? nodesById.get(current.parent) : undefined;
+    }
+    if (current && targetNodeIds.has(current.id)) owners.set(node.id, current.id);
+    else uncovered.push(node.id);
+  }
+  if (uncovered.length > 0) throw new ProjectionFootprintUncoveredError(uncovered, profile);
+  return owners;
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export function architectureDocumentationSourceTreeDigest(root: string, model: NativeModel, sourceFiles: readonly string[]): string {
@@ -609,20 +723,16 @@ export function architectureDocumentationSourceTreeDigest(root: string, model: N
 }
 
 /**
- * `architectureDocumentationSourceTreeDigest` over footprints the caller already resolved for this
- * run (`loadCapabilitySourceFootprints`), so one build matches the globs once (#324).
+ * The declared source tree digest over footprints the caller already resolved for this run
+ * (`loadCapabilitySourceFootprints`), so one build matches the globs once (#324). It is the digest
+ * of every node's footprint stamp (`architectureSourceStampsDigest`), the same value a reader
+ * computes from the rows of a committed manifest, so the runtime provenance and the committed
+ * stamps can only agree or differ together (#327).
  */
 export function digestArchitectureDocumentationSourceTree(root: string, model: NativeModel, footprints: readonly CapabilitySourceFootprint[]): string {
-  const agentContextOutputs = new Set(agentContextTargetPaths(model.nodes).map((target) => target.path));
-  const files = footprints
-    .flatMap((footprint) => footprint.files)
-    .filter((path) => path !== "docs/architecture" && !path.startsWith("docs/architecture/") && !agentContextOutputs.has(path))
-    .filter((path, index, all) => all.indexOf(path) === index)
-    .sort((left, right) => left.localeCompare(right));
-  return digestJson(files.map((path) => ({
-    path,
-    digest: sourceFileContentDigest(resolve(root, path))
-  })) as unknown as Json);
+  return architectureSourceStampsDigest(Object.fromEntries(
+    digestCapabilitySourceFootprints(root, model, footprints).map((footprint) => [footprint.nodeId, footprint.digest])
+  ));
 }
 
 /**
@@ -845,7 +955,11 @@ export function architectureDocumentationSourceDigest(input: {
 
 /** The applied manifest selects the layout to verify; never guess a missing profile. */
 export function loadArchitectureDocumentationProfile(root: string): ArchitectureProjectionProfile {
-  const manifest = JSON.parse(readFileSync(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), "utf8"));
+  const body = readFileSync(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), "utf8");
+  // A superseded manifest is read for its schemaVersion only, so it names no profile.
+  const schemaVersion = architectureDocsProjectionManifestSchemaVersion(body);
+  if (isSupersededArchitectureDocsProjectionManifestSchemaVersion(schemaVersion)) throw new ProjectionManifestUpgradeRequiredError(schemaVersion!);
+  const manifest = JSON.parse(body);
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)
     || (manifest.profile !== "default" && manifest.profile !== REPO_HARNESS_PROJECTION_PROFILE)) {
     throw new Error("projection-manifest-profile-invalid: regenerate docs with an explicit supported --profile");
@@ -993,6 +1107,16 @@ export function loadCapabilitySourceFootprintDigests(root: string, model: Native
 /** `loadCapabilitySourceFootprintDigests` over footprints the caller already resolved for this run. */
 export function digestCapabilitySourceFootprints(root: string, model: NativeModel, footprints: readonly CapabilitySourceFootprint[]): CapabilitySourceFootprintDigest[] {
   const ownedPathPatterns = projectionOwnedPaths(model);
+  // Footprints nest (a capability's include covers its components'), so one file is read once per call.
+  const fileDigests = new Map<string, string>();
+  const fileDigest = (path: string) => {
+    let digest = fileDigests.get(path);
+    if (digest === undefined) {
+      digest = sourceFileContentDigest(resolve(root, path));
+      fileDigests.set(path, digest);
+    }
+    return digest;
+  };
   return footprints.map((footprint) => {
     const files = footprint.files.filter((path) => !ownedPathPatterns.some((pattern) => matchesGlob(path, pattern)));
     return {
@@ -1002,7 +1126,7 @@ export function digestCapabilitySourceFootprints(root: string, model: NativeMode
         schemaVersion: "archcontext.capability-source-footprint/v1",
         files: files.map((path) => ({
           path,
-          digest: sourceFileContentDigest(resolve(root, path))
+          digest: fileDigest(path)
         }))
       } as unknown as Json)
     };
@@ -1010,36 +1134,28 @@ export function digestCapabilitySourceFootprints(root: string, model: NativeMode
 }
 
 /**
- * The nodes the projection stamps with a source footprint under `profile`: each node that has an
- * entity-summary target and declares `source.include`. The renderer writes a stamp for exactly
+ * The nodes the projection stamps with a source footprint under `profile`: every node that declares
+ * `source.include`. Each stamp sits on the manifest row of the node's nearest ancestor-or-self
+ * with an entity-summary target (`architectureProjectionFootprintOwners`); a declared footprint no
+ * target documents throws `projection-footprint-uncovered`. The renderer writes a stamp for exactly
  * these nodes, and the freshness check probes exactly these nodes.
  */
 export function architectureProjectionStampedNodeIds(model: NativeModel, profile: ArchitectureProjectionProfile = "default"): string[] {
-  return entitySummaryTargetNodes(model.nodes, profile)
-    .filter((node) => (nativeNodeSource(node)?.include ?? []).length > 0)
-    .map((node) => node.id)
-    .sort((left, right) => left.localeCompare(right));
+  return [...architectureProjectionFootprintOwners(model, profile).keys()].sort((left, right) => left.localeCompare(right));
 }
 
 /**
  * Decides whether the architecture documentation projection is still verified against the current
- * tree: a node whose current footprint digest differs from the digest its document is stamped with
- * was rendered from code that has since moved.
+ * tree: a node whose current footprint digest differs from the digest the manifest stamps it with
+ * was documented from code that has since moved.
  *
- * Every node the active profile stamps (`architectureProjectionStampedNodeIds`) is probed, including
+ * Every node the projection stamps (`architectureProjectionStampedNodeIds`) is probed, including
  * nodes whose globs overlap: an ambiguous owner must not silently drop the signal. A probed node
- * without a stamp, or with a stamp that is not a footprint digest (a manifest written before content
- * stamps), fails closed — re-running the projection once migrates it.
- *
- * A node that declares `source.include` but has no document under the profile (a non-capability
- * node under `repo-harness/v1`) has no stamp to compare, so this per-node check does not probe it.
- * A change in its footprint still makes the projection stale: the declared source tree digest
- * covers every declared footprint, and `evaluateArchitectureProjectionSnapshotFreshness` reports
- * `projection-source-tree-digest-mismatch` for it.
+ * without a stamp fails closed — re-running the projection stamps it.
  */
 export function evaluateArchitectureProjectionFreshness(input: {
   model: NativeModel;
-  /** The profile the projection was rendered with; it selects the stamped nodes. Defaults to `default`. */
+  /** The profile the projection was rendered with; it selects the stamping targets. Defaults to `default`. */
   profile?: ArchitectureProjectionProfile;
   /** Manifest readback; every raw stamp is validated here, never trusted. */
   manifest: ArchitectureProjectionManifestStampReadback;
@@ -1072,12 +1188,12 @@ export function evaluateArchitectureProjectionFreshness(input: {
     const stamp = stampsByNodeId.get(nodeId);
     if (stamp === undefined || stamp === null) {
       reasonCodes.push("projection-source-stamp-missing");
-      details.push(`projection manifest records no sourceFootprintDigest for ${nodeId}; re-run the documentation projection`);
+      details.push(`projection manifest records no source stamp for ${nodeId}; re-run the documentation projection`);
       continue;
     }
     if (typeof stamp !== "string" || !SOURCE_FOOTPRINT_DIGEST_PATTERN.test(stamp)) {
       reasonCodes.push("projection-source-stamp-invalid");
-      details.push(`projection manifest sourceFootprintDigest for ${nodeId} is not a footprint digest: ${JSON.stringify(stamp)}`);
+      details.push(`projection manifest source stamp for ${nodeId} is not a footprint digest: ${JSON.stringify(stamp)}`);
       continue;
     }
     if (stamp !== currentDigest) staleNodes.push({ nodeId, stampedDigest: stamp, currentDigest });
@@ -1095,7 +1211,11 @@ export function evaluateArchitectureProjectionFreshness(input: {
   );
 }
 
-/** Dirty-worktree freshness authority layered over the per-node footprint stamps. */
+/**
+ * Dirty-worktree freshness authority layered over the per-node footprint stamps: the declared
+ * source tree digest the committed rows imply (`architectureDocsProjectionManifestDigests`) must
+ * equal the one measured now. It also moves when a stamped node stops declaring a footprint.
+ */
 export function evaluateArchitectureProjectionSnapshotFreshness(input: {
   model: NativeModel;
   profile?: ArchitectureProjectionProfile;
@@ -1104,17 +1224,10 @@ export function evaluateArchitectureProjectionSnapshotFreshness(input: {
   currentSourceTreeDigest: string;
 }): ArchitectureProjectionFreshnessEvaluation {
   const nodeEvaluation = evaluateArchitectureProjectionFreshness(input);
-  if (input.manifest.status !== "present" || !input.manifest.provenance) {
-    return freshnessEvaluation(
-      [...new Set([...nodeEvaluation.reasonCodes, "projection-snapshot-provenance-missing" as const])],
-      [nodeEvaluation.detail, "projection manifest has no snapshot provenance"],
-      nodeEvaluation.staleNodes
-    );
-  }
-  if (input.manifest.provenance.sourceTreeDigest !== input.currentSourceTreeDigest) {
+  if (input.manifest.status === "present" && input.manifest.sourceTreeDigest !== input.currentSourceTreeDigest) {
     return freshnessEvaluation(
       [...new Set([...nodeEvaluation.reasonCodes, "projection-source-tree-digest-mismatch" as const])],
-      [nodeEvaluation.detail, "declared source tree digest differs from the accepted projection snapshot"],
+      [nodeEvaluation.detail, "declared source tree digest differs from the one the committed manifest stamps"],
       nodeEvaluation.staleNodes
     );
   }
@@ -1136,7 +1249,7 @@ function freshnessEvaluation(
   };
 }
 
-/** One entity-summary target's recorded stamp, as read back out of the projection manifest. */
+/** One declared node's recorded stamp, as read back out of the projection manifest. */
 export interface ArchitectureProjectionManifestNodeStamp {
   nodeId: string;
   /** Raw manifest value; validated by `evaluateArchitectureProjectionFreshness`, never trusted here. */
@@ -1149,54 +1262,33 @@ export type ArchitectureProjectionManifestStampReadback =
   | {
       status: "present";
       nodes: ArchitectureProjectionManifestNodeStamp[];
-      provenance?: ArchitectureDocumentationProjectionProvenanceV3;
+      /** The declared source tree digest the rows imply, computed at read time. */
+      sourceTreeDigest: string;
     };
 
 /**
- * Reads the per-target `sourceFootprintDigest` stamps back out of the projection manifest, keyed by
- * the node each `entity-summary` target documents. A repository with no manifest has no projection
- * to keep fresh (`manifest-missing`); a manifest that cannot be parsed is reported, never treated
- * as a set of absent entries.
+ * Reads the `sourceStamps` of every target row back out of the projection manifest, by node. A
+ * repository with no manifest has no projection to keep fresh (`manifest-missing`); a manifest that
+ * is not a valid current-format manifest is reported, never treated as a set of absent entries. A
+ * superseded manifest throws `projection-manifest-upgrade-required`.
  */
 export function loadArchitectureProjectionManifestStamps(
   root: string
 ): ArchitectureProjectionManifestStampReadback {
   const absolute = resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
   if (!existsSync(absolute)) return { status: "manifest-missing" };
-  let parsed: unknown;
+  let manifest: ArchitectureDocsProjectionManifestV3;
   try {
-    parsed = JSON.parse(readFileSync(absolute, "utf8"));
+    manifest = parseArchitectureDocsProjectionManifest(readFileSync(absolute, "utf8"));
   } catch (error) {
+    if (error instanceof ProjectionManifestUpgradeRequiredError) throw error;
     return { status: "manifest-unreadable", reason: error instanceof Error ? error.message : String(error) };
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { status: "manifest-unreadable", reason: "projection manifest is not a JSON object" };
-  }
-  const targets = (parsed as Record<string, unknown>).targets;
-  if (targets !== undefined && !Array.isArray(targets)) {
-    return { status: "manifest-unreadable", reason: "projection manifest targets is not an array" };
-  }
-  const nodes: ArchitectureProjectionManifestNodeStamp[] = [];
-  for (const entry of (targets ?? []) as unknown[]) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-    const record = entry as Record<string, unknown>;
-    if (record.type !== "entity-summary") continue;
-    const scope = record.scope;
-    const nodeId = scope && typeof scope === "object" && !Array.isArray(scope)
-      ? (scope as Record<string, unknown>).id
-      : undefined;
-    if (typeof nodeId !== "string" || nodeId === "") continue;
-    nodes.push({ nodeId, sourceFootprintDigest: record.sourceFootprintDigest });
-  }
-  // Only a v3 provenance is read as one. A v1/v2 provenance is never translated, so it reads as
-  // absent and freshness fails closed with `projection-snapshot-provenance-missing` (#277).
-  const provenance = (parsed as Record<string, unknown>).provenance;
-  const isV3Provenance = !!provenance && typeof provenance === "object" && !Array.isArray(provenance)
-    && (provenance as Record<string, unknown>).schemaVersion === ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION;
+  const stamps = architectureDocsProjectionManifestSourceStamps(manifest);
   return {
     status: "present",
-    nodes,
-    ...(isV3Provenance ? { provenance: provenance as ArchitectureDocumentationProjectionProvenanceV3 } : {})
+    nodes: Object.keys(stamps).sort((left, right) => left.localeCompare(right)).map((nodeId) => ({ nodeId, sourceFootprintDigest: stamps[nodeId] })),
+    sourceTreeDigest: architectureDocsProjectionManifestDigests(manifest).sourceTreeDigest
   };
 }
 
@@ -1893,25 +1985,12 @@ function mergeGeneratedRegion(
   return `${existing.slice(0, region.start)}${wrapped}${existing.slice(region.end)}`;
 }
 
-/**
- * Renderers that predate `semanticBaseline.evidence` (e.g. a pinned published archctx) write a
- * manifest without it, and the two renderers would otherwise re-stamp each other forever. Only
- * this staleness check tolerates the absent key: every other field, and any present evidence
- * value, still compares exactly. Acceptance reads the manifest separately and keeps refusing
- * proof-only changes against an evidence-less baseline.
- */
-function comparableExpectedManifestDigest(expected: ArchitectureDocumentationExistingFile & { digest: string }, actual: Json): string {
-  const baseline = actual && typeof actual === "object" && !Array.isArray(actual) ? actual.semanticBaseline : undefined;
-  if (!baseline || typeof baseline !== "object" || Array.isArray(baseline) || "evidence" in baseline) return expected.digest;
-  const value = JSON.parse(expected.body) as { semanticBaseline: Record<string, Json> };
-  const { evidence: _evidence, ...semanticBaseline } = value.semanticBaseline;
-  return digestJson({ ...value, semanticBaseline } as unknown as Json);
-}
-
 function architectureDocumentationProjectionDrift(input: {
   targets: ProjectionTargetV1[];
   expectedFiles: ArchitectureDocumentationProjectionFile[];
   expectedManifest: ArchitectureDocumentationExistingFile & { digest: string };
+  /** The committed manifest the render classified against, when it is a current-format manifest. */
+  previousManifest: ArchitectureDocsProjectionManifestV3 | undefined;
   existingFiles: ArchitectureDocumentationExistingFile[];
 }): {
   ok: boolean;
@@ -1926,8 +2005,8 @@ function architectureDocumentationProjectionDrift(input: {
   const orphans: ArchitectureDocumentationProjectionOrphan[] = [];
 
   const existingManifest = existingByPath.get(input.expectedManifest.path);
-  const committedEntityTargets = committedEntitySummaryTargets(existingManifest?.body);
-  const committedGenerated = committedGeneratedOutputs(existingManifest?.body);
+  const committedEntityTargets = committedEntitySummaryTargets(input.previousManifest);
+  const committedGenerated = committedGeneratedOutputs(input.previousManifest);
   const committedGeneratedByTargetId = new Map(committedGenerated.map((output) => [output.targetId, output]));
   if (!existingManifest) {
     diffs.push({
@@ -1939,7 +2018,9 @@ function architectureDocumentationProjectionDrift(input: {
     try {
       const parsed = JSON.parse(existingManifest.body) as Json;
       const actualDigest = digestJson(parsed);
-      if (actualDigest !== comparableExpectedManifestDigest(input.expectedManifest, parsed)) {
+      // Bytes, not parsed values: the line layout is what keeps two capabilities' changes on
+      // disjoint lines (`serializeArchitectureDocsProjectionManifest`), so a reformatted manifest is stale.
+      if (existingManifest.body !== input.expectedManifest.body) {
         diffs.push({
           path: input.expectedManifest.path,
           reasonCode: "projection-manifest-stale",
@@ -2091,25 +2172,12 @@ function generatedFileDrift(
 /**
  * The entity-summary targets the committed manifest records, by targetId: their path and the node
  * they document. A removed node is gone from the model, so this is where its skeleton is derived
- * from. An absent or unreadable manifest records none.
+ * from. No current-format manifest records none.
  */
-function committedEntitySummaryTargets(manifestBody: string | undefined): Map<string, { path: string; nodeId: string }> {
+function committedEntitySummaryTargets(manifest: ArchitectureDocsProjectionManifestV3 | undefined): Map<string, { path: string; nodeId: string }> {
   const targets = new Map<string, { path: string; nodeId: string }>();
-  if (manifestBody === undefined) return targets;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(manifestBody);
-  } catch {
-    return targets;
-  }
-  const entries = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).targets : undefined;
-  if (!Array.isArray(entries)) return targets;
-  for (const entry of entries as unknown[]) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-    const record = entry as Record<string, unknown>;
-    const scope = record.scope && typeof record.scope === "object" && !Array.isArray(record.scope) ? record.scope as Record<string, unknown> : undefined;
-    if (record.type !== "entity-summary" || typeof record.targetId !== "string" || typeof record.path !== "string" || typeof scope?.id !== "string") continue;
-    targets.set(record.targetId, { path: record.path, nodeId: scope.id });
+  for (const [targetId, row] of Object.entries(manifest?.targets ?? {})) {
+    if (row.type === "entity-summary" && typeof row.scope.id === "string") targets.set(targetId, { path: row.path, nodeId: row.scope.id });
   }
   return targets;
 }

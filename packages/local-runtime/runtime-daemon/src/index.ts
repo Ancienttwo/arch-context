@@ -69,7 +69,7 @@ import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agen
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, digestArchitectureDocumentationSourceTree, digestCapabilitySourceFootprints, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprints, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { ProjectionPreconditionError, renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, digestArchitectureDocumentationSourceTree, digestCapabilitySourceFootprints, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprints, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
@@ -774,17 +774,22 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       })
       : undefined;
     let projectionDrift: CompleteTaskProjectionDriftInput | undefined;
+    let projectionFreshness: CompleteTaskProjectionFreshnessInput | undefined;
     try {
       projectionDrift = completeTaskProjectionDrift(session.workspace.root);
+      projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
     } catch (error) {
       // Same typed, retryable answer as the docs and projection paths (#258, #279): missing
       // required code facts are an environment state, never projection drift.
       if (error instanceof ProjectionCodeFactsUnavailableError) {
         return errorEnvelope("complete_task", "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
       }
+      // A superseded or invalid manifest, or an undocumented footprint, is a typed precondition (#327).
+      if (error instanceof ProjectionPreconditionError) {
+        return errorEnvelope("complete_task", "AC_PRECONDITION_FAILED", error.message, error.reasonCode);
+      }
       throw error;
     }
-    const projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
     const worktreeDigest = computeWorktreeDigest(session.workspace.root, listGitVisibleFiles(session.workspace.root));
     // Constraints and the review policy are read through the model store port, so the ledger read
     // mode sees the same model `validate` does.

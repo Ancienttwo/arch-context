@@ -84,9 +84,10 @@ test("the same commit projected from two checkout paths, with and without a Code
     expect(committed(a)).toEqual(committed(c));
     expect(committed(b)).toEqual(committed(c));
     const manifest = JSON.parse(a.manifest.body);
-    expect(manifest.provenance.schemaVersion).toBe("archcontext.architecture-docs-projection-provenance/v3");
-    expect(manifest.targets.find((target: { scope: { id: string } }) => target.scope.id === "capability.app").sourceFootprintDigest)
-      .toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(manifest.schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v3");
+    expect(manifest).not.toHaveProperty("provenance");
+    expect((Object.values(manifest.targets) as { scope: { id?: string }; sourceStamps?: Record<string, string> }[])
+      .find((target) => target.scope.id === "capability.app")!.sourceStamps!["capability.app"]).toMatch(/^sha256:[a-f0-9]{64}$/);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

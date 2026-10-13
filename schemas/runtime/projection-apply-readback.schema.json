@@ -949,7 +949,6 @@
             "enum": [
               "projection-manifest-missing",
               "projection-manifest-unreadable",
-              "projection-snapshot-provenance-missing",
               "projection-source-changed-since-stamp",
               "projection-source-stamp-invalid",
               "projection-source-stamp-missing",

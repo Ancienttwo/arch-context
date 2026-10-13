@@ -8,20 +8,38 @@ import {
   type ArchitectureSemanticFacet,
   type Sha256Digest
 } from "./projection";
-import { isRepoRelativePosixPath } from "./schema";
+import { digestJson, isRepoRelativePosixPath, type Json } from "./schema";
 
 /**
  * The committed projection manifest, `docs/architecture/.projection-manifest.json` (#264). The
- * projection engine writes it and reads its semantic baseline and provenance back; this module is
- * the only definition of its shape.
+ * projection engine writes it and reads its semantic baseline and per-target rows back; this module
+ * is the only definition of its shape, of its byte layout and of every value derived from it.
  *
- * `schemaVersion` is `v2` from 0.7.0: content-stamp targets (`sourceFootprintDigest`, `scale`) and
- * provenance v3. A `v1` manifest (renderer v4) is not valid here, but the projection still reads its
- * semantic baseline and plans a rewrite of the manifest and every generated document.
+ * `schemaVersion` is `v3` (#327). The file holds no global digest of all owned sources: header
+ * lines change only on a protocol upgrade, the one Git-visible anchor is
+ * `semanticBaseline.modelDigest`, and every other line belongs to one capability or one target.
+ * Two pull requests that touch different capabilities therefore rewrite disjoint lines. The global
+ * digests a run still needs (source tree, flow proof, projection) are computed from the rows when
+ * the manifest is read (`architectureDocsProjectionManifestDigests`).
+ *
+ * A `v1` or `v2` manifest is read only for its `schemaVersion` and refused with
+ * `projection-manifest-upgrade-required`; nothing else in it is read.
  */
 export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH = "docs/architecture/.projection-manifest.json" as const;
-export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION = "archcontext.architecture-docs-projection-manifest/v2" as const;
+export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION = "archcontext.architecture-docs-projection-manifest/v3" as const;
+/** Manifest versions earlier releases wrote. Only their `schemaVersion` is read, to refuse them. */
+export const SUPERSEDED_ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSIONS = [
+  "archcontext.architecture-docs-projection-manifest/v1",
+  "archcontext.architecture-docs-projection-manifest/v2"
+] as const;
+/** The reason code of a refused superseded manifest; the operator re-baselines once with `archctx docs apply --approved`. */
+export const PROJECTION_MANIFEST_UPGRADE_REQUIRED = "projection-manifest-upgrade-required" as const;
+/** The reason code of a current-format manifest that fails its contract; restore it from Git. */
+export const PROJECTION_MANIFEST_INVALID = "projection-manifest-invalid" as const;
+/** The reason code of a declared source footprint that no entity-summary target carries a stamp for. */
+export const PROJECTION_FOOTPRINT_UNCOVERED = "projection-footprint-uncovered" as const;
 export const ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION = "archcontext.architecture-docs-projection-provenance/v3" as const;
+export const ARCHITECTURE_DOCS_LAYOUT_VERSION_V1 = "archcontext.docs-layout/v1" as const;
 export const ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION = "archcontext.architecture-semantic-state/v1" as const;
 export const ARCHITECTURE_DOCS_PROJECTION_PROFILES = ["default", "repo-harness/v1"] as const;
 
@@ -43,33 +61,26 @@ export interface ArchitectureSemanticStateV1 {
   flowProofFingerprint: string;
 }
 
-export interface ArchitectureProofEvidenceDigestsV1 {
-  /** Declared source footprint identity, the same value the committed provenance records. */
-  sourceTreeDigest: string;
-  /** Digest of the selector-evidence facts the P1/P2 compilation reads. */
-  selectorEvidenceDigest: string;
-  /** The renderer version that compiled the proofs, so a compiler change is never credited to journals. */
+/**
+ * The inputs besides the model that the flow proofs of one projection were compiled from, per
+ * capability. Committed acceptance compares the manifest's value with a fresh measurement: a
+ * capability whose proof moved while its semantic fingerprint held is explained by the journaled
+ * model only when its member stamps, its selector-evidence digest and the renderer are unchanged.
+ */
+export interface ArchitectureProjectionProofEvidenceV1 {
   rendererVersion: string;
-}
-
-export interface ArchitectureProjectionSemanticBaselineV1 {
-  semanticState: ArchitectureSemanticStateV1;
-  digests: ArchitectureDigestSetV1;
-  /**
-   * The non-model proof inputs this baseline was rendered from, recorded fresh on every render.
-   * Absent in manifests written before it existed.
-   */
-  evidence?: ArchitectureProofEvidenceDigestsV1;
+  /** Per capability: digest of the proof-relevant selector evidence its flows cite. */
+  selectorEvidenceDigests: Record<string, string>;
+  /** Per node that declares `source.include`: the content digest of its footprint. */
+  sourceStamps: Record<string, string>;
 }
 
 /**
- * Committed projection provenance. It records machine-independent values only: content digests of
- * the model and the declared sources, plus renderer, layout and CodeGraph versions, so two machines
- * projecting the same commit write the same bytes (#277). HEAD, the full-worktree digest, the
- * CodeGraph evidence digest, the indexed-worktree digest and the CodeGraph status depend on the
- * checkout path, the index build time, the platform or whether `codegraph init` ran; they are runtime
- * facts (the projection runtime snapshot) and never reach the committed manifest. A provenance of
- * any other schemaVersion is not read as this one; the next projection rewrites it.
+ * Projection provenance of one run. Runtime only: receipts, recovery bindings and envelopes carry
+ * it, the committed manifest does not (#327). It records machine-independent values only: content
+ * digests of the model and the declared sources, plus renderer, layout and CodeGraph versions.
+ * HEAD, the full-worktree digest, the CodeGraph evidence digest, the indexed-worktree digest and
+ * the CodeGraph status are runtime snapshot facts (#277).
  */
 export interface ArchitectureDocumentationProjectionProvenanceV3 {
   schemaVersion: typeof ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION;
@@ -77,13 +88,15 @@ export interface ArchitectureDocumentationProjectionProvenanceV3 {
   modelDigest: string;
   projectionInputDigest: string;
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
-  layoutVersion: "archcontext.docs-layout/v1";
+  layoutVersion: typeof ARCHITECTURE_DOCS_LAYOUT_VERSION_V1;
   /** Reproducible CodeGraph identity only: package name and version (#266, #277). */
-  generatedFrom: {
-    codeGraphPackage: string;
-    codeGraphVersion: string;
-  };
+  generatedFrom: ArchitectureDocsProjectionGeneratedFromV1;
 }
+
+export type ArchitectureDocsProjectionGeneratedFromV1 = {
+  codeGraphPackage: string;
+  codeGraphVersion: string;
+};
 
 /**
  * One 1–2–5 magnitude bucket: the half-open range `[lower, upper)` that contains a measured count.
@@ -104,37 +117,51 @@ export interface ArchitectureCapabilityScaleV1 {
   lineCountBucket: ArchitectureScaleBucketV1;
 }
 
-export interface ArchitectureDocsProjectionManifestTargetV2 {
-  targetId: string;
+/**
+ * One target row of the committed manifest, keyed by `targetId`. The targetId and the renderer
+ * version are not repeated in the row: the key and the manifest header carry them.
+ */
+export interface ArchitectureDocsProjectionManifestTargetV3 {
   type: ProjectionTargetType;
   scope: { kind: ProjectionTargetScopeKind; id?: string; entityKind?: string };
   path: string;
   ownership: ProjectionTargetOwnership;
-  rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   format: ProjectionTargetFormat;
-  sourceDigest: string;
+  /** `digestJson({ targetId, body })` of the generated body: the region of a `mixed` target, the whole file of a `generated` one. */
   outputDigest: string;
   /**
-   * `entity-summary` targets of a node that declares `source.include` only: the content digest of
-   * that footprint the document was verified against. Present exactly when `scale` is.
+   * `entity-summary` targets only: the content digest of every declared source footprint this
+   * target documents, by node id. A footprint belongs to its node's nearest ancestor-or-self that
+   * has an entity-summary target, so every declared footprint is stamped on exactly one row.
    */
-  sourceFootprintDigest?: string;
-  /** `entity-summary` targets of a node that declares `source.include` only (#264). */
+  sourceStamps?: Record<string, string>;
+  /** Present exactly when `sourceStamps` stamps the target's own node: the scale buckets its document prints (#264). */
   scale?: ArchitectureCapabilityScaleV1;
 }
 
-export interface ArchitectureDocsProjectionManifestV2 {
+/** One capability of the committed semantic baseline. */
+export interface ArchitectureDocsProjectionManifestCapabilityV3 extends ArchitectureCapabilitySemanticStateV1 {
+  /** Digest of the proof-relevant selector evidence for the selectors this capability's flows cite. */
+  selectorEvidenceDigest: string;
+}
+
+export interface ArchitectureDocsProjectionManifestV3 {
   schemaVersion: typeof ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION;
-  rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
+  /**
+   * The renderer that wrote this manifest. Any renderer is readable: a renderer bump re-renders
+   * the owned outputs (drift reports them stale) and the per-capability proof check compares it.
+   */
+  rendererVersion: string;
   profile: ArchitectureDocsProjectionProfile;
-  sourceDigest: string;
-  provenance: ArchitectureDocumentationProjectionProvenanceV3;
-  projectionDigest: string;
-  semanticBaseline: ArchitectureProjectionSemanticBaselineV1;
-  receiptDigest: string;
-  targetCount: number;
-  fileCount: number;
-  targets: ArchitectureDocsProjectionManifestTargetV2[];
+  layoutVersion: typeof ARCHITECTURE_DOCS_LAYOUT_VERSION_V1;
+  generatedFrom: ArchitectureDocsProjectionGeneratedFromV1;
+  semanticBaseline: {
+    /** The one Git-visible anchor: the digest of the model this baseline was compiled from. */
+    modelDigest: string;
+    /** Sorted and unique by capabilityId. */
+    capabilities: ArchitectureDocsProjectionManifestCapabilityV3[];
+  };
+  targets: Record<string, ArchitectureDocsProjectionManifestTargetV3>;
 }
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
@@ -158,26 +185,184 @@ export function architectureDocsProjectionManifestIssues(value: unknown): string
   const issues: string[] = [];
   const manifest = record(value);
   if (!manifest) return ["manifest must be an object"];
-  issues.push(...exactKeys(manifest, ["schemaVersion", "rendererVersion", "profile", "sourceDigest", "provenance", "projectionDigest", "semanticBaseline", "receiptDigest", "targetCount", "fileCount", "targets"], [], "manifest"));
+  issues.push(...exactKeys(manifest, ["schemaVersion", "rendererVersion", "profile", "layoutVersion", "generatedFrom", "semanticBaseline", "targets"], [], "manifest"));
   if (manifest.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION) issues.push("manifest.schemaVersion is unsupported");
-  if (manifest.rendererVersion !== ARCHITECTURE_DOCS_RENDERER_VERSION) issues.push(`manifest.rendererVersion must be ${ARCHITECTURE_DOCS_RENDERER_VERSION}`);
+  if (!isNonEmptyString(manifest.rendererVersion)) issues.push("manifest.rendererVersion must be a non-empty string");
   if (!(ARCHITECTURE_DOCS_PROJECTION_PROFILES as readonly unknown[]).includes(manifest.profile)) issues.push("manifest.profile is unsupported");
-  for (const field of ["sourceDigest", "projectionDigest", "receiptDigest"] as const) {
-    if (!isDigest(manifest[field])) issues.push(`manifest.${field} must be a SHA-256 digest`);
+  if (manifest.layoutVersion !== ARCHITECTURE_DOCS_LAYOUT_VERSION_V1) issues.push("manifest.layoutVersion is unsupported");
+  issues.push(...generatedFromIssues(manifest.generatedFrom, "manifest.generatedFrom"));
+  const baseline = record(manifest.semanticBaseline);
+  if (!baseline) issues.push("manifest.semanticBaseline must be an object");
+  else {
+    issues.push(...exactKeys(baseline, ["modelDigest", "capabilities"], [], "manifest.semanticBaseline"));
+    if (!isDigest(baseline.modelDigest)) issues.push("manifest.semanticBaseline.modelDigest must be a SHA-256 digest");
+    issues.push(...capabilityEntriesIssues(baseline.capabilities, "manifest.semanticBaseline.capabilities", true));
   }
-  issues.push(...architectureDocsProjectionProvenanceIssues(manifest.provenance, "manifest.provenance"));
-  issues.push(...architectureProjectionSemanticBaselineIssues(manifest.semanticBaseline, "manifest.semanticBaseline"));
-  const targets = manifest.targets;
-  if (!Array.isArray(targets)) {
-    issues.push("manifest.targets must be an array");
+  const targets = record(manifest.targets);
+  if (!targets) {
+    issues.push("manifest.targets must be an object keyed by targetId");
     return issues;
   }
-  if (manifest.targetCount !== targets.length) issues.push("manifest.targetCount must equal the number of targets");
-  if (manifest.fileCount !== targets.length) issues.push("manifest.fileCount must equal the number of targets");
-  const targetIds = targets.map((target) => record(target)?.targetId);
-  if (new Set(targetIds).size !== targetIds.length) issues.push("manifest.targets.targetId must be unique");
-  targets.forEach((target, index) => issues.push(...manifestTargetIssues(target, `manifest.targets[${index}]`)));
+  const paths = new Set<string>();
+  const stampOwners = new Map<string, string>();
+  for (const [targetId, row] of Object.entries(targets)) {
+    const prefix = `manifest.targets[${JSON.stringify(targetId)}]`;
+    if (!isNonEmptyString(targetId)) issues.push("manifest.targets keys must be non-empty targetIds");
+    issues.push(...manifestTargetIssues(row, prefix));
+    const path = record(row)?.path;
+    if (typeof path === "string") {
+      if (paths.has(path)) issues.push(`${prefix}.path is recorded by another target`);
+      paths.add(path);
+    }
+    for (const nodeId of Object.keys(record(record(row)?.sourceStamps) ?? {})) {
+      const owner = stampOwners.get(nodeId);
+      if (owner !== undefined) issues.push(`${prefix}.sourceStamps.${nodeId} is already stamped on ${owner}`);
+      else stampOwners.set(nodeId, targetId);
+    }
+  }
   return issues;
+}
+
+/**
+ * Reads only the `schemaVersion` of a manifest body: the one field this release reads from a
+ * manifest it does not write. Undefined when the body is not a JSON object or carries no string
+ * `schemaVersion`.
+ */
+export function architectureDocsProjectionManifestSchemaVersion(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  const schemaVersion = record(parsed)?.schemaVersion;
+  return typeof schemaVersion === "string" ? schemaVersion : undefined;
+}
+
+/** True for a manifest version an earlier release wrote; such a manifest is refused, never read. */
+export function isSupersededArchitectureDocsProjectionManifestSchemaVersion(schemaVersion: string | undefined): boolean {
+  return (SUPERSEDED_ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSIONS as readonly (string | undefined)[]).includes(schemaVersion);
+}
+
+/**
+ * The committed byte layout. JSON, with one rule beyond `JSON.stringify`: every value that one
+ * capability or one target owns sits on lines no other capability or target shares, and an
+ * unchanged line separates the lines of any two owners. Git merges two branches that touch
+ * different owners without a conflict, because a merge conflicts on adjacent changed lines too.
+ *
+ * - Header lines (`schemaVersion`, `rendererVersion`, `profile`, `layoutVersion`, `generatedFrom`)
+ *   change only on a protocol upgrade.
+ * - `semanticBaseline.modelDigest` is the one shared line a model change rewrites; two concurrent
+ *   model changes conflict there, as they should.
+ * - Each capability entry is indented JSON and starts with its own `capabilityId` line.
+ * - Each target row is one line, after a line holding its `targetId` key, in canonical key order.
+ */
+export function serializeArchitectureDocsProjectionManifest(manifest: ArchitectureDocsProjectionManifestV3): string {
+  const capabilities = [...manifest.semanticBaseline.capabilities]
+    .sort((left, right) => compareStrings(left.capabilityId, right.capabilityId))
+    .map(canonicalCapability);
+  const capabilityBlock = JSON.stringify(capabilities, null, 2).split("\n").map((line, index) => index === 0 ? line : `    ${line}`).join("\n");
+  const targetIds = Object.keys(manifest.targets).sort(compareStrings);
+  const targetLines = targetIds.length === 0
+    ? ["  \"targets\": {}"]
+    : [
+        "  \"targets\": {",
+        ...targetIds.flatMap((targetId, index) => [
+          `    ${JSON.stringify(targetId)}:`,
+          `      ${JSON.stringify(canonicalTargetRow(manifest.targets[targetId]!))}${index === targetIds.length - 1 ? "" : ","}`
+        ]),
+        "  }"
+      ];
+  return [
+    "{",
+    `  "schemaVersion": ${JSON.stringify(manifest.schemaVersion)},`,
+    `  "rendererVersion": ${JSON.stringify(manifest.rendererVersion)},`,
+    `  "profile": ${JSON.stringify(manifest.profile)},`,
+    `  "layoutVersion": ${JSON.stringify(manifest.layoutVersion)},`,
+    `  "generatedFrom": ${JSON.stringify({ codeGraphPackage: manifest.generatedFrom.codeGraphPackage, codeGraphVersion: manifest.generatedFrom.codeGraphVersion })},`,
+    "  \"semanticBaseline\": {",
+    `    "modelDigest": ${JSON.stringify(manifest.semanticBaseline.modelDigest)},`,
+    `    "capabilities": ${capabilityBlock}`,
+    "  },",
+    ...targetLines,
+    "}",
+    ""
+  ].join("\n");
+}
+
+/** The runtime semantic state the baseline records: capability entries without their evidence, plus the two aggregates. */
+export function architectureDocsProjectionManifestSemanticState(manifest: ArchitectureDocsProjectionManifestV3): ArchitectureSemanticStateV1 {
+  return architectureSemanticStateFromCapabilities(manifest.semanticBaseline.capabilities.map(({ selectorEvidenceDigest: _selectorEvidenceDigest, ...capability }) => capability));
+}
+
+/**
+ * Assembles a semantic state from its capability entries. The two aggregates are a function of
+ * the entries, so the committed manifest records only the entries and every reader recomputes them.
+ */
+export function architectureSemanticStateFromCapabilities(capabilities: readonly ArchitectureCapabilitySemanticStateV1[]): ArchitectureSemanticStateV1 {
+  const sorted = [...capabilities].sort((left, right) => compareStrings(left.capabilityId, right.capabilityId));
+  return {
+    schemaVersion: ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION,
+    capabilities: sorted,
+    semanticFingerprint: digestJson(sorted.map(({ capabilityId, semanticFingerprint }) => ({ capabilityId, semanticFingerprint })) as unknown as Json),
+    flowProofFingerprint: digestJson(sorted.map(({ capabilityId, flowProofFingerprint }) => ({ capabilityId, flowProofFingerprint })) as unknown as Json)
+  };
+}
+
+/** Every stamp the rows record, by node id. A valid manifest stamps each node on one row only. */
+export function architectureDocsProjectionManifestSourceStamps(manifest: ArchitectureDocsProjectionManifestV3): Record<string, string> {
+  const stamps: Record<string, string> = {};
+  for (const row of Object.values(manifest.targets)) Object.assign(stamps, row.sourceStamps ?? {});
+  return stamps;
+}
+
+/** The proof evidence the baseline was compiled from, as `ArchitectureProjectionProofEvidenceV1`. */
+export function architectureDocsProjectionManifestProofEvidence(manifest: ArchitectureDocsProjectionManifestV3): ArchitectureProjectionProofEvidenceV1 {
+  return {
+    rendererVersion: manifest.rendererVersion,
+    selectorEvidenceDigests: Object.fromEntries(manifest.semanticBaseline.capabilities.map((capability) => [capability.capabilityId, capability.selectorEvidenceDigest])),
+    sourceStamps: architectureDocsProjectionManifestSourceStamps(manifest)
+  };
+}
+
+/**
+ * The declared source tree digest: the digest of every footprint stamp, by node id. Runtime
+ * provenance and the read-time value of a committed manifest use this one formula, so they agree
+ * exactly when every stamp agrees.
+ */
+export function architectureSourceStampsDigest(stamps: Readonly<Record<string, string>>): Sha256Digest {
+  return digestJson({
+    schemaVersion: "archcontext.architecture-source-stamps/v1",
+    stamps: Object.keys(stamps).sort(compareStrings).map((nodeId) => ({ nodeId, digest: stamps[nodeId]! }))
+  } as unknown as Json) as Sha256Digest;
+}
+
+/** The projection digest: renderer, profile and every target's output digest. */
+export function architectureProjectionOutputsDigest(input: {
+  rendererVersion: string;
+  profile: string;
+  outputDigests: Readonly<Record<string, string>>;
+}): Sha256Digest {
+  return digestJson({
+    schemaVersion: "archcontext.architecture-projection-outputs/v1",
+    rendererVersion: input.rendererVersion,
+    profile: input.profile,
+    outputs: Object.keys(input.outputDigests).sort(compareStrings).map((targetId) => ({ targetId, outputDigest: input.outputDigests[targetId]! }))
+  } as unknown as Json) as Sha256Digest;
+}
+
+/** The global digests of a committed manifest, computed from its rows at read time. */
+export function architectureDocsProjectionManifestDigests(manifest: ArchitectureDocsProjectionManifestV3): ArchitectureDigestSetV1 {
+  return {
+    modelDigest: manifest.semanticBaseline.modelDigest as Sha256Digest,
+    sourceTreeDigest: architectureSourceStampsDigest(architectureDocsProjectionManifestSourceStamps(manifest)),
+    flowProofDigest: architectureDocsProjectionManifestSemanticState(manifest).flowProofFingerprint as Sha256Digest,
+    projectionDigest: architectureProjectionOutputsDigest({
+      rendererVersion: manifest.rendererVersion,
+      profile: manifest.profile,
+      outputDigests: Object.fromEntries(Object.entries(manifest.targets).map(([targetId, row]) => [targetId, row.outputDigest]))
+    })
+  };
 }
 
 export function architectureDocsProjectionProvenanceIssues(value: unknown, prefix = "provenance"): string[] {
@@ -189,35 +374,8 @@ export function architectureDocsProjectionProvenanceIssues(value: unknown, prefi
     if (!isDigest(provenance[field])) issues.push(`${prefix}.${field} must be a SHA-256 digest`);
   }
   if (provenance.rendererVersion !== ARCHITECTURE_DOCS_RENDERER_VERSION) issues.push(`${prefix}.rendererVersion must be ${ARCHITECTURE_DOCS_RENDERER_VERSION}`);
-  if (provenance.layoutVersion !== "archcontext.docs-layout/v1") issues.push(`${prefix}.layoutVersion is unsupported`);
-  const generatedFrom = record(provenance.generatedFrom);
-  if (!generatedFrom) {
-    issues.push(`${prefix}.generatedFrom must be an object`);
-    return issues;
-  }
-  issues.push(...exactKeys(generatedFrom, ["codeGraphPackage", "codeGraphVersion"], [], `${prefix}.generatedFrom`));
-  for (const field of ["codeGraphPackage", "codeGraphVersion"] as const) {
-    if (!isNonEmptyString(generatedFrom[field])) issues.push(`${prefix}.generatedFrom.${field} must be a non-empty string`);
-  }
-  return issues;
-}
-
-export function architectureProjectionSemanticBaselineIssues(value: unknown, prefix = "semanticBaseline"): string[] {
-  const baseline = record(value);
-  if (!baseline) return [`${prefix} must be an object`];
-  const issues = exactKeys(baseline, ["semanticState", "digests"], ["evidence"], prefix);
-  issues.push(...architectureSemanticStateIssues(baseline.semanticState, `${prefix}.semanticState`));
-  issues.push(...architectureDigestSetIssues(baseline.digests, `${prefix}.digests`));
-  if (baseline.evidence !== undefined) {
-    const evidence = record(baseline.evidence);
-    if (!evidence) issues.push(`${prefix}.evidence must be an object`);
-    else {
-      issues.push(...exactKeys(evidence, ["sourceTreeDigest", "selectorEvidenceDigest", "rendererVersion"], [], `${prefix}.evidence`));
-      if (!isDigest(evidence.sourceTreeDigest)) issues.push(`${prefix}.evidence.sourceTreeDigest must be a SHA-256 digest`);
-      if (!isDigest(evidence.selectorEvidenceDigest)) issues.push(`${prefix}.evidence.selectorEvidenceDigest must be a SHA-256 digest`);
-      if (!isNonEmptyString(evidence.rendererVersion)) issues.push(`${prefix}.evidence.rendererVersion must be a non-empty string`);
-    }
-  }
+  if (provenance.layoutVersion !== ARCHITECTURE_DOCS_LAYOUT_VERSION_V1) issues.push(`${prefix}.layoutVersion is unsupported`);
+  issues.push(...generatedFromIssues(provenance.generatedFrom, `${prefix}.generatedFrom`));
   return issues;
 }
 
@@ -237,24 +395,29 @@ export function architectureSemanticStateIssues(value: unknown, prefix = "semant
   if (state.schemaVersion !== ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION) issues.push(`${prefix}.schemaVersion is unsupported`);
   if (!isDigest(state.semanticFingerprint)) issues.push(`${prefix}.semanticFingerprint must be a SHA-256 digest`);
   if (!isDigest(state.flowProofFingerprint)) issues.push(`${prefix}.flowProofFingerprint must be a SHA-256 digest`);
-  if (!Array.isArray(state.capabilities)) {
-    issues.push(`${prefix}.capabilities must be an array`);
-    return issues;
-  }
-  const ids = state.capabilities.map((entry) => record(entry)?.capabilityId);
-  if (!isSortedUniqueStrings(ids)) issues.push(`${prefix}.capabilities must be sorted and unique by capabilityId`);
-  state.capabilities.forEach((entry, index) => {
-    const entryPrefix = `${prefix}.capabilities[${index}]`;
+  issues.push(...capabilityEntriesIssues(state.capabilities, `${prefix}.capabilities`, false));
+  return issues;
+}
+
+function capabilityEntriesIssues(value: unknown, prefix: string, withSelectorEvidence: boolean): string[] {
+  if (!Array.isArray(value)) return [`${prefix} must be an array`];
+  const issues: string[] = [];
+  const ids = value.map((entry) => record(entry)?.capabilityId);
+  if (!isSortedUniqueStrings(ids)) issues.push(`${prefix} must be sorted and unique by capabilityId`);
+  value.forEach((entry, index) => {
+    const entryPrefix = `${prefix}[${index}]`;
     const capability = record(entry);
     if (!capability) {
       issues.push(`${entryPrefix} must be an object`);
       return;
     }
-    issues.push(...exactKeys(capability, ["capabilityId", "memberNodeIds", "semanticFingerprint", "flowProofFingerprint", "proofStatus", "facets"], [], entryPrefix));
+    const required = ["capabilityId", "memberNodeIds", "semanticFingerprint", "flowProofFingerprint", "proofStatus", "facets", ...(withSelectorEvidence ? ["selectorEvidenceDigest"] : [])];
+    issues.push(...exactKeys(capability, required, [], entryPrefix));
     if (!isNonEmptyString(capability.capabilityId)) issues.push(`${entryPrefix}.capabilityId must be a non-empty string`);
     if (!Array.isArray(capability.memberNodeIds) || !isSortedUniqueStrings(capability.memberNodeIds)) issues.push(`${entryPrefix}.memberNodeIds must be sorted and unique`);
     if (!isDigest(capability.semanticFingerprint)) issues.push(`${entryPrefix}.semanticFingerprint must be a SHA-256 digest`);
     if (!isDigest(capability.flowProofFingerprint)) issues.push(`${entryPrefix}.flowProofFingerprint must be a SHA-256 digest`);
+    if (withSelectorEvidence && !isDigest(capability.selectorEvidenceDigest)) issues.push(`${entryPrefix}.selectorEvidenceDigest must be a SHA-256 digest`);
     if (!isArchitectureCapabilityProofStatus(capability.proofStatus)) issues.push(`${entryPrefix}.proofStatus must be a P1/P2 proof status`);
     const facets = record(capability.facets);
     if (!facets) issues.push(`${entryPrefix}.facets must be an object`);
@@ -266,6 +429,54 @@ export function architectureSemanticStateIssues(value: unknown, prefix = "semant
     }
   });
   return issues;
+}
+
+function generatedFromIssues(value: unknown, prefix: string): string[] {
+  const generatedFrom = record(value);
+  if (!generatedFrom) return [`${prefix} must be an object`];
+  const issues = exactKeys(generatedFrom, ["codeGraphPackage", "codeGraphVersion"], [], prefix);
+  for (const field of ["codeGraphPackage", "codeGraphVersion"] as const) {
+    if (!isNonEmptyString(generatedFrom[field])) issues.push(`${prefix}.${field} must be a non-empty string`);
+  }
+  return issues;
+}
+
+function canonicalCapability(capability: ArchitectureDocsProjectionManifestCapabilityV3): ArchitectureDocsProjectionManifestCapabilityV3 {
+  return {
+    capabilityId: capability.capabilityId,
+    memberNodeIds: [...capability.memberNodeIds],
+    semanticFingerprint: capability.semanticFingerprint,
+    flowProofFingerprint: capability.flowProofFingerprint,
+    proofStatus: { p1: capability.proofStatus.p1, p2: capability.proofStatus.p2 },
+    facets: Object.fromEntries(Object.keys(capability.facets).sort(compareStrings).map((facet) => [facet, capability.facets[facet as ArchitectureSemanticFacet]])) as Record<ArchitectureSemanticFacet, string>,
+    selectorEvidenceDigest: capability.selectorEvidenceDigest
+  };
+}
+
+function canonicalTargetRow(row: ArchitectureDocsProjectionManifestTargetV3): ArchitectureDocsProjectionManifestTargetV3 {
+  return {
+    type: row.type,
+    scope: {
+      kind: row.scope.kind,
+      ...(row.scope.id !== undefined ? { id: row.scope.id } : {}),
+      ...(row.scope.entityKind !== undefined ? { entityKind: row.scope.entityKind } : {})
+    },
+    path: row.path,
+    ownership: row.ownership,
+    format: row.format,
+    outputDigest: row.outputDigest,
+    ...(row.sourceStamps !== undefined
+      ? { sourceStamps: Object.fromEntries(Object.keys(row.sourceStamps).sort(compareStrings).map((nodeId) => [nodeId, row.sourceStamps![nodeId]!])) }
+      : {}),
+    ...(row.scale !== undefined
+      ? {
+          scale: {
+            fileCountBucket: { lower: row.scale.fileCountBucket.lower, upper: row.scale.fileCountBucket.upper },
+            lineCountBucket: { lower: row.scale.lineCountBucket.lower, upper: row.scale.lineCountBucket.upper }
+          }
+        }
+      : {})
+  };
 }
 
 /** True when the value is a valid 1–2–5 magnitude bucket (see ArchitectureScaleBucketV1). */
@@ -287,8 +498,7 @@ export function isArchitectureScaleBucket(value: unknown): value is Architecture
 function manifestTargetIssues(value: unknown, prefix: string): string[] {
   const target = record(value);
   if (!target) return [`${prefix} must be an object`];
-  const issues = exactKeys(target, ["targetId", "type", "scope", "path", "ownership", "rendererVersion", "format", "sourceDigest", "outputDigest"], ["sourceFootprintDigest", "scale"], prefix);
-  if (!isNonEmptyString(target.targetId)) issues.push(`${prefix}.targetId must be a non-empty string`);
+  const issues = exactKeys(target, ["type", "scope", "path", "ownership", "format", "outputDigest"], ["sourceStamps", "scale"], prefix);
   if (typeof target.type !== "string" || !Object.hasOwn(TARGET_TYPES, target.type)) issues.push(`${prefix}.type is unsupported`);
   const scope = record(target.scope);
   if (!scope || typeof scope.kind !== "string" || !Object.hasOwn(SCOPE_KINDS, scope.kind)) issues.push(`${prefix}.scope.kind is unsupported`);
@@ -300,15 +510,24 @@ function manifestTargetIssues(value: unknown, prefix: string): string[] {
   }
   if (typeof target.path !== "string" || !isRepoRelativePosixPath(target.path)) issues.push(`${prefix}.path must be a repository-relative POSIX path`);
   if (typeof target.ownership !== "string" || !Object.hasOwn(OWNERSHIPS, target.ownership)) issues.push(`${prefix}.ownership is unsupported`);
-  if (target.rendererVersion !== ARCHITECTURE_DOCS_RENDERER_VERSION) issues.push(`${prefix}.rendererVersion must be ${ARCHITECTURE_DOCS_RENDERER_VERSION}`);
   if (typeof target.format !== "string" || !Object.hasOwn(FORMATS, target.format)) issues.push(`${prefix}.format is unsupported`);
-  if (!isDigest(target.sourceDigest)) issues.push(`${prefix}.sourceDigest must be a SHA-256 digest`);
   if (!isDigest(target.outputDigest)) issues.push(`${prefix}.outputDigest must be a SHA-256 digest`);
-  if (target.sourceFootprintDigest !== undefined && !isDigest(target.sourceFootprintDigest)) issues.push(`${prefix}.sourceFootprintDigest must be a SHA-256 digest`);
-  if ((target.sourceFootprintDigest !== undefined || target.scale !== undefined) && target.type !== "entity-summary") {
-    issues.push(`${prefix}.sourceFootprintDigest and scale are only allowed on entity-summary targets`);
+  if ((target.sourceStamps !== undefined || target.scale !== undefined) && target.type !== "entity-summary") {
+    issues.push(`${prefix}.sourceStamps and scale are only allowed on entity-summary targets`);
   }
-  if ((target.sourceFootprintDigest === undefined) !== (target.scale === undefined)) issues.push(`${prefix}.sourceFootprintDigest and scale must be present together`);
+  if (target.sourceStamps !== undefined) {
+    const stamps = record(target.sourceStamps);
+    if (!stamps || Object.keys(stamps).length === 0) issues.push(`${prefix}.sourceStamps must be a non-empty object keyed by node id`);
+    else {
+      for (const [nodeId, digest] of Object.entries(stamps)) {
+        if (!isNonEmptyString(nodeId)) issues.push(`${prefix}.sourceStamps keys must be non-empty node ids`);
+        if (!isDigest(digest)) issues.push(`${prefix}.sourceStamps.${nodeId} must be a SHA-256 digest`);
+      }
+    }
+  }
+  const ownNodeId = scope?.id;
+  const stampsOwnNode = typeof ownNodeId === "string" && record(target.sourceStamps) !== undefined && Object.hasOwn(record(target.sourceStamps)!, ownNodeId);
+  if (stampsOwnNode !== (target.scale !== undefined)) issues.push(`${prefix}.scale must be present exactly when sourceStamps stamps the target's own node`);
   if (target.scale !== undefined) {
     const scale = record(target.scale);
     if (!scale) issues.push(`${prefix}.scale must be an object`);
@@ -343,4 +562,8 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isSortedUniqueStrings(values: readonly unknown[]): boolean {
   return values.every((value, index) => typeof value === "string" && (index === 0 || (values[index - 1] as string) < value));
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
