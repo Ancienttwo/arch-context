@@ -5699,7 +5699,8 @@ describe("archctx CLI", () => {
       const duplicate = await rpcClient.applyUpdate(...appliedInput!);
       expect(duplicate).toMatchObject({
         ok: false,
-        error: { code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-accepted-change-committed", details: { requestId: request.requestId } }
+        // The writer-time guard refuses before any write (#325).
+        error: { code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-accepted-change-committed", details: { requestId: request.requestId, written: false } }
       });
       const original = applied.data as ProjectionResultV2;
       const before = await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey);
@@ -5806,7 +5807,8 @@ describe("archctx CLI", () => {
         // signals were never delivered, so the replay still reports reconcile-required.
         const replayed = await runCli("projection", ["run", "--request-json", JSON.stringify(firstApplyRequest)], root, { runtimeClient: racingClient });
         expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
-        expect(replayed.data).toEqual({ ...(raced.data as object), replayed: true });
+        // The non-owned write moved the approved snapshot, so the replay proves and writes nothing (#325).
+        expect(replayed.data).toEqual({ ...(raced.data as object), replayed: true, written: false });
         expect(applyCalls).toBe(1);
         const ordinaryRetry = await runCli("projection", ["run", "--request-json", JSON.stringify({
           ...firstApplyRequest,
@@ -6045,7 +6047,7 @@ describe("archctx CLI", () => {
       const manifestBeforeReplay = readFileSync(manifestPath, "utf8");
       const replayed = await call("run", request, true);
       expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
-      expect(replayed.data).toEqual({ ...applied.data, replayed: true });
+      expect(replayed.data).toEqual({ ...applied.data, replayed: true, written: false });
       expect(await call("readback", request)).toEqual(readbackBeforeReplay);
       expect(readFileSync(manifestPath, "utf8")).toBe(manifestBeforeReplay);
       const intent = {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -491,7 +491,8 @@ test("a repeated accepted apply returns the committed result without applying ag
     // returns the committed result, marked replayed, with the committed receipt digest.
     const replay = projectionResult(await projectionRun(original));
     expect(replay.replayed).toBe(true);
-    const { replayed: _replayed, ...replayBody } = replay;
+    expect(replay.written).toBe(false);
+    const { replayed: _replayed, written: _written, ...replayBody } = replay;
     expect(replayBody).toEqual(first);
     expect(docsSnapshot(root)).toEqual(docsAfterFirst);
 
@@ -520,6 +521,147 @@ test("a repeated accepted apply returns the committed result without applying ag
     expect(readback.ok, JSON.stringify(readback)).toBe(true);
     expect((readback.data as any).receipt.result.receiptDigest).toBe(first.receiptDigest);
     expect((readback.data as any).receipt.recovery.requestDigest).toBe(digestJson(original as any));
+  });
+}, TEST_TIMEOUT_MS);
+
+test("a replay proves the committed outputs and writes reverted ones again under the original receipt (#325)", async () => {
+  await withProtocolFixture("archctx-projection-replay-restore-", async ({ root, daemon, request, projectionRun }) => {
+    editKeptSummary(root);
+    const docsBefore = docsSnapshot(root);
+    const original = request("apply", "projection_request.replay_restore", { acceptObservedMajorChange: true });
+    const first = projectionResult(await projectionRun(original));
+    expect(first.status).toBe("applied");
+    const docsAfterFirst = docsSnapshot(root);
+    expect(docsAfterFirst).not.toEqual(docsBefore);
+    const { acceptObservedMajorChange: _flag, ...withoutFlag } = original;
+    const readbackRequest = { ...withoutFlag, acceptedChange: first.applyReceipt!.acceptedChange };
+    const committedBody = (result: ProjectionResultV2) => {
+      const { replayed: _replayed, written: _written, ...body } = result;
+      return body;
+    };
+
+    // Outputs intact: the replay proves them and says it wrote nothing.
+    const intact = projectionResult(await projectionRun(original));
+    expect(intact).toMatchObject({ replayed: true, written: false });
+    expect(committedBody(intact)).toEqual(first);
+    expect(docsSnapshot(root)).toEqual(docsAfterFirst);
+
+    // The worker restores the generated pages; the snapshot still equals the approved one, so
+    // readback can no longer prove the receipt.
+    git(root, "checkout", "--", "docs/architecture");
+    expect(docsSnapshot(root)).toEqual(docsBefore);
+    const unprovable = await daemon.readbackProjectionApply(root, readbackRequest);
+    expect(unprovable.ok).toBe(false);
+
+    // The same request writes the committed fixed point again under the original receipt.
+    const restored = projectionResult(await projectionRun(original));
+    expect(restored).toMatchObject({ replayed: true, written: true });
+    expect(committedBody(restored)).toEqual(first);
+    expect(docsSnapshot(root)).toEqual(docsAfterFirst);
+    const readback = await daemon.readbackProjectionApply(root, readbackRequest);
+    expect(readback.ok, JSON.stringify(readback)).toBe(true);
+    expect((readback.data as any).receipt.result).toEqual(first);
+    const inspected = await daemon.inspectProjectionApplyReceipt(root, first.applyReceipt!.lookupKey) as any;
+    expect(inspected.data).toMatchObject({ found: true, deliveryStatus: "delivered" });
+    expect(inspected.data.receipt.result).toEqual(first);
+
+    // Idempotent: once restored, the next replay proves the outputs and writes nothing.
+    expect(projectionResult(await projectionRun(original))).toMatchObject({ replayed: true, written: false });
+
+    // A human edit inside docs/architecture is never overwritten: the re-rendered fixed point no
+    // longer reproduces the receipt, so the replay fails closed and leaves the bytes alone.
+    git(root, "checkout", "--", "docs/architecture");
+    const modulePath = manifestTargetPath(root, KEPT);
+    const noted = `${readFileSync(join(root, modulePath), "utf8")}\nHuman hook adapter notes.\n`;
+    writeFileSync(join(root, modulePath), noted, "utf8");
+    const docsWithNote = docsSnapshot(root);
+    const refused = await projectionRun(original);
+    expect(refused.ok).toBe(false);
+    expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
+    expect((refused as any).error.message).toContain("cannot be restored");
+    expect(docsSnapshot(root)).toEqual(docsWithNote);
+
+    // A moved snapshot keeps today's answer: the committed result, proven by nothing, written by nothing.
+    git(root, "checkout", "--", "docs/architecture");
+    commitAll(root, "move HEAD after the accepted apply");
+    const docsAfterMove = docsSnapshot(root);
+    const moved = projectionResult(await projectionRun(original));
+    expect(moved).toMatchObject({ replayed: true, written: false });
+    expect(committedBody(moved)).toEqual(first);
+    expect(docsSnapshot(root)).toEqual(docsAfterMove);
+  });
+}, TEST_TIMEOUT_MS);
+
+test("a replay surfaces a failed snapshot read instead of reporting a moved snapshot (#325)", async () => {
+  // chmod cannot make a file unreadable on Windows.
+  if (process.platform === "win32") return;
+  await withProtocolFixture("archctx-projection-replay-read-failure-", async ({ root, daemon, request, projectionRun }) => {
+    editKeptSummary(root);
+    const original = request("apply", "projection_request.replay_read_failure", { acceptObservedMajorChange: true });
+    expect(projectionResult(await projectionRun(original)).status).toBe("applied");
+    const docsAfterFirst = docsSnapshot(root);
+
+    // Once the replay has read its receipt, the worktree digest can no longer be computed: an
+    // unreadable file is a failed read, never a moved snapshot answered with `written: false`.
+    const unreadable = join(root, "unreadable.txt");
+    editAfterClassification(daemon, () => {
+      writeFileSync(unreadable, "not readable\n", "utf8");
+      chmodSync(unreadable, 0o000);
+    });
+    try {
+      const failed = await projectionRun(original);
+      expect(failed.ok, JSON.stringify(failed)).toBe(false);
+      expect((failed as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
+      expect((failed as any).error.message).toContain("EACCES");
+      expect(docsSnapshot(root)).toEqual(docsAfterFirst);
+    } finally {
+      chmodSync(unreadable, 0o644);
+    }
+  });
+}, TEST_TIMEOUT_MS);
+
+test("a new requestId for a committed accepted change restores reverted outputs and points at readback (#325)", async () => {
+  await withProtocolFixture("archctx-projection-new-id-restore-", async ({ root, cli, request, projectionRun }) => {
+    editKeptSummary(root);
+    const original = request("apply", "projection_request.new_id_restore", { acceptObservedMajorChange: true });
+    const first = projectionResult(await projectionRun(original));
+    expect(first.status).toBe("applied");
+    const docsAfterFirst = docsSnapshot(root);
+    git(root, "checkout", "--", "docs/architecture");
+
+    // The worker guide's new requestId observes the same accepted change at the same snapshot. The
+    // change stays committed under the original requestId, but its outputs are written again under
+    // the original receipt, so the readback the refusal names now succeeds.
+    const retried = await projectionRun({ ...original, requestId: "projection_request.new_id_restore_retry" });
+    expect(retried.ok).toBe(false);
+    const committed = (retried as any).error;
+    expect(committed).toMatchObject({
+      code: "AC_PROJECTION_APPLY_COMMITTED",
+      reasonCode: "projection-accepted-change-committed",
+      details: {
+        requestId: original.requestId,
+        lookupKey: first.applyReceipt!.lookupKey,
+        applyId: first.applyReceipt!.applyId,
+        written: true
+      }
+    });
+    expect(committed.message).toContain("written again under the original receipt");
+    expect(docsSnapshot(root)).toEqual(docsAfterFirst);
+    const readback = await cli("projection", ["readback", "--request-json", JSON.stringify(committed.details.readbackRequest)]);
+    expect(readback.ok, JSON.stringify(readback)).toBe(true);
+    expect((readback.data as any).receipt.result).toEqual(first);
+
+    // With the outputs intact, the same accepted change under another requestId is refused as
+    // before (#265) and writes nothing.
+    const { acceptObservedMajorChange: _flag, ...withoutFlag } = original;
+    const intact = await projectionRun({ ...withoutFlag, requestId: "projection_request.new_id_restore_other", acceptedChange: first.applyReceipt!.acceptedChange });
+    expect(intact.ok).toBe(false);
+    expect((intact as any).error).toMatchObject({
+      code: "AC_PROJECTION_APPLY_COMMITTED",
+      reasonCode: "projection-accepted-change-committed",
+      details: { lookupKey: first.applyReceipt!.lookupKey, written: false }
+    });
+    expect(docsSnapshot(root)).toEqual(docsAfterFirst);
   });
 }, TEST_TIMEOUT_MS);
 

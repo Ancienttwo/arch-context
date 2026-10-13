@@ -20,6 +20,7 @@
     "freshness": { "$ref": "#/$defs/freshness" },
     "architectureDebt": { "$ref": "#/$defs/architectureDebt" },
     "replayed": { "const": true, "description": "A repeated apply for the same requestId and request digest returned the committed result without applying again. Excluded from receiptDigest." },
+    "written": { "type": "boolean", "description": "Present exactly when replayed is. false: the replay wrote nothing. true: the projection-owned outputs differed from the approved result at the approved snapshot and the replay wrote the committed fixed point again under the original receipt. Excluded from receiptDigest." },
     "majorChangeAcceptance": { "const": "declined-unprovable-proof", "description": "Present only when the request sent acceptObservedMajorChange and the provider declined it because a capability proof is unprovable; humanActions then carries unprovable-required-flow instead of unresolved-major-change." },
     "receiptDigest": { "$ref": "#/$defs/digest" }
   },
@@ -51,9 +52,13 @@
     {
       "if": { "required": ["replayed"] },
       "then": {
-        "required": ["applyReceipt"],
+        "required": ["applyReceipt", "written"],
         "properties": { "status": { "enum": ["applied", "applied-reconcile-required"] } }
       }
+    },
+    {
+      "if": { "required": ["written"] },
+      "then": { "required": ["replayed"] }
     }
   ],
   "$defs": {
