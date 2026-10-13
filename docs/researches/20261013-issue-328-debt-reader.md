@@ -2,7 +2,8 @@
 
 Base: `ade6255d13cec021226b3b116cd7624e83fe524b` (2026-10-13).
 Claude planning proposal: Herdr `w8:p1`, `/tmp/worktrees/328-claude-proposal.md`.
-Implementation scope: D0/D1/D2; #327 S2/S3 are separate concurrent work.
+Initial implementation scope: D0/D1/D2. The S2 continuation after its merge is recorded below;
+S3 remains a separate integration gate.
 
 ## P1: authority and scope
 
@@ -96,3 +97,49 @@ The Draft PR intentionally omits `architecture-debt-v1`: blocked on #327 S3 merg
 advertisement. After that handoff, append the feature list/fixture/schema entries in the final
 commit. Complete actions wait for S3; full read-only selectors wait for S2. No merge, release,
 downstream delivery or closure of #328 is implied by these local checks.
+
+## S2 handoff and reconciliation (2026-10-14)
+
+Pinned integration base: `f5b31d8794d89bde2ea90c8991e226e907028614` (#338 S2).
+It also contains #340 S5 (`37e7e095`) and the Windows Verify timeout change (#341).
+The previous #337 head was `7aa075c2872c3256205f370e9f59995e8cd6efbe` over `48eea52d`.
+Rebase had no conflicts: `git range-diff 48eea52d..7aa075c2 f5b31d87..9944a01b`
+reports the original D1/D2 patch unchanged (`=`). New S2 work is a separate commit.
+
+P1: the adapter owns all CodeGraph access. S2's `inspectRepositoryCodeFacts` remains the
+readiness authority; the new runtime `architecture-debt-code-facts.ts` only composes existing
+import measurement, dependency classification and flow proof. The edit-time reader remains
+ownership/anchors only. S3 still owns completeTask/freshness and feature advertisement.
+
+P2: capture Git-visible source digest -> S2 version/status inspection -> bounded import query
+and exact selectors -> S2 inspection again -> reject a changed worktree -> dependency/flow
+evidence for the pure evaluator. `readOnly: true` reaches the SDK opener and carries
+`CODEGRAPH_NO_DOWNLOAD=1` through the import-query shim; S2 already applies it to version/status.
+Missing or stale evidence yields typed coverage reasons. A read refusal yields
+`codegraph-read-failed`; there is no writable retry, sync, render, baseline write or raw provider
+error in the result. No public command invokes this full reader yet; S3 will unlock that consumer.
+
+P3: preserve the existing projection producer and its default behavior, adding only an opt-in
+read-only mode. Other shim spawn sites retain their existing behavior and are outside this
+slice. Full reads deliberately remain repository-scale and retain their measured latency limit;
+the earlier 4,137 ms full probe and 3,016 ms cold edit-time sample remain the performance evidence.
+The SDK test holds a live writable fixture handle, as a daemon/watcher would, then verifies the
+reader changes neither database nor WAL bytes. SQLite SHM lock/read marks are excluded from
+that durable-content assertion. Handles close before `Bun.gc(true)` and fixture removal to avoid
+Windows retaining native SQLite resources after `close()`.
+
+Validation on the frozen source over `f5b31d87`:
+
+| Check | Result |
+| --- | --- |
+| New `architecture-debt-code-facts.test.ts` | 8 passed, 0 failed, 8.01 s |
+| CodeGraph adapter suite + runtime undeclared-dependencies + pure debt evaluator | 84 passed, 0 failed, 225.14 s |
+| Contracts + runtime foundation + debt CLI + MCP tests | 352 passed, 0 failed, 247.11 s |
+| Root `tests/` acceptance | 4 passed, 0 failed, 58.06 s |
+| Typecheck and package boundary audit | Passed, 5 workspaces |
+| Packaged CLI smoke | Passed |
+| `git diff --check` | Passed |
+
+These are 448 focused/acceptance tests, not a full repository suite. No expensive performance
+probe was repeated. The feature flag and complete actions remain blocked on S3; no owned S3
+entrypoint or feature-trio file is edited.

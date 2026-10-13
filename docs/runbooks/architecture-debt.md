@@ -44,6 +44,9 @@ not a latency SLA or a strict budget pass.
 See `docs/researches/20261013-issue-328-debt-reader.md` for subject and verification limits.
 
 The pure evaluator accepts dependency, flow and practice evidence, and projection's existing
-dependency report uses the same classification. The complete consumer and a full read-only
-CodeGraph path await #327 S2/S3 integration. Renderer/protocol floors and capability-isolated
+dependency report uses the same classification. The internal completion evidence reader now
+uses S2 readiness, read-only selectors and import queries with downloads disabled. Missing,
+stale, refused or concurrently changed evidence remains an explicit coverage gap. This reader
+does not expand the edit-time command or checkpoint; complete integration awaits #327 S3.
+Renderer/protocol floors and capability-isolated
 generated output remain in #327. Do not treat this command as evidence that #328 is closed.

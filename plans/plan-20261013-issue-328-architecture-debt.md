@@ -1,7 +1,8 @@
 # Issue #328: architecture debt
 
-Status: D1/D2 ready for Draft PR; integration gates remain
+Status: D1/D2 in Draft PR #337; S2 read-only evidence implemented; S3 integration gates remain
 Base: `ade6255d13cec021226b3b116cd7624e83fe524b`
+Reconciled base (2026-10-14): `f5b31d8794d89bde2ea90c8991e226e907028614`, including S2 and S5.
 Owner: Codex, `/tmp/worktrees/arch-context-328`
 Planning: Claude in Herdr `w8:p1`, proposal `/tmp/worktrees/328-claude-proposal.md`.
 
@@ -38,14 +39,17 @@ cutover decision, not a hidden CLI state writer.
 - [x] D2: checkpoint consumes the same debt reader without changing baseline ownership.
 - [x] Verify types, affected tests, package boundary and packaged CLI.
 - [x] Record exact evidence and RFC gaps; commit the bounded implementation.
+- [x] After S2 merge, add read-only selector/import evidence for the future completion consumer;
+      reuse S2 readiness and enforce no-download on every shim invocation in this path.
 - [ ] After #327 S3 merges, rebase and append `architecture-debt-v1` to the feature list,
       capabilities fixture and schema as the final advertisement commit.
 - [ ] D3: after #327 S3 lands, integrate complete findings/actionsRequired on its actual base.
 
 ## Coordination and remaining gates
 
-Claude owns #327 S2/S3/S5/S6/S7. Do not edit projection-service.ts, contracts/src/projection.ts,
-projection renderer/manifest, generated docs or CodeGraph status authority. CLI additions stay
+S2 and S5 have merged; Claude handed off codegraph-adapter for the bounded read-only change.
+Claude still owns #327 S3/S6/S7. Do not edit projection-service.ts, contracts/src/projection.ts,
+projection renderer/manifest, generated docs or duplicate CodeGraph status authority. CLI additions stay
 localized. D3 waits for S3 integration; renderer/protocol floors wait for S6. This plan does not
 authorize release, merge, downstream writes or closing the umbrella RFC before all its gates pass.
 

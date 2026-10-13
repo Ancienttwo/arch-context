@@ -1311,7 +1311,9 @@ export function loadCapabilityCodeGraphProjectionInputs(
      * from it. `null` or omitted is an unknown count: the read then asks for the limit.
      */
     importNodeCount?: number | null;
-    selectorIndexFactory?: (root: string) => CodeGraphSelectorIndex;
+    selectorIndexFactory?: (root: string, options: { readOnly: boolean }) => CodeGraphSelectorIndex;
+    /** Read consumers open selectors read-only and prohibit the import-query shim from downloading. */
+    readOnly?: boolean;
     /** `false` skips the import-graph query; `flows check` reads selector evidence only. */
     importGraphs?: boolean;
   } = {}
@@ -1331,11 +1333,12 @@ export function loadCapabilityCodeGraphProjectionInputs(
   disableCodeGraphTelemetryByDefault();
   const binary = options.binary ?? DEFAULT_CODEGRAPH_BINARY;
   const imports = footprints.length > 0
-    ? capabilityImportGraphs(root, binary, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT, options.importNodeCount ?? null)
+    ? capabilityImportGraphs(root, binary, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT, options.importNodeCount ?? null,
+      options.readOnly ? CODEGRAPH_NO_DOWNLOAD_ENV : undefined)
     : undefined;
   const importGraphs = imports?.importGraphs ?? [];
   const selectorIndex = entrypointNodes.length > 0
-    ? options.selectorIndexFactory?.(root) ?? CodeGraph.openSync(root)
+    ? (options.selectorIndexFactory ?? ((path, openOptions) => CodeGraph.openSync(path, openOptions)))(root, { readOnly: options.readOnly === true })
     : undefined;
   let selectorEvidence: ArchitectureSelectorEvidenceV1[];
   try {
@@ -1483,14 +1486,16 @@ function codeGraphImportPopulation(
   root: string,
   binary: string,
   limit: number,
-  reportedCount: number | null
+  reportedCount: number | null,
+  envOverrides?: Record<string, string>
 ): { imports: CodeGraphCliNode[]; count: number | null; truncated: boolean; limitExceeded: boolean } {
   const queryLimit = Math.min(reportedCount ?? limit, limit) + 1;
   const output = runCodeGraphCli(
     binary,
     root,
     ["query", "-p", root, "-j", "-l", String(queryLimit), "-k", "import", "import"],
-    Math.max(CODEGRAPH_OUTPUT_MAX_BYTES, queryLimit * CODEGRAPH_IMPORT_NODE_OUTPUT_BYTES)
+    Math.max(CODEGRAPH_OUTPUT_MAX_BYTES, queryLimit * CODEGRAPH_IMPORT_NODE_OUTPUT_BYTES),
+    envOverrides
   );
   const imports = (JSON.parse(output) as { node: CodeGraphCliNode }[]).map(({ node }) => node);
   const limitExceeded = (reportedCount ?? imports.length) > limit;
@@ -1513,10 +1518,11 @@ function capabilityImportGraphs(
   binary: string,
   footprints: readonly CapabilitySourceFootprint[],
   limit: number,
-  reportedCount: number | null
+  reportedCount: number | null,
+  envOverrides?: Record<string, string>
 ): { importGraphs: CapabilityImportGraph[]; importPopulation: ProjectionImportPopulationV1 } {
   if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
-  const nodes = codeGraphImportPopulation(root, binary, limit, reportedCount);
+  const nodes = codeGraphImportPopulation(root, binary, limit, reportedCount, envOverrides);
   const population = importPairsOf(root, nodes.imports);
   // The graphs keep their resolved-only edge set, which the capability projection fixtures pin.
   const resolved = population.flatMap((pair) => pair.to === null ? [] : [{ from: pair.from, to: pair.to }]);
@@ -1648,12 +1654,13 @@ function normalizedIndexPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
-function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[], maxBuffer = CODEGRAPH_OUTPUT_MAX_BYTES): string {
+function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[], maxBuffer = CODEGRAPH_OUTPUT_MAX_BYTES, envOverrides?: Record<string, string>): string {
   disableCodeGraphTelemetryByDefault();
   const invocation = codeGraphCliInvocation(binary, workspaceRoot);
   try {
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd: workspaceRoot,
+      ...(envOverrides ? { env: { ...process.env, ...envOverrides } } : {}),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer,
