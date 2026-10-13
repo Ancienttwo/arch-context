@@ -968,21 +968,62 @@ function readProjectionHeadSha(root: string): string {
   }
 }
 
-function assertProjectionCodeGraphStatus(status: CodeGraphProjectionStatusV1, root: string, phase: string): void {
-  if (!status.initialized) throw new Error(`CodeGraph ${phase} status is not initialized`);
+export type ProjectionCodeGraphStatusIssueCode =
+  | "not-initialized"
+  | "version-mismatch"
+  | "project-path-mismatch"
+  | "index-incomplete"
+  | "extraction-version-mismatch"
+  | "worktree-mismatch"
+  | "pending-source-changes";
+
+export interface ProjectionCodeGraphStatusIssueV1 {
+  code: ProjectionCodeGraphStatusIssueCode;
+  /** The exact text `prepareProjectionCodeFacts` throws for this issue. */
+  message: string;
+}
+
+/**
+ * Pure evaluation of one `codegraph status -j` snapshot against the projection contract. It
+ * returns every issue in evaluation order; an uninitialized index returns only that issue because
+ * the remaining fields carry no meaning then.
+ */
+export function projectionCodeGraphStatusIssues(
+  status: CodeGraphProjectionStatusV1,
+  root: string,
+  phase: string
+): ProjectionCodeGraphStatusIssueV1[] {
+  const issue = (code: ProjectionCodeGraphStatusIssueCode, text: string): ProjectionCodeGraphStatusIssueV1 => ({
+    code,
+    message: `CodeGraph ${phase} ${text}`
+  });
+  if (!status.initialized) return [issue("not-initialized", "status is not initialized")];
+  const issues: ProjectionCodeGraphStatusIssueV1[] = [];
   if (status.version !== REQUIRED_CODEGRAPH_VERSION || status.index?.builtWithVersion !== REQUIRED_CODEGRAPH_VERSION) {
-    throw new Error(`CodeGraph ${phase} status version mismatch`);
+    issues.push(issue("version-mismatch", "status version mismatch"));
   }
-  if (realpathSync.native(status.projectPath) !== realpathSync.native(root)) {
-    throw new Error(`CodeGraph ${phase} project path mismatch`);
-  }
+  if (!sameRealPath(status.projectPath, root)) issues.push(issue("project-path-mismatch", "project path mismatch"));
   if (status.index?.state !== "complete" || status.index.reindexRecommended !== false || status.index.pendingRefs !== 0) {
-    throw new Error(`CodeGraph ${phase} index is not complete and compatible`);
+    issues.push(issue("index-incomplete", "index is not complete and compatible"));
+  } else if (status.index.builtWithExtractionVersion !== status.index.currentExtractionVersion) {
+    issues.push(issue("extraction-version-mismatch", "extraction version mismatch"));
   }
-  if (status.index.builtWithExtractionVersion !== status.index.currentExtractionVersion) {
-    throw new Error(`CodeGraph ${phase} extraction version mismatch`);
+  if (status.worktreeMismatch !== null) issues.push(issue("worktree-mismatch", "worktree mismatch"));
+  return issues;
+}
+
+function sameRealPath(left: unknown, right: string): boolean {
+  if (typeof left !== "string") return false;
+  try {
+    return realpathSync.native(left) === realpathSync.native(right);
+  } catch {
+    return false;
   }
-  if (status.worktreeMismatch !== null) throw new Error(`CodeGraph ${phase} worktree mismatch`);
+}
+
+function assertProjectionCodeGraphStatus(status: CodeGraphProjectionStatusV1, root: string, phase: string): void {
+  const [first] = projectionCodeGraphStatusIssues(status, root, phase);
+  if (first) throw new Error(first.message);
 }
 
 function assertProjectionCodeGraphClean(status: CodeGraphProjectionStatusV1, phase: string): void {
@@ -1047,6 +1088,111 @@ function digestFile(path: string): string {
   } catch (error) {
     throw new Error(`CodeGraph binary is unreadable: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+export interface RepositoryCodeFactsInspectionOptions {
+  binary?: string;
+  timeouts?: { versionMs?: number; statusMs?: number };
+}
+
+export interface RepositoryCodeFactsPendingChangesV1 {
+  added: number;
+  modified: number;
+  removed: number;
+}
+
+/**
+ * Read-only state of this repository's CodeGraph index. `unavailable` means CodeGraph could not be
+ * run or its output could not be read; no other field is then reported. `index-missing` means the
+ * binary answered but the repository has no `.codegraph` index. `ready` and `not-ready` carry the
+ * `codegraph status -j` values, and `issues` lists why `not-ready` is not ready.
+ */
+export type RepositoryCodeFactsV1 =
+  | {
+      schemaVersion: "archcontext.repository-code-facts/v1";
+      state: "unavailable";
+      requiredVersion: typeof REQUIRED_CODEGRAPH_VERSION;
+      reasonCode: "codegraph-unavailable";
+      message: string;
+    }
+  | {
+      schemaVersion: "archcontext.repository-code-facts/v1";
+      state: "index-missing";
+      indexPresent: false;
+      requiredVersion: typeof REQUIRED_CODEGRAPH_VERSION;
+      codeGraphVersion: string;
+      issues: ProjectionCodeGraphStatusIssueV1[];
+    }
+  | {
+      schemaVersion: "archcontext.repository-code-facts/v1";
+      state: "ready" | "not-ready";
+      indexPresent: true;
+      requiredVersion: typeof REQUIRED_CODEGRAPH_VERSION;
+      codeGraphVersion: string;
+      indexBuiltWithVersion: string | null;
+      extractionVersion: { builtWith: number | null; current: number | null };
+      indexState: string | null;
+      reindexRecommended: boolean | null;
+      pendingRefs: number | null;
+      /** Source changes the index has not synced yet; `null` when `status` reported none. */
+      pendingChanges: RepositoryCodeFactsPendingChangesV1 | null;
+      issues: ProjectionCodeGraphStatusIssueV1[];
+    };
+
+/**
+ * Inspects the repository's code-facts state with `codegraph --version` and `codegraph status -j`
+ * only. It never runs `sync`, never writes the index and never throws for an unavailable CodeGraph.
+ */
+export function inspectRepositoryCodeFacts(root: string, options: RepositoryCodeFactsInspectionOptions = {}): RepositoryCodeFactsV1 {
+  const schemaVersion = "archcontext.repository-code-facts/v1" as const;
+  let codeGraphVersion: string;
+  let status: CodeGraphProjectionStatusV1 | undefined;
+  const indexPresent = codeGraphIndexAvailable(root);
+  try {
+    const invocation = options.binary
+      ? codeGraphCliInvocation(options.binary, root, "")
+      : packagedCodeGraphCliInvocation();
+    codeGraphVersion = runProjectionCodeGraph(invocation, root, ["--version"], options.timeouts?.versionMs ?? 10_000).trim();
+    if (indexPresent) status = readProjectionCodeGraphStatus(invocation, root, options.timeouts?.statusMs ?? 10_000);
+  } catch (error) {
+    return {
+      schemaVersion,
+      state: "unavailable",
+      requiredVersion: REQUIRED_CODEGRAPH_VERSION,
+      reasonCode: "codegraph-unavailable",
+      message: (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").trim().slice(0, 400)
+    };
+  }
+  const versionIssues: ProjectionCodeGraphStatusIssueV1[] = codeGraphVersion === REQUIRED_CODEGRAPH_VERSION
+    ? []
+    : [{ code: "version-mismatch", message: `CodeGraph ${REQUIRED_CODEGRAPH_VERSION} required, got actual binary ${codeGraphVersion || "unknown"}` }];
+  if (!status) {
+    return { schemaVersion, state: "index-missing", indexPresent: false, requiredVersion: REQUIRED_CODEGRAPH_VERSION, codeGraphVersion, issues: versionIssues };
+  }
+  const issues = [...versionIssues, ...projectionCodeGraphStatusIssues(status, root, "repository")];
+  const pending = status.pendingChanges;
+  // A projection runs `sync` first, so pending changes are not a projection-status issue; for a
+  // read-only inspection they mean the index lags the worktree.
+  if (!pending || pending.added !== 0 || pending.modified !== 0 || pending.removed !== 0) {
+    issues.push({ code: "pending-source-changes", message: "CodeGraph repository index has pending or unreported source changes" });
+  }
+  return {
+    schemaVersion,
+    state: issues.length === 0 ? "ready" : "not-ready",
+    indexPresent: true,
+    requiredVersion: REQUIRED_CODEGRAPH_VERSION,
+    codeGraphVersion,
+    indexBuiltWithVersion: status.index?.builtWithVersion ?? null,
+    extractionVersion: {
+      builtWith: status.index?.builtWithExtractionVersion ?? null,
+      current: status.index?.currentExtractionVersion ?? null
+    },
+    indexState: status.index?.state ?? null,
+    reindexRecommended: status.index?.reindexRecommended ?? null,
+    pendingRefs: status.index?.pendingRefs ?? null,
+    pendingChanges: pending ? { added: pending.added, modified: pending.modified, removed: pending.removed } : null,
+    issues
+  };
 }
 
 /** True when this workspace carries a CodeGraph index the CLI can be pointed at. */
