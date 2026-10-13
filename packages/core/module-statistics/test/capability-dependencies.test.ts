@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { NativeNode } from "@archcontext/core/projection-engine";
+import type { NativeNode, NativeRelation } from "@archcontext/core/projection-engine";
 import { measureCapabilityDependencies, type CapabilityDependencyInputV1 } from "../src/index";
 import { WORKTREE_DIGEST, digestOf } from "./factories";
 
@@ -25,9 +25,14 @@ const FILES = [
   "src/other/loose.ts"
 ];
 
+function relation(id: string, kind: string, source: string, target: string): NativeRelation {
+  return { id, kind, source, target, intent: `${source} ${kind} ${target}` };
+}
+
 function input(overrides: Partial<CapabilityDependencyInputV1> = {}): CapabilityDependencyInputV1 {
   return {
     nodes: NODES,
+    relations: [],
     worktreeDigest: WORKTREE_DIGEST,
     files: FILES,
     importEdges: [
@@ -62,8 +67,8 @@ describe("capability dependency matrix (#301)", () => {
     const result = measureCapabilityDependencies(input());
     expect(result.capabilities).toEqual(["capability.billing", "capability.checkout"]);
     expect(result.matrix).toEqual([
-      { from: "capability.billing", to: "capability.billing", imports: 1, calls: null },
-      { from: "capability.checkout", to: "capability.billing", imports: 2, calls: null }
+      { from: "capability.billing", to: "capability.billing", imports: 1, calls: null, declared: true, relationIds: [] },
+      { from: "capability.checkout", to: "capability.billing", imports: 2, calls: null, declared: false, relationIds: [] }
     ]);
     expect(result.imports).toMatchObject({
       coverage: "complete",
@@ -102,8 +107,8 @@ describe("capability dependency matrix (#301)", () => {
     const into = measureCapabilityDependencies(input({ into: "capability.billing" }));
     expect(into.filter).toEqual({ from: null, into: "capability.billing" });
     expect(into.matrix).toEqual([
-      { from: "capability.billing", to: "capability.billing", imports: 1, calls: null },
-      { from: "capability.checkout", to: "capability.billing", imports: 2, calls: null }
+      { from: "capability.billing", to: "capability.billing", imports: 1, calls: null, declared: true, relationIds: [] },
+      { from: "capability.checkout", to: "capability.billing", imports: 2, calls: null, declared: false, relationIds: [] }
     ]);
     expect(into.imports.unresolvedCount).toBe(0);
     // A descendant filter narrows to the files that node owns.
@@ -113,7 +118,7 @@ describe("capability dependency matrix (#301)", () => {
 
   test("--from keeps edges whose importing file the node or a descendant owns", () => {
     const from = measureCapabilityDependencies(input({ from: "capability.checkout" }));
-    expect(from.matrix).toEqual([{ from: "capability.checkout", to: "capability.billing", imports: 2, calls: null }]);
+    expect(from.matrix).toEqual([{ from: "capability.checkout", to: "capability.billing", imports: 2, calls: null, declared: false, relationIds: [] }]);
     expect(from.imports.unattributed).toEqual({ unownedEndpoint: 0, contestedEndpoint: 0, noCapabilityEndpoint: 0 });
     expect(from.imports.unresolvedCount).toBe(1);
   });
@@ -135,6 +140,32 @@ describe("capability dependency matrix (#301)", () => {
       importNodeCount: 70_000,
       importNodeLimitExceeded: true
     });
+  });
+
+  test("a relation declares a cross-capability cell when its endpoints roll up to the cell, in the import direction (#326)", () => {
+    const declared = (relations: NativeRelation[]) => measureCapabilityDependencies(input({ relations })).matrix
+      .find((cell) => cell.from === "capability.checkout" && cell.to === "capability.billing");
+    // Component endpoints roll up to their capability; every usage kind declares; ids are sorted.
+    expect(declared([
+      relation("relation.cart.reads-invoice", "reads", "component.cart", "component.invoice"),
+      relation("relation.checkout.calls-billing", "calls", "capability.checkout", "capability.billing")
+    ])).toMatchObject({ declared: true, relationIds: ["relation.cart.reads-invoice", "relation.checkout.calls-billing"] });
+    for (const kind of ["calls", "depends-on", "implements", "publishes", "reads", "subscribes", "writes"]) {
+      expect(declared([relation("relation.declaring", kind, "capability.checkout", "capability.billing")]), kind)
+        .toMatchObject({ declared: true, relationIds: ["relation.declaring"] });
+    }
+    // The reverse direction, a non-usage kind, and an endpoint with no capability declare nothing.
+    for (const relations of [
+      [relation("relation.reverse", "calls", "capability.billing", "capability.checkout")],
+      [relation("relation.deployed", "deployed-on", "capability.checkout", "capability.billing")],
+      [relation("relation.shared", "calls", "module.shared", "capability.billing")]
+    ]) {
+      expect(declared(relations), relations[0]!.id).toMatchObject({ declared: false, relationIds: [] });
+    }
+    // A relation inside one capability never lists on the diagonal cell, which needs none.
+    const diagonal = measureCapabilityDependencies(input({ relations: [relation("relation.ledger.invoice", "calls", "capability.billing", "component.invoice")] })).matrix
+      .find((cell) => cell.from === "capability.billing" && cell.to === "capability.billing");
+    expect(diagonal).toMatchObject({ declared: true, relationIds: [] });
   });
 
   test("edges list at most edgeLimit items and keep the full count", () => {

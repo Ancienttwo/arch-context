@@ -159,6 +159,26 @@ These queries use the parent-chain owner rule of `refactor scan` (module-statist
   `importNodeLimitExceeded`. Call counts are not available: `calls.coverage` is `unknown` with
   reason `call-edges-not-exposed`. The command runs in process, like `resolve`, and starts no
   daemon (capability `capability-dependencies-v1`).
+- Each `deps` cell carries `declared` and `relationIds` (capability
+  `capability-dependencies-declared-v1`). An import from capability A into capability B (A != B)
+  is declared when a relation of kind `calls`, `depends-on`, `implements`, `publishes`, `reads`,
+  `subscribes` or `writes` (every kind but `deployed-on`) has a `source` that rolls up to A and a
+  `target` that rolls up to B. A node rolls up to itself when it is a capability, else to the
+  nearest capability on its parent chain. Direction matters: a relation B -> A does not declare an
+  import A -> B. A cell inside one capability is always declared and lists no relation ids. The
+  same flag means that `deps` refuses when code facts are unavailable: when no CodeGraph index
+  attests to the worktree (missing, unreadable or with pending changes), `deps` returns
+  `AC_CODE_FACTS_UNAVAILABLE` with reason code `code-facts-unavailable`, so `imports.coverage` is
+  never `unknown` and an empty matrix means no edge.
+- `projection run` in `check` and `plan` mode adds `architectureDebt` (capability
+  `projection-architecture-debt-v1`). Each item is an `undeclared-dependency` with
+  `fromCapabilityId`, `toCapabilityId` and `importEdgeCount`: a cross-capability pair that `deps`
+  would report as `declared: false`, measured over the files and the import read of that run (the
+  worktree, not `HEAD`), with no extra CodeGraph read. It covers every pair, not only pairs that
+  touch `changedPaths`. Debt never changes `status`, files or rendered output, and `apply` and
+  `adopt` results do not carry it. `coverage` is `unknown` with `code-facts-unavailable` when the
+  run had no code facts; `partial` with `code-facts-import-limit`, `code-facts-truncated` or
+  `workspace-resolution-failed` when the observation is incomplete.
 
 `archctx-contracts` publishes JSON schemas for this data:
 `schemas/runtime/recommendation-v3.schema.json`, `structural-observation-payload.schema.json`,

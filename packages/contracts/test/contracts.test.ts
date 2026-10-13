@@ -76,6 +76,7 @@ import {
   projectionApplyRecoveryProofDigest,
   projectionApplyRecoveryResultInvariantIssues,
   projectionApplyRecoveryIntentInvariantIssues,
+  projectionArchitectureDebtIssues,
   projectionFreshnessIssues,
   projectionRequestInvariantIssues,
   projectionResultReceiptDigest,
@@ -86,6 +87,7 @@ import {
   type ProjectionApplyReceiptV1,
   type ProjectionApplyRecoveryIntentV1,
   type ProjectionApplyRecoveryResultV1,
+  type ProjectionArchitectureDebtV1,
   type ProjectionFreshnessV1,
   type ProjectionRequestV1,
   type ProjectionResultV2
@@ -872,6 +874,69 @@ test("check freshness is schema-valid, receipt-bound and internally consistent (
     .toContain("freshness.reasonCodes contains an unsupported code: projection-change-set-unavailable");
   expect(validateJsonSchema(schema as any, { ...valid, freshness: { ...stale, extra: true } } as any).valid).toBe(false);
   expect(validateJsonSchema(schema as any, { ...valid, freshness: { ...fresh, reasonCodes: ["projection-change-set-unavailable"] } } as any).valid).toBe(false);
+});
+
+test("check and plan architecture debt is schema-valid, receipt-bound, mode-bound and internally consistent (#326)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const debt: ProjectionArchitectureDebtV1 = {
+    coverage: "complete",
+    coverageReasonCodes: [],
+    items: [
+      { reasonCode: "undeclared-dependency", fromCapabilityId: "capability.a", toCapabilityId: "capability.b", importEdgeCount: 2 },
+      { reasonCode: "undeclared-dependency", fromCapabilityId: "capability.b", toCapabilityId: "capability.a", importEdgeCount: 1 }
+    ]
+  };
+  const unknown: ProjectionArchitectureDebtV1 = { coverage: "unknown", coverageReasonCodes: ["code-facts-unavailable"], items: [] };
+  const partial: ProjectionArchitectureDebtV1 = { ...debt, coverage: "partial", coverageReasonCodes: ["code-facts-import-limit", "workspace-resolution-failed"] };
+  const planned = { ...valid, status: "planned" as const };
+  for (const architectureDebt of [debt, unknown, partial]) {
+    expect(projectionArchitectureDebtIssues(architectureDebt)).toEqual([]);
+    expect(validateJsonSchema(schema as any, { ...planned, architectureDebt } as any).issues).toEqual([]);
+  }
+  const { receiptDigest: _receiptDigest, ...payload } = planned;
+  expect(projectionResultReceiptDigest({ ...payload, architectureDebt: debt })).not.toBe(projectionResultReceiptDigest(payload));
+  const signed = (architectureDebt: ProjectionArchitectureDebtV1) => {
+    const withoutReceipt = { ...payload, architectureDebt };
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+  };
+  expect(projectionResultInvariantIssues(signed(debt))).toEqual([]);
+  // Debt never rides on a committed apply, and is bound to check and plan requests.
+  expect(projectionResultInvariantIssues({ ...valid, architectureDebt: debt }))
+    .toContain("architectureDebt is only allowed on a check or plan result, never on a committed apply");
+  for (const mode of ["check", "plan"] as const) expect(projectionResultRequestModeIssues(signed(debt), mode)).toEqual([]);
+  for (const mode of ["apply", "adopt"] as const) {
+    expect(projectionResultRequestModeIssues(signed(debt), mode)).toEqual([`architectureDebt is only allowed on a check or plan result, never when mode=${mode}`]);
+  }
+
+  expect(projectionArchitectureDebtIssues({ ...debt, items: [...debt.items].reverse() })).toContain("architectureDebt.items must be sorted and unique");
+  expect(projectionArchitectureDebtIssues({ ...debt, coverageReasonCodes: ["code-facts-truncated"] }))
+    .toContain("architectureDebt.coverageReasonCodes must be empty exactly when coverage is complete");
+  expect(projectionArchitectureDebtIssues({ ...unknown, coverage: "partial" }))
+    .toContain("architectureDebt.coverage must be unknown exactly when code-facts-unavailable is reported");
+  expect(projectionArchitectureDebtIssues({ ...unknown, items: debt.items })).toContain("architectureDebt.items must be empty when coverage is unknown");
+  expect(projectionArchitectureDebtIssues({ ...debt, items: [{ ...debt.items[0]!, toCapabilityId: "capability.a" }] }))
+    .toContain("architectureDebt.items[0] must name two different capabilities");
+  expect(projectionArchitectureDebtIssues({ ...debt, items: [{ ...debt.items[0]!, importEdgeCount: 0 }] }))
+    .toContain("architectureDebt.items[0].importEdgeCount must be a positive integer");
+  expect(projectionArchitectureDebtIssues({ ...partial, coverageReasonCodes: ["code-facts-stale" as never] }))
+    .toContain("architectureDebt.coverageReasonCodes contains an unsupported code: code-facts-stale");
+  expect(validateJsonSchema(schema as any, { ...planned, architectureDebt: { ...unknown, items: debt.items } } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...planned, architectureDebt: { ...debt, coverageReasonCodes: ["code-facts-truncated"] } } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...planned, architectureDebt: { ...debt, items: [{ ...debt.items[0]!, reasonCode: "cycle" }] } } as any).valid).toBe(false);
+});
+
+test("capability dependency cells say whether a relation declares them (#326)", () => {
+  const schema = readJson("schemas/runtime/capability-dependencies.schema.json") as any;
+  const valid = readJson("packages/contracts/fixtures/valid/capability-dependencies.json") as any;
+  expect(validateJsonSchema(schema, valid).issues).toEqual([]);
+  const cell = valid.matrix[0];
+  expect(validateJsonSchema(schema, { ...valid, matrix: [{ ...cell, declared: false, relationIds: [] }] }).issues).toEqual([]);
+  expect(validateJsonSchema(schema, { ...valid, matrix: [{ ...cell, declared: false }] }).valid).toBe(false);
+  const { declared: _declared, ...withoutDeclared } = cell;
+  expect(validateJsonSchema(schema, { ...valid, matrix: [withoutDeclared] }).valid).toBe(false);
+  // deps refuses instead of answering without code facts, so its data never carries unknown coverage.
+  expect(validateJsonSchema(schema, { ...valid, matrix: [], imports: { ...valid.imports, coverage: "unknown", reasonCodes: ["code-facts-unavailable"] } }).valid).toBe(false);
 });
 
 test("docs anchors report contract: schema and invariants agree with the TypeScript constants", () => {

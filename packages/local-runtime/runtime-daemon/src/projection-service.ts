@@ -4,6 +4,7 @@ import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
+import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
@@ -252,6 +253,7 @@ function renderArchitectureDocsProjectionFromInputs(
     inputs,
     loaded,
     plan,
+    importEvidence: { root, sourceFiles: codeGraphInputs.sourceFiles, population: codeGraphInputs.importPopulation },
     runtimeSnapshot: codeGraphInputs.runtimeSnapshot,
     sourceFootprints,
     /** The declared source tree digest this render measured. */
@@ -1159,6 +1161,14 @@ function projectionProtocolResult(
   }
   const refreshSignals = [...(overrides?.refreshSignals ?? output.plan.refreshSignals)]
     .sort((left, right) => left.signalId < right.signalId ? -1 : left.signalId > right.signalId ? 1 : 0);
+  // Debt is reported, never acted on: it is read from the input render and changes no status or file.
+  const architectureDebt = request.mode === "check" || request.mode === "plan"
+    ? projectionArchitectureDebt(input.loaded.model, {
+      ...input.importEvidence,
+      codeGraphStatus: input.runtimeSnapshot.codeGraphStatus,
+      worktreeDigest: input.runtimeSnapshot.worktreeDigest
+    })
+    : undefined;
   const withoutReceipt: Omit<ProjectionResultV2, "receiptDigest"> = {
     schemaVersion: "archcontext.projection-result/v2",
     requestId: request.requestId,
@@ -1172,6 +1182,7 @@ function projectionProtocolResult(
     ...(applyReceipt ? { applyReceipt } : {}),
     ...(priorCommittedApplies.length > 0 ? { priorCommittedApplies } : {}),
     ...(freshness ? { freshness } : {}),
+    ...(architectureDebt ? { architectureDebt } : {}),
     ...(declinedUnprovableNodeIds && status === "human-action-required" ? { majorChangeAcceptance: "declined-unprovable-proof" as const } : {})
   };
   const receiptDigest = projectionResultReceiptDigest(withoutReceipt);

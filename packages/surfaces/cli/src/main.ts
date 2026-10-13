@@ -3658,7 +3658,7 @@ function runDepsCommand(args: string[], cwd: string) {
       ...(edgeLimit.value === undefined ? {} : { edgeLimit: edgeLimit.value })
     }) as unknown as Json);
   } catch (error) {
-    if (error instanceof CapabilityDependenciesError) return errorEnvelope("deps", error.code, error.message);
+    if (error instanceof CapabilityDependenciesError) return errorEnvelope("deps", error.code, error.message, error.reasonCode);
     throw error;
   }
 }

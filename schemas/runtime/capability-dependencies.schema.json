@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/capability-dependencies.schema.json",
   "title": "CapabilityDependenciesV1",
-  "description": "The data of `archctx deps`: a read-only capability x capability import matrix. Owners come from the parent-chain rule `refactor scan` uses, rolled up to the nearest capability. Call counts are not available in v1.",
+  "description": "The data of `archctx deps`: a read-only capability x capability import matrix. Owners come from the parent-chain rule `refactor scan` uses, rolled up to the nearest capability. Each cell says whether a model relation declares it. Call counts are not available in v1. Without code facts that attest to the measured tree, deps refuses with AC_CODE_FACTS_UNAVAILABLE instead of returning this data.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "ownershipRule", "filter", "capabilities", "matrix", "imports", "calls", "edges", "worktree", "privacy"],
@@ -24,13 +24,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["from", "to", "imports", "calls"],
+        "required": ["from", "to", "imports", "calls", "declared", "relationIds"],
         "properties": {
           "from": { "type": "string", "minLength": 1 },
           "to": { "type": "string", "minLength": 1 },
           "imports": { "type": "integer", "minimum": 1 },
-          "calls": { "type": "null" }
-        }
+          "calls": { "type": "null" },
+          "declared": { "type": "boolean", "description": "A relation of a declaring kind (every kind but deployed-on) runs from a node that rolls up to `from` into a node that rolls up to `to`. A cell with from equal to to is always declared and lists no relation ids." },
+          "relationIds": { "type": "array", "uniqueItems": true, "description": "The declaring relation ids, sorted. Non-empty exactly when a cross-capability cell is declared.", "items": { "type": "string", "minLength": 1 } }
+        },
+        "if": { "properties": { "relationIds": { "minItems": 1 } } },
+        "then": { "properties": { "declared": { "const": true } } }
       }
     },
     "imports": {
@@ -38,11 +42,11 @@
       "additionalProperties": false,
       "required": ["coverage", "reasonCodes", "truncated", "importNodeCount", "importNodeLimit", "importNodeLimitExceeded", "edgeCount", "unresolvedCount", "unattributed"],
       "properties": {
-        "coverage": { "enum": ["complete", "partial", "unknown"] },
+        "coverage": { "enum": ["complete", "partial"] },
         "reasonCodes": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "enum": ["code-facts-import-limit", "code-facts-stale", "code-facts-truncated", "code-facts-unavailable"] }
+          "items": { "enum": ["code-facts-import-limit", "code-facts-truncated"] }
         },
         "truncated": { "type": "boolean" },
         "importNodeCount": { "type": ["integer", "null"], "minimum": 0 },

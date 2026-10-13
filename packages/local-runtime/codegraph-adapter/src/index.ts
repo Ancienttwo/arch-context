@@ -670,7 +670,16 @@ const CODEGRAPH_IMPORT_NODE_OUTPUT_BYTES = 4 * 1024;
 export interface CapabilityCodeGraphProjectionInputs {
   importGraphs: CapabilityImportGraph[];
   selectorEvidence: ArchitectureSelectorEvidenceV1[];
+  /**
+   * The repository import population the import-graph read returned, with unresolved specifiers
+   * kept, exactly as `repositoryImportPairs` reports pairs. Present only when that read ran (an
+   * index exists and a node declares a footprint). Freshness is the handshake's, so it carries no
+   * availability of its own. Not part of `graphDigest`: it is the same read the graphs come from.
+   */
+  importPopulation?: ProjectionImportPopulationV1;
 }
+
+export type ProjectionImportPopulationV1 = Omit<RepositoryImportPairsV1, "availability" | "indexedWorktreeDigest">;
 
 export interface CodeGraphSelectorIndex {
   getNodesByName(name: string): CodeGraphNode[];
@@ -1152,9 +1161,10 @@ export function loadCapabilityCodeGraphProjectionInputs(
 
   disableCodeGraphTelemetryByDefault();
   const binary = options.binary ?? DEFAULT_CODEGRAPH_BINARY;
-  const importGraphs = footprints.length > 0
+  const imports = footprints.length > 0
     ? capabilityImportGraphs(root, binary, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT, options.importNodeCount ?? null)
-    : [];
+    : undefined;
+  const importGraphs = imports?.importGraphs ?? [];
   const selectorIndex = entrypointNodes.length > 0
     ? options.selectorIndexFactory?.(root) ?? CodeGraph.openSync(root)
     : undefined;
@@ -1173,7 +1183,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
   } finally {
     selectorIndex?.close();
   }
-  return { importGraphs, selectorEvidence };
+  return { importGraphs, selectorEvidence, ...(imports ? { importPopulation: imports.importPopulation } : {}) };
 }
 
 export interface RepositoryImportPairV1 {
@@ -1220,9 +1230,10 @@ export interface RepositoryImportPairsV1 {
  * boundary is unresolved and a dropped edge is indistinguishable from an absent one. Bare
  * workspace specifiers are deliberately left unresolved here: mapping `@scope/pkg/sub` through a
  * package `exports` map is the builder's job, which keeps this adapter free of resolution rules
- * and keeps the resolution itself unit-testable without an index. The two producers share only
- * `codeGraphImportPopulation`; `capabilityImportGraphs` keeps its resolved-only edge set, which
- * the capability projection fixtures pin byte for byte.
+ * and keeps the resolution itself unit-testable without an index. The two producers share
+ * `codeGraphImportPopulation` and `importPairsOf`; `capabilityImportGraphs` also returns these
+ * pairs as `importPopulation`, and keeps its resolved-only graph edge set, which the capability
+ * projection fixtures pin byte for byte.
  *
  * Freshness is producer-owned evidence, never a caller assertion: the returned
  * `indexedWorktreeDigest` binds the edges to `worktreeDigest` only when the index reports itself
@@ -1252,8 +1263,23 @@ export function repositoryImportPairs(
   }
   const status = readProjectionCodeGraphStatus(codeGraphCliInvocation(binary, root, ""), root, CODEGRAPH_QUERY_TIMEOUT_MS);
   const nodes = codeGraphImportPopulation(root, binary, limit, statusImportNodeCount(status));
+  const pending = status.pendingChanges;
+  const clean = status.initialized && pending !== undefined && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
+  return {
+    pairs: importPairsOf(root, nodes.imports),
+    truncated: nodes.truncated,
+    availability: clean ? "ready" : "unavailable",
+    indexedWorktreeDigest: clean ? worktreeDigest : null,
+    importNodeCount: nodes.count,
+    importNodeLimit: limit,
+    importNodeLimitExceeded: nodes.limitExceeded
+  };
+}
+
+/** Import nodes as repo-relative pairs, unresolved specifiers kept as `to: null`, sorted by file then specifier. */
+function importPairsOf(root: string, imports: CodeGraphCliNode[]): RepositoryImportPairV1[] {
   const pairs = new Map<string, RepositoryImportPairV1>();
-  for (const node of nodes.imports) {
+  for (const node of imports) {
     if (node.kind !== "import") continue;
     const to = resolveImportTarget(root, node.filePath, node.name) ?? null;
     // Keyed on (file, specifier) so three distinct unresolved specifiers stay three records. A
@@ -1264,17 +1290,7 @@ export function repositoryImportPairs(
     const firstLine = line === undefined ? previousLine : previousLine === undefined ? line : Math.min(line, previousLine);
     pairs.set(key, { from: node.filePath, specifier: node.name, to, ...(firstLine === undefined ? {} : { line: firstLine }) });
   }
-  const pending = status.pendingChanges;
-  const clean = status.initialized && pending !== undefined && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
-  return {
-    pairs: [...pairs.keys()].sort().map((key) => pairs.get(key)!),
-    truncated: nodes.truncated,
-    availability: clean ? "ready" : "unavailable",
-    indexedWorktreeDigest: clean ? worktreeDigest : null,
-    importNodeCount: nodes.count,
-    importNodeLimit: limit,
-    importNodeLimitExceeded: nodes.limitExceeded
-  };
+  return [...pairs.keys()].sort().map((key) => pairs.get(key)!);
 }
 
 /**
@@ -1329,14 +1345,16 @@ function capabilityImportGraphs(
   footprints: readonly CapabilitySourceFootprint[],
   limit: number,
   reportedCount: number | null
-): CapabilityImportGraph[] {
+): { importGraphs: CapabilityImportGraph[]; importPopulation: ProjectionImportPopulationV1 } {
   if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
   const nodes = codeGraphImportPopulation(root, binary, limit, reportedCount);
-  const pairs = resolvedImportPairs(root, nodes.imports);
-  return footprints.map((footprint) => {
+  const population = importPairsOf(root, nodes.imports);
+  // The graphs keep their resolved-only edge set, which the capability projection fixtures pin.
+  const resolved = population.flatMap((pair) => pair.to === null ? [] : [{ from: pair.from, to: pair.to }]);
+  const importGraphs = footprints.map((footprint) => {
     const scope = new Set(footprint.files);
     const edges = new Map<string, CapabilityImportEdge>();
-    for (const pair of pairs) {
+    for (const pair of resolved) {
       if (!scope.has(pair.from)) continue;
       edges.set(`${pair.from} ${pair.to}`, pair);
     }
@@ -1348,6 +1366,16 @@ function capabilityImportGraphs(
       ...(nodes.limitExceeded ? { importNodeLimitExceeded: true as const } : {})
     };
   });
+  return {
+    importGraphs,
+    importPopulation: {
+      pairs: population,
+      truncated: nodes.truncated,
+      importNodeCount: nodes.count,
+      importNodeLimit: limit,
+      importNodeLimitExceeded: nodes.limitExceeded
+    }
+  };
 }
 
 /**

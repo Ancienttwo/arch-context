@@ -73,6 +73,27 @@ export const CAPABILITY_DEPENDENCIES_SCHEMA_VERSION = "archcontext.capability-de
 export const CAPABILITY_DEPENDENCIES_EDGE_LIMIT = 200;
 /** The CodeGraph adapter has no bounded repository-wide call-edge read, so calls are not counted. */
 export const CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON = "call-edges-not-exposed" as const;
+/**
+ * The relation kinds that declare an import dependency: every `archcontext.relation/v1` kind in
+ * which the source uses the target. `deployed-on` places a node on infrastructure and declares no
+ * code dependency. A kind added to the relation schema later declares nothing until it is listed.
+ *
+ * The rule: an import from a file owned by capability A into a file owned by capability B, A != B,
+ * is declared when the model has a relation of one of these kinds whose `source` rolls up to A and
+ * whose `target` rolls up to B. A node rolls up to itself when it is a capability, else to the
+ * nearest `kind: capability` ancestor on its `parent` chain, exactly like a file owner. Direction
+ * matters: a relation B -> A does not declare an import A -> B. A relation endpoint that rolls up
+ * to no capability declares nothing.
+ */
+export const CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS = [
+  "calls",
+  "depends-on",
+  "implements",
+  "publishes",
+  "reads",
+  "subscribes",
+  "writes"
+] as const;
 
 export interface CapabilityDependencyCellV1 {
   /** Owning capability of the importing file. */
@@ -83,6 +104,15 @@ export interface CapabilityDependencyCellV1 {
   imports: number;
   /** Always `null` in v1: call edges are not read (see `calls`). */
   calls: null;
+  /**
+   * Whether the model declares this dependency (rule: CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS).
+   * A cell with `from === to` stays inside one capability and needs no relation: it is always
+   * declared, with no relation ids. A cross-capability cell is declared exactly when
+   * `relationIds` is non-empty.
+   */
+  declared: boolean;
+  /** Ids of the relations that declare a cross-capability cell, sorted. Always empty when `from === to`. */
+  relationIds: string[];
 }
 
 export interface CapabilityDependencyEdgeV1 {
@@ -102,8 +132,16 @@ export interface CapabilityDependenciesV1 {
   /** Non-zero cells only, sorted by `from` then `to`. A cell with `from === to` counts edges inside one capability. */
   matrix: CapabilityDependencyCellV1[];
   imports: {
+    /**
+     * `archctx deps` never answers `unknown`: without code facts that attest to the measured tree it
+     * refuses with `AC_CODE_FACTS_UNAVAILABLE`, so an empty matrix always means no attributed edge.
+     */
     coverage: EvidenceCoverageLevelV2;
-    /** `code-facts-unavailable`, `code-facts-stale`, `code-facts-import-limit`, `code-facts-truncated`. */
+    /**
+     * `code-facts-import-limit` or `code-facts-truncated` on `archctx deps` output. An index that
+     * is missing or has pending changes measures as `code-facts-unavailable`, which `deps` turns
+     * into the `AC_CODE_FACTS_UNAVAILABLE` refusal.
+     */
     reasonCodes: string[];
     /** True when the index read is not the whole population for a reason other than the limit. */
     truncated: boolean;

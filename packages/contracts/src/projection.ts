@@ -1,3 +1,4 @@
+import type { EvidenceCoverageLevelV2 } from "./ledger";
 import { digestJson, isRepoRelativePosixPath, type Json } from "./schema";
 
 export const PROJECTION_REQUEST_SCHEMA_VERSION = "archcontext.projection-request/v1" as const;
@@ -62,6 +63,7 @@ export const ARCHCTX_FEATURES = [
   "architecture-change-capabilities-v1",
   "architecture-docs-renderer-v2",
   "architecture-refresh-signal-v1",
+  "capability-dependencies-declared-v1",
   "capability-dependencies-v1",
   "changeset-entity-operations-v1",
   "changeset-ownership-delta-v1",
@@ -73,6 +75,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
   "projection-apply-replay-v1",
+  "projection-architecture-debt-v1",
   "projection-check-freshness-v1",
   "projection-manifest-contract-v2",
   "projection-observed-major-change-acceptance-v1",
@@ -193,6 +196,20 @@ export const PROJECTION_FRESHNESS_REASON_CODES = [
   "projection-source-tree-digest-mismatch"
 ] as const;
 
+/** The architecture debt a `check` or `plan` result reports. Debt is a finding, never a blocker. */
+export const PROJECTION_ARCHITECTURE_DEBT_REASON_CODES = ["undeclared-dependency"] as const;
+/**
+ * Why the debt read is not a complete observation. The `code-facts-*` codes mean what they mean on
+ * `archctx deps`; `workspace-resolution-failed` means the workspace package map was unreadable, so
+ * no bare workspace import specifier could be resolved.
+ */
+export const PROJECTION_ARCHITECTURE_DEBT_COVERAGE_REASON_CODES = [
+  "code-facts-import-limit",
+  "code-facts-truncated",
+  "code-facts-unavailable",
+  "workspace-resolution-failed"
+] as const;
+
 export type ProjectionMode = (typeof PROJECTION_MODES)[number];
 export type ProjectionFreshnessReasonCode = (typeof PROJECTION_FRESHNESS_REASON_CODES)[number];
 export type ProjectionTarget = (typeof PROJECTION_TARGETS)[number];
@@ -202,6 +219,8 @@ export type ProjectionPriorCommittedApplyOperation = (typeof PROJECTION_PRIOR_CO
 export type ArchitectureMajorChangeReasonCode = (typeof ARCHITECTURE_MAJOR_CHANGE_REASON_CODES)[number];
 export type ArchitectureRefreshTarget = (typeof ARCHITECTURE_REFRESH_TARGETS)[number];
 export type ArchctxFeature = (typeof ARCHCTX_FEATURES)[number];
+export type ProjectionArchitectureDebtReasonCode = (typeof PROJECTION_ARCHITECTURE_DEBT_REASON_CODES)[number];
+export type ProjectionArchitectureDebtCoverageReasonCode = (typeof PROJECTION_ARCHITECTURE_DEBT_COVERAGE_REASON_CODES)[number];
 export type ArchitectureSemanticFacet = (typeof ARCHITECTURE_SEMANTIC_FACETS)[number];
 export type ProjectionFilePreviewFormat = (typeof PROJECTION_FILE_PREVIEW_FORMATS)[number];
 export type Sha256Digest = `sha256:${string}`;
@@ -406,6 +425,38 @@ export interface ProjectionFreshnessV1 {
   staleNodes: ProjectionFreshnessStaleNodeV1[];
 }
 
+/**
+ * One capability pair whose imports no model relation declares, under the rule of
+ * CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS. It is the same pair, with the same edge count,
+ * that `archctx deps` reports as a cross-capability cell with `declared: false`, measured over
+ * the files this run measured instead of the `HEAD` tree.
+ */
+export interface ProjectionUndeclaredDependencyV1 {
+  reasonCode: "undeclared-dependency";
+  fromCapabilityId: string;
+  toCapabilityId: string;
+  /** Distinct file-to-file import edges from `fromCapabilityId` into `toCapabilityId`; at least 1. */
+  importEdgeCount: number;
+}
+
+/**
+ * Architecture debt that this `check` or `plan` run found. It reuses the import facts the run
+ * already read, never blocks a mode and changes no rendered output. It covers every capability
+ * pair in the repository, not only pairs that touch the request's `changedPaths`.
+ */
+export interface ProjectionArchitectureDebtV1 {
+  /**
+   * `unknown` when the run had no code facts (`code-facts-unavailable`): `items` is then empty and
+   * says nothing about the repository. `partial` when the import read is a prefix of the index or
+   * a workspace specifier could not be resolved: `items` then holds what was observed.
+   */
+  coverage: EvidenceCoverageLevelV2;
+  /** Sorted and unique; empty exactly when `coverage` is `complete`. */
+  coverageReasonCodes: ProjectionArchitectureDebtCoverageReasonCode[];
+  /** Sorted by `fromCapabilityId`, then `toCapabilityId`. */
+  items: ProjectionUndeclaredDependencyV1[];
+}
+
 export interface ProjectionResultV2 {
   schemaVersion: typeof PROJECTION_RESULT_SCHEMA_VERSION;
   requestId: string;
@@ -428,6 +479,12 @@ export interface ProjectionResultV2 {
    * Consumers gate on the `projection-check-freshness-v1` capability, not on field presence.
    */
   freshness?: ProjectionFreshnessV1;
+  /**
+   * Present on every `check` and `plan` result, and on no other: the architecture debt this run
+   * found. It never changes `status`. Consumers gate on the `projection-architecture-debt-v1`
+   * capability, not on field presence.
+   */
+  architectureDebt?: ProjectionArchitectureDebtV1;
   /**
    * Present, as `true`, only when this response returns an apply this requestId already committed
    * for the same request digest, without applying again (#265). It is excluded from
@@ -624,9 +681,14 @@ export function projectionRequestInvariantIssues(input: ProjectionRequestV1): st
  * `adopt` results never carry `files[].preview`, whatever their status.
  */
 export function projectionResultRequestModeIssues(input: ProjectionResultV2, mode: ProjectionMode): string[] {
-  return mode !== "plan" && input.files.some((file) => file.preview !== undefined)
-    ? [`files[].preview is only allowed on a plan result, never when mode=${mode}`]
-    : [];
+  const issues: string[] = [];
+  if (mode !== "plan" && input.files.some((file) => file.preview !== undefined)) {
+    issues.push(`files[].preview is only allowed on a plan result, never when mode=${mode}`);
+  }
+  if (mode !== "check" && mode !== "plan" && input.architectureDebt !== undefined) {
+    issues.push(`architectureDebt is only allowed on a check or plan result, never when mode=${mode}`);
+  }
+  return issues;
 }
 
 export function projectionResultInvariantIssues(input: ProjectionResultV2): string[] {
@@ -691,6 +753,12 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     issues.push(...projectionPriorCommittedAppliesIssues(input.priorCommittedApplies, input.requestId));
   }
   if (input.freshness) issues.push(...projectionFreshnessIssues(input.freshness));
+  if (input.architectureDebt) {
+    issues.push(...projectionArchitectureDebtIssues(input.architectureDebt));
+    if (input.applyReceipt !== undefined || input.status === "applied" || input.status === "applied-reconcile-required") {
+      issues.push("architectureDebt is only allowed on a check or plan result, never on a committed apply");
+    }
+  }
   if (input.majorChangeAcceptance !== undefined) {
     if (input.majorChangeAcceptance !== "declined-unprovable-proof") issues.push("majorChangeAcceptance is unsupported");
     if (input.status !== "human-action-required"
@@ -761,6 +829,31 @@ export function projectionFreshnessIssues(input: ProjectionFreshnessV1): string[
     if (node.nodeId.trim() === "") issues.push(`${prefix}.nodeId must not be empty`);
     if (!SHA256_DIGEST.test(node.stampedDigest) || !SHA256_DIGEST.test(node.currentDigest)) issues.push(`${prefix} digests must be SHA-256 digests`);
     else if (node.stampedDigest === node.currentDigest) issues.push(`${prefix} must name two different digests`);
+  }
+  return issues;
+}
+
+export function projectionArchitectureDebtIssues(input: ProjectionArchitectureDebtV1): string[] {
+  const issues = [
+    ...sortedUniqueIssues("architectureDebt.coverageReasonCodes", input.coverageReasonCodes),
+    ...sortedUniqueIssues("architectureDebt.items", input.items.map((item) => JSON.stringify([item.fromCapabilityId, item.toCapabilityId])))
+  ];
+  if (!(["complete", "partial", "unknown"] as const).includes(input.coverage)) issues.push("architectureDebt.coverage is unsupported");
+  const unsupported = input.coverageReasonCodes.find((code) => !(PROJECTION_ARCHITECTURE_DEBT_COVERAGE_REASON_CODES as readonly string[]).includes(code));
+  if (unsupported) issues.push(`architectureDebt.coverageReasonCodes contains an unsupported code: ${unsupported}`);
+  if ((input.coverage === "complete") !== (input.coverageReasonCodes.length === 0)) {
+    issues.push("architectureDebt.coverageReasonCodes must be empty exactly when coverage is complete");
+  }
+  if ((input.coverage === "unknown") !== input.coverageReasonCodes.includes("code-facts-unavailable")) {
+    issues.push("architectureDebt.coverage must be unknown exactly when code-facts-unavailable is reported");
+  }
+  if (input.coverage === "unknown" && input.items.length > 0) issues.push("architectureDebt.items must be empty when coverage is unknown");
+  for (const [index, item] of input.items.entries()) {
+    const prefix = `architectureDebt.items[${index}]`;
+    if (!(PROJECTION_ARCHITECTURE_DEBT_REASON_CODES as readonly string[]).includes(item.reasonCode)) issues.push(`${prefix}.reasonCode is unsupported`);
+    if (item.fromCapabilityId.trim() === "" || item.toCapabilityId.trim() === "") issues.push(`${prefix} must name two capabilities`);
+    else if (item.fromCapabilityId === item.toCapabilityId) issues.push(`${prefix} must name two different capabilities`);
+    if (!Number.isSafeInteger(item.importEdgeCount) || item.importEdgeCount < 1) issues.push(`${prefix}.importEdgeCount must be a positive integer`);
   }
   return issues;
 }
