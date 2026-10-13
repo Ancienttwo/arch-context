@@ -96,7 +96,7 @@ function isProjectionModelPath(path: string): boolean {
  * committed manifest's profile selects the stamped nodes, as it selects the layout the `complete`
  * gate verifies.
  *
- * With `changedPaths`, only stamped nodes whose `source.include` matches one of the paths (and whose
+ * With a non-empty `changedPaths`, only stamped nodes whose `source.include` matches one of the paths (and whose
  * `source.exclude` does not) are resolved, hashed and probed. Each path must be a normalized
  * repository-relative POSIX path (`assertProjectionFreshnessChangedPaths`).
  *
@@ -116,8 +116,9 @@ export function measureProjectionFreshness(
   const sourceFiles = listGitVisibleFiles(root);
   const stampedNodeIds = manifest.status === "present" ? architectureProjectionStampedNodeIds(model, profile) : [];
   const changedPaths = options.changedPaths === undefined ? [] : [...new Set(options.changedPaths)].sort((left, right) => left.localeCompare(right));
-  const widened = options.changedPaths !== undefined && changedPaths.some(isProjectionModelPath);
-  if (options.changedPaths === undefined || widened) {
+  const widened = changedPaths.some(isProjectionModelPath);
+  // An empty list is the whole-tree form, exactly as no list: it names no path that could narrow the run.
+  if (changedPaths.length === 0 || widened) {
     const footprints = loadCapabilitySourceFootprints(root, model, sourceFiles);
     return {
       manifestStatus: manifest.status,
