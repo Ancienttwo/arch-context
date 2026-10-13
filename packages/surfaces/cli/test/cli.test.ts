@@ -20,6 +20,7 @@ import { DevicePrivateKeyStore, InMemoryCredentialSecretStore } from "@archconte
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
 import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { createFixtureGithubConnectionReader } from "./github-connection-fixture";
+import { createDaemonSetupKeepalive } from "./daemon-setup-keepalive";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { CLI_COMMAND_FLAGS, resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
@@ -4505,27 +4506,13 @@ describe("archctx CLI", () => {
     const idleTimeoutMs = 3_000;
     const env = { ...testStateEnv(root), ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS: String(idleTimeoutMs) };
     const cli = async (cwd: string, ...args: string[]) => JSON.parse((await collectProcess(spawn(process.execPath, [CLI_ENTRY, ...args], { cwd, env }))).stdout);
-    let pinnedClient: RuntimeRpcClient | undefined;
-    let setupRpc: Promise<void> | undefined;
-    let setupError: unknown;
-    const keepAlive = setInterval(() => {
-      if (setupRpc || setupError) return;
-      try {
-        if (!pinnedClient) {
-          if (!existsSync(paths.daemonConnectionPath)) return;
-          // This is our isolated test fixture, read without the production client's ACL probe.
-          const connection = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8"));
-          pinnedClient = new RuntimeRpcClient(connection);
-        }
-        setupRpc = pinnedClient.runtimeStatus().then((status) => {
-          if (!status.ok) throw new Error("daemon setup keepalive failed");
-        }).catch((error) => { setupError = error; }).finally(() => { setupRpc = undefined; });
-      } catch (error) {
-        // Publication can be observed before the new file's JSON is complete, or before unlink.
-        if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === "ENOENT") return;
-        setupError = error;
-      }
-    }, 50);
+    const setup = createDaemonSetupKeepalive({
+      // Isolated fixture: avoid the production ACL probe while waiting for private publication.
+      readConnection: () => JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")),
+      createClient: (connection) => new RuntimeRpcClient(connection),
+      timeoutMs: CLI_PROCESS_TIMEOUT_MS
+    });
+    const keepAlive = setInterval(() => { void setup.poll(); }, 50);
     try {
       const started = await cli(root, "daemon", "start");
       expect(started.ok).toBe(true);
@@ -4538,9 +4525,7 @@ describe("archctx CLI", () => {
       expect(status.data.sessions).toBeGreaterThanOrEqual(1);
 
       clearInterval(keepAlive);
-      await setupRpc;
-      if (setupError) throw setupError;
-      if (!pinnedClient) throw new Error("daemon never published its setup connection");
+      const pinnedClient = await setup.finish();
       const pid = pinnedClient.connectionInfo().pid;
       expect(pid).toBe(started.data.childPid);
       expect(JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid).toBe(pid);
@@ -4572,7 +4557,8 @@ describe("archctx CLI", () => {
       expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([]);
     } finally {
       clearInterval(keepAlive);
-      await setupRpc;
+      // The main path reports setup errors; cleanup must still drain an RPC on earlier failure.
+      await setup.finish().catch(() => undefined);
       await runCli("daemon", ["stop", "--state-dir", paths.workspaceStateDir], parent).catch(() => undefined);
       rmSync(testStateRoot(root), { recursive: true, force: true });
       rmSync(parent, { recursive: true, force: true });
