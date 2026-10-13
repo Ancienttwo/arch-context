@@ -8,7 +8,7 @@ import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -159,7 +159,7 @@ export function buildArchitectureDocsProjection(
   root: string,
   generatedAt: string,
   profile: ArchitectureProjectionProfile = "default",
-  existingFilesOverride?: { path: string; body: string }[],
+  existingFilesOverride?: ProjectionOwnedFile[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   const inputs = measureArchitectureDocsProjectionInputs(root, profile);
@@ -201,7 +201,7 @@ function rerenderArchitectureDocsProjection(
   root: string,
   previous: ReturnType<typeof buildArchitectureDocsProjection>,
   generatedAt: string,
-  existingFiles: { path: string; body: string }[],
+  existingFiles: ProjectionOwnedFile[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   const { inputs } = previous;
@@ -221,7 +221,7 @@ function renderArchitectureDocsProjectionFromInputs(
   root: string,
   inputs: ReturnType<typeof measureArchitectureDocsProjectionInputs>,
   generatedAt: string,
-  existingFiles: { path: string; body: string }[],
+  existingFiles: ProjectionOwnedFile[],
   acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined
 ) {
   const { profile, sourceDigest, codeGraphInputs, sourceFootprints } = inputs;
@@ -318,14 +318,14 @@ async function runArchitectureDocsAdoptionCommand(
   const simulatedByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file]));
   // The protocol write also deletes generated-only orphans, so the fixed point is proven without them.
   if (protocolRequest) for (const orphan of projectionDeletableOrphans(projection)) simulatedByPath.delete(orphan.path);
-  for (const file of [...projection.files, ...adoption.files]) simulatedByPath.set(file.path, file);
+  for (const file of [...projection.files, ...adoption.files]) simulatedByPath.set(file.path, simulatedProjectionFile(file));
   const canonicalFirst = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...simulatedByPath.values()]);
   const canonicalExistingByPath = new Map(simulatedByPath);
-  for (const file of canonicalFirst.files) canonicalExistingByPath.set(file.path, file);
+  for (const file of canonicalFirst.files) canonicalExistingByPath.set(file.path, simulatedProjectionFile(file));
   // Adoption changes whole-document digests. Refresh signal IDs then settle against that
   // canonical baseline in the manifest before a final render can prove the fixed point.
   const canonicalBaseline = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...canonicalExistingByPath.values()]);
-  for (const file of canonicalBaseline.files) canonicalExistingByPath.set(file.path, file);
+  for (const file of canonicalBaseline.files) canonicalExistingByPath.set(file.path, simulatedProjectionFile(file));
   const canonical = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...canonicalExistingByPath.values()]);
   if (!canonical.plan.drift.ok || canonical.plan.rejected.length > 0 || canonical.plan.projectionDigest !== canonicalFirst.plan.projectionDigest) {
     const reasons = canonical.plan.rejected.map((entry) => entry.reasonCode).join(",") || "none";
@@ -593,7 +593,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     let fixedPointProjection: ReturnType<typeof buildArchitectureDocsProjection>;
     try {
       fixedPointProjection = acceptedChange
-        ? rerenderArchitectureDocsProjection(root, projection, generatedAt, projection.files)
+        ? rerenderArchitectureDocsProjection(root, projection, generatedAt, projection.files.map(simulatedProjectionFile))
         : projection;
       if (acceptedChange && (
         fixedPointProjection.plan.rejected.length > 0
@@ -1227,13 +1227,14 @@ function projectionOrphanDeleteOperations(projection: ReturnType<typeof buildArc
   operation: { path: string; expectedHash: string; delete: true };
   result: ProjectionResultV2["files"][number];
 }> {
-  const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
+  const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.onDisk]));
   return projectionDeletableOrphans(projection).map((orphan) => {
-    const body = existingByPath.get(orphan.path);
-    if (body === undefined) throw new Error(`projection orphan was classified without its body: ${orphan.path}`);
+    const onDisk = existingByPath.get(orphan.path);
+    if (onDisk === undefined) throw new Error(`projection orphan was classified without its on-disk bytes: ${orphan.path}`);
     return {
-      operation: { path: orphan.path, expectedHash: digestJson({ body } as unknown as Json), delete: true as const },
-      result: { path: orphan.path, action: "delete" as const, preimageDigest: orphan.actualDigest as Sha256Digest, outputDigest: null }
+      operation: { path: orphan.path, expectedHash: digestJson({ body: onDisk } as unknown as Json), delete: true as const },
+      // The physical preimage, like the update entries: `orphan.actualDigest` hashes the LF-normalized body.
+      result: { path: orphan.path, action: "delete" as const, preimageDigest: digestJson({ path: orphan.path, body: onDisk } as unknown as Json) as Sha256Digest, outputDigest: null }
     };
   });
 }
@@ -1431,20 +1432,15 @@ function projectionProtocolFilesForExpectedOutput(
   projection: ReturnType<typeof buildArchitectureDocsProjection>
 ): ProjectionResultV2["files"] {
   return projection.files.flatMap<ProjectionResultV2["files"][number]>((file) => {
-    const preimageDigest = currentProjectionFileDigest(root, file.path);
-    const outputDigest = digestJson({ path: file.path, body: file.body } as unknown as Json) as Sha256Digest;
+    const absolute = resolve(root, file.path);
+    const onDisk = existsSync(absolute) ? readFileSync(absolute, "utf8") : undefined;
+    const preimageDigest = onDisk === undefined ? "missing" : digestJson({ path: file.path, body: onDisk } as unknown as Json);
+    const outputDigest = digestJson({ path: file.path, body: projectionOwnedWriteBody(file.body, onDisk) } as unknown as Json) as Sha256Digest;
     if (preimageDigest === outputDigest) return [];
     return preimageDigest === "missing"
       ? [{ path: file.path, action: "create" as const, preimageDigest: null, outputDigest }]
       : [{ path: file.path, action: "update" as const, preimageDigest: preimageDigest as Sha256Digest, outputDigest }];
   }).sort((left, right) => left.path.localeCompare(right.path));
-}
-
-function currentProjectionFileDigest(root: string, path: string): string {
-  const absolute = resolve(root, path);
-  return existsSync(absolute)
-    ? digestJson({ path, body: readFileSync(absolute, "utf8") } as unknown as Json)
-    : "missing";
 }
 
 function projectionProtocolAffectedNodes(
@@ -1536,13 +1532,14 @@ function buildAgentContextProjection(root: string) {
 }
 
 /**
- * Each write's precondition is the body the render read, never a fresh disk read: the render
- * preserves human text outside generated markers from exactly those bytes, so an edit made after
- * that read fails the ChangeSet hash recheck under the daemon writer lock instead of being
- * overwritten by a body rendered without it.
+ * Each write's precondition hashes the raw bytes (`onDisk`) of the render's own read, never a
+ * fresh disk read: the render preserves human text outside generated markers from exactly those
+ * bytes, so an edit made after that read fails the ChangeSet hash recheck under the daemon writer
+ * lock instead of being overwritten by a body rendered without it. The written body keeps the
+ * line endings of those bytes.
  */
 function architectureDocsRenderProjectionOperation(
-  renderInput: readonly { path: string; body: string }[],
+  renderInput: readonly ProjectionOwnedFile[],
   files: { path: string; body: string }[],
   deletes: { path: string; expectedHash: string; delete: true }[] = []
 ) {
@@ -1556,22 +1553,36 @@ function architectureDocsRenderProjectionOperation(
   };
 }
 
-/** `missing` when the render read no body at that path, so a file created since fails closed too. */
-function projectionFilesBoundToRenderInput(
-  renderInput: readonly { path: string; body: string }[],
+/**
+ * `missing` when the render read no body at that path, so a file created since fails closed too.
+ * The precondition hashes the raw bytes the render read and the written body keeps those bytes'
+ * line endings (see `projectionOwnedWriteBody`), so a `core.autocrlf` checkout re-projects in place.
+ */
+/**
+ * A rendered file standing in for the post-apply state in an adoption fixed-point simulation. No
+ * ChangeSet precondition is ever built from these, so `onDisk` is the rendered body itself.
+ */
+function simulatedProjectionFile<T extends { path: string; body: string }>(file: T): T & ProjectionOwnedFile {
+  return { ...file, onDisk: file.body };
+}
+
+export function projectionFilesBoundToRenderInput(
+  renderInput: readonly ProjectionOwnedFile[],
   files: readonly { path: string; body: string }[]
 ): { path: string; expectedHash: string; body: string }[] {
-  const readByPath = new Map(renderInput.map((file) => [file.path, file.body]));
+  const readByPath = new Map(renderInput.map((file) => [file.path, file]));
   return files.map((file) => {
     const read = readByPath.get(file.path);
+    if (read === undefined) return { path: file.path, expectedHash: "missing", body: file.body };
+    // The type requires `onDisk`; this guards untyped callers, because a hash of anything else would not bind to the read bytes.
+    if (read.onDisk === undefined) throw new Error(`projection render input carries no on-disk bytes: ${file.path}`);
     return {
       path: file.path,
-      expectedHash: read === undefined ? "missing" : digestJson({ body: read } as unknown as Json),
-      body: file.body
+      expectedHash: digestJson({ body: read.onDisk } as unknown as Json),
+      body: projectionOwnedWriteBody(file.body, read.onDisk)
     };
   });
 }
-
 
 function projectionInputRecord(value: unknown, allowed: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("projection input must be an object");

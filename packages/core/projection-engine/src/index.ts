@@ -43,6 +43,8 @@ import {
   entitySummaryTargetNodes,
   loadArchitectureFilesForLayout,
   primarySourceDirectory,
+  readProjectionOwnedFile,
+  type ProjectionOwnedFile,
   resolveArchitectureDocumentationLayout,
   type ArchitectureDocumentationLayout,
   type ArchitectureProjectionProfile,
@@ -665,7 +667,7 @@ function assertArchitectureDocumentationProjectionProvenance(
 export function loadArchitectureDocumentationInputs(root: string, profile: ArchitectureProjectionProfile = "default"): {
   model: NativeModel;
   decisions: ArchitectureDecisionRecord[];
-  existingFiles: ArchitectureDocumentationExistingFile[];
+  existingFiles: ProjectionOwnedFile[];
   docsLanguage: ArchitectureDocsLanguage | undefined;
 } {
   const model = loadNativeModelFromArchContext(root);
@@ -894,7 +896,7 @@ export function loadArchitectureDocumentationFiles(
   root: string,
   model: NativeModel = loadNativeModelFromArchContext(root),
   profile: ArchitectureProjectionProfile = "default"
-): ArchitectureDocumentationExistingFile[] {
+): ProjectionOwnedFile[] {
   return loadArchitectureFilesForLayout(
     root,
     resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile })
@@ -2243,12 +2245,12 @@ export function agentContextProjectionTargetPaths(model: NativeModel): AgentCont
 }
 
 /** Reads back whatever already exists at the derived agent-context target paths. */
-export function loadAgentContextProjectionFiles(root: string, model: NativeModel): ArchitectureDocumentationExistingFile[] {
+export function loadAgentContextProjectionFiles(root: string, model: NativeModel): ProjectionOwnedFile[] {
   const paths = [...new Set(agentContextProjectionTargetPaths(model).map((target) => target.path))]
     .sort((left, right) => left.localeCompare(right));
   return paths
     .filter((path) => existsSync(resolve(root, path)))
-    .map((path) => ({ path, body: readFileSync(assertPathHasNoSymlinkSegments(root, path), "utf8") }));
+    .map((path) => readProjectionOwnedFile(assertPathHasNoSymlinkSegments(root, path), path));
 }
 
 export function renderAgentContextProjection(input: {

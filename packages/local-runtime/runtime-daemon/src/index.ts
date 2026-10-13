@@ -38,7 +38,7 @@ export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 export * from "./rpc-client";
 export * from "./rpc-protocol";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   bindRepository,
@@ -69,7 +69,7 @@ import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agen
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, digestArchitectureDocumentationSourceTree, digestCapabilitySourceFootprints, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprints, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, digestArchitectureDocumentationSourceTree, digestCapabilitySourceFootprints, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprints, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
@@ -323,7 +323,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         validateRootWrite: (root, file) => {
           const model = loadNativeModelFromArchContext(root);
           const canonical = renderAgentContextProjection({ model, sourceDigest: digestJson({ model } as unknown as Json), existingFiles: loadAgentContextProjectionFiles(root, model) });
-          if (canonical.files.find(candidate => candidate.path === file.path)?.body !== file.body) {
+          const canonicalBody = canonical.files.find(candidate => candidate.path === file.path)?.body;
+          if (canonicalBody === undefined || projectionOwnedWriteBody(canonicalBody, readFileSync(resolve(root, file.path), "utf8")) !== file.body) {
             throw new Error(`Root contract requires canonical marker-only content: ${file.path}`);
           }
         }
