@@ -355,3 +355,46 @@ test.each(["edited", "deleted"] as const)("a partial apply refuses a carried-for
     expect(docsSnapshot(root)[RENDERER_DOC]).toBe(committed[RENDERER_DOC]!);
   });
 }, TEST_TIMEOUT_MS);
+
+// A whole-file output the layout no longer renders: a committed manifest row and the intact file.
+const LEGACY_TARGET_ID = "projection_target.diagram.legacy";
+const LEGACY_PATH = "docs/architecture/diagrams/legacy.mmd";
+const LEGACY_BODY = "flowchart LR\n  legacy_a --> legacy_b\n";
+
+function seedWholeFileOrphan(root: string): void {
+  const manifest = JSON.parse(readFileSync(join(root, MANIFEST), "utf8"));
+  const mermaid = (Object.values(manifest.targets) as Array<{ path: string }>).find((row) => row.path.endsWith("/architecture.mmd"));
+  if (!mermaid) throw new Error("fixture manifest has no Mermaid diagram row");
+  manifest.targets[LEGACY_TARGET_ID] = { ...mermaid, path: LEGACY_PATH, outputDigest: digestJson({ targetId: LEGACY_TARGET_ID, body: LEGACY_BODY } as any) };
+  writeFileSync(join(root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  write(root, LEGACY_PATH, LEGACY_BODY);
+  commitAll(root, "a whole-file output the layout no longer renders");
+}
+
+// An orphan is a path no current target renders, and a carried-forward document is a current
+// target's path, so the orphan delete and the carried-file guard never name the same path; the
+// ChangeSet refuses a guard on a path any write or delete of the same apply touches (#327).
+test("a partial apply deletes an intact whole-file orphan beside the carried-forward document (#327)", async () => {
+  await withIsolationFixture("archctx-isolation-orphan-", false, async ({ root, request, run }) => {
+    seedWholeFileOrphan(root);
+    const committed = docsSnapshot(root);
+    blockRendererAndMoveCatalog(root);
+
+    const planned = projectionResult(await run(request("plan", "projection_request.isolation_orphan_plan")));
+    expect(planned.status).toBe("planned-partial");
+    expect(planned.coverage!.blockedTargets.map((target) => target.path)).toEqual([RENDERER_DOC]);
+    const expectedFiles = [
+      { path: MANIFEST, action: "update" as const },
+      { path: LEGACY_PATH, action: "delete" as const }
+    ];
+    expect(planned.files.map(({ path, action }) => ({ path, action }))).toEqual(expectedFiles);
+
+    const applied = projectionResult(await run(request("apply", "projection_request.isolation_orphan_apply")));
+    expect(applied.status).toBe("applied-partial");
+    expect(applied.files.map(({ path, action }) => ({ path, action }))).toEqual(expectedFiles);
+    const after = docsSnapshot(root);
+    expect(after[LEGACY_PATH]).toBeUndefined();
+    expect(Object.values(JSON.parse(after[MANIFEST]!).targets).map((row: any) => row.path)).not.toContain(LEGACY_PATH);
+    expect(after[RENDERER_DOC]).toBe(committed[RENDERER_DOC]!);
+  });
+}, TEST_TIMEOUT_MS);
