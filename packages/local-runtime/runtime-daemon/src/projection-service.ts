@@ -6,7 +6,7 @@ import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureProofEvidenceDigests, architectureDocumentationSourceDigest, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -545,8 +545,11 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       const existing = inspected.data as { found?: boolean; receipt?: ProjectionApplyReceiptV1 };
       if (existing.found === true) {
         if (!existing.receipt) throw new Error("committed projection apply receipt lookup returned no receipt");
-        // Another request already applied this exact accepted change.
-        return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed");
+        // Another request already applied this exact accepted change. Its outputs are proven, or
+        // restored under the original receipt, before the refusal points the caller at readback (#325).
+        const outputs = await proveOrRestoreCommittedProjectionApply(existing.receipt, root, daemon);
+        if (outputs.kind === "failed") return outputs.envelope;
+        return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed", outputs.kind === "restored");
       }
     } catch (error) {
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
@@ -685,12 +688,124 @@ async function replayCommittedProjectionApply(
       latest.receipt.recovery?.requestDigest === undefined ? "projection-apply-request-digest-unrecorded" : "projection-apply-request-differs"
     );
   }
+  const outputs = await proveOrRestoreCommittedProjectionApply(match.receipt, root, daemon);
+  if (outputs.kind === "failed") return outputs.envelope;
   // A receipt whose refresh signals were never delivered answers as the first run would have
   // without its delivery: applied, reconcile required, recover with the receipt to deliver.
   const committedResult = match.delivered
     ? match.receipt.result
     : projectionResultDelivery(match.receipt.result, "applied-reconcile-required", []);
-  return projectionProtocolResultEnvelope({ ...committedResult, replayed: true });
+  return projectionProtocolResultEnvelope({ ...committedResult, replayed: true, written: outputs.kind === "restored" });
+}
+
+type CommittedProjectionApplyOutputs =
+  /** The receipt has no recovery binding, so its outputs can be neither proven nor restored. */
+  | { kind: "unprovable" }
+  /** HEAD or the projection worktree digest moved since the approval; nothing is proven or written. */
+  | { kind: "snapshot-moved" }
+  /** The readback proof passed: the projection-owned outputs are the committed fixed point. */
+  | { kind: "proven" }
+  /** The outputs differed at the approved snapshot and the committed fixed point was written again. */
+  | { kind: "restored" }
+  | { kind: "failed"; envelope: JsonEnvelope };
+
+/**
+ * Before a replay or a repeated accepted change answers with a committed apply, its
+ * projection-owned outputs go through the proof `projection readback` runs (#325). When the
+ * current snapshot still equals the approved one and the proof fails, the outputs were changed
+ * after the commit (a restored `docs/architecture/`, a lost response followed by a checkout). The
+ * approved request is then rendered again, and its fixed point is written through the ordinary
+ * ChangeSet path under the daemon writer lock, but only after it reproduces the receipt's recorded
+ * resulting digests and owned-output digest byte for byte. Anything else fails closed: a human
+ * edit inside `docs/architecture/`, another renderer, or a moved snapshot is never overwritten.
+ * The receipt, its delivery checkpoint and its refresh signals are not touched; the write is an
+ * own journal entry (`changeset.docs-projection-restore-<applyId>`) under the receipt's requestId.
+ */
+async function proveOrRestoreCommittedProjectionApply(
+  receipt: ProjectionApplyReceiptV1,
+  root: string,
+  daemon: ProjectionServiceHost
+): Promise<CommittedProjectionApplyOutputs> {
+  const binding = receipt.recovery;
+  const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
+  if (!binding || !readbackRequest?.acceptedChange) return { kind: "unprovable" };
+  const model = loadNativeModelFromArchContext(root);
+  try {
+    assertProjectionExpectedSnapshotAgainstModel(readbackRequest, root, model);
+  } catch (error) {
+    // Only a snapshot that was read and differs is a moved snapshot; a failed read is an error.
+    if (error instanceof ProjectionExpectedSnapshotMismatchError) return { kind: "snapshot-moved" };
+    throw error;
+  }
+  const readback = await daemon.readbackProjectionApply(root, readbackRequest);
+  if (readback.ok) {
+    if ((readback.data as { schemaVersion?: unknown } | undefined)?.schemaVersion !== PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION) {
+      return { kind: "failed", envelope: errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "committed projection apply receipt was unavailable for its readback proof") };
+    }
+    return { kind: "proven" };
+  }
+  if (readback.error?.code !== "AC_PRECONDITION_FAILED") return { kind: "failed", envelope: readback };
+
+  const generatedAt = new Date(0).toISOString();
+  let input: ReturnType<typeof buildArchitectureDocsProjection>;
+  let fixedPoint: ReturnType<typeof buildArchitectureDocsProjection>;
+  try {
+    input = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, readbackRequest.acceptedChange);
+    assertProjectionExpectedSnapshot(readbackRequest, root, input);
+    // Like the first apply, the fixed point reuses the input render's measured inputs (#324).
+    fixedPoint = rerenderArchitectureDocsProjection(root, input, generatedAt, input.files);
+  } catch (error) {
+    return { kind: "failed", envelope: projectionFailureEnvelope("projection.run", error) };
+  }
+  // No drift against the approved render means the proof failed on something the outputs do not
+  // decide (provenance, CodeGraph); a write cannot repair that, so the proof failure stands.
+  if (input.plan.drift.ok) return { kind: "failed", envelope: readback };
+  const issues: string[] = [];
+  if (projectionProtocolHumanStatus(readbackRequest, input) !== null) issues.push("the approved change no longer renders without a human action");
+  if (fixedPoint.plan.rejected.length > 0 || fixedPoint.plan.majorChange.mode !== "none" || fixedPoint.plan.refreshSignals.length > 0) {
+    issues.push("the approved change no longer renders a no-accepted-change semantic fixed point");
+  }
+  if (fixedPoint.plan.provenance.rendererVersion !== binding.rendererVersion || fixedPoint.plan.provenance.layoutVersion !== binding.layoutVersion) {
+    issues.push("the current renderer or layout differs from the approved result");
+  }
+  if (digestJson(fixedPoint.plan.architectureDigests as unknown as Json) !== digestJson(binding.expectedResultingDigests as unknown as Json)) {
+    issues.push("the rendered model, source, flow-proof, or projection digest differs from the approved result");
+  }
+  if (projectionOwnedOutputDigest(fixedPoint) !== binding.ownedOutputDigest) {
+    issues.push("the rendered projection-owned output bytes differ from the approved result");
+  }
+  if (issues.length > 0) {
+    return {
+      kind: "failed",
+      envelope: errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `committed projection apply outputs differ from the approved result and cannot be restored: ${issues.join("; ")}`)
+    };
+  }
+  const orphanDeletes = projectionOrphanDeleteOperations(input);
+  const changeSetId = `changeset.docs-projection-restore-${receipt.identity.applyId.replace(/^sha256:/, "").slice(0, 16)}`;
+  const planned = await daemon.planUpdate(root, {
+    id: changeSetId,
+    reason: { taskSessionId: receipt.result.requestId },
+    operations: [architectureDocsRenderProjectionOperation(input.loaded.existingFiles, fixedPoint.files, orphanDeletes.map((orphan) => orphan.operation))],
+    worktreeDigestPrecondition: {
+      profile: "architecture-documentation-projection",
+      expectedDigest: binding.originalExpectedSnapshot.worktreeDigest
+    }
+  });
+  if (!planned.ok) return { kind: "failed", envelope: planned };
+  const applied = await daemon.applyUpdate(root, {
+    id: changeSetId,
+    approved: true,
+    expectedWorktreeDigest: binding.originalExpectedSnapshot.worktreeDigest,
+    worktreeDigestProfile: "architecture-documentation-projection"
+  });
+  if (!applied.ok) return { kind: "failed", envelope: applied };
+  // The restore counts only once readback proves the receipt again against what is now on disk.
+  const proven = await daemon.readbackProjectionApply(root, readbackRequest);
+  if (!proven.ok) return { kind: "failed", envelope: proven };
+  if ((proven.data as { schemaVersion?: unknown } | undefined)?.schemaVersion !== PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION) {
+    return { kind: "failed", envelope: errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "restored projection apply outputs were unavailable for their readback proof") };
+  }
+  return { kind: "restored" };
 }
 
 /**
@@ -699,12 +814,15 @@ async function replayCommittedProjectionApply(
  * readback`) and, when recorded, the original request digest. A caller that applied with
  * `acceptObservedMajorChange` never held the accepted change, so it cannot rebuild that request
  * itself (#278). A receipt without a request digest cannot be proven equal to any request, so its
- * requestId is never reused: the caller must pick a new one.
+ * requestId is never reused: the caller must pick a new one. `written` is set by `projection run`
+ * after it proved the committed outputs (`false`) or restored them under the original receipt
+ * (`true`, #325); the writer-time guard refuses before any write, so it passes `false`.
  */
 export function projectionApplyCommittedEnvelope(
   envelopeRequestId: string,
   receipt: ProjectionApplyReceiptV1,
-  reasonCode: "projection-accepted-change-committed" | "projection-apply-request-differs" | "projection-apply-request-digest-unrecorded"
+  reasonCode: "projection-accepted-change-committed" | "projection-apply-request-differs" | "projection-apply-request-digest-unrecorded",
+  written?: boolean
 ): JsonEnvelope {
   const requestId = receipt.result.requestId;
   const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
@@ -717,17 +835,21 @@ export function projectionApplyCommittedEnvelope(
   const readback = readbackRequest
     ? "to read the committed result, send error.details.readbackRequest unchanged as the projection readback request (CLI: projection readback --request-json); deliver pending refresh signals with projection recover and error.details requestId, lookupKey and applyId"
     : "the committed receipt has no recovery binding, so projection readback and projection recover cannot prove it";
+  const restored = written === true
+    ? "; its projection-owned outputs differed from the approved result at the approved snapshot and were written again under the original receipt"
+    : "";
   return errorEnvelope(
     envelopeRequestId,
     "AC_PROJECTION_APPLY_COMMITTED",
-    `${cause}; ${readback}`,
+    `${cause}${restored}; ${readback}`,
     reasonCode,
     {
       requestId,
       lookupKey: receipt.identity.lookupKey,
       applyId: receipt.identity.applyId,
       ...(requestDigest === undefined ? {} : { requestDigest }),
-      ...(readbackRequest === undefined ? {} : { readbackRequest: readbackRequest as unknown as Json })
+      ...(readbackRequest === undefined ? {} : { readbackRequest: readbackRequest as unknown as Json }),
+      ...(written === undefined ? {} : { written })
     }
   );
 }
@@ -1056,7 +1178,15 @@ function assertProjectionExpectedSnapshotAgainstModel(
 ): void {
   const actual = currentProjectionExpectedSnapshot(root, model);
   for (const field of ["repositoryId", "workspaceId", "headSha", "worktreeDigest"] as const) {
-    if (request.expected[field] !== actual[field]) throw new Error(`projection request expected snapshot mismatch: ${field}`);
+    if (request.expected[field] !== actual[field]) throw new ProjectionExpectedSnapshotMismatchError(field);
+  }
+}
+
+/** The current snapshot was read and differs from the expected one; any other failure is not a mismatch. */
+class ProjectionExpectedSnapshotMismatchError extends Error {
+  constructor(field: "repositoryId" | "workspaceId" | "headSha" | "worktreeDigest") {
+    super(`projection request expected snapshot mismatch: ${field}`);
+    this.name = "ProjectionExpectedSnapshotMismatchError";
   }
 }
 

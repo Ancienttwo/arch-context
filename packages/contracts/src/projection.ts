@@ -74,6 +74,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-readback-v1",
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
+  "projection-apply-replay-restore-v1",
   "projection-apply-replay-v1",
   "projection-architecture-debt-v1",
   "projection-check-freshness-v1",
@@ -492,6 +493,14 @@ export interface ProjectionResultV2 {
    */
   replayed?: true;
   /**
+   * Present exactly when `replayed` is: whether this response wrote projection-owned files (#325).
+   * `false` means it wrote nothing; the committed result is returned as recorded. `true` means
+   * the projection-owned outputs differed from the approved result at the approved snapshot, so
+   * the provider wrote the committed fixed point again under the original receipt. Excluded from
+   * `receiptDigest`.
+   */
+  written?: boolean;
+  /**
    * Present only on a `human-action-required` result whose request sent `acceptObservedMajorChange`
    * and the provider declined it: `declined-unprovable-proof` means a capability's P1 or P2 proof is
    * unprovable, so no observed change can be accepted. The result then carries an
@@ -773,6 +782,8 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
       issues.push("replayed is only allowed on a committed apply result with applyReceipt");
     }
   }
+  if ((input.replayed !== undefined) !== (input.written !== undefined)) issues.push("written must be present exactly when replayed is present");
+  if (input.written !== undefined && typeof input.written !== "boolean") issues.push("written must be a boolean when present");
   const { receiptDigest, ...receiptPayload } = input;
   if (projectionResultReceiptDigest(receiptPayload) !== receiptDigest) issues.push("receiptDigest must match the canonical projection result payload");
   for (const [index, signal] of input.refreshSignals.entries()) {
@@ -898,7 +909,7 @@ export function projectionPriorCommittedAppliesIssues(
  * projectionReceiptDigest, which projectionResultInvariantIssues verifies.
  */
 export function projectionResultReceiptDigest(input: Omit<ProjectionResultV2, "receiptDigest">): Sha256Digest {
-  const { replayed: _replayed, ...payload } = input;
+  const { replayed: _replayed, written: _written, ...payload } = input;
   const refreshSignals = payload.refreshSignals.map(({ projectionReceiptDigest: _projectionReceiptDigest, ...signal }) => signal);
   return digestJson({ ...payload, refreshSignals } as unknown as Json) as Sha256Digest;
 }

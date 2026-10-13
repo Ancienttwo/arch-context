@@ -326,7 +326,7 @@ export class ChangeSetAuthorityService {
         ? await this.localStore.inspectProjectionApplyReceipt(input.projectionApplyReceipt.identity.lookupKey)
         : undefined;
       if (committedReceipt) {
-        return projectionApplyCommittedEnvelope("apply_update", committedReceipt.receipt, "projection-accepted-change-committed");
+        return projectionApplyCommittedEnvelope("apply_update", committedReceipt.receipt, "projection-accepted-change-committed", false);
       }
       // A projection body edited after the render read it fails here, under the writer lock and
       // before any file is written, rather than being overwritten by a body rendered without it.
