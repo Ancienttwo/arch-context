@@ -75,6 +75,16 @@ Stopping the daemon removes transient connection and lock files from the reporte
 
 The daemon also exits on its own after 30 minutes without a completed request, so an unattended repository does not accumulate a background process indefinitely. Override the idle window with `archctx daemon start --idle-timeout-ms <ms>` or the `ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS` environment variable; `0` disables idle exit and keeps the daemon running until an explicit `archctx daemon stop`.
 
+A daemon whose worktree was deleted also exits after one idle window: the idle check closes every session whose root no longer exists. To see or stop such a daemon before that, list every daemon under the state root and stop one by its state directory or storage workspace id:
+
+```bash
+archctx daemon list
+archctx daemon stop --state-dir <stateDir from daemon list>
+archctx daemon stop --workspace-id <storageWorkspaceId from daemon list>
+```
+
+`daemon list` reads only the control files under the state root (`ARCHCONTEXT_STATE_DIR`, or the OS user-data root), so it also shows daemons whose worktree is gone: each entry reports `root`, `rootExists`, `pid`, `pidAlive` and, when a live process holds the lock without a connection file, `lockOwnerPid`. `daemon stop` accepts at most one of `--state-dir` or `--workspace-id`; without either it stops the daemon of the current repository. Neither option reads the worktree, but the shell's own working directory must still exist: Node.js cannot start in a deleted directory, so `cd` somewhere else first.
+
 ## Optional Governance
 
 GitHub App governance is optional and separate from this quickstart. It is used later for PR challenge, attestation verification, and Check delivery. Local Core remains usable without installing it.

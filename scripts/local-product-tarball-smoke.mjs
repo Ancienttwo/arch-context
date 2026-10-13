@@ -9,6 +9,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync
 } from "node:fs";
@@ -40,13 +41,17 @@ const releaseSchemaFiles = [
 const args = parseArgs(process.argv.slice(2));
 const PROCESS_TIMEOUT_MS = Number(args["timeout-ms"] ?? 30_000);
 const cleanupRoots = [];
-let activeDaemon;
+// Every archctx command in the repository may start a background daemon through `runtime()`, so the
+// smoke stops whatever runs there before uninstall and in `finally`, not only a daemon it started.
+let daemonScope;
+let installRoot;
 
 try {
   const artifactDir = resolve(String(args["artifact-dir"] ?? mkdtempTracked("archctx-local-product-artifact-")));
   mkdirSync(artifactDir, { recursive: true });
   const { tarballPath, stageDir } = await buildLocalProductTarball(artifactDir);
   const installDir = await installTarball(tarballPath);
+  installRoot = installDir;
   const binDir = join(installDir, "node_modules", ".bin");
   const archctxBin = resolveArchctxBin(binDir);
   assert(existsSync(archctxBin), `installed archctx bin missing: ${archctxBin}`);
@@ -57,7 +62,8 @@ try {
 
   const repo = createGitFixture();
   const stateRoot = mkdtempTracked("archctx-local-product-state-");
-  const env = nodeOnlyRuntimeEnv(stateRoot);
+  const env = nodeOnlyRuntimeEnv(stateRoot, mkdtempTracked("archctx-local-product-home-"));
+  daemonScope = { bin: archctxBin, repo, env };
   const bunProbe = await runOptional("bun", ["--version"], { cwd: repo, env });
   assert(bunProbe.code !== 0, "tarball smoke runtime PATH must not expose bun");
   const codeGraphProbe = await runOptional("codegraph", ["--version"], { cwd: repo, env });
@@ -74,7 +80,6 @@ try {
   assert(started.ok === true, "daemon start must succeed from installed tarball");
   assert(started.data?.background === true, "daemon start must report background mode");
   assert(/^http:\/\/127\.0\.0\.1:/.test(String(started.data?.url)), "daemon must bind loopback RPC");
-  activeDaemon = { bin: archctxBin, repo, env };
 
   const init = await runArchctx(archctxBin, ["init", "--name", "Tarball Smoke"], { cwd: repo, env });
   assert(init.ok === true, "init must succeed from installed tarball");
@@ -112,7 +117,6 @@ try {
 
   const stopped = await runArchctx(archctxBin, ["daemon", "stop"], { cwd: repo, env });
   assert(stopped.ok === true, "daemon stop must succeed from installed tarball");
-  activeDaemon = undefined;
   const pathsBeforeUpgrade = await runArchctx(archctxBin, ["paths"], { cwd: repo, env });
   assert(pathsBeforeUpgrade.ok === true, "paths must succeed before reinstall upgrade");
   assert(existsSync(pathsBeforeUpgrade.data?.localStorePath), "runtime state must exist before reinstall upgrade");
@@ -125,6 +129,10 @@ try {
   const pathsAfterUpgrade = await runArchctx(upgradedBin, ["paths"], { cwd: repo, env });
   assert(pathsAfterUpgrade.data?.localStorePath === pathsBeforeUpgrade.data?.localStorePath, "reinstall upgrade must retain runtime store path");
 
+  // `practices validate --strict` after the reinstall started a fresh background daemon through `runtime()`.
+  await stopSmokeDaemon(daemonScope);
+  const liveDaemonsBeforeUninstall = await waitForNoListedDaemons(upgradedBin, { cwd: repo, env });
+  assert(liveDaemonsBeforeUninstall.length === 0, `no daemon may remain in the smoke state root before uninstall: ${JSON.stringify(liveDaemonsBeforeUninstall)}`);
   await run("npm", ["uninstall", "--no-audit", "--no-fund", releasePackageName], { cwd: installDir, env: process.env });
   assert(!existsSync(upgradedBin), "archctx bin must be removed after uninstall");
   assert(existsSync(pathsBeforeUpgrade.data?.localStorePath), "uninstall must retain user runtime state outside package install dir");
@@ -189,14 +197,58 @@ try {
   }
   console.log(JSON.stringify(evidence, null, 2));
 } finally {
-  if (activeDaemon) {
-    await runArchctx(activeDaemon.bin, ["daemon", "stop"], {
-      cwd: activeDaemon.repo,
-      env: activeDaemon.env
-    }).catch(() => undefined);
+  await stopSmokeDaemon(daemonScope);
+  // Assert, after every stop and before deletion, that no daemon from this install remains: a leak
+  // here outlives the deleted fixture (#322). Report it without masking an earlier failure.
+  const leaked = installRoot ? await waitForNoInstallDaemons(installRoot) : [];
+  for (const pid of leaked) {
+    try { process.kill(pid, "SIGKILL"); } catch {}
+  }
+  if (leaked.length > 0) {
+    console.error(`[local-product-tarball-smoke] daemon processes from the smoke install remained: ${leaked.join(", ")}`);
+    process.exitCode = 1;
   }
   if (!args["keep-temp"]) {
     for (const path of cleanupRoots.reverse()) rmSync(path, { recursive: true, force: true });
+  }
+}
+
+/** Stops the repository's daemon, if any, with the smoke's own environment while the bin exists. */
+async function stopSmokeDaemon(scope) {
+  if (!scope || !existsSync(scope.bin)) return;
+  await runOptional(scope.bin, ["daemon", "stop"], { cwd: scope.repo, env: scope.env });
+}
+
+/** Live daemons `daemon list` reports under the smoke state root, polled since `daemon stop` answers before the daemon exits. */
+async function waitForNoListedDaemons(bin, options) {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const listed = await runArchctx(bin, ["daemon", "list"], options);
+    assert(listed.ok === true, "daemon list must succeed from installed tarball");
+    const live = listed.data.daemons.filter((daemon) => daemon.pidAlive === true || daemon.lockOwnerPid !== undefined);
+    if (live.length === 0 || Date.now() > deadline) return live;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 200));
+  }
+}
+
+/**
+ * Pids of live processes started from the smoke install (its bundled `archctx.mjs`), polled until
+ * none remain or a deadline passes, since `daemon stop` answers before the daemon exits. POSIX
+ * only: elsewhere the `daemon list` assertion before uninstall is the check.
+ */
+async function waitForNoInstallDaemons(installDir) {
+  if (process.platform === "win32") return [];
+  const markers = [installDir, realpathSync(installDir)];
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const listing = await runOptional("ps", ["-A", "-ww", "-o", "pid=", "-o", "args="], { cwd: tmpdir(), env: process.env });
+    assert(listing.code === 0, `ps failed: ${listing.stderr}`);
+    const pids = listing.stdout.split("\n")
+      .map((line) => /^\s*(\d+)\s+(.*)$/.exec(line))
+      .filter((match) => match && Number(match[1]) !== process.pid && markers.some((marker) => match[2].includes(marker)))
+      .map((match) => Number(match[1]));
+    if (pids.length === 0 || Date.now() > deadline) return pids;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 200));
   }
 }
 
@@ -449,7 +501,7 @@ function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
   assert(manifest.dependencies?.koffi === coreManifest.dependencies?.koffi, "release package must declare descriptor-relative filesystem dependency");
 }
 
-function nodeOnlyRuntimeEnv(stateRoot) {
+function nodeOnlyRuntimeEnv(stateRoot, home) {
   const runtimeBinDir = mkdtempTracked("archctx-node-only-bin-");
   const runtimeNode = join(runtimeBinDir, process.platform === "win32" ? "node.cmd" : "node");
   writeFileSync(runtimeNode, process.platform === "win32"
@@ -459,6 +511,9 @@ function nodeOnlyRuntimeEnv(stateRoot) {
   return {
     ...process.env,
     DO_NOT_TRACK: "1",
+    // A temporary HOME keeps user-level state (consent, update checks, CodeGraph) out of the real one.
+    HOME: home,
+    USERPROFILE: home,
     ARCHCONTEXT_STATE_DIR: stateRoot,
     PATH: [
       runtimeBinDir,

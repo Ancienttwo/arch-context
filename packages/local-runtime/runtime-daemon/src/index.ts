@@ -33,7 +33,7 @@ import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { ChangeSetAuthorityService, runtimeWorktreeDigest } from "./changeset-authority";
 export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
-export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, liveDaemonLockOwnerPid, recoverStaleDaemonControlFiles } from "./daemon-control";
+export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, type DaemonControlListing, listDaemonControlStates, liveDaemonLockOwnerPid, recoverStaleDaemonControlFiles } from "./daemon-control";
 export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 export * from "./rpc-client";
 export * from "./rpc-protocol";
@@ -77,7 +77,7 @@ import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcon
 import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { listGitVisibleFiles, readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobQueueScope, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
@@ -106,6 +106,8 @@ export interface RuntimeStatus {
 export interface RepositorySession {
   workspace: WorkspaceRef;
   snapshot: RepositorySnapshot;
+  /** Storage ids recorded when the session opened; the idle check reads queue stats by these alone. */
+  queueScope: RuntimeAgentJobQueueScope;
   codeFactsDigest?: string;
   modelDigest?: string;
   startedAt: string;
@@ -582,12 +584,20 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
    * daemon currently has open rather than every scope ever persisted to the local store: the
    * daemon only drives work for repositories it has a live session for, so this is the most
    * direct existing signal without scanning storage for repositories nothing is tracking.
+   *
+   * Never reads the worktree itself (#322): queue stats come from the storage ids recorded when
+   * the session opened, so an idle check costs one store query per session instead of a full
+   * worktree digest walk. A session whose root no longer exists is closed here and counts as idle:
+   * nothing can drive work for a deleted worktree, and keeping it would hold the daemon forever.
    */
   async hasActiveBackgroundWork(): Promise<boolean> {
     if (this.auditRunAbortControllers.size > 0) return true;
-    for (const session of this.sessions.values()) {
-      const scope = architectureLedgerScopeForWorkspace(session.workspace);
-      const stats = await this.localStore.queueStatsRuntimeAgentJobs(scope);
+    for (const [repositoryId, session] of this.sessions) {
+      if (!existsSync(session.workspace.root)) {
+        this.sessions.delete(repositoryId);
+        continue;
+      }
+      const stats = await this.localStore.queueStatsRuntimeAgentJobs(session.queueScope);
       if (stats.queuedDepth > 0 || stats.runningDepth > 0) return true;
     }
     return false;
@@ -1220,6 +1230,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const session: RepositorySession = {
       workspace,
       snapshot,
+      queueScope: runtimeAgentJobQueueScope(binding.root),
       modelDigest: validation?.modelDigest,
       startedAt: this.clock()
     };
@@ -1243,6 +1254,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
           headSha: record.headSha,
           worktreeDigest: record.worktreeDigest
         },
+        queueScope: runtimeAgentJobQueueScope(record.root),
         startedAt: record.updatedAt
       });
       this.evictOldSessions();
@@ -1308,6 +1320,14 @@ function codeFactsDigest(snapshot: CodeFactsSnapshot): string {
     schemaDigest: snapshot.schemaDigest,
     workspaceDigest: snapshot.workspaceDigest
   } as unknown as Json);
+}
+
+function runtimeAgentJobQueueScope(root: string): RuntimeAgentJobQueueScope {
+  const paths = runtimeStatePaths(root);
+  return {
+    repository: { storageRepositoryId: paths.storageRepositoryId },
+    worktree: { storageWorkspaceId: paths.storageWorkspaceId }
+  };
 }
 
 function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): ArchitectureLedgerScope {

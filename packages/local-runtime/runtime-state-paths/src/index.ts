@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
@@ -54,8 +54,8 @@ export function runtimeStatePaths(root = process.cwd(), env: Record<string, stri
   const storageRepositoryId = stableStorageId("repo", repositoryAnchor);
   const storageWorkspaceId = stableStorageId("ws", workspaceAnchor);
   const stateRoot = defaultArchContextStateRoot(env);
-  const repositoryStateDir = join(stateRoot.path, "repositories", storageRepositoryId);
-  const workspaceStateDir = join(repositoryStateDir, "worktrees", storageWorkspaceId);
+  const repositoryStateDir = join(stateRoot.path, REPOSITORIES_DIR, storageRepositoryId);
+  const workspaceStateDir = join(repositoryStateDir, WORKTREES_DIR, storageWorkspaceId);
   const legacyControlDir = resolve(canonicalRepositoryRoot, ".archcontext", ".local");
   return {
     schemaVersion: "archcontext.runtime-state-paths/v1",
@@ -72,13 +72,46 @@ export function runtimeStatePaths(root = process.cwd(), env: Record<string, stri
     workspaceStateDir,
     sharedCacheDir: join(repositoryStateDir, "shared", "cache"),
     localStorePath: env[ARCHCONTEXT_LOCAL_STORE_PATH_ENV] ?? join(workspaceStateDir, "runtime.sqlite"),
-    daemonConnectionPath: join(workspaceStateDir, "archctxd.json"),
-    daemonLockPath: join(workspaceStateDir, "archctxd.lock"),
-    daemonLogPath: join(workspaceStateDir, "archctxd.log"),
+    ...daemonControlPaths(workspaceStateDir),
     developerReviewRunStateDir: join(workspaceStateDir, "developer-review-runs"),
     legacyControlDir,
     legacyLocalStorePath: join(legacyControlDir, "runtime.sqlite")
   };
+}
+
+const REPOSITORIES_DIR = "repositories";
+const WORKTREES_DIR = "worktrees";
+
+/** The daemon control files of one workspace state directory (`RuntimeStatePaths.workspaceStateDir`). */
+export function daemonControlPaths(workspaceStateDir: string): Pick<RuntimeStatePaths, "daemonConnectionPath" | "daemonLockPath" | "daemonLogPath"> {
+  return {
+    daemonConnectionPath: join(workspaceStateDir, "archctxd.json"),
+    daemonLockPath: join(workspaceStateDir, "archctxd.lock"),
+    daemonLogPath: join(workspaceStateDir, "archctxd.log")
+  };
+}
+
+/**
+ * Every workspace state directory under `stateRoot`, as `runtimeStatePaths` lays them out. Needs no
+ * worktree: a daemon whose worktree was deleted still has its state directory here (#322).
+ */
+export function listWorkspaceStateDirs(stateRoot: string): Array<{ storageRepositoryId: string; storageWorkspaceId: string; workspaceStateDir: string }> {
+  return listDirectoryNames(join(stateRoot, REPOSITORIES_DIR)).flatMap((storageRepositoryId) =>
+    listDirectoryNames(join(stateRoot, REPOSITORIES_DIR, storageRepositoryId, WORKTREES_DIR)).map((storageWorkspaceId) => ({
+      storageRepositoryId,
+      storageWorkspaceId,
+      workspaceStateDir: join(stateRoot, REPOSITORIES_DIR, storageRepositoryId, WORKTREES_DIR, storageWorkspaceId)
+    }))
+  );
+}
+
+function listDirectoryNames(path: string): string[] {
+  try {
+    return readdirSync(path, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
 }
 
 function readGitPath(root: string, args: string[]): string | undefined {

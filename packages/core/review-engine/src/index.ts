@@ -137,38 +137,58 @@ function withoutTrustedGateInputs(value: unknown): unknown {
   return rest;
 }
 
+/** The commands that rebuild the architecture documentation projection: they clear drift and stale stamps. */
+const PROJECTION_REPAIR_ACTIONS = [
+  "archctx docs plan --id changeset.<id>",
+  "archctx docs apply --approved --id changeset.<id> --expected-worktree-digest <draft.base.worktreeDigest>"
+];
+
 export function completeTaskGate(input: CompleteTaskInput) {
   assertNoCallerProvidedReviewConclusionFields(input);
   const findings: PolicyFinding[] = [];
+  // What resolves each finding, keyed by the finding object its producer returned (#322): every
+  // finding that still blocks after the review policy contributes its actions, so a
+  // `fail_action_required` result always tells the caller what to do.
+  const findingActions = new Map<PolicyFinding, readonly string[]>();
+  const withActions = (produced: PolicyFinding[], actions: readonly string[]): PolicyFinding[] => {
+    for (const finding of produced) findingActions.set(finding, actions);
+    return produced;
+  };
   const staleContext = input.headSha !== input.currentHeadSha;
   // A stale task snapshot skips every downstream gate, so the policy must never be able to soften
   // it: otherwise passing an old headSha would turn every check into a warning-free pass.
   const headMismatch: PolicyFinding | undefined = staleContext
     ? { id: "stale-context", type: "stale-context", severity: "error", message: "Task snapshot HEAD does not match current HEAD." }
     : undefined;
-  if (headMismatch) findings.push(headMismatch);
+  if (headMismatch) findings.push(...withActions([headMismatch], ["archctx prepare --task <task>"]));
   if ((input.modelValidationErrors ?? []).length > 0) {
-    findings.push({ id: "invalid-schema", type: "invalid-schema", severity: "error", message: `Architecture model is invalid: ${input.modelValidationErrors!.join("; ")}` });
+    findings.push(...withActions(
+      [{ id: "invalid-schema", type: "invalid-schema", severity: "error", message: `Architecture model is invalid: ${input.modelValidationErrors!.join("; ")}` }],
+      ["archctx validate"]
+    ));
   }
   if (input.compatibilityPathIntroduced) {
-    findings.push(...validateCompatibilityContract(input.compatibilityContract));
+    findings.push(...withActions(validateCompatibilityContract(input.compatibilityContract), ["add-compatibility-contract-owner-consumers-removal-and-review-date"]));
   }
   if ((input.cleanupRequired ?? 0) > (input.cleanupCompleted ?? 0)) {
-    findings.push({ id: "cleanup-incomplete", type: "incomplete-intervention", severity: "error", message: "Intervention cleanup is incomplete." });
+    findings.push(...withActions(
+      [{ id: "cleanup-incomplete", type: "incomplete-intervention", severity: "error", message: "Intervention cleanup is incomplete." }],
+      ["complete-intervention-cleanup"]
+    ));
   }
   const practiceViolations = staleContext ? [] : input.practiceEnforcement?.violations ?? [];
   const nonBlockingPracticeViolations = staleContext ? [] : input.practiceEnforcement?.nonBlockingViolations ?? [];
   const waiversApplied = staleContext ? [] : input.practiceEnforcement?.waiversApplied ?? [];
-  const actionsRequired = staleContext ? [] : input.practiceEnforcement?.actionsRequired ?? [];
+  const practiceActions = staleContext ? [] : input.practiceEnforcement?.actionsRequired ?? [];
   const { practiceFindings, suppressedPracticeFindings } = dedupePracticeFindings(
     practiceViolations.map((violation) => ({
       violation,
-      finding: {
+      finding: withActions([{
         id: `practice:${violation.practiceId}:${violation.checkId}`,
         type: "practice-violation",
-        severity: "error" as const,
+        severity: "error",
         message: violation.message
-      }
+      }], [violation.remediation.action === "none" ? `archctx practices show --id ${violation.practiceId}` : violation.remediation.action])[0]!
     })),
     findings
   );
@@ -178,10 +198,11 @@ export function completeTaskGate(input: CompleteTaskInput) {
     severity: "warning" as const,
     message: violation.message
   }));
-  const recommendationGateFindings = staleContext ? [] : reviewRecommendationCompleteGateEligibility(input.recommendations ?? []);
-  const projectionDriftFindings = staleContext ? [] : reviewProjectionDrift(input.projectionDrift);
-  const projectionFreshnessFindings = staleContext ? [] : reviewProjectionFreshness(input.projectionFreshness);
-  const dependencyConstraintFindings = staleContext ? [] : reviewDependencyConstraints(input.dependencyConstraints);
+  const recommendationGateFindings = staleContext ? [] : reviewRecommendationCompleteGateEligibility(input.recommendations ?? [])
+    .flatMap(({ recommendationId, finding }) => withActions([finding], [`archctx recommendations show --id ${recommendationId}`]));
+  const projectionDriftFindings = staleContext ? [] : withActions(reviewProjectionDrift(input.projectionDrift), PROJECTION_REPAIR_ACTIONS);
+  const projectionFreshnessFindings = staleContext ? [] : withActions(reviewProjectionFreshness(input.projectionFreshness), PROJECTION_REPAIR_ACTIONS);
+  const dependencyConstraintFindings = staleContext ? [] : withActions(reviewDependencyConstraints(input.dependencyConstraints), ["archctx deps --json"]);
   findings.push(
     ...practiceFindings,
     ...advisoryPracticeFindings,
@@ -194,6 +215,11 @@ export function completeTaskGate(input: CompleteTaskInput) {
   const errors = policy.findings.filter((finding) => finding.severity === "error").length;
   const warnings = policy.findings.filter((finding) => finding.severity === "warning").length;
   const outcome = errors > 0 ? ("fail_action_required" as const) : warnings > 0 ? ("pass_with_warnings" as const) : ("pass" as const);
+  const blocking = policy.findings.filter((finding) => finding.severity === "error");
+  const actionsRequired = [...new Set([...practiceActions, ...blocking.flatMap((finding) => findingActions.get(finding) ?? [])])].sort();
+  if (outcome === "fail_action_required" && actionsRequired.length === 0) {
+    throw new Error(`review-actions-missing: ${blocking.map((finding) => finding.id).join(",")}`);
+  }
   const result = {
     schemaVersion: "archcontext.review/v1",
     reviewId: `review_${digestJson(input as unknown as Json).slice(-12)}`,
@@ -324,7 +350,7 @@ function reviewProjectionFreshness(projectionFreshness: CompleteTaskProjectionFr
   }];
 }
 
-function reviewRecommendationCompleteGateEligibility(recommendations: RecommendationV2[]): PolicyFinding[] {
+function reviewRecommendationCompleteGateEligibility(recommendations: RecommendationV2[]): { recommendationId: string; finding: PolicyFinding }[] {
   return recommendations.flatMap((recommendation) => {
     const findings: PolicyFinding[] = [];
     if (recommendation.enforcement === "advisory" && hasCompleteStageGateClaim(recommendation.extensions)) {
@@ -343,7 +369,7 @@ function reviewRecommendationCompleteGateEligibility(recommendations: Recommenda
         message: `Complete-stage recommendation ${recommendation.recommendationId} requires explicit policy eligibility.`
       });
     }
-    return findings;
+    return findings.map((finding) => ({ recommendationId: recommendation.recommendationId, finding }));
   });
 }
 

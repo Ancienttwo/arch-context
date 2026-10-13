@@ -53,6 +53,8 @@ import {
   ARCHCONTEXT_PRODUCT_VERSION,
   ARCHCONTEXT_SCHEMA_SET_VERSION,
   LOCAL_RUNTIME_RPC_SCHEMA_VERSION,
+  ARCHCONTEXT_NODE_RANGE,
+  nodeVersionSatisfiesRange,
   productVersionManifest
 } from "../src/product-version";
 import { ERROR_CATALOG, digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
@@ -835,6 +837,25 @@ test("a committed projection apply is a distinct, non-retryable error code (#265
   expect(errorEnvelope("projection.run", "AC_PROJECTION_APPLY_COMMITTED", "committed", "projection-apply-request-differs", { lookupKey }).error)
     .toMatchObject({ code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-apply-request-differs", details: { lookupKey } });
   expect(errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "stale").error).not.toHaveProperty("details");
+});
+
+test("the Node engine range is enforced from its one constant, as a distinct non-retryable error code (#322)", () => {
+  expect(ARCHCONTEXT_NODE_RANGE).toBe((readJson("package.json") as any).engines.node);
+  for (const supported of ["22.22.0", "22.22.3", "23.0.0", "24.18.0", "25.9.9", "v24.1.0"]) {
+    expect(nodeVersionSatisfiesRange(supported), supported).toBe(true);
+  }
+  for (const unsupported of ["22.21.9", "20.11.1", "26.0.0", "26.0.0-pre", "26.10.0", "garbage", ""]) {
+    expect(nodeVersionSatisfiesRange(unsupported), unsupported).toBe(false);
+  }
+  expect(nodeVersionSatisfiesRange("1.2.3", ">=1.2 <=1.2.3")).toBe(true);
+  expect(nodeVersionSatisfiesRange("1.2.4", ">=1.2 <=1.2.3")).toBe(false);
+  expect(() => nodeVersionSatisfiesRange("24.0.0", "^24")).toThrow("unsupported node engine comparator: ^24");
+  expect(ERROR_CATALOG.AC_NODE_VERSION_UNSUPPORTED).toEqual({
+    code: "AC_NODE_VERSION_UNSUPPORTED",
+    severity: "error",
+    retryable: false,
+    action: "use-supported-node-version"
+  });
 });
 
 test("check freshness is schema-valid, receipt-bound and internally consistent (#259)", () => {

@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawn } from "node:child_process";
-import { type RmDirOptions, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync as nodeRmSync, writeFileSync } from "node:fs";
+import { type RmDirOptions, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync as nodeRmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { stableYaml, type Json } from "@archcontext/contracts";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { ARCHCONTEXT_NODE_RANGE, stableYaml, type Json } from "@archcontext/contracts";
 
 /**
  * #297: the published `bin/archctx.mjs` is a `bun build` bundle run by Node. In-process `runCli`
@@ -133,6 +133,45 @@ describe("bundled bin/archctx.mjs (#297)", () => {
   }, TEST_TIMEOUT_MS);
 });
 
+describe("Node engine range at the bundled entry (#322)", () => {
+  test("every entry branch refuses a Node.js outside the engine range with a typed error and starts nothing", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "archctx-bundle-node-range-"));
+    const stateDir = mkdtempSync(join(tmpdir(), "archctx-bundle-node-range-state-"));
+    const stubDir = mkdtempSync(join(tmpdir(), "archctx-bundle-node-range-stub-"));
+    const env = { ...process.env, ARCHCONTEXT_STATE_DIR: stateDir };
+    try {
+      writeFileSync(join(cwd, "README.md"), "# node range\n", "utf8");
+      execFileSync("git", ["init", "-q"], { cwd });
+      // Node keeps `process.versions.node` configurable, so a preload can pose as an unsupported
+      // Node.js without installing one; the bundle reads the same property the release bin does.
+      const stub = join(stubDir, "node-26.mjs");
+      writeFileSync(stub, 'Object.defineProperty(process.versions, "node", { value: "26.10.0" });\n', "utf8");
+      const nodeArgs = ["--import", pathToFileURL(stub).href];
+      for (const args of [["validate"], ["capabilities", "--json"], ["daemon", "start"], ["daemon", "start", "--foreground", "--port", "0"], ["mcp"], ["docs", "--help"]]) {
+        const result = await runBundle(cwd, args, { env, nodeArgs, allowFailure: true, expectExitCode: 1 });
+        expect(result, args.join(" ")).toMatchObject({
+          ok: false,
+          requestId: args[0],
+          error: {
+            code: "AC_NODE_VERSION_UNSUPPORTED",
+            retryable: false,
+            action: "use-supported-node-version",
+            details: { nodeVersion: "26.10.0", supportedRange: ARCHCONTEXT_NODE_RANGE }
+          }
+        });
+      }
+      expect(readdirSync(stateDir)).toEqual([]);
+      // Control: the same bundle on this (supported) Node.js answers normally.
+      expect((await runBundle(cwd, ["capabilities", "--json"], { env })).schemaVersion).toBeString();
+    } finally {
+      await runBundle(cwd, ["daemon", "stop"], { env, allowFailure: true }).catch(() => undefined);
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
+      rmSync(stubDir, { recursive: true, force: true });
+    }
+  }, TEST_TIMEOUT_MS);
+});
+
 function bundleNode(): Json {
   return {
     schemaVersion: "archcontext.node/v2",
@@ -149,12 +188,15 @@ interface BundleRunOptions {
   env?: NodeJS.ProcessEnv;
   stdin?: string;
   allowFailure?: boolean;
+  /** With `allowFailure`, the exit code the run must end with. */
+  expectExitCode?: number;
+  nodeArgs?: string[];
 }
 
 /** Runs the bundle with Node, the runtime the published `bin/archctx.mjs` targets. */
 function runBundle(cwd: string, args: string[], options: BundleRunOptions = {}): Promise<any> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn("node", [bundlePath, ...args], { cwd, env: options.env ?? process.env });
+    const child = spawn("node", [...(options.nodeArgs ?? []), bundlePath, ...args], { cwd, env: options.env ?? process.env });
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => {
@@ -171,6 +213,10 @@ function runBundle(cwd: string, args: string[], options: BundleRunOptions = {}):
       clearTimeout(timeout);
       if (code !== 0 && !options.allowFailure) {
         rejectPromise(new Error(`archctx ${args.join(" ")} failed (${code}): ${stderr || stdout}`));
+        return;
+      }
+      if (options.expectExitCode !== undefined && code !== options.expectExitCode) {
+        rejectPromise(new Error(`archctx ${args.join(" ")} exited ${code}, expected ${options.expectExitCode}: ${stderr || stdout}`));
         return;
       }
       try {

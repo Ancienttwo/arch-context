@@ -2385,6 +2385,45 @@ setInterval(() => undefined, 1 << 30);
     }
   }, 10_000);
 
+  test("idle RPC server exits within the idle timeout once its session's worktree is deleted, even with a queued job (#322)", async () => {
+    const root = createGitRepo();
+    const daemon = await createStartedTestDaemon();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+    const enqueue = await daemon.jobsEnqueueGitHook(root, {
+      source: "worktree",
+      event: "post-edit",
+      taskSessionId: "task.idle-deleted-root",
+      analysisKind: "architecture-delta",
+      risk: "high",
+      uncertainty: "high"
+    });
+    expect((enqueue.data as any).enqueued).toBe(true);
+    expect(daemon.status().sessions).toBe(1);
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-deleted-root-token",
+      idleTimeoutMs: 300,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      // The sibling test above shows the same queued job holds the daemon while the root exists.
+      // Once the root is gone nothing can drive that job, so the first idle check closes the
+      // session and exits instead of failing on the missing root and staying busy forever.
+      removeTempRepo(root);
+      const deadline = Date.now() + 300 + 1_000;
+      while (exitCodes.length === 0 && Date.now() < deadline) await sleep(25);
+      expect(exitCodes).toEqual([0]);
+      expect(existsSync(connection.connectionPath)).toBe(false);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 10_000);
+
   test("production composition root uses real adapters and rejects injected runtime doubles", async () => {
     const root = tempRepo();
     let daemon: Awaited<ReturnType<typeof createStartedProductionDaemon>> | undefined;
