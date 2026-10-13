@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" sourceDigest="sha256:b3918fa54a4f985a07f2449b82c45e71b92163f1a4a55bda3c4618b6b8c56f36" rendererVersion="archcontext.docs-renderer/v5" outputDigest="sha256:b9a2f39ba0903a744cfc490cf9f45dfc0d86097987cc698f7d47ca5aa78a26c9" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" rendererVersion="archcontext.docs-renderer/v6" outputDigest="sha256:7584c73ef83ffb31b691f8e5e0ae9ead9d4a4b1282eebbb87daee8e4b07a3b1a" -->
 # Architecture Decision Index
 
 - [Agentic Architecture Control Loop](../../adr/ADR-0001-agentic-architecture-control-loop.md) — accepted
@@ -46,4 +46,5 @@
 - [Agent Context Provider](../../adr/ADR-0043-agent-context-provider.md) — accepted
 - [Authority-Aware Explorer View Compiler](../../adr/ADR-0044-authority-aware-explorer-view-compiler.md) — accepted
 - [Authority-Separated Data Engine](../../adr/ADR-0045-authority-separated-data-engine.md) — accepted
+- [Refactor Decisions in Git](../../adr/ADR-0046-refactor-decisions-in-git.md) — accepted
 <!-- END ARCHCONTEXT:generated target="projection_target.decision.index" -->
