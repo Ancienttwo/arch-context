@@ -752,8 +752,10 @@ async function proveOrRestoreCommittedProjectionApply(
   try {
     input = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, readbackRequest.acceptedChange);
     assertProjectionExpectedSnapshot(readbackRequest, root, input);
-    // Like the first apply, the fixed point reuses the input render's measured inputs (#324).
-    fixedPoint = rerenderArchitectureDocsProjection(root, input, generatedAt, input.files);
+    // Like the first apply, the fixed point reuses the input render's measured inputs (#324) and
+    // simulates the post-write state from the rendered outputs. The write below binds its
+    // preconditions to `input.loaded.existingFiles`, the real read of the reverted files.
+    fixedPoint = rerenderArchitectureDocsProjection(root, input, generatedAt, input.files.map(simulatedProjectionFile));
   } catch (error) {
     return { kind: "failed", envelope: projectionFailureEnvelope("projection.run", error) };
   }

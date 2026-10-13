@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { docsAnchorsReportIssues, validateJsonSchema, type DocsAnchorsReportV1, type Json } from "@archcontext/contracts";
 import {
   checkProseAnchors,
+  modelSelectorIds,
   humanOwnedMarkdownLines,
   type ProseAnchorCodeGraph,
   type ProseAnchorDeclaration,
@@ -59,8 +60,8 @@ const CODEGRAPH = fakeCodeGraph({
   }
 }, ["fetch"]);
 
-function run(nodes: ProseAnchorNodeInput[], codeGraph: ProseAnchorCodeGraph = CODEGRAPH, tree: ProseAnchorTree = TREE): DocsAnchorsReportV1 {
-  const report = checkProseAnchors({ profile: "default", nodes, tree, codeGraph });
+function run(nodes: ProseAnchorNodeInput[], codeGraph: ProseAnchorCodeGraph = CODEGRAPH, tree: ProseAnchorTree = TREE, selectorIds: readonly string[] = nodes.map((node) => node.nodeId)): DocsAnchorsReportV1 {
+  const report = checkProseAnchors({ profile: "default", selectorIds, nodes, tree, codeGraph });
   expect(docsAnchorsReportIssues(report)).toEqual([]);
   expect(validateJsonSchema(SCHEMA, report as unknown as Json).issues).toEqual([]);
   return report;
@@ -116,7 +117,7 @@ describe("prose anchors (#298)", () => {
     ]);
     const moved = report.nodes[0]!.findings.find((finding) => finding.kind === "line-moved")!;
     expect(moved.citation).toEqual({ text: "src/billing/charge.ts:12", path: "src/billing/charge.ts", line: 12, symbol: "retryCharge" });
-    expect(report.summary.byKind).toEqual({ "line-moved": 2, "line-out-of-range": 2, "missing-path": 1, "missing-symbol": 2 });
+    expect(report.summary.byKind).toEqual({ "line-moved": 2, "line-out-of-range": 2, "missing-path": 1, "missing-symbol": 2, "unknown-selector": 0 });
   });
 
   test("ignores generated regions, fenced code and HTML comments", () => {
@@ -230,6 +231,74 @@ describe("prose anchors (#298)", () => {
       "An escaped backslash: \\\\`src/billing/gone.ts` is a citation."
     ].join("\n"))]);
     expect(findingSummary(report)).toEqual([{ kind: "missing-path", text: "src/billing/gone.ts", line: 3 }]);
+  });
+
+  test("model selectors are checked against the model, not the tree (#327)", () => {
+    const nodes: ProseAnchorNodeInput[] = [{
+      nodeId: "capability.billing",
+      document: {
+        path: "docs/architecture/modules/billing.md",
+        body: [
+          "# Billing",
+          "Known: `entrypoint.cli.main#runCli`, `sink.cli.store#save` and `capability.billing#chargeCard`.",
+          "Unknown id: `entrypoint.cli.gone#runCli`, `sink.cli.gone#save` and `capability.nope#run`.",
+          "Files win: `module.ts#run`, the suffix match `charge.ts#chargeCard` and a missing `module.rs#run`.",
+          "Bare ids are not citations: `entrypoint.cli.gone` and `module.exports`."
+        ].join("\n")
+      }
+    }];
+    // Selector ids as the daemon builds them: node ids plus source entrypoint and sink ids.
+    const model = modelSelectorIds({
+      nodes: [
+        ...nodes.map((node) => ({ id: node.nodeId, kind: "capability", name: node.nodeId })),
+        { id: "component.core", kind: "component", name: "Core", source: { entrypoints: [{ id: "entrypoint.cli.main", path: "src/cli.ts", symbols: [{ name: "runCli", sinks: [{ id: "sink.cli.store", path: "src/store.ts", symbol: "save" }] }] }] } }
+      ]
+    });
+    expect(model).toEqual(["capability.billing", "component.core", "entrypoint.cli.main", "sink.cli.store"]);
+    const tree = fakeTree({ "src/billing/charge.ts": 7, "docs/architecture/modules/billing.md": 30, "module.ts": 3 });
+    const codeGraph = fakeCodeGraph({
+      "module.ts": { run: [{ qualifiedName: "run", startLine: 1, endLine: 3 }] },
+      "src/billing/charge.ts": { chargeCard: [{ qualifiedName: "chargeCard", startLine: 1, endLine: 3 }] }
+    });
+    const report = run(nodes, codeGraph, tree, model);
+    expect(findingSummary(report)).toEqual([
+      { kind: "unknown-selector", text: "entrypoint.cli.gone#runCli", line: 3 },
+      { kind: "unknown-selector", text: "sink.cli.gone#save", line: 3 },
+      { kind: "unknown-selector", text: "capability.nope#run", line: 3 },
+      { kind: "missing-path", text: "module.rs#run", line: 4 }
+    ]);
+    expect(report.nodes[0]!.findings[0]!.citation).toEqual({ text: "entrypoint.cli.gone#runCli", symbol: "runCli" });
+    expect(report.summary.byKind["unknown-selector"]).toBe(3);
+  });
+
+  test("an extension-less symbol citation that resolves by path suffix stays a citation", () => {
+    const tree = fakeTree({ "packages/x/bin/archctx": 5 });
+    const report = run([{ nodeId: "capability.cli", summary: "Starts in `bin/archctx#main`." }], CODEGRAPH, tree);
+    expect(findingSummary(report)).toEqual([]);
+    expect(report.summary.citations).toBe(1);
+    expect(report.nodes[0]!.unchecked).toEqual([expect.objectContaining({ reasonCode: "language-unsupported" })]);
+  });
+
+  test("a selector is never bound as the symbol of a neighbouring path:line", () => {
+    const report = run([{
+      nodeId: "capability.billing",
+      summary: "See `src/billing/charge.ts:2` (`capability.billing#chargeCard`)."
+    }]);
+    expect(findingSummary(report)).toEqual([]);
+    expect(report.summary.citations).toBe(2);
+  });
+
+  test("owner/repo#number is not a citation, in a code span or in prose (#327)", () => {
+    const report = run([{
+      nodeId: "capability.billing",
+      summary: "Tracked in `owner/repo#number`, `owner/repo#123` and plain owner/repo#number or #123.",
+      responsibilities: ["Fixes owner/repo#number and `acme/widgets#45`."]
+    }]);
+    expect(findingSummary(report)).toEqual([]);
+    expect(report.summary.citations).toBe(0);
+    // A symbol citation of a top-level directory or of a file is still checked.
+    const checked = run([{ nodeId: "capability.billing", summary: "See `src/legacy#number` and `src/billing/legacy.ts#number`." }]);
+    expect(findingSummary(checked).map((finding) => finding.kind)).toEqual(["missing-path", "missing-path"]);
   });
 
   test("nodes are sorted and nodes without citations are left out", () => {

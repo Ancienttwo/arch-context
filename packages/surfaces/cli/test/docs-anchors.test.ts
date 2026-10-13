@@ -169,7 +169,7 @@ test("docs anchors reports stale citations with CodeGraph, and ignores generated
     // summary 2 + responsibilities 2 + valid line 4 + one per finding line 4.
     expect(node.citationCount).toBe(12);
     expect(report.summary).toEqual(expect.objectContaining({ documents: 1, citations: 12, findings: 6, unchecked: 0 }));
-    expect(report.summary.byKind).toEqual({ "line-moved": 1, "line-out-of-range": 1, "missing-path": 2, "missing-symbol": 2 });
+    expect(report.summary.byKind).toEqual({ "line-moved": 1, "line-out-of-range": 1, "missing-path": 2, "missing-symbol": 2, "unknown-selector": 0 });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -207,6 +207,45 @@ test("docs anchors without a CodeGraph index still checks paths and lines and re
     });
     expect(JSON.parse(output).data).toEqual(report);
     expect(existsSync(stateRoot)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, TEST_TIMEOUT_MS);
+
+test("docs anchors checks source-selector ids against the model and ignores owner/repo#number (#327)", async () => {
+  const root = seedFixture();
+  try {
+    write(root, `.archcontext/model/nodes/${NODE_ID}.yaml`, stableYaml({
+      schemaVersion: "archcontext.node/v2",
+      id: NODE_ID,
+      kind: "capability",
+      name: "Billing",
+      status: "active",
+      summary: "Charges cards.",
+      source: {
+        include: ["src/billing/**"],
+        entrypoints: [{
+          id: "entrypoint.billing.charge",
+          path: "src/billing/charge.ts",
+          symbols: [{ name: "chargeCard", sinks: [{ id: "sink.billing.retry", path: "src/billing/charge.ts", symbol: "retryCharge" }] }]
+        }]
+      }
+    } as unknown as Json));
+    const model = loadNativeModelFromArchContext(root);
+    const documentPath = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations }).entityPathByNodeId.get(NODE_ID)!;
+    write(root, documentPath, [
+      "# Billing",
+      "Valid: `entrypoint.billing.charge#chargeCard` and `sink.billing.retry#retryCharge`.",
+      "Unknown: `entrypoint.billing.gone#chargeCard`.",
+      "Not a citation: `owner/repo#number`.",
+      ""
+    ].join("\n"));
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "selectors");
+    const report = await runAnchors(root);
+    expect(findings(report)).toEqual([[NODE_ID, "unknown-selector", "entrypoint.billing.gone#chargeCard", 3, null]]);
+    expect(report.summary.byKind).toEqual({ "line-moved": 0, "line-out-of-range": 0, "missing-path": 0, "missing-symbol": 0, "unknown-selector": 1 });
+    expect(report.summary.citations).toBe(3);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

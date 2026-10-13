@@ -30,6 +30,15 @@ import type { ArchitectureProjectionProfile } from "./layout";
 //   A bare `path:line` has no symbol, so it can only be `line-out-of-range`.
 // - A path in an explicit form (`:line`, `#L`, `#symbol`) that is not found at the root, such as a
 //   basename `runtime.ts:277`, resolves by path suffix, first in the node's source footprint.
+// - `<selector-id>#symbol`, such as `entrypoint.cli.main#runCli`: a model selector, not a path. The
+//   model's selector ids are its node ids, the source entrypoint ids, the sink ids and the flow ids
+//   (`selectorIds`). It is valid when the id is one of them. It is `unknown-selector` when the id is
+//   not one of them but its first segment is the first segment of one (`entrypoint`, `sink`, ...).
+//   A token that names a Git-visible file or a path suffix of one stays a path. A bare `kind.name`
+//   without `#symbol` is never a citation.
+// - `dir/name#symbol` with no file extension, whose first segment is not a top-level entry of the
+//   tree and resolves by no path suffix, such as `owner/repo#number`, is not a citation (like a bare
+//   path in that position).
 // - `name()` or `Type.name()`: a call-shaped identifier is a cited symbol. It is `missing-symbol`
 //   only when CodeGraph declares no symbol with that name and no supported source file contains it.
 // - A plain identifier `name` counts as a citation only when CodeGraph declares it. It is never
@@ -79,6 +88,8 @@ export interface ProseAnchorNodeInput {
 
 export interface ProseAnchorCheckInput {
   profile: ArchitectureProjectionProfile;
+  /** Ids a `<id>#symbol` selector may name: node ids, source entrypoint ids, sink ids and flow ids. */
+  selectorIds: readonly string[];
   nodes: ProseAnchorNodeInput[];
   tree: ProseAnchorTree;
   codeGraph: ProseAnchorCodeGraph;
@@ -86,8 +97,16 @@ export interface ProseAnchorCheckInput {
 
 type ParsedCitation =
   | { form: "path"; text: string; path: string; directory: boolean; explicit: boolean; line?: number; endLine?: number; symbol?: string }
+  | { form: "selector"; text: string; id: string; symbol: string }
   | { form: "call"; text: string; symbol: string }
   | { form: "identifier"; text: string; symbol: string };
+
+/** What the parser needs to tell a model selector from a path. */
+interface SelectorContext {
+  ids: ReadonlySet<string>;
+  prefixes: ReadonlySet<string>;
+  tree: ProseAnchorTree;
+}
 
 interface LocatedCitation {
   origin: DocsAnchorOriginV1;
@@ -102,6 +121,7 @@ const CALL_PATTERN = new RegExp(`^(${QUALIFIED_IDENTIFIER})\\(\\)$`);
 const PATH_PATTERN = /^[A-Za-z0-9_.@+\-/]+$/;
 const LINE_FRAGMENT = /^L(\d+)(?:-L?(\d+))?$/;
 const LINE_SUFFIX = /^(.*?):(\d+)(?:-(\d+))?$/;
+const SELECTOR_PATTERN = new RegExp(`^([A-Za-z][A-Za-z0-9_-]*)((?:\\.[A-Za-z0-9_-]+)+)#(${QUALIFIED_IDENTIFIER})$`);
 const FILE_EXTENSION = /\.[A-Za-z0-9]+$/;
 /** Text allowed between a `path:line` span and the identifier span it binds. */
 const BINDING_GAP = /^\s*[([,:–—-]?\s*$/;
@@ -109,11 +129,16 @@ const GENERATED_BEGIN = /<!-- BEGIN ARCHCONTEXT:generated target="([^"]+)"[^>]*-
 
 export function checkProseAnchors(input: ProseAnchorCheckInput): DocsAnchorsReportV1 {
   const nodes: DocsAnchorsNodeV1[] = [];
+  const selectors: SelectorContext = {
+    ids: new Set(input.selectorIds),
+    prefixes: new Set(input.selectorIds.map((id) => id.split(".")[0]!)),
+    tree: input.tree
+  };
   let documents = 0;
   // Code-unit order, the order `docsAnchorsReportIssues` checks.
   for (const node of [...input.nodes].sort((left, right) => left.nodeId < right.nodeId ? -1 : left.nodeId > right.nodeId ? 1 : 0)) {
     if (node.document) documents += 1;
-    const result = checkNode(node, input);
+    const result = checkNode(node, input, selectors);
     if (result.citationCount > 0) nodes.push(result);
   }
   const findings = nodes.flatMap((node) => node.findings);
@@ -137,22 +162,22 @@ export function checkProseAnchors(input: ProseAnchorCheckInput): DocsAnchorsRepo
 }
 
 /** The citations written in a node's prose and in the human-owned regions of its document. */
-function extractNodeProseCitations(node: Pick<ProseAnchorNodeInput, "summary" | "responsibilities" | "document">): LocatedCitation[] {
+function extractNodeProseCitations(node: Pick<ProseAnchorNodeInput, "summary" | "responsibilities" | "document">, selectors: SelectorContext): LocatedCitation[] {
   const located: LocatedCitation[] = [];
   if (typeof node.summary === "string") {
     for (const line of node.summary.split(/\r?\n/)) {
-      located.push(...parseLineCitations(line).map((parsed) => ({ origin: { kind: "node-summary" as const }, parsed })));
+      located.push(...parseLineCitations(line, selectors).map((parsed) => ({ origin: { kind: "node-summary" as const }, parsed })));
     }
   }
   for (const [index, responsibility] of (node.responsibilities ?? []).entries()) {
     if (typeof responsibility !== "string") continue;
     for (const line of responsibility.split(/\r?\n/)) {
-      located.push(...parseLineCitations(line).map((parsed) => ({ origin: { kind: "node-responsibility" as const, index }, parsed })));
+      located.push(...parseLineCitations(line, selectors).map((parsed) => ({ origin: { kind: "node-responsibility" as const, index }, parsed })));
     }
   }
   if (node.document) {
     for (const { line, text } of humanOwnedMarkdownLines(node.document.body)) {
-      located.push(...parseLineCitations(text).map((parsed) => ({ origin: { kind: "document" as const, path: node.document!.path, line }, parsed })));
+      located.push(...parseLineCitations(text, selectors).map((parsed) => ({ origin: { kind: "document" as const, path: node.document!.path, line }, parsed })));
     }
   }
   return located;
@@ -267,15 +292,15 @@ function precedingBackslashes(text: string, index: number): number {
   return count;
 }
 
-function parseLineCitations(text: string): ParsedCitation[] {
+function parseLineCitations(text: string, selectors: SelectorContext): ParsedCitation[] {
   const spans = inlineCodeSpans(text);
-  const parsed = spans.map((span) => parseCitationText(span.content));
+  const parsed = spans.map((span) => parseCitationText(span.content, selectors));
   const consumed = new Set<number>();
   for (const [index, citation] of parsed.entries()) {
     if (citation?.form !== "path" || citation.line === undefined || citation.symbol !== undefined) continue;
     const bind = (other: number, gap: string) => {
       const candidate = parsed[other];
-      if (consumed.has(other) || !candidate || candidate.form === "path" || !BINDING_GAP.test(gap)) return false;
+      if (consumed.has(other) || !candidate || candidate.form === "path" || candidate.form === "selector" || !BINDING_GAP.test(gap)) return false;
       citation.symbol = candidate.symbol;
       consumed.add(other);
       return true;
@@ -286,12 +311,21 @@ function parseLineCitations(text: string): ParsedCitation[] {
   return parsed.flatMap((citation, index) => citation && !consumed.has(index) ? [citation] : []);
 }
 
-function parseCitationText(raw: string): ParsedCitation | undefined {
+function parseCitationText(raw: string, selectors: SelectorContext): ParsedCitation | undefined {
   const text = raw.trim();
   if (text === "" || /\s/.test(text)) return undefined;
   const call = CALL_PATTERN.exec(text);
   if (call) return { form: "call", text, symbol: call[1]! };
   if (IDENTIFIER_PATTERN.test(text)) return { form: "identifier", text, symbol: text };
+  const selector = SELECTOR_PATTERN.exec(text);
+  if (selector) {
+    const id = `${selector[1]}${selector[2]}`;
+    // A Git-visible file such as `service.ts#start` (also by path suffix) is a path, whatever its first segment is.
+    const isFile = selectors.tree.kind(id) !== undefined || selectors.tree.filesEndingWith(id).length > 0;
+    if (!LINE_FRAGMENT.test(selector[3]!) && !isFile && (selectors.ids.has(id) || selectors.prefixes.has(selector[1]!))) {
+      return { form: "selector", text, id, symbol: selector[3]! };
+    }
+  }
   let rest = text;
   let line: number | undefined;
   let endLine: number | undefined;
@@ -328,6 +362,8 @@ function parseCitationText(raw: string): ParsedCitation | undefined {
   const segments = path.split("/");
   if (path === "" || segments.some((segment) => segment === "" || /^\.+$/.test(segment))) return undefined;
   if (!explicit && segments.length < 2) return undefined;
+  // `owner/repo#number`: a symbol citation of a path that is neither a file, nor under the tree, nor a path suffix.
+  if (symbol !== undefined && !FILE_EXTENSION.test(path) && !selectors.tree.hasTopLevelEntry(segments[0]!) && selectors.tree.filesEndingWith(path).length === 0) return undefined;
   if (explicit && segments.length < 2 && !FILE_EXTENSION.test(path)) return undefined;
   return {
     form: "path",
@@ -341,13 +377,15 @@ function parseCitationText(raw: string): ParsedCitation | undefined {
   };
 }
 
-function checkNode(node: ProseAnchorNodeInput, input: ProseAnchorCheckInput): DocsAnchorsNodeV1 {
+function checkNode(node: ProseAnchorNodeInput, input: ProseAnchorCheckInput, selectors: SelectorContext): DocsAnchorsNodeV1 {
   const findings: DocsAnchorFindingV1[] = [];
   const unchecked: DocsAnchorUncheckedV1[] = [];
   let citationCount = 0;
-  for (const { origin, parsed } of extractNodeProseCitations(node)) {
+  for (const { origin, parsed } of extractNodeProseCitations(node, selectors)) {
     const outcome = parsed.form === "path"
       ? checkPathCitation(parsed, node, input)
+      : parsed.form === "selector"
+      ? checkSelectorCitation(parsed, selectors)
       : checkSymbolCitation(parsed, input.codeGraph);
     if (!outcome.counted) continue;
     citationCount += 1;
@@ -368,6 +406,12 @@ interface CitationOutcome {
   citation: DocsAnchorCitationV1;
   findings: Omit<DocsAnchorFindingV1, "origin" | "citation">[];
   unchecked: DocsAnchorUncheckedV1["reasonCode"][];
+}
+
+/** The symbol after `#` is not checked: a selector id does not name a source file. */
+function checkSelectorCitation(parsed: Extract<ParsedCitation, { form: "selector" }>, selectors: SelectorContext): CitationOutcome {
+  const citation: DocsAnchorCitationV1 = { text: parsed.text, symbol: parsed.symbol };
+  return { counted: true, citation, findings: selectors.ids.has(parsed.id) ? [] : [{ kind: "unknown-selector" }], unchecked: [] };
 }
 
 function checkSymbolCitation(parsed: Extract<ParsedCitation, { form: "call" | "identifier" }>, codeGraph: ProseAnchorCodeGraph): CitationOutcome {

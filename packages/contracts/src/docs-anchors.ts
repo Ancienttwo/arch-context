@@ -6,7 +6,7 @@
  */
 export const DOCS_ANCHORS_REPORT_SCHEMA_VERSION = "archcontext.docs-anchors/v1" as const;
 
-export const DOCS_ANCHOR_FINDING_KINDS = ["line-moved", "line-out-of-range", "missing-path", "missing-symbol"] as const;
+export const DOCS_ANCHOR_FINDING_KINDS = ["line-moved", "line-out-of-range", "missing-path", "missing-symbol", "unknown-selector"] as const;
 export type DocsAnchorFindingKind = (typeof DOCS_ANCHOR_FINDING_KINDS)[number];
 
 /** Why a citation was found but one of its checks could not run. */
@@ -111,6 +111,7 @@ function docsAnchorFindingIssues(finding: DocsAnchorFindingV1, prefix: string): 
   const { citation } = finding;
   if (finding.kind === "missing-path" && citation.path === undefined) issues.push(`${prefix} missing-path must name citation.path`);
   if (finding.kind === "missing-symbol" && citation.symbol === undefined) issues.push(`${prefix} missing-symbol must name citation.symbol`);
+  if (finding.kind === "unknown-selector" && citation.symbol === undefined) issues.push(`${prefix} unknown-selector must name citation.symbol`);
   if (finding.kind === "line-out-of-range" && (citation.line === undefined || finding.lineCount === undefined)) {
     issues.push(`${prefix} line-out-of-range must name citation.line and lineCount`);
   }

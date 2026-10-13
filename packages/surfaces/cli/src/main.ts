@@ -82,7 +82,7 @@ const AUDIT_APPROVE_BOOLEAN_FLAGS = ["--resume", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
 /** `docs anchors --help`; above the entry block for the same TDZ reason as the audit constants. */
 const CLI_DOCS_ANCHORS_HELP = {
   usage: "archctx docs anchors [--profile default|repo-harness/v1] [--json]",
-  description: "Read-only check of citations in human-owned module document regions and node summary/responsibilities. It reports missing-path, missing-symbol, line-out-of-range and line-moved per node. It is a signal, not a gate: the result stays ok when it has findings.",
+  description: "Read-only check of citations in human-owned module document regions and node summary/responsibilities. It reports missing-path, missing-symbol, unknown-selector, line-out-of-range and line-moved per node. It is a signal, not a gate: the result stays ok when it has findings.",
   options: {
     "--profile <profile>": "Layout whose module documents are read (default: the committed manifest profile; default without a manifest).",
     "--json": "Accepted for symmetry; output is always JSON.",

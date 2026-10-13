@@ -41,12 +41,13 @@
         "byKind": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["line-moved", "line-out-of-range", "missing-path", "missing-symbol"],
+          "required": ["line-moved", "line-out-of-range", "missing-path", "missing-symbol", "unknown-selector"],
           "properties": {
             "line-moved": { "$ref": "#/$defs/count" },
             "line-out-of-range": { "$ref": "#/$defs/count" },
             "missing-path": { "$ref": "#/$defs/count" },
-            "missing-symbol": { "$ref": "#/$defs/count" }
+            "missing-symbol": { "$ref": "#/$defs/count" },
+            "unknown-selector": { "$ref": "#/$defs/count" }
           }
         }
       }
@@ -122,7 +123,7 @@
       "additionalProperties": false,
       "required": ["kind", "origin", "citation"],
       "properties": {
-        "kind": { "enum": ["line-moved", "line-out-of-range", "missing-path", "missing-symbol"] },
+        "kind": { "enum": ["line-moved", "line-out-of-range", "missing-path", "missing-symbol", "unknown-selector"] },
         "origin": { "$ref": "#/$defs/origin" },
         "citation": { "$ref": "#/$defs/citation" },
         "lineCount": { "$ref": "#/$defs/count" },
