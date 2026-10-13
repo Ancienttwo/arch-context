@@ -11,7 +11,7 @@ source:
     - id: "entrypoint.architecture-context.projection-service"
       path: "packages/local-runtime/runtime-daemon/src/projection-service.ts"
       symbols:
-        - name: "buildArchitectureDocsProjection"
+        - name: "renderArchitectureDocsProjectionFromInputs"
           sinks:
             - id: "sink.architecture-context.render"
               path: "packages/core/projection-engine/src/index.ts"

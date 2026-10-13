@@ -1,6 +1,6 @@
 # architecture/context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:852e0e01c1765445e32955b254e9877d9f11851c7a294386d80fccca72cda8ff" rendererVersion="archcontext.docs-renderer/v5" outputDigest="sha256:d631ae9969de11b644743a80886a64128b9fedeebb7d76901f39840205cde8f3" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" rendererVersion="archcontext.docs-renderer/v6" outputDigest="sha256:793814acbf8fa2cf798b01466d2c824fa0bbf24f8bce3690f670208c1ec36a0a" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture.context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -116,14 +116,14 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:9c2a674fa8d77a44242b3e8c99237af3d2a02b161a9e3e7c32c6acc075196e4e`).
+- Proof: `proven` (`sha256:a7cc74cf00722409ed2da4c30404fba0bf0d94831bfdcd679ed4432311d7d613`).
 - Semantic nodes: `50`; declared relations: `45`.
 
 ### 1.2 模組職責表
 
 | 宣告入口 | 錨點 | 職責 |
 | --- | --- | --- |
-| `entrypoint.architecture-context.projection-service` | `packages/local-runtime/runtime-daemon/src/projection-service.ts#buildArchitectureDocsProjection` | `sink.architecture-context.render` → `packages/core/projection-engine/src/index.ts#renderArchitectureDocumentationProjection` |
+| `entrypoint.architecture-context.projection-service` | `packages/local-runtime/runtime-daemon/src/projection-service.ts#renderArchitectureDocsProjectionFromInputs` | `sink.architecture-context.render` → `packages/core/projection-engine/src/index.ts#renderArchitectureDocumentationProjection` |
 | `entrypoint.architecture-context.daemon` | `packages/local-runtime/runtime-daemon/src/index.ts#completeTaskProjectionDrift` | `sink.architecture-context.render-daemon` → `packages/core/projection-engine/src/index.ts#renderArchitectureDocumentationProjection` |
 
 ### 1.3 規模信號
@@ -145,7 +145,7 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **Proof**: `proven` (`sha256:9c2a674fa8d77a44242b3e8c99237af3d2a02b161a9e3e7c32c6acc075196e4e`); selectors `2/2`.
+> **Proof**: `proven` (`sha256:a7cc74cf00722409ed2da4c30404fba0bf0d94831bfdcd679ed4432311d7d613`); selectors `2/2`.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%

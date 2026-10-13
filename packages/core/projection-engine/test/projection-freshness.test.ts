@@ -401,7 +401,7 @@ describe("projection manifest source-footprint stamps", () => {
     expect(moved.files.map((file) => file.body)).toEqual(first.files.map((file) => file.body));
   });
 
-  test("a committed v1 manifest from renderer v4 keeps its semantic baseline, and the plan rewrites every document and the manifest (0.7.0 upgrade)", () => {
+  test("a committed v1 manifest from renderer v4 keeps its semantic baseline, and the plan rewrites every marked document and the manifest (0.7.0 upgrade)", () => {
     const current = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
     const manifestPath = current.manifest.path;
     const v4Renderer = "archcontext.docs-renderer/v4";
@@ -444,8 +444,9 @@ describe("projection manifest source-footprint stamps", () => {
     const upgraded = upgradeFrom(v1Manifest);
     expect(upgraded.majorChange).toEqual(sameBaselineV2.majorChange);
     expect(upgraded.majorChange.reasonCodes).not.toContain("node-renamed");
+    // A whole-file output records no renderer version in its bytes, so only marked documents move.
     expect([...new Set(upgraded.drift.diffs.map((diff) => diff.path))].sort())
-      .toEqual([...current.files.map((file) => file.path), manifestPath].sort());
+      .toEqual([...current.files.filter((file) => file.target.ownership === "mixed").map((file) => file.path), manifestPath].sort());
     expect(JSON.parse(upgraded.manifest.body).schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v2");
     expect(upgraded.manifest.body).toBe(current.manifest.body);
 

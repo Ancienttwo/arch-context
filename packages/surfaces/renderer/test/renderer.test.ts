@@ -98,7 +98,6 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model,
       sourceDigest,
-      generatedAt: "2026-06-26T00:00:00.000Z",
       decisions: [{ id: "ADR-0001-test", title: "Use Local Runtime", path: "docs/adr/ADR-0001-test.md", status: "Accepted" }],
       timeline: [{ eventId: "architecture_event.test", timestamp: "2026-06-26T00:00:00.000Z", title: "Added payment module", affectedSubjects: ["module.payment"] }]
     });
@@ -110,7 +109,6 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model: { nodes: [...model.nodes].reverse(), relations: [...model.relations].reverse() },
       sourceDigest,
-      generatedAt: "2026-06-26T00:00:00.000Z",
       decisions: [{ id: "ADR-0001-test", title: "Use Local Runtime", path: "docs/adr/ADR-0001-test.md", status: "Accepted" }],
       timeline: [{ eventId: "architecture_event.test", timestamp: "2026-06-26T00:00:00.000Z", title: "Added payment module", affectedSubjects: ["module.payment"] }]
     });
@@ -147,7 +145,6 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model,
       sourceDigest,
-      generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [{ path: "docs/architecture/index.md", body: "# Architecture Index\n\nHuman note.\n" }]
     });
     const candidate = markerFree.adoptionCandidates.find((file) => file.path === "docs/architecture/index.md")!;
@@ -164,7 +161,6 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model,
       sourceDigest,
-      generatedAt: "2026-06-26T00:00:00.000Z"
     });
     const preserved = renderArchitectureDocumentationProjection({
       sourceFootprints,
@@ -174,7 +170,6 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model,
       sourceDigest,
-      generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [
         ...seeded.files.map(({ path, body }) => ({
           path,
@@ -193,7 +188,6 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model,
       sourceDigest,
-      generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [...preserved.files.map(({ path, body }) => ({ path, body })), preserved.manifest]
     });
     expect(clean.drift.ok).toBe(true);
@@ -206,10 +200,23 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model,
       sourceDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
-      generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [...clean.files.map(({ path, body }) => ({ path, body })), clean.manifest]
     });
-    expect(stale.drift.reasonCodes).toContain("projection-generated-region-stale");
+    // No marker carries the source digest (#327): a moved digest with the same output moves only the manifest.
+    expect(stale.drift.reasonCodes).toEqual(["projection-manifest-stale"]);
+
+    const grown = renderArchitectureDocumentationProjection({
+      sourceFootprints,
+      sourceScaleSignals,
+      importGraphs,
+      selectorEvidence,
+      provenance: projectionProvenance,
+      model: { ...model, nodes: [...model.nodes, { id: "module.refund", kind: "module", name: "Refund" }] },
+      sourceDigest,
+      existingFiles: [...clean.files.map(({ path, body }) => ({ path, body })), clean.manifest]
+    });
+    expect(grown.drift.reasonCodes).toContain("projection-generated-region-stale");
+    expect(grown.drift.reasonCodes).toContain("projection-generated-file-stale");
 
     const edited = renderArchitectureDocumentationProjection({
       sourceFootprints,
@@ -219,7 +226,6 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model,
       sourceDigest,
-      generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [
         ...clean.files.map(({ path, body }) => ({
           path,
@@ -238,7 +244,6 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model,
       sourceDigest,
-      generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [
         ...clean.files.map(({ path, body }) => ({ path, body })),
         clean.manifest,

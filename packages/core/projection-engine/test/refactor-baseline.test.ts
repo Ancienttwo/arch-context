@@ -101,7 +101,6 @@ function renderScaleLine(fileCount: number, lineCount: number): string {
     sourceScaleSignals: [{ nodeId: "capability.scale", fileCount, lineCount, includePatterns: ["packages/scale/**"], excludePatterns: [] }],
     importGraphs: [],
     selectorEvidence: [],
-    generatedAt: "2026-08-08T00:00:00.000Z"
   });
   const entity = plan.files.find((file) => file.target.type === "entity-summary");
   if (!entity) throw new Error("entity-summary file missing");

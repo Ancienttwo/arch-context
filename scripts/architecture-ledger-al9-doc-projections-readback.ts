@@ -212,13 +212,15 @@ function runTempRepoProjectionReadback() {
 function ambiguousOwnershipIsRejected(root: string): boolean {
   const loaded = loadArchitectureDocumentationInputs(root);
   const generatedDiagramPath = "docs/architecture/diagrams/architecture.mmd";
-  const withoutMarker = loaded.existingFiles.map((file) =>
-    file.path === generatedDiagramPath ? { ...file, body: "flowchart LR\n  A-->B\n" } : file
-  );
+  // A whole-file output carries no marker; its committed manifest row is what proves ownership.
+  // Without the manifest, nothing vouches for a differing diagram, so it must not be overwritten.
+  const unowned = loaded.existingFiles
+    .filter((file) => file.path !== "docs/architecture/.projection-manifest.json")
+    .map((file) => file.path === generatedDiagramPath ? { ...file, body: "flowchart LR\n  A-->B\n" } : file);
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     decisions: loaded.decisions,
-    existingFiles: withoutMarker,
+    existingFiles: unowned,
     sourceFootprints: loadCapabilitySourceFootprintDigests(root, loaded.model, listGitVisibleFiles(root)),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),

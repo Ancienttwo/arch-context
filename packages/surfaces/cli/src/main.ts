@@ -258,7 +258,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     }
   },
   "docs": {
-    value: ["--accepted-change-set-id", "--accepted-event-id", "--adoption-plan-id", "--affected-node", "--expected-worktree-digest", "--generated-at", "--id", "--intent", "--library", "--library-id", "--major-reason", "--profile", "--query", "--task-session-id", "--version"],
+    value: ["--accepted-change-set-id", "--accepted-event-id", "--adoption-plan-id", "--affected-node", "--expected-worktree-digest", "--id", "--intent", "--library", "--library-id", "--major-reason", "--profile", "--query", "--task-session-id", "--version"],
     boolean: ["--all", "--allow-network", "--approved", "--force-refresh"],
     subcommands: { anchors: { value: ["--profile"], boolean: [] } }
   },
@@ -1536,7 +1536,6 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       action: action as RuntimeDocsProjectionInput["action"],
       profile: architectureProjectionProfile(args),
       acceptedChange: acceptedArchitectureChange(args),
-      generatedAt: readFlag(args, "--generated-at"),
       id: readFlag(args, "--id"),
       taskSessionId: readFlag(args, "--task-session-id"),
       approved: args.includes("--approved"),

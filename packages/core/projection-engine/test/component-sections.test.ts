@@ -95,7 +95,6 @@ function render(overrides: Partial<Parameters<typeof renderArchitectureDocumenta
     sourceScaleSignals: scaleSignals,
     importGraphs: [],
     selectorEvidence: [],
-    generatedAt: "2026-10-11T00:00:00.000Z",
     ...overrides
   });
 }

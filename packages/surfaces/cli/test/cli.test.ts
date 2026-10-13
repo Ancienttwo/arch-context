@@ -112,7 +112,7 @@ test("CLI capabilities exposes the exact local protocol and renderer handshake w
   // Consumers gate on this handshake, not on field presence, because the result field is omitted
   // whenever no earlier attempt of the request committed.
   expect(capabilities.features).toContain("projection-prior-committed-applies-v1");
-  expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v5");
+  expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v6");
   const processOutput = execFileSync("bun", [CLI_ENTRY, "capabilities", "--json"], { encoding: "utf8" });
   expect(JSON.parse(processOutput)).toEqual(capabilities);
   expect(await runCli("capabilities", [], "/path/that/does/not/exist")).toEqual(capabilities);
@@ -2487,6 +2487,17 @@ describe("archctx CLI", () => {
         ok: false,
         requestId: `${command}.${args[0]}`,
         error: { code: "AC_SCHEMA_INVALID", message: `${command} ${args[0]} does not recognize the flag ${args[1]}` }
+      });
+    }
+  });
+
+  test("the removed docs --generated-at flag is refused before the runtime (#327)", async () => {
+    const throwingRuntime = new Proxy({}, { get: () => () => { throw new Error("preflight let a handler reach the runtime"); } });
+    for (const subcommand of ["plan", "drift"]) {
+      const rejected = await runCli("docs", [subcommand, "--generated-at", "2020-01-01T00:00:00Z", "--json"], "/absent", { runtimeClient: throwingRuntime as any }) as JsonEnvelope;
+      expect(rejected, `docs ${subcommand}`).toMatchObject({
+        ok: false,
+        error: { code: "AC_SCHEMA_INVALID", message: expect.stringContaining("does not recognize the flag --generated-at") }
       });
     }
   });
@@ -5625,7 +5636,7 @@ describe("archctx CLI", () => {
       expect((second.data as any).status).toBe("noop");
       expect((second.data as any).provenance).toMatchObject({
         schemaVersion: "archcontext.architecture-docs-projection-provenance/v3",
-        rendererVersion: "archcontext.docs-renderer/v5",
+        rendererVersion: "archcontext.docs-renderer/v6",
         layoutVersion: "archcontext.docs-layout/v1",
         generatedFrom: {
           codeGraphPackage: "@colbymchenry/codegraph",

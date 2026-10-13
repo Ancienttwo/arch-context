@@ -169,14 +169,14 @@ function visit(
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const objectValue = value as Record<string, Json>;
     for (const key of schema.required ?? []) {
-      if (!(key in objectValue)) issues.push({ path: `${path}.${key}`, message: "required" });
+      if (!Object.hasOwn(objectValue, key)) issues.push({ path: `${path}.${key}`, message: "required" });
     }
     for (const [key, child] of Object.entries(schema.properties ?? {})) {
-      if (key in objectValue) visit(child, objectValue[key], `${path}.${key}`, issues, root, resolveSchema);
+      if (Object.hasOwn(objectValue, key)) visit(child, objectValue[key], `${path}.${key}`, issues, root, resolveSchema);
     }
     if (schema.additionalProperties === false && schema.properties) {
       for (const key of Object.keys(objectValue)) {
-        if (!(key in schema.properties)) issues.push({ path: `${path}.${key}`, message: "additional property denied" });
+        if (!Object.hasOwn(schema.properties, key)) issues.push({ path: `${path}.${key}`, message: "additional property denied" });
       }
     }
   }

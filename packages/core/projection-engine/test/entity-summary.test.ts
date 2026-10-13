@@ -18,13 +18,19 @@ import {
   type CapabilitySourceScaleSignal,
   type NativeModel
 } from "../src/index";
+import type { ProjectionTargetV1 } from "@archcontext/contracts";
 import { fixtureSourceFiles } from "./fixture-source-files";
+
+/** The region markers of a target that owns a marked region; every entity summary does. */
+function regionMarkers(target: ProjectionTargetV1): { startMarker: string; endMarker: string } {
+  if (target.ownership !== "mixed") throw new Error(`${target.targetId} owns its whole file, not a marked region`);
+  return target.generatedRegion;
+}
 
 const sourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 /** The docs capability's footprint digest the seeded documents are stamped with, and a moved one. */
 const stampDigest = `sha256:${"5".repeat(64)}`;
 const movedStampDigest = `sha256:${"6".repeat(64)}`;
-const generatedAt = "2026-08-08T00:00:00.000Z";
 const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
   modelDigest: sourceDigest,
@@ -172,7 +178,6 @@ function render(overrides: Partial<Parameters<typeof renderArchitectureDocumenta
     sourceScaleSignals: scaleSignals,
     importGraphs,
     selectorEvidence,
-    generatedAt,
     ...overrides
   });
 }
@@ -264,8 +269,8 @@ describe("entity-summary capability documentation projection", () => {
 
   test("keeps the title and the human sections outside the generated region", () => {
     const file = entityFile(render(), "capability.docs.projection");
-    const startMarker = file.target.generatedRegion.startMarker;
-    const endMarker = file.target.generatedRegion.endMarker;
+    const startMarker = regionMarkers(file.target).startMarker;
+    const endMarker = regionMarkers(file.target).endMarker;
 
     expect(file.body.indexOf("# docs/projection 架構文檔")).toBeLessThan(file.body.indexOf(startMarker));
     expect(file.body.indexOf("## 3. P3:設計決策與不變量")).toBeGreaterThan(file.body.indexOf(endMarker));
@@ -292,7 +297,7 @@ describe("entity-summary capability documentation projection", () => {
 
   test("preserves every byte outside the marker region, including dated §4 entries", () => {
     const seeded = entityFile(render(), "capability.docs.projection");
-    const prefix = seeded.body.slice(0, seeded.body.indexOf(seeded.target.generatedRegion.startMarker));
+    const prefix = seeded.body.slice(0, seeded.body.indexOf(regionMarkers(seeded.target).startMarker));
     const humanSuffix = [
       "",
       "## 3. P3:設計決策與不變量",
@@ -311,7 +316,7 @@ describe("entity-summary capability documentation projection", () => {
       "- [ ] 補 P1 flowchart",
       ""
     ].join("\n");
-    const existingBody = `${prefix}${seeded.body.slice(seeded.body.indexOf(seeded.target.generatedRegion.startMarker), seeded.body.indexOf(seeded.target.generatedRegion.endMarker) + seeded.target.generatedRegion.endMarker.length)}\n${humanSuffix}`;
+    const existingBody = `${prefix}${seeded.body.slice(seeded.body.indexOf(regionMarkers(seeded.target).startMarker), seeded.body.indexOf(regionMarkers(seeded.target).endMarker) + regionMarkers(seeded.target).endMarker.length)}\n${humanSuffix}`;
 
     // Re-project with a changed model so the generated region genuinely has to be rewritten.
     const mutated: NativeModel = {
@@ -329,9 +334,9 @@ describe("entity-summary capability documentation projection", () => {
     expect(reprojected.body).toContain("> **狀態**:`deprecated`");
     expect(reprojected.body.startsWith(prefix)).toBe(true);
     expect(reprojected.body.endsWith(humanSuffix)).toBe(true);
-    expect(Buffer.from(reprojected.body.slice(reprojected.body.indexOf(reprojected.target.generatedRegion.endMarker) + reprojected.target.generatedRegion.endMarker.length)))
+    expect(Buffer.from(reprojected.body.slice(reprojected.body.indexOf(regionMarkers(reprojected.target).endMarker) + regionMarkers(reprojected.target).endMarker.length)))
       .toEqual(Buffer.from(`\n${humanSuffix}`));
-    expect(Buffer.from(reprojected.body.slice(0, reprojected.body.indexOf(reprojected.target.generatedRegion.startMarker))))
+    expect(Buffer.from(reprojected.body.slice(0, reprojected.body.indexOf(regionMarkers(reprojected.target).startMarker))))
       .toEqual(Buffer.from(prefix));
   });
 
@@ -517,7 +522,7 @@ describe("entity-summary capability documentation projection", () => {
     expect(after.sourceFootprintDigest).toBe(movedStampDigest);
     // Byte-identical, marker attributes included: the stamp is not a body input at all.
     expect(after.body).toBe(before.body);
-    expect(after.target.generatedRegion.startMarker).toBe(before.target.generatedRegion.startMarker);
+    expect(regionMarkers(after.target).startMarker).toBe(regionMarkers(before.target).startMarker);
     // The manifest is the one file that moved, and it moved because the stamp did.
     expect(reverified.drift.diffs).toEqual([expect.objectContaining({
       path: "docs/architecture/.projection-manifest.json",
@@ -531,10 +536,15 @@ describe("entity-summary capability documentation projection", () => {
   test("the first render stamps the measured footprint, and a footprint that changes the body re-renders it", () => {
     const first = render();
     expect(entityFile(first, "capability.docs.projection").sourceFootprintDigest).toBe(stampDigest);
-    // No marker carries the stamp — not on an entity target, not anywhere.
+    // No marker carries the stamp — not on an entity target, not anywhere. Whole-file outputs carry
+    // no marker at all.
     for (const file of first.files) {
-      expect(file.target.generatedRegion.startMarker).not.toContain("verifiedAgainst=");
-      expect(file.target.generatedRegion.startMarker).not.toContain(stampDigest);
+      if (file.target.ownership === "generated") {
+        expect(file.body).not.toContain("ARCHCONTEXT");
+        continue;
+      }
+      expect(regionMarkers(file.target).startMarker).not.toContain("verifiedAgainst=");
+      expect(regionMarkers(file.target).startMarker).not.toContain(stampDigest);
     }
     // Non-entity targets carry no stamp at all: they assert nothing about a footprint.
     expect(first.files.find((file) => file.path === "docs/architecture/index.md")!.sourceFootprintDigest).toBeUndefined();
@@ -821,27 +831,31 @@ describe("node-scoped sticky key", () => {
 
   test("documents carrying older-renderer markers and the old digest shape re-render wholesale under the current renderer", () => {
     const current = render();
-    // Simulate files left behind by an older renderer: v3 marker attributes (including the
-    // provenance attribute later renderers drop) and the old plan-wide digest shape. The one-time
-    // full re-render is the accepted migration cost of a renderer version bump.
-    const legacyFiles = current.files.map(({ path, body }) => ({
+    // Simulate the regions an older renderer left behind: v3 marker attributes, including the
+    // provenance attribute and the source digest later renderers drop. The one-time full re-render
+    // is the accepted migration cost of a renderer version bump.
+    const mixedFiles = current.files.filter((file) => file.target.ownership === "mixed");
+    const legacyFiles = mixedFiles.map(({ path, body }) => ({
       path,
-      body: body
-        .replaceAll('rendererVersion="archcontext.docs-renderer/v5"', 'rendererVersion="archcontext.docs-renderer/v3" verifiedAgainst="main@7415329@2026-08-08T09:30:00+08:00"')
-        .replace(/sourceDigest="sha256:[a-f0-9]+"/g, 'sourceDigest="sha256:0000000000000000000000000000000000000000000000000000000000000000"')
+      body: body.replaceAll(
+        'rendererVersion="archcontext.docs-renderer/v6"',
+        'sourceDigest="sha256:0000000000000000000000000000000000000000000000000000000000000000" rendererVersion="archcontext.docs-renderer/v3" verifiedAgainst="main@7415329@2026-08-08T09:30:00+08:00"'
+      )
     }));
-    const upgraded = render({ existingFiles: [...legacyFiles, current.manifest] });
+    const wholeFiles = current.files.filter((file) => file.target.ownership === "generated").map(({ path, body }) => ({ path, body }));
+    const upgraded = render({ existingFiles: [...legacyFiles, ...wholeFiles, current.manifest] });
 
     expect(upgraded.files).toHaveLength(current.files.length);
-    for (const file of upgraded.files) {
-      expect(file.target.generatedRegion.startMarker).toContain('rendererVersion="archcontext.docs-renderer/v5"');
-      expect(file.target.generatedRegion.startMarker).not.toContain("verifiedAgainst=");
+    for (const file of upgraded.files.filter((entry) => entry.target.ownership === "mixed")) {
+      expect(regionMarkers(file.target).startMarker).toBe(
+        `<!-- BEGIN ARCHCONTEXT:generated target="${file.target.targetId}" rendererVersion="archcontext.docs-renderer/v6" outputDigest="${file.target.outputDigest}" -->`
+      );
       expect(file.body).not.toBe(legacyFiles.find((entry) => entry.path === file.path)!.body);
     }
-    // Every legacy target is awaiting re-render — stale, never accused of a manual edit — and every
-    // entity summary with a footprint is stamped with its current digest.
-    expect(upgraded.drift.reasonCodes).toContain("projection-generated-region-stale");
-    expect(upgraded.drift.reasonCodes).not.toContain("projection-generated-region-manually-edited");
+    // Every legacy region is intact, so it awaits re-render — stale, never accused of a manual
+    // edit — and every entity summary with a footprint is stamped with its current digest.
+    expect([...new Set(upgraded.drift.diffs.map((diff) => diff.reasonCode))].sort()).toEqual(["projection-generated-region-stale"]);
+    expect(upgraded.drift.diffs.map((diff) => diff.path).sort()).toEqual(mixedFiles.map((file) => file.path).sort());
     for (const file of current.files.filter((entry) => entry.target.type === "entity-summary")) {
       expect(upgraded.files.find((entry) => entry.path === file.path)?.sourceFootprintDigest)
         .toBe(file.target.scope.id === "capability.docs.projection" ? stampDigest : undefined);

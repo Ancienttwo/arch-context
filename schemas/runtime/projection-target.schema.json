@@ -4,7 +4,10 @@
   "title": "ProjectionTarget",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "targetId", "type", "scope", "path", "ownership", "generatedRegion", "rendererVersion", "format", "sourceDigest", "outputDigest"],
+  "required": ["schemaVersion", "targetId", "type", "scope", "path", "ownership", "rendererVersion", "format", "sourceDigest", "outputDigest"],
+  "if": { "properties": { "ownership": { "const": "mixed" } }, "required": ["ownership"] },
+  "then": { "required": ["generatedRegion"] },
+  "else": { "not": { "required": ["generatedRegion"] } },
   "properties": {
     "schemaVersion": { "const": "archcontext.projection-target/v1" },
     "targetId": { "type": "string", "pattern": "^projection_target\\.[a-zA-Z0-9_.-]+$" },

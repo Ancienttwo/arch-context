@@ -31,7 +31,7 @@
       "additionalProperties": false,
       "required": ["architectureDocs", "agentContext"],
       "properties": {
-        "architectureDocs": { "const": "archcontext.docs-renderer/v5" },
+        "architectureDocs": { "const": "archcontext.docs-renderer/v6" },
         "agentContext": { "const": "archcontext.agent-context-renderer/v1" }
       }
     },
