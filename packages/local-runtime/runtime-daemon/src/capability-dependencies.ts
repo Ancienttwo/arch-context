@@ -22,7 +22,7 @@ export interface CapabilityDependenciesResultV1 extends CapabilityDependenciesV1
 }
 
 export class CapabilityDependenciesError extends Error {
-  constructor(readonly code: ArchContextErrorCode, message: string) {
+  constructor(readonly code: ArchContextErrorCode, message: string, readonly reasonCode?: string) {
     super(message);
     this.name = "CapabilityDependenciesError";
   }
@@ -33,8 +33,9 @@ export class CapabilityDependenciesError extends Error {
  *
  * Read-only: it reads the model files, the `HEAD` tree and the CodeGraph index, and writes
  * nothing, so it needs no daemon and no runtime state. Ownership is resolved over the files the
- * `HEAD` tree carries, like `refactor scan`. An index that is missing or fails to answer is not an
- * error: `imports.coverage` is then `unknown` and the matrix is empty.
+ * `HEAD` tree carries, like `refactor scan`. Each cell says whether a model relation declares it.
+ * An index that is missing, fails to answer or has pending changes is `AC_CODE_FACTS_UNAVAILABLE`,
+ * never an empty matrix: an empty matrix would read as "no dependencies".
  */
 export function readCapabilityDependencies(root: string, request: CapabilityDependenciesRequestV1 = {}): CapabilityDependenciesResultV1 {
   const importNodeLimit = request.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
@@ -56,6 +57,7 @@ export function readCapabilityDependencies(root: string, request: CapabilityDepe
   const imports = readImports(root, importNodeLimit, worktreeDigest);
   const matrix = measureCapabilityDependencies({
     nodes: model.nodes,
+    relations: model.relations,
     worktreeDigest,
     files,
     importEdges: imports.pairs,
@@ -69,6 +71,16 @@ export function readCapabilityDependencies(root: string, request: CapabilityDepe
     ...(request.into === undefined ? {} : { into: request.into }),
     ...(request.edgeLimit === undefined ? {} : { edgeLimit: request.edgeLimit })
   });
+  if (matrix.imports.coverage === "unknown") {
+    // `repositoryImportPairs` reports a missing index and pending changes alike as unavailable, so
+    // the one cause here is `code-facts-unavailable`.
+    const [reasonCode] = matrix.imports.reasonCodes;
+    throw new CapabilityDependenciesError(
+      "AC_CODE_FACTS_UNAVAILABLE",
+      `deps needs a CodeGraph index that attests to this worktree (${reasonCode}); run \`codegraph init\` or \`codegraph sync\` and retry`,
+      reasonCode
+    );
+  }
   return { ...matrix, worktree: { headSha, worktreeDigest }, privacy: { writes: "none" } };
 }
 

@@ -819,6 +819,116 @@
         ]
       }
     },
+    "architectureDebt": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Present on every check and plan result and on no other. Never changes status. Canonical wire orders and the coverage/coverageReasonCodes coupling are enforced by projectionArchitectureDebtIssues.",
+      "required": [
+        "coverage",
+        "coverageReasonCodes",
+        "items"
+      ],
+      "properties": {
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "coverageReasonCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "code-facts-import-limit",
+              "code-facts-truncated",
+              "code-facts-unavailable",
+              "workspace-resolution-failed"
+            ]
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "reasonCode",
+              "fromCapabilityId",
+              "toCapabilityId",
+              "importEdgeCount"
+            ],
+            "properties": {
+              "reasonCode": {
+                "enum": [
+                  "undeclared-dependency"
+                ]
+              },
+              "fromCapabilityId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "toCapabilityId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "importEdgeCount": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "coverage": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "coverage"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coverageReasonCodes": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "coverageReasonCodes": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "coverage": {
+                "const": "unknown"
+              }
+            },
+            "required": [
+              "coverage"
+            ]
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
     "freshness": {
       "type": "object",
       "additionalProperties": false,
@@ -1019,6 +1129,9 @@
         },
         "freshness": {
           "$ref": "#/$defs/freshness"
+        },
+        "architectureDebt": {
+          "$ref": "#/$defs/architectureDebt"
         },
         "replayed": {
           "const": true,

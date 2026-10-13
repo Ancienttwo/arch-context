@@ -4,7 +4,7 @@
   "filter": { "from": null, "into": "capability.billing" },
   "capabilities": ["capability.billing", "capability.checkout"],
   "matrix": [
-    { "from": "capability.checkout", "to": "capability.billing", "imports": 2, "calls": null }
+    { "from": "capability.checkout", "to": "capability.billing", "imports": 2, "calls": null, "declared": true, "relationIds": ["relation.checkout.calls-billing"] }
   ],
   "imports": {
     "coverage": "complete",

@@ -2,6 +2,7 @@ import {
   CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON,
   CAPABILITY_DEPENDENCIES_EDGE_LIMIT,
   CAPABILITY_DEPENDENCIES_SCHEMA_VERSION,
+  CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS,
   MODULE_STATISTICS_SCHEMA_VERSION,
   digestJson,
   type CapabilityDependenciesV1,
@@ -21,7 +22,7 @@ import {
   type ModuleStatisticsV1,
   type RefactorScaleReasonCode
 } from "@archcontext/contracts";
-import { nativeNodeSource, type NativeModel, type NativeNode } from "@archcontext/core/projection-engine";
+import { nativeNodeSource, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/core/projection-engine";
 import { buildModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
 import { ancestorChain, resolveOwnership, type OwnershipIndex } from "./ownership";
 
@@ -225,6 +226,8 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
 
 export interface CapabilityDependencyInputV1 {
   nodes: NativeNode[];
+  /** The model relations; they decide each cell's `declared` and `relationIds`. */
+  relations: NativeRelation[];
   /** The tree the matrix describes: import facts count only when the index attested to exactly it. */
   worktreeDigest: string;
   /** The repo-relative paths the matrix describes; an edge with an endpoint outside them is dropped. */
@@ -251,7 +254,9 @@ export interface CapabilityDependencyInputV1 {
  * and each owner rolls up to the nearest `kind: capability` node on its `parent` chain. An edge is
  * counted in the matrix only when both endpoints roll up to exactly one capability; the other
  * edges are counted by cause in `imports.unattributed`. One cell counts distinct file-to-file
- * edges. Call edges are not read: the CodeGraph adapter exposes no bounded repository-wide call
+ * edges. A cross-capability cell is declared by the relations that run from a node rolling up to
+ * its `from` into a node rolling up to its `to` (CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS).
+ * Call edges are not read: the CodeGraph adapter exposes no bounded repository-wide call
  * read, so `calls` is reported as unknown rather than estimated from text.
  */
 export function measureCapabilityDependencies(input: CapabilityDependencyInputV1): CapabilityDependenciesV1 {
@@ -280,6 +285,17 @@ export function measureCapabilityDependencies(input: CapabilityDependencyInputV1
     return capability === null ? { gap: "noCapabilityEndpoint" } : { capability };
   };
 
+  const declaringKinds: ReadonlySet<string> = new Set(CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS);
+  const declaringRelations = new Map<string, string[]>();
+  for (const relation of input.relations) {
+    if (!declaringKinds.has(relation.kind)) continue;
+    const from = capabilityOf(relation.source);
+    const to = capabilityOf(relation.target);
+    if (from === null || to === null || from === to) continue;
+    const key = JSON.stringify([from, to]);
+    declaringRelations.set(key, [...(declaringRelations.get(key) ?? []), relation.id]);
+  }
+
   const unattributed = { unownedEndpoint: 0, contestedEndpoint: 0, noCapabilityEndpoint: 0 };
   const cells = new Map<string, CapabilityDependencyCellV1>();
   const attributedEdges: CapabilityDependencyEdgeV1[] = [];
@@ -303,9 +319,14 @@ export function measureCapabilityDependencies(input: CapabilityDependencyInputV1
       continue;
     }
     const cellKey = JSON.stringify([from.capability, to.capability]);
-    const cell = cells.get(cellKey) ?? { from: from.capability, to: to.capability, imports: 0, calls: null };
+    let cell = cells.get(cellKey);
+    if (cell === undefined) {
+      // Inside one capability no relation is needed; across two, only a declaring relation counts.
+      const relationIds = [...new Set(declaringRelations.get(cellKey) ?? [])].sort(compare);
+      cell = { from: from.capability, to: to.capability, imports: 0, calls: null, declared: from.capability === to.capability || relationIds.length > 0, relationIds };
+      cells.set(cellKey, cell);
+    }
     cell.imports += 1;
-    cells.set(cellKey, cell);
     attributedEdges.push({ fromPath: edge.from, toPath: edge.to, fromCapability: from.capability, toCapability: to.capability });
   }
 

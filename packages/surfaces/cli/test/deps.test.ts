@@ -100,9 +100,9 @@ describe("archctx deps (#301)", () => {
     const data = depsData(await runCli("deps", ["--json"], root));
     expect(data.capabilities).toEqual(["capability.architecture.context", "capability.billing", "capability.checkout"]);
     expect(data.matrix).toEqual([
-      { from: "capability.billing", to: "capability.billing", imports: 1, calls: null },
-      { from: "capability.checkout", to: "capability.billing", imports: 2, calls: null },
-      { from: "capability.checkout", to: "capability.checkout", imports: 1, calls: null }
+      { from: "capability.billing", to: "capability.billing", imports: 1, calls: null, declared: true, relationIds: [] },
+      { from: "capability.checkout", to: "capability.billing", imports: 2, calls: null, declared: false, relationIds: [] },
+      { from: "capability.checkout", to: "capability.checkout", imports: 1, calls: null, declared: true, relationIds: [] }
     ]);
     expect(data.imports).toMatchObject({
       coverage: "complete",
@@ -128,7 +128,7 @@ describe("archctx deps (#301)", () => {
     ]);
     const fromComponent = depsData(await runCli("deps", ["--from", "component.cart"], root));
     expect(fromComponent.edges.items.map((edge) => edge.fromPath)).toEqual(["src/checkout/cart/cart.ts"]);
-    expect(fromComponent.matrix).toEqual([{ from: "capability.checkout", to: "capability.billing", imports: 1, calls: null }]);
+    expect(fromComponent.matrix).toEqual([{ from: "capability.checkout", to: "capability.billing", imports: 1, calls: null, declared: false, relationIds: [] }]);
   }, 120_000);
 
   test("reports a read limit below the index size as partial coverage with the count", async () => {
@@ -157,6 +157,27 @@ describe("archctx deps (#301)", () => {
     const help = await runCli("deps", ["--help"], root);
     expect(help.ok).toBe(true);
     expect(JSON.stringify(help.data)).toContain("--into <node-id>");
+  });
+
+  test("refuses with AC_CODE_FACTS_UNAVAILABLE when no index answers, instead of an empty matrix (#326)", async () => {
+    const bare = mkdtempSync(join(tmpdir(), "archctx-cli-deps-bare-"));
+    try {
+      mkdirSync(join(bare, "src/billing"), { recursive: true });
+      writeFileSync(join(bare, "src/billing/invoice.ts"), "export const invoice = 1;\n", "utf8");
+      initializeArchContextModel(bare, "CLI Deps Bare App");
+      execFileSync("git", ["init", "-q"], { cwd: bare, stdio: ["ignore", "pipe", "pipe"] });
+      execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "-c", "commit.gpgsign=false", "add", "-A"], { cwd: bare, stdio: ["ignore", "pipe", "pipe"] });
+      execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "bare"], { cwd: bare, stdio: ["ignore", "pipe", "pipe"] });
+      const refused = await runCli("deps", ["--json"], bare);
+      expect(refused.ok).toBe(false);
+      expect((refused as { error: { code: string; reasonCode?: string } }).error).toMatchObject({
+        code: "AC_CODE_FACTS_UNAVAILABLE",
+        reasonCode: "code-facts-unavailable",
+        action: "codegraph-init"
+      });
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
   });
 
   test("is read-only: no runtime state is created", async () => {
