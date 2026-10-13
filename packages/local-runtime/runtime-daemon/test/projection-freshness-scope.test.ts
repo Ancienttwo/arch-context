@@ -32,7 +32,7 @@ test("an empty changed-path list is the whole-tree form: it reports a stale tree
     git(root, "init", "-q");
     git(root, "add", "-A");
     git(root, "commit", "-q", "-m", "fixture");
-    for (const file of buildArchitectureDocsProjection(undefined, root, new Date(0).toISOString()).files) {
+    for (const file of buildArchitectureDocsProjection(undefined, root).files) {
       mkdirSync(dirname(join(root, file.path)), { recursive: true });
       writeFileSync(join(root, file.path), file.body, "utf8");
     }
