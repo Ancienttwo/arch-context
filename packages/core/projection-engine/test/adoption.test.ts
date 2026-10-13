@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { digestJson, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
+import { digestJson, type Json, type ProjectionMixedTargetV1 } from "@archcontext/contracts";
 import {
   REPO_HARNESS_PROJECTION_PROFILE,
   architectureAdoptionReceipt,
@@ -91,7 +91,7 @@ describe("architecture documentation adoption", () => {
   });
 });
 
-function entityTarget(): ProjectionTargetV1 {
+function entityTarget(): ProjectionMixedTargetV1 {
   return {
     schemaVersion: "archcontext.projection-target/v1",
     targetId: "projection_target.entity.capability.runtime-harness.hook-adapters",
@@ -103,7 +103,7 @@ function entityTarget(): ProjectionTargetV1 {
       startMarker: "<!-- BEGIN ARCHCONTEXT:generated target=hook -->",
       endMarker: "<!-- END ARCHCONTEXT:generated target=hook -->"
     },
-    rendererVersion: "archcontext.docs-renderer/v5",
+    rendererVersion: "archcontext.docs-renderer/v6",
     format: "markdown",
     sourceDigest: "sha256:source",
     outputDigest: "sha256:output"

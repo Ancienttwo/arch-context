@@ -626,7 +626,7 @@ function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): Projecti
     codeGraphDigest: digest,
     indexedWorktreeDigest: digest,
     projectionInputDigest: digest,
-    rendererVersion: "archcontext.docs-renderer/v5" as const,
+    rendererVersion: "archcontext.docs-renderer/v6" as const,
     layoutVersion: "archcontext.docs-layout/v1" as const,
     generatedFrom: {
       codeGraphPackage: "@colbymchenry/codegraph" as const,
@@ -1206,6 +1206,25 @@ describe("JSON schema contracts", () => {
     };
     expect(validateJsonSchema(schema as any, agentContextFixture as Json).valid).toBe(true);
     expect(validateJsonSchema(schema as any, { ...fixture, type: "agent-contexts" } as Json).valid).toBe(false);
+  });
+
+  test("projection-target schema gives region markers to mixed targets only (#327)", () => {
+    const schema = readJson("schemas/runtime/projection-target.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/projection-target.json") as Record<string, Json>;
+    const { generatedRegion: _generatedRegion, ...withoutRegion } = fixture;
+    const wholeFile = {
+      ...withoutRegion,
+      targetId: "projection_target.diagram.structurizr",
+      type: "diagram-structurizr",
+      scope: { kind: "diagram", id: "architecture" },
+      path: "docs/architecture/diagrams/architecture.structurizr.json",
+      ownership: "generated",
+      format: "structurizr-json"
+    };
+
+    expect(validateJsonSchema(schema as any, wholeFile as Json).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, { ...wholeFile, generatedRegion: fixture.generatedRegion } as Json).valid).toBe(false);
+    expect(validateJsonSchema(schema as any, withoutRegion as Json).valid).toBe(false);
   });
 
   test("practice policy schema accepts explicit fail-open and fail-closed modes", () => {

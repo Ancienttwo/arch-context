@@ -14,13 +14,18 @@ const packageManifestPath = join(root, "node_modules", "@mermaid-js", "mermaid-c
 
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) verifyArchitectureMermaid();
 
-export function verifyArchitectureMermaid() {
+/**
+ * Renders every Mermaid source under `directory` (default: the committed `docs/architecture`
+ * tree) with the pinned Mermaid CLI. A generated `.mmd` file is read as is: it must be a valid
+ * Mermaid source on its own, with nothing stripped first.
+ */
+export function verifyArchitectureMermaid(directory = architectureRoot) {
   const installed = JSON.parse(readFileSync(packageManifestPath, "utf8"));
   if (installed.version !== EXPECTED_MERMAID_CLI_VERSION) {
     throw new Error(`expected @mermaid-js/mermaid-cli@${EXPECTED_MERMAID_CLI_VERSION}, found ${String(installed.version)}`);
   }
 
-  const sources = collectMermaidSources(architectureRoot);
+  const sources = collectMermaidSources(directory);
   if (sources.length === 0) throw new Error("architecture Mermaid corpus is empty");
   const invocation = resolveMmdcInvocation(installed);
   const temporaryRoot = mkdtempSync(join(tmpdir(), "archctx-mermaid-render-"));
@@ -51,7 +56,7 @@ export function verifyArchitectureMermaid() {
         throw new Error(`Mermaid render failed for ${source.path} block ${source.block}: ${detail}`);
       }
     }
-    process.stdout.write(`Architecture Mermaid verified: ${sources.length} diagram(s) under docs/architecture, @mermaid-js/mermaid-cli@${EXPECTED_MERMAID_CLI_VERSION}\n`);
+    process.stdout.write(`Architecture Mermaid verified: ${sources.length} diagram(s) under ${relative(root, directory).replaceAll("\\", "/")}, @mermaid-js/mermaid-cli@${EXPECTED_MERMAID_CLI_VERSION}\n`);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -69,7 +74,7 @@ export function collectMermaidSources(directory) {
   for (const path of walk(directory)) {
     const relativePath = relative(root, path).replaceAll("\\", "/");
     if (path.endsWith(".mmd")) {
-      result.push({ path: relativePath, block: 1, body: stripProjectionMarkers(readFileSync(path, "utf8")) });
+      result.push({ path: relativePath, block: 1, body: readFileSync(path, "utf8") });
       continue;
     }
     if (!path.endsWith(".md")) continue;
@@ -120,13 +125,6 @@ function resolveMmdcInvocation(installed) {
     throw new Error("@mermaid-js/mermaid-cli does not declare the mmdc executable");
   }
   return { command: process.execPath, prefixArgs: [resolve(dirname(packageManifestPath), declaredBin)] };
-}
-
-function stripProjectionMarkers(body) {
-  return body
-    .split("\n")
-    .filter((line) => !/^<!-- (?:BEGIN|END) ARCHCONTEXT:generated\b.*-->$/.test(line.trim()))
-    .join("\n");
 }
 
 function walk(directory) {

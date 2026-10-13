@@ -238,7 +238,6 @@ export interface ExplorerServerOptions {
 export interface RuntimeDocsProjectionInput {
   action: "plan" | "apply" | "adopt" | "drift" | "clean";
   profile?: ArchitectureProjectionProfile;
-  generatedAt?: string;
   acceptedChange?: AcceptedArchitectureChangeReferenceV1;
   id?: string;
   taskSessionId?: string;

@@ -17,14 +17,13 @@ export type ProjectionServiceHost = Pick<RuntimeDaemonClient, "planUpdate" | "ap
 export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsProjectionInput, cwd: string, daemon: ProjectionServiceHost) {
   const subcommand = input.action ?? "plan";
   const root = findRepositoryRoot(cwd);
-  const generatedAt = input.generatedAt ?? new Date(0).toISOString();
   let profile: ArchitectureProjectionProfile;
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   let acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined;
   try {
     profile = input.profile ?? committedArchitectureDocsProfile(root);
     acceptedChange = input.acceptedChange;
-    projection = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, undefined, acceptedChange);
+    projection = buildArchitectureDocsProjection(daemon, root, profile, undefined, acceptedChange);
   } catch (error) {
     return projectionFailureEnvelope(`docs.${subcommand}`, error);
   }
@@ -57,7 +56,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     } as unknown as Json);
   }
   if (subcommand === "adopt") {
-    return runArchitectureDocsAdoptionCommand(input, root, daemon, projection, profile, generatedAt);
+    return runArchitectureDocsAdoptionCommand(input, root, daemon, projection, profile);
   }
   if (projection.plan.rejected.length > 0) {
     return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection requires explicit adoption or ownership repair: ${projection.plan.rejected.map((diff) => `${diff.path} (${diff.reasonCode})`).join(", ")}`);
@@ -157,13 +156,12 @@ function withProjectionMetadata(
 export function buildArchitectureDocsProjection(
   _host: ProjectionServiceHost | undefined,
   root: string,
-  generatedAt: string,
   profile: ArchitectureProjectionProfile = "default",
   existingFilesOverride?: ProjectionOwnedFile[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   const inputs = measureArchitectureDocsProjectionInputs(root, profile);
-  return renderArchitectureDocsProjectionFromInputs(root, inputs, generatedAt, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange);
+  return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange);
 }
 
 /**
@@ -200,7 +198,6 @@ function measureArchitectureDocsProjectionInputs(root: string, profile: Architec
 function rerenderArchitectureDocsProjection(
   root: string,
   previous: ReturnType<typeof buildArchitectureDocsProjection>,
-  generatedAt: string,
   existingFiles: ProjectionOwnedFile[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
@@ -214,13 +211,12 @@ function rerenderArchitectureDocsProjection(
   if (sourceFiles.length !== measured.sourceFiles.length || sourceFiles.some((path, index) => path !== measured.sourceFiles[index])) {
     throw new Error("architecture-docs-projection-inputs-changed-during-run: sourceFiles");
   }
-  return renderArchitectureDocsProjectionFromInputs(root, inputs, generatedAt, existingFiles, acceptedChange);
+  return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFiles, acceptedChange);
 }
 
 function renderArchitectureDocsProjectionFromInputs(
   root: string,
   inputs: ReturnType<typeof measureArchitectureDocsProjectionInputs>,
-  generatedAt: string,
   existingFiles: ProjectionOwnedFile[],
   acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined
 ) {
@@ -239,7 +235,6 @@ function renderArchitectureDocsProjectionFromInputs(
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
     sourceDigest,
-    generatedAt,
     refreshContext: {
       repositoryId: repositoryFingerprint(root),
       workspaceId: projectionWorkspaceId(root),
@@ -273,7 +268,6 @@ async function runArchitectureDocsAdoptionCommand(
   daemon: ProjectionServiceHost,
   projection: ReturnType<typeof buildArchitectureDocsProjection>,
   profile: ArchitectureProjectionProfile,
-  generatedAt: string,
   protocolRequest?: ProjectionRequestV1,
   priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = [],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1
@@ -319,14 +313,14 @@ async function runArchitectureDocsAdoptionCommand(
   // The protocol write also deletes generated-only orphans, so the fixed point is proven without them.
   if (protocolRequest) for (const orphan of projectionDeletableOrphans(projection)) simulatedByPath.delete(orphan.path);
   for (const file of [...projection.files, ...adoption.files]) simulatedByPath.set(file.path, simulatedProjectionFile(file));
-  const canonicalFirst = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...simulatedByPath.values()]);
+  const canonicalFirst = buildArchitectureDocsProjection(daemon, root, profile, [...simulatedByPath.values()]);
   const canonicalExistingByPath = new Map(simulatedByPath);
   for (const file of canonicalFirst.files) canonicalExistingByPath.set(file.path, simulatedProjectionFile(file));
   // Adoption changes whole-document digests. Refresh signal IDs then settle against that
   // canonical baseline in the manifest before a final render can prove the fixed point.
-  const canonicalBaseline = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...canonicalExistingByPath.values()]);
+  const canonicalBaseline = buildArchitectureDocsProjection(daemon, root, profile, [...canonicalExistingByPath.values()]);
   for (const file of canonicalBaseline.files) canonicalExistingByPath.set(file.path, simulatedProjectionFile(file));
-  const canonical = buildArchitectureDocsProjection(daemon, root, generatedAt, profile, [...canonicalExistingByPath.values()]);
+  const canonical = buildArchitectureDocsProjection(daemon, root, profile, [...canonicalExistingByPath.values()]);
   if (!canonical.plan.drift.ok || canonical.plan.rejected.length > 0 || canonical.plan.projectionDigest !== canonicalFirst.plan.projectionDigest) {
     const reasons = canonical.plan.rejected.map((entry) => entry.reasonCode).join(",") || "none";
     const drift = canonical.plan.drift.diffs.map((entry) => `${entry.path}:${entry.reasonCode}`).join(",") || "none";
@@ -493,7 +487,6 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   if (request.mode === "check") return runProjectionCheckCommand(request, findRepositoryRoot(cwd));
 
   const root = findRepositoryRoot(cwd);
-  const generatedAt = new Date(0).toISOString();
   // Snapshot the journal before this command can write anything: whatever is committed under this
   // requestId now belongs to an earlier attempt by construction, so no changeSetId comparison is
   // needed against this run's own commit (the protocol changeSetId is derived from the projection
@@ -524,7 +517,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   let declinedUnprovableNodeIds: string[] | undefined;
   if (request.acceptObservedMajorChange === true) {
     try {
-      observed = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE);
+      observed = buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE);
       assertProjectionExpectedSnapshot(request, root, observed);
     } catch (error) {
       return projectionFailureEnvelope("projection.run", error);
@@ -561,10 +554,10 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
     projection = observed === undefined
-      ? buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange)
+      ? buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange)
       : acceptedChange === undefined
         ? observed
-        : rerenderArchitectureDocsProjection(root, observed, generatedAt, observed.loaded.existingFiles, acceptedChange);
+        : rerenderArchitectureDocsProjection(root, observed, observed.loaded.existingFiles, acceptedChange);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return projectionFailureEnvelope("projection.run", error);
@@ -579,7 +572,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       action: "adopt", profile: REPO_HARNESS_PROJECTION_PROFILE, approved: true,
       adoptionPlanId: request.adoptionPlanId!, expectedWorktreeDigest,
       taskSessionId: request.requestId
-    }, root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request, priorCommittedApplies, acceptedChange);
+    }, root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, request, priorCommittedApplies, acceptedChange);
     if (!adopted.ok) return adopted;
     return adopted;
   }
@@ -593,7 +586,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     let fixedPointProjection: ReturnType<typeof buildArchitectureDocsProjection>;
     try {
       fixedPointProjection = acceptedChange
-        ? rerenderArchitectureDocsProjection(root, projection, generatedAt, projection.files.map(simulatedProjectionFile))
+        ? rerenderArchitectureDocsProjection(root, projection, projection.files.map(simulatedProjectionFile))
         : projection;
       if (acceptedChange && (
         fixedPointProjection.plan.rejected.length > 0
@@ -625,7 +618,7 @@ export function runProjectionCheckCommand(request: ProjectionRequestV1, root: st
   }
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
-    projection = buildArchitectureDocsProjection(undefined, root, new Date(0).toISOString(), REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
+    projection = buildArchitectureDocsProjection(undefined, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return projectionFailureEnvelope("projection.run", error);
@@ -746,16 +739,15 @@ async function proveOrRestoreCommittedProjectionApply(
   }
   if (readback.error?.code !== "AC_PRECONDITION_FAILED") return { kind: "failed", envelope: readback };
 
-  const generatedAt = new Date(0).toISOString();
   let input: ReturnType<typeof buildArchitectureDocsProjection>;
   let fixedPoint: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
-    input = buildArchitectureDocsProjection(daemon, root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, readbackRequest.acceptedChange);
+    input = buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, readbackRequest.acceptedChange);
     assertProjectionExpectedSnapshot(readbackRequest, root, input);
     // Like the first apply, the fixed point reuses the input render's measured inputs (#324) and
     // simulates the post-write state from the rendered outputs. The write below binds its
     // preconditions to `input.loaded.existingFiles`, the real read of the reverted files.
-    fixedPoint = rerenderArchitectureDocsProjection(root, input, generatedAt, input.files.map(simulatedProjectionFile));
+    fixedPoint = rerenderArchitectureDocsProjection(root, input, input.files.map(simulatedProjectionFile));
   } catch (error) {
     return { kind: "failed", envelope: projectionFailureEnvelope("projection.run", error) };
   }
@@ -1617,14 +1609,14 @@ export function assertProjectionInvocationSnapshot(root: string, input: RuntimeP
 
 function validateHumanProjectionInput(input: Record<string, unknown>, actions: readonly string[]): void {
   if (typeof input.action !== "string" || !actions.includes(input.action)) throw new Error(`projection action must be ${actions.join("|")}`);
-  for (const key of ["id", "taskSessionId", "expectedWorktreeDigest", "generatedAt", "adoptionPlanId"]) {
+  for (const key of ["id", "taskSessionId", "expectedWorktreeDigest", "adoptionPlanId"]) {
     if (input[key] !== undefined && typeof input[key] !== "string") throw new Error(`projection ${key} must be a string`);
   }
   if (input.approved !== undefined && typeof input.approved !== "boolean") throw new Error("projection approved must be a boolean");
 }
 
 export function validateDocsProjectionInput(value: unknown): asserts value is RuntimeDocsProjectionInput {
-  const input = projectionInputRecord(value, ["action", "profile", "generatedAt", "acceptedChange", "id", "taskSessionId", "approved", "expectedWorktreeDigest", "adoptionPlanId"]);
+  const input = projectionInputRecord(value, ["action", "profile", "acceptedChange", "id", "taskSessionId", "approved", "expectedWorktreeDigest", "adoptionPlanId"]);
   validateHumanProjectionInput(input, ["plan", "apply", "adopt", "drift", "clean"]);
   if (input.profile !== undefined && input.profile !== "default" && input.profile !== REPO_HARNESS_PROJECTION_PROFILE) throw new Error("projection profile is invalid");
   if (input.acceptedChange !== undefined) validateProjectionAcceptedChange(input.acceptedChange);

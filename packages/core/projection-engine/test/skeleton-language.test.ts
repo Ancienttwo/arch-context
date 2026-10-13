@@ -14,6 +14,13 @@ import {
   type ArchitectureDocumentationProjectionPlan,
   type NativeModel
 } from "../src/index";
+import type { ProjectionTargetV1 } from "@archcontext/contracts";
+
+/** The region markers of a target that owns a marked region; every entity summary does. */
+function regionMarkers(target: ProjectionTargetV1): { startMarker: string; endMarker: string } {
+  if (target.ownership !== "mixed") throw new Error(`${target.targetId} owns its whole file, not a marked region`);
+  return target.generatedRegion;
+}
 
 const sourceDigest = `sha256:${"3".repeat(64)}`;
 const provenance = architectureDocumentationProjectionProvenance({
@@ -40,7 +47,6 @@ function render(overrides: Partial<Parameters<typeof renderArchitectureDocumenta
     sourceScaleSignals: [],
     importGraphs: [],
     selectorEvidence: [],
-    generatedAt: "2026-10-11T00:00:00.000Z",
     ...overrides
   });
 }
@@ -53,8 +59,8 @@ function entity(plan: ArchitectureDocumentationProjectionPlan, nodeId: string) {
 
 /** The text before the generated region and the text after it. */
 function outside(file: ReturnType<typeof entity>): { before: string; after: string } {
-  const start = file.body.indexOf(file.target.generatedRegion.startMarker);
-  const end = file.body.indexOf(file.target.generatedRegion.endMarker) + file.target.generatedRegion.endMarker.length + 1;
+  const start = file.body.indexOf(regionMarkers(file.target).startMarker);
+  const end = file.body.indexOf(regionMarkers(file.target).endMarker) + regionMarkers(file.target).endMarker.length + 1;
   return { before: file.body.slice(0, start), after: file.body.slice(end) };
 }
 

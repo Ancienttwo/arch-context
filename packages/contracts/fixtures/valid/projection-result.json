@@ -13,7 +13,7 @@
     "codeGraphDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
     "indexedWorktreeDigest": "sha256:4545454545454545454545454545454545454545454545454545454545454545",
     "projectionInputDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
-    "rendererVersion": "archcontext.docs-renderer/v5",
+    "rendererVersion": "archcontext.docs-renderer/v6",
     "layoutVersion": "archcontext.docs-layout/v1",
     "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.1", "codeGraphStatus": "ready" }
   },
@@ -28,7 +28,7 @@
     "codeGraphDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
     "indexedWorktreeDigest": "sha256:9898989898989898989898989898989898989898989898989898989898989898",
     "projectionInputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "rendererVersion": "archcontext.docs-renderer/v5",
+    "rendererVersion": "archcontext.docs-renderer/v6",
     "layoutVersion": "archcontext.docs-layout/v1",
     "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.1", "codeGraphStatus": "ready" }
   },
@@ -43,5 +43,5 @@
   ],
   "humanActions": [],
   "refreshSignals": [],
-  "receiptDigest": "sha256:efd5f90c12bb14cf64bfe2b5f244eac776ec7984dbbdfebc4bc89bc963818843"
+  "receiptDigest": "sha256:db63e7be5b8ca3b3110cc6b8664e043f653a0555e60bf7c22be4c081bc4fdb74"
 }

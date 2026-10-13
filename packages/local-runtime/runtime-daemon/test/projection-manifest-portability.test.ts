@@ -62,7 +62,7 @@ test("the same commit projected from two checkout paths, with and without a Code
 
     const project = (root: string) => {
       expect(git(root, "rev-parse", "HEAD")).toBe(head);
-      return buildArchitectureDocsProjection(undefined, root, new Date(0).toISOString());
+      return buildArchitectureDocsProjection(undefined, root);
     };
     const a = project(indexed);
     const b = project(indexedElsewhere);
