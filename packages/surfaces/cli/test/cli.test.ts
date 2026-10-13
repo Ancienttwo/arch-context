@@ -727,6 +727,99 @@ test("CLI projection freshness answers check's staleNodes from stamps alone, wit
   }
 }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
+test("CLI projection freshness widens to the whole tree when a --changed-path is under .archcontext/ (#327)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-freshness-widen-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Freshness Widen App");
+  declareOptionalCodeFacts(root);
+  const nodeId = "capability.runtime-harness.hook-adapters";
+  const nodePath = ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml";
+  const noRuntime = new Proxy({}, {
+    get(_target, property) {
+      if (property === "then") return undefined;
+      throw new Error(`projection freshness reached the runtime: ${String(property)}`);
+    }
+  }) as unknown as RuntimeDaemonClient;
+  const freshness = async (...args: string[]) => {
+    const result = await runCli("projection", ["freshness", ...args], root, { runtimeClient: noRuntime });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    return (result as JsonEnvelope).data as unknown as {
+      profile: string | null;
+      changedPaths: string[];
+      evaluatedNodeIds: string[];
+      scope?: string;
+      scopeReason?: string;
+      freshness: NonNullable<ProjectionResultV2["freshness"]>;
+    };
+  };
+  try {
+    seedProjectionProtocolFixture(root);
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore()
+    });
+    try {
+      const applied = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root, { runtimeClient: daemon });
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    } finally {
+      await daemon.stop();
+    }
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "project architecture documentation");
+
+    // A path outside the model still narrows: no widening fields, nothing probed.
+    expect(await freshness("--changed-path", "src/unrelated.ts")).toEqual({
+      profile: "repo-harness/v1",
+      changedPaths: ["src/unrelated.ts"],
+      evaluatedNodeIds: [],
+      freshness: { ok: true, reasonCodes: [], staleNodes: [] }
+    });
+    // A model path on an unchanged model widens to the tree and agrees with the unscoped run.
+    const cleanUnscoped = await freshness("--json");
+    expect(cleanUnscoped.freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
+    expect(await freshness("--changed-path", nodePath)).toEqual({
+      profile: "repo-harness/v1",
+      changedPaths: [nodePath],
+      evaluatedNodeIds: [nodeId],
+      scope: "tree",
+      scopeReason: "model-path-changed",
+      freshness: cleanUnscoped.freshness
+    });
+
+    // Narrow the node's include: its footprint (and so its digest) changes, but the only changed path
+    // is the model file, which no footprint glob selects.
+    const nodeYaml = readFileSync(join(root, nodePath), "utf8");
+    expect(nodeYaml).toContain("README.md");
+    writeFileSync(join(root, nodePath), nodeYaml.replace("README.md", "docs/nothing-here.md"), "utf8");
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "narrow the footprint");
+    const unscoped = await freshness("--json");
+    expect(unscoped.freshness.ok).toBe(false);
+    expect(unscoped.freshness.staleNodes.map((entry) => entry.nodeId)).toEqual([nodeId]);
+    const widened = await freshness("--changed-path", nodePath, "--changed-path", "src/unrelated.ts");
+    expect(widened).toEqual({
+      profile: "repo-harness/v1",
+      changedPaths: [nodePath, "src/unrelated.ts"],
+      evaluatedNodeIds: unscoped.evaluatedNodeIds,
+      scope: "tree",
+      scopeReason: "model-path-changed",
+      freshness: unscoped.freshness
+    });
+    expect(widened.freshness.reasonCodes).toContain("projection-source-tree-digest-mismatch");
+    // The bare directory name widens too; a path outside the model keeps narrowing.
+    expect(await freshness("--changed-path", ".archcontext")).toMatchObject({ scope: "tree", scopeReason: "model-path-changed", freshness: unscoped.freshness });
+    expect(await freshness("--changed-path", "src/unrelated.ts")).toEqual({
+      profile: "repo-harness/v1",
+      changedPaths: ["src/unrelated.ts"],
+      evaluatedNodeIds: [],
+      freshness: { ok: true, reasonCodes: [], staleNodes: [] }
+    });
+  } finally {
+    removeTempRoot(root);
+  }
+}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
+
 test("CLI projection freshness refuses non-Git roots, paths outside the worktree and unknown flags before reading anything (#327)", async () => {
   const noRuntime = new Proxy({}, {
     get(_target, property) {

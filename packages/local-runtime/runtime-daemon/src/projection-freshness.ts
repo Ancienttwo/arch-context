@@ -73,7 +73,21 @@ export interface ProjectionFreshnessMeasurement {
   changedPaths: string[];
   /** The stamped nodes this evaluation probed, sorted; empty when the manifest is not readable. */
   evaluatedNodeIds: string[];
+  /**
+   * Present only when a `--changed-path` run was widened to the whole tree because a path is under
+   * `.archcontext/`: `scope` is then `"tree"` and `scopeReason` names why. Absent for an unscoped
+   * run and for a run that stayed on the changed paths' nodes.
+   */
+  scope?: "tree";
+  scopeReason?: "model-path-changed";
   evaluation: ArchitectureProjectionFreshnessEvaluation;
+}
+
+/** The model directory: a path under it can change any node's stamp digest, whatever the footprint globs say. */
+const PROJECTION_MODEL_ROOT = ".archcontext";
+
+function isProjectionModelPath(path: string): boolean {
+  return path === PROJECTION_MODEL_ROOT || path.startsWith(`${PROJECTION_MODEL_ROOT}/`);
 }
 
 /**
@@ -85,6 +99,11 @@ export interface ProjectionFreshnessMeasurement {
  * With `changedPaths`, only stamped nodes whose `source.include` matches one of the paths (and whose
  * `source.exclude` does not) are resolved, hashed and probed. Each path must be a normalized
  * repository-relative POSIX path (`assertProjectionFreshnessChangedPaths`).
+ *
+ * A node's stamp digest also depends on its own `source.include`/`exclude` and on the projection-owned
+ * paths, both of which live in the model. A changed path under `.archcontext/` therefore matches no
+ * footprint yet can make any node stale, so it fails closed: the run evaluates the whole tree exactly
+ * as an unscoped run does and reports `scope: "tree"` with `scopeReason: "model-path-changed"`.
  */
 export function measureProjectionFreshness(
   root: string,
@@ -96,13 +115,16 @@ export function measureProjectionFreshness(
   const profile = manifest.status === "present" ? loadArchitectureDocumentationProfile(root) : undefined;
   const sourceFiles = listGitVisibleFiles(root);
   const stampedNodeIds = manifest.status === "present" ? architectureProjectionStampedNodeIds(model, profile) : [];
-  if (options.changedPaths === undefined) {
+  const changedPaths = options.changedPaths === undefined ? [] : [...new Set(options.changedPaths)].sort((left, right) => left.localeCompare(right));
+  const widened = options.changedPaths !== undefined && changedPaths.some(isProjectionModelPath);
+  if (options.changedPaths === undefined || widened) {
     const footprints = loadCapabilitySourceFootprints(root, model, sourceFiles);
     return {
       manifestStatus: manifest.status,
       profile: profile ?? null,
-      changedPaths: [],
+      changedPaths,
       evaluatedNodeIds: stampedNodeIds,
+      ...(widened ? { scope: "tree" as const, scopeReason: "model-path-changed" as const } : {}),
       evaluation: evaluateProjectionFreshness({
         model,
         profile,
@@ -112,7 +134,6 @@ export function measureProjectionFreshness(
       })
     };
   }
-  const changedPaths = [...new Set(options.changedPaths)].sort((left, right) => left.localeCompare(right));
   const stamped = new Set(stampedNodeIds);
   const selectedNodes = model.nodes.filter((node) => {
     if (!stamped.has(node.id)) return false;

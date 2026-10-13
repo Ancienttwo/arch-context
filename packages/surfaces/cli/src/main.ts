@@ -339,9 +339,9 @@ const CLI_DOCS_ANCHORS_HELP = {
 /** `projection freshness --help`; above the entry block for the same TDZ reason as the audit constants. */
 const CLI_PROJECTION_FRESHNESS_HELP = {
   usage: "archctx projection freshness [--changed-path <path> ...] [--json]",
-  description: "Read-only per-node freshness of the committed architecture projection: which stamped documents describe source that changed since they were verified. It compares the manifest's footprint stamps with the Git-visible files now, through the evaluator projection check uses, so staleNodes equal check's on the same tree. It needs no code facts and renders nothing.",
+  description: "Read-only per-node freshness of the committed architecture projection: which stamped documents describe source that changed since they were verified. It compares the manifest's footprint stamps with the Git-visible files now, through the evaluator projection check uses, so on the same tree staleNodes equal check's for a repo-harness/v1 manifest, the only profile check renders. It needs no code facts and renders nothing.",
   options: {
-    "--changed-path <path>": "Repeatable. Probe only the stamped nodes whose source.include selects one of these repository-relative POSIX paths and whose source.exclude does not. The declared source tree digest is not compared in this scope. Absolute, .. or non-normalized paths fail with AC_SCHEMA_INVALID.",
+    "--changed-path <path>": "Repeatable. Probe only the stamped nodes whose source.include selects one of these repository-relative POSIX paths and whose source.exclude does not. The declared source tree digest is not compared in this scope. A path under .archcontext/ widens the run to the whole tree, exactly as without --changed-path, and the output then carries scope: \"tree\" and scopeReason: \"model-path-changed\". Absolute, .. or non-normalized paths fail with AC_SCHEMA_INVALID.",
     "--json": "Accepted for symmetry; output is always JSON.",
     "--help, -h": "Show help without reading the repository."
   },

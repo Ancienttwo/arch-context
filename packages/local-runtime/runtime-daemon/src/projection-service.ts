@@ -1163,7 +1163,9 @@ export function runProjectionSnapshotCommand(cwd: string): JsonEnvelope {
  * verified, from the committed manifest, the model and the Git-visible files only. It answers with
  * the evaluator `check` uses, so on the same tree its `staleNodes` equal `check`'s, but it needs no
  * code facts, renders nothing, starts no daemon, opens no local store and writes nothing.
- * `changedPaths` limits the probe to the stamped nodes whose footprint selects one of the paths. A
+ * `changedPaths` limits the probe to the stamped nodes whose footprint selects one of the paths,
+ * unless one is under `.archcontext/`: the model decides every footprint and stamp, so that run
+ * evaluates the whole tree and reports `scope: "tree"`, `scopeReason: "model-path-changed"`. A
  * root that is not a Git worktree fails with `AC_REPO_NOT_FOUND` (`git-worktree-required`).
  */
 export function runProjectionFreshnessCommand(cwd: string, options: { changedPaths?: readonly string[] } = {}): JsonEnvelope {
@@ -1182,6 +1184,7 @@ export function runProjectionFreshnessCommand(cwd: string, options: { changedPat
       profile: measured.profile,
       changedPaths: measured.changedPaths,
       evaluatedNodeIds: measured.evaluatedNodeIds,
+      ...(measured.scope === undefined ? {} : { scope: measured.scope, scopeReason: measured.scopeReason }),
       freshness
     } as unknown as Json);
   } catch (error) {
