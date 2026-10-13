@@ -401,6 +401,108 @@ test("CLI projection check under repo-harness/v1 is fresh after apply when a mem
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
 
+test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are removed from Git (#327)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-docs-rebaseline-v2-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Docs Rebaseline App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const commit = (message: string) => {
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", message);
+  };
+  const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  try {
+    seedProjectionProtocolFixture(root);
+    expect((await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"])).ok).toBe(true);
+    commit("project architecture documentation");
+    const check = async (requestId: string) => {
+      const result = await cli("projection", ["run", "--request-json", JSON.stringify({
+        schemaVersion: "archcontext.projection-request/v1",
+        requestId,
+        profile: "repo-harness/v1",
+        mode: "check",
+        targets: ["architecture-docs"],
+        changedPaths: [],
+        expected: projectionProtocolExpectedSnapshot(root)
+      } satisfies ProjectionRequestV1)]);
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+      const projection = result.data as unknown as ProjectionResultV2;
+      return { status: projection.status, freshness: projection.freshness, humanActions: projection.humanActions.map((action) => action.reasonCode) };
+    };
+    // What a check reports on a tree this release projected itself; the re-baselined tree must
+    // report the same.
+    const projectedHere = await check("projection_request.projected_here");
+
+    // The shape 0.7.x committed: a v2 manifest (only its schemaVersion is ever read) and whole-file
+    // outputs wrapped in renderer v5 markers.
+    const v3 = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const wholeFilePaths = (Object.entries(v3.targets) as Array<[string, any]>)
+      .filter(([, row]) => row.ownership === "generated")
+      .map(([targetId, row]) => {
+        const body = readFileSync(join(root, row.path), "utf8");
+        writeFileSync(join(root, row.path), [
+          `<!-- BEGIN ARCHCONTEXT:generated target="${targetId}" sourceDigest="sha256:${"b".repeat(64)}" rendererVersion="archcontext.docs-renderer/v5" outputDigest="sha256:${"c".repeat(64)}" -->`,
+          body.trimEnd(),
+          `<!-- END ARCHCONTEXT:generated target="${targetId}" -->`,
+          ""
+        ].join("\n"), "utf8");
+        return row.path as string;
+      })
+      .sort();
+    expect(wholeFilePaths.length).toBeGreaterThan(0);
+    writeFileSync(manifestPath, `${JSON.stringify({ ...v3, schemaVersion: "archcontext.architecture-docs-projection-manifest/v2", rendererVersion: "archcontext.docs-renderer/v5" }, null, 2)}\n`, "utf8");
+    commit("the 0.7.x projection");
+    const markedBodies = wholeFilePaths.map((path) => readFileSync(join(root, path), "utf8"));
+
+    const drift = await cli("docs", ["drift"]);
+    expect(drift.ok).toBe(false);
+    expect((drift as any).error.reasonCode).toBe("projection-manifest-upgrade-required");
+
+    // The re-baseline names every whole-file output nothing vouches for, says how to remove them,
+    // and writes nothing.
+    const refused = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(refused.ok).toBe(false);
+    const error = (refused as any).error;
+    expect(error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "projection-ambiguous-ownership" });
+    expect(error.details).toEqual({
+      paths: wholeFilePaths,
+      action: "remove-whole-file-outputs-and-reapply",
+      commands: [`git rm -- ${wholeFilePaths.join(" ")}`, "archctx docs apply --approved --profile repo-harness/v1"]
+    });
+    for (const path of wholeFilePaths) expect(error.message).toContain(path);
+    expect(error.message).toContain(`remove them from Git (git rm -- ${wholeFilePaths.join(" ")})`);
+    expect(wholeFilePaths.map((path) => readFileSync(join(root, path), "utf8"))).toEqual(markedBodies);
+    expect(JSON.parse(readFileSync(manifestPath, "utf8")).schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v2");
+
+    // The operator follows the named step once; the re-baseline then reaches a fixed point.
+    git(root, "rm", "-q", "--", ...wholeFilePaths);
+    commit("remove the 0.7.x whole-file outputs");
+    const rebaselined = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(rebaselined.ok, JSON.stringify(rebaselined)).toBe(true);
+    commit("re-baseline the projection");
+    expect(JSON.parse(readFileSync(manifestPath, "utf8")).schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v3");
+    for (const path of wholeFilePaths) expect(existsSync(join(root, path))).toBe(true);
+
+    const again = await cli("docs", ["apply", "--approved"]);
+    expect(again.ok, JSON.stringify(again)).toBe(true);
+    expect((again.data as any).status).toBe("noop");
+    const clean = await cli("docs", ["drift"]);
+    expect(clean.ok).toBe(true);
+    expect((clean.data as any).ok).toBe(true);
+    expect(await check("projection_request.rebaselined")).toEqual(projectedHere);
+    expect(projectedHere.freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
 test("CLI docs commands without --profile keep the profile of the committed manifest (#293)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-docs-committed-profile-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");

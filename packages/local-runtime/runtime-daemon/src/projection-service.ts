@@ -6,7 +6,7 @@ import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, evaluateArchitectureProjectionSnapshotFreshness, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -60,7 +60,17 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     return runArchitectureDocsAdoptionCommand(input, root, daemon, projection, profile);
   }
   if (projection.plan.rejected.length > 0) {
-    return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection requires explicit adoption or ownership repair: ${projection.plan.rejected.map((diff) => `${diff.path} (${diff.reasonCode})`).join(", ")}`);
+    const repair = `Architecture documentation projection requires explicit adoption or ownership repair: ${projection.plan.rejected.map((diff) => `${diff.path} (${diff.reasonCode})`).join(", ")}`;
+    const unvouched = subcommand === "apply" ? rebaselineUnvouchedWholeFileOutputs(projection) : [];
+    if (unvouched.length === 0) return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", repair);
+    const commands = [`git rm -- ${unvouched.join(" ")}`, `archctx docs apply --approved --profile ${profile}`];
+    return errorEnvelope(
+      "docs.plan",
+      "AC_PRECONDITION_FAILED",
+      `${repair}; these whole-file outputs were written by an earlier release, and no current-format manifest row proves the projection owns them, so the re-baseline never overwrites them: remove them from Git (${commands[0]}) and run ${commands[1]} again`,
+      "projection-ambiguous-ownership",
+      { paths: unvouched, action: "remove-whole-file-outputs-and-reapply", commands }
+    );
   }
   if (subcommand === "apply" && profile === REPO_HARNESS_PROJECTION_PROFILE && projection.plan.drift.ok) {
     return okEnvelope("docs.apply", {
@@ -894,6 +904,22 @@ function observedMajorChangeAcceptance(
       affectedNodeIds: [...majorChange.affectedNodeIds]
     }
   };
+}
+
+/**
+ * The whole-file (`generated`) outputs a `docs apply` re-baseline of a superseded manifest refuses
+ * as `projection-ambiguous-ownership`: the superseded rows are never read, so no current-format
+ * row proves the projection wrote them (#327). Only the operator removes them; nothing here
+ * deletes a file. Outside a re-baseline the generic ownership repair applies.
+ */
+function rebaselineUnvouchedWholeFileOutputs(projection: ReturnType<typeof buildArchitectureDocsProjection>): string[] {
+  const committedManifest = projection.loaded.existingFiles.find((file) => file.path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
+  if (!committedManifest || !isSupersededArchitectureDocsProjectionManifestSchemaVersion(architectureDocsProjectionManifestSchemaVersion(committedManifest.body))) return [];
+  const wholeFileTargetIds = new Set(projection.plan.targets.filter((target) => target.ownership === "generated").map((target) => target.targetId));
+  return [...new Set(projection.plan.rejected
+    .filter((diff) => diff.reasonCode === "projection-ambiguous-ownership" && diff.targetId !== undefined && wholeFileTargetIds.has(diff.targetId))
+    .map((diff) => diff.path))]
+    .sort();
 }
 
 /**

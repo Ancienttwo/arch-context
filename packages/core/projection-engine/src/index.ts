@@ -628,7 +628,7 @@ export abstract class ProjectionPreconditionError extends Error {
 export class ProjectionManifestUpgradeRequiredError extends ProjectionPreconditionError {
   readonly reasonCode = PROJECTION_MANIFEST_UPGRADE_REQUIRED;
   constructor(readonly schemaVersion: string) {
-    super(`${PROJECTION_MANIFEST_UPGRADE_REQUIRED}: ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} is ${schemaVersion}, and this archctx reads only ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION}; reach a clean projection on the earlier release first, then re-baseline once with archctx docs apply --approved --profile <default|repo-harness/v1>`);
+    super(`${PROJECTION_MANIFEST_UPGRADE_REQUIRED}: ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} is ${schemaVersion}, and this archctx reads only ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION}; reach a clean projection on the earlier release first, then re-baseline once with archctx docs apply --approved --profile <default|repo-harness/v1>; if that apply names whole-file outputs the earlier release wrote, remove them with git rm and run it again`);
   }
 }
 
