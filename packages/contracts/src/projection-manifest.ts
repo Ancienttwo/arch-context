@@ -379,26 +379,6 @@ export function architectureDocsProjectionProvenanceIssues(value: unknown, prefi
   return issues;
 }
 
-export function architectureDigestSetIssues(value: unknown, prefix = "digests"): string[] {
-  const digests = record(value);
-  if (!digests) return [`${prefix} must be an object`];
-  const fields = ["modelDigest", "sourceTreeDigest", "flowProofDigest", "projectionDigest"] as const;
-  const issues = exactKeys(digests, fields, [], prefix);
-  for (const field of fields) if (!isDigest(digests[field])) issues.push(`${prefix}.${field} must be a SHA-256 digest`);
-  return issues;
-}
-
-export function architectureSemanticStateIssues(value: unknown, prefix = "semanticState"): string[] {
-  const state = record(value);
-  if (!state) return [`${prefix} must be an object`];
-  const issues = exactKeys(state, ["schemaVersion", "capabilities", "semanticFingerprint", "flowProofFingerprint"], [], prefix);
-  if (state.schemaVersion !== ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION) issues.push(`${prefix}.schemaVersion is unsupported`);
-  if (!isDigest(state.semanticFingerprint)) issues.push(`${prefix}.semanticFingerprint must be a SHA-256 digest`);
-  if (!isDigest(state.flowProofFingerprint)) issues.push(`${prefix}.flowProofFingerprint must be a SHA-256 digest`);
-  issues.push(...capabilityEntriesIssues(state.capabilities, `${prefix}.capabilities`, false));
-  return issues;
-}
-
 function capabilityEntriesIssues(value: unknown, prefix: string, withSelectorEvidence: boolean): string[] {
   if (!Array.isArray(value)) return [`${prefix} must be an array`];
   const issues: string[] = [];

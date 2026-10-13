@@ -67,7 +67,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     return errorEnvelope(
       "docs.plan",
       "AC_PRECONDITION_FAILED",
-      `${repair}; these whole-file outputs were written by an earlier release, and no current-format manifest row proves the projection owns them, so the re-baseline never overwrites them: remove them from Git (${commands[0]}) and run ${commands[1]} again`,
+      `${repair}; these whole-file outputs have no current-format manifest row vouching for them, so nothing proves the projection owns them, so the re-baseline never overwrites them: remove them from Git (${commands[0]}) and run ${commands[1]} again`,
       "projection-ambiguous-ownership",
       { paths: unvouched, action: "remove-whole-file-outputs-and-reapply", commands }
     );

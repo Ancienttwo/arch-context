@@ -191,7 +191,6 @@ export const PROJECTION_FRESHNESS_REASON_CODES = [
   "projection-manifest-missing",
   "projection-manifest-unreadable",
   "projection-source-changed-since-stamp",
-  "projection-source-stamp-invalid",
   "projection-source-stamp-missing",
   "projection-source-tree-digest-mismatch"
 ] as const;

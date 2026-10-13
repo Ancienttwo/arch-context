@@ -1186,14 +1186,9 @@ export function evaluateArchitectureProjectionFreshness(input: {
     const currentDigest = currentByNodeId.get(nodeId);
     if (currentDigest === undefined) throw new Error(`architecture-projection-freshness-footprint-unmeasured: ${nodeId}`);
     const stamp = stampsByNodeId.get(nodeId);
-    if (stamp === undefined || stamp === null) {
+    if (stamp === undefined) {
       reasonCodes.push("projection-source-stamp-missing");
       details.push(`projection manifest records no source stamp for ${nodeId}; re-run the documentation projection`);
-      continue;
-    }
-    if (typeof stamp !== "string" || !SOURCE_FOOTPRINT_DIGEST_PATTERN.test(stamp)) {
-      reasonCodes.push("projection-source-stamp-invalid");
-      details.push(`projection manifest source stamp for ${nodeId} is not a footprint digest: ${JSON.stringify(stamp)}`);
       continue;
     }
     if (stamp !== currentDigest) staleNodes.push({ nodeId, stampedDigest: stamp, currentDigest });
@@ -1252,8 +1247,8 @@ function freshnessEvaluation(
 /** One declared node's recorded stamp, as read back out of the projection manifest. */
 export interface ArchitectureProjectionManifestNodeStamp {
   nodeId: string;
-  /** Raw manifest value; validated by `evaluateArchitectureProjectionFreshness`, never trusted here. */
-  sourceFootprintDigest: unknown;
+  /** Already validated as a footprint digest by the strict v3 manifest reader. */
+  sourceFootprintDigest: string;
 }
 
 export type ArchitectureProjectionManifestStampReadback =

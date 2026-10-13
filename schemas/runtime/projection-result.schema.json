@@ -256,7 +256,7 @@
         "reasonCodes": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "enum": ["projection-manifest-missing", "projection-manifest-unreadable", "projection-source-changed-since-stamp", "projection-source-stamp-invalid", "projection-source-stamp-missing", "projection-source-tree-digest-mismatch"] }
+          "items": { "enum": ["projection-manifest-missing", "projection-manifest-unreadable", "projection-source-changed-since-stamp", "projection-source-stamp-missing", "projection-source-tree-digest-mismatch"] }
         },
         "staleNodes": {
           "type": "array",

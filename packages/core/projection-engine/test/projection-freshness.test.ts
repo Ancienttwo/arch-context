@@ -68,11 +68,11 @@ const currentFootprints: CapabilitySourceFootprintDigest[] = [
   { nodeId: "capability.review.gate", digest: reviewDigest, fileCount: 2 }
 ];
 
-function stamped(stamps: Record<string, unknown>): ArchitectureProjectionManifestStampReadback {
+function stamped(stamps: Record<string, string>): ArchitectureProjectionManifestStampReadback {
   return {
     status: "present",
-    nodes: model.nodes.map((node) => ({ nodeId: node.id, sourceFootprintDigest: stamps[node.id] })),
-    sourceTreeDigest: architectureSourceStampsDigest(Object.fromEntries(Object.entries(stamps).filter((entry): entry is [string, string] => typeof entry[1] === "string")))
+    nodes: model.nodes.flatMap((node) => stamps[node.id] === undefined ? [] : [{ nodeId: node.id, sourceFootprintDigest: stamps[node.id]! }]),
+    sourceTreeDigest: architectureSourceStampsDigest(stamps)
   };
 }
 
@@ -218,29 +218,6 @@ describe("architecture projection freshness", () => {
     expect(missing.ok).toBe(false);
     expect(missing.reasonCodes).toEqual(["projection-source-stamp-missing"]);
     expect(missing.detail).toContain("capability.docs.projection");
-
-    // A pre-content-stamp manifest carried `verifiedAgainst` commits; they are never read, so the
-    // node has no stamp until it is re-projected once.
-    const legacy = evaluateArchitectureProjectionFreshness({
-      model,
-      manifest: {
-        status: "present",
-        nodes: model.nodes.map((node) => ({ nodeId: node.id, sourceFootprintDigest: undefined })),
-        sourceTreeDigest: architectureSourceStampsDigest({})
-      },
-      sourceFootprints: currentFootprints
-    });
-    expect(legacy.reasonCodes).toEqual(["projection-source-stamp-missing"]);
-
-    for (const hostile of ["--output=output", "7415329", { commit: "7415329" }, `sha256:${"A".repeat(64)}`]) {
-      const invalid = evaluateArchitectureProjectionFreshness({
-        model,
-        manifest: stamped({ ...freshStamps, "capability.docs.projection": hostile }),
-        sourceFootprints: currentFootprints
-      });
-      expect(invalid.ok, JSON.stringify(hostile)).toBe(false);
-      expect(invalid.reasonCodes).toEqual(["projection-source-stamp-invalid"]);
-    }
   });
 
   test("a missing or unreadable manifest is reported, never treated as fresh", () => {
