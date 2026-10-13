@@ -1416,6 +1416,16 @@ export interface RuntimeAgentJobStaleCancellationInput extends ArchitectureLedge
   reason?: string;
 }
 
+/**
+ * The runtime job queue partitions only on these two storage ids (`storage_repository_id`,
+ * `storage_workspace_id`), so queue stats need nothing a worktree has to be present to compute:
+ * no branch, HEAD or worktree digest (#322).
+ */
+export interface RuntimeAgentJobQueueScope {
+  repository: Pick<ArchitectureLedgerScope["repository"], "storageRepositoryId">;
+  worktree: Pick<ArchitectureLedgerScope["worktree"], "storageWorkspaceId">;
+}
+
 export interface RuntimeAgentJobQueueStats {
   schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1";
   generatedAt: string;
@@ -1445,7 +1455,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   commitRepositoryRemoval(repositoryId: string, landscape?: Landscape): Promise<boolean>;
   enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult>;
   listRuntimeAgentJobs(input: ArchitectureLedgerScope & { statuses?: RuntimeAgentJobStatus[] }): Promise<RuntimeAgentJobRecord[]>;
-  queueStatsRuntimeAgentJobs(input: ArchitectureLedgerScope & { now?: string }): Promise<RuntimeAgentJobQueueStats>;
+  queueStatsRuntimeAgentJobs(input: RuntimeAgentJobQueueScope & { now?: string }): Promise<RuntimeAgentJobQueueStats>;
   claimRuntimeAgentJob(input: RuntimeAgentJobClaimInput): Promise<RuntimeAgentJobRecord | undefined>;
   completeRuntimeAgentJob(input: RuntimeAgentJobCompleteInput): Promise<RuntimeAgentJobRecord>;
   retryRuntimeAgentJob(input: RuntimeAgentJobRetryInput): Promise<RuntimeAgentJobRecord>;
@@ -1997,7 +2007,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       .map(runtimeAgentJobRecordFromRow);
   }
 
-  async queueStatsRuntimeAgentJobs(input: ArchitectureLedgerScope & { now?: string }): Promise<RuntimeAgentJobQueueStats> {
+  async queueStatsRuntimeAgentJobs(input: RuntimeAgentJobQueueScope & { now?: string }): Promise<RuntimeAgentJobQueueStats> {
     const db = await this.database();
     const now = input.now ?? nowIso();
     const records = db.prepare(

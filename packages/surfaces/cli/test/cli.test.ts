@@ -1,10 +1,10 @@
 import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadCapabilitySourceFootprintDigests, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
@@ -21,7 +21,7 @@ import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
 import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { createFixtureGithubConnectionReader } from "./github-connection-fixture";
 import { runFastHookEnqueue } from "../src/hook-fast";
-import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
+import { CLI_COMMAND_FLAGS, resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
 const CLI_ENTRY = join(REPOSITORY_ROOT, "packages/surfaces/cli/src/main.ts");
@@ -2393,6 +2393,141 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("one argument check runs before every handler: help, unknown flags and stray task options never reach the runtime (#322)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-preflight-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    // Any handler that reached the runtime would throw here; the preflight answers first.
+    const throwingRuntime = new Proxy({}, { get: () => () => { throw new Error("preflight let a handler reach the runtime"); } });
+    const cli = async (command: string, ...args: string[]) => await runCli(command, args, root, { runtimeClient: throwingRuntime as any }) as JsonEnvelope;
+    try {
+      // checkpoint and complete used to run a real checkpoint and record a real completion review.
+      for (const [command, ...args] of [["checkpoint", "--help"], ["complete", "--help"], ["complete", "--task", "x", "-h"], ["review", "--help"], ["prepare", "--help"], ["context", "-h"], ["sync", "--help"], ["jobs", "list", "--help"]]) {
+        const help = await cli(command!, ...args);
+        expect(help, `${command} ${args.join(" ")}`).toMatchObject({ ok: true, requestId: "help", data: { command: `archctx ${command}` } });
+      }
+      for (const [command, ...args] of [["checkpoint", "--bogus"], ["complete", "--json", "--strict"], ["status", "--verbose"], ["jobs", "list", "--state", "queued"], ["practices", "validate", "--stric"], ["sync", "--changed"], ["audit", "list", "--run-id", "x"]]) {
+        const rejected = await cli(command!, ...args);
+        expect(rejected.ok, `${command} ${args.join(" ")}`).toBe(false);
+        expect(rejected.error, `${command} ${args.join(" ")}`).toMatchObject({ code: "AC_SCHEMA_INVALID", retryable: false });
+      }
+      expect((await cli("checkpoint", "--bogus")).error?.message).toBe("checkpoint does not recognize the flag --bogus");
+      expect((await cli("sync", "--changed")).error?.message).toBe("sync requires a value for --changed");
+      expect(await cli("audit", "list", "--run-id", "x")).toMatchObject({ requestId: "audit.list", error: { message: "audit list does not recognize the flag --run-id" } });
+      // Daemon-owned review fields keep their own refusal, ahead of the unknown-flag scan.
+      expect((await cli("complete", "--signature", "x")).error?.message).toContain("Review attestation fields are daemon-owned");
+
+      // prepare/context: options are never read as task text.
+      for (const [command, option] of [["prepare", "--max-bytes"], ["context", "--max-symbols"]] as const) {
+        const stray = await cli(command, option, "4096");
+        expect(stray.error, command).toMatchObject({ code: "AC_SCHEMA_INVALID", message: `${command} takes options only together with --task <text>; bare task text cannot contain options` });
+        expect((await cli(command, "fix", "the", "-x", "bug")).error?.code, command).toBe("AC_SCHEMA_INVALID");
+        expect((await cli(command)).error?.message, command).toBe(`${command} requires --task or task text`);
+      }
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("the argument table knows every flag a handler reads, so the preflight never rejects a real option (#322)", () => {
+    // A Windows checkout may have CRLF line endings; the source readers below match on "\n".
+    const source = readFileSync(CLI_ENTRY, "utf8").replace(/\r\n/g, "\n");
+    const read = new Set([...source.matchAll(/\b(?:readFlag|readRepeatedFlag|requireFlag|copyOptionalFlag|refactorFlagValue|readOptional(?:Positive|NonNegative)?IntegerFlag|readRepositoryInputFile)\(\s*[\w.]+\s*,\s*"(--[a-z0-9-]+)"/g)].map((match) => match[1]!));
+    const known = new Set(["--format", "--json", ...Object.values(CLI_COMMAND_FLAGS).flatMap((spec) => [
+      ...spec.value,
+      ...spec.boolean,
+      ...Object.values(spec.subcommands ?? {}).flatMap((sub) => [...sub.value, ...sub.boolean])
+    ])]);
+    expect([...read].filter((flag) => !known.has(flag)).sort()).toEqual([]);
+
+    // Per subcommand: every flag a subcommand branch reads is listed for that subcommand, so a
+    // flag one subcommand ignores never passes the check under another one.
+    const readFlags = (text: string) => new Set([...text.matchAll(/\b(?:readFlag|readRepeatedFlag|requireFlag|copyOptionalFlag|readOptional(?:Positive|NonNegative)?IntegerFlag|readRuntimeAgentJobStatuses|explorerProjectionQueryV2FromCli)\(\s*[\w.]+\s*,?\s*(?:"(--[a-z0-9-]+)")?/g)]
+      .flatMap((match) => match[0].includes("explorerProjectionQueryV2FromCli")
+        ? [...functionBody(source, "explorerProjectionQueryV2FromCli").matchAll(/"(--[a-z0-9-]+)"/g)].map((inner) => inner[1]!)
+        : match[0].includes("readRuntimeAgentJobStatuses") ? ["--status"] : match[1] ? [match[1]] : [])
+      .concat([...text.matchAll(/\b\w*[aA]rgs\.includes\("(--[a-z0-9-]+)"\)/g)].map((match) => match[1]!)));
+    const accepted = (command: string, subcommand: string) => {
+      const spec = CLI_COMMAND_FLAGS[command]!.subcommands![subcommand];
+      expect(spec, `${command} ${subcommand}`).toBeDefined();
+      return new Set([...spec!.value, ...spec!.boolean]);
+    };
+    const handlers: Record<string, string> = { jobs: "runJobsCommand", practices: "runPracticesCommand", recommendations: "runRecommendationsCommand", ledger: "runLedgerCommand", github: "runGithubCommand", agents: "runAgentsCommand" };
+    for (const [command, handler] of Object.entries(handlers)) {
+      for (const [subcommands, block] of subcommandBlocks(functionBody(source, handler))) {
+        for (const subcommand of subcommands) {
+          const allowed = accepted(command, subcommand);
+          expect([...readFlags(block)].filter((flag) => !allowed.has(flag)), `${command} ${subcommand}`).toEqual([]);
+        }
+      }
+    }
+    const exploreCase = source.slice(source.indexOf('    case "explore": {'), source.indexOf('    case "prepare": {'));
+    for (const [subcommands, block] of subcommandBlocks(exploreCase)) {
+      for (const subcommand of subcommands) {
+        expect([...readFlags(block)].filter((flag) => !accepted("explore", subcommand).has(flag)), `explore ${subcommand}`).toEqual([]);
+      }
+    }
+    for (const [subcommand, handler] of [["checkpoint", "runHookCheckpointCommand"], ["enqueue", "runHookEnqueueCommand"]] as const) {
+      expect([...readFlags(functionBody(source, handler))].filter((flag) => !accepted("hook", subcommand).has(flag)), `hook ${subcommand}`).toEqual([]);
+    }
+    // projection: the protocol actions take only --request-json; snapshot takes no value flag.
+    const projectionBody = functionBody(source, "runProjectionProtocolCommand");
+    const protocolActions = [...projectionBody.match(/\[("[a-z]+"(?:, )?)+\]\.includes\(action\)/)![0].matchAll(/"([a-z]+)"/g)].map((match) => match[1]!);
+    expect(protocolActions).toEqual(["run", "recover", "readback"]);
+    for (const action of protocolActions) expect([...accepted("projection", action)], `projection ${action}`).toEqual([...readFlags(projectionBody)]);
+    expect(projectionBody).toContain('action === "snapshot"');
+    expect([...accepted("projection", "snapshot")]).toEqual([]);
+  });
+
+  test("a flag another subcommand reads is refused before the runtime (#322)", async () => {
+    const throwingRuntime = new Proxy({}, { get: () => () => { throw new Error("preflight let a handler reach the runtime"); } });
+    for (const [command, ...args] of [["jobs", "list", "--job-id", "x"], ["practices", "list", "--waiver-id", "x"], ["ledger", "status", "--write"], ["explore", "status", "--view", "x"], ["hook", "enqueue", "--task", "x"], ["projection", "snapshot", "--request-json", "{}"]]) {
+      const rejected = await runCli(command!, args, "/absent", { runtimeClient: throwingRuntime as any }) as JsonEnvelope;
+      expect(rejected, `${command} ${args.join(" ")}`).toMatchObject({
+        ok: false,
+        requestId: `${command}.${args[0]}`,
+        error: { code: "AC_SCHEMA_INVALID", message: `${command} ${args[0]} does not recognize the flag ${args[1]}` }
+      });
+    }
+  });
+
+  test("spawned CLI: --help on commands without their own help, daemon start --help and validate argument errors never start the daemon (#322)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-help-no-daemon-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const paths = testRuntimePaths(root);
+      const assertNoDaemonFootprint = () => {
+        expect(existsSync(paths.daemonConnectionPath)).toBe(false);
+        expect(existsSync(paths.localStorePath)).toBe(false);
+      };
+      for (const args of [["docs", "--help"], ["docs", "pin", "-h"], ["validate", "--help"], ["status", "--help"], ["practices", "validate", "--help"]]) {
+        const help = await runCliProcessRaw(root, ...args);
+        const envelope = JSON.parse(help.stdout);
+        expect(envelope.ok, `${args.join(" ")}: ${help.stdout}`).toBe(true);
+        expect(envelope.requestId).toBe("help");
+        expect(envelope.data.command).toBe(`archctx ${args[0]}`);
+        assertNoDaemonFootprint();
+      }
+      expect(JSON.parse((await runCliProcessRaw(root, "docs", "--help")).stdout).data.examples).toEqual(["archctx docs anchors --json"]);
+
+      for (const args of [["daemon", "start", "--help"], ["daemon", "start", "--foreground", "--help"], ["daemon", "-h"]]) {
+        const help = await runCliProcessRaw(root, ...args);
+        expect(help.code, args.join(" ")).toBe(0);
+        expect(JSON.parse(help.stdout)).toMatchObject({ ok: true, requestId: "daemon" });
+        assertNoDaemonFootprint();
+      }
+
+      for (const args of [["validate", "--format", "json", "--strict"], ["validate", "-x"], ["validate", "--format"]]) {
+        const rejected = await runCliProcessRaw(root, ...args);
+        expect(rejected.code, args.join(" ")).toBe(1);
+        expect(JSON.parse(rejected.stdout).error).toMatchObject({ code: "AC_SCHEMA_INVALID", retryable: false });
+        assertNoDaemonFootprint();
+      }
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   // Regression test for a crash the --help fix itself introduced: AUDIT_RUN_VALUE_FLAGS and its five
   // sibling constants were originally declared far below in the file, next to runAuditCommand — but
   // still textually *after* the `if (import.meta.main)` entry block (~:141). That block's top-level
@@ -3629,9 +3764,11 @@ describe("archctx CLI", () => {
     const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
     process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
     try {
-      const connect = await runCli("github", ["connect", "--account-id", "acct_42"], root);
+      const connect = await runCli("github", ["connect"], root);
       expect(connect.ok).toBe(false);
       expect((connect as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      // github connect reads no --account-id; the argument check refuses it before the handler (#322).
+      expect((await runCli("github", ["connect", "--account-id", "acct_42"], root) as any).error.code).toBe("AC_SCHEMA_INVALID");
       const connectionPath = join(testRuntimePaths(root).workspaceStateDir, "github-connection.json");
       expect(existsSync(connectionPath)).toBe(false);
       const processConnect = await runCliProcessRaw(root, "github", "connect");
@@ -4349,6 +4486,108 @@ describe("archctx CLI", () => {
       clearInterval(observer);
       await stopDaemonAndWait(root);
       removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("a real background daemon exits within its idle timeout after its worktree is deleted (#322)", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "archctx-cli-deleted-root-"));
+    const root = join(parent, "repo");
+    mkdirSync(root);
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    // Paths are computed while the root exists: after deletion the realpath, and with it the
+    // storage ids derived from the cwd, are gone too. That is why `daemon stop` from the cwd cannot
+    // find such a daemon and the idle exit must not depend on the root.
+    const paths = testRuntimePaths(root);
+    // The idle window runs from the last RPC (`status` below), whether or not the root still
+    // exists. Nothing but the delete runs inside it, so the daemon is still alive when its root
+    // goes; the listing of such a daemon is checked in the next test, where idle exit is off.
+    const idleTimeoutMs = 3_000;
+    const env = { ...testStateEnv(root), ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS: String(idleTimeoutMs) };
+    const cli = async (cwd: string, ...args: string[]) => JSON.parse((await collectProcess(spawn(process.execPath, [CLI_ENTRY, ...args], { cwd, env }))).stdout);
+    try {
+      expect((await cli(root, "daemon", "start")).ok).toBe(true);
+      await cli(root, "validate");
+      const status = await cli(root, "status");
+      expect(status.data.sessions).toBeGreaterThanOrEqual(1);
+      const pid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
+      expectOutsideWorktree(pid, root);
+
+      // The unwrapped rm: a daemon that pins the root makes Windows refuse this delete, and the
+      // test must see that instead of a cleanup helper swallowing it.
+      nodeRmSync(root, { recursive: true, force: true });
+      expect(existsSync(root)).toBe(false);
+      const deletedAt = Date.now();
+      // Alive here, so the exit below is the deleted-root idle path and not an exit that came first.
+      expect(process.kill(pid, 0)).toBe(true);
+      while (Date.now() - deletedAt < idleTimeoutMs + 5_000) {
+        try {
+          process.kill(pid, 0);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH") break;
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      await expectPidGone(pid);
+      expect(existsSync(paths.daemonConnectionPath)).toBe(false);
+      expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([]);
+    } finally {
+      await runCli("daemon", ["stop", "--state-dir", paths.workspaceStateDir], parent).catch(() => undefined);
+      rmSync(testStateRoot(root), { recursive: true, force: true });
+      rmSync(parent, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("daemon list shows a daemon whose worktree is deleted, daemon stop --workspace-id and --state-dir stop it, and bad targets fail closed (#322)", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "archctx-cli-stop-target-"));
+    const root = join(parent, "repo");
+    mkdirSync(root);
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    const paths = testRuntimePaths(root);
+    // Idle exit disabled: only an explicit stop can end this daemon.
+    const env = { ...testStateEnv(root), ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS: "0" };
+    const cli = async (cwd: string, ...args: string[]) => JSON.parse((await collectProcess(spawn(process.execPath, [CLI_ENTRY, ...args], { cwd, env }))).stdout);
+    try {
+      expect((await cli(root, "daemon", "start")).ok).toBe(true);
+      const firstPid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
+      const listing = { storageWorkspaceId: paths.storageWorkspaceId, stateDir: paths.workspaceStateDir, connection: "valid", pid: firstPid, pidAlive: true };
+      const listed = await cli(parent, "daemon", "list");
+      expect(listed.ok).toBe(true);
+      expect(listed.data.daemons).toEqual([expect.objectContaining({ ...listing, rootExists: true })]);
+      expectOutsideWorktree(firstPid, root);
+      nodeRmSync(root, { recursive: true, force: true });
+      expect(existsSync(root)).toBe(false);
+      expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([expect.objectContaining({ ...listing, rootExists: false })]);
+
+      expect((await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir, "--workspace-id", paths.storageWorkspaceId)).error)
+        .toMatchObject({ code: "AC_SCHEMA_INVALID", message: "daemon stop accepts at most one of --state-dir or --workspace-id" });
+      expect((await cli(parent, "daemon", "stop", "--workspace-id", "../repositories")).error).toMatchObject({ code: "AC_SCHEMA_INVALID" });
+      expect((await cli(parent, "daemon", "stop", "--workspace-id", "ws.0000000000000000")).error).toMatchObject({ code: "AC_RUNTIME_UNAVAILABLE" });
+      expect((await cli(parent, "daemon", "stop", "--bogus")).error).toMatchObject({ code: "AC_SCHEMA_INVALID", message: "daemon stop does not recognize the flag --bogus" });
+      expect(process.kill(firstPid, 0)).toBe(true);
+
+      const stopped = await cli(parent, "daemon", "stop", "--workspace-id", paths.storageWorkspaceId);
+      expect(stopped.ok, JSON.stringify(stopped)).toBe(true);
+      await expectPidGone(firstPid);
+      await expectFileRemoved(paths.daemonConnectionPath);
+
+      mkdirSync(root);
+      writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+      execFileSync("git", ["init", "-q"], { cwd: root });
+      expect((await cli(root, "daemon", "start")).ok).toBe(true);
+      const secondPid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
+      nodeRmSync(root, { recursive: true, force: true });
+      expect(existsSync(root)).toBe(false);
+      const stoppedByDir = await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir);
+      expect(stoppedByDir.ok, JSON.stringify(stoppedByDir)).toBe(true);
+      await expectPidGone(secondPid);
+      expect((await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir)).error).toMatchObject({ code: "AC_RUNTIME_UNAVAILABLE" });
+    } finally {
+      await runCli("daemon", ["stop", "--state-dir", paths.workspaceStateDir], parent).catch(() => undefined);
+      rmSync(testStateRoot(root), { recursive: true, force: true });
+      rmSync(parent, { recursive: true, force: true });
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
@@ -6383,6 +6622,50 @@ function readJsonFromProcess(child: ChildProcessWithoutNullStreams): Promise<any
       finish(() => reject(new Error(`daemon exited before ready (${code}): ${stderr || stdout}`)));
     });
   });
+}
+
+/**
+ * A started daemon's working directory is outside its worktree: Windows refuses to delete any
+ * process's current directory (#322). Linux and macOS allow that delete, so read the cwd there;
+ * on Windows the unwrapped delete in the caller is the check.
+ */
+function expectOutsideWorktree(pid: number, root: string): void {
+  const cwd = process.platform === "linux"
+    ? readlinkSync(`/proc/${pid}/cwd`)
+    : process.platform === "darwin"
+      ? execFileSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8" }).split("\n").find((line) => line.startsWith("n"))?.slice(1)
+      : undefined;
+  if (process.platform === "win32") return;
+  expect(cwd, `daemon ${pid} cwd`).toBeDefined();
+  const inside = relative(realpathSync(root), cwd!);
+  expect(inside === "" || !(inside.startsWith("..") || isAbsolute(inside)), `daemon ${pid} cwd ${cwd}`).toBe(false);
+}
+
+/** The source of one top-level function of main.ts, up to its closing brace at column 0. */
+function functionBody(source: string, name: string): string {
+  const start = source.search(new RegExp(`^(?:async )?function ${name}\\(`, "m"));
+  if (start < 0) throw new Error(`function ${name} not found`);
+  const end = source.indexOf("\n}\n", start);
+  if (end < 0) throw new Error(`function ${name} has no closing brace at column 0`);
+  return source.slice(start, end + 2);
+}
+
+/** `if (subcommand === "a" || subcommand === "b") { ... }` (or a one-line return) blocks, by brace matching. */
+function subcommandBlocks(text: string): Array<[string[], string]> {
+  const blocks: Array<[string[], string]> = [];
+  for (const match of text.matchAll(/if \(((?:subcommand === "[a-z-]+"(?: \|\| )?)+)\)\s*(\{|return)/g)) {
+    const names = [...match[1]!.matchAll(/"([a-z-]+)"/g)].map((name) => name[1]!);
+    let end = text.indexOf("\n", match.index!);
+    if (match[2] === "{") {
+      let depth = 0;
+      for (let index = text.indexOf("{", match.index!); index < text.length; index += 1) {
+        if (text[index] === "{") depth += 1;
+        else if (text[index] === "}" && (depth -= 1) === 0) { end = index + 1; break; }
+      }
+    }
+    blocks.push([names, text.slice(match.index!, end)]);
+  }
+  return blocks;
 }
 
 function collectProcess(child: ChildProcessWithoutNullStreams): Promise<{ stdout: string; stderr: string; code: number | null }> {

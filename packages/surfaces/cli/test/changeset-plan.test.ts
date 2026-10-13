@@ -34,7 +34,8 @@ test("archctx plan rejects malformed entity operations before reaching the daemo
     [["--op", "delete_entity", "--path", path], "plan --op delete_entity requires --expected-hash sha256:<64-hex> of the current file"],
     [["--op", "delete_entity", "--path", path, "--expected-hash", hash, "--body", "x"], "plan --op delete_entity does not accept --body or --body-file"],
     [["--path", path, "--body", "x", "--body-file", "body.yaml"], "plan accepts exactly one body source: --body, --body - or --body-file"],
-    [["--path", path, "--body-file"], "plan --body-file requires a path"],
+    // A value flag without its value is refused by the one CLI argument check (#322).
+    [["--path", path, "--body-file"], "plan requires a value for --body-file"],
     [["--path", path, "--body-file", "/absent/body.yaml"], "plan --body-file must be a repository-relative POSIX path inside the repository; use --body - to read stdin"]
   ];
   for (const [args, message] of cases) {
@@ -134,7 +135,7 @@ test("archctx plan --operations-file fails closed before reaching the daemon", (
       expect(await plan(["--operations-file", name]), name).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
     }
     expect(await plan(["--operations-file", "missing.json"])).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
-    expect(await plan(["--operations-file"])).toMatchObject({ ok: false, error: { message: "plan --operations-file requires a path" } });
+    expect(await plan(["--operations-file"])).toMatchObject({ ok: false, error: { message: "plan requires a value for --operations-file" } });
     for (const extra of [["--op", "delete_entity"], ["--path", path], ["--expected-hash", hash], ["--body", "x"], ["--body-file", "body.yaml"]]) {
       expect(await plan(["--operations-file", "ok.json", ...extra])).toMatchObject({
         ok: false,

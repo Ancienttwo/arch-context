@@ -106,3 +106,36 @@ export function productVersionManifest(): ProductVersionManifest {
     }
   };
 }
+
+/**
+ * Whether a Node.js version (`process.versions.node`) satisfies `range`, a space-separated list of
+ * `>=`, `>`, `<=`, `<` or `=` comparators over `major[.minor[.patch]]` (missing parts are 0), the
+ * only form `ARCHCONTEXT_NODE_RANGE` uses. A version that does not start with `major.minor.patch`
+ * does not satisfy any range; a prerelease suffix is ignored, so `26.0.0-pre` counts as `26.0.0`
+ * and fails `<26`. A comparator outside that form throws: the range is product metadata, not input.
+ */
+export function nodeVersionSatisfiesRange(nodeVersion: string, range: string = ARCHCONTEXT_NODE_RANGE): boolean {
+  const comparators = range.trim().split(/\s+/).map((token) => {
+    const match = /^(>=|<=|>|<|=)?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(token);
+    if (!match) throw new Error(`unsupported node engine comparator: ${token}`);
+    return { operator: match[1] ?? "=", version: [Number(match[2]), Number(match[3] ?? 0), Number(match[4] ?? 0)] };
+  });
+  const parsed = /^v?(\d+)\.(\d+)\.(\d+)/.exec(nodeVersion);
+  if (!parsed) return false;
+  const version = [Number(parsed[1]), Number(parsed[2]), Number(parsed[3])];
+  return comparators.every(({ operator, version: bound }) => {
+    const order = compareVersionTriples(version, bound);
+    if (operator === ">=") return order >= 0;
+    if (operator === ">") return order > 0;
+    if (operator === "<=") return order <= 0;
+    if (operator === "<") return order < 0;
+    return order === 0;
+  });
+}
+
+function compareVersionTriples(left: number[], right: number[]): number {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}

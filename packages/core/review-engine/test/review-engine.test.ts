@@ -214,7 +214,46 @@ describe("@archcontext/core/review-engine", () => {
       driftCount: 1,
       reasonCodes: ["projection-file-missing"]
     });
+    // #322: the agent learns which projection commands clear the drift, not only that it exists.
+    expect(result.actionsRequired).toEqual([
+      "archctx docs apply --approved --id changeset.<id> --expected-worktree-digest <draft.base.worktreeDigest>",
+      "archctx docs plan --id changeset.<id>"
+    ]);
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("every fail_action_required result names at least one action, and a downgraded finding names none (#322)", () => {
+    const base = { taskSessionId: "task.actions", posture: "structural" as const, headSha: "abc", currentHeadSha: "abc", worktreeDigest: sha, modelDigest: sha, codeFactsDigest: sha };
+    const failing = [
+      { modelValidationErrors: ["nodes/a.yaml: missing id"] },
+      { cleanupRequired: 2, cleanupCompleted: 1 },
+      { compatibilityPathIntroduced: true },
+      {
+        projectionFreshness: {
+          schemaVersion: "archcontext.projection-freshness/v2" as const,
+          ok: false,
+          reasonCodes: ["projection-source-stamp-stale"],
+          detail: "module.a footprint changed",
+          staleNodes: [{ nodeId: "module.a", stampedDigest: sha, currentDigest: digestJson({ changed: true }) }]
+        }
+      },
+      { practiceEnforcement: { ...practiceEnforcement, actionsRequired: [], violations: practiceEnforcement.violations.map((violation) => ({ ...violation, remediation: { ...violation.remediation, action: "none" } })) } }
+    ];
+    for (const input of failing) {
+      const result = completeTaskGate({ ...base, ...input });
+      expect(result.result, JSON.stringify(input)).toBe("fail_action_required");
+      expect(result.actionsRequired.length, JSON.stringify(input)).toBeGreaterThan(0);
+    }
+    expect(completeTaskGate({ ...base, modelValidationErrors: ["bad"] }).actionsRequired).toEqual(["archctx validate"]);
+    expect(completeTaskGate({ ...base, ...failing[4] }).actionsRequired).toEqual([`archctx practices show --id ${practiceEnforcement.violations[0]!.practiceId}`]);
+
+    const downgraded = completeTaskGate({
+      ...base,
+      modelValidationErrors: ["bad"],
+      reviewPolicy: { failOn: [], source: "policy-file" }
+    });
+    expect(downgraded.result).toBe("pass_with_warnings");
+    expect(downgraded.actionsRequired).toEqual([]);
   });
 
   test("fails stale context and unjustified compatibility paths", () => {
@@ -432,7 +471,8 @@ describe("@archcontext/core/review-engine", () => {
 
     expect(result.result).toBe("fail_action_required");
     expect(result.practiceViolations).toEqual([]);
-    expect(result.actionsRequired).toEqual([]);
+    // The skipped practice checks contribute no action; the stale snapshot itself does.
+    expect(result.actionsRequired).toEqual(["archctx prepare --task <task>"]);
     expect(result.findings.map((finding) => finding.id)).toEqual(["stale-context"]);
     expect(result.extensions.practiceChecksSkipped).toBe("stale-context");
   });

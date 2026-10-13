@@ -14,6 +14,7 @@ export type ArchContextErrorCode =
   | "AC_REPO_NOT_FOUND"
   | "AC_RUNTIME_UNAVAILABLE"
   | "AC_RUNTIME_VERSION_UNSUPPORTED"
+  | "AC_NODE_VERSION_UNSUPPORTED"
   | "AC_CODEGRAPH_UNAVAILABLE"
   | "AC_CODE_FACTS_UNAVAILABLE"
   | "AC_INDEX_STALE"
@@ -60,6 +61,9 @@ export const ERROR_CATALOG: Record<ArchContextErrorCode, Omit<ArchContextError, 
   AC_REPO_NOT_FOUND: { code: "AC_REPO_NOT_FOUND", severity: "error", retryable: false, action: "open-correct-repository" },
   AC_RUNTIME_UNAVAILABLE: { code: "AC_RUNTIME_UNAVAILABLE", severity: "error", retryable: true, action: "start-or-reconnect-runtime" },
   AC_RUNTIME_VERSION_UNSUPPORTED: { code: "AC_RUNTIME_VERSION_UNSUPPORTED", severity: "error", retryable: true, action: "upgrade-archctx-runtime" },
+  // Not retryable: the same Node binary fails the same way until the caller switches to a version
+  // inside ARCHCONTEXT_NODE_RANGE (`error.details` carries both).
+  AC_NODE_VERSION_UNSUPPORTED: { code: "AC_NODE_VERSION_UNSUPPORTED", severity: "error", retryable: false, action: "use-supported-node-version" },
   AC_CODEGRAPH_UNAVAILABLE: { code: "AC_CODEGRAPH_UNAVAILABLE", severity: "error", retryable: true, action: "run-diagnostics" },
   AC_CODE_FACTS_UNAVAILABLE: { code: "AC_CODE_FACTS_UNAVAILABLE", severity: "error", retryable: true, action: "codegraph-init" },
   AC_INDEX_STALE: { code: "AC_INDEX_STALE", severity: "warning", retryable: true, action: "sync-codefacts" },

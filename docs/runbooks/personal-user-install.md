@@ -10,7 +10,7 @@ recovery must not substitute an older version.
 
 - Target user: one local developer using ArchContext on their own repository.
 - Required release artifact: public npm package `archctx@0.5.11`, published to `latest` on 2026-09-24.
-- Runtime: Node.js `>=22.22 <26`, npm, and git must be available on `PATH`.
+- Runtime: Node.js `>=22.22 <26`, npm, and git must be available on `PATH`. Outside that Node.js range every `archctx` command returns `AC_NODE_VERSION_UNSUPPORTED` and starts no daemon.
 - Not required for this path: GitHub App installation, ArchContext Cloud token, Cloudflare deploy access, or LLM provider credentials.
 - Do not treat this runbook as approved for a published package version until `docs/verification/archctx-0.5.11-release.json` is verified for that exact version.
 

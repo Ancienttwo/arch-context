@@ -4,7 +4,7 @@ export { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcCompatibilityIssue, type RuntimeRpcConnection, type RuntimeRpcConnectionFile } from "./rpc-protocol";
 import { RuntimeRpcClient } from "./rpc-client";
 import { existsSync, openSync, rmSync } from "node:fs";
-import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
+import { daemonControlPaths, defaultArchContextStateRoot, listWorkspaceStateDirs, runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 
 export type DaemonControlRecoveryReason =
   | "insecure-connection-file"
@@ -71,7 +71,10 @@ export function runtimeRpcCompatibilityIssue(root = process.cwd()): RuntimeRpcCo
 }
 
 export function readRuntimeRpcConnection(root = process.cwd()): RuntimeRpcConnection | undefined {
-  const path = defaultDaemonConnectionPath(root);
+  return readRuntimeRpcConnectionAt(defaultDaemonConnectionPath(root));
+}
+
+function readRuntimeRpcConnectionAt(path: string): RuntimeRpcConnection | undefined {
   try {
     const body = readPrivateControlFile(path);
     if (body === undefined) return undefined;
@@ -85,6 +88,59 @@ export function readRuntimeRpcConnection(root = process.cwd()): RuntimeRpcConnec
 export function createRuntimeRpcClientFromConnectionFile(root = process.cwd()): RuntimeRpcClient | undefined {
   const connection = readRuntimeRpcConnection(root);
   return connection ? new RuntimeRpcClient(connection) : undefined;
+}
+
+/**
+ * A client for the daemon whose control files live in `workspaceStateDir`, found without the
+ * worktree: after the worktree is deleted, its state directory is the only way to reach it (#322).
+ */
+export function createRuntimeRpcClientFromWorkspaceStateDir(workspaceStateDir: string): RuntimeRpcClient | undefined {
+  const connection = readRuntimeRpcConnectionAt(daemonControlPaths(workspaceStateDir).daemonConnectionPath);
+  return connection ? new RuntimeRpcClient(connection) : undefined;
+}
+
+export interface DaemonControlListing {
+  storageRepositoryId: string;
+  storageWorkspaceId: string;
+  stateDir: string;
+  connectionPath: string;
+  /** `invalid` covers an unreadable, insecure or malformed connection file. */
+  connection: "valid" | "invalid" | "missing";
+  root?: string;
+  rootExists?: boolean;
+  pid?: number;
+  pidAlive?: boolean;
+  startedAt?: string;
+  lockOwnerPid?: number;
+}
+
+/**
+ * Every workspace state directory under `stateRoot` that holds a daemon connection or lock file,
+ * read from the control files alone, so daemons whose worktree was deleted are listed too (#322).
+ */
+export function listDaemonControlStates(stateRoot = defaultArchContextStateRoot().path): DaemonControlListing[] {
+  return listWorkspaceStateDirs(stateRoot).flatMap(({ storageRepositoryId, storageWorkspaceId, workspaceStateDir }) => {
+    const { daemonConnectionPath, daemonLockPath } = daemonControlPaths(workspaceStateDir);
+    const listed = listedConnectionAt(daemonConnectionPath);
+    const lockOwnerPid = liveLockOwnerPidAt(daemonLockPath);
+    if (listed.state === "missing" && !existsSync(daemonLockPath)) return [];
+    const connection = listed.state === "valid" ? listed.connection : undefined;
+    return [{
+      storageRepositoryId,
+      storageWorkspaceId,
+      stateDir: workspaceStateDir,
+      connectionPath: daemonConnectionPath,
+      connection: listed.state,
+      ...(connection ? {
+        root: connection.root,
+        rootExists: existsSync(connection.root),
+        pid: connection.pid,
+        pidAlive: isProcessAlive(connection.pid),
+        startedAt: connection.startedAt
+      } : {}),
+      ...(lockOwnerPid === undefined ? {} : { lockOwnerPid })
+    } satisfies DaemonControlListing];
+  });
 }
 
 export function recoverStaleDaemonControlFiles(
@@ -126,8 +182,27 @@ export function acquireDaemonLock(lockPath: string, root: string): number {
  * the store and the lock, so every new daemon start loses to it (#318).
  */
 export function liveDaemonLockOwnerPid(root = process.cwd()): number | undefined {
+  return liveLockOwnerPidAt(defaultDaemonLockPath(root));
+}
+
+/**
+ * A daemon removes its connection file when it exits and creates it when it starts, and on
+ * Windows one read takes a native process launch, so a read can fail because the file is being
+ * removed or written. A failed read is judged by a second look: a file that is gone by then is
+ * `missing`, a file that now reads is `valid`, and a file that fails twice is `invalid`.
+ */
+function listedConnectionAt(path: string): { state: "valid"; connection: RuntimeRpcConnection } | { state: "invalid" | "missing" } {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!existsSync(path)) return { state: "missing" };
+    const connection = readRuntimeRpcConnectionAt(path);
+    if (connection) return { state: "valid", connection };
+  }
+  return { state: "invalid" };
+}
+
+function liveLockOwnerPidAt(lockPath: string): number | undefined {
   try {
-    const body = readPrivateControlFile(defaultDaemonLockPath(root));
+    const body = readPrivateControlFile(lockPath);
     if (body === undefined) return undefined;
     const pid = (JSON.parse(body) as { pid?: unknown }).pid;
     return typeof pid === "number" && pid > 0 && isProcessAlive(pid) ? pid : undefined;
