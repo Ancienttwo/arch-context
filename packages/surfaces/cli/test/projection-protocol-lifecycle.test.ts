@@ -82,6 +82,10 @@ function seedTwoCapabilityFixture(root: string): void {
     writeYaml(root, `.archcontext/model/flows/flow.${slug}.yaml`, flow(id, slug));
   }
   git(root, "init", "-q");
+  // Windows runners default to `core.autocrlf=true`, which would rewrite generated documents with
+  // CRLF on `git checkout`; tests that revert outputs mean their committed bytes, so keep checkouts
+  // byte-exact.
+  git(root, "config", "core.autocrlf", "false");
   commitAll(root, "projection lifecycle fixture");
   execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
 }
