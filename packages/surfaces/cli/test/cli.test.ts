@@ -1,10 +1,10 @@
 import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadCapabilitySourceFootprintDigests, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
@@ -2429,7 +2429,8 @@ describe("archctx CLI", () => {
   });
 
   test("the argument table knows every flag a handler reads, so the preflight never rejects a real option (#322)", () => {
-    const source = readFileSync(CLI_ENTRY, "utf8");
+    // A Windows checkout may have CRLF line endings; the source readers below match on "\n".
+    const source = readFileSync(CLI_ENTRY, "utf8").replace(/\r\n/g, "\n");
     const read = new Set([...source.matchAll(/\b(?:readFlag|readRepeatedFlag|requireFlag|copyOptionalFlag|refactorFlagValue|readOptional(?:Positive|NonNegative)?IntegerFlag|readRepositoryInputFile)\(\s*[\w.]+\s*,\s*"(--[a-z0-9-]+)"/g)].map((match) => match[1]!));
     const known = new Set(["--format", "--json", ...Object.values(CLI_COMMAND_FLAGS).flatMap((spec) => [
       ...spec.value,
@@ -4517,8 +4518,12 @@ describe("archctx CLI", () => {
         pidAlive: true,
         rootExists: true
       })]);
+      expectOutsideWorktree(pid, root);
 
-      rmSync(root, { recursive: true, force: true });
+      // The unwrapped rm: a daemon that pins the root makes Windows refuse this delete, and the
+      // test must see that instead of a cleanup helper swallowing it.
+      nodeRmSync(root, { recursive: true, force: true });
+      expect(existsSync(root)).toBe(false);
       const deletedAt = Date.now();
       const listedAfterDelete = await cli(parent, "daemon", "list");
       expect(listedAfterDelete.data.daemons).toEqual([expect.objectContaining({ pid, rootExists: false })]);
@@ -4555,7 +4560,9 @@ describe("archctx CLI", () => {
     try {
       expect((await cli(root, "daemon", "start")).ok).toBe(true);
       const firstPid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
-      rmSync(root, { recursive: true, force: true });
+      expectOutsideWorktree(firstPid, root);
+      nodeRmSync(root, { recursive: true, force: true });
+      expect(existsSync(root)).toBe(false);
 
       expect((await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir, "--workspace-id", paths.storageWorkspaceId)).error)
         .toMatchObject({ code: "AC_SCHEMA_INVALID", message: "daemon stop accepts at most one of --state-dir or --workspace-id" });
@@ -4574,7 +4581,8 @@ describe("archctx CLI", () => {
       execFileSync("git", ["init", "-q"], { cwd: root });
       expect((await cli(root, "daemon", "start")).ok).toBe(true);
       const secondPid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
-      rmSync(root, { recursive: true, force: true });
+      nodeRmSync(root, { recursive: true, force: true });
+      expect(existsSync(root)).toBe(false);
       const stoppedByDir = await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir);
       expect(stoppedByDir.ok, JSON.stringify(stoppedByDir)).toBe(true);
       await expectPidGone(secondPid);
@@ -6617,11 +6625,30 @@ function readJsonFromProcess(child: ChildProcessWithoutNullStreams): Promise<any
   });
 }
 
+/**
+ * A started daemon's working directory is outside its worktree: Windows refuses to delete any
+ * process's current directory (#322). Linux and macOS allow that delete, so read the cwd there;
+ * on Windows the unwrapped delete in the caller is the check.
+ */
+function expectOutsideWorktree(pid: number, root: string): void {
+  const cwd = process.platform === "linux"
+    ? readlinkSync(`/proc/${pid}/cwd`)
+    : process.platform === "darwin"
+      ? execFileSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8" }).split("\n").find((line) => line.startsWith("n"))?.slice(1)
+      : undefined;
+  if (process.platform === "win32") return;
+  expect(cwd, `daemon ${pid} cwd`).toBeDefined();
+  const inside = relative(realpathSync(root), cwd!);
+  expect(inside === "" || !(inside.startsWith("..") || isAbsolute(inside)), `daemon ${pid} cwd ${cwd}`).toBe(false);
+}
+
 /** The source of one top-level function of main.ts, up to its closing brace at column 0. */
 function functionBody(source: string, name: string): string {
   const start = source.search(new RegExp(`^(?:async )?function ${name}\\(`, "m"));
   if (start < 0) throw new Error(`function ${name} not found`);
-  return source.slice(start, source.indexOf("\n}\n", start) + 2);
+  const end = source.indexOf("\n}\n", start);
+  if (end < 0) throw new Error(`function ${name} has no closing brace at column 0`);
+  return source.slice(start, end + 2);
 }
 
 /** `if (subcommand === "a" || subcommand === "b") { ... }` (or a one-line return) blocks, by brace matching. */

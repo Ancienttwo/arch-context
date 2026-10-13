@@ -2413,7 +2413,8 @@ setInterval(() => undefined, 1 << 30);
       // The sibling test above shows the same queued job holds the daemon while the root exists.
       // Once the root is gone nothing can drive that job, so the first idle check closes the
       // session and exits instead of failing on the missing root and staying busy forever.
-      removeTempRepo(root);
+      nodeRmSync(root, { recursive: true, force: true });
+      expect(existsSync(root)).toBe(false);
       const deadline = Date.now() + 300 + 1_000;
       while (exitCodes.length === 0 && Date.now() < deadline) await sleep(25);
       expect(exitCodes).toEqual([0]);

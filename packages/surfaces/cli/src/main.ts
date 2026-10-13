@@ -5,7 +5,7 @@ import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, disca
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
 import { spawn, spawnSync } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
@@ -3798,6 +3798,11 @@ function readFileTail(path: string, maxBytes = 4_096): string {
 
 export async function runForegroundDaemon(cwd: string, args: string[]): Promise<void> {
   const daemon = await createStartedProductionDaemon({ root: cwd });
+  // A long-lived process must not keep its working directory inside the worktree: Windows refuses
+  // to delete any process's current directory, so the deleted worktree would stay on disk and the
+  // daemon would never see it gone (#322). Everything below already holds `cwd` as an explicit
+  // root, and readiness is published only after this point, so a started daemon never pins it.
+  process.chdir(parse(cwd).root);
   let resolveStopped!: () => void;
   const stopped = new Promise<void>((resolve) => {
     resolveStopped = resolve;
