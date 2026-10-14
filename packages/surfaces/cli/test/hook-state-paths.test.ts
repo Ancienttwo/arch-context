@@ -21,6 +21,7 @@ test("fast hook finds daemon connections written with store state paths for repo
     const chunks = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     calls.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    expect(request.headers["x-archcontext-rpc-version"]).toBe("archcontext.runtime-rpc/v2");
     expect(request.headers.authorization).toBe("Bearer parity-fixture");
     response.setHeader("Content-Type", "application/json");
     response.end(JSON.stringify({ schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "jobs.enqueue", data: { enqueued: true } }));

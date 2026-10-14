@@ -1772,8 +1772,15 @@ describe("contract utilities", () => {
     expect(manifest.surfaces.cli.version).toBe(surfacesManifest.version);
     expect(staticCatalogManifest.productVersion).toBe(ARCHCONTEXT_PRODUCT_VERSION);
     expect(manifest.surfaces.mcp.version).toBe(surfacesManifest.version);
+    expect(LOCAL_RUNTIME_RPC_SCHEMA_VERSION).toBe("archcontext.runtime-rpc/v2");
     expect(manifest.runtime.localRpc.schemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);
     expect(manifest.surfaces.daemon.rpcSchemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);
+    for (const section of ["daemon", "localRpc"]) {
+      const retired = structuredClone(manifest);
+      if (section === "daemon") (retired.surfaces.daemon as any).rpcSchemaVersion = "archcontext.runtime-rpc/v1";
+      else (retired.runtime.localRpc as any).schemaVersion = "archcontext.runtime-rpc/v1";
+      expect(validateJsonSchema(schema as any, retired as unknown as Json).valid).toBe(false);
+    }
   });
 });
 

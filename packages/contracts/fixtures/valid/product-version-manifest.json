@@ -19,7 +19,7 @@
       "packageName": "@archcontext/local-runtime",
       "version": "0.7.2",
       "entrypoint": "archctx daemon start",
-      "rpcSchemaVersion": "archcontext.runtime-rpc/v1"
+      "rpcSchemaVersion": "archcontext.runtime-rpc/v2"
     },
     "mcp": {
       "packageName": "@archcontext/surfaces",
@@ -38,7 +38,7 @@
   },
   "runtime": {
     "localRpc": {
-      "schemaVersion": "archcontext.runtime-rpc/v1",
+      "schemaVersion": "archcontext.runtime-rpc/v2",
       "protocol": "http-loopback"
     },
     "sqliteMigrations": "0001_runtime_state..0012_explorer_projection_index",

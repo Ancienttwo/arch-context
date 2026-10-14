@@ -276,13 +276,7 @@ export class ArchctxRuntimeRpcServer {
       return;
     }
     if (!isRpcVersionHeaderCompatible(request)) {
-      writeJson(response, 426, {
-        schemaVersion: RUNTIME_RPC_VERSION,
-        ok: false,
-        error: "runtime RPC version mismatch",
-        expected: RUNTIME_RPC_VERSION,
-        received: requestRpcVersionHeader(request)
-      });
+      writeRpcVersionMismatch(response, requestRpcVersionHeader(request));
       return;
     }
     const url = new URL(request.url ?? "/", this.connection?.url ?? "http://127.0.0.1/");
@@ -339,7 +333,7 @@ export class ArchctxRuntimeRpcServer {
       }
       const body = read.value as { schemaVersion?: string; method?: string; params?: unknown[] };
       if (body.schemaVersion !== RUNTIME_RPC_VERSION) {
-        writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC version mismatch" });
+        writeRpcVersionMismatch(response, body.schemaVersion);
         return;
       }
       const result = await this.dispatch(body.method ?? "", body.params ?? []).catch((error: unknown) => {
@@ -403,6 +397,18 @@ function requestRpcVersionHeader(request: IncomingMessage): string | undefined {
 function isRpcVersionHeaderCompatible(request: IncomingMessage): boolean {
   const header = requestRpcVersionHeader(request);
   return header === undefined || header === RUNTIME_RPC_VERSION;
+}
+
+function writeRpcVersionMismatch(response: ServerResponse, received: unknown): void {
+  writeJson(response, 426, {
+    schemaVersion: RUNTIME_RPC_VERSION,
+    ok: false,
+    error: "runtime RPC version mismatch",
+    expected: RUNTIME_RPC_VERSION,
+    received: typeof received === "string" ? received : "unknown",
+    action: "upgrade-archctx-runtime",
+    upgradeCommand: "archctx daemon upgrade"
+  });
 }
 
 type RuntimeRpcRequestBody =
