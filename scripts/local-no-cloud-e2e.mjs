@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { deepStrictEqual } from "node:assert/strict";
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,6 +64,11 @@ try {
   assert(init.ok === true, "init must succeed without GitHub, Cloud, or LLM");
   assert(/^sha256:/.test(String(init.data?.modelDigest)), "init must return model digest");
 
+  // Author the fixture's source boundary before sync. The init scaffold declares no ownership,
+  // which makes every repository file actionable unowned debt, including the fixture metadata.
+  const sourceOwner = join(repo, ".archcontext/model/nodes/capability.architecture.context.yaml");
+  writeFileSync(sourceOwner, `${readFileSync(sourceOwner, "utf8").trimEnd()}\nsource:\n  include:\n    - "src/**"\n`, "utf8");
+
   const sync = await runArchctx(repo, "sync", "--changed", "src/index.ts");
   assert(sync.ok === true, "sync must succeed with local CodeGraph only");
   assert(/^sha256:/.test(String(sync.data?.codeFactsDigest)), "sync must return code facts digest");
@@ -103,6 +109,7 @@ try {
   assert(complete.ok === true, "complete must succeed without GitHub, Cloud, or LLM");
   assert(complete.data?.schemaVersion === "archcontext.review/v1", "complete must return review schema");
   assert(complete.data?.result === "pass", "complete must pass for the clean local fixture");
+  assertCleanReviewDebt(complete.data, "complete");
 
   const review = await runArchctx(
     repo,
@@ -116,7 +123,7 @@ try {
   assert(review.requestId === "review", "review command must identify its request");
   assert(review.data?.schemaVersion === "archcontext.review/v1", "review must return review schema");
   assert(review.data?.result === "pass", "review must pass for the clean local fixture");
-  assert(review.data?.summary?.errors === 0, "review must report zero errors");
+  assertCleanReviewDebt(review.data, "review");
 
   const stopped = await runArchctx(repo, "daemon", "stop");
   assert(stopped.ok === true, "daemon stop must succeed");
@@ -139,7 +146,10 @@ try {
       preparePosture: String(prepared.data.posture),
       checkpointFresh: checkpoint.data.fresh,
       completeSchemaVersion: complete.data.schemaVersion,
-      completeResult: complete.data.result
+      completeResult: complete.data.result,
+      completeErrors: complete.data.summary.errors,
+      completeWarnings: complete.data.summary.warnings,
+      completeDebt: complete.data.debt
     },
     practices: {
       validation: "strict",
@@ -153,7 +163,8 @@ try {
       schemaVersion: review.data.schemaVersion,
       result: review.data.result,
       errors: review.data.summary.errors,
-      warnings: review.data.summary.warnings
+      warnings: review.data.summary.warnings,
+      debt: review.data.debt
     },
     paths: {
       repo: displayPath(realpathSync.native(repo)),
@@ -253,6 +264,26 @@ function displayPath(path) {
   const tempRoots = [tmpdir(), realpathSync.native(tmpdir())];
   const tempRoot = tempRoots.find((root) => path === root || path.startsWith(`${root}/`));
   return tempRoot ? join("$TMPDIR", path.slice(tempRoot.length + 1)) : path;
+}
+
+function assertCleanReviewDebt(data, command) {
+  assert(data?.summary?.errors === 0, `${command} must report zero errors`);
+  assert(data?.summary?.warnings === 0, `${command} must report zero warnings with a synced CodeGraph index`);
+  deepStrictEqual(data?.findings, [], `${command} must have no findings`);
+  deepStrictEqual(data?.actionsRequired, [], `${command} must need no repair actions`);
+  assert(data?.debt?.schemaVersion === "archcontext.architecture-debt/v1", `${command} must return the debt contract`);
+  deepStrictEqual(data.debt.scope, { kind: "repository", changedPaths: [], capabilityIds: ["capability.architecture.context"] });
+  deepStrictEqual(data.debt.items, [], `${command} must have no measured debt`);
+  deepStrictEqual(data.debt.actionsRequired, []);
+  assert(data.debt.coverage === "partial", `${command} must report the disabled practice check as a coverage gap`);
+  deepStrictEqual(data.debt.coverageReasonCodes, ["practices:not-enabled", "practices:not-evaluated"]);
+  deepStrictEqual(data.debt.checks, [
+    { check: "ownership", coverage: "complete", reasonCodes: [] },
+    { check: "anchors", coverage: "complete", reasonCodes: [] },
+    { check: "dependencies", coverage: "complete", reasonCodes: [] },
+    { check: "flows", coverage: "complete", reasonCodes: [] },
+    { check: "practices", coverage: "unknown", reasonCodes: ["not-enabled", "not-evaluated"] }
+  ], `${command} must measure every enabled check; unavailable or stale code facts are not accepted`);
 }
 
 function assert(condition, message) {

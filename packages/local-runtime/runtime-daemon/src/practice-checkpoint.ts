@@ -2,11 +2,12 @@ import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import type { ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { loadPracticeWaiverOwnerRegistry, loadPracticeWaivers } from "@archcontext/core/practice-engine";
-import { digestJson, errorEnvelope, okEnvelope, type CodeFactsPort, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, errorEnvelope, okEnvelope, type ArchitectureDebtReportV1, type CodeFactsPort, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import type { ExternalDocumentationService } from "./external-documentation";
 import type { RuntimeCheckpointInput } from "./rpc-types";
+import { runArchitectureDebtCommand } from "./architecture-debt";
 
 /** The parts of the daemon's repository session this service reads. */
 type RepositorySession = { workspace: WorkspaceRef; snapshot: RepositorySnapshot };
@@ -102,12 +103,18 @@ export class PracticeCheckpointService {
     const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
     const task = input.task ?? baseline?.task ?? "checkpoint";
     const coalesceKey = this.practiceCheckpointCoalesceKey(session, taskSessionId, task, input, baseline);
+    const debtResult = runArchitectureDebtCommand(root, { changedPaths: input.changedPaths });
+    if (!debtResult.ok) return { ...debtResult, requestId: "checkpoint" };
+    const debt = debtResult.data as unknown as ArchitectureDebtReportV1;
     const coalesced = this.checkpointCoalesced.get(coalesceKey);
     if (coalesced) {
       coalesced.eventCount += 1;
       const cached = coalesced.data as Record<string, any>;
       return okEnvelope("checkpoint", {
         ...cached,
+        // Human text is not part of the context-guidance digest. Re-read it even on a coalesced
+        // practice checkpoint so the debt cannot retain a citation repaired between events.
+        debt: debt as unknown as Json,
         hook: {
           ...cached.hook,
           coalesced: true,
@@ -136,6 +143,7 @@ export class PracticeCheckpointService {
     await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
     const data = {
       ...result,
+      debt,
       hook: {
         ...result.hook,
         coalesced: false,

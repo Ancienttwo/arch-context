@@ -60,7 +60,7 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "archcontext_checkpoint",
     inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_checkpoint,
-    description: "Call after meaningful code or model changes. Returns practice guidance deltas from the daemon checkpoint.",
+    description: "Call after meaningful code or model changes. Returns practice guidance deltas and scoped ownership/citation debt from the daemon checkpoint; debt coverage names checks deferred to complete.",
     annotations: { safety: "read-only", requiresConfirmation: false }
   },
   {

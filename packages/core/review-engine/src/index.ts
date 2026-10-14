@@ -1,5 +1,7 @@
 import {
   CALLER_PROVIDED_ATTESTATION_FIELDS,
+  architectureDebtReportIssues,
+  type ArchitectureDebtReportV1,
   digestJson,
   findCallerProvidedAttestationFields,
   type CallerProvidedAttestationField,
@@ -15,6 +17,8 @@ import type { ChangeOperation, ChangeSetDraft } from "@archcontext/core/changese
 import { detectCrossRepoPressure } from "@archcontext/core/pressure-engine";
 import { validateCompatibilityContract, type CompatibilityContractInput, type PolicyFinding } from "@archcontext/core/policy-engine";
 import type { ArchitecturePosture } from "@archcontext/core/architecture-domain";
+
+export * from "./architecture-debt";
 
 export interface CompleteTaskInput {
   taskSessionId: string;
@@ -32,6 +36,8 @@ export interface CompleteTaskInput {
   recommendations?: RecommendationV2[];
   projectionDrift?: CompleteTaskProjectionDriftInput;
   projectionFreshness?: CompleteTaskProjectionFreshnessInput;
+  /** Measured by the runtime, never accepted as a caller conclusion. */
+  architectureDebt?: ArchitectureDebtReportV1;
   /** Model validation errors measured by the caller; any error is an `invalid-schema` finding. */
   modelValidationErrors?: string[];
   /** The evaluated `forbid-dependency` constraints; skipped while the task snapshot is stale. */
@@ -132,6 +138,7 @@ function withoutTrustedGateInputs(value: unknown): unknown {
   const {
     practiceEnforcement: _practiceEnforcement,
     recommendations: _recommendations,
+    architectureDebt: _architectureDebt,
     ...rest
   } = value as Record<string, unknown>;
   return rest;
@@ -145,6 +152,9 @@ const PROJECTION_REPAIR_ACTIONS = [
 
 export function completeTaskGate(input: CompleteTaskInput) {
   assertNoCallerProvidedReviewConclusionFields(input);
+  if (input.architectureDebt && architectureDebtReportIssues(input.architectureDebt).length > 0) {
+    throw new Error("architecture-debt-report-invalid");
+  }
   const findings: PolicyFinding[] = [];
   // What resolves each finding, keyed by the finding object its producer returned (#322): every
   // finding that still blocks after the review policy contributes its actions, so a
@@ -203,7 +213,25 @@ export function completeTaskGate(input: CompleteTaskInput) {
   const projectionDriftFindings = staleContext ? [] : withActions(reviewProjectionDrift(input.projectionDrift), PROJECTION_REPAIR_ACTIONS);
   const projectionFreshnessFindings = staleContext ? [] : withActions(reviewProjectionFreshness(input.projectionFreshness), PROJECTION_REPAIR_ACTIONS);
   const dependencyConstraintFindings = staleContext ? [] : withActions(reviewDependencyConstraints(input.dependencyConstraints), ["archctx deps --json"]);
+  const debt = staleContext ? undefined : input.architectureDebt;
+  const debtFindings = (debt?.items ?? []).filter(item => item.kind !== "practice-regression"
+    || !practiceViolations.some(violation => violation.practiceId === item.details.practiceId && violation.checkId === item.details.checkId))
+    .flatMap(item => withActions([{
+      id: item.id, type: "architecture-debt", severity: "error",
+      message: `${item.kind}: ${item.reasonCode}; subjects: ${[...item.paths, ...item.nodeIds, ...item.capabilityIds].join(", ")}`
+    }], [item.action]));
+  // Deliberately disabled checks remain visible in debt without inventing a warning. Actual
+  // measurement gaps are advisory: optional code facts must not become a new blocking policy.
+  const coverageGaps = (debt?.checks ?? []).filter(check => check.coverage !== "complete"
+    && !(check.reasonCodes.some(reason => reason === "not-enabled" || reason === "model-not-adopted")
+      && check.reasonCodes.every(reason => reason === "not-evaluated" || reason === "not-enabled" || reason === "model-not-adopted")));
+  const debtCoverageFindings: PolicyFinding[] = coverageGaps.length === 0 ? [] : [{
+    id: "architecture-debt-coverage", type: "architecture-debt-coverage", severity: "warning",
+    message: `Architecture debt coverage=${debt!.coverage}: ${coverageGaps.flatMap(check => check.reasonCodes.map(reason => `${check.check}:${reason}`)).join(", ")}`
+  }];
   findings.push(
+    ...debtFindings,
+    ...debtCoverageFindings,
     ...practiceFindings,
     ...advisoryPracticeFindings,
     ...recommendationGateFindings,
@@ -246,6 +274,7 @@ export function completeTaskGate(input: CompleteTaskInput) {
     findings: policy.findings,
     practiceViolations,
     waiversApplied,
+    ...(debt === undefined ? {} : { debt }),
     actionsRequired,
     cleanup: {
       required: input.cleanupRequired ?? 0,
@@ -256,6 +285,7 @@ export function completeTaskGate(input: CompleteTaskInput) {
     ...result,
     extensions: {
       digest: digestJson(result as unknown as Json),
+      ...(staleContext && input.architectureDebt !== undefined ? { architectureDebtChecksSkipped: "stale-context" } : {}),
       ...(staleContext && input.practiceEnforcement !== undefined ? { practiceChecksSkipped: "stale-context" } : {}),
       ...(staleContext && input.projectionFreshness !== undefined ? { projectionFreshnessChecksSkipped: "stale-context" } : {}),
       ...(nonBlockingPracticeViolations.length === 0 ? {} : { nonBlockingPracticeViolations }),
