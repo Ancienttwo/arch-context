@@ -1446,6 +1446,7 @@ function projectionTargetChanges(
   return classifyProjectionTargetChanges({
     committed: projection.plan.committedManifest,
     renderedTargets: projection.plan.renderedTargets,
+    modelDigest: projection.plan.provenance.modelDigest,
     capabilities: projection.plan.semanticState.capabilities,
     selectorEvidenceDigests: projection.plan.proofEvidence.selectorEvidenceDigests,
     files,

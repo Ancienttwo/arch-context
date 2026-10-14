@@ -336,7 +336,7 @@
         "reasonCodes": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "enum": ["adoption-required", "ambiguous-ownership", "baseline-missing", "file-bytes-changed", "flow-proof-changed", "orphan-review-required", "rendered-output-changed", "selector-evidence-changed", "semantic-fingerprint-changed", "source-stamp-changed", "target-added", "target-removed", "target-row-missing", "unprovable-required-flow", "verified-flow-proof-changed"] }
+          "items": { "enum": ["adoption-required", "ambiguous-ownership", "baseline-missing", "file-bytes-changed", "flow-proof-changed", "model-digest-changed", "orphan-review-required", "rendered-output-changed", "selector-evidence-changed", "semantic-fingerprint-changed", "source-stamp-changed", "target-added", "target-removed", "target-row-missing", "unprovable-required-flow", "verified-flow-proof-changed"] }
         }
       },
       "allOf": [

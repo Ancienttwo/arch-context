@@ -134,7 +134,13 @@ test("the change invariants refuse inconsistent entries (#327)", () => {
   expect(issues([changes[0]!, changes[1]!, { ...changes[2]!, reasonCodes: [] }]))
     .toContain("changes[2].stampChanged must be true exactly when source-stamp-changed is reported");
   expect(issues([{ ...changes[0]!, reasonCodes: ["semantic-fingerprint-changed"], classification: "unchanged" }, changes[1]!, changes[2]!]))
-    .toContain("changes[0].semanticChanged must be true exactly when semantic-fingerprint-changed is reported");
+    .toContain("changes[0].semanticChanged must be true exactly when semantic-fingerprint-changed or model-digest-changed is reported");
+  // A global target's model-digest change is a semantic change on its own.
+  const modelMoved = change(INDEX, { semanticChanged: true, reasonCodes: ["model-digest-changed"] });
+  expect(modelMoved.classification).toBe("semantic-change");
+  expect(issues([modelMoved, changes[1]!, changes[2]!].sort((left, right) => left.path < right.path ? -1 : 1))).toEqual([]);
+  expect(issues([{ ...changes[0]!, reasonCodes: ["model-digest-changed"], classification: "unchanged" }, changes[1]!, changes[2]!]))
+    .toContain("changes[0].semanticChanged must be true exactly when semantic-fingerprint-changed or model-digest-changed is reported");
   expect(issues([{ ...changes[0]!, stampChanged: null, classification: "baseline-missing" }, changes[1]!, changes[2]!]))
     .toContain("changes[0] must report baseline-missing or target-row-missing exactly when a comparison is unknown");
   expect(issues([{ ...changes[0]!, reasonCodes: ["mystery" as never] }, changes[1]!, changes[2]!]))

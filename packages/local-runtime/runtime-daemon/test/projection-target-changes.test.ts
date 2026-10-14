@@ -76,6 +76,7 @@ function unchangedInput(): ProjectionTargetChangeInput {
   return {
     committed,
     renderedTargets: baseRows(),
+    modelDigest: committed.semanticBaseline.modelDigest,
     capabilities: committed.semanticBaseline.capabilities.map(({ selectorEvidenceDigest: _selectorEvidenceDigest, ...entry }) => entry),
     selectorEvidenceDigests: Object.fromEntries(committed.semanticBaseline.capabilities.map((entry) => [entry.capabilityId, entry.selectorEvidenceDigest])),
     files: [],

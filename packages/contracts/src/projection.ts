@@ -257,7 +257,9 @@ export const PROJECTION_TARGET_CHANGE_BLOCKING_REASON_CODES = [
 ] as const;
 /**
  * Why a target is classified as it is. Each comparison flag has its codes: `stampChanged` is
- * `source-stamp-changed`; `semanticChanged` is `semantic-fingerprint-changed`; `proofChanged` is
+ * `source-stamp-changed`; `semanticChanged` is `semantic-fingerprint-changed` or, for a target that
+ * describes the whole model, `model-digest-changed` (the committed `semanticBaseline.modelDigest`
+ * differs from the current model's); `proofChanged` is
  * `flow-proof-changed` or `selector-evidence-changed`; `outputChanged` is `rendered-output-changed`
  * (the rendered output differs from the committed row's `outputDigest`), `target-added`,
  * `target-removed` or `file-bytes-changed` (the write changes the file although its rendered output
@@ -270,6 +272,7 @@ export const PROJECTION_TARGET_CHANGE_REASON_CODES = [
   "baseline-missing",
   "file-bytes-changed",
   "flow-proof-changed",
+  "model-digest-changed",
   "orphan-review-required",
   "rendered-output-changed",
   "selector-evidence-changed",
@@ -577,7 +580,8 @@ export interface ProjectionCoverageV1 {
  * Each comparison is against the committed v3 manifest: `stampChanged` the target row's
  * `sourceStamps`; `outputChanged` the row's `outputDigest`, or any byte the write changes;
  * `semanticChanged` the `semanticFingerprint` of a capability the target documents (every
- * capability for a target that is not an entity summary); `proofChanged` the `flowProofFingerprint`
+ * capability for a target that is not an entity summary, which also compares the manifest's
+ * `semanticBaseline.modelDigest`, because it renders the whole model); `proofChanged` the `flowProofFingerprint`
  * or `selectorEvidenceDigest` of a capability an entity summary documents. `null` is an unknown
  * comparison, never `false`.
  *
@@ -1056,6 +1060,7 @@ const TARGET_CHANGE_BLOCKING_REASONS = new Set<string>(PROJECTION_TARGET_CHANGE_
 const TARGET_CHANGE_UNKNOWN_REASONS = ["baseline-missing", "target-row-missing"] as const;
 const TARGET_CHANGE_OUTPUT_REASONS = ["file-bytes-changed", "rendered-output-changed", "target-added", "target-removed"] as const;
 const TARGET_CHANGE_PROOF_REASONS = ["flow-proof-changed", "selector-evidence-changed"] as const;
+const TARGET_CHANGE_SEMANTIC_REASONS = ["model-digest-changed", "semantic-fingerprint-changed"] as const;
 
 /**
  * The one precedence rule of a target change: blocked > proof-change (`proofChanged === true`) >
@@ -1103,7 +1108,7 @@ export function projectionTargetChangesIssues(input: readonly ProjectionTargetCh
     if (typeof entry.outputChanged !== "boolean") issues.push(`${prefix}.outputChanged must be a boolean`);
     if (!(PROJECTION_TARGET_CHANGE_PLANNED_ACTIONS as readonly string[]).includes(entry.plannedAction)) issues.push(`${prefix}.plannedAction is unsupported`);
     if ((entry.stampChanged === true) !== has(["source-stamp-changed"])) issues.push(`${prefix}.stampChanged must be true exactly when source-stamp-changed is reported`);
-    if ((entry.semanticChanged === true) !== has(["semantic-fingerprint-changed"])) issues.push(`${prefix}.semanticChanged must be true exactly when semantic-fingerprint-changed is reported`);
+    if ((entry.semanticChanged === true) !== has(TARGET_CHANGE_SEMANTIC_REASONS)) issues.push(`${prefix}.semanticChanged must be true exactly when semantic-fingerprint-changed or model-digest-changed is reported`);
     if ((entry.proofChanged === true) !== has(TARGET_CHANGE_PROOF_REASONS)) issues.push(`${prefix}.proofChanged must be true exactly when flow-proof-changed or selector-evidence-changed is reported`);
     if (entry.outputChanged !== has(TARGET_CHANGE_OUTPUT_REASONS)) issues.push(`${prefix}.outputChanged must be true exactly when an output reason code is reported`);
     if ((entry.stampChanged === null || entry.semanticChanged === null || entry.proofChanged === null) !== has(TARGET_CHANGE_UNKNOWN_REASONS)) {

@@ -915,6 +915,7 @@
               "baseline-missing",
               "file-bytes-changed",
               "flow-proof-changed",
+              "model-digest-changed",
               "orphan-review-required",
               "rendered-output-changed",
               "selector-evidence-changed",

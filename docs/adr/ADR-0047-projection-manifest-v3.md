@@ -161,9 +161,12 @@ manifest is not a target.
 
 - Each entry compares the target with the committed manifest: its row's `sourceStamps` and
   `outputDigest`, the `semanticFingerprint` of the capabilities it documents, and for a module
-  document their `flowProofFingerprint` and `selectorEvidenceDigest`. No new fingerprint is
-  computed. An unknown comparison (no v3 manifest, or no row for the target) is `null`, never
-  `false`.
+  document their `flowProofFingerprint` and `selectorEvidenceDigest`. A global document (index,
+  decisions index, changelog, diagrams, relation summaries) renders the whole model, including
+  nodes no capability owns, so it also compares `semanticBaseline.modelDigest` with the current
+  model digest and is `semantic-change` (`model-digest-changed`) whenever the model moved; it may
+  over-report, and a source-only edit never moves it. No new fingerprint is computed. An unknown
+  comparison (no v3 manifest, or no row for the target) is `null`, never `false`.
 - `classification` is derived by one rule in the contracts package: blocked > proof-change (a
   known proof change, `proofChanged === true`) > baseline-missing > semantic-change >
   output-change > stamp-only > unchanged. A known proof change is never hidden by an unknown

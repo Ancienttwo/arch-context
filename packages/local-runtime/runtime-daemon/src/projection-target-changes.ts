@@ -16,6 +16,8 @@ export interface ProjectionTargetChangeInput {
   committed: ArchitectureDocsProjectionManifestV3 | undefined;
   /** Every current target's row as the complete render produced it, carried-forward targets included. */
   renderedTargets: Record<string, ArchitectureDocsProjectionManifestTargetV3>;
+  /** The digest of the current model (`provenance.modelDigest`), which the committed `semanticBaseline.modelDigest` anchors. */
+  modelDigest: string;
   /** The current semantic state of every capability. */
   capabilities: readonly ArchitectureCapabilitySemanticStateV1[];
   /** Per capability: the digest of the proof-relevant selector evidence this run measured. */
@@ -37,10 +39,11 @@ const REJECTION_REASONS: Readonly<Record<string, ProjectionTargetChangeReasonCod
 /**
  * Classifies every target of a `check` or `plan` result (#327 finding 2): the union of the current
  * targets, the committed manifest's rows and the orphans, one entry per path, sorted by path. Each
- * comparison reads values the render already holds (row stamps and output digests, per-capability
- * semantic and flow-proof fingerprints, selector-evidence digests); `plannedAction` is the result's
- * `files[]` action, never a second comparison. Nothing here changes what a run writes or reports
- * as its status.
+ * comparison reads values the render already holds (row stamps and output digests, the model
+ * digest, per-capability semantic and flow-proof fingerprints, selector-evidence digests);
+ * `plannedAction` is the result's `files[]` action, never a second comparison, and `outputChanged`
+ * reads the `files[]` action even where a rejection blocks the write. Nothing here changes what a
+ * run writes or reports as its status.
  */
 export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInput): ProjectionTargetChangeV1[] {
   const committed = input.committed;
@@ -49,6 +52,9 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
   const currentById = new Map(input.capabilities.map((capability) => [capability.capabilityId, capability]));
   const capabilityIds = [...new Set([...baseById.keys(), ...currentById.keys()])].sort(compareStrings);
   const membersById = new Map(capabilityIds.map((id) => [id, new Set([...(baseById.get(id)?.memberNodeIds ?? []), ...(currentById.get(id)?.memberNodeIds ?? [])])]));
+  // A target that describes the whole model also renders nodes no capability owns, so a model
+  // change outside every capability still moves it (conservatively, even when its bytes do not).
+  const modelChanged = committed !== undefined && committed.semanticBaseline.modelDigest !== input.modelDigest;
   const semanticChangedIds = new Set(committed === undefined ? [] : capabilityIds.filter((id) => {
     const before = baseById.get(id);
     const after = currentById.get(id);
@@ -110,9 +116,11 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
       const documented = entity ? capabilityIds.filter((id) => nodeIds.some((nodeId) => membersById.get(id)!.has(nodeId))) : capabilityIds;
       const semanticIds = documented.filter((id) => semanticChangedIds.has(id));
       const proofIds = entity ? documented.filter((id) => proofReasonsById.has(id)) : [];
-      semanticChanged = semanticIds.length > 0;
+      const wholeModelChanged = !entity && modelChanged;
+      semanticChanged = semanticIds.length > 0 || wholeModelChanged;
       proofChanged = proofIds.length > 0;
-      if (semanticChanged) reasons.add("semantic-fingerprint-changed");
+      if (semanticIds.length > 0) reasons.add("semantic-fingerprint-changed");
+      if (wholeModelChanged) reasons.add("model-digest-changed");
       for (const id of proofIds) for (const reason of proofReasonsById.get(id)!) reasons.add(reason);
       for (const id of [...semanticIds, ...proofIds]) affected.add(id);
       if (entry.current !== undefined && entry.committed === undefined && !semanticChanged) {
