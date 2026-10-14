@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { LocalEgressPolicyError, localEgressAdmission, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
 import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
+import { runNativeContextCommand } from "./native-context";
 import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, discardLegacyGithubDeveloperReviewState, readGithubDeveloperReviewState, sanitizeGithubDeveloperReviewState, writeGithubDeveloperReviewState, type GitHubDeveloperReviewState } from "./github-review-state";
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
@@ -484,6 +485,7 @@ export function runCapabilitiesCommand() {
 }
 
 async function runCliUnchecked(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
+  if (command === "export" && args[0] === "native") return runNativeContextCommand(args.slice(1), cwd);
   const preflight = preflightCliArguments(command, args);
   if (preflight) return preflight;
   if (command === "daemon") return runDaemonCommand(args, cwd);
@@ -4268,7 +4270,7 @@ function cliFailureEnvelope(error: unknown): JsonEnvelope {
 if (import.meta.main) {
   const nodeEngineError = nodeEngineErrorEnvelope(command ?? "help", process.versions);
   if (nodeEngineError) {
-    process.stdout.write(`${renderResult(nodeEngineError, readFlag(args, "--format") ?? "json")}\n`);
+    process.stdout.write(`${renderResult(nodeEngineError, command === "export" && args[0] === "native" ? "json" : readFlag(args, "--format") ?? "json")}\n`);
     process.exitCode = 1;
   } else if (command === "capabilities") {
     const result = await runCli(command, args, process.cwd());
@@ -4293,7 +4295,7 @@ if (import.meta.main) {
     });
   } else {
     const result = await runCli(command, args, process.cwd()).catch(cliFailureEnvelope);
-    process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
+    process.stdout.write(`${renderResult(result, command === "export" && args[0] === "native" ? "json" : readFlag(args, "--format") ?? "json")}\n`);
     if (result.ok === false) process.exitCode = 1;
     if (command === "resolve") process.exitCode = resolveCommandExitCode(result);
   }

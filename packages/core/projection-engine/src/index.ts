@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, posix, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { generatedMarkerAttributes, scanDocumentRegions } from "./document-regions";
+import { globLiteralPrefixLength } from "./source-globs";
+export * from "./document-regions";
+export * from "./source-globs";
 import {
   AGENT_CONTEXT_RENDERER_VERSION as CONTRACT_AGENT_CONTEXT_RENDERER_VERSION,
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
@@ -2471,25 +2475,24 @@ function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string, sk
 }
 
 function findGeneratedRegion(body: string, targetId: string): { start: number; end: number; startMarker: string; body: string } | undefined {
-  const startPattern = new RegExp(`<!-- BEGIN ARCHCONTEXT:generated target="${escapeRegExp(targetId)}"[^>]*-->`);
-  const startMatch = startPattern.exec(body);
-  if (!startMatch || startMatch.index === undefined) return undefined;
+  const region = scanDocumentRegions(body).generatedRegions.find(region => region.targetId === targetId && region.closed);
+  if (!region) return undefined;
   const endMarker = generatedEndMarker(targetId);
-  const endIndex = body.indexOf(endMarker, startMatch.index + startMatch[0].length);
-  if (endIndex < 0) return undefined;
-  const regionStart = startMatch.index;
+  const endIndex = region.bodyEnd;
+  if (!body.startsWith(endMarker, endIndex)) return undefined;
+  const regionStart = region.start;
   const regionEnd = endIndex + endMarker.length + (body[endIndex + endMarker.length] === "\n" ? 1 : 0);
-  const generatedBody = body.slice(startMatch.index + startMatch[0].length, endIndex).replace(/^\r?\n/, "").replace(/\r?\n$/, "");
-  return { start: regionStart, end: regionEnd, startMarker: startMatch[0], body: generatedBody };
+  const generatedBody = body.slice(region.bodyStart, endIndex).replace(/^\r?\n/, "").replace(/\r?\n$/, "");
+  return { start: regionStart, end: regionEnd, startMarker: region.startMarker, body: generatedBody };
 }
 
 function findAnyGeneratedRegion(body: string): { targetId: string } | undefined {
-  const match = body.match(/<!-- BEGIN ARCHCONTEXT:generated target="([^"]+)"/);
-  return match ? { targetId: match[1] } : undefined;
+  const region = scanDocumentRegions(body).generatedRegions.find(region => region.targetId !== undefined);
+  return region ? { targetId: region.targetId! } : undefined;
 }
 
 function parseGeneratedRegionMetadata(marker: string): { outputDigest?: string } {
-  return { outputDigest: marker.match(/outputDigest="([^"]+)"/)?.[1] };
+  return { outputDigest: generatedMarkerAttributes(marker).attributes.outputDigest };
 }
 
 /**
@@ -2939,12 +2942,6 @@ function globToRegExp(pattern: string): RegExp {
   if (globRegExpCache.size >= GLOB_REGEXP_CACHE_LIMIT) globRegExpCache.delete(globRegExpCache.keys().next().value!);
   globRegExpCache.set(pattern, compiled);
   return compiled;
-}
-
-/** Length of the glob's literal prefix (before its first `*`/`?`); used as the ADR-0043 specificity score. */
-export function globLiteralPrefixLength(pattern: string): number {
-  const index = pattern.search(/[*?]/);
-  return index === -1 ? pattern.length : index;
 }
 
 function compileGlob(pattern: string): RegExp {

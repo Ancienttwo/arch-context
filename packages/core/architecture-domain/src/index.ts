@@ -476,7 +476,7 @@ function dedupeStrings(values: string[]): string[] {
 export function parseJsonOrStableYaml(body: string, path: string): Json {
   const trimmed = body.trim();
   if (!trimmed) throw new Error(`${path}: empty model file`);
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return JSON.parse(trimmed) as Json;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return checkedJsonDecode(trimmed, path, "json-document");
   return new StableYamlParser(body, path).parse();
 }
 
@@ -829,6 +829,7 @@ function assertObject(value: Json, path: string): asserts value is { [key: strin
 class StableYamlParser {
   private readonly lines: { indent: number; text: string }[];
   private index = 0;
+  private readonly mappingKeys = new WeakMap<object, Set<string>>();
 
   constructor(body: string, private readonly path: string) {
     this.lines = body
@@ -865,7 +866,7 @@ class StableYamlParser {
         values.push(this.parseObject(indent + 2, item));
         continue;
       }
-      values.push(parseScalar(item));
+      values.push(parseScalar(item, this.path));
     }
     return values;
   }
@@ -886,8 +887,12 @@ class StableYamlParser {
     const separator = entry.indexOf(":");
     if (separator <= 0) throw new Error(`${this.path}: expected key/value entry`);
     const key = entry.slice(0, separator).trim();
+    const keys = this.mappingKeys.get(object) ?? new Set<string>();
+    if (keys.has(key)) throw new DuplicateModelKeyError(this.path, "yaml-mapping", key, this.index);
+    keys.add(key);
+    this.mappingKeys.set(object, keys);
     const rest = entry.slice(separator + 1).trim();
-    object[key] = rest ? parseScalar(rest) : this.parseNestedValue(indent);
+    object[key] = rest ? parseScalar(rest, this.path) : this.parseNestedValue(indent);
   }
 
   private isKeyValue(value: string): boolean {
@@ -898,17 +903,77 @@ class StableYamlParser {
     const next = this.lines[this.index];
     if (next && next.indent <= parentIndent && (next.text.trim() === "[]" || next.text.trim() === "{}")) {
       this.index += 1;
-      return parseScalar(next.text.trim());
+      return parseScalar(next.text.trim(), this.path);
     }
     return this.parseBlock(parentIndent + 2);
   }
 }
 
-function parseScalar(value: string): Json {
+function parseScalar(value: string, path: string): Json {
   if (value === "[]") return [];
   if (value === "{}") return {};
   if (value === "true" || value === "false" || value === "null") return JSON.parse(value) as Json;
   if (/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)) return Number(value);
-  if (/^["[{]/.test(value)) return JSON.parse(value) as Json;
+  if (/^["[{]/.test(value)) return checkedJsonDecode(value, path, "json-scalar");
   return value;
+}
+
+/** The original text is inspected before JSON.parse can discard duplicate object members. */
+export class DuplicateModelKeyError extends Error {
+  constructor(readonly path: string, readonly branch: "yaml-mapping" | "json-document" | "json-scalar", readonly key: string, readonly offset: number) {
+    super(`${path}: duplicate object key (${branch})`);
+    this.name = "DuplicateModelKeyError";
+  }
+}
+
+function checkedJsonDecode(source: string, path: string, branch: "json-document" | "json-scalar"): Json {
+  let offset = 0;
+  const whitespace = () => { while (/\s/.test(source[offset] ?? "") && offset < source.length) offset += 1; };
+  const invalid = (): never => { throw new SyntaxError(`${path}: invalid JSON`); };
+  const string = (): string => {
+    const start = offset;
+    if (source[offset++] !== '"') invalid();
+    while (offset < source.length) {
+      const char = source[offset++];
+      if (char === "\\") { offset += 1; continue; }
+      if (char === '"') return JSON.parse(source.slice(start, offset)) as string;
+    }
+    return invalid();
+  };
+  const value = (): void => {
+    whitespace();
+    if (source[offset] === '"') { string(); return; }
+    if (source[offset] === "{") {
+      offset += 1; whitespace();
+      const keys = new Set<string>();
+      if (source[offset] === "}") { offset += 1; return; }
+      while (offset < source.length) {
+        whitespace(); const keyOffset = offset; const key = string();
+        if (keys.has(key)) throw new DuplicateModelKeyError(path, branch, key, keyOffset);
+        keys.add(key); whitespace();
+        if (source[offset++] !== ":") invalid();
+        value(); whitespace();
+        const end = source[offset++];
+        if (end === "}") return;
+        if (end !== ",") invalid();
+      }
+      invalid();
+    }
+    if (source[offset] === "[") {
+      offset += 1; whitespace();
+      if (source[offset] === "]") { offset += 1; return; }
+      while (offset < source.length) {
+        value(); whitespace(); const end = source[offset++];
+        if (end === "]") return;
+        if (end !== ",") invalid();
+      }
+      invalid();
+    }
+    const primitive = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(source.slice(offset));
+    if (!primitive) invalid();
+    offset += primitive![0].length;
+  };
+  value(); whitespace();
+  if (offset !== source.length) invalid();
+  return JSON.parse(source) as Json;
 }

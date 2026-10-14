@@ -176,6 +176,7 @@ const schemaByFixture: Record<string, string> = {
   "projection-apply-recovery": "schemas/runtime/projection-apply-recovery.schema.json",
   "architecture-refresh-signal": "schemas/runtime/architecture-refresh-signal.schema.json",
   "archctx-capabilities": "schemas/runtime/archctx-capabilities.schema.json",
+  "native-context-export": "schemas/runtime/native-context-export.schema.json",
   "docs-anchors": "schemas/runtime/docs-anchors.schema.json",
   "flow-selector-check": "schemas/runtime/flow-selector-check.schema.json",
   "evidence-item": "schemas/runtime/evidence-item.schema.json",

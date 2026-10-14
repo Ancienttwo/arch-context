@@ -1,0 +1,1054 @@
+{
+  "protocol": "archcontext.native-consumer-document-coverage/v1",
+  "repository": "Ancienttwo/repo-harness",
+  "commit": "902c4ed7866f2b7359b1553a8cd64934496ea3c7",
+  "modelCounts": {
+    "nodes": 102,
+    "relations": 299,
+    "flows": 52
+  },
+  "documents": [
+    {
+      "path": "docs/architecture/index.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 24723,
+            "endByte": 25026,
+            "startLine": 341,
+            "endLine": 341
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 24723,
+            "endByte": 25026,
+            "startLine": 341,
+            "endLine": 341
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/organization/publication.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 41,
+            "endByte": 368,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 41,
+            "endByte": 368,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/organization/task-fleet.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 40,
+            "endByte": 366,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 40,
+            "endByte": 366,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/public-surface/action-commands.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 46,
+            "endByte": 379,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 46,
+            "endByte": 379,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/public-surface/adoption.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 39,
+            "endByte": 365,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 39,
+            "endByte": 365,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/public-surface/root-router.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 42,
+            "endByte": 371,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 42,
+            "endByte": 371,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/public-surface/strategy-reflection.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 51,
+            "endByte": 388,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 51,
+            "endByte": 388,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/agent-runtime-effects.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 54,
+            "endByte": 394,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 54,
+            "endByte": 394,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/bound-task-freezes.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 51,
+            "endByte": 388,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 51,
+            "endByte": 388,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/collaboration.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 46,
+            "endByte": 378,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 46,
+            "endByte": 378,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/delegated-runs.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 47,
+            "endByte": 380,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 47,
+            "endByte": 380,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/engineer-bindings.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 50,
+            "endByte": 386,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 50,
+            "endByte": 386,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/engineer-messages.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 50,
+            "endByte": 386,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 50,
+            "endByte": 386,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/engineer-scheduling.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 52,
+            "endByte": 390,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 52,
+            "endByte": 390,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/engineering-overlay.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 52,
+            "endByte": 390,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 52,
+            "endByte": 390,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/evidence-ledger.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 48,
+            "endByte": 382,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 48,
+            "endByte": 382,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/external-source-intake.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 55,
+            "endByte": 396,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 55,
+            "endByte": 396,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/global-runtime-reconciliation.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 62,
+            "endByte": 410,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 62,
+            "endByte": 410,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/hook-adapters.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 45,
+            "endByte": 377,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 45,
+            "endByte": 377,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/integration-acceptance.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 55,
+            "endByte": 396,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 55,
+            "endByte": 396,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/interface-change.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 49,
+            "endByte": 384,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 49,
+            "endByte": 384,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/mcp-sidecar.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 43,
+            "endByte": 373,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 43,
+            "endByte": 373,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/operator.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 41,
+            "endByte": 368,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 41,
+            "endByte": 368,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/pipeline-ledger.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 48,
+            "endByte": 382,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 48,
+            "endByte": 382,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/pm-dispatch.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 44,
+            "endByte": 374,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 44,
+            "endByte": 374,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/refactor-program.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 19,
+            "endByte": 354,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 19,
+            "endByte": 354,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/task-agent-host.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 48,
+            "endByte": 382,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 48,
+            "endByte": 382,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/verified-context.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 49,
+            "endByte": 384,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 49,
+            "endByte": 384,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-harness/work-demand.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 43,
+            "endByte": 373,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 43,
+            "endByte": 373,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-mcp/chatgpt-browser.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 44,
+            "endByte": 374,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 44,
+            "endByte": 374,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/runtime-mcp/general-repo-access.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 47,
+            "endByte": 381,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 47,
+            "endByte": 381,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/verification/acceptance-review.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 47,
+            "endByte": 380,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 47,
+            "endByte": 380,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/verification/codegraph-readiness.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 48,
+            "endByte": 383,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 48,
+            "endByte": 383,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/verification/evals-checks.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 41,
+            "endByte": 369,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 41,
+            "endByte": 369,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/workflow-engine/contract-assets.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 47,
+            "endByte": 381,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 47,
+            "endByte": 381,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/workflow-engine/execution-primitives.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 53,
+            "endByte": 392,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 53,
+            "endByte": 392,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/workflow-engine/inspection-migration.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 52,
+            "endByte": 391,
+            "startLine": 2,
+            "endLine": 2
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 52,
+            "endByte": 391,
+            "startLine": 2,
+            "endLine": 2
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/modules/workflow-engine/workflow-state.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 47,
+            "endByte": 380,
+            "startLine": 3,
+            "endLine": 3
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 47,
+            "endByte": 380,
+            "startLine": 3,
+            "endLine": 3
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/decisions/index.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 0,
+            "endByte": 299,
+            "startLine": 1,
+            "endLine": 1
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 0,
+            "endByte": 299,
+            "startLine": 1,
+            "endLine": 1
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture/changelog.md",
+      "presence": "present",
+      "disposition": "coverage-blocker",
+      "reasonCode": "native-document-marker-invalid",
+      "diagnostics": [
+        {
+          "kind": "marker-syntax-or-attributes",
+          "range": {
+            "startByte": 0,
+            "endByte": 307,
+            "startLine": 1,
+            "endLine": 1
+          }
+        },
+        {
+          "kind": "unsupported-renderer",
+          "range": {
+            "startByte": 0,
+            "endByte": 307,
+            "startLine": 1,
+            "endLine": 1
+          }
+        }
+      ]
+    }
+  ],
+  "coverageConfirmed": false,
+  "requiredFollowup": "Canonical projection refresh or separately reviewed historical-marker compatibility; no native fallback or downstream edit is included."
+}
