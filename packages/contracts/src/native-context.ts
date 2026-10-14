@@ -172,6 +172,27 @@ export function nativeContextModelIssues(model: NativeContextModel, schemas: Nat
   for (const [kind, records] of [["node", model.nodes], ["relation", model.relations], ["flow", model.flows]] as const) {
     for (const record of records) {
       const id = typeof record.id === "string" ? record.id : "(undeclared)";
+      // JSON Schema validates own data properties. Reject values the shared subset parser
+      // cannot represent losslessly as JSON, rather than serializing inherited fields away
+      // or coercing non-finite numbers to null. The shared parser itself is unchanged.
+      const pending: Array<{ value: unknown; field: string; exit?: boolean }> = [{ value: record, field: "$" }];
+      const active = new Set<object>();
+      const done = new Set<object>();
+      let jsonInvalid = false;
+      while (pending.length > 0) {
+        const item = pending.pop()!;
+        const value = item.value;
+        if (item.exit) { active.delete(value as object); done.add(value as object); continue; }
+        if (typeof value === "number" && !Number.isFinite(value)) { add(id, item.field, "non-json-number"); jsonInvalid = true; break; }
+        if (value === null || typeof value !== "object") continue;
+        if (active.has(value)) { add(id, item.field, "non-json-cycle"); jsonInvalid = true; break; }
+        if (done.has(value)) continue;
+        const prototype = Object.getPrototypeOf(value);
+        if (Array.isArray(value) ? prototype !== Array.prototype : prototype !== Object.prototype) { add(id, item.field, "non-json-prototype"); jsonInvalid = true; break; }
+        active.add(value); pending.push({ value, field: item.field, exit: true });
+        for (const [key, child] of Object.entries(value)) pending.push({ value: child, field: `${item.field}.${key}` });
+      }
+      if (jsonInvalid) continue;
       const schema = kind === "node" ? schemas.node : kind === "relation" ? schemas.relation : schemas.flow;
       for (const issue of validateJsonSchema(schema, record, { resolveSchema }).issues) add(id, issue.path, issue.message);
       if (ids.has(id)) add(id, "id", "duplicate-entity-id");

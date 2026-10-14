@@ -36,6 +36,27 @@ export interface GitReadOptions { input?: string; maxBytes?: number; timeoutMs?:
 /** Whitelisted read operations only; never a shell, lazy fetch, filter or index writer. */
 export function readOnlyGit(root: string, operation: GitReadOperation, args: string[], options: GitReadOptions = {}): Buffer {
   if (!["rev-parse", "ls-tree", "ls-files", "cat-file"].includes(operation)) throw new NativeContextError("native-context-git-read-failed", { category: "unsupported-operation" });
+  const unsafeArguments = (): never => { throw new NativeContextError("native-context-git-read-failed", { operation, category: "unsupported-read-arguments" }); };
+  if (operation === "rev-parse") {
+    if (args.length === 1 && args[0] === "--show-toplevel") { /* root discovery */ }
+    else if (args.length === 1 && isGitRevisionArgument(args[0]!)) { /* bounded metadata helper */ }
+    else if (args.length === 3 && args[0] === "--verify" && args[1] === "--end-of-options") assertNativeGitRevision(args[2]!);
+    else unsafeArguments();
+  }
+  if (operation === "ls-tree") {
+    const flags = args.slice(0, -1);
+    if (!flags.includes("-r") || !flags.includes("-z") || flags.some(flag => !["-r", "-z", "-t", "-l"].includes(flag)) || new Set(flags).size !== flags.length) unsafeArguments();
+    assertNativeGitRevision(args[args.length - 1] ?? "");
+  }
+  if (operation === "ls-files") {
+    const end = args.indexOf("--");
+    if (end < 0 || !args.slice(0, end).includes("-z") || args.slice(0, end).some(flag => !["--cached", "--others", "--exclude-standard", "--stage", "-z"].includes(flag))) unsafeArguments();
+    for (const path of args.slice(end + 1)) if (!path || path.startsWith("-") || /[\\\u0000-\u001f\u007f-\u009f]/.test(path)) unsafeArguments();
+  }
+  if (operation === "cat-file") {
+    if (args.length !== 1 || !["--batch", "--batch-check"].includes(args[0]!)) unsafeArguments();
+    if (options.input && (!options.input.endsWith("\n") || options.input.slice(0, -1).split("\n").some(oid => !OBJECT_ID.test(oid)))) unsafeArguments();
+  }
   const env = { ...process.env, LC_ALL: "C", GIT_NO_LAZY_FETCH: "1", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", GIT_ALLOW_PROTOCOL: "", GIT_TERMINAL_PROMPT: "0" };
   for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE"]) delete (env as NodeJS.ProcessEnv)[key];
   const result = spawnSync("git", ["--no-pager", "-c", "core.fsmonitor=false", operation, ...args], {

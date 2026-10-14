@@ -56,6 +56,14 @@ describe("native context contract", () => {
     (value.nodes[2]!.source as any).entrypoints[0].symbols.push({ ...symbol, sinks: [{ ...symbol.sinks[0], id: "sink.demo.second" }] });
     expect(nativeContextModelIssues(value, schemas)).toEqual([]);
   });
+  test("non-JSON parser values are refused without changing shared parser semantics", () => {
+    const value = model(); value.nodes[0]!.extensions = { number: Infinity };
+    expect(nativeContextModelIssues(value, schemas).some(issue => issue.invariant === "non-json-number")).toBe(true);
+    const inherited = model(); inherited.nodes[0]!.extensions = Object.create({ hidden: true });
+    expect(nativeContextModelIssues(inherited, schemas).some(issue => issue.invariant === "non-json-prototype")).toBe(true);
+    const own = model(); own.nodes[0]!.extensions = JSON.parse('{"__proto__":{"preserved":true}}');
+    expect(nativeContextModelIssues(own, schemas)).toEqual([]);
+  });
   test("not-applicable flow is validated rather than omitted", () => {
     const value = model(); value.flows[1]!.participants = [];
     expect(nativeContextModelIssues(value, schemas).length).toBeGreaterThan(0);

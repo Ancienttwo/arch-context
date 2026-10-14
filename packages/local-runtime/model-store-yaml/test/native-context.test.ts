@@ -238,6 +238,33 @@ describe("stateless native context sources", () => {
       expect(reason(() => exportNativeContext(fixture.root, { source: "ref", ref: "HEAD" })).reasonCode).toBe("native-context-blob-unavailable");
     } finally { fixture.cleanup(); }
   });
+  test("derived contracts cannot cross a tracked gitlink even without a .git file on disk", () => {
+    const fixture = createNativeFixture();
+    try {
+      rewriteCapability(fixture.root, value => { value.extensions.contractFiles = { agents: "vendor/AGENTS.md", claude: "vendor/CLAUDE.md" }; });
+      writeFixtureFile(fixture.root, "vendor/AGENTS.md", "other repo"); writeFixtureFile(fixture.root, "vendor/CLAUDE.md", "other repo");
+      fixtureGit(fixture.root, ["update-index", "--add", "--cacheinfo", `160000,${fixture.commit},vendor`]);
+      expect(reason(() => exportNativeContext(fixture.root, { source: "worktree" })).reasonCode).toBe("native-context-entry-kind-unsupported");
+    } finally { fixture.cleanup(); }
+  });
+  test("untracked nested-repository ancestors are rejected before reading contract bodies", () => {
+    const fixture = createNativeFixture();
+    try {
+      rewriteCapability(fixture.root, value => { value.extensions.contractFiles = { agents: "vendor/AGENTS.md", claude: "vendor/CLAUDE.md" }; });
+      writeFixtureFile(fixture.root, "vendor/AGENTS.md", "other repo"); writeFixtureFile(fixture.root, "vendor/CLAUDE.md", "other repo");
+      writeFixtureFile(fixture.root, "vendor/.git", "gitdir: outside\n");
+      expect(reason(() => exportNativeContext(fixture.root, { source: "worktree" })).reasonCode).toBe("native-context-entry-kind-unsupported");
+    } finally { fixture.cleanup(); }
+  });
+  test("a selected ancestor becoming a gitlink after the second observation is drift", () => {
+    const fixture = createNativeFixture();
+    try {
+      rewriteCapability(fixture.root, value => { value.extensions.contractFiles = { agents: "vendor/AGENTS.md", claude: "vendor/CLAUDE.md" }; });
+      writeFixtureFile(fixture.root, "vendor/AGENTS.md", "contract"); writeFixtureFile(fixture.root, "vendor/CLAUDE.md", "contract");
+      const error = reason(() => exportNativeContext(fixture.root, { source: "worktree" }, { onBoundary: stage => { if (stage === "after-second-observation") fixtureGit(fixture.root, ["update-index", "--add", "--cacheinfo", `160000,${fixture.commit},vendor`]); } }));
+      expect(error.reasonCode).toBe("native-context-input-changed");
+    } finally { fixture.cleanup(); }
+  });
   test("per-file limit is checked before allocation and the context budget never truncates text", () => {
     const fixture = createNativeFixture();
     try {

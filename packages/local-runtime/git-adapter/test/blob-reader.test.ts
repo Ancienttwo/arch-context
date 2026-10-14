@@ -24,6 +24,14 @@ describe("checked Git blob reader", () => {
     expect(() => decodeGitBlobBatch(blob(Buffer.from("x")), [{ objectId: oid, byteLength: 2 }])).toThrow("native-context-blob-unavailable");
     expect(() => decodeGitBlobBatch(Buffer.from(`${oid} blob 9007199254740992\n`), [{ objectId: oid }])).toThrow("native-context-limit-exceeded");
   });
+  test("corrupted body with a superficially correct header fails OID verification", () => {
+    expect(() => decodeGitBlobBatch(Buffer.from(`${oid} blob 1\ny\n`), [{ objectId: oid }])).toThrow("native-context-blob-unavailable");
+  });
+  test("generic helper rejects filter/write-shaped arguments before spawning Git", () => {
+    expect(() => readOnlyGit("/missing/repo", "cat-file", ["--filters", "HEAD"])).toThrow("native-context-git-read-failed");
+    expect(() => readOnlyGit("/missing/repo", "rev-parse", ["--output=outside"])).toThrow("native-context-git-read-failed");
+    expect(() => readOnlyGit("/missing/repo", "checkout" as any, ["HEAD"])).toThrow("native-context-git-read-failed");
+  });
   test("file, total and protocol bounds are independently enforced", () => {
     const body = blob(Buffer.from("123"));
     const request = { objectId: objectId(Buffer.from("123")) };

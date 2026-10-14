@@ -123,6 +123,7 @@ function statIdentity(stat: BigIntStats, directory: boolean): string {
 /** Every existing ancestor is checked; safe absence is distinct from any other IO failure. */
 function observePath(root: string, path: string, directory = false): PathObservation {
   assertNativeContextPath(path);
+  if (process.platform === "win32" && path.split("/").some(segment => segment.includes(":") || /[. ]$/.test(segment))) throw new NativeContextError("native-context-path-unsafe", { path, category: "windows-path-alias" });
   let absolute = root;
   const identities: string[] = [];
   const segments = path.split("/");
@@ -136,8 +137,20 @@ function observePath(root: string, path: string, directory = false): PathObserva
     }
     const needsDirectory = index < segments.length - 1 || directory;
     if (stat.isSymbolicLink() || (needsDirectory ? !stat.isDirectory() : !stat.isFile())) throw new NativeContextError("native-context-entry-kind-unsupported", { path, category: stat.isSymbolicLink() ? "link" : "non-regular" });
+    if (needsDirectory && index >= 0) {
+      try {
+        lstatSync(join(absolute, ".git"));
+        throw new NativeContextError("native-context-entry-kind-unsupported", { path: segments.slice(0, index + 1).join("/"), category: "nested-repository" });
+      } catch (error) {
+        if (error instanceof NativeContextError) throw error;
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new NativeContextError("native-context-input-unreadable", { path, category: "repository-boundary-stat" });
+      }
+    }
     identities.push(statIdentity(stat, needsDirectory));
-    if (index === segments.length - 1) return { exists: true, identity: identities.join("/"), stat, absolute };
+    if (index === segments.length - 1) {
+      if (process.platform === "win32" && realpathSync.native(absolute) !== resolve(root, path)) throw new NativeContextError("native-context-path-unsafe", { path, category: "windows-path-alias" });
+      return { exists: true, identity: identities.join("/"), stat, absolute };
+    }
   }
   throw new NativeContextError("native-context-path-unsafe", { path });
 }
@@ -145,11 +158,17 @@ function observePath(root: string, path: string, directory = false): PathObserva
 class WorktreeSource extends CapturedSource {
   private membership: string[] | undefined;
   private readonly windowsModes: Map<string, NativeContextInput["mode"]> | undefined;
+  private readonly gitlinks: string[];
   constructor(root: string, hooks: NativeContextReadHooks, observation: number, treeOid: string) {
     super(root, hooks, observation);
+    this.gitlinks = this.readGitlinks();
     // Windows does not expose a Git executable bit. Retain the fixed HEAD's logical mode
     // for tracked regular files; current file-kind/identity checks still use lstat/fstat.
-    if (process.platform === "win32") this.windowsModes = new Map(readGitBlobTree(root, treeOid).filter(entry => entry.type === "blob" && ["100644", "100755"].includes(entry.mode)).map(entry => [entry.path, entry.mode as NativeContextInput["mode"]]));
+    if (process.platform === "win32") this.windowsModes = new Map(readGitBlobTree(root, treeOid, { sizes: false }).filter(entry => entry.type === "blob" && ["100644", "100755"].includes(entry.mode)).map(entry => [entry.path, entry.mode as NativeContextInput["mode"]]));
+  }
+  private readGitlinks(): string[] {
+    const staged = readOnlyGit(this.root, "ls-files", ["--stage", "-z", "--"]);
+    return staged.toString("utf8").split("\0").flatMap(row => row.startsWith("160000 ") ? [row.slice(row.indexOf("\t") + 1)] : []);
   }
   assertModelDirectories(): void { for (const kind of MODEL_KINDS) observePath(this.root, `.archcontext/model/${kind}`, true); }
   private enumerate(): string[] {
@@ -169,6 +188,7 @@ class WorktreeSource extends CapturedSource {
   readUncached(specs: InputSpec[]): CapturedInput[] {
     let batchBytes = this.byteCount;
     return specs.map(spec => {
+      if (this.gitlinks.some(path => spec.path === path || spec.path.startsWith(`${path}/`))) throw new NativeContextError("native-context-entry-kind-unsupported", { path: spec.path, category: "gitlink" });
       const before = observePath(this.root, spec.path);
       if (!before.exists) {
         if (spec.requirement === "required") throw new NativeContextError(spec.role === "manifest" ? "native-context-model-missing" : "native-context-input-missing", { path: spec.path });
@@ -207,8 +227,10 @@ class WorktreeSource extends CapturedSource {
   }
   assertStable(): void {
     if (canonicalize(this.enumerate()) !== canonicalize(this.membership!)) changed("model-membership");
+    const gitlinks = this.readGitlinks();
     const paths: string[] = [];
     for (const [path, captured] of this.captured) {
+      if (gitlinks.some(link => path === link || path.startsWith(`${link}/`))) { paths.push(path); continue; }
       try { if (observePath(this.root, path).identity !== captured.identity) paths.push(path); }
       catch { paths.push(path); }
     }
