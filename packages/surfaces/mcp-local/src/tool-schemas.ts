@@ -27,7 +27,8 @@ function argumentsSchema(properties: Record<string, Schema>, required: string[] 
 export const MCP_TOOL_INPUT_SCHEMAS = {
   archcontext_prepare_task: argumentsSchema({ task: text, taskSessionId: text, ...budget }, ["task"]),
   archcontext_practices: argumentsSchema({ action: { enum: ["list", "show", "validate", "source-records"] }, id: text, category: text, source: text, strict: flag, maxBytes: budget.maxBytes }),
-  archcontext_checkpoint: argumentsSchema({
+  archcontext_checkpoint: argumentsSchema({ changedPaths: texts }),
+  archcontext_practice_checkpoint: argumentsSchema({
     taskSessionId: text, task: text, event: { enum: ["manual", "post-edit", "post-write", "pre-complete"] }, changedPaths: texts,
     toolCallId: text, expectedHeadSha: text, expectedWorktreeDigest: text, ...budget
   }),

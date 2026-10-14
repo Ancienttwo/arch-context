@@ -4,7 +4,7 @@
  * replace the blind `params as Args` cast with a strict runtime check per positional slot: every
  * decoder here validates wire-level *shape* — is this slot the JS type the method's own
  * `encodeArgs` signature declares (string / number / string[] / plain object)? They do not reach
- * into the fields of the domain object types (`RuntimeCheckpointInput`,
+ * into the fields of the domain object types (`RuntimePracticeCheckpointInput`,
  * `RuntimeAgentJobClaimRpcInput`, ...) — that stays each handler's job.
  *
  * Invalid input throws `RuntimeRpcInputInvalidError`, a typed subclass of `Error` whose message

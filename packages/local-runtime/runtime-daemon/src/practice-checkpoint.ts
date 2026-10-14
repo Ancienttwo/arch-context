@@ -6,7 +6,7 @@ import { digestJson, errorEnvelope, okEnvelope, type ArchitectureDebtReportV1, t
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import type { ExternalDocumentationService } from "./external-documentation";
-import type { RuntimeCheckpointInput } from "./rpc-types";
+import type { RuntimePracticeCheckpointInput } from "./rpc-types";
 import { runArchitectureDebtCommand } from "./architecture-debt";
 
 /** The parts of the daemon's repository session this service reads. */
@@ -39,13 +39,13 @@ interface PracticeCheckpointContext {
 }
 
 /**
- * Owns prepare and checkpoint, the per-task practice checkpoint baseline (memory cache plus the
+ * Owns prepare and the explicit practice checkpoint writer, the per-task practice checkpoint baseline (memory cache plus the
  * persisted task-state row), checkpoint coalescing, and the practice catalog and waiver reads.
  *
  * `completeTask` and the Explorer task-impact view read the baseline through
  * `readPracticeCheckpointBaseline`; `completeTask` itself and `planPracticeWaiver` (ChangeSet
  * authority) stay in the daemon facade. Member names match the daemon's so the moved bodies are
- * unchanged, and the Context7 hard-gate scan follows `checkpoint` into this file.
+ * unchanged, and the Context7 hard-gate scan follows `practiceCheckpoint` into this file.
  */
 export class PracticeCheckpointService {
   private readonly codeFacts: CodeFactsPort;
@@ -95,7 +95,7 @@ export class PracticeCheckpointService {
     return okEnvelope("prepare", augmentedResult as unknown as Json);
   }
 
-  async checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> {
+  async practiceCheckpoint(root: string, input: RuntimePracticeCheckpointInput): Promise<JsonEnvelope> {
     this.assertRunning();
     const started = Date.now();
     const session = await this.openSession(root);
@@ -104,13 +104,13 @@ export class PracticeCheckpointService {
     const task = input.task ?? baseline?.task ?? "checkpoint";
     const coalesceKey = this.practiceCheckpointCoalesceKey(session, taskSessionId, task, input, baseline);
     const debtResult = runArchitectureDebtCommand(root, { changedPaths: input.changedPaths });
-    if (!debtResult.ok) return { ...debtResult, requestId: "checkpoint" };
+    if (!debtResult.ok) return { ...debtResult, requestId: "practices.checkpoint" };
     const debt = debtResult.data as unknown as ArchitectureDebtReportV1;
     const coalesced = this.checkpointCoalesced.get(coalesceKey);
     if (coalesced) {
       coalesced.eventCount += 1;
       const cached = coalesced.data as Record<string, any>;
-      return okEnvelope("checkpoint", {
+      return okEnvelope("practices.checkpoint", {
         ...cached,
         // Human text is not part of the context-guidance digest. Re-read it even on a coalesced
         // practice checkpoint so the debt cannot retain a citation repaired between events.
@@ -160,7 +160,7 @@ export class PracticeCheckpointService {
       eventCount: 1
     });
     this.pruneCheckpointCoalesced();
-    return okEnvelope("checkpoint", data);
+    return okEnvelope("practices.checkpoint", data);
   }
 
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
@@ -217,7 +217,7 @@ export class PracticeCheckpointService {
     return `practice-checkpoint:${repositoryId}:${taskSessionId}`;
   }
 
-  private practiceCheckpointCoalesceKey(session: RepositorySession, taskSessionId: string, task: string, input: RuntimeCheckpointInput, baseline?: PracticeCheckpointSnapshotV1): string {
+  private practiceCheckpointCoalesceKey(session: RepositorySession, taskSessionId: string, task: string, input: RuntimePracticeCheckpointInput, baseline?: PracticeCheckpointSnapshotV1): string {
     return digestJson({
       repositoryId: session.workspace.repositoryId,
       headSha: session.workspace.headSha,

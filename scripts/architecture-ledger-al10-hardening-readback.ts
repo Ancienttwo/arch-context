@@ -443,7 +443,7 @@ async function runMcpPrivacyProbe() {
       maxItems: 6,
       taskSessionId: "task_al10_mcp_privacy"
     }), root);
-    const checkpoint = await readMcpToolEnvelope(server, await server.callTool("archcontext_checkpoint", {
+    const checkpoint = await readMcpToolEnvelope(server, await server.callTool("archcontext_practice_checkpoint", {
       root,
       taskSessionId: "task_al10_mcp_privacy",
       task: "AL10 MCP privacy source sentinel must stay out of tool output",

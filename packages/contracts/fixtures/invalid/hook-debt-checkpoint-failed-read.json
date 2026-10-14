@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "archcontext.hook-debt-checkpoint/v1",
+  "debt": {
+    "schemaVersion": "archcontext.architecture-debt/v1",
+    "scope": {
+      "kind": "repository",
+      "changedPaths": [],
+      "capabilityIds": []
+    },
+    "coverage": "complete",
+    "coverageReasonCodes": [],
+    "checks": [
+      {
+        "check": "ownership",
+        "coverage": "complete",
+        "reasonCodes": []
+      },
+      {
+        "check": "anchors",
+        "coverage": "complete",
+        "reasonCodes": []
+      },
+      {
+        "check": "dependencies",
+        "coverage": "complete",
+        "reasonCodes": []
+      },
+      {
+        "check": "flows",
+        "coverage": "complete",
+        "reasonCodes": []
+      },
+      {
+        "check": "practices",
+        "coverage": "complete",
+        "reasonCodes": []
+      }
+    ],
+    "items": [],
+    "actionsRequired": [],
+    "digest": "sha256:1d40d5a0b5f92e61241f310b1f0c26b342210533455707a93f524d306db88b4e"
+  },
+  "hookLog": {
+    "schemaVersion": "archcontext.hook-log/v1",
+    "event": "post-edit",
+    "elapsedMs": 12,
+    "pathCount": 0,
+    "changedPathDigest": "sha256:4ce95370e221ea0a3ef42ee0992d28ac44cbae9b311b7e310061d35b819bb093",
+    "reasonCode": "debt-measured",
+    "failOpen": true,
+    "egress": "none",
+    "network": "forbidden"
+  }
+}

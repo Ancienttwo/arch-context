@@ -34,7 +34,7 @@ GitHub App is an optional governance bridge. It handles installation, PR metadat
 
 ## Constraints
 
-- **Technical**: TypeScript + Node.js `>=22.22 <26` + Bun workspaces；CodeGraph 为产品硬依赖，仅经 `CodeFacts` Adapter 软耦合、精确锁版本、禁止读取其内部 DB；本地 SQLite（`node:sqlite` + WAL + FTS5）默认位于 OS 用户数据目录中的 `repositories/<storage-repository-id>/worktrees/<storage-workspace-id>/runtime.sqlite`，不用 PGlite；当前架构事实源是 Git 中 `.archcontext/` 的结构化 YAML，Markdown/图表为生成投影；Architecture Ledger 采用 ADR-0040 的 hybrid 模式：SQLite ledger 是 operational architecture state，`.archcontext/` 仍是 review/collaboration boundary，必须先经过 `yaml` → `dual` → `ledger-shadow` → `ledger-authoritative` 的可回滚晋级；一个版本一致的 `archctx` 本地产品交付 CLI、`archctxd`、MCP stdio adapter、local RPC schema、SQLite migrations 和 runtime build provenance；CLI/MCP 为薄适配层共享 Daemon RPC；MCP 默认仅暴露 7 个 `archcontext_*` 工具（`prepare_task` / `practices` / `checkpoint` / `plan_update` / `apply_update` / `projection` / `complete_task`）。
+- **Technical**: TypeScript + Node.js `>=22.22 <26` + Bun workspaces；CodeGraph 为产品硬依赖，仅经 `CodeFacts` Adapter 软耦合、精确锁版本、禁止读取其内部 DB；本地 SQLite（`node:sqlite` + WAL + FTS5）默认位于 OS 用户数据目录中的 `repositories/<storage-repository-id>/worktrees/<storage-workspace-id>/runtime.sqlite`，不用 PGlite；当前架构事实源是 Git 中 `.archcontext/` 的结构化 YAML，Markdown/图表为生成投影；Architecture Ledger 采用 ADR-0040 的 hybrid 模式：SQLite ledger 是 operational architecture state，`.archcontext/` 仍是 review/collaboration boundary，必须先经过 `yaml` → `dual` → `ledger-shadow` → `ledger-authoritative` 的可回滚晋级；一个版本一致的 `archctx` 本地产品交付 CLI、`archctxd`、MCP stdio adapter、local RPC schema、SQLite migrations 和 runtime build provenance；CLI/MCP 的写操作共享 Daemon RPC，debt checkpoint 读取在进程内运行；MCP 默认暴露 8 个 `archcontext_*` 工具（`prepare_task` / `practices` / `checkpoint` / `practice_checkpoint` / `plan_update` / `apply_update` / `projection` / `complete_task`）。
 - **Compliance**: SaaS 代码内容路由数必须为 0。ArchContext Cloud 不请求、不调用、不处理、不存储 Repository Contents、PR Diff/Patch、文件名、Symbol、CodeGraph、架构模型正文、Prompt/Completion 或详细 Finding；该边界由 GitHub API allowlist、Diff/Patch media type denylist、DTO allowlist、日志投影、egress recorder、D1/Queue schema audit 和 CI Privacy Contract Test 共同守护。GitHub App 默认无 Contents 权限，但不得把权限文案写成“技术上绝对无法读取代码”。ChatGPT Secure MCP Tunnel 场景必须明示数据会进入 OpenAI，不得宣称"数据永不离开本地"。
 - **Delivery**: 公开仓库免费；个人 Pro $5/月，覆盖该开发者可访问的全部私有仓库，不按仓库/Seat/Token/调用计费。MVP 以"可闭环的 Agentic Coding 架构 SOP"为完成标准，而非功能数量；里程碑 M0（契约冻结）→ M6（Beta 加固）。
 
@@ -244,9 +244,16 @@ These queries use the parent-chain owner rule of `refactor scan` (module-statist
   unavailable evidence. A changed source path also checks citations referring to it from other
   capabilities. Model edits inspect repository scope. The command requires Git and an adopted
   model and writes no model, runtime state or generated output; it neither starts a daemon nor
-  syncs CodeGraph. `checkpoint` attaches the same report as `debt`, including when its practice
-  result is coalesced. Checkpoint retains daemon-owned baseline writes; its practice
-  `resultDigest` and `debt.digest` bind different results. `complete` adds repository-wide
+  syncs CodeGraph. `checkpoint --changed-path` and MCP `archcontext_checkpoint {root, changedPaths?}`
+  return this report directly in process, with no runtime, session or practice-baseline access.
+  Former task/session/event/tool/digest/budget inputs are rejected. The explicit writers
+  `practices checkpoint`, MCP `archcontext_practice_checkpoint` and RPC `practiceCheckpoint`
+  retain practice-checkpoint/v1, stale-context handling, coalescing and baseline persistence;
+  `prepare` still seeds that baseline. Repeated prepare converges on the same baseline snapshot
+  for the same task/cursor (its operational update timestamp may change). `hook checkpoint`
+  accepts only event logging and changed-path inputs, returning hook-debt-checkpoint/v1;
+  unavailable reads fail open with unknown coverage and the original typed error, never clean
+  debt. Invalid hook flags are rejected before the handler. `complete` adds repository-wide
   `data.debt` from the same evaluator, including read-only dependency/flow evidence and the
   daemon's practice enforcement result (`architecture-debt-v1`). Measured debt blocks completion
   with repair actions; practice findings retain their existing enforcement/waiver semantics.

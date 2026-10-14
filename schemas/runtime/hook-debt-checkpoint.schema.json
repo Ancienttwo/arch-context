@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/hook-debt-checkpoint.schema.json",
+  "title": "ArchitectureDebtHookCheckpointV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "debt",
+    "hookLog"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.hook-debt-checkpoint/v1"
+    },
+    "debt": {
+      "$ref": "architecture-debt.schema.json"
+    },
+    "hookLog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "event",
+        "elapsedMs",
+        "pathCount",
+        "changedPathDigest",
+        "reasonCode",
+        "failOpen",
+        "egress",
+        "network"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.hook-log/v1"
+        },
+        "event": {
+          "type": "string",
+          "minLength": 1
+        },
+        "elapsedMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "pathCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changedPathDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failOpen": {
+          "const": false
+        },
+        "egress": {
+          "const": "none"
+        },
+        "network": {
+          "const": "forbidden"
+        }
+      }
+    }
+  }
+}

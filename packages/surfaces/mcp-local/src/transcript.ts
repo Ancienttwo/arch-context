@@ -284,11 +284,11 @@ export function defaultArchContextLoopTranscript(): ToolLoopTranscript {
       },
       {
         tool: "archcontext_checkpoint",
-        arg: "phase: intervention",
+        arg: "changedPaths: [src/subscription.ts]",
         lines: [
           {
             kind: "out",
-            text: "worktree digest captured · baseline pressure 88/100",
+            text: "ownership and human citations measured · dependency/flow/practice checks deferred",
           },
           {
             kind: "warn",
@@ -296,7 +296,7 @@ export function defaultArchContextLoopTranscript(): ToolLoopTranscript {
           },
           {
             kind: "ok",
-            text: "intervention proposed → structural-refactor (staged)",
+            text: "ambiguous-owner debt requires an explicit ownership decision",
           },
           {
             kind: "note",

@@ -13,6 +13,7 @@ import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
+import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { ChangeSetEngine, type ApplyOptions, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
@@ -287,6 +288,47 @@ function mutableCycleFacts(): { port: CodeFactsPort; setCycle: (enabled: boolean
 }
 
 describe("local runtime foundation", () => {
+  test("prepare seeds a stable baseline, debt checkpoint leaves it unchanged, explicit practice writer advances it", async () => {
+    const root = tempRepo();
+    initializeArchContextModel(root, "Read/Writer Cutover");
+    const facts = mutableCycleFacts();
+    const store = new TestLocalStore();
+    const daemon = await createStartedTestDaemon({ codeFacts: facts.port, localStore: store });
+    const key = `practice-checkpoint:${repositoryFingerprint(root)}:task_cutover`;
+    try {
+      const task = "untangle dependency cycle between billing and orders";
+      expect((await daemon.prepare(root, task, 12_288, 5, "task_cutover")).ok).toBe(true);
+      const before = structuredClone(await store.readTaskState(key)) as any;
+      expect((await daemon.prepare(root, task, 12_288, 5, "task_cutover")).ok).toBe(true);
+      expect((await store.readTaskState(key) as any).snapshot).toEqual(before.snapshot);
+      facts.setCycle(true);
+      const read = runArchitectureDebtCommand(root, { changedPaths: ["src/orders.ts"] });
+      expect(read.ok).toBe(true);
+      expect((read.data as any).schemaVersion).toBe("archcontext.architecture-debt/v1");
+      expect((await store.readTaskState(key) as any).snapshot).toEqual(before.snapshot);
+      const writer = await daemon.practiceCheckpoint(root, { taskSessionId: "task_cutover", event: "post-edit", changedPaths: ["src/orders.ts"] });
+      expect(writer.ok).toBe(true);
+      expect((writer.data as any).delta.added.map((match: any) => match.practiceId)).toContain("modularity.no-new-cycle");
+      const next = structuredClone(await store.readTaskState(key)) as any;
+      expect(next.snapshot).not.toEqual(before.snapshot);
+      const repeated = await daemon.practiceCheckpoint(root, { taskSessionId: "task_cutover", event: "post-edit", changedPaths: ["src/orders.ts"] });
+      // A fresh result advances the baseline, so the next key differs; the stable no-op can coalesce.
+      expect((repeated.data as any).reasonCode).toBe("no-op");
+      const coalesced = await daemon.practiceCheckpoint(root, { taskSessionId: "task_cutover", event: "post-edit", changedPaths: ["src/orders.ts"] });
+      expect((coalesced.data as any).hook.coalesced).toBe(true);
+      expect((await store.readTaskState(key) as any).snapshot).toEqual(next.snapshot);
+      rmSync(join(root, ".archcontext/manifest.yaml"));
+      const failedRead = runArchitectureDebtCommand(root);
+      expect(failedRead).toMatchObject({ ok: false, error: { code: "AC_MODEL_ADOPTION_REQUIRED" } });
+      expect((await store.readTaskState(key) as any).snapshot).toEqual(next.snapshot);
+      const failedWriter = await daemon.practiceCheckpoint(root, { taskSessionId: "task_cutover" });
+      expect(failedWriter.ok).toBe(false);
+      expect((await store.readTaskState(key) as any).snapshot).toEqual(next.snapshot);
+    } finally {
+      await daemon.stop();
+      removeTempRepo(root);
+    }
+  });
   test("init, validate, sync, context, and status share one runtime session", async () => {
     const root = tempRepo();
     try {
@@ -318,7 +360,7 @@ describe("local runtime foundation", () => {
 
       const prepare = await daemon.prepare(root, "remove legacy v1 wrapper", 12_288, 2, "task_runtime_test");
       expect(prepare.ok).toBe(true);
-      const checkpoint = await daemon.checkpoint(root, {
+      const checkpoint = await daemon.practiceCheckpoint(root, {
         taskSessionId: "task_runtime_test",
         event: "post-edit",
         changedPaths: ["src/example.ts"],
@@ -356,13 +398,13 @@ describe("local runtime foundation", () => {
         toolCallId: "toolu_coalesce",
         maxItems: 3
       };
-      const first = await daemon.checkpoint(root, input);
+      const first = await daemon.practiceCheckpoint(root, input);
       expect((first.data as any).hook.coalesced).toBe(false);
       expect(facts.counts()).toEqual({ sync: 1, buildTaskContext: 2 });
 
       let last = first;
       for (let index = 0; index < 9; index += 1) {
-        last = await daemon.checkpoint(root, input);
+        last = await daemon.practiceCheckpoint(root, input);
       }
       expect((last.data as any).hook.coalesced).toBe(true);
       expect((last.data as any).hook.skippedAnalysis).toBe(true);
@@ -391,7 +433,7 @@ describe("local runtime foundation", () => {
 
       facts.setCycle(true);
       second = await createStartedTestDaemon({ codeFacts: facts.port, localStore: store });
-      const checkpoint = await second.checkpoint(root, {
+      const checkpoint = await second.practiceCheckpoint(root, {
         taskSessionId: "task_restart",
         event: "post-edit",
         changedPaths: ["src/orders.ts", "src/billing.ts"],

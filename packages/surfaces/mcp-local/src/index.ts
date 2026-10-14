@@ -2,6 +2,7 @@ import { MCP_PLAN_OPERATIONS_SCHEMA, MCP_TOOL_INPUT_SCHEMAS } from "./tool-schem
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertNoCallerProvidedAttestationFields, errorEnvelope, productVersionManifest, validateJsonSchema, type Json } from "@archcontext/contracts";
 import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
+import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
 import { createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-rpc-client";
 
 export { MCP_PLAN_OPERATIONS_SCHEMA };
@@ -48,8 +49,8 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "archcontext_prepare_task",
     inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_prepare_task,
-    description: "Call before coding starts. Compiles bounded architecture context and posture for the current task.",
-    annotations: { safety: "read-only", requiresConfirmation: false }
+    description: "Call before coding starts. Compiles bounded architecture context and posture, and seeds the daemon-owned practice baseline for the current task.",
+    annotations: { safety: "idempotent", requiresConfirmation: false }
   },
   {
     name: "archcontext_practices",
@@ -60,8 +61,14 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "archcontext_checkpoint",
     inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_checkpoint,
-    description: "Call after meaningful code or model changes. Returns practice guidance deltas and scoped ownership/citation debt from the daemon checkpoint; debt coverage names checks deferred to complete.",
+    description: "Read edit-time ownership and human citation debt in process after meaningful changes. Returns the architecture-debt/v1 report directly; other producers are explicitly deferred to complete. No runtime or baseline access.",
     annotations: { safety: "read-only", requiresConfirmation: false }
+  },
+  {
+    name: "archcontext_practice_checkpoint",
+    inputSchema: MCP_TOOL_INPUT_SCHEMAS.archcontext_practice_checkpoint,
+    description: "Explicitly evaluate practice guidance against the prepared baseline and persist the next daemon-owned practice snapshot. Returns practice-checkpoint/v1 with stale and coalescing status.",
+    annotations: { safety: "idempotent", requiresConfirmation: false }
   },
   {
     name: "archcontext_plan_update",
@@ -161,6 +168,15 @@ export class McpLocalServer {
       content: errorEnvelope("mcp", "AC_CAPABILITY_UNSUPPORTED", "Tool is unavailable on this surface") as unknown as Json,
       dataClassification: "local-metadata"
     };
+    if (name === "archcontext_checkpoint" || name === "archcontext_practice_checkpoint") {
+      const validation = validateJsonSchema(MCP_TOOL_INPUT_SCHEMAS[name], args as Json);
+      if (validation.issues.length > 0) return {
+        content: errorEnvelope(name === "archcontext_checkpoint" ? "checkpoint" : "practices.checkpoint",
+          "AC_SCHEMA_INVALID", "Checkpoint arguments violate the declared input schema",
+          "checkpoint-input-invalid", { issueCount: validation.issues.length }) as unknown as Json,
+        dataClassification: "local-metadata"
+      };
+    }
     switch (name) {
       case "archcontext_prepare_task": {
         const root = requiredArg(args, "root");
@@ -188,9 +204,15 @@ export class McpLocalServer {
         }
       }
       case "archcontext_checkpoint": {
+        return {
+          content: { ...runArchitectureDebtCommand(requiredArg(args, "root"), { changedPaths: args.changedPaths }), requestId: "checkpoint" } as unknown as Json,
+          dataClassification: "local-metadata"
+        };
+      }
+      case "archcontext_practice_checkpoint": {
         const root = requiredArg(args, "root");
         try {
-          const result = await (await this.runtime(root)).checkpoint(root, {
+          const result = await (await this.runtime(root)).practiceCheckpoint(root, {
             taskSessionId: args.taskSessionId ?? "task_mcp",
             task: args.task,
             event: args.event ?? "manual",
@@ -203,7 +225,7 @@ export class McpLocalServer {
           });
           return { content: result as unknown as Json, dataClassification: "local-metadata" };
         } catch (error) {
-          return runtimeUnavailable("checkpoint", error);
+          return runtimeUnavailable("practices.checkpoint", error);
         }
       }
       case "archcontext_plan_update": {

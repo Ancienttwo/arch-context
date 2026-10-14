@@ -229,7 +229,7 @@ export function verifiedPracticeAssetsS6DocsOpsFixture() {
         schemaVersion: "archcontext.hook-adapter/v1", host: "codex", adapterName: "repo-harness-hook",
         ownership: "central-first", hookRuntime: "external-user-level", repoLocalRuntime: "not-vendored",
         entrypoint: { command: "archctx", args: ["hook", "enqueue"], egress: "none", network: "forbidden", failOpen: true },
-        fallbackEntrypoint: { command: "archctx", args: ["hook", "checkpoint"], egress: "none", network: "forbidden", failOpen: true }
+        readEntrypoint: { command: "archctx", args: ["hook", "checkpoint"], egress: "none", network: "forbidden", failOpen: true }
       }
     },
     evidence: {
@@ -247,7 +247,7 @@ function currentHookContractChecks(envelope: unknown) {
   const record = readRecord(envelope);
   const data = readRecord(record.data);
   const entrypoint = readRecord(data.entrypoint);
-  const checkpoint = readRecord(data.fallbackEntrypoint);
+  const checkpoint = readRecord(data.readEntrypoint);
   const exactArgs = (args: unknown, expected: string[]) => Array.isArray(args)
     && args.length === expected.length && expected.every((arg, index) => args[index] === arg);
   return {

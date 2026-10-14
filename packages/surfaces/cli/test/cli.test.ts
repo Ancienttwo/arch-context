@@ -1502,7 +1502,7 @@ describe("archctx CLI", () => {
       expect(unknownWaiverOwner.ok).toBe(false);
       expect((unknownWaiverOwner as any).error.code).toBe("AC_SCHEMA_INVALID");
 
-      const checkpoint = await runTestCli("checkpoint", ["--expected-worktree-digest", (status.data as any).worktreeDigest], root);
+      const checkpoint = await runTestCli("practices", ["checkpoint", "--expected-worktree-digest", (status.data as any).worktreeDigest], root);
       expect((checkpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
       expect((checkpoint.data as any).fresh).toBe(true);
       expect(["fresh", "no-op", "no-baseline"]).toContain((checkpoint.data as any).reasonCode);
@@ -1511,9 +1511,9 @@ describe("archctx CLI", () => {
         expect((checkpoint.data as any).previousPracticeGuidanceDigest).toMatch(/^sha256:/);
       }
 
-      const hookCheckpoint = await runTestCli("hook", ["checkpoint", "--event", "post-edit", "--path", "src/example.ts"], root);
+      const hookCheckpoint = await runTestCli("hook", ["checkpoint", "--event", "post-edit", "--changed-path", "src/example.ts"], root);
       expect(hookCheckpoint.requestId).toBe("hook.checkpoint");
-      expect((hookCheckpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
+      expect((hookCheckpoint.data as any).schemaVersion).toBe("archcontext.hook-debt-checkpoint/v1");
       expect((hookCheckpoint.data as any).hookLog).toMatchObject({
         schemaVersion: "archcontext.hook-log/v1",
         event: "post-edit",
@@ -1664,14 +1664,14 @@ describe("archctx CLI", () => {
     }
   });
 
-  test("hook checkpoint fails open when runtime checkpoint is unavailable", async () => {
+  test("hook checkpoint reports unknown coverage without runtime access outside a Git worktree", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-hook-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     try {
-      const result = await runCli("hook", ["checkpoint", "--event", "post-edit", "--path", "src/app.ts"], root, {
+      const result = await runCli("hook", ["checkpoint", "--event", "post-edit", "--changed-path", "src/app.ts"], root, {
         runtimeClient: {
-          checkpoint() {
-            throw new Error("runtime offline");
+          practiceCheckpoint() {
+            throw new Error("runtime must not be accessed");
           }
         } as any
       });
@@ -1685,11 +1685,13 @@ describe("archctx CLI", () => {
         schemaVersion: "archcontext.hook-log/v1",
         event: "post-edit",
         pathCount: 1,
-        reasonCode: "runtime-unavailable",
+        reasonCode: "git-worktree-required",
         failOpen: true,
         egress: "none",
         network: "forbidden"
       });
+      expect((result.data as any).coverage).toBe("unknown");
+      expect((result.data as any).error).toMatchObject({code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required"});
       expect(JSON.stringify((result.data as any).hookLog)).not.toContain("src/app.ts");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1918,7 +1920,7 @@ describe("archctx CLI", () => {
       expect((remove.data as any).removeConfig).toMatchObject({
         removeAdapter: "repo-harness-hook",
         removeEntrypoint: "archctx hook enqueue",
-        compatibilityEntrypoint: "archctx hook checkpoint",
+        readEntrypoint: "archctx hook checkpoint",
         repoHookSourceRequired: false
       });
 

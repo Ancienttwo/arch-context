@@ -58,7 +58,7 @@ Use the smallest rollback that removes the bad gate without deleting evidence:
    ```bash
    archctx sync
    archctx prepare --task "<same task>"
-   archctx checkpoint --task-session-id <same-session>
+   archctx practices checkpoint --task-session-id <same-session>
    archctx complete --task-session-id <same-session>
    bun run readback:fg6:rollback-compat
    ```

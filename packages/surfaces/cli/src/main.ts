@@ -108,7 +108,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   },
   "apply": { value: ["--expected-worktree-digest", "--id"], boolean: ["--approved"] },
   "book": { value: ["--depth", "--from", "--id", "--max-bytes", "--max-items", "--query", "--since", "--task", "--to"], boolean: ["--explain", "--open"] },
-  "checkpoint": { value: ["--changed", "--event", "--expected-head-sha", "--expected-worktree-digest", "--head-sha", "--max-bytes", "--max-items", "--path", "--task", "--task-session-id", "--tool-call-id"], boolean: [] },
+  "checkpoint": { value: ["--changed-path"], boolean: [] },
   "complete": { value: ["--head-sha", "--posture", "--task", "--task-session-id"], boolean: [] },
   "config": { value: [], boolean: [] },
   "context": { value: ["--max-symbols", "--name", "--task"], boolean: ["--landscape"] },
@@ -145,7 +145,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     value: [],
     boolean: [],
     subcommands: {
-      checkpoint: { value: ["--changed", "--event", "--expected-head-sha", "--expected-worktree-digest", "--max-bytes", "--max-items", "--path", "--task", "--task-session-id", "--tool-call-id"], boolean: [] },
+      checkpoint: { value: ["--changed-path", "--event"], boolean: [] },
       enqueue: { value: ["--analysis-kind", "--base-ref", "--changed", "--coalesce-key", "--code-facts-digest", "--debounce-until", "--event", "--max-attempts", "--max-queued-jobs", "--path", "--priority", "--ref", "--risk", "--runner-port", "--source", "--uncertainty"], boolean: ["--generated-projection", "--no-generated-projection-guard", "--policy-requested"] }
     }
   },
@@ -189,6 +189,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     value: [],
     boolean: [],
     subcommands: {
+      checkpoint: { value: ["--changed", "--event", "--expected-head-sha", "--expected-worktree-digest", "--head-sha", "--max-bytes", "--max-items", "--path", "--task", "--task-session-id", "--tool-call-id"], boolean: [] },
       list: { value: ["--category", "--source"], boolean: [] },
       show: { value: ["--id"], boolean: [] },
       validate: { value: [], boolean: ["--strict"] },
@@ -315,7 +316,14 @@ function preflightCliArguments(command: string, args: string[]): JsonEnvelope | 
   const requestId = flags === spec ? command : `${command}.${subcommand}`;
   for (let index = 0; index < args.length; index += 1) {
     const token = args[index]!;
-    if (!isCliFlagToken(token) || booleanFlags.includes(token)) continue;
+    if (!isCliFlagToken(token)) {
+      if ((command === "checkpoint" || (command === "hook" && subcommand === "checkpoint"))
+        && !(command === "hook" && index === 0)) {
+        return errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${name} takes named options only`);
+      }
+      continue;
+    }
+    if (booleanFlags.includes(token)) continue;
     if (valueFlags.includes(token)) {
       const value = args[index + 1];
       if (value === undefined || isCliFlagToken(value)) return errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${name} requires a value for ${token}`);
@@ -610,7 +618,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "practices":
       return runPracticesCommand(args, cwd, await runtime());
     case "checkpoint":
-      return runCheckpointCommand(args, cwd, await runtime(), "checkpoint");
+      return runCheckpointCommand(args, cwd);
     case "hook":
       return runHookCommand(args, cwd, runtime);
     case "hooks":
@@ -824,9 +832,27 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     });
   case "resolve":
     return okEnvelope("resolve", CLI_RESOLVE_HELP as unknown as Json);
+  case "practices":
+    if (subcommand === "checkpoint") return okEnvelope("help", {
+      usage: "archctx practices checkpoint [--task-session-id <id>] [--task <text>] [--event <event>] [--path <path>]... [--changed <path>]... [--expected-head-sha <sha>] [--expected-worktree-digest <digest>] [--tool-call-id <id>] [--max-bytes <bytes>] [--max-items <items>] [--json]",
+      schemaVersion: "archcontext.practice-checkpoint/v1",
+      writes: "daemon-owned practice baseline; prepare seeds the initial baseline",
+      description: "Explicit practice writer. Preserves stale context, failure and event coalescing; edit-time debt reads use checkpoint instead."
+    });
+    break;
+  case "hook":
+    if (subcommand === "checkpoint") return okEnvelope("help", {
+      usage: "archctx hook checkpoint [--event <event>] [--changed-path <path>]... [--json]",
+      schemaVersion: "archcontext.hook-debt-checkpoint/v1",
+      writes: "none; no runtime or baseline access on success or failure",
+      description: "Read-only debt hook with redacted logging. Producer failures fail open with unknown coverage and a typed error; invalid arguments are rejected."
+    });
+    break;
+  case "checkpoint":
   case "debt":
-    return okEnvelope("debt", {
-      usage: "archctx debt [--changed-path <path>]... [--json]",
+    return okEnvelope("help", {
+      command: `archctx ${command}`,
+      usage: `archctx ${command} [--changed-path <path>]... [--json]`,
       schemaVersion: "archcontext.architecture-debt/v1",
       description: "Edit-time ownership and human citation debt for changed paths. Dependency, flow and practice checks are explicit coverage gaps reserved for complete; no source byte stamp is debt.",
       writes: "none; no daemon, runtime state, rendering or CodeGraph sync"
@@ -1680,6 +1706,7 @@ function architectureProjectionProfile(args: string[]): ArchitectureProjectionPr
 
 async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "list";
+  if (subcommand === "checkpoint") return runPracticeCheckpointCommand(args.slice(1), cwd, daemon);
   if (subcommand === "list") {
     return daemon.practices(cwd, {
       action: "list",
@@ -1726,12 +1753,16 @@ async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeD
       ...(pathGlobs.length === 0 ? {} : { pathGlobs })
     });
   }
-  return errorEnvelope("practices", "AC_SCHEMA_INVALID", "practices requires list|show|validate|sources|waivers|waive");
+  return errorEnvelope("practices", "AC_SCHEMA_INVALID", "practices requires checkpoint|list|show|validate|sources|waivers|waive");
 }
 
-async function runCheckpointCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient, requestId: string) {
+function runCheckpointCommand(args: string[], cwd: string) {
+  return { ...runArchitectureDebtCommand(cwd, { changedPaths: readRepeatedFlag(args, "--changed-path") }), requestId: "checkpoint" };
+}
+
+async function runPracticeCheckpointCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const task = readFlag(args, "--task");
-  const result = await daemon.checkpoint(cwd, {
+  const result = await daemon.practiceCheckpoint(cwd, {
     taskSessionId: readFlag(args, "--task-session-id") ?? "task_cli",
     ...(task === undefined ? {} : { task }),
     event: (readFlag(args, "--event") as any) ?? "manual",
@@ -1742,72 +1773,46 @@ async function runCheckpointCommand(args: string[], cwd: string, daemon: Runtime
     maxBytes: Number(readFlag(args, "--max-bytes") ?? 12_288),
     maxItems: Number(readFlag(args, "--max-items") ?? 12)
   });
-  return { ...result, requestId };
+  return { ...result, requestId: "practices.checkpoint" };
 }
 
 async function runHookCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
   const subcommand = args[0] ?? "enqueue";
-  if (subcommand === "checkpoint") return runHookCheckpointCommand(args.slice(1), cwd, runtime);
+  if (subcommand === "checkpoint") return runHookCheckpointCommand(args.slice(1), cwd);
   if (subcommand === "enqueue") return runHookEnqueueCommand(args.slice(1), cwd, runtime);
   return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires enqueue|checkpoint");
 }
 
-async function runHookCheckpointCommand(checkpointArgs: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
+function runHookCheckpointCommand(checkpointArgs: string[], cwd: string) {
   const started = Date.now();
   const event = readFlag(checkpointArgs, "--event") ?? "post-edit";
-  const changedPaths = [...readRepeatedFlag(checkpointArgs, "--path"), ...readRepeatedFlag(checkpointArgs, "--changed")];
-  try {
-    const result = await runCheckpointCommand(
-      [
-        "--event", event,
-        "--task-session-id", readFlag(checkpointArgs, "--task-session-id") ?? "task_cli",
-        ...copyOptionalFlag(checkpointArgs, "--task"),
-        ...copyOptionalFlag(checkpointArgs, "--tool-call-id"),
-        ...copyOptionalFlag(checkpointArgs, "--expected-head-sha"),
-        ...copyOptionalFlag(checkpointArgs, "--expected-worktree-digest"),
-        ...copyOptionalFlag(checkpointArgs, "--max-bytes"),
-        ...copyOptionalFlag(checkpointArgs, "--max-items"),
-        ...readRepeatedFlag(checkpointArgs, "--path").flatMap((path) => ["--path", path]),
-        ...readRepeatedFlag(checkpointArgs, "--changed").flatMap((path) => ["--changed", path])
-      ],
-      cwd,
-      await runtime(),
-      "hook.checkpoint"
-    );
-    if (!result.ok || typeof result.data !== "object" || result.data === null) return result;
-    return {
-      ...result,
-      data: {
-        ...(result.data as Record<string, Json>),
-        hookLog: hookLogRecord({
-          event,
-          changedPaths,
-          reasonCode: String((result.data as any).reasonCode ?? "unknown"),
-          elapsedMs: Date.now() - started,
-          failOpen: false
-        })
-      } as Json
-    };
-  } catch (error) {
-    return okEnvelope("hook.checkpoint", {
-      schemaVersion: "archcontext.hook-checkpoint-fail-open/v1",
-      accepted: false,
-      failOpen: true,
-      reasonCode: "runtime-unavailable",
-      event,
-      pathCount: changedPaths.length,
-      egress: "none",
-      network: "forbidden",
-      hookLog: hookLogRecord({
-        event,
-        changedPaths,
-        reasonCode: "runtime-unavailable",
-        elapsedMs: Date.now() - started,
-        failOpen: true
-      }),
-      message: error instanceof Error ? error.message : String(error)
-    } as Json);
+  if (event.length === 0 || event.length > 1024) return errorEnvelope("hook.checkpoint",
+    "AC_SCHEMA_INVALID", "Hook event must contain 1 to 1024 characters", "hook-event-invalid");
+  const changedPaths = readRepeatedFlag(checkpointArgs, "--changed-path");
+  const result = runCheckpointCommand(checkpointArgs, cwd);
+  if (!result.ok && result.error?.reasonCode === "changed-path-invalid") {
+    return { ...result, requestId: "hook.checkpoint" };
   }
+  const reasonCode = result.ok ? "debt-measured" : result.error!.reasonCode!;
+  const hookLog = hookLogRecord({ event, changedPaths, reasonCode, elapsedMs: Date.now() - started, failOpen: !result.ok });
+  if (!result.ok) return okEnvelope("hook.checkpoint", {
+    schemaVersion: "archcontext.hook-checkpoint-fail-open/v1",
+    accepted: false,
+    failOpen: true,
+    coverage: "unknown",
+    reasonCode,
+    error: result.error,
+    event,
+    pathCount: changedPaths.length,
+    egress: "none",
+    network: "forbidden",
+    hookLog
+  } as unknown as Json);
+  return okEnvelope("hook.checkpoint", {
+    schemaVersion: "archcontext.hook-debt-checkpoint/v1",
+    debt: result.data,
+    hookLog
+  } as unknown as Json);
 }
 
 async function runHookEnqueueCommand(enqueueArgs: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
@@ -2762,7 +2767,7 @@ function hookAdapterContract(host: AgentHost) {
       egress: "none",
       network: "forbidden"
     },
-    fallbackEntrypoint: {
+    readEntrypoint: {
       command: "archctx",
       args: ["hook", "checkpoint"],
       timeoutMs: HOOK_CHECKPOINT_TIMEOUT_MS,
@@ -2770,6 +2775,7 @@ function hookAdapterContract(host: AgentHost) {
       egress: "none",
       network: "forbidden"
     },
+    readInput: { eventFlag: "--event", changedPathFlag: "--changed-path" },
     acceptedInput: {
       eventFlag: "--event",
       changedPathFlags: ["--path", "--changed"],
@@ -2784,7 +2790,7 @@ function hookAdapterContract(host: AgentHost) {
       successData: "runtime-agent-job-record",
       skipSchemaVersion: "archcontext.hook-enqueue-skipped/v1",
       failOpenSchemaVersion: "archcontext.hook-enqueue-fail-open/v1",
-      checkpointSchemaVersion: "archcontext.practice-checkpoint/v1",
+      checkpointSchemaVersion: "archcontext.hook-debt-checkpoint/v1",
       checkpointFailOpenSchemaVersion: "archcontext.hook-checkpoint-fail-open/v1"
     },
     logContract: {
@@ -2824,7 +2830,7 @@ function hookHostRemoveConfig(host: AgentHost) {
     configPath: host === "codex" ? "~/.codex/hooks.json" : host === "claude" ? "~/.claude/settings.json" : "agent-host-config",
     removeAdapter: HOOK_ADAPTER_NAME,
     removeEntrypoint: "archctx hook enqueue",
-    compatibilityEntrypoint: "archctx hook checkpoint",
+    readEntrypoint: "archctx hook checkpoint",
     repoHookSourceRequired: false
   };
 }
@@ -2842,7 +2848,7 @@ function hookLogRecord(input: { event: string; changedPaths: string[]; reasonCod
     failOpen: input.failOpen,
     egress: "none",
     network: "forbidden"
-  };
+  } satisfies import("@archcontext/contracts").ArchitectureDebtHookLogV1;
 }
 
 function readHookGitChangeSource(args: string[], event: string):
@@ -3930,7 +3936,7 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
   return 1;
 }
 
-const CLI_HELP_EXAMPLES = ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection freshness --changed-path src/app.ts --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
+const CLI_HELP_EXAMPLES = ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection freshness --changed-path src/app.ts --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
 
 const CLI_RESOLVE_HELP = {
   command: "archctx resolve (--path <repo-relative path> | --paths-from <file> | --paths-from -)",
@@ -4178,10 +4184,7 @@ function requireFlag(args: string[], flag: string): string {
   return value;
 }
 
-function copyOptionalFlag(args: string[], flag: string): string[] {
-  const value = readFlag(args, flag);
-  return value === undefined ? [] : [flag, value];
-}
+
 
 function readForbiddenAttestationFlags(args: string[]): string[] {
   return CALLER_PROVIDED_ATTESTATION_FIELDS

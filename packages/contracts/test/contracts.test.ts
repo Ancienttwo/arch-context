@@ -194,6 +194,7 @@ const schemaByFixture: Record<string, string> = {
   "practice-guidance": "schemas/runtime/practice-guidance.schema.json",
   "practice-check-result": "schemas/runtime/practice-check-result.schema.json",
   "practice-checkpoint": "schemas/runtime/practice-checkpoint.schema.json",
+  "hook-debt-checkpoint": "schemas/runtime/hook-debt-checkpoint.schema.json",
   "retrieval-config": "schemas/runtime/retrieval-config.schema.json",
   "retrieval-eval": "schemas/runtime/retrieval-eval.schema.json",
   "retrieval-decision": "schemas/runtime/retrieval-decision.schema.json",
@@ -1716,6 +1717,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.device-identity/v1": "device-identity",
     "archcontext.governance-key-status/v1": "governance-key-status",
     "archcontext.check-delivery/v1": "check-delivery",
+    "archcontext.hook-debt-checkpoint/v1": "hook-debt-checkpoint",
     "archcontext.cloud-egress/v1": "cloud-egress-envelope",
     "archcontext.org-runner-identity/v1": "org-runner-identity",
     "archcontext.entitlement/v1": "entitlement"

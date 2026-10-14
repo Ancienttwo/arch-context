@@ -178,7 +178,7 @@ describe("practice-context7-readback", () => {
       source: "export class Daemon {\n  async prepare(root: string) {\n    return this.externalDocumentation.fetch(root);\n  }\n}\n"
     };
 
-    expect(() => countHardGateProviderReferences([facade], "checkpoint")).toThrow("no declaration of method checkpoint");
+    expect(() => countHardGateProviderReferences([facade], "practiceCheckpoint")).toThrow("no declaration of method practiceCheckpoint");
     expect(() => countHardGateProviderReferences([], "completeTask")).toThrow("no declaration of method completeTask");
   });
 
@@ -187,8 +187,8 @@ describe("practice-context7-readback", () => {
       path: "runtime-daemon/src/index.ts",
       source: [
         "export class Daemon {",
-        "  async checkpoint(root: string, input: unknown) {",
-        "    return this.practice.checkpoint(root, input);",
+        "  async practiceCheckpoint(root: string, input: unknown) {",
+        "    return this.practice.practiceCheckpoint(root, input);",
         "  }",
         "",
         "  private helper() {",
@@ -202,7 +202,7 @@ describe("practice-context7-readback", () => {
       path: "runtime-daemon/src/practice-checkpoint.ts",
       source: [
         "export class PracticeCheckpointService {",
-        "  checkpoint(root: string, input: unknown) {",
+        "  practiceCheckpoint(root: string, input: unknown) {",
         "    return this.manualExternalDocumentation.fetch(root, input);",
         "  }",
         "",
@@ -214,8 +214,8 @@ describe("practice-context7-readback", () => {
       ].join("\n")
     };
 
-    expect(countHardGateProviderReferences([facade], "checkpoint")).toBe(0);
-    expect(countHardGateProviderReferences([facade, service], "checkpoint")).toBe(1);
+    expect(countHardGateProviderReferences([facade], "practiceCheckpoint")).toBe(0);
+    expect(countHardGateProviderReferences([facade, service], "practiceCheckpoint")).toBe(1);
     expect(countHardGateProviderReferences([facade, service], "completeTask")).toBe(0);
   });
 });

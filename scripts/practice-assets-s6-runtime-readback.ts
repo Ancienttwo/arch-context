@@ -218,7 +218,7 @@ async function measureRuntimePerformance(root: string, samples: number) {
     await daemon.prepare(root, RUNTIME_TASK, 12_288, 5, "task_s6_runtime_perf");
     for (let index = 0; index < samples; index += 1) {
       const elapsed = await measure(async () => {
-        const result = await daemon.checkpoint(root, {
+        const result = await daemon.practiceCheckpoint(root, {
           taskSessionId: "task_s6_runtime_perf",
           event: "post-edit",
           changedPaths: ["src/billing/legacy-wrapper-v1.ts"],
@@ -367,7 +367,7 @@ async function buildStaleCatalogReadback() {
       codeGraphProviderFactory: () => new MockCodeGraphProvider(),
       localStore: store
     });
-    const checkpoint = await second.checkpoint(root, {
+    const checkpoint = await second.practiceCheckpoint(root, {
       taskSessionId: "task_s6_stale_catalog",
       event: "post-edit",
       changedPaths: ["src/billing/legacy-wrapper-v1.ts"],

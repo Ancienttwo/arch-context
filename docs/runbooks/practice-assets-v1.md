@@ -66,7 +66,7 @@ Promotion rules:
 - Promote only registered deterministic checkers.
 - Do not promote heuristic-only matches, task text, Context7 resources, LLM
   output, or unknown checker results.
-- Run `archctx prepare`, `archctx checkpoint`, and `archctx complete` on the same
+- Run `archctx prepare`, `archctx practices checkpoint`, and `archctx complete` on the same
   task session before treating the policy as active.
 
 ## Add A Waiver
@@ -115,8 +115,10 @@ Hook invariants:
 - The hook is a trigger only; the daemon remains the decision owner.
 - `archctx hook enqueue` is the primary local RPC entrypoint; it queues daemon-owned
   work, declares `network: forbidden`, and fail-opens when unavailable.
-- `archctx hook checkpoint` is the explicitly advertised compatibility entrypoint
-  in the current CLI adapter contract, with the same local-only network boundary.
+- `archctx hook checkpoint --changed-path <path>` reads edit-time debt in process,
+  without accessing runtime or practice state. Producer failure carries unknown coverage and
+  the original typed error; invalid inputs are rejected. `practices checkpoint` is the explicit
+  practice baseline writer. Hook metadata declares separate enqueue/read inputs and outputs.
 - Do not set `"hook_source": "repo"` unless doing an explicitly reviewed
   repo-local hook runtime override.
 
@@ -208,7 +210,7 @@ Use the smallest rollback that removes user pain while preserving evidence:
    ```bash
    archctx sync
    archctx prepare --task "<same task>"
-   archctx checkpoint --task-session-id <same-session>
+   archctx practices checkpoint --task-session-id <same-session>
    archctx complete --task-session-id <same-session>
    ```
 
