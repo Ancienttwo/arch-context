@@ -822,7 +822,7 @@
     "targetChange": {
       "type": "object",
       "additionalProperties": false,
-      "description": "How one target changes since the committed projection and what this run's write does to its file (#327). null is an unknown comparison. classification follows blocked > baseline-missing > proof-change > semantic-change > output-change > stamp-only > unchanged.",
+      "description": "How one target changes since the committed projection and what this run's write does to its file (#327). null is an unknown comparison. classification follows blocked > proof-change (a known proof change) > baseline-missing > semantic-change > output-change > stamp-only > unchanged.",
       "required": [
         "targetId",
         "path",

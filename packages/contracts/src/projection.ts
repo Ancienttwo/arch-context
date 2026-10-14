@@ -228,9 +228,10 @@ export const PROJECTION_ARCHITECTURE_DEBT_COVERAGE_REASON_CODES = [
 /**
  * How one target of a `check` or `plan` result changes (#327 finding 2), from the strongest reason
  * down: `blocked` (a human must act before the target can be written: Phase 1 isolation, an orphan
- * that needs review, an adoption or ownership rejection), `baseline-missing` (a comparison is
- * unknown: no committed v3 manifest, or no committed row for the target), `proof-change`,
- * `semantic-change`, `output-change`, `stamp-only` (only the source stamps moved) and `unchanged`.
+ * that needs review, an adoption or ownership rejection), `proof-change` (a known proof change,
+ * which a missing baseline never hides), `baseline-missing` (a comparison is unknown: no committed
+ * v3 manifest, or no committed row for the target), `semantic-change`, `output-change`,
+ * `stamp-only` (only the source stamps moved) and `unchanged`.
  * `projectionTargetChangeClassification` is the one precedence rule.
  */
 export const PROJECTION_TARGET_CHANGE_CLASSIFICATIONS = [
@@ -1053,17 +1054,19 @@ const TARGET_CHANGE_OUTPUT_REASONS = ["file-bytes-changed", "rendered-output-cha
 const TARGET_CHANGE_PROOF_REASONS = ["flow-proof-changed", "selector-evidence-changed"] as const;
 
 /**
- * The one precedence rule of a target change: blocked > baseline-missing > proof-change >
- * semantic-change > output-change > stamp-only > unchanged. `stamp-only` therefore means the
- * stamps moved while the output bytes, and the semantic and proof comparisons, are known and
- * unchanged on a target nothing blocks; an unknown comparison is never `unchanged`.
+ * The one precedence rule of a target change: blocked > proof-change (`proofChanged === true`) >
+ * baseline-missing > semantic-change > output-change > stamp-only > unchanged. A known proof change
+ * is never hidden by an unknown comparison (a target without a committed row can still carry a
+ * moved flow proof); an unknown comparison outranks everything below the proof change and is never
+ * `unchanged`. `stamp-only` therefore means the stamps moved while the output bytes, and the
+ * semantic and proof comparisons, are known and unchanged on a target nothing blocks.
  */
 export function projectionTargetChangeClassification(
   input: Pick<ProjectionTargetChangeV1, "reasonCodes" | "stampChanged" | "outputChanged" | "semanticChanged" | "proofChanged">
 ): ProjectionTargetChangeClassification {
   if (input.reasonCodes.some((code) => TARGET_CHANGE_BLOCKING_REASONS.has(code))) return "blocked";
+  if (input.proofChanged === true) return "proof-change";
   if (input.stampChanged === null || input.semanticChanged === null || input.proofChanged === null) return "baseline-missing";
-  if (input.proofChanged) return "proof-change";
   if (input.semanticChanged) return "semantic-change";
   if (input.outputChanged) return "output-change";
   if (input.stampChanged) return "stamp-only";

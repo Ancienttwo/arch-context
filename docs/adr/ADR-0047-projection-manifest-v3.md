@@ -164,10 +164,12 @@ manifest is not a target.
   document their `flowProofFingerprint` and `selectorEvidenceDigest`. No new fingerprint is
   computed. An unknown comparison (no v3 manifest, or no row for the target) is `null`, never
   `false`.
-- `classification` is derived by one rule in the contracts package: blocked > baseline-missing >
-  proof-change > semantic-change > output-change > stamp-only > unchanged. `stamp-only` requires
-  unchanged output bytes and known, unchanged semantic and proof comparisons on a target nothing
-  blocks.
+- `classification` is derived by one rule in the contracts package: blocked > proof-change (a
+  known proof change, `proofChanged === true`) > baseline-missing > semantic-change >
+  output-change > stamp-only > unchanged. A known proof change is never hidden by an unknown
+  comparison, so a target without a committed row whose capability's flow proof moved is
+  `proof-change` with `target-row-missing` among its reasons. `stamp-only` requires unchanged
+  output bytes and known, unchanged semantic and proof comparisons on a target nothing blocks.
 - `plannedAction` is the result's `files[]` action for the path, the same decision `apply`
   commits, so the targets with a planned action are exactly the documents apply writes or
   deletes. `blocked` comes from the isolation's carried-forward targets (the `coverage`

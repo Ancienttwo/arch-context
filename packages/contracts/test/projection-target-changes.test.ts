@@ -88,7 +88,7 @@ test("a check or plan result carries schema-valid, receipt-bound per-target chan
     .toContain("changes is only allowed on a check or plan result, never on a committed apply");
 });
 
-test("classification follows one precedence: blocked > baseline-missing > proof > semantic > output > stamp-only > unchanged (#327)", () => {
+test("classification follows one precedence: blocked > proof (known) > baseline-missing > semantic > output > stamp-only > unchanged (#327)", () => {
   const flags = (fields: Partial<ProjectionTargetChangeV1>) => projectionTargetChangeClassification(change(CATALOG, fields));
   expect(flags({})).toBe("unchanged");
   expect(flags({ stampChanged: true, reasonCodes: ["source-stamp-changed"] })).toBe("stamp-only");
@@ -104,7 +104,10 @@ test("classification follows one precedence: blocked > baseline-missing > proof 
   expect(flags({ stampChanged: null })).toBe("baseline-missing");
   expect(flags({ semanticChanged: null, stampChanged: true })).toBe("baseline-missing");
   expect(flags({ proofChanged: null, outputChanged: true })).toBe("baseline-missing");
-  expect(flags({ stampChanged: null, proofChanged: true })).toBe("baseline-missing");
+  // A known proof change is never hidden by an unknown comparison; baseline-missing still outranks the rest.
+  expect(flags({ stampChanged: null, proofChanged: true, reasonCodes: ["flow-proof-changed", "target-row-missing"] })).toBe("proof-change");
+  expect(flags({ semanticChanged: null, proofChanged: true })).toBe("proof-change");
+  expect(flags({ stampChanged: null, semanticChanged: true, outputChanged: true })).toBe("baseline-missing");
   for (const code of PROJECTION_TARGET_CHANGE_BLOCKING_REASON_CODES) {
     expect(flags({ reasonCodes: [code] })).toBe("blocked");
     expect(flags({ reasonCodes: [code], stampChanged: null, semanticChanged: null, proofChanged: null })).toBe("blocked");

@@ -194,6 +194,30 @@ test("a committed manifest without a row for a target it should describe is base
   expect(changes.get(ENTITY_A)!.classification).toBe("unchanged");
 });
 
+test("a known proof change outranks a missing committed row: proof-change with the row-missing reason", () => {
+  const input = unchangedInput();
+  const { [ENTITY_A]: _alpha, ...rows } = baseRows();
+  input.committed = manifest(undefined, rows);
+  input.capabilities = input.capabilities.map((entry) => entry.capabilityId === A ? { ...entry, flowProofFingerprint: digest("9") } : entry);
+  input.files = [MANIFEST_WRITE, write(PATH[ENTITY_A], "create")];
+  const entry = classify(input).get(ENTITY_A)!;
+  expect(entry).toMatchObject({ classification: "proof-change", stampChanged: null, semanticChanged: false, proofChanged: true, plannedAction: "create" });
+  expect(entry.reasonCodes).toEqual(["flow-proof-changed", "target-row-missing"]);
+  expect(entry.affectedCapabilityIds).toEqual([A]);
+});
+
+test("a missing committed row explained by a semantic change is semantic-change, never baseline-missing", () => {
+  const input = unchangedInput();
+  const { [ENTITY_A]: _alpha, ...rows } = baseRows();
+  input.committed = manifest(undefined, rows);
+  input.capabilities = input.capabilities.map((entry) => entry.capabilityId === A ? { ...entry, semanticFingerprint: digest("8") } : entry);
+  input.files = [MANIFEST_WRITE, write(PATH[ENTITY_A], "create")];
+  const entry = classify(input).get(ENTITY_A)!;
+  expect(entry).toMatchObject({ classification: "semantic-change", semanticChanged: true, proofChanged: false, plannedAction: "create" });
+  expect(entry.stampChanged).toBe(true);
+  expect(entry.reasonCodes).toEqual(["semantic-fingerprint-changed", "source-stamp-changed", "target-added"]);
+});
+
 test("an added capability's document is a semantic create, and a removed one's orphan is a semantic delete", () => {
   const input = unchangedInput();
   input.capabilities = [...input.capabilities.filter((entry) => entry.capabilityId !== B), (({ selectorEvidenceDigest: _s, ...entry }) => entry)(capability(C, []))];
