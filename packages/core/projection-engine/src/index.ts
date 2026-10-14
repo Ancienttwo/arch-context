@@ -916,6 +916,17 @@ function previousArchitectureDocsProjectionManifest(body: string | undefined, re
 }
 
 /**
+ * Refuses a committed manifest exactly as a projection render refuses it, without rendering: a
+ * superseded one throws `projection-manifest-upgrade-required` and a current-format one that fails
+ * its contract throws `projection-manifest-invalid`. A manifest that is not JSON or names no
+ * recognizable `schemaVersion` carries no baseline and passes, as it does for a render. Surfaces
+ * that read only the stamps (`projection freshness`) call it so they refuse what `check` refuses.
+ */
+export function assertArchitectureDocsProjectionManifestAccepted(body: string): void {
+  previousArchitectureDocsProjectionManifest(body, false);
+}
+
+/**
  * The entity-summary target node that documents each declared source footprint under `profile`:
  * the nearest ancestor-or-self of the declaring node that has an entity-summary target. Keys are
  * every node that declares `source.include`. A declared footprint with no such node throws
@@ -1388,6 +1399,11 @@ export function evaluateArchitectureProjectionFreshness(input: {
   manifest: ArchitectureProjectionManifestStampReadback;
   /** `loadCapabilitySourceFootprintDigests` for the same model, measured now. */
   sourceFootprints: CapabilitySourceFootprintDigest[];
+  /**
+   * Probe only these of the profile's stamped nodes (`projection freshness --changed-path`). Only
+   * these need a measured footprint. Absent, every stamped node is probed.
+   */
+  nodeIds?: readonly string[];
 }): ArchitectureProjectionFreshnessEvaluation {
   if (input.manifest.status === "manifest-missing") {
     return freshnessEvaluation(
@@ -1409,7 +1425,9 @@ export function evaluateArchitectureProjectionFreshness(input: {
   const stampsByNodeId = new Map(input.manifest.nodes.map((entry) => [entry.nodeId, entry.sourceFootprintDigest]));
   const currentByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
   const staleNodes: ArchitectureProjectionFreshnessStaleNode[] = [];
+  const probed = input.nodeIds === undefined ? undefined : new Set(input.nodeIds);
   for (const nodeId of architectureProjectionStampedNodeIds(input.model, input.profile)) {
+    if (probed !== undefined && !probed.has(nodeId)) continue;
     const currentDigest = currentByNodeId.get(nodeId);
     if (currentDigest === undefined) throw new Error(`architecture-projection-freshness-footprint-unmeasured: ${nodeId}`);
     const stamp = stampsByNodeId.get(nodeId);
