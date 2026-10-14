@@ -2,6 +2,8 @@ import { ARCHITECTURE_DOCS_RENDERER_VERSION, NativeContextError, digestJson, typ
 
 export const GENERATED_DOCUMENT_BEGIN = "<!-- BEGIN ARCHCONTEXT:generated";
 export const GENERATED_DOCUMENT_END = "<!-- END ARCHCONTEXT:generated";
+/** Observed historical read grammar; it never changes the current v6 producer/freshness rules. */
+const HISTORICAL_V5_RENDERER = "archcontext.docs-renderer/v5";
 interface MarkdownLine { start: number; end: number; bodyEnd: number; raw: string; number: number }
 interface MarkerToken { start: number; end: number; kind: "BEGIN" | "END"; marker: string; attributes: Record<string, string> }
 export interface GeneratedDocumentRegion {
@@ -47,15 +49,37 @@ export function generatedMarkerAttributes(marker: string): { attributes: Record<
     attributes[attribute[1]!] = attribute[2]!;
     offset = pattern.lastIndex;
   }
-  const allowed = match[1] === "BEGIN" ? ["target", "rendererVersion", "outputDigest"] : ["target"];
+  const historicalV5 = match[1] === "BEGIN" && attributes.rendererVersion === HISTORICAL_V5_RENDERER;
+  const allowed = match[1] === "BEGIN" ? historicalV5 ? ["target", "sourceDigest", "rendererVersion", "outputDigest"] : ["target", "rendererVersion", "outputDigest"] : ["target"];
   if (Object.keys(attributes).some(key => !allowed.includes(key)) || !attributes.target) valid = false;
+  if (historicalV5 && !/^sha256:[a-f0-9]{64}$/.test(attributes.sourceDigest ?? "")) valid = false;
   if (match[1] === "BEGIN" && (!attributes.rendererVersion || !/^sha256:[a-f0-9]{64}$/.test(attributes.outputDigest ?? ""))) valid = false;
   return { attributes, valid };
 }
 
 /** Offset-preserving lexer shared by projection, citation and native readers. */
-export function scanDocumentRegions(body: string): DocumentRegionScan {
+export function scanDocumentRegions(body: string, options: { generatedBodyLiterals?: boolean } = {}): DocumentRegionScan {
   const lines = markdownLines(body);
+  // Index backtick runs once. Confirmed same-paragraph pairs may span lines; an
+  // unmatched or escaped opener is literal and cannot hide a real delimiter.
+  const backticks = new Map<number, number[]>();
+  for (const match of body.matchAll(/`+/g)) {
+    const positions = backticks.get(match[0].length) ?? [];
+    positions.push(match.index); backticks.set(match[0].length, positions);
+  }
+  const paragraphEnds: number[] = [];
+  let nextBlock = body.length;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    paragraphEnds[index] = nextBlock;
+    if (/^\s*$/.test(lines[index]!.raw) || /^ {0,3}(?:#{1,6}[ \t]|`{3,}|~{3,}|<!--)/.test(lines[index]!.raw)) nextBlock = lines[index]!.start;
+  }
+  const closingBacktick = (start: number, length: number, boundary: number): number | undefined => {
+    const positions = backticks.get(length)!;
+    let low = 0, high = positions.length;
+    while (low < high) { const middle = (low + high) >>> 1; if (positions[middle]! <= start) low = middle + 1; else high = middle; }
+    const closing = positions[low];
+    return closing !== undefined && closing < boundary ? closing + length : undefined;
+  };
   const diagnostics: DocumentRegionDiagnostic[] = [];
   const generatedRegions: GeneratedDocumentRegion[] = [];
   const headings: DocumentRegionScan["headings"] = [];
@@ -64,33 +88,56 @@ export function scanDocumentRegions(body: string): DocumentRegionScan {
   let generated: GeneratedDocumentRegion | undefined;
   let fence: { char: string; length: number } | undefined;
   let inComment = false;
+  let inlineCodeEnd: number | undefined;
+  let indentedCode = false;
+  let blockCanStart = true;
   for (const line of lines) {
     const raw = line.raw;
+    const commentBlockLine = inComment || /^ {0,3}<!--(?! (?:BEGIN|END) ARCHCONTEXT:generated)/.test(raw);
+    let closedCommentBlock = false;
+    const literals = !generated || options.generatedBodyLiterals !== false;
+    if (!literals) { fence = undefined; inComment = false; inlineCodeEnd = undefined; }
+    const beganInsideCode = inlineCodeEnd !== undefined && inlineCodeEnd > line.start;
+    if (literals && inlineCodeEnd === undefined && !inComment && !fence) {
+      if (/^(?: {4}|\t)/.test(raw) && (indentedCode || blockCanStart)) { indentedCode = true; continue; }
+      if (indentedCode && /^\s*$/.test(raw)) continue;
+      indentedCode = false;
+    }
     if (fence) {
       const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(raw);
-      if (close && close[1]![0] === fence.char && close[1]!.length >= fence.length) fence = undefined;
+      if (close && close[1]![0] === fence.char && close[1]!.length >= fence.length) { fence = undefined; blockCanStart = true; }
       continue;
     }
     const open = /^ {0,3}(`{3,}|~{3,})/.exec(raw.replace(/^\uFEFF/, ""));
-    if (open && !inComment) { fence = { char: open[1]![0]!, length: open[1]!.length }; continue; }
+    if (open && literals && !inComment && inlineCodeEnd === undefined) { fence = { char: open[1]![0]!, length: open[1]!.length }; continue; }
     let visible = "";
     let column = 0;
-    let inlineCode: number | undefined;
     while (column < raw.length) {
+      if (inlineCodeEnd !== undefined) {
+        const end = Math.min(raw.length, inlineCodeEnd - line.start);
+        if (!generated) visible += raw.slice(column, end);
+        column = end;
+        if (line.start + column >= inlineCodeEnd) inlineCodeEnd = undefined;
+        continue;
+      }
       if (inComment) {
         const end = raw.indexOf("-->", column);
         if (end < 0) break;
-        column = end + 3; inComment = false; continue;
+        column = end + 3; inComment = false; closedCommentBlock = commentBlockLine; continue;
       }
-      if (raw[column] === "`") {
-        const run = /^`+/.exec(raw.slice(column))![0].length;
-        inlineCode = inlineCode === run ? undefined : inlineCode === undefined ? run : inlineCode;
+      if (raw[column] === "`" && (!generated || options.generatedBodyLiterals !== false)) {
+        let run = 1; while (raw[column + run] === "`") run += 1;
+        let slashes = 0; while (column - slashes > 0 && raw[column - slashes - 1] === "\\") slashes += 1;
+        if (slashes % 2 !== 0) { if (!generated) visible += "`"; column += 1; continue; }
+        const boundary = /^ {0,3}#{1,6}[ \t]/.test(raw) ? line.bodyEnd : paragraphEnds[line.number - 1]!;
+        const closing = closingBacktick(line.start + column, run, boundary);
+        if (closing !== undefined) { inlineCodeEnd = closing; continue; }
         if (!generated) visible += raw.slice(column, column + run);
         column += run; continue;
       }
       const begin = raw.startsWith(GENERATED_DOCUMENT_BEGIN, column);
       const end = raw.startsWith(GENERATED_DOCUMENT_END, column);
-      if ((begin || end) && inlineCode === undefined) {
+      if (begin || end) {
         const close = raw.indexOf("-->", column);
         const tokenEnd = close < 0 ? raw.length : close + 3;
         const marker = raw.slice(column, tokenEnd);
@@ -115,12 +162,18 @@ export function scanDocumentRegions(body: string): DocumentRegionScan {
         }
         column = tokenEnd; continue;
       }
-      if (raw.startsWith("<!--", column) && inlineCode === undefined) { inComment = true; column += 4; continue; }
+      if (raw.startsWith("<!--", column) && (!generated || options.generatedBodyLiterals !== false)) { inComment = true; column += 4; continue; }
       if (!generated) visible += raw[column];
       column += 1;
     }
-    const heading = /^ {0,3}##[ \t]+(.+?)\s*(?:[ \t]+#+\s*)?$/.exec(visible.replace(/^\uFEFF/, ""));
-    if (heading && /^ {0,3}##[ \t]+/.test(raw.replace(/^\uFEFF/, "")) && !generated && !generatedRegions.some(region => region.start < line.end && region.end > line.start)) headings.push({ start: line.start, end: line.end, title: heading[1]! });
+    const heading = /^ {0,3}##[ \t]+/.exec(visible.replace(/^\uFEFF/, ""));
+    if (heading && !beganInsideCode && /^ {0,3}##[ \t]+/.test(raw.replace(/^\uFEFF/, "")) && !generated && !generatedRegions.some(region => region.start < line.end && region.end > line.start)) {
+      let title = visible.replace(/^\uFEFF/, "").slice(heading[0].length).trimEnd();
+      let hashStart = title.length; while (hashStart > 0 && title[hashStart - 1] === "#") hashStart -= 1;
+      if (hashStart < title.length && hashStart > 0 && /[ \t]/.test(title[hashStart - 1]!)) title = title.slice(0, hashStart).trimEnd();
+      headings.push({ start: line.start, end: line.end, title });
+    }
+    blockCanStart = closedCommentBlock || /^\s*$/.test(raw) || /^ {0,3}#{1,6}[ \t]/.test(raw);
   }
   if (generated) {
     diagnostics.push({ kind: "marker-unmatched-begin", start: generated.start, end: generated.bodyStart });
@@ -158,7 +211,7 @@ export function analyzeNativeDocument(body: string, path: string, targetId: stri
   const diagnostics = [...scan.diagnostics];
   for (const region of scan.generatedRegions) {
     if (region.targetId !== targetId) diagnostics.push({ kind: "unexpected-target", start: region.start, end: region.end });
-    if (region.attributes.rendererVersion !== ARCHITECTURE_DOCS_RENDERER_VERSION) diagnostics.push({ kind: "unsupported-renderer", start: region.start, end: region.bodyStart });
+    if (region.attributes.rendererVersion !== ARCHITECTURE_DOCS_RENDERER_VERSION && region.attributes.rendererVersion !== HISTORICAL_V5_RENDERER) diagnostics.push({ kind: "unsupported-renderer", start: region.start, end: region.bodyStart });
     const generatedBody = body.slice(region.bodyStart, region.bodyEnd).replace(/^\r?\n/, "").replace(/\r?\n$/, "").replace(/\r\n/g, "\n");
     if (region.attributes.outputDigest !== digestJson({ targetId, body: `${generatedBody.trimEnd()}\n` })) diagnostics.push({ kind: "output-digest-mismatch", start: region.start, end: region.end });
   }

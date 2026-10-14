@@ -2475,7 +2475,7 @@ function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string, sk
 }
 
 function findGeneratedRegion(body: string, targetId: string): { start: number; end: number; startMarker: string; body: string } | undefined {
-  const region = scanDocumentRegions(body).generatedRegions.find(region => region.targetId === targetId && region.closed);
+  const region = scanDocumentRegions(body, { generatedBodyLiterals: false }).generatedRegions.find(region => region.targetId === targetId && region.closed);
   if (!region) return undefined;
   const endMarker = generatedEndMarker(targetId);
   const endIndex = region.bodyEnd;
@@ -2487,7 +2487,7 @@ function findGeneratedRegion(body: string, targetId: string): { start: number; e
 }
 
 function findAnyGeneratedRegion(body: string): { targetId: string } | undefined {
-  const region = scanDocumentRegions(body).generatedRegions.find(region => region.targetId !== undefined);
+  const region = scanDocumentRegions(body, { generatedBodyLiterals: false }).generatedRegions.find(region => region.targetId !== undefined);
   return region ? { targetId: region.targetId! } : undefined;
 }
 

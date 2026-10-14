@@ -91,6 +91,7 @@ export const ARCHCTX_FEATURES = [
   "docs-anchors-v1",
   "flow-selector-check-v1",
   "module-statistics-v1",
+  "native-context-export-v1",
   "projection-apply-readback-v1",
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",

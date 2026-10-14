@@ -117,7 +117,16 @@ export class NativeContextError extends Error {
 }
 
 export function nativeContextErrorEnvelope(error: NativeContextError): JsonEnvelope {
-  const envelope = errorEnvelope("export.native", error.code, error.reasonCode, error.reasonCode, error.details);
+  let omittedDiagnosticCharacters = 0;
+  const bound = (value: Json): Json => {
+    if (typeof value === "string" && value.length > 1024) { omittedDiagnosticCharacters += value.length - 1024; return value.slice(0, 1024); }
+    if (Array.isArray(value)) return value.map(bound);
+    if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, bound(child)]));
+    return value;
+  };
+  const details = bound(error.details) as Record<string, Json>;
+  if (omittedDiagnosticCharacters > 0) details.omittedDiagnosticCharacters = omittedDiagnosticCharacters;
+  const envelope = errorEnvelope("export.native", error.code, error.reasonCode, error.reasonCode, details);
   envelope.error!.retryable = error.reasonCode === "native-context-input-changed";
   envelope.error!.action = error.reasonCode === "native-context-input-changed" ? "rerun-native-export"
     : error.code === "AC_REPO_NOT_FOUND" ? "open-correct-repository"

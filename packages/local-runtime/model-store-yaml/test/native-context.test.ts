@@ -29,6 +29,29 @@ function files(root: string, prefix = ""): Record<string, string> {
   return values;
 }
 describe("stateless native context sources", () => {
+  test.each(["commit", "tree", "blob"])("fixed objects ignore local %s replacement refs", kind => {
+    const fixture = createNativeFixture();
+    try {
+      const fixed = exportNativeContext(fixture.root, { source: "ref", ref: fixture.commit });
+      writeFixtureFile(fixture.root, "AGENTS.md", "replacement contract\n");
+      const second = commitFixture(fixture.root, "replacement");
+      const object = (commit: string) => kind === "commit" ? commit : fixtureGit(fixture.root, ["rev-parse", kind === "tree" ? `${commit}^{tree}` : `${commit}:AGENTS.md`]);
+      fixtureGit(fixture.root, ["replace", object(fixture.commit), object(second)]);
+      expect(exportNativeContext(fixture.root, { source: "ref", ref: fixture.commit })).toEqual(fixed);
+    } finally { fixture.cleanup(); }
+  });
+  test.each(["AGENTS.md", "missing/AGENTS.md"])("case aliases in existing ancestors cannot turn %s into a different Git path", name => {
+    const fixture = createNativeFixture();
+    try {
+      writeFixtureFile(fixture.root, "lower/AGENTS.md", "exact lowercase path\n");
+      rewriteCapability(fixture.root, value => { value.extensions.contractFiles.agents = `LOWER/${name}`; });
+      const commit = commitFixture(fixture.root, "case alias");
+      const fixed = exportNativeContext(fixture.root, { source: "ref", ref: commit });
+      expect(fixed.contracts.find(contract => contract.path === `LOWER/${name}`)!.presence).toBe("missing");
+      if (existsSync(join(fixture.root, "LOWER"))) expect(reason(() => exportNativeContext(fixture.root, { source: "worktree" })).reasonCode).toBe("native-context-path-unsafe");
+      else expect(exportNativeContext(fixture.root, { source: "worktree" }).inputDigest).toBe(fixed.inputDigest);
+    } finally { fixture.cleanup(); }
+  });
   test("ref/worktree expose complete original records, canonical kinds and no local identity", () => {
     const fixture = createNativeFixture();
     try {
@@ -150,6 +173,17 @@ describe("stateless native context sources", () => {
       if (kind === "invalid-flow") writeFixtureFile(fixture.root, ".archcontext/model/flows/flow.demo.bad.yaml", "{}");
       if (kind === "nested-model") writeFixtureFile(fixture.root, ".archcontext/model/nodes/nested/node.yaml", stableYaml(fixtureModel().nodes[0]!));
       expect(reason(() => exportNativeContext(fixture.root, { source: "worktree" })).reasonCode).toBe({ "missing-declaration": "native-context-profile-incomplete", "unsafe-declaration": "native-context-path-unsafe", "unsupported-layout": "native-context-model-invalid", "invalid-budget": "native-context-budget-invalid", "invalid-flow": "native-context-model-invalid", "nested-model": "native-context-entry-kind-unsupported" }[kind] as NativeContextReasonCode);
+    } finally { fixture.cleanup(); }
+  });
+  test.each([
+    ['__proto__: {"schemaVersion":"archcontext.manifest/v1","model":{"layout":"split","root":".archcontext/model"},"runtime":{"contextBudgetBytes":64}}\n', "native-context-model-invalid"],
+    ['schemaVersion: archcontext.manifest/v1\nmodel:\n  __proto__: {"layout":"split","root":".archcontext/model"}\nruntime:\n  contextBudgetBytes: 64\n', "native-context-model-invalid"],
+    ['schemaVersion: archcontext.manifest/v1\nmodel:\n  layout: split\n  root: .archcontext/model\nruntime:\n  __proto__: {"contextBudgetBytes":64}\n', "native-context-budget-invalid"]
+  ])("manifest fields cannot be inherited from a YAML object prototype", (text, expected) => {
+    const fixture = createNativeFixture();
+    try {
+      writeFixtureFile(fixture.root, ".archcontext/manifest.yaml", text!);
+      expect(reason(() => exportNativeContext(fixture.root, { source: "worktree" })).reasonCode).toBe(expected as NativeContextReasonCode);
     } finally { fixture.cleanup(); }
   });
   test.each(["add-model", "delete-model", "rename-model", "edit-contract", "delete-contract", "edit-document", "delete-document", "move-head"])("observed %s during the read yields retryable drift", kind => {
@@ -301,7 +335,7 @@ describe("frozen real consumer corpus", () => {
     expect(nativeContextModelIssues(model, { node: nodeSchema, relation: relationSchema, flow: flowSchema } as unknown as NativeContextSchemas)).toEqual([]);
     expect(model.nodes).toHaveLength(102); expect(model.relations).toHaveLength(299); expect(model.flows).toHaveLength(52);
   });
-  test("historical consumer document coverage stays explicitly unconfirmed", () => {
+  test("preserves the original strict-v6 rejection evidence without rewriting history", () => {
     const coverage = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/native-context/downstream-corpus/document-coverage.json"), "utf8"));
     expect(coverage.coverageConfirmed).toBe(false);
     expect(coverage.documents).toHaveLength(40);

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -11,6 +11,12 @@ const archctxBin = resolveArchctxBin();
 const PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 const KILL_LIST_PATH = "legacy-shim.ts";
 const KILL_LIST_OWNER_NODE_ID = "module.packaged-legacy";
+
+// A separately bundled Node entry is exercised with no repository source/Bun/CodeGraph
+// available in its runtime environment. Only the product's native runtime dependencies
+// are linked; these are published dependencies, not TypeScript development tooling.
+runNativePackagedSmoke();
+if (process.argv.includes("--native-only")) process.exit(0);
 
 if (!existsSync(archctxBin)) {
   const entries = existsSync(binDir) ? readdirSync(binDir).join(", ") : "<missing .bin directory>";
@@ -642,6 +648,58 @@ function resolveArchctxBin() {
     ? [join(binDir, "archctx.cmd"), join(binDir, "archctx.exe"), join(binDir, "archctx")]
     : [join(binDir, "archctx")];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function runNativePackagedSmoke() {
+  const fixture = mkdtempSync(join(tmpdir(), "archctx-native-packaged-"));
+  const stage = mkdtempSync(join(tmpdir(), "archctx-native-node-stage-"));
+  const state = mkdtempSync(join(tmpdir(), "archctx-native-empty-state-"));
+  const nativeBin = join(stage, "archctx.mjs");
+  const write = (path, body) => { mkdirSync(join(fixture, path, ".."), { recursive: true }); writeFileSync(join(fixture, path), body); };
+  const git = (args) => execFileSync("git", ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${join(fixture, ".git/no-hooks")}`, ...args], { cwd: fixture, stdio: ["ignore", "pipe", "pipe"] }).toString().trim();
+  try {
+    execFileSync("bun", ["build", "packages/surfaces/cli/src/main.ts", "--target=node", "--format=esm", "--outfile", nativeBin, "--external=@colbymchenry/codegraph", "--external=@node-rs/jieba", "--external=@node-rs/jieba/dict.js", "--external=koffi"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    const moduleDir = join(stage, "node_modules"); mkdirSync(moduleDir);
+    for (const name of ["@node-rs", "koffi"]) {
+      const source = join(root, "packages/core/node_modules", name);
+      if (existsSync(source)) symlinkSync(realpathSync(source), join(moduleDir, name), process.platform === "win32" ? "junction" : "dir");
+    }
+    assert(!existsSync(join(moduleDir, "@colbymchenry/codegraph")), "native staged runtime must have no CodeGraph package");
+    assert(!existsSync(join(moduleDir, "typescript")), "native staged runtime must have no development compiler");
+    git(["init", "--quiet"]); git(["config", "core.autocrlf", "false"]);
+    write(".archcontext/manifest.yaml", JSON.stringify({ schemaVersion: "archcontext.manifest/v1", model: { layout: "split", root: ".archcontext/model" }, runtime: { contextBudgetBytes: 64 } }));
+    const capability = { schemaVersion: "archcontext.node/v2", id: "capability.smoke.native", kind: "capability", name: "Native", status: "active", summary: "Packaged native reader", responsibilities: ["Read native context"], source: { include: ["src/a.ts"] }, extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" }, lspProfile: "typescript-lsp", verification: ["node --version"] } };
+    write(".archcontext/model/nodes/capability.smoke.native.yaml", JSON.stringify(capability));
+    write("AGENTS.md", "# Contract\r\n"); write("CLAUDE.md", "");
+    const prose = "\uFEFF# Native\r\n## 3. P3\r\nHuman café 🧭.\r\n<!-- preserved -->\r\n## Optimization Backlog\r\n \t\r\n";
+    write("docs/architecture/modules/smoke/native.md", prose);
+    git(["add", "--all"]);
+    git(["-c", "user.name=Native Smoke", "-c", "user.email=native-smoke@example.test", "commit", "--quiet", "-m", "native fixture"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const indexBefore = readFileSync(join(fixture, ".git/index"));
+    const gitName = process.platform === "win32" ? "git.exe" : "git";
+    const gitDirectory = String(process.env.PATH ?? "").split(delimiter).find(path => existsSync(join(path, gitName)));
+    assert(gitDirectory, "native packaged smoke needs the existing Git binary");
+    const env = { ...process.env, ARCHCONTEXT_STATE_DIR: state, PATH: gitDirectory, GIT_TERMINAL_PROMPT: "0", DO_NOT_TRACK: "1" };
+    const run = (args) => JSON.parse(execFileSync(process.execPath, [nativeBin, "export", "native", ...args], { cwd: fixture, env, encoding: "utf8", timeout: PROCESS_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }));
+    const fixed = run(["--ref", head, "--json"]);
+    const current = run(["--worktree", "--format", "json"]);
+    assert(fixed.ok && current.ok, "packaged native source selectors must succeed");
+    assert(fixed.data.inputDigest === current.data.inputDigest, "identical packaged source bytes must share inputDigest");
+    assert(fixed.data.snapshot.commitSha === head, "packaged ref must identify the exact commit");
+    assert(fixed.data.capabilityProfiles[0].lspProfile === "typescript-lsp", "declared profile metadata must survive packaging");
+    assert(fixed.data.capabilityProfiles[0].includeAnchors[0] === "src/a.ts", "literal filename anchors must survive packaging");
+    const document = fixed.data.documents.find(row => row.path.endsWith("smoke/native.md"));
+    assert(document.humanRegions.map(row => row.text).join("") === prose, "packaged human bytes must round trip exactly");
+    assert(document.backlog.state === "empty" && document.backlog.body === " \t\r\n", "packaged empty section must retain whitespace");
+    write("AGENTS.md", "Dirty contract\r\n");
+    assert(run(["--ref", head]).data.inputDigest === fixed.data.inputDigest, "packaged fixed ref must ignore worktree edits");
+    assert(run(["--worktree"]).data.inputDigest !== fixed.data.inputDigest, "packaged worktree must capture dirty bytes");
+    assert(readFileSync(join(fixture, ".git/index")).equals(indexBefore), "native exports must not update the index");
+    assert(readdirSync(state).length === 0, "native packaged smoke must not create runtime state");
+    assert(!existsSync(join(fixture, ".codegraph")), "native packaged smoke must not create a CodeGraph index");
+    console.log("[packaged-native-context-smoke] OK (Node bundle; ref/worktree; exact human bytes; no CodeGraph, Bun, dev compiler or runtime state)");
+  } finally { cleanupRoot(fixture); cleanupRoot(stage); cleanupRoot(state); }
 }
 
 function resolveCodeGraphBin() {

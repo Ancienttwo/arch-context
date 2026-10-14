@@ -37,6 +37,9 @@ export function runNativeContextCommand(args: string[], cwd: string, reader: Nat
     assertNativeContextLimit("responseBytes", Buffer.byteLength(JSON.stringify(envelope, null, 2) + "\n", "utf8"));
     return envelope;
   } catch (error) {
-    return nativeContextErrorEnvelope(error instanceof NativeContextError ? error : new NativeContextError("native-context-input-unreadable", { category: "export-read" }));
+    const envelope = nativeContextErrorEnvelope(error instanceof NativeContextError ? error : new NativeContextError("native-context-input-unreadable", { category: "export-read" }));
+    try { assertNativeContextLimit("responseBytes", Buffer.byteLength(JSON.stringify(envelope, null, 2) + "\n", "utf8")); }
+    catch (limit) { return nativeContextErrorEnvelope(limit as NativeContextError); }
+    return envelope;
   }
 }

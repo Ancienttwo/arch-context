@@ -1,11 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+import { NATIVE_CONTEXT_LIMITS, NativeContextError } from "@archcontext/contracts";
 import { runCli } from "../src/main";
 import { runNativeContextCommand } from "../src/native-context";
 import { createNativeFixture } from "../../../local-runtime/model-store-yaml/test/fixtures/native-context/fixture";
 const forbiddenReader = () => { throw new Error("argument preflight performed a read"); };
 describe("native export CLI", () => {
+  test("failure diagnostics cannot amplify a long identifier past the rendered response limit", () => {
+    const entityId = `module.demo.${"a".repeat(2_100_000)}`;
+    const result = runNativeContextCommand(["--worktree"], "/missing/repo", () => { throw new NativeContextError("native-context-model-invalid", { issues: Array.from({ length: 32 }, (_, index) => ({ entityId, field: `unknown${index}`, invariant: "unknown-property" })) }); });
+    expect(result.ok).toBe(false); expect(result.error!.reasonCode).toBe("native-context-model-invalid");
+    expect(result.error!.details!.omittedDiagnosticCharacters).toBeGreaterThan(0);
+    expect(Buffer.byteLength(JSON.stringify(result, null, 2) + "\n")).toBeLessThan(NATIVE_CONTEXT_LIMITS.responseBytes);
+  });
   test.each([
     [], ["--json"], ["--worktree", "--ref", "HEAD"], ["--worktree", "--worktree"], ["--ref", "HEAD", "--ref", "HEAD"],
     ["--ref"], ["--profile"], ["--format"], ["--worktree", "--profile", "other/v1"], ["--worktree", "--format", "yaml"],

@@ -190,7 +190,7 @@ function extractNodeProseCitations(node: Pick<ProseAnchorNodeInput, "summary" | 
  */
 export function humanOwnedMarkdownLines(body: string): { line: number; text: string }[] {
   const lines: { line: number; text: string }[] = [];
-  const generatedLines = scanDocumentRegions(body).generatedLines;
+  const generatedLines = scanDocumentRegions(body, { generatedBodyLiterals: false }).generatedLines;
   let fence: { char: string; length: number } | undefined;
   let inComment = false;
   for (const [index, raw] of body.split(/\r?\n/).entries()) {

@@ -9,8 +9,7 @@ import {
   type NativeContextSchemas, type NativeContextSnapshot, type NativeModelRecord
 } from "@archcontext/contracts";
 import { DuplicateModelKeyError, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
-import { analyzeNativeDocument, absentNativeSection } from "../../../core/projection-engine/src/document-regions";
-import { parseRepoHarnessNodeProfile, repoHarnessIncludeAnchors, resolveArchitectureDocumentationLayout, type ProjectionLayoutNode } from "../../../core/projection-engine/src/layout";
+import { analyzeNativeDocument, absentNativeSection, parseRepoHarnessNodeProfile, repoHarnessIncludeAnchors, resolveArchitectureDocumentationLayout, type ProjectionLayoutNode } from "@archcontext/core/projection-engine";
 import { assertNativeGitRevision, decodeUtf8, readGitBlobTree, readGitBlobs, readNativeGitRoot, readOnlyGit, resolveNativeGitSnapshot, type GitBlobTreeEntry } from "../../git-adapter/src/blob-reader";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 import relationSchema from "../../../../schemas/repo/architecture-relation.schema.json";
@@ -27,7 +26,7 @@ export type NativeContextSelector = { source: "ref"; ref: string } | { source: "
 export interface NativeContextReadHooks { onBoundary?: (boundary: string, details: { path?: string; observation?: number }) => void }
 
 function contentDigest(bytes: Buffer): string { return `sha256:${createHash("sha256").update(bytes).digest("hex")}`; }
-function record(value: Json): NativeModelRecord | undefined { return value !== null && typeof value === "object" && !Array.isArray(value) ? value : undefined; }
+function record(value: Json): NativeModelRecord | undefined { return value !== null && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype ? value : undefined; }
 function changed(category: string, paths: string[] = []): never {
   throw new NativeContextError("native-context-input-changed", { category, changedPaths: paths.slice(0, 32), omittedDiagnosticCount: Math.max(0, paths.length - 32) });
 }
@@ -137,6 +136,7 @@ function observePath(root: string, path: string, directory = false): PathObserva
     }
     const needsDirectory = index < segments.length - 1 || directory;
     if (stat.isSymbolicLink() || (needsDirectory ? !stat.isDirectory() : !stat.isFile())) throw new NativeContextError("native-context-entry-kind-unsupported", { path, category: stat.isSymbolicLink() ? "link" : "non-regular" });
+    if (index >= 0 && realpathSync.native(absolute) !== absolute) throw new NativeContextError("native-context-path-unsafe", { path, category: "filesystem-path-alias" });
     if (needsDirectory && index >= 0) {
       try {
         lstatSync(join(absolute, ".git"));
@@ -148,7 +148,6 @@ function observePath(root: string, path: string, directory = false): PathObserva
     }
     identities.push(statIdentity(stat, needsDirectory));
     if (index === segments.length - 1) {
-      if (process.platform === "win32" && realpathSync.native(absolute) !== resolve(root, path)) throw new NativeContextError("native-context-path-unsafe", { path, category: "windows-path-alias" });
       return { exists: true, identity: identities.join("/"), stat, absolute };
     }
   }
@@ -371,7 +370,7 @@ export function exportNativeContext(start: string, selector: NativeContextSelect
     assertNativeContextLimit("responseBytes", Buffer.byteLength(JSON.stringify(okEnvelope("export.native", data as unknown as Json)) + "\n", "utf8"));
     return data;
   }
-  const worktreeRoot = realpathSync(root);
+  const worktreeRoot = realpathSync.native(root);
   const head = resolveNativeGitSnapshot(worktreeRoot, "HEAD");
   const snapshot: NativeContextSnapshot = { source: "worktree", headSha: head.commitSha, headTreeOid: head.treeOid, validation: "stable-read" };
   const first = new WorktreeSource(worktreeRoot, hooks, 1, head.treeOid);

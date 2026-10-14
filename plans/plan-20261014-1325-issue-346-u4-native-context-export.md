@@ -346,15 +346,15 @@ The implementation reviewer verifies every section 11 family and the scope exclu
 - [x] Integration coordinator reviews this design and accepts or revises the contract.
 - [x] Integration coordinator confirms #347 merged and assigns a separate sole implementation writer/worktree.
 - [x] Before CLI/main.ts edits, integration coordinator confirms D4 released its write seat or explicitly hands over the exact shared hunk and records its boundaries.
-- [ ] Implementation: shared pure contract/schema and checked blob/region primitives, preserving existing adapters.
-- [ ] Implementation: both source adapters, complete model/profile/document assembly and stability checks.
-- [ ] Implementation: native CLI/help, final capability trio, packaged schema/CLI smoke and runbook/spec exception.
+- [x] Implementation: shared pure contract/schema and checked blob/region primitives, preserving existing adapters.
+- [x] Implementation: both source adapters, complete model/profile/document assembly and stability checks.
+- [x] Implementation: native CLI/help, final capability trio, packaged schema/CLI smoke and runbook/spec exception.
 - [ ] Reviewer verifies section 11 evidence and repo-harness item 6–8 coverage; integration coordinator handles upstream PR/merge/confirmation.
 
 ## Implementation authorization
 
 The integration coordinator assigned U4 as the sole writer after S4 #347 and D4 #348 merged and explicitly confirmed release of the CLI main.ts seat. Product edits belong only to the independent U4 implementation worktree. The historical planning-only statements above describe #349; the active implementation contract below governs this work. RPC schema/version metadata, #328 D5–D7, deployment, release, issue closure and merge are excluded. Feature advertisement remains gated on RPC-writer coordination and complete packaged smoke.
 
-- Contract: tasks/contracts/plan-20261014-1325-issue-346-u4-native-context-export.contract.md
-- Review: tasks/reviews/plan-20261014-1325-issue-346-u4-native-context-export.review.md
-- Notes: tasks/notes/plan-20261014-1325-issue-346-u4-native-context-export.notes.md
+- Contract: tasks/contracts/20261014-1325-issue-346-u4-native-context-export.contract.md
+- Review: tasks/reviews/20261014-1325-issue-346-u4-native-context-export.review.md
+- Notes: tasks/notes/20261014-1325-issue-346-u4-native-context-export.notes.md

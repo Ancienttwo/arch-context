@@ -32,8 +32,13 @@ export const CODEGRAPH_TELEMETRY_DISABLED_VALUE = "1";
 const DEFAULT_CODEGRAPH_BINARY = "codegraph";
 const requireFromAdapter = createRequire(import.meta.url);
 // Keep the CommonJS SDK in its installed package so its platform/cache resolver stays relocatable.
-const codeGraphSdk = requireFromAdapter(REQUIRED_CODEGRAPH_PACKAGE) as typeof import("@colbymchenry/codegraph");
-const { CodeGraph } = codeGraphSdk;
+type CodeGraphSdk = typeof import("@colbymchenry/codegraph");
+let installedCodeGraphSdk: CodeGraphSdk | undefined;
+function codeGraphSdk(): CodeGraphSdk {
+  // Stateless native export shares the CLI entry but does not use code facts.
+  // Resolve the installed SDK only when a CodeGraph operation actually needs it.
+  return installedCodeGraphSdk ??= requireFromAdapter(REQUIRED_CODEGRAPH_PACKAGE) as CodeGraphSdk;
+}
 
 type MutableEnv = Record<string, string | undefined>;
 const CODEGRAPH_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
@@ -1259,11 +1264,11 @@ const NON_DECLARATION_KINDS: ReadonlySet<string> = new Set(["file", "import", "e
  */
 export function openCodeGraphSymbolReader(
   workspaceRoot: string,
-  openIndex: (root: string, options: { readOnly: true }) => ReturnType<typeof CodeGraph.openSync> = (root, options) => CodeGraph.openSync(root, options)
+  openIndex: (root: string, options: { readOnly: true }) => ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]> = (root, options) => codeGraphSdk().CodeGraph.openSync(root, options)
 ): CodeGraphSymbolReaderResult {
   if (!codeGraphIndexAvailable(workspaceRoot)) return { availability: "unavailable", reasonCode: "index-missing" };
   disableCodeGraphTelemetryByDefault();
-  let graph: ReturnType<typeof CodeGraph.openSync>;
+  let graph: ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]>;
   try {
     graph = openIndex(workspaceRoot, { readOnly: true });
   } catch {
@@ -1276,7 +1281,7 @@ export function openCodeGraphSymbolReader(
   return {
     availability: "ready",
     reader: {
-      supportsPath: (path) => codeGraphSdk.isLanguageSupported(codeGraphSdk.detectLanguage(path)),
+      supportsPath: (path) => codeGraphSdk().isLanguageSupported(codeGraphSdk().detectLanguage(path)),
       declarationsInSource: (path, content) => {
         try {
           return declarations(graph.extractFromSource(path, content).nodes);
@@ -1338,7 +1343,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
     : undefined;
   const importGraphs = imports?.importGraphs ?? [];
   const selectorIndex = entrypointNodes.length > 0
-    ? (options.selectorIndexFactory ?? ((path, openOptions) => CodeGraph.openSync(path, openOptions)))(root, { readOnly: options.readOnly === true })
+    ? (options.selectorIndexFactory ?? ((path, openOptions) => codeGraphSdk().CodeGraph.openSync(path, openOptions)))(root, { readOnly: options.readOnly === true })
     : undefined;
   let selectorEvidence: ArchitectureSelectorEvidenceV1[];
   try {
