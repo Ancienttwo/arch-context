@@ -143,10 +143,13 @@ test("#351: dead fixture PID recovers and starts one replacement", async () => {
     f.child.kill("SIGTERM");
     await waitUntil(() => !isProcessAlive(f.child.pid!), 10_000, "fixture exit before stale record");
     f.publish(f.child.pid!);
-    const signals = readFileSync(f.signalsPath);
+    // Windows force-terminates the owned fixture without running its SIGTERM handler.
+    const signalsSnapshot = () => process.platform === "win32" && !existsSync(f.signalsPath)
+      ? undefined : readFileSync(f.signalsPath);
+    const signals = signalsSnapshot();
     const result = await runCli("daemon", ["upgrade"], f.root) as JsonEnvelope;
     expect(result.ok).toBe(true);
-    expect(readFileSync(f.signalsPath)).toEqual(signals);
+    expect(signalsSnapshot()).toEqual(signals);
     const current = JSON.parse(readFileSync(f.connectionPath, "utf8"));
     expect(current.pid).not.toBe(f.child.pid);
     expect((await new RuntimeRpcClient(current).health() as any).ok).toBe(true);
