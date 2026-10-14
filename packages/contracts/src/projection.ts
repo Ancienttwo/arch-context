@@ -579,8 +579,10 @@ export interface ProjectionCoverageV1 {
  * or `selectorEvidenceDigest` of a capability an entity summary documents. `null` is an unknown
  * comparison, never `false`.
  *
- * `plannedAction` is the result's own write decision (`files[]`) for that path, so the targets
- * whose action is not `none` are exactly the documents an apply of this run writes or deletes; a
+ * `plannedAction` is the result's own write decision (`files[]`) for that path. When `status` is
+ * `planned` or `planned-partial`, the targets whose action is not `none` are exactly the documents
+ * an apply of this run writes or deletes; under `adoption-required` or `human-action-required`
+ * apply writes nothing, and `plannedAction` reports only what the render would write. A
  * path rejected for adoption or ownership repair is `blocked` and `none`, because only an
  * approved adoption writes it. `classification` never changes `status`, the write set or a gate.
  */

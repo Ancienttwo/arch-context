@@ -171,8 +171,10 @@ manifest is not a target.
   `proof-change` with `target-row-missing` among its reasons. `stamp-only` requires unchanged
   output bytes and known, unchanged semantic and proof comparisons on a target nothing blocks.
 - `plannedAction` is the result's `files[]` action for the path, the same decision `apply`
-  commits, so the targets with a planned action are exactly the documents apply writes or
-  deletes. `blocked` comes from the isolation's carried-forward targets (the `coverage`
+  commits. When `status` is `planned` or `planned-partial`, the targets with a planned action are
+  exactly the documents apply writes or deletes; under `adoption-required` or
+  `human-action-required` apply writes nothing, and `plannedAction` reports only what the render
+  would write. `blocked` comes from the isolation's carried-forward targets (the `coverage`
   authority), review orphans and adoption or ownership rejections, and never plans a write.
 - Classification is a report. It changes no status, write, receipt, gate, `staleNodes` or
   `projection freshness` answer.
