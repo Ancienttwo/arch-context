@@ -90,7 +90,7 @@ allowed_paths:
       "phase": "verification",
       "cost": "expensive",
       "evidence_policy": "baseline_with_delta",
-      "necessity": "Retain the passing aggregate at 4f68c76a; the only product delta normalizes BOM for Markdown block predicates and is covered by current scanner/reader/CLI/bundle checks.",
+      "necessity": "Retain the passing aggregate at 4f68c76a; the bounded deltas normalize BOM for Markdown block predicates and resolve/copy native smoke dependencies with their platform bindings. Current scanner/reader/CLI/typecheck/isolated Node bundle checks cover these changes; hosted Windows Node lanes validate the platform staging repair.",
       "inputs": {
         "env": [
           "npm_config_cache"
@@ -102,17 +102,17 @@ allowed_paths:
         "execution_id": "vx-2212fb60798d4045856b"
       },
       "delta_checks": [
-        "u4-bom-delta"
+        "u4-current-delta"
       ]
     },
     {
-      "id": "u4-bom-delta",
+      "id": "u4-current-delta",
       "kind": "command",
       "cwd": ".",
       "phase": "preflight",
       "cost": "normal",
       "evidence_policy": "current_exact",
-      "necessity": "BOM-prefixed ATX heading must share the same code-span boundary and keep checksum validation; verify affected shared adapters, frozen corpus and packaged native entry.",
+      "necessity": "Verify BOM block boundaries, shared adapters and frozen corpus; the isolated Node bundle must resolve installed native dependencies from their owning package and copy explicit platform bindings without workspace module links or ambient Node preload/module paths.",
       "inputs": {
         "env": []
       },

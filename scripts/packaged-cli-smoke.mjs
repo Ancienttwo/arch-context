@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 
 const root = process.cwd();
 const binDir = resolve(root, "node_modules", ".bin");
@@ -14,7 +15,7 @@ const KILL_LIST_OWNER_NODE_ID = "module.packaged-legacy";
 
 // A separately bundled Node entry is exercised with no repository source/Bun/CodeGraph
 // available in its runtime environment. Only the product's native runtime dependencies
-// are linked; these are published dependencies, not TypeScript development tooling.
+// and their platform bindings are copied; no workspace module links are retained.
 runNativePackagedSmoke();
 if (process.argv.includes("--native-only")) process.exit(0);
 
@@ -660,9 +661,31 @@ function runNativePackagedSmoke() {
   try {
     execFileSync("bun", ["build", "packages/surfaces/cli/src/main.ts", "--target=node", "--format=esm", "--outfile", nativeBin, "--external=@colbymchenry/codegraph", "--external=@node-rs/jieba", "--external=@node-rs/jieba/dict.js", "--external=koffi"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
     const moduleDir = join(stage, "node_modules"); mkdirSync(moduleDir);
-    for (const name of ["@node-rs", "koffi"]) {
-      const source = join(root, "packages/core/node_modules", name);
-      if (existsSync(source)) symlinkSync(realpathSync(source), join(moduleDir, name), process.platform === "win32" ? "junction" : "dir");
+    const coreRequire = createRequire(join(root, "packages/core/package.json"));
+    const stagePackage = (name, from) => {
+      // Resolve each dependency from its owning package. Workspace installs can
+      // hoist it or isolate it; a fixed scope directory assumes one layout.
+      const entry = realpathSync(from.resolve(name));
+      let source = dirname(entry);
+      while (!existsSync(join(source, "package.json")) || JSON.parse(readFileSync(join(source, "package.json"), "utf8")).name !== name) {
+        const parent = dirname(source);
+        assert(parent !== source, `native smoke could not locate installed package ${name}`);
+        source = parent;
+      }
+      const target = join(moduleDir, name); mkdirSync(dirname(target), { recursive: true });
+      cpSync(source, target, { recursive: true, dereference: true, filter: path => basename(path) !== "node_modules" });
+      assert(existsSync(join(target, "package.json")), `native smoke staged package missing: ${name}`);
+      return { entry, manifest: JSON.parse(readFileSync(join(source, "package.json"), "utf8")) };
+    };
+    const jiebaSuffix = process.platform === "win32" ? "-msvc" : process.platform === "linux"
+      ? (process.report.getReport().header.glibcVersionRuntime ? "-gnu" : "-musl") : "";
+    for (const [name, binding] of [
+      ["@node-rs/jieba", `@node-rs/jieba-${process.platform}-${process.arch}${jiebaSuffix}`],
+      ["koffi", `@koromix/koffi-${process.platform}-${process.arch}`]
+    ]) {
+      const installed = stagePackage(name, coreRequire);
+      assert(installed.manifest.optionalDependencies?.[binding], `native smoke has no declared platform binding: ${binding}`);
+      stagePackage(binding, createRequire(installed.entry));
     }
     assert(!existsSync(join(moduleDir, "@colbymchenry/codegraph")), "native staged runtime must have no CodeGraph package");
     assert(!existsSync(join(moduleDir, "typescript")), "native staged runtime must have no development compiler");
@@ -680,7 +703,7 @@ function runNativePackagedSmoke() {
     const gitName = process.platform === "win32" ? "git.exe" : "git";
     const gitDirectory = String(process.env.PATH ?? "").split(delimiter).find(path => existsSync(join(path, gitName)));
     assert(gitDirectory, "native packaged smoke needs the existing Git binary");
-    const env = { ...process.env, ARCHCONTEXT_STATE_DIR: state, PATH: gitDirectory, GIT_TERMINAL_PROMPT: "0", DO_NOT_TRACK: "1" };
+    const env = { ...process.env, ARCHCONTEXT_STATE_DIR: state, PATH: gitDirectory, NODE_PATH: "", NODE_OPTIONS: "", GIT_TERMINAL_PROMPT: "0", DO_NOT_TRACK: "1" };
     const run = (args) => JSON.parse(execFileSync(process.execPath, [nativeBin, "export", "native", ...args], { cwd: fixture, env, encoding: "utf8", timeout: PROCESS_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }));
     const fixed = run(["--ref", head, "--json"]);
     const current = run(["--worktree", "--format", "json"]);

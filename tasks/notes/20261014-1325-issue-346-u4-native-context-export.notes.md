@@ -44,3 +44,23 @@ existing heading/fence behavior. Original bytes and ranges remain untouched. It 
 case to the existing ATX/checksum regression. The Verification Plan retains the passing
 aggregate as baseline_with_delta and binds current scanner/reader/CLI/typecheck/Node bundle
 evidence instead of repeating the unchanged full suite.
+
+## Hosted Windows native smoke repair
+
+At ae1f84ec, all three Windows Node lanes completed 3092 passing tests / five skips / zero
+test failures, then failed before native export handling: the isolated Node bundle could not
+resolve @node-rs/jieba. The smoke assumed packages/core/node_modules/@node-rs existed and
+silently omitted it when absent. The precise hosted install layout is not captured in those
+logs; the portable fix removes that layout assumption.
+
+The smoke resolves declared dependencies from the owning core package and resolves each
+current-platform native binding from its parent dependency. It copies these package files
+into the temporary stage, excluding nested node_modules, and clears only the child Node's
+ambient NODE_PATH/NODE_OPTIONS. Missing dependencies/bindings fail explicitly. No repository
+module link, CodeGraph, Bun or development compiler is available to the staged Node entry.
+The fixed-ref/worktree, original-byte, index and empty-state assertions are retained. Local
+Node native smoke passes; hosted Windows Node 22/24/25 confirmation remains required.
+
+The original Mac Node 22 lane was cancelled by its 20-minute job budget. Its logs continued
+through existing heavy tests without a failing assertion. Baseline duration comparison does
+not prove a purely infrastructure cause. No workflow timeout or assertion is changed here.
