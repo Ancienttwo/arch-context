@@ -171,6 +171,40 @@ test("the change invariants refuse inconsistent entries (#327)", () => {
   expect(issues([unchangedWithReasons, changes[1]!, changes[2]!])).toContain("changes[0] is unchanged, so affectedCapabilityIds must be empty");
 });
 
+test("every non-manifest files[] action has a change of its path, and no change names the manifest (#327)", () => {
+  const issues = (entries: ProjectionTargetChangeV1[], resultFiles = files) => projectionTargetChangesIssues(entries, resultFiles);
+  // Dropping the change of a planned write leaves its files[] action unexplained.
+  expect(issues([changes[0]!, changes[2]!])).toContain(`changes must name the files[] update of ${CATALOG}; only the projection manifest has none`);
+  // Also a rejected path, and a create or a delete.
+  for (const action of ["create", "delete"] as const) {
+    const extra: ProjectionResultV2["files"][number] = action === "create"
+      ? { path: RENDERER, action, preimageDigest: null, outputDigest: digest("5") }
+      : { path: RENDERER, action, preimageDigest: digest("5"), outputDigest: null };
+    expect(issues([changes[0]!, changes[1]!], [...files, extra])).toContain(`changes must name the files[] ${action} of ${RENDERER}; only the projection manifest has none`);
+  }
+  // An unchanged file needs no change, and the manifest write never has one.
+  expect(issues(changes, [...files, { path: RENDERER, action: "unchanged", preimageDigest: digest("5"), outputDigest: digest("5") }])).toEqual([]);
+  expect(issues([change(MANIFEST, {}), ...changes].sort((left, right) => left.path < right.path ? -1 : 1)))
+    .toContain(`changes[${[MANIFEST, INDEX, CATALOG, RENDERER].sort().indexOf(MANIFEST)}] names the projection manifest, which is not a target`);
+  // The result invariant applies the same binding.
+  expect(projectionResultInvariantIssues(signed({ ...planned, changes: [changes[0]!, changes[2]!] })))
+    .toContain(`changes must name the files[] update of ${CATALOG}; only the projection manifest has none`);
+});
+
+test("a check or plan result without changes fails its request-mode check (#327)", () => {
+  const { receiptDigest: _receiptDigest, changes: _changes, ...payload } = planned;
+  const withoutChanges = signed(payload);
+  for (const status of ["noop", "planned", "adoption-required", "human-action-required"] as const) {
+    const result = { ...withoutChanges, status };
+    for (const mode of ["check", "plan"] as const) {
+      expect(projectionResultRequestModeIssues(result, mode)).toContain(`changes is required on every check or plan result, also when mode=${mode}`);
+    }
+    for (const mode of ["apply", "adopt"] as const) {
+      expect(projectionResultRequestModeIssues(result, mode)).not.toContain(`changes is required on every check or plan result, also when mode=${mode}`);
+    }
+  }
+});
+
 test("a partial result binds every carried-forward target to a blocked change (#327)", () => {
   const coverage = {
     complete: false as const,

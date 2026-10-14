@@ -178,7 +178,10 @@ manifest is not a target.
   exactly the documents apply writes or deletes; under `adoption-required` or
   `human-action-required` apply writes nothing, and `plannedAction` reports only what the render
   would write. `blocked` comes from the isolation's carried-forward targets (the `coverage`
-  authority), review orphans and adoption or ownership rejections, and never plans a write.
+  authority), review orphans and adoption or ownership rejections, and never plans a write. A
+  rejected path's `outputChanged` still follows its `files[]` entry. Every `files[]` entry that
+  changes a file has a change of its path; the manifest's write is the only one without, and
+  every `check` and `plan` result carries `changes[]`.
 - Classification is a report. It changes no status, write, receipt, gate, `staleNodes` or
   `projection freshness` answer.
 

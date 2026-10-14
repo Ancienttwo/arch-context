@@ -864,6 +864,10 @@ export function projectionResultRequestModeIssues(input: ProjectionResultV2, mod
   if (mode !== "check" && mode !== "plan" && input.changes !== undefined) {
     issues.push(`changes is only allowed on a check or plan result, never when mode=${mode}`);
   }
+  // The schema cannot condition on the request mode, so the presence promise is checked here.
+  if ((mode === "check" || mode === "plan") && input.changes === undefined) {
+    issues.push(`changes is required on every check or plan result, also when mode=${mode}`);
+  }
   if (input.status === "planned-partial" && mode !== "check" && mode !== "plan") {
     issues.push(`planned-partial is only allowed on a check or plan result, never when mode=${mode}`);
   }
@@ -1126,6 +1130,7 @@ export function projectionTargetChangesIssues(input: readonly ProjectionTargetCh
     if (entry.classification === "unchanged" && entry.affectedCapabilityIds.length > 0) issues.push(`${prefix} is unchanged, so affectedCapabilityIds must be empty`);
     if (entry.classification === "blocked" && entry.plannedAction !== "none") issues.push(`${prefix} is blocked, so plannedAction must be none`);
     if (entry.plannedAction !== "none" && entry.outputChanged !== true) issues.push(`${prefix} writes its file, so outputChanged must be true`);
+    if (entry.path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH) issues.push(`${prefix} names the projection manifest, which is not a target`);
     const file = fileByPath.get(entry.path);
     const fileAction = file === undefined || file.action === "unchanged" ? "none" : file.action;
     const rejected = has(["adoption-required", "ambiguous-ownership"]);

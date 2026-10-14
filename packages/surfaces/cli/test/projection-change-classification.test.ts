@@ -11,7 +11,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2, type ProjectionTargetChangeV1 } from "@archcontext/contracts";
+import { digestJson, projectionResultInvariantIssues, projectionResultRequestModeIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2, type ProjectionTargetChangeV1 } from "@archcontext/contracts";
 import { runCli } from "../src/main";
 
 /**
@@ -160,15 +160,18 @@ function manifestRowPaths(root: string): string[] {
 
 /**
  * A schema-valid result whose changes satisfy the S4 invariant: the targets with a planned action
- * are exactly the result's files[] without the projection manifest, with the same action.
+ * are exactly the result's files[] without the projection manifest and the paths rejected for
+ * adoption or ownership repair, with the same action.
  */
-function projectionResult(envelope: { ok: boolean; data?: unknown }): ProjectionResultV2 {
+function projectionResult(envelope: { ok: boolean; data?: unknown }, mode: "check" | "plan"): ProjectionResultV2 {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
   const result = envelope.data as unknown as ProjectionResultV2;
   expect(projectionResultInvariantIssues(result)).toEqual([]);
+  expect(projectionResultRequestModeIssues(result, mode)).toEqual([]);
   expect(validateJsonSchema(RESULT_SCHEMA, result as any).issues).toEqual([]);
   expect(Array.isArray(result.changes), "check and plan results carry changes[]").toBe(true);
-  expect(plannedActions(result)).toEqual(fileActions(result));
+  const rejected = new Set(result.changes!.filter((entry) => entry.reasonCodes.some((code) => code === "adoption-required" || code === "ambiguous-ownership")).map((entry) => entry.path));
+  expect(plannedActions(result)).toEqual(fileActions(result).filter((entry) => !rejected.has(entry.slice(0, entry.lastIndexOf(" ")))));
   expect(result.changes!.map((entry) => entry.path)).not.toContain(MANIFEST);
   return result;
 }
@@ -257,8 +260,8 @@ async function withFixture(prefix: string, crlf: boolean, scenario: (fixture: Fi
 
 /** `check` and `plan` on the same tree: both results, which must report the same changes. */
 async function checkAndPlan(fixture: Fixture, label: string): Promise<ProjectionResultV2> {
-  const checked = projectionResult(await fixture.runRaw(fixture.request("check", `projection_request.${label}_check`)));
-  const planned = projectionResult(await fixture.runRaw(fixture.request("plan", `projection_request.${label}_plan`)));
+  const checked = projectionResult(await fixture.runRaw(fixture.request("check", `projection_request.${label}_check`)), "check");
+  const planned = projectionResult(await fixture.runRaw(fixture.request("plan", `projection_request.${label}_plan`)), "plan");
   expect(planned.changes).toEqual(checked.changes);
   expect(planned.status).toBe(checked.status);
   return checked;
@@ -425,5 +428,51 @@ test("partial, added, removed and review-orphan targets are classified, and plan
     expect(byPath(review).get(GAMMA_DOC)).toMatchObject({ classification: "blocked", plannedAction: "none" });
     expect(byPath(review).get(GAMMA_DOC)!.reasonCodes).toEqual(expect.arrayContaining(["orphan-review-required", "target-removed"]));
     expect(review.files.map((file) => file.path)).not.toContain(GAMMA_DOC);
+  });
+}, TEST_TIMEOUT_MS);
+
+test("a model change outside every capability marks the global documents semantic-change, and a rejected edited document keeps its byte change (#327)", async () => {
+  await withFixture("archctx-classification-global-", false, async (fixture) => {
+    const { root } = fixture;
+    const STORE = "external.archive";
+    const storeNode = (criticality: string) => ({ schemaVersion: "archcontext.node/v2", id: STORE, kind: "external-system", name: "Archive", status: "active", summary: "Keeps old blocks.", criticality });
+    writeYaml(root, `.archcontext/model/nodes/${STORE}.yaml`, storeNode("low"));
+    const added = await checkAndPlan(fixture, "external_added");
+    expect(added.status).toBe("planned");
+    expect((await fixture.run(fixture.request("apply", "projection_request.external_added_apply"))).status).toBe("applied");
+    commitAll(root, "an archive no capability owns");
+    expectOnly(await checkAndPlan(fixture, "external_baseline"), {});
+
+    // The archive belongs to no capability: no capability fingerprint moves, only the model digest.
+    const rowTypes = new Map((Object.values(JSON.parse(readFileSync(join(root, MANIFEST), "utf8")).targets) as Array<{ path: string; type: string }>).map((row) => [row.path, row.type]));
+    writeYaml(root, `.archcontext/model/nodes/${STORE}.yaml`, storeNode("high"));
+    const moved = await checkAndPlan(fixture, "external_moved");
+    let globals = 0;
+    for (const entry of moved.changes!) {
+      if (rowTypes.get(entry.path) === "entity-summary") {
+        expect(entry.reasonCodes, entry.path).not.toContain("model-digest-changed");
+        continue;
+      }
+      globals += 1;
+      expect(`${entry.path} ${entry.classification}`).toBe(`${entry.path} semantic-change`);
+      expect(entry).toMatchObject({ semanticChanged: true, affectedCapabilityIds: [] });
+      expect(entry.reasonCodes, entry.path).toContain("model-digest-changed");
+      expect(entry.reasonCodes, entry.path).not.toContain("semantic-fingerprint-changed");
+    }
+    expect(globals).toBeGreaterThan(0);
+    expect(byPath(moved).get(INDEX_DOC)!.classification).toBe("semantic-change");
+    for (const path of [RENDERER_DOC, CATALOG_DOC]) expect(byPath(moved).get(path)!.classification, path).toBe("unchanged");
+    git(root, "checkout", "--", ".archcontext");
+    expectOnly(await checkAndPlan(fixture, "external_restored"), {});
+
+    // An index without its generated region needs adoption: the render matches the committed row,
+    // but the files[] update proves the on-disk bytes differ, so the blocked change keeps them.
+    write(root, INDEX_DOC, "# Index\n\nHuman notes only.\n");
+    const rejected = await checkAndPlan(fixture, "adoption");
+    expect(rejected.status).toBe("adoption-required");
+    expect(rejected.files.find((file) => file.path === INDEX_DOC)).toMatchObject({ action: "update" });
+    expect(byPath(rejected).get(INDEX_DOC)).toMatchObject({
+      classification: "blocked", plannedAction: "none", outputChanged: true, reasonCodes: ["adoption-required", "file-bytes-changed"]
+    });
   });
 }, TEST_TIMEOUT_MS);
