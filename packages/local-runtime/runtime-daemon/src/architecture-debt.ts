@@ -79,7 +79,9 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
     return [{ path, nodeIds: entry.owners, capabilityIds: entry.owners.flatMap(id => capabilityByNodeId.has(id) ? [capabilityByNodeId.get(id)!] : []),
       status: entry.ambiguous ? "ambiguous" as const : "unowned" as const }];
   });
-  const anchors = runDocsAnchorsCommand(root);
+  // Ownership and citations use the same call-local model/file discovery. A new
+  // invocation still reads both again, so edits and repairs are never cached.
+  const anchors = runDocsAnchorsCommand(root, {}, { model, files });
   if (!anchors.ok) throw new ArchitectureDebtReadError(anchors.error!.code, anchors.error!.message, anchors.error!.reasonCode ?? "anchors-unavailable");
   return { model, evidence: {
     scope: { kind: repository ? "repository" : "changed-paths", changedPaths, capabilityIds },

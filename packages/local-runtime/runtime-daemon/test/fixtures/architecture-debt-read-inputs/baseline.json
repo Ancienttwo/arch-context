@@ -1,0 +1,611 @@
+{
+  "engineSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
+  "description": "Actual unmodified production-reader outputs captured before D5; no timing samples",
+  "reports": [
+    {
+      "label": "initial-index-missing",
+      "report": {
+        "schemaVersion": "archcontext.architecture-debt/v1",
+        "scope": {
+          "kind": "changed-paths",
+          "changedPaths": [
+            "src/a/main.ts"
+          ],
+          "capabilityIds": [
+            "capability.a"
+          ]
+        },
+        "coverage": "partial",
+        "coverageReasonCodes": [
+          "anchors:codegraph-unavailable",
+          "dependencies:deferred-to-complete",
+          "dependencies:not-evaluated",
+          "flows:deferred-to-complete",
+          "flows:not-evaluated",
+          "practices:deferred-to-complete",
+          "practices:not-evaluated"
+        ],
+        "checks": [
+          {
+            "check": "ownership",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "anchors",
+            "coverage": "partial",
+            "reasonCodes": [
+              "codegraph-unavailable"
+            ]
+          },
+          {
+            "check": "dependencies",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "flows",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "practices",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          }
+        ],
+        "items": [],
+        "actionsRequired": [],
+        "digest": "sha256:2515d496ecedd922616b913b5362c64b82a96376fd2498792e46e1d34ae8bc15"
+      }
+    },
+    {
+      "label": "added-unowned-file",
+      "report": {
+        "schemaVersion": "archcontext.architecture-debt/v1",
+        "scope": {
+          "kind": "changed-paths",
+          "changedPaths": [
+            "src/a/new/tool.ts"
+          ],
+          "capabilityIds": []
+        },
+        "coverage": "partial",
+        "coverageReasonCodes": [
+          "dependencies:deferred-to-complete",
+          "dependencies:not-evaluated",
+          "flows:deferred-to-complete",
+          "flows:not-evaluated",
+          "practices:deferred-to-complete",
+          "practices:not-evaluated"
+        ],
+        "checks": [
+          {
+            "check": "ownership",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "anchors",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "dependencies",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "flows",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "practices",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          }
+        ],
+        "items": [
+          {
+            "id": "debt.fe9f3764bff2a63d8bd91e43be1a999509690beac3936beaebf9061c4892046c",
+            "kind": "unowned-path",
+            "nodeIds": [],
+            "capabilityIds": [],
+            "paths": [
+              "src/a/new/tool.ts"
+            ],
+            "reasonCode": "source-owner-missing",
+            "action": "archctx plan --id changeset.<id> --operations-file <ownership-operations.json>",
+            "details": {
+              "modelField": "source.include/source.exclude/parent",
+              "ownershipRule": "parent-chain"
+            }
+          }
+        ],
+        "actionsRequired": [
+          "archctx plan --id changeset.<id> --operations-file <ownership-operations.json>"
+        ],
+        "digest": "sha256:accc9fd61a426882185c86c0981496391343b916b1eeef3d3dced31647a6667e"
+      }
+    },
+    {
+      "label": "deleted-cited-file",
+      "report": {
+        "schemaVersion": "archcontext.architecture-debt/v1",
+        "scope": {
+          "kind": "changed-paths",
+          "changedPaths": [
+            "src/a/main.ts"
+          ],
+          "capabilityIds": []
+        },
+        "coverage": "partial",
+        "coverageReasonCodes": [
+          "dependencies:deferred-to-complete",
+          "dependencies:not-evaluated",
+          "flows:deferred-to-complete",
+          "flows:not-evaluated",
+          "practices:deferred-to-complete",
+          "practices:not-evaluated"
+        ],
+        "checks": [
+          {
+            "check": "ownership",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "anchors",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "dependencies",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "flows",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "practices",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          }
+        ],
+        "items": [
+          {
+            "id": "debt.9372863fde355e2f17e748ea6d87403e4cb7ddc1b2a0484ecc9e22487e419636",
+            "kind": "stale-anchor",
+            "nodeIds": [
+              "capability.b"
+            ],
+            "capabilityIds": [
+              "capability.b"
+            ],
+            "paths": [
+              "docs/architecture/modules/capability-b.md",
+              "src/a/main.ts"
+            ],
+            "reasonCode": "missing-path",
+            "action": "archctx docs anchors --json",
+            "details": {
+              "origin": "document",
+              "documentLine": 2,
+              "symbol": "value"
+            }
+          },
+          {
+            "id": "debt.e061448aa6034f8bcde07b239351f23801d7e551919c1d3093d5106f0cb605b3",
+            "kind": "stale-anchor",
+            "nodeIds": [
+              "capability.b"
+            ],
+            "capabilityIds": [
+              "capability.b"
+            ],
+            "paths": [
+              "docs/architecture/modules/capability-b.md",
+              "src/a/main.ts"
+            ],
+            "reasonCode": "missing-path",
+            "action": "archctx docs anchors --json",
+            "details": {
+              "origin": "document",
+              "documentLine": 2,
+              "citedLine": 1
+            }
+          }
+        ],
+        "actionsRequired": [
+          "archctx docs anchors --json"
+        ],
+        "digest": "sha256:669b0a2951df249ea477914528c01c2d1dfa9f2ce149885d996cbbcec8465019"
+      }
+    },
+    {
+      "label": "model-ownership-change",
+      "report": {
+        "schemaVersion": "archcontext.architecture-debt/v1",
+        "scope": {
+          "kind": "repository",
+          "changedPaths": [
+            ".archcontext/model/nodes/capability.a.yaml"
+          ],
+          "capabilityIds": [
+            "capability.a",
+            "capability.architecture.context",
+            "capability.b"
+          ]
+        },
+        "coverage": "partial",
+        "coverageReasonCodes": [
+          "dependencies:deferred-to-complete",
+          "dependencies:not-evaluated",
+          "flows:deferred-to-complete",
+          "flows:not-evaluated",
+          "practices:deferred-to-complete",
+          "practices:not-evaluated"
+        ],
+        "checks": [
+          {
+            "check": "ownership",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "anchors",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "dependencies",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "flows",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "practices",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          }
+        ],
+        "items": [
+          {
+            "id": "debt.9372863fde355e2f17e748ea6d87403e4cb7ddc1b2a0484ecc9e22487e419636",
+            "kind": "stale-anchor",
+            "nodeIds": [
+              "capability.b"
+            ],
+            "capabilityIds": [
+              "capability.b"
+            ],
+            "paths": [
+              "docs/architecture/modules/capability-b.md",
+              "src/a/main.ts"
+            ],
+            "reasonCode": "missing-path",
+            "action": "archctx docs anchors --json",
+            "details": {
+              "origin": "document",
+              "documentLine": 2,
+              "symbol": "value"
+            }
+          },
+          {
+            "id": "debt.e061448aa6034f8bcde07b239351f23801d7e551919c1d3093d5106f0cb605b3",
+            "kind": "stale-anchor",
+            "nodeIds": [
+              "capability.b"
+            ],
+            "capabilityIds": [
+              "capability.b"
+            ],
+            "paths": [
+              "docs/architecture/modules/capability-b.md",
+              "src/a/main.ts"
+            ],
+            "reasonCode": "missing-path",
+            "action": "archctx docs anchors --json",
+            "details": {
+              "origin": "document",
+              "documentLine": 2,
+              "citedLine": 1
+            }
+          }
+        ],
+        "actionsRequired": [
+          "archctx docs anchors --json"
+        ],
+        "digest": "sha256:dd603ee48a203d2ca824720eea0478c24dc5ebc27320c86e84bba83cf15c7e4a"
+      }
+    },
+    {
+      "label": "repaired-citation",
+      "report": {
+        "schemaVersion": "archcontext.architecture-debt/v1",
+        "scope": {
+          "kind": "changed-paths",
+          "changedPaths": [
+            "src/a/new/tool.ts"
+          ],
+          "capabilityIds": [
+            "capability.a"
+          ]
+        },
+        "coverage": "partial",
+        "coverageReasonCodes": [
+          "anchors:codegraph-unavailable",
+          "dependencies:deferred-to-complete",
+          "dependencies:not-evaluated",
+          "flows:deferred-to-complete",
+          "flows:not-evaluated",
+          "practices:deferred-to-complete",
+          "practices:not-evaluated"
+        ],
+        "checks": [
+          {
+            "check": "ownership",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "anchors",
+            "coverage": "partial",
+            "reasonCodes": [
+              "codegraph-unavailable"
+            ]
+          },
+          {
+            "check": "dependencies",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "flows",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "practices",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          }
+        ],
+        "items": [],
+        "actionsRequired": [],
+        "digest": "sha256:45600795f56bfe92713ee601857fd72351bdd62c928845d5f77bff5dc228fb3d"
+      }
+    },
+    {
+      "label": "model-prose-change",
+      "report": {
+        "schemaVersion": "archcontext.architecture-debt/v1",
+        "scope": {
+          "kind": "repository",
+          "changedPaths": [
+            ".archcontext/model/nodes/capability.a.yaml"
+          ],
+          "capabilityIds": [
+            "capability.a",
+            "capability.architecture.context",
+            "capability.b"
+          ]
+        },
+        "coverage": "partial",
+        "coverageReasonCodes": [
+          "anchors:codegraph-unavailable",
+          "dependencies:deferred-to-complete",
+          "dependencies:not-evaluated",
+          "flows:deferred-to-complete",
+          "flows:not-evaluated",
+          "practices:deferred-to-complete",
+          "practices:not-evaluated"
+        ],
+        "checks": [
+          {
+            "check": "ownership",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "anchors",
+            "coverage": "partial",
+            "reasonCodes": [
+              "codegraph-unavailable"
+            ]
+          },
+          {
+            "check": "dependencies",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "flows",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "practices",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          }
+        ],
+        "items": [
+          {
+            "id": "debt.bdf3562b7591b4884f4aaf5226ac496d68307fbe387234c48d3f6a13847cd5c5",
+            "kind": "stale-anchor",
+            "nodeIds": [
+              "capability.a"
+            ],
+            "capabilityIds": [
+              "capability.a"
+            ],
+            "paths": [
+              "src/a/missing.ts"
+            ],
+            "reasonCode": "missing-path",
+            "action": "archctx docs anchors --json",
+            "details": {
+              "origin": "node-summary",
+              "citedLine": 1
+            }
+          }
+        ],
+        "actionsRequired": [
+          "archctx docs anchors --json"
+        ],
+        "digest": "sha256:a585fef9d466e486f547a943c4cbdfe29f4293b22b918e6503ee3dd26dbb6153"
+      }
+    },
+    {
+      "label": "index-unavailable",
+      "report": {
+        "schemaVersion": "archcontext.architecture-debt/v1",
+        "scope": {
+          "kind": "changed-paths",
+          "changedPaths": [
+            "src/a/new/tool.ts"
+          ],
+          "capabilityIds": [
+            "capability.a"
+          ]
+        },
+        "coverage": "partial",
+        "coverageReasonCodes": [
+          "anchors:codegraph-unavailable",
+          "dependencies:deferred-to-complete",
+          "dependencies:not-evaluated",
+          "flows:deferred-to-complete",
+          "flows:not-evaluated",
+          "practices:deferred-to-complete",
+          "practices:not-evaluated"
+        ],
+        "checks": [
+          {
+            "check": "ownership",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "anchors",
+            "coverage": "partial",
+            "reasonCodes": [
+              "codegraph-unavailable"
+            ]
+          },
+          {
+            "check": "dependencies",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "flows",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "practices",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          }
+        ],
+        "items": [
+          {
+            "id": "debt.bdf3562b7591b4884f4aaf5226ac496d68307fbe387234c48d3f6a13847cd5c5",
+            "kind": "stale-anchor",
+            "nodeIds": [
+              "capability.a"
+            ],
+            "capabilityIds": [
+              "capability.a"
+            ],
+            "paths": [
+              "src/a/missing.ts"
+            ],
+            "reasonCode": "missing-path",
+            "action": "archctx docs anchors --json",
+            "details": {
+              "origin": "node-summary",
+              "citedLine": 1
+            }
+          }
+        ],
+        "actionsRequired": [
+          "archctx docs anchors --json"
+        ],
+        "digest": "sha256:b0b0f1549b7c55017c0b38c9ec65eb41f5760018d3213b44bdfc291d686a29c8"
+      }
+    }
+  ]
+}
