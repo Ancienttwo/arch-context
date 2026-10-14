@@ -71,7 +71,7 @@ export function scanDocumentRegions(body: string, options: { generatedBodyLitera
   let nextBlock = body.length;
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     paragraphEnds[index] = nextBlock;
-    if (/^\s*$/.test(lines[index]!.raw) || /^ {0,3}(?:#{1,6}[ \t]|`{3,}|~{3,}|<!--)/.test(lines[index]!.raw)) nextBlock = lines[index]!.start;
+    if (/^\s*$/.test(lines[index]!.raw) || /^ {0,3}(?:#{1,6}[ \t]|`{3,}|~{3,}|<!--)/.test(lines[index]!.raw.replace(/^\uFEFF/, ""))) nextBlock = lines[index]!.start;
   }
   const closingBacktick = (start: number, length: number, boundary: number): number | undefined => {
     const positions = backticks.get(length)!;
@@ -93,7 +93,8 @@ export function scanDocumentRegions(body: string, options: { generatedBodyLitera
   let blockCanStart = true;
   for (const line of lines) {
     const raw = line.raw;
-    const commentBlockLine = inComment || /^ {0,3}<!--(?! (?:BEGIN|END) ARCHCONTEXT:generated)/.test(raw);
+    const lexicalRaw = raw.replace(/^\uFEFF/, "");
+    const commentBlockLine = inComment || /^ {0,3}<!--(?! (?:BEGIN|END) ARCHCONTEXT:generated)/.test(lexicalRaw);
     let closedCommentBlock = false;
     const literals = !generated || options.generatedBodyLiterals !== false;
     if (!literals) { fence = undefined; inComment = false; inlineCodeEnd = undefined; }
@@ -129,7 +130,7 @@ export function scanDocumentRegions(body: string, options: { generatedBodyLitera
         let run = 1; while (raw[column + run] === "`") run += 1;
         let slashes = 0; while (column - slashes > 0 && raw[column - slashes - 1] === "\\") slashes += 1;
         if (slashes % 2 !== 0) { if (!generated) visible += "`"; column += 1; continue; }
-        const boundary = /^ {0,3}#{1,6}[ \t]/.test(raw) ? line.bodyEnd : paragraphEnds[line.number - 1]!;
+        const boundary = /^ {0,3}#{1,6}[ \t]/.test(lexicalRaw) ? line.bodyEnd : paragraphEnds[line.number - 1]!;
         const closing = closingBacktick(line.start + column, run, boundary);
         if (closing !== undefined) { inlineCodeEnd = closing; continue; }
         if (!generated) visible += raw.slice(column, column + run);
@@ -173,7 +174,7 @@ export function scanDocumentRegions(body: string, options: { generatedBodyLitera
       if (hashStart < title.length && hashStart > 0 && /[ \t]/.test(title[hashStart - 1]!)) title = title.slice(0, hashStart).trimEnd();
       headings.push({ start: line.start, end: line.end, title });
     }
-    blockCanStart = closedCommentBlock || /^\s*$/.test(raw) || /^ {0,3}#{1,6}[ \t]/.test(raw);
+    blockCanStart = closedCommentBlock || /^\s*$/.test(raw) || /^ {0,3}#{1,6}[ \t]/.test(lexicalRaw);
   }
   if (generated) {
     diagnostics.push({ kind: "marker-unmatched-begin", start: generated.start, end: generated.bodyStart });

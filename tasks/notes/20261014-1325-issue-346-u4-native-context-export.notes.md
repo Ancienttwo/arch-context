@@ -34,3 +34,13 @@ not write to the machine's configured cache. The lookup is registered alongside 
 fixture/schema inventory. Verification declares npm_config_cache and uses an isolated writable
 cache for this invocation; no global npm settings or cache are changed. The remaining aggregate
 steps and final rerun must be reported truthfully in the Draft PR.
+
+## Passing baseline and bounded BOM delta
+
+The aggregate verify passed with exit 0 at 4f68c76a774fd74c5691c1a0745a0dfe0e5054aa,
+execution vx-2212fb60798d4045856b, retaining its immutable run record. A final small follow-up
+normalizes the BOM only for the existing Markdown block predicates, matching the scanner's
+existing heading/fence behavior. Original bytes and ranges remain untouched. It adds the BOM
+case to the existing ATX/checksum regression. The Verification Plan retains the passing
+aggregate as baseline_with_delta and binds current scanner/reader/CLI/typecheck/Node bundle
+evidence instead of repeating the unchanged full suite.

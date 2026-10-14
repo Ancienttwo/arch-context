@@ -89,12 +89,34 @@ allowed_paths:
       "cwd": ".",
       "phase": "verification",
       "cost": "expensive",
-      "evidence_policy": "current_exact",
-      "necessity": "Reviewed plan requires aggregate repository, packaging and regression acceptance after final integration",
+      "evidence_policy": "baseline_with_delta",
+      "necessity": "Retain the passing aggregate at 4f68c76a; the only product delta normalizes BOM for Markdown block predicates and is covered by current scanner/reader/CLI/bundle checks.",
       "inputs": {
-        "env": ["npm_config_cache"]
+        "env": [
+          "npm_config_cache"
+        ]
       },
-      "command": "bun run verify"
+      "command": "bun run verify",
+      "baseline": {
+        "run_file": ".ai/harness/runs/verification-vx-2212fb60798d4045856b.json",
+        "execution_id": "vx-2212fb60798d4045856b"
+      },
+      "delta_checks": [
+        "u4-bom-delta"
+      ]
+    },
+    {
+      "id": "u4-bom-delta",
+      "kind": "command",
+      "cwd": ".",
+      "phase": "preflight",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "BOM-prefixed ATX heading must share the same code-span boundary and keep checksum validation; verify affected shared adapters, frozen corpus and packaged native entry.",
+      "inputs": {
+        "env": []
+      },
+      "command": "bun run typecheck && bun test --timeout 60000 packages/core/projection-engine packages/local-runtime/model-store-yaml/test/native-context.test.ts packages/surfaces/cli/test/native-context.test.ts && node scripts/packaged-cli-smoke.mjs --native-only"
     }
   ]
 }

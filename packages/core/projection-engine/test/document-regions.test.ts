@@ -33,8 +33,8 @@ describe("shared lossless document regions", () => {
     expect(scanDocumentRegions(`## ${title}\n`).headings[0]!.title).toBe(title);
     expect(scanDocumentRegions("## Optimization Backlog ###   \nitem\n").headings[0]!.title).toBe("Optimization Backlog");
   });
-  test("ATX heading backticks cannot hide a bad checksum in the following paragraph", () => {
-    const body = `## 3. \`open\ninline ${begin()}changed${end}\nclose\`\n`;
+  test.each(["", "\uFEFF"])("ATX heading backticks with BOM %j cannot hide a bad checksum in the following paragraph", bom => {
+    const body = `${bom}## 3. \`open\ninline ${begin()}changed${end}\nclose\`\n`;
     expect(() => analyzeNativeDocument(body, "docs/demo.md", TARGET_ID)).toThrow("native-document-marker-invalid");
   });
   test("escaping the first backtick still allows the remainder of its run to open literal code", () => {
