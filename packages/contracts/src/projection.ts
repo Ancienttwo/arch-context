@@ -78,7 +78,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-replay-v1",
   "projection-architecture-debt-v1",
   "projection-check-freshness-v1",
-  "projection-manifest-contract-v2",
+  "projection-manifest-contract-v3",
   "projection-observed-major-change-acceptance-v1",
   "projection-orphan-review-v1",
   "projection-preview-v1",
@@ -190,9 +190,7 @@ export const PROJECTION_PREVIEW_TOTAL_MAX_BYTES = 1_048_576;
 export const PROJECTION_FRESHNESS_REASON_CODES = [
   "projection-manifest-missing",
   "projection-manifest-unreadable",
-  "projection-snapshot-provenance-missing",
   "projection-source-changed-since-stamp",
-  "projection-source-stamp-invalid",
   "projection-source-stamp-missing",
   "projection-source-tree-digest-mismatch"
 ] as const;

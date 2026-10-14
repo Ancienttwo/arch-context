@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestJson, stableYaml, type Json } from "@archcontext/contracts";
+import { digestJson, serializeArchitectureDocsProjectionManifest, stableYaml, type Json } from "@archcontext/contracts";
 import type { ArchitectureFlowV1, ArchitectureSemanticStateV1 } from "@archcontext/contracts";
 import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type ArchitectureSelectorEvidenceV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
 import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
@@ -128,50 +128,91 @@ describe("committed change acceptance helpers", () => {
     }
   });
 
-  test("a proof-only change is accepted only when the recorded source and selector evidence are unchanged", () => {
-    const base = state(capability("capability.a", ["capability.a"], digest("5"), digest("6")));
-    const proofOnly = state(capability("capability.a", ["capability.a"], digest("5"), digest("9")));
-    const evidence = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b"), rendererVersion: "renderer-v1" };
-    expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence: { ...evidence } })).not.toThrow();
-    // A compiler (renderer) change between baseline and acceptance is not credited to the journals either.
-    for (const currentEvidence of [{ ...evidence, sourceTreeDigest: digest("c") }, { ...evidence, selectorEvidenceDigest: digest("c") }, { ...evidence, rendererVersion: "renderer-v2" }]) {
+  test("a proof-only change is accepted only when that capability's member stamps, selector evidence and renderer are unchanged", () => {
+    const base = state(capability("capability.a", ["capability.a", "component.a"], digest("5"), digest("6")));
+    const proofOnly = state(capability("capability.a", ["capability.a", "component.a"], digest("5"), digest("9")));
+    const evidence = {
+      rendererVersion: "renderer-v1",
+      selectorEvidenceDigests: { "capability.a": digest("b") },
+      sourceStamps: { "capability.a": digest("a"), "component.a": digest("c") }
+    };
+    expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence: structuredClone(evidence) })).not.toThrow();
+    // A member source change, a selector evidence change or a compiler (renderer) change between
+    // baseline and acceptance is not credited to the journals.
+    for (const currentEvidence of [
+      { ...evidence, sourceStamps: { ...evidence.sourceStamps, "component.a": digest("d") } },
+      { ...evidence, sourceStamps: { "capability.a": digest("a") } },
+      { ...evidence, selectorEvidenceDigests: { "capability.a": digest("c") } },
+      { ...evidence, selectorEvidenceDigests: {} },
+      { ...evidence, rendererVersion: "renderer-v2" }
+    ]) {
       expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence }))
         .toThrow(/proof-change-unexplained: capability.a/);
     }
-    expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: undefined, currentEvidence: evidence }))
+    // A baseline that records no selector evidence for the capability explains nothing.
+    expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: { ...evidence, selectorEvidenceDigests: {} }, currentEvidence: { ...evidence, selectorEvidenceDigests: {} } }))
       .toThrow(/proof-change-unexplained/);
-    const semanticToo = state(capability("capability.a", ["capability.a"], digest("4"), digest("9")));
-    expect(() => assertProofChangesExplained({ base, resulting: semanticToo, baselineEvidence: evidence, currentEvidence: { ...evidence, selectorEvidenceDigest: digest("c") } })).not.toThrow();
+    const semanticToo = state(capability("capability.a", ["capability.a", "component.a"], digest("4"), digest("9")));
+    expect(() => assertProofChangesExplained({ base, resulting: semanticToo, baselineEvidence: evidence, currentEvidence: { ...evidence, selectorEvidenceDigests: { "capability.a": digest("c") } } })).not.toThrow();
   });
 
-  test("the proof gate reads baseline evidence from the semantic baseline, not sticky provenance, and refuses legacy baselines", () => {
-    // Codex R2 P1: render E0, re-baseline with E1 while the sticky top-level provenance keeps E0,
-    // then restore E0. The baseline's own evidence says E1, so the restored E0 proof is unexplained.
+  test("evidence that moved in one capability never blocks another capability's explained proof change (#327)", () => {
+    const base = state(capability("capability.a", ["capability.a"], digest("5"), digest("6")), capability("capability.b", ["capability.b"], digest("5"), digest("6")));
+    const aProofOnly = state(capability("capability.a", ["capability.a"], digest("5"), digest("9")), capability("capability.b", ["capability.b"], digest("5"), digest("6")));
+    const evidence = {
+      rendererVersion: "renderer-v1",
+      selectorEvidenceDigests: { "capability.a": digest("a"), "capability.b": digest("b") },
+      sourceStamps: { "capability.a": digest("a"), "capability.b": digest("b") }
+    };
+    const bMoved = {
+      ...evidence,
+      selectorEvidenceDigests: { ...evidence.selectorEvidenceDigests, "capability.b": digest("c") },
+      sourceStamps: { ...evidence.sourceStamps, "capability.b": digest("c") }
+    };
+    expect(() => assertProofChangesExplained({ base, resulting: aProofOnly, baselineEvidence: evidence, currentEvidence: bMoved })).not.toThrow();
+    const aMoved = { ...evidence, sourceStamps: { ...evidence.sourceStamps, "capability.a": digest("c") } };
+    expect(() => assertProofChangesExplained({ base, resulting: aProofOnly, baselineEvidence: evidence, currentEvidence: aMoved }))
+      .toThrow(/proof-change-unexplained: capability.a/);
+  });
+
+  test("the proof gate reads baseline evidence from a current-format manifest only, never a superseded one (#327)", () => {
     const cap = (flowProofFingerprint: string, semanticFingerprint = digest("5")) => capability("capability.a", ["capability.a"], semanticFingerprint, flowProofFingerprint);
-    const consistent = (...capabilities: ReturnType<typeof capability>[]): ArchitectureSemanticStateV1 => ({
-      schemaVersion: "archcontext.architecture-semantic-state/v1",
-      capabilities,
-      semanticFingerprint: digestJson(capabilities.map(({ capabilityId, semanticFingerprint }) => ({ capabilityId, semanticFingerprint })) as unknown as Json),
-      flowProofFingerprint: digestJson(capabilities.map(({ capabilityId, flowProofFingerprint }) => ({ capabilityId, flowProofFingerprint })) as unknown as Json)
+    const facets = Object.fromEntries(["constraints", "entrypoints", "interfaces", "lifecycle", "names", "ownership", "placement", "relations", "responsibilities", "riskBoundaries"].map((facet) => [facet, digest("f")]));
+    const manifest = (selectorEvidenceDigest: string) => serializeArchitectureDocsProjectionManifest({
+      schemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+      rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
+      profile: "repo-harness/v1",
+      layoutVersion: "archcontext.docs-layout/v1",
+      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" },
+      semanticBaseline: { modelDigest: digest("d"), capabilities: [{ ...cap(digest("6")), facets: facets as never, selectorEvidenceDigest }] },
+      targets: {
+        "projection_target.entity.capability-a": {
+          type: "entity-summary", scope: { kind: "entity", id: "capability.a", entityKind: "capability" }, path: "docs/architecture/modules/a/a.md",
+          ownership: "mixed", format: "markdown", outputDigest: digest("e"),
+          sourceStamps: { "capability.a": digest("a") }, scale: { fileCountBucket: { lower: 1, upper: 2 }, lineCountBucket: { lower: 1, upper: 2 } }
+        }
+      }
     });
-    const e0 = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("0"), rendererVersion: "renderer-v1" };
-    const e1 = { ...e0, selectorEvidenceDigest: digest("1") };
-    const base = consistent(cap(digest("6")));
-    const manifest = (evidence: typeof e0 | undefined) => JSON.stringify({
-      provenance: { sourceTreeDigest: e0.sourceTreeDigest, codeGraphDigest: digest("c") },
-      semanticBaseline: { semanticState: base, digests: { modelDigest: digest("d"), flowProofDigest: base.flowProofFingerprint }, ...(evidence ? { evidence } : {}) }
-    });
-    const rebaselinedOnE1 = projectionManifestBaseline(manifest(e1));
-    expect(rebaselinedOnE1.evidence).toEqual(e1);
-    const proofOnly = consistent(cap(digest("9")));
+    const e0 = { rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, selectorEvidenceDigests: { "capability.a": digest("0") }, sourceStamps: { "capability.a": digest("a") } };
+    const rebaselinedOnE1 = projectionManifestBaseline(manifest(digest("1")));
+    expect(rebaselinedOnE1.modelDigest).toBe(digest("d"));
+    expect(rebaselinedOnE1.evidence).toEqual({ ...e0, selectorEvidenceDigests: { "capability.a": digest("1") } });
+    // The aggregates are recomputed from the entries, never read.
+    expect(rebaselinedOnE1.semanticState.flowProofFingerprint).toBe(digestJson([{ capabilityId: "capability.a", flowProofFingerprint: digest("6") }] as unknown as Json));
+    const proofOnly = state(cap(digest("9")));
     expect(() => assertProofChangesExplained({ base: rebaselinedOnE1.semanticState, resulting: proofOnly, baselineEvidence: rebaselinedOnE1.evidence, currentEvidence: e0 }))
       .toThrow(/proof-change-unexplained: capability.a/);
-    const legacy = projectionManifestBaseline(manifest(undefined));
-    expect(legacy.evidence).toBeUndefined();
-    expect(() => assertProofChangesExplained({ base: legacy.semanticState, resulting: proofOnly, baselineEvidence: legacy.evidence, currentEvidence: e0 }))
-      .toThrow(/proof-change-unexplained/);
-    // Ordinary semantic acceptance does not depend on recorded evidence.
-    expect(() => assertProofChangesExplained({ base: legacy.semanticState, resulting: consistent(cap(digest("9"), digest("4"))), baselineEvidence: legacy.evidence, currentEvidence: e0 })).not.toThrow();
+    expect(() => assertProofChangesExplained({ base: projectionManifestBaseline(manifest(digest("0"))).semanticState, resulting: proofOnly, baselineEvidence: projectionManifestBaseline(manifest(digest("0"))).evidence, currentEvidence: e0 }))
+      .not.toThrow();
+    // A v2 manifest that still carries a whole baseline and evidence is refused, never read.
+    const v2 = JSON.stringify({
+      schemaVersion: "archcontext.architecture-docs-projection-manifest/v2",
+      semanticBaseline: { semanticState: state(cap(digest("6"))), digests: { modelDigest: digest("d") }, evidence: { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("0"), rendererVersion: "renderer-v1" } }
+    });
+    expect(() => projectionManifestBaseline(v2)).toThrow(/^projection-manifest-upgrade-required: /);
+    expect(() => projectionManifestBaseline(JSON.stringify({ semanticBaseline: {} }))).toThrow(/projection-manifest-invalid/);
+    expect(() => projectionManifestBaseline("{ not json")).toThrow(/projection-manifest-invalid/);
+    expect(() => projectionManifestBaseline(undefined)).toThrow(/baseline-missing/);
   });
 
   test("renaming another capability's flow participant moves this capability's proof and is accepted when evidence held", () => {
@@ -217,9 +258,9 @@ describe("committed change acceptance helpers", () => {
     expect(resultA!.proofStatus).toEqual({ p1: "proven", p2: "proven" });
     expect(resultA!.semanticFingerprint).toBe(baseA!.semanticFingerprint);
     expect(resultA!.flowProofFingerprint).not.toBe(baseA!.flowProofFingerprint);
-    const recorded = { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b"), rendererVersion: "renderer-v1" };
-    expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded } })).not.toThrow();
-    expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded, selectorEvidenceDigest: digest("c") } }))
+    const recorded = { rendererVersion: "renderer-v1", selectorEvidenceDigests: { "capability.a": digest("b"), "capability.b": digest("b") }, sourceStamps: {} };
+    expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: structuredClone(recorded) })).not.toThrow();
+    expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded, selectorEvidenceDigests: { ...recorded.selectorEvidenceDigests, "capability.a": digest("c") } } }))
       .toThrow(/proof-change-unexplained: capability.a/);
   });
 
@@ -488,12 +529,15 @@ test("planCommittedChangeAcceptance refuses a stale model that no longer matches
       semanticFingerprint: digestJson([{ capabilityId: capabilityA.capabilityId, semanticFingerprint: capabilityA.semanticFingerprint }] as unknown as Json),
       flowProofFingerprint: digestJson([{ capabilityId: capabilityA.capabilityId, flowProofFingerprint: capabilityA.flowProofFingerprint }] as unknown as Json)
     };
-    const manifestBody = JSON.stringify({
-      provenance: { sourceTreeDigest: digest("a"), codeGraphDigest: digest("c") },
-      semanticBaseline: {
-        semanticState,
-        digests: { modelDigest: digest("d"), flowProofDigest: semanticState.flowProofFingerprint }
-      }
+    const facets = Object.fromEntries(["constraints", "entrypoints", "interfaces", "lifecycle", "names", "ownership", "placement", "relations", "responsibilities", "riskBoundaries"].map((facet) => [facet, digest("f")]));
+    const manifestBody = serializeArchitectureDocsProjectionManifest({
+      schemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+      rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
+      profile: "repo-harness/v1",
+      layoutVersion: "archcontext.docs-layout/v1",
+      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" },
+      semanticBaseline: { modelDigest: digest("d"), capabilities: [{ ...capabilityA, facets: facets as never, selectorEvidenceDigest: digest("b") }] },
+      targets: {}
     });
     mkdirSync(join(root, "docs/architecture"), { recursive: true });
     writeFileSync(join(root, MANIFEST), manifestBody, "utf8");
@@ -530,7 +574,7 @@ test("planCommittedChangeAcceptance refuses a stale model that no longer matches
         semanticState,
         architectureDigests: { modelDigest: digest("d") }
       },
-      currentEvidence: { sourceTreeDigest: digest("a"), selectorEvidenceDigest: digest("b"), rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION },
+      currentEvidence: { rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, selectorEvidenceDigests: { [CAPABILITY_A]: digest("b") }, sourceStamps: {} },
       projectionWorktreeDigest: digest("wt"),
       scope
     })).toThrow(/accepted-committed-change-model-snapshot-mismatch/);
@@ -557,9 +601,9 @@ describe("committed change acceptance v2", () => {
       });
       expect(planned.plan.reasonCodes).toContain("node-added");
       expect(planned.plan.baselineAnchorRef).toBe((await fixture.store.readLatestCommittedChangeSetFile(fixture.root, MANIFEST))!.journalId);
-      expect(JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8")).semanticBaseline.evidence).toEqual({
-        sourceTreeDigest: expect.stringMatching(/^sha256:/), selectorEvidenceDigest: digestJson([]), rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION
-      });
+      const committedBaseline = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8")).semanticBaseline;
+      expect(Object.keys(committedBaseline)).toEqual(["modelDigest", "capabilities"]);
+      for (const entry of committedBaseline.capabilities) expect(entry.selectorEvidenceDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
       expect(planned.plan.baselineModelDigest).toBe(planned.plan.journals[0].before);
       expect(planned.plan.modelDigest).toBe(digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json));
       const data = approved.data as any;
@@ -807,7 +851,7 @@ describe("committed change acceptance v2", () => {
       const journaled = await change(fixture, "changeset.after-hand", [addComponent()]);
       await expectRefused(fixture, [journaled], /chain-baseline-mismatch/);
       const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
-      manifest.semanticBaseline.digests.modelDigest = handDigest;
+      manifest.semanticBaseline.modelDigest = handDigest;
       writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
       await expectRefused(fixture, [journaled], /baseline-unanchored/);
       expect(acceptedEvents(fixture)).toHaveLength(0);
@@ -820,7 +864,7 @@ describe("committed change acceptance v2", () => {
       writeFileSync(join(fixture.root, nodePath("component.child")), nodeBody("component.child", { parent: "component.container", summary: "HAND EDIT NOT JOURNALED." }), "utf8");
       const handDigest = digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json);
       const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
-      manifest.semanticBaseline.digests.modelDigest = handDigest;
+      manifest.semanticBaseline.modelDigest = handDigest;
       writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
       const journaled = await change(fixture, "changeset.after-hand", [addComponent()]);
       await expectRefused(fixture, [journaled], /baseline-unanchored/);
@@ -832,7 +876,7 @@ describe("committed change acceptance v2", () => {
     // Anchors compare raw bytes: invalid UTF-8 (0xff) never equals a committed U+FFFD.
     await withFixture(async (fixture) => {
       const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
-      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify({ ...manifest, note: "\uFFFD" }, null, 2)}\n`, "utf8");
+      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify({ ...manifest, generatedFrom: { ...manifest.generatedFrom, codeGraphPackage: `${manifest.generatedFrom.codeGraphPackage}\uFFFD` } }, null, 2)}\n`, "utf8");
       commitAll(fixture.root, "commit manifest with U+FFFD");
       const added = await change(fixture, "changeset.add", [addComponent()]);
       const committed = readFileSync(join(fixture.root, MANIFEST));
@@ -887,7 +931,7 @@ describe("committed change acceptance v2", () => {
         writeFileSync(join(fixture.root, hand.path), hand.body!, "utf8");
         const handDigest = digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json);
         const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
-        manifest.semanticBaseline.digests.modelDigest = handDigest;
+        manifest.semanticBaseline.modelDigest = handDigest;
         const forged = `${JSON.stringify(manifest, null, 2)}\n`;
         const expectedHash = currentHash(fixture.root, MANIFEST);
         const forgedId = `changeset.forged-manifest-${via}`;
@@ -939,7 +983,7 @@ describe("committed change acceptance v2", () => {
       const hand = editNode(fixture.root, "component.container", { source: { include: ["README.md"] } });
       writeFileSync(join(fixture.root, hand.path), hand.body!, "utf8");
       const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
-      manifest.semanticBaseline.digests.modelDigest = digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json);
+      manifest.semanticBaseline.modelDigest = digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json);
       const forged = `${JSON.stringify(manifest, null, 2)}\n`;
       // Same id as the daemon-planned draft: the stored draft is replaced by a caller-authored object.
       const plan = await fixture.daemon.planUpdate(fixture.root, {
@@ -974,25 +1018,21 @@ describe("committed change acceptance v2", () => {
     }, { capabilityASource: true });
   }, TIMEOUT * 2);
 
-  test("a manifest written before recorded evidence refuses proof-only changes but still accepts semantic ones", async () => {
+  test("a superseded v2 manifest refuses acceptance with projection-manifest-upgrade-required (#327)", async () => {
     await withFixture(async (fixture) => {
-      const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
-      delete manifest.semanticBaseline.evidence;
-      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-      commitAll(fixture.root, "legacy manifest without recorded evidence");
-      const kind = await change(fixture, "changeset.kind", [editNode(fixture.root, "component.child", { kind: "module" })]);
-      await expectRefused(fixture, [kind], new RegExp(`proof-change-unexplained: ${CAPABILITY_A}`));
-    }, { capabilityASource: true });
-    await withFixture(async (fixture) => {
-      const manifest = JSON.parse(readFileSync(join(fixture.root, MANIFEST), "utf8"));
-      delete manifest.semanticBaseline.evidence;
-      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-      commitAll(fixture.root, "legacy manifest without recorded evidence");
+      // Only the schemaVersion of a v2 manifest is read: its baseline and evidence are never consulted.
+      writeFileSync(join(fixture.root, MANIFEST), `${JSON.stringify({
+        schemaVersion: "archcontext.architecture-docs-projection-manifest/v2",
+        semanticBaseline: { semanticState: {}, digests: { modelDigest: digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json) } }
+      }, null, 2)}\n`, "utf8");
+      commitAll(fixture.root, "a manifest from 0.7.x");
       const owned = await change(fixture, "changeset.ownership", [editNode(fixture.root, "component.container", { source: { include: ["README.md"] } })]);
-      const { approved } = await accept(fixture, [owned]);
-      expect(approved.ok, JSON.stringify(approved)).toBe(true);
+      const previewed = await preview(fixture, [owned]);
+      expect(previewed.ok).toBe(false);
+      expect((previewed as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "projection-manifest-upgrade-required" });
+      expect(acceptedEvents(fixture)).toHaveLength(0);
     });
-  }, TIMEOUT * 2);
+  }, TIMEOUT);
 
   test("after the journals commit, byte and symlink swaps in the semantic set refuse at preview and approve", async () => {
     // Round-3 F2: every acceptance-side read is strict: regular files only, valid UTF-8 only.

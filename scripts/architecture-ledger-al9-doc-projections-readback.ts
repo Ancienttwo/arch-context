@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
+  architectureDocsProjectionManifestDigests,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   digestJson,
   type Json
@@ -133,9 +134,8 @@ function currentRepoProjectionReadback() {
     sourceDigest: plan.sourceDigest,
     projectionManifestTracksDigests:
       projectionManifest.schemaVersion === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION
-      && projectionManifest.sourceDigest === plan.sourceDigest
-      && projectionManifest.projectionDigest === plan.projectionDigest
-      && projectionManifest.targets.every((target: any) => typeof target.outputDigest === "string" && target.outputDigest.startsWith("sha256:")),
+      && architectureDocsProjectionManifestDigests(projectionManifest).projectionDigest === plan.projectionDigest
+      && Object.values(projectionManifest.targets).every((target: any) => typeof target.outputDigest === "string" && target.outputDigest.startsWith("sha256:")),
     docs: {
       indexPresent: existsSync(resolve(REPO_ROOT, "docs/architecture/index.md")),
       entitySummaryPresent: existsSync(resolve(REPO_ROOT, "docs/architecture/modules/capability-architecture-context.md")),

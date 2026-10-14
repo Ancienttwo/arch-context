@@ -458,6 +458,24 @@ export function proofRelevantSelectorEvidence(evidence: readonly ArchitectureSel
     .map(({ entry }) => entry as unknown as Json);
 }
 
+/**
+ * `proofRelevantSelectorEvidence` for one capability: the entries of the selectors its flows cite
+ * in a step, which are the only selector evidence its P2 proof reads (`validateStep`). Per-capability
+ * proof acceptance compares the digest of this value, so a selector change in one capability never
+ * stands in for an evidence change of another.
+ */
+export function capabilityProofRelevantSelectorEvidence(input: {
+  capabilityId: string;
+  flows: readonly ArchitectureFlowV1[];
+  evidence: readonly ArchitectureSelectorEvidenceV1[];
+}): Json[] {
+  const cited = new Set(input.flows
+    .filter((flow) => flow.capabilityId === input.capabilityId)
+    .flatMap((flow) => flow.applicability === "required" ? [...flow.steps, ...flow.outcomes.flatMap((outcome) => outcome.steps)] : [])
+    .map((step) => evidenceSelectorKey(step.evidence)));
+  return proofRelevantSelectorEvidence(input.evidence.filter((entry) => cited.has(evidenceSelectorKey(entry))));
+}
+
 function architectureSelectorDeclarations(nodes: SemanticArchitectureNode[]): Array<{ key: string; nodeId: string }> {
   return nodes.flatMap((node) => (node.source?.entrypoints ?? []).flatMap((entrypoint) =>
     entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => ({
