@@ -1,4 +1,4 @@
-import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt } from "./architecture-debt";
+import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt, selectedProducerFailureEnvelope } from "./architecture-debt";
 import type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
 export type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
 import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
@@ -76,7 +76,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { listGitVisibleFiles, readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobQueueScope, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
@@ -741,6 +741,13 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async completeTask(root: string, input: RuntimeCompleteTaskInput = {}): Promise<JsonEnvelope> {
+    try { assertNoCallerProvidedAttestationFields(input, "complete-task"); }
+    catch { return failureEnvelope("complete_task", knownFailure("AC_SCHEMA_INVALID", "complete-input-invalid")); }
+    try { return await this.completeTaskUnchecked(root, input); }
+    catch (error) { return selectedProducerFailureEnvelope("complete_task", error, "complete"); }
+  }
+
+  private async completeTaskUnchecked(root: string, input: RuntimeCompleteTaskInput): Promise<JsonEnvelope> {
     this.assertRunning();
     assertNoCallerProvidedAttestationFields(input, "complete-task");
     const session = await this.openSession(root);
@@ -785,17 +792,15 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         architectureDebt = readCompleteTaskArchitectureDebt(session.workspace.root, practiceEnforcement);
       }
     } catch (error) {
-      if (error instanceof ArchitectureDebtReadError) {
-        return errorEnvelope("complete_task", error.code, error.message, error.reasonCode);
-      }
+      if (error instanceof ArchitectureDebtReadError) return selectedProducerFailureEnvelope("complete_task", error, "complete");
       // Same typed, retryable answer as the docs and projection paths (#258, #279): missing
       // required code facts are an environment state, never projection drift.
       if (error instanceof ProjectionCodeFactsUnavailableError) {
-        return errorEnvelope("complete_task", "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
+        return selectedProducerFailureEnvelope("complete_task", error, "complete");
       }
       // A superseded or invalid manifest, or an undocumented footprint, is a typed precondition (#327).
       if (error instanceof ProjectionPreconditionError) {
-        return errorEnvelope("complete_task", "AC_PRECONDITION_FAILED", error.message, error.reasonCode);
+        return selectedProducerFailureEnvelope("complete_task", error, "complete");
       }
       throw error;
     }

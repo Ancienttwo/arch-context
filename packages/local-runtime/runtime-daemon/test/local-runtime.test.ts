@@ -579,7 +579,7 @@ describe("local runtime foundation", () => {
       for (const profile of [undefined, "unknown/v1", null]) {
         writeFileSync(profileManifest, JSON.stringify({ profile }), "utf8");
         await expect(daemon.completeTask(root, { taskSessionId: "task_invalid_profile" }))
-          .rejects.toThrow("projection-manifest-profile-invalid");
+          .resolves.toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", action: "inspect-diagnostics", retryable: false, details: { stage: "complete" } } });
       }
       writeFileSync(profileManifest, JSON.stringify({ profile: "default" }), "utf8");
       const drifted = await daemon.completeTask(root, {
@@ -2419,12 +2419,12 @@ setInterval(() => undefined, 1 << 30);
         taskSessionId: "task_runtime_forged",
         headSha,
         result: "pass"
-      } as any)).rejects.toThrow("complete-task-caller-provided-attestation-field-forbidden: result");
+      } as any)).resolves.toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", reasonCode: "complete-input-invalid", action: "correct-command-arguments", details: {} } });
       await expect(daemon.completeTask(root, {
         taskSessionId: "task_runtime_forged_model",
         headSha,
         modelDigest: `sha256:${"a".repeat(64)}`
-      } as any)).rejects.toThrow("complete-task-caller-provided-attestation-field-forbidden: modelDigest");
+      } as any)).resolves.toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", reasonCode: "complete-input-invalid", action: "correct-command-arguments", details: {} } });
     } finally {
       await daemon?.stop().catch(() => undefined);
       removeTempRepo(root);

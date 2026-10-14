@@ -444,7 +444,8 @@ describe("local MCP server", () => {
         });
         expect((result.content as any).ok, field).toBe(false);
         expect((result.content as any).error.code, field).toBe("AC_SCHEMA_INVALID");
-        expect((result.content as any).error.message, field).toContain(field);
+        expect((result.content as any).error, field).toMatchObject({ reasonCode: "complete-input-invalid", action: "correct-command-arguments", details: {} });
+        expect((result.content as any).error.message, field).not.toContain("forged");
       }
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -716,4 +717,45 @@ describe("local MCP server", () => {
       expect(body).not.toContain("class ");
     }
   });
+});
+
+test("D6-A official MCP SDK sees selected failures with isError and preserved application codes", async () => {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { FailureError, failureIssues } = await import("@archcontext/contracts");
+  const root = mkdtempSync(join(tmpdir(), "d6-sdk-no-git-"));
+  const runtime = {
+    practiceCheckpoint: async () => { throw new FailureError("AC_REPO_NOT_FOUND", "git-worktree-required", { checks: ["ownership", "anchors"] }); },
+    completeTask: async () => { throw new Error("/private/provider/root source-body Authorization=sdk-secret"); }
+  } as unknown as RuntimeDaemonClient;
+  const lines: string[] = [];
+  let running = true;
+  let wake: (() => void) | undefined;
+  let loop: Promise<void> | undefined;
+  async function* input() {
+    while (running || lines.length) {
+      if (!lines.length) { await new Promise<void>(resolve => { wake = resolve; }); continue; }
+      yield lines.shift()!;
+    }
+  }
+  const transport: import("@modelcontextprotocol/sdk/shared/transport.js").Transport = {
+    async start() {
+      loop = runStdioMcpLoop(input(), line => transport.onmessage?.(JSON.parse(line)), () => {}, { runtime });
+    },
+    async send(message) { lines.push(JSON.stringify(message)); wake?.(); },
+    async close() { running = false; wake?.(); await loop; transport.onclose?.(); }
+  };
+  const client = new Client({ name: "d6-failure-test", version: "1.0" });
+  try {
+    await client.connect(transport);
+    for (const [name, code] of [["archcontext_checkpoint", "AC_REPO_NOT_FOUND"], ["archcontext_practice_checkpoint", "AC_REPO_NOT_FOUND"], ["archcontext_complete_task", "AC_UNCLASSIFIED_FAILURE"]]) {
+      const result = await client.callTool({ name: name!, arguments: { root } });
+      expect(result.isError).toBe(true);
+      const content = result.content as Array<{ type: string; text: string }>;
+      const envelope = JSON.parse(content[0]!.text);
+      expect(envelope.error.code).toBe(code);
+      expect(failureIssues(envelope.error)).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain("sdk-secret");
+      expect(JSON.stringify(result)).not.toContain("/private/provider/root");
+    }
+  } finally { await client.close(); rmSync(root, { recursive: true, force: true }); }
 });
