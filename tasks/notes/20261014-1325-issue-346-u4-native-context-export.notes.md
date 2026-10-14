@@ -25,3 +25,12 @@
 - Six independent read-only review passes found seven distinct reproducible boundaries. Corrections disable Git replace objects; reject filesystem aliases at existing ancestors; preserve confirmed multiline/indented Markdown code and escaped/unpaired backticks; keep legacy generated-body delimiter policy; parse headings without polynomial regex backtracking; and bound diagnostics plus the rendered failure envelope. Regression checks cover each correction.
 - Aggregate verify attempt 1 stopped at two cross-package relative imports, now corrected to the core package entrypoint. Attempt 2 was interrupted by the outer repo-harness helper's 120-second process timeout before it could record an aggregate result. Neither attempt is passing evidence. The final run uses the same canonical verification-plan executor directly with its explicit long timeout.
 - Workflow artifacts use the harness's timestamp stem, without the plan- prefix; the three owned old paths are migrated. The resolver now recognizes the task contract and owner, with no edit blockers. Coordinator acceptance, hosted matrix, issue closure, release and merge remain separate.
+
+## Aggregate verification correction
+
+The frozen aggregate run reached 3091 passing tests and three platform skips, with two failures:
+the invalid-fixture schemaVersion lookup lacked the new native protocol entry, and npm pack could
+not write to the machine's configured cache. The lookup is registered alongside the existing
+fixture/schema inventory. Verification declares npm_config_cache and uses an isolated writable
+cache for this invocation; no global npm settings or cache are changed. The remaining aggregate
+steps and final rerun must be reported truthfully in the Draft PR.

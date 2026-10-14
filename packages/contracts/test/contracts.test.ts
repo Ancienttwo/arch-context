@@ -1723,7 +1723,8 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.hook-debt-checkpoint/v1": "hook-debt-checkpoint",
     "archcontext.cloud-egress/v1": "cloud-egress-envelope",
     "archcontext.org-runner-identity/v1": "org-runner-identity",
-    "archcontext.entitlement/v1": "entitlement"
+    "archcontext.entitlement/v1": "entitlement",
+    "archcontext.native-context-export/v1": "native-context-export"
   };
   const fixtureName = byVersion[schemaVersion];
   if (!fixtureName) throw new Error(`Unknown schemaVersion: ${schemaVersion}`);

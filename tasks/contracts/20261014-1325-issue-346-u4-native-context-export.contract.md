@@ -92,7 +92,7 @@ allowed_paths:
       "evidence_policy": "current_exact",
       "necessity": "Reviewed plan requires aggregate repository, packaging and regression acceptance after final integration",
       "inputs": {
-        "env": []
+        "env": ["npm_config_cache"]
       },
       "command": "bun run verify"
     }
