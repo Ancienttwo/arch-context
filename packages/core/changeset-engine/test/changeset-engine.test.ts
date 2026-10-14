@@ -569,6 +569,56 @@ describe("@archcontext/core/changeset-engine", () => {
     }
   });
 
+  test("render_projection guards a carried file: nothing is written to it, and drift refuses the whole apply", async () => {
+    const modelRoot = tempModelRoot();
+    try {
+      const carriedPath = "docs/architecture/modules/carried.md";
+      const carriedBody = "# Carried\r\nkept as rendered\r\n";
+      mkdirSync(join(modelRoot, "docs/architecture/modules"), { recursive: true });
+      writeFileSync(join(modelRoot, carriedPath), carriedBody, "utf8");
+      const journal = new RecordingChangeSetJournal();
+      const engine = yamlChangeSetEngine(journal);
+      const carriedHash = digestJson({ body: carriedBody });
+      const plan = (id: string, op: "render_projection" | "render_agent_context", guardPath = carriedPath, expectedHash = carriedHash) => engine.approve(engine.plan({
+        id,
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.carried" },
+        operations: [{
+          op,
+          expectedHash: "missing",
+          projectionFiles: [
+            { path: "docs/architecture/index.md", expectedHash: "missing", body: "# Architecture\n" },
+            { path: guardPath, expectedHash, guard: true }
+          ]
+        }]
+      }));
+
+      expect(validateJsonSchema(readJson("schemas/runtime/changeset.schema.json") as any, plan("changeset.carried-schema", "render_projection") as any).valid).toBe(true);
+      expect(engine.preview(modelRoot, plan("changeset.carried-agent", "render_agent_context")).findings)
+        .toContain(`Projection file guard is only allowed in render_projection: ${carriedPath}`);
+      expect(engine.preview(modelRoot, plan("changeset.carried-missing", "render_projection", carriedPath, "missing")).findings)
+        .toContain(`Projection file guard requires the exact current hash: ${carriedPath}`);
+      expect(engine.preview(modelRoot, plan("changeset.carried-overlap", "render_projection", "docs/architecture/index.md")).findings)
+        .toContain("Projection file guard must not be written by the same ChangeSet: docs/architecture/index.md");
+
+      // Drift between the render and the commit: the write already made is rolled back.
+      await expect(engine.apply(modelRoot, plan("changeset.carried-stale", "render_projection", carriedPath, digestJson({ body: "stale" })))).rejects.toThrow("Expected hash mismatch");
+      expect(existsSync(join(modelRoot, "docs/architecture/index.md"))).toBe(false);
+      rmSync(join(modelRoot, carriedPath));
+      await expect(engine.apply(modelRoot, plan("changeset.carried-deleted", "render_projection"))).rejects.toThrow(`Expected hash mismatch: ${carriedPath} (current missing)`);
+      expect(existsSync(join(modelRoot, "docs/architecture/index.md"))).toBe(false);
+      writeFileSync(join(modelRoot, carriedPath), carriedBody, "utf8");
+
+      await expect(engine.apply(modelRoot, plan("changeset.carried", "render_projection"))).resolves.toMatchObject({ status: "applied" });
+      expect(readFileSync(join(modelRoot, carriedPath), "utf8")).toBe(carriedBody);
+      expect(readFileSync(join(modelRoot, "docs/architecture/index.md"), "utf8")).toBe("# Architecture\n");
+      const committed = journal.records.find((record) => record.status === "committed")!;
+      expect(committed.files.map((file) => file.path)).toEqual(["docs/architecture/index.md"]);
+    } finally {
+      rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+
   test.each([
     ["missing", "render_projection"], ["drifted", "render_projection"],
     ["missing", "render_agent_context"], ["drifted", "render_agent_context"]

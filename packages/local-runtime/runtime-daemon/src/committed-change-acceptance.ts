@@ -32,7 +32,8 @@ export function captureModelTransitionBase(root: string, draft: ChangeSetDraft, 
   for (const operation of draft.operations) {
     const writes = [
       ...(operation.path ? [{ path: operation.path, body: operation.body }] : []),
-      ...(operation.projectionFiles ?? [])
+      // A projection guard writes nothing, so it is not an expected write.
+      ...(operation.projectionFiles ?? []).flatMap((file) => "guard" in file ? [] : [file])
     ];
     for (const write of writes) {
       if (!isSemanticModelPath(write.path)) continue;

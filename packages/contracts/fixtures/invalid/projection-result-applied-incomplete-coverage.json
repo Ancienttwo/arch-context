@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "archcontext.projection-result/v2",
+  "requestId": "projection_request.repo_main",
+  "status": "applied",
+  "inputSnapshot": {
+    "repositoryId": "repo.example",
+    "workspaceId": "ws.example",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "sourceTreeDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "modelDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "codeGraphDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "indexedWorktreeDigest": "sha256:4545454545454545454545454545454545454545454545454545454545454545",
+    "projectionInputDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "rendererVersion": "archcontext.docs-renderer/v6",
+    "layoutVersion": "archcontext.docs-layout/v1",
+    "generatedFrom": {
+      "codeGraphPackage": "@colbymchenry/codegraph",
+      "codeGraphVersion": "1.6.1",
+      "codeGraphStatus": "ready"
+    }
+  },
+  "outputSnapshot": {
+    "repositoryId": "repo.example",
+    "workspaceId": "ws.example",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "baseHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worktreeDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "sourceTreeDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "modelDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+    "codeGraphDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "indexedWorktreeDigest": "sha256:9898989898989898989898989898989898989898989898989898989898989898",
+    "projectionInputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rendererVersion": "archcontext.docs-renderer/v6",
+    "layoutVersion": "archcontext.docs-layout/v1",
+    "generatedFrom": {
+      "codeGraphPackage": "@colbymchenry/codegraph",
+      "codeGraphVersion": "1.6.1",
+      "codeGraphStatus": "ready"
+    }
+  },
+  "affectedNodeIds": [
+    "capability.api"
+  ],
+  "files": [
+    {
+      "path": "docs/architecture/modules/api.md",
+      "action": "update",
+      "preimageDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "outputDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "humanActions": [],
+  "refreshSignals": [],
+  "coverage": {
+    "complete": false,
+    "blockedCapabilityIds": [
+      "capability.web"
+    ],
+    "blockedTargets": [
+      {
+        "targetId": "projection_target.entity.capability.web",
+        "path": "docs/architecture/modules/web.md",
+        "capabilityIds": [
+          "capability.web"
+        ],
+        "reasonCodes": [
+          "unprovable-required-flow"
+        ]
+      }
+    ],
+    "appliedTargetIds": [
+      "projection_target.entity.capability.api"
+    ]
+  },
+  "receiptDigest": "sha256:db63e7be5b8ca3b3110cc6b8664e043f653a0555e60bf7c22be4c081bc4fdb74"
+}
