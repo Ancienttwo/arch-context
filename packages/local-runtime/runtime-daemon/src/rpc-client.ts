@@ -1,7 +1,7 @@
 import { RUNTIME_RPC_METHODS, runtimeRpcMethod, type RuntimeRpcClientMethods, type RuntimeRpcMethodName } from "./rpc-methods";
 import { RUNTIME_RPC_VERSION } from "./rpc-protocol";
 import type { Json, JsonEnvelope } from "@archcontext/contracts";
-import type { RuntimeDaemonClient, RuntimeRpcConnection } from "./rpc-protocol";
+import type { RuntimeDaemonClient, RuntimeRpcConnection, RuntimeRpcDaemonIdentity } from "./rpc-protocol";
 
 export type RuntimeRpcTransportErrorCode = "RPC_TIMEOUT" | "RPC_ABORTED";
 
@@ -81,8 +81,8 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     }) as Json;
   }
 
-  async shutdown(): Promise<JsonEnvelope> {
-    return this.call("shutdown", []);
+  async shutdown(expected?: RuntimeRpcDaemonIdentity): Promise<JsonEnvelope> {
+    return this.call("shutdown", expected ? [expected] : []);
   }
 
   connectionInfo(): Omit<RuntimeRpcConnection, "token"> {

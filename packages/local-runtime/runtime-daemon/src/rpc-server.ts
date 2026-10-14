@@ -7,7 +7,7 @@ import { type AddressInfo } from "node:net";
 import { type Json, type JsonEnvelope, type ProductVersionManifest, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
-import { RUNTIME_RPC_VERSION, type RuntimeRpcConnection } from "./rpc-protocol";
+import { RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection } from "./rpc-protocol";
 import { acquireDaemonLock, defaultDaemonConnectionPath, defaultDaemonLockPath } from "./daemon-control";
 import { closeSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -349,7 +349,7 @@ export class ArchctxRuntimeRpcServer {
         throw error;
       });
       writeJson(response, 200, result);
-      if (body.method === "shutdown") {
+      if (body.method === "shutdown" && result.ok) {
         setTimeout(() => void this.stop().catch((error) => {
           process.stderr.write(`archctxd shutdown cleanup failed: ${(error as NodeJS.ErrnoException).code ?? "unknown"}\n`);
         }), 0);
@@ -367,7 +367,22 @@ export class ArchctxRuntimeRpcServer {
   }
 
   private async dispatch(method: string, params: unknown[]): Promise<JsonEnvelope> {
-    if (method === "shutdown") return okEnvelope("daemon.stop", { stopping: true } as Json);
+    if (method === "shutdown") {
+      if (!Array.isArray(params) || params.length > 1) {
+        return errorEnvelope("daemon.stop", "AC_SCHEMA_INVALID", "shutdown accepts only an optional expected daemon identity");
+      }
+      if (params.length === 1) {
+        const expected = params[0] as Record<string, unknown> | null;
+        const current = this.connection ? runtimeRpcDaemonIdentity(this.connection) : undefined;
+        if (!expected || typeof expected !== "object" || Array.isArray(expected) || !current
+          || Object.keys(expected).sort().join(",") !== "instanceId,pid,root,schemaVersion"
+          || expected.schemaVersion !== current.schemaVersion || expected.pid !== current.pid
+          || expected.root !== current.root || !matchesSecret(expected.instanceId, current.instanceId)) {
+          return errorEnvelope("daemon.stop", "AC_RUNTIME_VERSION_UNSUPPORTED", "Expected daemon identity does not match this live instance; no shutdown performed.", "daemon-stop-identity-mismatch");
+        }
+      }
+      return okEnvelope("daemon.stop", { stopping: true } as Json);
+    }
     const definition = runtimeRpcMethod(method);
     if (!definition) {
       return {

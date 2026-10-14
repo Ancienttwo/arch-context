@@ -15,7 +15,7 @@ import { runCli } from "../src/main";
 const V1 = "archcontext.runtime-rpc/v1";
 const V2 = "archcontext.runtime-rpc/v2";
 
-test("v2 CLI diagnoses a frozen-v1 peer, preserves discovery files, and upgrades it by PID", async () => {
+test("v2 CLI diagnoses a frozen-v1 peer, preserves discovery files, and refuses unprovable upgrade", async () => {
   const workspace = mkdtempSync(join(tmpdir(), "archctx-rpc-v2-upgrade-"));
   const root = join(workspace, "repo");
   const previous = process.env.ARCHCONTEXT_STATE_DIR;
@@ -71,20 +71,13 @@ test("v2 CLI diagnoses a frozen-v1 peer, preserves discovery files, and upgrades
 
     const upgraded = await runCli("daemon", ["upgrade"], root);
     if (existsSync(connectionPath)) replacementPid = JSON.parse(readFileSync(connectionPath, "utf8")).pid;
-    expect(upgraded.ok).toBe(true);
-    expect(upgraded.data).toMatchObject({ upgraded: true, replacedRuntime: {
-      previousRpcSchemaVersion: V1, expectedRpcSchemaVersion: V2, previousPid: peer.pid
-    } });
-    expect(isProcessAlive(peer.pid!)).toBe(false);
-    const current = JSON.parse(readFileSync(connectionPath, "utf8"));
-    replacementPid = current.pid;
-    expect(current.schemaVersion).toBe(V2);
-    expect(current.version).toBe(1);
-    expect(current.pid).not.toBe(peer.pid);
-    expect(readFileSync(requestsPath, "utf8")).toBe(requestBytes);
-    const currentHealth = await new RuntimeRpcClient(current).health() as any;
-    expect(currentHealth.ok).toBe(true);
-    expect(currentHealth.schemaVersion).toBe(V2);
+    expect(upgraded).toMatchObject({ ok: false, error: { code: "AC_RUNTIME_VERSION_UNSUPPORTED", reasonCode: "daemon-ownership-unproven" } });
+    expect(isProcessAlive(peer.pid!)).toBe(true);
+    expect(readFileSync(connectionPath)).toEqual(connectionBytes);
+    expect(readFileSync(lockPath)).toEqual(lockBytes);
+    const after = readFileSync(requestsPath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(after.filter(request => request.body.method === "shutdown")).toEqual([]);
+    expect(after.at(-1).route).toBe("/health");
   } finally {
     if (peer.pid && isProcessAlive(peer.pid)) {
       peer.kill("SIGTERM");
