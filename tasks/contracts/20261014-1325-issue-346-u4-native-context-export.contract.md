@@ -13,7 +13,7 @@
 
 Implement the reviewed #349 native export design against main 5e144af06c56a9d564d8a06356b732ded7f7fb22. Return complete canonical native model and lossless human inputs via fixed Git blobs or one verified worktree read window, explicit missing contracts, repo-harness/v1 profile and typed fail-closed errors. Preserve existing read/write adapters and parser values.
 
-Exclude RPC schema/version metadata, #328 D5–D7, model/generated-document writes, deployment, publication, issue closure and merge. CLI main.ts write seat was explicitly released by the integration coordinator. RPC #350 is merged. The native feature-trio addition is authorized; retain current renderer/RPC metadata and add only the new alphabetically ordered feature.
+Exclude RPC schema/version metadata, #328 D5–D7, model business-semantic writes, manual generated-document edits, deployment, publication, issue closure and merge. CLI main.ts write seat was explicitly released by the integration coordinator. RPC #350 is merged. The native feature-trio addition is authorized; retain current renderer/RPC metadata and add only the new alphabetically ordered feature. The coordinator also authorized supported projection apply for this worktree's stamp-only manifest reconciliation, preserving human/document bytes and all semantic/proof fields.
 
 ## Stop Conditions
 
@@ -75,6 +75,7 @@ allowed_paths:
   - schemas/runtime/archctx-capabilities.schema.json
   - docs/spec.md
   - docs/runbooks/native-context-export.md
+  - docs/architecture/.projection-manifest.json
 ```
 
 ## Verification Plan
@@ -90,7 +91,7 @@ allowed_paths:
       "phase": "verification",
       "cost": "expensive",
       "evidence_policy": "baseline_with_delta",
-      "necessity": "Retain the passing aggregate at 4f68c76a; the bounded deltas normalize BOM for Markdown block predicates and resolve/copy native smoke dependencies with their platform bindings. Current scanner/reader/CLI/typecheck/isolated Node bundle checks cover these changes; hosted Windows Node lanes validate the platform staging repair.",
+      "necessity": "Retain the passing aggregate at 4f68c76a; bounded deltas cover BOM predicates, isolated native smoke staging and a supported stamp-only projection-manifest refresh. Current scanner/reader/CLI/typecheck/Node bundle and freshness checks cover them; hosted Windows Node lanes validate the platform staging repair. Projection check/plan and byte audit prove unchanged output, model semantics and flow evidence.",
       "inputs": {
         "env": [
           "npm_config_cache"
@@ -102,7 +103,8 @@ allowed_paths:
         "execution_id": "vx-2212fb60798d4045856b"
       },
       "delta_checks": [
-        "u4-current-delta"
+        "u4-current-delta",
+        "u4-projection-freshness"
       ]
     },
     {
@@ -117,6 +119,17 @@ allowed_paths:
         "env": []
       },
       "command": "bun run typecheck && bun test --timeout 60000 packages/core/projection-engine packages/local-runtime/model-store-yaml/test/native-context.test.ts packages/surfaces/cli/test/native-context.test.ts && node scripts/packaged-cli-smoke.mjs --native-only"
+    },
+    {
+      "id": "u4-projection-freshness",
+      "kind": "command",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "The supported projection apply must leave every declared source footprint and the tree digest fresh at the current exact snapshot; a process exit alone is insufficient.",
+      "inputs": { "env": [] },
+      "command": "bun packages/surfaces/cli/src/main.ts projection freshness --json | node -e 'let input=\"\"; process.stdin.on(\"data\",chunk=>input+=chunk); process.stdin.on(\"end\",()=>{ const result=JSON.parse(input); if(!result.ok || result.data?.freshness?.ok!==true || result.data.freshness.staleNodes.length!==0) throw new Error(\"projection freshness failed\"); console.log(\"projection freshness OK\"); });'"
     }
   ]
 }
@@ -135,3 +148,5 @@ Revert additive reader/contracts and bounded shared extractions; no stored model
 The existing contracts.test.ts fixture-to-schema registry and inventory assertion require the new native-context-export entry when the public fixture is added. This bounded shared-test registration is allowed; RPC/version fixture logic remains untouched.
 
 Packaged native smoke found that the CodeGraph adapter eagerly requires its optional-for-native SDK during CLI module evaluation. Delay only that installed-package load until an actual SDK operation; preserve CodeGraph query behavior. The three plan-prefixed workflow paths are allowed only for migration to the harness's canonical timestamp stem.
+
+Projection reconciliation is restricted to the manifest sourceStamps rendered by ordinary projection apply. Stop on an unexplained semantic/proof delta, ownership rejection or any manual-body/model-semantic change. The current 13 stamps comprise nine U4-moved footprints and four inherited D4/RPC footprints; all old stamps were verified against the manifest's last projection commit, and the inherited current digests exactly match the U4 base.

@@ -64,3 +64,24 @@ Node native smoke passes; hosted Windows Node 22/24/25 confirmation remains requ
 The original Mac Node 22 lane was cancelled by its 20-minute job budget. Its logs continued
 through existing heavy tests without a failing assertion. Baseline duration comparison does
 not prove a purely infrastructure cause. No workflow timeout or assertion is changed here.
+
+## Supported projection reconciliation
+
+At e3cd0d91, the complete local CodeGraph index was synced. Read-only projection check and
+plan agreed: six unchanged targets, one stamp-only target, every outputChanged/semanticChanged/
+proofChanged false, no human action, and only the manifest in files[]. Its complete preview
+changed sourceStamps on the existing capability row.
+
+Frozen Git archives were measured through the product's own footprint digest functions, with
+no other checkout or branch edits. All 13 recorded stamps exactly match the last projection
+commit bc794573. Nine footprints were moved by U4 relative to c2bd0bec. Four (RPC client/server,
+runtime-daemon and MCP-local) were inherited from already merged D4/RPC work; their current
+digests exactly match c2bd0bec and have zero U4-selected file changes. They are not misattributed
+to U4. No semantic or proof delta accompanied either group.
+
+With coordinator authorization, ordinary projection apply (without major-change acceptance)
+updated only docs/architecture/.projection-manifest.json. The byte audit proves exactly 13
+sourceStamps changed and every other manifest field, all seven architecture document outputs,
+all model files and AGENTS/CLAUDE bytes stayed equal. The subsequent read-only check reached
+noop: seven unchanged targets, zero files, freshness true and no stale nodes. Exact committed
+HEAD complete and hosted matrix results remain the final handoff evidence.
