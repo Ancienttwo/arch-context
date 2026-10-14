@@ -1,0 +1,177 @@
+# Issue #328 debt reader: boundaries and evidence
+
+Base: `ade6255d13cec021226b3b116cd7624e83fe524b` (2026-10-13).
+Claude planning proposal: Herdr `w8:p1`, `/tmp/worktrees/328-claude-proposal.md`.
+Initial implementation scope: D0/D1/D2. The S2 continuation and D3 integration after S3 merged
+are recorded below.
+
+## P1: authority and scope
+
+Contracts owns the debt payload/schema. `core/review-engine/src/architecture-debt.ts` aggregates
+measured evidence without I/O or parsing source. `runtime-daemon/src/architecture-debt.ts`
+reads the existing model/ownership/anchor producers. CLI and stateful checkpoint share that
+reader. Projection keeps its existing public dependency-debt shape, projected from the common
+`dependencyDebtFromMeasurement` function; no second relation or import semantics were introduced.
+
+Current `resolve`, `docs anchors`, `flows check` and `deps` already avoid daemon discovery.
+`flows check` still calls the adapter's syncing handshake, so it is not used by the debt reader.
+CodeGraph adapter and complete freshness changes are owned by #327 S2/S3 until integration.
+
+## P2: concrete path
+
+`debt --changed-path` -> CLI argument validation -> Git root/model/file enumeration -> existing
+parent-chain ownership -> existing `docs anchors` -> pure debt evaluator -> typed envelope.
+There is no runtime client, local store, render, CodeGraph sync or mutation on that path.
+
+`checkpoint` -> `PracticeCheckpointService` -> the same reader -> existing practice computation
+and baseline save. Debt failure returns before a new baseline is saved. Coalescing skips repeat
+practice computation, while the independent debt read remains fresh. `debt.digest` prevents a
+consumer from confusing a stable practice resultDigest with unchanged citation findings.
+
+## P3: measured choice and remaining decision
+
+Observed D0 in-process probe (live workspaces, one run, no index sync):
+
+| Subject | Model | File list | Owners | Anchors | Digest | Imports | Selectors + evaluation | Total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| arch-context, `ade6255d` | 12 | 489 | 1 | 62 | 146 | 0 | not measured | 712 ms |
+| repo-harness, `90cd97fb` | 57 | 646 | 2 | 1,144 | 636 | 1,546 | 106 | 4,137 ms |
+
+Each scope contained five TypeScript paths. Arch-context had no index, so its value measures an
+incomplete path only. Repo-harness had 6,145 indexed import nodes and 220 selectors (195 proven,
+25 unproven, 3 used by required flows). Component timings are rounded independently, so their
+sum need not equal total overhead. These were observations of live workspaces under concurrent
+host load, not an isolated frozen benchmark or a universal worst-case claim.
+
+The repo-harness observation exceeds the RFC's three-second falsifier. The edit-time command
+therefore evaluates ownership and anchors and explicitly marks other producers as unmeasured.
+At 10x repository size the first bottlenecks are file enumeration and repository-wide citation
+reads; no 10x latency claim is made. Full debt remains a PR/complete workload.
+
+Moving checkpoint itself in process is a pending product cutover: it currently writes a SQLite
+practice baseline. This slice preserves that write authority and makes the no-write command
+available without introducing an alternate baseline store. Complete debt waits for S3; a
+read-only selector adapter waits for S2. The umbrella issue is not complete.
+
+## Validation
+
+Checked on the D1/D2 implementation over the pinned base above, Bun 1.4.3. The final source
+was frozen before these runs; subsequent edits only record the contract and evidence.
+
+| Check | Result |
+| --- | --- |
+| `bun test --timeout 180000 packages/contracts/test/contracts.test.ts packages/core/review-engine packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/architecture-debt.test.ts` | 366 passed, 0 failed, 63.25 s |
+| `bun test --timeout 180000 packages/local-runtime/runtime-daemon/test/undeclared-dependencies.test.ts` | 4 passed, 0 failed, 29.35 s |
+| `bun test --timeout 180000 packages/surfaces/mcp-local/test/mcp-local.test.ts` | 19 passed, 0 failed, 10.28 s |
+| `bun test --timeout 300000 tests/` | 4 passed, 0 failed, 48.29 s |
+| `bun run typecheck` | Passed |
+| `node scripts/package-boundary-audit.mjs` | Passed, 5 workspaces |
+| `node scripts/packaged-cli-smoke.mjs` | Passed, CLI bin points at this worktree |
+| `git diff --check` | Passed |
+
+These are 393 focused and acceptance tests, not a claim that the entire repository suite ran.
+They cover no-write CLI behavior (worktree byte snapshots, isolated state directory and a runtime
+client that throws on access), actual projection/dependency parity, checkpoint baseline and
+coalescing, published schemas, deleted/cross-capability citations, ambiguous and unowned paths,
+logic-only edits, explicit coverage and typed input failures.
+
+An additional cold-process observation invokes this worktree's Bun CLI three times per repository,
+including startup. Each invocation checks five changed TypeScript paths. No rerun was used to
+discard the slow first sample:
+
+| Repository subject | Samples (ms) | Median | Coverage / item count |
+| --- | --- | ---: | --- |
+| arch-context, D1/D2 over `ade6255d13cec021226b3b116cd7624e83fe524b` | 581, 496, 626 | 581 ms | partial / 0 |
+| repo-harness, `90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49` | 3,016, 1,745, 1,676 | 1,745 ms | partial / 6 |
+
+Arch-context paths: CLI `main.ts`, runtime `practice-checkpoint.ts`, review-engine
+`architecture-debt.ts`, contracts `architecture-debt.ts` and runtime `architecture-debt.ts`.
+Repo-harness paths, all under `assets/templates/helpers/`: `acceptance-receipt.ts`,
+`capability-config.ts`, `capability-resolver.ts`, `change-assessment.ts`, `check-skill-version.ts`.
+Each repository's three results had identical debt digests. These live-workspace observations
+are not p95 or worst-case evidence. **The first repo-harness sample exceeds 3,000 ms by 16 ms;
+strict cold-start budget acceptance is unresolved.** The narrower workload is justified by the
+4,137 ms full probe, but the reduced workload is not advertised as a universal latency guarantee.
+
+The Draft PR intentionally omits `architecture-debt-v1`: blocked on #327 S3 merge for feature
+advertisement. After that handoff, append the feature list/fixture/schema entries in the final
+commit. Complete actions wait for S3; full read-only selectors wait for S2. No merge, release,
+downstream delivery or closure of #328 is implied by these local checks.
+
+## S2 handoff and reconciliation (2026-10-14)
+
+Pinned integration base: `f5b31d8794d89bde2ea90c8991e226e907028614` (#338 S2).
+It also contains #340 S5 (`37e7e095`) and the Windows Verify timeout change (#341).
+The previous #337 head was `7aa075c2872c3256205f370e9f59995e8cd6efbe` over `48eea52d`.
+Rebase had no conflicts: `git range-diff 48eea52d..7aa075c2 f5b31d87..9944a01b`
+reports the original D1/D2 patch unchanged (`=`). New S2 work is a separate commit.
+
+P1: the adapter owns all CodeGraph access. S2's `inspectRepositoryCodeFacts` remains the
+readiness authority; the new runtime `architecture-debt-code-facts.ts` only composes existing
+import measurement, dependency classification and flow proof. The edit-time reader remains
+ownership/anchors only. S3 still owns completeTask/freshness and feature advertisement.
+
+P2: capture Git-visible source digest -> S2 version/status inspection -> bounded import query
+and exact selectors -> S2 inspection again -> reject a changed worktree -> dependency/flow
+evidence for the pure evaluator. `readOnly: true` reaches the SDK opener and carries
+`CODEGRAPH_NO_DOWNLOAD=1` through the import-query shim; S2 already applies it to version/status.
+Missing or stale evidence yields typed coverage reasons. A read refusal yields
+`codegraph-read-failed`; there is no writable retry, sync, render, baseline write or raw provider
+error in the result. No public command invokes this full reader yet; S3 will unlock that consumer.
+
+P3: preserve the existing projection producer and its default behavior, adding only an opt-in
+read-only mode. Other shim spawn sites retain their existing behavior and are outside this
+slice. Full reads deliberately remain repository-scale and retain their measured latency limit;
+the earlier 4,137 ms full probe and 3,016 ms cold edit-time sample remain the performance evidence.
+The SDK test holds a live writable fixture handle, as a daemon/watcher would, then verifies the
+reader changes neither database nor WAL bytes. SQLite SHM lock/read marks are excluded from
+that durable-content assertion. Handles close before `Bun.gc(true)` and fixture removal to avoid
+Windows retaining native SQLite resources after `close()`.
+
+Validation on the frozen source over `f5b31d87`:
+
+| Check | Result |
+| --- | --- |
+| New `architecture-debt-code-facts.test.ts` | 8 passed, 0 failed, 8.01 s |
+| CodeGraph adapter suite + runtime undeclared-dependencies + pure debt evaluator | 84 passed, 0 failed, 225.14 s |
+| Contracts + runtime foundation + debt CLI + MCP tests | 352 passed, 0 failed, 247.11 s |
+| Root `tests/` acceptance | 4 passed, 0 failed, 58.06 s |
+| Typecheck and package boundary audit | Passed, 5 workspaces |
+| Packaged CLI smoke | Passed |
+| `git diff --check` | Passed |
+
+These are 448 focused/acceptance tests, not a full repository suite. No expensive performance
+probe was repeated. The feature flag and complete actions remain blocked on S3; no owned S3
+entrypoint or feature-trio file is edited.
+
+
+## D3 integration after S3 (2026-10-14)
+
+Main `afeb0c38fa41e50bd90950d4c64f1d77f0914af0` was merged into #337 as
+`1432cbf29cce7cc2ee92d2286c6737bb3522d903`. The prior `9944a01b` and `4b86dc6c`
+patches remain identical in range-diff. This continuation does not rewrite branch history.
+
+The full completion reader reuses edit-time ownership/anchors, S2 read-only code facts and the
+daemon's existing practice evaluation. The review returns `data.debt`, blocks measured debt with
+actions, and reuses practice findings rather than duplicating them. Claude's bounded D3 decision
+was adopted: actual measurement gaps yield one advisory coverage finding; disabled practices
+and absent model adoption remain explicit gaps without another warning. Missing/invalid model
+validation and required-code-facts preconditions retain their existing authority. No-index
+completion can now be `pass_with_warnings` instead of `pass`. Stale HEAD skips debt judgment.
+S3's freshness evaluator and projection service are unchanged.
+
+The full read also exposes the ownership resolver's existing no-source-declarations rule:
+without declared source roots every repository file is unowned. Tests whose subject is another
+gate now declare a source boundary, preserving their original gate assertions. The Context7
+fixture fix follows that rule; it does not suppress debt or weaken the comparison.
+
+Validation on the final code (feature trio included in the tested tree):
+
+- Contracts + review-engine + full CLI: **594 passed**, no failures (576.35 s).
+- MCP local: **39 passed**, no failures (3.31 s).
+- Runtime-daemon full pass over 652 cases initially recorded **650 passed, 1 skipped, 1 failed** (320.91 s). The sole failure was the Context7 comparison fixture treating its newly pinned lockfile as unowned because it declared no source. The fixture now declares its source boundary; its complete **10-case file passed** on re-run (4.94 s). All other original assertions remain. The full runtime suite was not repeated after that fixture-only correction; the final covered result is **651 passed, 1 skipped**.
+- Dependency gate's **7 cases passed** after adding Bun GC before fixture deletion (26.92 s); these overlap the runtime total.
+- Root acceptance: **4 passed**, no failures (43.32 s).
+- Typecheck, package boundary audit (5 workspaces), packaged CLI smoke and whitespace checks passed.
+
+This covers **1,288 distinct passing cases and 1 existing skip**, with the runtime correction verified by its affected file rather than a second full suite. Hosted CI is a separate gate; no full-repository verify or repeated performance probe is claimed.

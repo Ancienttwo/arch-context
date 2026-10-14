@@ -24,6 +24,7 @@
     "nextSnapshot"
   ],
   "properties": {
+    "debt": { "$ref": "architecture-debt.schema.json" },
     "schemaVersion": { "const": "archcontext.practice-checkpoint/v1" },
     "taskSessionId": { "type": "string", "minLength": 1 },
     "event": { "enum": ["manual", "post-edit", "post-write", "pre-complete"] },

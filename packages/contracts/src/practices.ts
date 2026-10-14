@@ -389,6 +389,8 @@ export interface PracticeDeltaV1 {
 
 export interface PracticeCheckpointResultV1 {
   schemaVersion: "archcontext.practice-checkpoint/v1";
+  /** Runtime checkpoints attach the same read-only debt measurement as `archctx debt`. */
+  debt?: import("./architecture-debt").ArchitectureDebtReportV1;
   taskSessionId: string;
   event: PracticeCheckpointEvent;
   headSha: string;

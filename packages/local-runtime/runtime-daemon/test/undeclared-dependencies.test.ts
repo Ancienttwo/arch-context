@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { okEnvelope, stableYaml, type JsonEnvelope, type ProjectionArchitectureDebtV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import { dependencyDebtFromMeasurement, evaluateArchitectureDebt } from "@archcontext/core/review-engine";
 import { codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
@@ -135,6 +136,11 @@ describe("undeclared cross-capability dependencies (#326)", () => {
     expect(check.humanActions.map((action) => action.reasonCode)).not.toContain("undeclared-dependency" as never);
 
     const deps = readCapabilityDependencies(root);
+    const debt = dependencyDebtFromMeasurement(deps);
+    expect(debt).toEqual(check.architectureDebt!);
+    const taskDebt = evaluateArchitectureDebt({ scope: { kind: "repository", changedPaths: [], capabilityIds: [] }, dependencies: debt });
+    expect(taskDebt.items.map(item => ({ reasonCode: item.reasonCode, fromCapabilityId: item.details.fromCapabilityId,
+      toCapabilityId: item.details.toCapabilityId, importEdgeCount: item.details.importEdgeCount }))).toEqual(check.architectureDebt!.items);
     expect(publishedSchemaIssues("runtime/capability-dependencies.schema.json", JSON.parse(JSON.stringify(deps)))).toEqual([]);
     expect(deps.matrix.find((cell) => cell.from === "capability.shop.checkout" && cell.to === "capability.shop.billing"))
       .toEqual({ from: "capability.shop.checkout", to: "capability.shop.billing", imports: 1, calls: null, declared: false, relationIds: [] });

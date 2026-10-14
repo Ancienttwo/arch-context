@@ -75,6 +75,7 @@ export const ARCHITECTURE_REFRESH_TARGETS = [
 ] as const;
 export const ARCHCTX_FEATURES = [
   "architecture-change-capabilities-v1",
+  "architecture-debt-v1",
   "architecture-docs-renderer-v2",
   "architecture-refresh-signal-v1",
   "capability-dependencies-declared-v1",

@@ -18,6 +18,8 @@ const roots: string[] = [];
 afterAll(() => {
   if (PREVIOUS_STATE_DIR === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
   else process.env.ARCHCONTEXT_STATE_DIR = PREVIOUS_STATE_DIR;
+  // Completion now opens read-only SDK handles; release Bun SQLite finalizers before Windows cleanup.
+  Bun.gc(true);
   for (const root of [...roots, STATE_ROOT]) rmSync(root, { recursive: true, force: true });
 });
 

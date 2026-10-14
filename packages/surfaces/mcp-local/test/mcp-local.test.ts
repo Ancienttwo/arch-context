@@ -600,6 +600,8 @@ describe("local MCP server", () => {
       expect((checkpoint.content as any).ok).toBe(true);
       expect((checkpoint.content as any).data.schemaVersion).toBe("archcontext.practice-checkpoint/v1");
       expect((checkpoint.content as any).data.delta.unchanged.length).toBeGreaterThan(0);
+      expect((checkpoint.content as any).data.debt.schemaVersion).toBe("archcontext.architecture-debt/v1");
+      expect((checkpoint.content as any).data.debt.digest).toMatch(/^sha256:/);
       expect(JSON.stringify(mcpEnvelope)).not.toContain("sourceCode");
     } finally {
       rmSync(root, { recursive: true, force: true });

@@ -236,6 +236,25 @@ These queries use the parent-chain owner rule of `refactor scan` (module-statist
   `adopt` results do not carry it. `coverage` is `unknown` with `code-facts-unavailable` when the
   run had no code facts; `partial` with `code-facts-import-limit`, `code-facts-truncated` or
   `workspace-resolution-failed` when the observation is incomplete.
+- `debt [--changed-path <path>]...` returns `archcontext.architecture-debt/v1` in process.
+  Edit-time reads measure source ownership and human documentation anchors; dependency, flow
+  and practice checks remain explicit coverage gaps. Source byte changes alone are not debt.
+  Items carry stable identities, affected paths/nodes/capabilities, a reason and an action;
+  `coverage`, per-check reasons and the report `digest` distinguish a clean measurement from
+  unavailable evidence. A changed source path also checks citations referring to it from other
+  capabilities. Model edits inspect repository scope. The command requires Git and an adopted
+  model and writes no model, runtime state or generated output; it neither starts a daemon nor
+  syncs CodeGraph. `checkpoint` attaches the same report as `debt`, including when its practice
+  result is coalesced. Checkpoint retains daemon-owned baseline writes; its practice
+  `resultDigest` and `debt.digest` bind different results. `complete` adds repository-wide
+  `data.debt` from the same evaluator, including read-only dependency/flow evidence and the
+  daemon's practice enforcement result (`architecture-debt-v1`). Measured debt blocks completion
+  with repair actions; practice findings retain their existing enforcement/waiver semantics.
+  Actual measurement gaps produce one `architecture-debt-coverage` warning and no required
+  action. Deliberately disabled practice checks and missing model adoption remain explicit
+  coverage reasons without an extra warning; existing model validation still applies.
+  A stale task HEAD skips debt judgment. Freshness remains a separate gate and is not debt.
+  See `docs/runbooks/architecture-debt.md`.
 
 `archctx-contracts` publishes JSON schemas for this data:
 `schemas/runtime/recommendation-v3.schema.json`, `structural-observation-payload.schema.json`,
