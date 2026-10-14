@@ -39,7 +39,7 @@
             "packageName": { "type": "string", "minLength": 1 },
             "version": { "$ref": "#/$defs/semver" },
             "entrypoint": { "type": "string", "minLength": 1 },
-            "rpcSchemaVersion": { "const": "archcontext.runtime-rpc/v1" }
+            "rpcSchemaVersion": { "const": "archcontext.runtime-rpc/v2" }
           }
         },
         "mcp": {
@@ -78,7 +78,7 @@
           "additionalProperties": false,
           "required": ["schemaVersion", "protocol"],
           "properties": {
-            "schemaVersion": { "const": "archcontext.runtime-rpc/v1" },
+            "schemaVersion": { "const": "archcontext.runtime-rpc/v2" },
             "protocol": { "enum": ["http-loopback"] }
           }
         },

@@ -2,10 +2,9 @@
 import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { spawnSync } from "node:child_process";
-import { digestJson, type Json } from "@archcontext/contracts";
+import { digestJson, LOCAL_RUNTIME_RPC_SCHEMA_VERSION as RUNTIME_RPC_VERSION, type Json } from "@archcontext/contracts";
 import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 
-const RUNTIME_RPC_VERSION = "archcontext.runtime-rpc/v1";
 const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
 
 interface FastHookResult {
@@ -139,20 +138,23 @@ async function callRuntimeRpc(connection: Record<string, unknown>, method: strin
 
 function readRuntimeRpcConnection(root: string) {
   const path = runtimeStatePaths(root).daemonConnectionPath;
+  let parsed: unknown;
   try {
     const body = readPrivateControlFile(path);
     if (body === undefined) return undefined;
-    const parsed = JSON.parse(body);
-    if (!isObject(parsed)) return undefined;
-    if (parsed.schemaVersion !== RUNTIME_RPC_VERSION) return undefined;
-    if (parsed.protocol !== "http-loopback" || parsed.version !== 1) return undefined;
-    if (typeof parsed.url !== "string" || !parsed.url.startsWith("http://127.0.0.1:")) return undefined;
-    if (typeof parsed.token !== "string" || parsed.token.length === 0) return undefined;
-    if (typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid)) return undefined;
-    return parsed;
+    parsed = JSON.parse(body);
   } catch {
     return undefined;
   }
+  if (!isObject(parsed)) return undefined;
+  if (parsed.schemaVersion !== RUNTIME_RPC_VERSION) {
+    throw new Error(`archctxd RPC version ${typeof parsed.schemaVersion === "string" ? parsed.schemaVersion : "unknown"} is incompatible with this hook (${RUNTIME_RPC_VERSION}); run archctx daemon upgrade to replace the local daemon.`);
+  }
+  if (parsed.protocol !== "http-loopback" || parsed.version !== 1) return undefined;
+  if (typeof parsed.url !== "string" || !parsed.url.startsWith("http://127.0.0.1:")) return undefined;
+  if (typeof parsed.token !== "string" || parsed.token.length === 0) return undefined;
+  if (typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid)) return undefined;
+  return parsed;
 }
 
 function findRepositoryRoot(root: string) {
