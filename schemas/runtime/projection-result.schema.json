@@ -19,6 +19,7 @@
     "priorCommittedApplies": { "type": "array", "minItems": 1, "description": "Omitted, never empty. Canonical wire order is by changeSetId and is enforced by projectionResultInvariantIssues.", "items": { "$ref": "#/$defs/priorCommittedApply" } },
     "freshness": { "$ref": "#/$defs/freshness" },
     "architectureDebt": { "$ref": "#/$defs/architectureDebt" },
+    "changes": { "type": "array", "description": "Present on every check and plan result and on no other. One entry per target path, the projection manifest excluded. Canonical wire order is by path; the precedence derivation of classification, the reason-code couplings and the binding of plannedAction to files[] and of blocked targets to coverage are enforced by projectionTargetChangesIssues and projectionResultInvariantIssues.", "items": { "$ref": "#/$defs/targetChange" } },
     "replayed": { "const": true, "description": "A repeated apply for the same requestId and request digest returned the committed result without applying again. Excluded from receiptDigest." },
     "written": { "type": "boolean", "description": "Present exactly when replayed is. false: the replay wrote nothing. true: the projection-owned outputs differed from the approved result at the approved snapshot and the replay wrote the committed fixed point again under the original receipt. Excluded from receiptDigest." },
     "majorChangeAcceptance": { "const": "declined-unprovable-proof", "description": "Present only when the request sent acceptObservedMajorChange and the provider declined it because a capability proof is unprovable; humanActions then carries unprovable-required-flow instead of unresolved-major-change." },
@@ -312,6 +313,47 @@
         },
         "appliedTargetIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
       }
+    },
+    "targetChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How one target changes since the committed projection and what this run's write does to its file (#327). null is an unknown comparison. classification follows blocked > baseline-missing > proof-change > semantic-change > output-change > stamp-only > unchanged.",
+      "required": ["targetId", "path", "affectedCapabilityIds", "stampChanged", "outputChanged", "semanticChanged", "proofChanged", "plannedAction", "classification", "reasonCodes"],
+      "properties": {
+        "targetId": { "type": "string", "minLength": 1 },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "anyOf": [{ "pattern": "^/" }, { "pattern": "\\\\" }, { "pattern": "(^|/)\\.\\.(/|$)" }] }
+        },
+        "affectedCapabilityIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "stampChanged": { "type": ["boolean", "null"] },
+        "outputChanged": { "type": "boolean" },
+        "semanticChanged": { "type": ["boolean", "null"] },
+        "proofChanged": { "type": ["boolean", "null"] },
+        "plannedAction": { "enum": ["create", "delete", "none", "update"] },
+        "classification": { "enum": ["baseline-missing", "blocked", "output-change", "proof-change", "semantic-change", "stamp-only", "unchanged"] },
+        "reasonCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["adoption-required", "ambiguous-ownership", "baseline-missing", "file-bytes-changed", "flow-proof-changed", "orphan-review-required", "rendered-output-changed", "selector-evidence-changed", "semantic-fingerprint-changed", "source-stamp-changed", "target-added", "target-removed", "target-row-missing", "unprovable-required-flow", "verified-flow-proof-changed"] }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "classification": { "const": "blocked" } }, "required": ["classification"] },
+          "then": { "properties": { "plannedAction": { "const": "none" } } }
+        },
+        {
+          "if": { "properties": { "classification": { "enum": ["stamp-only", "unchanged"] } }, "required": ["classification"] },
+          "then": { "properties": { "plannedAction": { "const": "none" }, "outputChanged": { "const": false }, "stampChanged": { "type": "boolean" }, "semanticChanged": { "const": false }, "proofChanged": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "classification": { "const": "unchanged" } }, "required": ["classification"] },
+          "then": { "properties": { "reasonCodes": { "maxItems": 0 }, "affectedCapabilityIds": { "maxItems": 0 } } },
+          "else": { "properties": { "reasonCodes": { "minItems": 1 } } }
+        }
+      ]
     },
     "architectureDebt": {
       "type": "object",
