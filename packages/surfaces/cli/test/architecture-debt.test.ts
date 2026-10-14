@@ -109,6 +109,36 @@ test("hook read preserves the debt report and a typed unknown failure without st
   expect(tree(root)).toBe(missingModelTree);
 });
 
+test("invalid hook changed-path rejects before repository discovery even outside Git", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-hook-non-git-")); roots.push(root);
+  const state = mkdtempSync(join(tmpdir(), "archctx-hook-non-git-state-")); roots.push(state);
+  write(root, "sentinel", "preserve worktree\n");
+  write(state, "sentinel", "preserve state\n");
+  const before = tree(root);
+  const stateBefore = tree(state);
+  let runtimeAccesses = 0;
+  let storeAccesses = 0;
+  const forbiddenRuntime = new Proxy({}, { get: () => { runtimeAccesses++; throw new Error("runtime accessed"); } });
+  const forbiddenStore = new Proxy({}, { get: () => { storeAccesses++; throw new Error("store accessed"); } });
+  const previous = process.env.ARCHCONTEXT_STATE_DIR;
+  process.env.ARCHCONTEXT_STATE_DIR = state;
+  try {
+    const result = await runCli("hook", ["checkpoint", "--changed-path", "../outside"], root, {
+      runtimeClient: forbiddenRuntime as RuntimeDaemonClient, localStore: forbiddenStore as any
+    });
+    expect(result).toMatchObject({ ok: false, requestId: "hook.checkpoint",
+      error: { code: "AC_SCHEMA_INVALID", reasonCode: "changed-path-invalid" } });
+    expect(result.data).toBeUndefined();
+    expect(runtimeAccesses).toBe(0);
+    expect(storeAccesses).toBe(0);
+    expect(tree(root)).toBe(before);
+    expect(tree(state)).toBe(stateBefore);
+  } finally {
+    if (previous === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+    else process.env.ARCHCONTEXT_STATE_DIR = previous;
+  }
+});
+
 test("a logic-only edit owes no task and the process writes no worktree or runtime state", async () => {
   const { root } = fixture();
   const before = await read(root,["src/a/main.ts"]);

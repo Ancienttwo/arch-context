@@ -1789,10 +1789,9 @@ function runHookCheckpointCommand(checkpointArgs: string[], cwd: string) {
   if (event.length === 0 || event.length > 1024) return errorEnvelope("hook.checkpoint",
     "AC_SCHEMA_INVALID", "Hook event must contain 1 to 1024 characters", "hook-event-invalid");
   const changedPaths = readRepeatedFlag(checkpointArgs, "--changed-path");
+  if (changedPaths.some(path => !isRepoRelativePosixPath(path))) return errorEnvelope("hook.checkpoint",
+    "AC_SCHEMA_INVALID", "changedPaths must contain repository-relative POSIX paths", "changed-path-invalid");
   const result = runCheckpointCommand(checkpointArgs, cwd);
-  if (!result.ok && result.error?.reasonCode === "changed-path-invalid") {
-    return { ...result, requestId: "hook.checkpoint" };
-  }
   const reasonCode = result.ok ? "debt-measured" : result.error!.reasonCode!;
   const hookLog = hookLogRecord({ event, changedPaths, reasonCode, elapsedMs: Date.now() - started, failOpen: !result.ok });
   if (!result.ok) return okEnvelope("hook.checkpoint", {

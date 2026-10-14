@@ -139,7 +139,7 @@ try {
   const stopped = await runArchctx(repo, "daemon", "stop");
   assert(stopped.ok === true, "daemon stop must succeed");
 
-  console.log(JSON.stringify({
+  const recording = JSON.stringify({
     schemaVersion: "archcontext.local-no-cloud-e2e/v2",
     networkIsolation,
     commands: ["doctor", "paths", "mcp install", "init", "sync", "practices validate", "context", "prepare", "status", "checkpoint", "practices checkpoint", "complete", "review"],
@@ -155,7 +155,7 @@ try {
     },
     taskLifecycle: {
       preparePosture: String(prepared.data.posture),
-      checkpointFresh: checkpoint.data.fresh,
+      checkpointFresh: practiceCheckpoint.data.fresh,
       completeSchemaVersion: complete.data.schemaVersion,
       completeResult: complete.data.result,
       completeErrors: complete.data.summary.errors,
@@ -186,7 +186,11 @@ try {
       localStorePath: displayPath(paths.data.localStorePath),
       npmGlobalInstallState: paths.data.npmGlobalInstallState
     }
-  }, null, 2));
+  }, null, 2);
+  const recordedLifecycle = JSON.parse(recording).taskLifecycle;
+  assert(Object.hasOwn(recordedLifecycle, "checkpointFresh"), "serialized output must retain checkpointFresh");
+  assert(recordedLifecycle.checkpointFresh === true, "serialized checkpointFresh must describe the explicit practice writer");
+  console.log(recording);
 } finally {
   await runArchctx(repo, "daemon", "stop").catch(() => undefined);
   rmSync(workspace, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
