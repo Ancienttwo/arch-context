@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "archcontext.d5-migration-provenance/v2",
+  "rootDigestFormat": "digestJson of UTF-8-byte-path-ordered rows; files={path,hash:sha256(bytes),bytes:length}, human={path,targetId,regions:[{hash,bytes}]}",
+  "patch": {
+    "file": "migration.patch",
+    "sha256": "05b76f8d58ab096ce47c5c5425eb8bb0d2bef60dc9aa06f09d9ebf583c7fc44f",
+    "bytes": 259325
+  },
+  "representative": {
+    "sourceSha": "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
+    "sourceTree": "9382c3c9da953109d12ed08210614dac29b4fae6",
+    "identity": "90cd97fb + audited supported v3 migration",
+    "inputFingerprint": "sha256:86304321c404fc321f4fd0c8a86401c917660eab07f19d30a126d32309f8da17",
+    "counts": {
+      "trackedFiles": 5065,
+      "changedFiles": 44,
+      "unchangedFiles": 5021,
+      "modelFiles": 460,
+      "nonArchitectureFiles": 4921,
+      "mixedDocuments": 40,
+      "humanRegions": 75,
+      "generatedWholeFiles": 3
+    },
+    "roots": {
+      "beforeFiles": "sha256:4525005453c76bc27706360f0d8d6a3ec96f8c930d719af052defad2a4c991e0",
+      "afterFiles": "sha256:1c211227b48ff8c41ae75e92b39fc39fec641ae80cfa9b7d5e664444e11ca312",
+      "modelFiles": "sha256:6b7698825aacd7bf5be11efe084f67032254e632f95e2e2d22da09051110982e",
+      "changedPaths": "sha256:a8656351ce7024e6ce4d2869ef82d90cbdc1fb37ca30ba79b665e57dce379b0a",
+      "humanRegions": "sha256:724eb4b2659db45092225d9ea6f060a762909736ae640947da0d1e0efd670193"
+    },
+    "nativeBusinessDigests": {
+      "model": "sha256:cbffc2296ca9f5691a59ba551a1728f49e26e8125ccbd3e8256a9d582c74abc1",
+      "capabilityProfiles": "sha256:b49fc278ce568ce2682140511abe028bd020b8157983060c6c0f961c80ac9b12",
+      "contracts": "sha256:92e81fb13f325d136f7c42d01dbd55b70a6938e5e77094f1bffe4fe8ab62a75c"
+    }
+  },
+  "control": {
+    "sourceSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
+    "sourceTree": "0d234212009ddffcbaa6595f179316cf0725cff3",
+    "trackedFiles": 1710,
+    "inputFingerprint": "sha256:4cf037a4d8ba68867c154b380f218ae95d88710a1821ced5109870bbf34c5aa5",
+    "filesRoot": "sha256:2673b83a78c7678d5ed40a043a7edaa8f041e32ebe51938ccdb04fde12aa9efa"
+  },
+  "benchmarkSummary": "../issue-328-d5-read-snapshot-benchmark.json",
+  "recordedSectionDigests": {
+    "runs": "sha256:3ca47a28be73c3605ae14f2c62e14e50539297f8134723e9d78351e637759f1a",
+    "reports": "sha256:1bf43f34896058edebeaf9ab0084251207dfe973fca9ba3932c8a7498fa8dbc5",
+    "subjects": "sha256:e4f6bd031aac21335fd72b6a2529e831147df6abde32ce6c55174e9f0b31534f",
+    "protocol": "sha256:721e6de0f50a226e020017c4ffcfb9bb332a9393ed4cf0ff2039b44ffa7c8d34",
+    "environment": "sha256:41661d465e78291cd5f97e65c15bf8a676cf7e51dd657d9aa59a7035cfd5db2c",
+    "benchmarkHarness": "sha256:34ad8a0666c5f2a524c42990438a24dfacc4648ef55a13270564433d320e8d02"
+  },
+  "originalMaterialHashes": {
+    "beforeRawJson": "f9779d438c7b03e49a28c670d8b8401e7ed586c539b32c7c466ebc282e66cd98",
+    "afterRawJson": "34f4f98bf08347d1b7b180390913d25a86083d04607dfc697ba2e96c24f2147a",
+    "originalUnredactedSummary": "79b8a6ecac0e8169e4d9245e13b696d530e53f79d9a1b248fc777ff68ed6b75c",
+    "priorExpandedAudit": "fff670cd6e424f4968f0b375bb2ac1019f6116f7da6d4a6b29957764307ce7f0",
+    "priorDuplicateSamples": "e672d13a7cd8fe987cee01e7f53ba6b0f45935f6aa84678e04824aad66d7b88b",
+    "priorPublicSummary": "ac6f420336697d8bbf808d31461bc431316fb5f46a24c36030018ed48d6e99e8"
+  },
+  "limits": [
+    "Only one 32-sample representation: benchmark summary /runs. Four whole reports occur only in summary /reports.",
+    "Reconstruction validates fixed Git blobs, patch, final byte-root digests and every human-region buffer; per-file rows are generated in memory, not published.",
+    "Recorded timing/coverage are not remeasured. Original complete CodeGraph 1.6.1 measurement setup remains documented; coverage stays partial."
+  ]
+}

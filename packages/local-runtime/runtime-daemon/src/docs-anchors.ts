@@ -10,6 +10,7 @@ import {
   modelSelectorIds,
   resolveArchitectureDocumentationLayout,
   type ArchitectureProjectionProfile,
+  type NativeModel,
   type ProseAnchorCodeGraph,
   type ProseAnchorSymbols,
   type ProseAnchorTree
@@ -18,21 +19,27 @@ import { openCodeGraphSymbolReader, type CodeGraphSymbolDeclaration, type CodeGr
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { committedArchitectureDocsProfile, projectionFailureEnvelope } from "./projection-service";
 
+/** Caller-owned discovery from this invocation only; never retained between reads. */
+export interface DocsAnchorsReadInputs {
+  readonly model: NativeModel;
+  readonly files: readonly string[];
+}
+
 /**
  * `archctx docs anchors` (#298): checks the citations in human-owned module document regions and
  * node prose. It runs in-process, before any runtime client exists: it starts no daemon, opens no
  * local store and writes no runtime state. Without `profile` it uses the committed manifest
  * profile, like the other `docs` commands. Findings are a signal; the envelope stays `ok`.
  */
-export function runDocsAnchorsCommand(cwd: string, options: { profile?: ArchitectureProjectionProfile } = {}): JsonEnvelope {
+export function runDocsAnchorsCommand(cwd: string, options: { profile?: ArchitectureProjectionProfile } = {}, inputs?: DocsAnchorsReadInputs): JsonEnvelope {
   let opened: ReturnType<typeof openCodeGraphSymbolReader> | undefined;
   try {
     const root = findRepositoryRoot(cwd);
     const profile = options.profile ?? committedArchitectureDocsProfile(root);
-    const model = loadNativeModelFromArchContext(root);
+    const model = inputs?.model ?? loadNativeModelFromArchContext(root);
     const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile });
     const documents = new Map(loadArchitectureFilesForLayout(root, layout).map((file) => [file.path, file.body]));
-    const files = listGitVisibleFiles(root);
+    const files = inputs?.files ?? listGitVisibleFiles(root);
     const footprints = new Map(loadCapabilitySourceFootprints(root, model, files).map((footprint) => [footprint.nodeId, footprint.files]));
     const contents = fileContentReader(root);
     const tree = gitVisibleTree(root, files, contents);
