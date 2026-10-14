@@ -58,3 +58,32 @@ checks pass. Source changes are confined to the two assigned producer files; the
 across calls or canonical scanner/parser change. CodeGraph's required temporal evidence reads
 are retained, and standalone docs anchors keeps its own normal discovery/error path.
 
+
+## Approved migrated fixture and completed measurements
+
+The coordinator explicitly approved supported v2->v3 apply only in the isolated fixture.
+After auditing the three old whole-file diagrams as generated, the supported generated-only
+remove/recreate path succeeded. The complete patch, snapshot, native before/after exports,
+40 human-region byte-complement comparisons, initial refusal and migration cost are retained
+in the local handoff. Source/model/helpers/native payloads/human bytes remain unchanged.
+The fixture identity is 90cd97fb + audited supported v3 migration; acceptance-review P2 stays
+unprovable. No real consumer or BYOK checkout changed.
+
+Actual baseline engine a697adad and candidate dabf86ab read the same frozen input fingerprint
+and identical harness/witness. All 32 approved samples completed; whole report/digest/coverage
+parity and recursive logical-content preservation passed. Candidate representative edit N=5:
+644.328041,657.905,629.909667,626.057875,607.513208ms, all strictly<3000ms. First baseline
+sample2443.1385ms is retained. Coverage is partial and OS caches are not flushed. Full debt is
+reported separately. Full raw records and the original zero-sample refusal remain preserved.
+See the research and machine-readable evidence for all values and limitations.
+
+Parent found the original benchmark's no-write discovery could miss new files or nested
+runtime writes. The witness now freshly enumerates the entire fixture (including Git metadata,
+ignored/untracked paths and empty directories) and recursively all state, with only SHM
+lock/read-mark contents excluded. Two detection tests pass. Call-local discovery is not atomic.
+
+Hosted CI at dabf86ab failed only the new script's missing live ownership surface in the
+governance test. A real operator runbook now owns the runner; its named imported helper owns
+the recursive witness. No assertions/exemptions were weakened. The narrow witness/governance
+checks pass8/8. Final exact-HEAD focused/full-governance verification and hosted rerun follow
+this evidence commit. Product source is unchanged from independently reviewed dabf86ab.

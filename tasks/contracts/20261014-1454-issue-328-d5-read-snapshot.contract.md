@@ -31,6 +31,9 @@ allowed_paths:
   - packages/surfaces/cli/test/architecture-debt.test.ts
   - packages/surfaces/cli/test/docs-anchors.test.ts
   - scripts/architecture-debt-read-benchmark.ts
+  - scripts/architecture-debt-benchmark-inputs.ts
+  - scripts/architecture-debt-benchmark-inputs.test.ts
+  - docs/runbooks/architecture-debt-read-benchmark.md
   - docs/researches/20261014-issue-328-d5-read-snapshot.md
   - docs/verification/issue-328-d5-read-snapshot-benchmark.json
 ```
@@ -55,7 +58,23 @@ allowed_paths:
           "CODEGRAPH_NO_DOWNLOAD"
         ]
       },
-      "command": "bun run typecheck && node scripts/package-boundary-audit.mjs && bun test --timeout 180000 packages/surfaces/cli/test/architecture-debt.test.ts packages/surfaces/cli/test/docs-anchors.test.ts packages/local-runtime/runtime-daemon/test/architecture-debt-read-inputs.test.ts packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts packages/local-runtime/runtime-daemon/test/architecture-debt-code-facts.test.ts packages/core/projection-engine/test/prose-anchors.test.ts"
+      "command": "bun run typecheck && node scripts/package-boundary-audit.mjs && bun test --timeout 180000 packages/surfaces/cli/test/architecture-debt.test.ts packages/surfaces/cli/test/docs-anchors.test.ts packages/local-runtime/runtime-daemon/test/architecture-debt-read-inputs.test.ts packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts packages/local-runtime/runtime-daemon/test/architecture-debt-code-facts.test.ts packages/core/projection-engine/test/prose-anchors.test.ts scripts/architecture-debt-benchmark-inputs.test.ts scripts/governance-verify-workflow.test.ts"
+    },
+    {
+      "id": "d5-governance",
+      "kind": "command",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Verify the real benchmark runbook ownership surface and the unchanged full Governance Verify contract after the hosted CI ownership failure.",
+      "inputs": {
+        "env": [
+          "DO_NOT_TRACK",
+          "CODEGRAPH_NO_DOWNLOAD"
+        ]
+      },
+      "command": "bun run verify:governance"
     }
   ]
 }

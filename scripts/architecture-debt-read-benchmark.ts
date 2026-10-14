@@ -10,10 +10,12 @@ import { loadNativeModelFromArchContext } from "@archcontext/core/projection-eng
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { inspectRepositoryCodeFacts, openCodeGraphSymbolReader } from "@archcontext/local-runtime/codegraph-adapter";
 import { readArchitectureDebt, readCompleteTaskArchitectureDebt } from "../packages/local-runtime/runtime-daemon/src/architecture-debt";
+import { benchmarkByteWitness, FIXTURE_VOLATILE_CONTENT } from "./architecture-debt-benchmark-inputs";
 
-const engineRoot = resolve(import.meta.dir, "..");
+const engineRoot = resolve(flag("--engine-root") || resolve(import.meta.dir, ".."));
 const phase = flag("--phase");
 const output = flag("--output");
+const fixtureLock = JSON.parse(readFileSync(flag("--fixture-lock"), "utf8"));
 if (!["before", "after"].includes(phase) || !output) throw new Error("requires --phase before|after --output <new file>");
 if (existsSync(output)) throw new Error("refusing to overwrite an existing sample record");
 const protocol = {
@@ -23,7 +25,9 @@ const protocol = {
   osFileCache: "not flushed; fixture/index preparation, metadata hashing and preflight reads can warm OS file cache",
   timing: "direct spawn through process exit and stdout/stderr drain; Bun startup, CLI module loading/transpilation, native loading, Git/CodeGraph child work and JSON output are included",
   excluded: "manager startup, fixture/index preparation, byte snapshots, preflight evidence capture and manager JSON parsing",
-  noWrite: "all Git-visible file bytes, Git index and runtime sentinel plus CodeGraph DB/WAL bytes; SQLite SHM lock/read marks are excluded as in the existing read-only provider tests"
+  noWrite: "fresh recursive enumeration of complete fixture (including Git metadata, ignored/untracked paths and empty directories) and complete runtime state; bytes/modes/link targets compared. Only CodeGraph SQLite SHM content lock/read marks are excluded; its path/type/mode still compared. Timestamps are not logical-content evidence. Test output is outside both roots.",
+  volatileContentPaths: FIXTURE_VOLATILE_CONTENT,
+  discoveryLimit: "call-local reuse is not an atomic snapshot and does not fix edits during the invocation"
 };
 const subjects = [
   { name: "representative", root: "/private/tmp/archcontext-d5-bench-repo-harness", repoSha: "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
@@ -39,7 +43,8 @@ const sourceFiles = git(engineRoot, "ls-files", "-z", "--", "packages").split("\
 for (const path of sourceFiles) {
   if (git(engineRoot, "hash-object", path) !== git(engineRoot, "rev-parse", "HEAD:" + path)) throw new Error("uncommitted product source: " + path);
 }
-const record: any = { protocol, phase, startedAt: new Date().toISOString(), engine: { sha: engineSha,
+const record: any = { protocol, phase, startedAt: new Date().toISOString(), fixtureLock,
+  benchmarkHarness: { sha256: hashFile(import.meta.filename), byteWitnessSha256: hashFile(join(import.meta.dir, "architecture-debt-benchmark-inputs.ts")) }, engine: { sha: engineSha,
   lockSha256: hashFile(join(engineRoot, "bun.lock")),
   productFingerprint: digestJson(sourceFiles.map(path => ({ path, hash: hashFile(join(engineRoot, path)) })) as unknown as Json),
   entry: join(engineRoot, "packages/surfaces/cli/src/main.ts") },
@@ -63,18 +68,21 @@ for (const subject of subjects) {
     const codeFacts = inspectRepositoryCodeFacts(subject.root);
     if (codeFacts.state !== "ready") throw new Error("complete index not ready: " + JSON.stringify(codeFacts));
     const visible = listGitVisibleFiles(subject.root);
-    const baseBytes = snapshot(subject.root, visible, state);
+    const baseBytes = benchmarkByteWitness(subject.root, state);
+    const inputFingerprint = digestJson(visible.map(path => ({ path, hash: hashFile(join(subject.root, path)) })) as unknown as Json);
+    const locked = fixtureLock.subjects.find((entry: { name: string }) => entry.name === subject.name);
+    if (!locked || locked.inputFingerprint !== inputFingerprint) throw new Error("frozen fixture input fingerprint mismatch");
     const model = loadNativeModelFromArchContext(subject.root);
     const expectedEdit = readArchitectureDebt(subject.root, { changedPaths: subject.paths });
     const expectedFull = readCompleteTaskArchitectureDebt(subject.root);
-    if (snapshot(subject.root, visible, state) !== baseBytes) throw new Error("preflight read wrote durable bytes");
-    const descriptor = { ...subject, repoTree: git(subject.root, "rev-parse", "HEAD^{tree}"), repositoryFingerprint: repositoryFingerprint(subject.root),
-      inputFingerprint: baseBytes, fileCount: visible.length, model: { nodes: model.nodes.length, relations: model.relations.length, flows: model.flows?.length ?? 0 },
+    if (benchmarkByteWitness(subject.root, state) !== baseBytes) throw new Error("preflight read wrote durable bytes");
+    const descriptor = { ...subject, fixtureIdentity: locked.identity, repoTree: git(subject.root, "rev-parse", "HEAD^{tree}"), repositoryFingerprint: repositoryFingerprint(subject.root),
+      inputFingerprint, byteWitnessFingerprint: digestJson(JSON.parse(baseBytes)), fileCount: visible.length, model: { nodes: model.nodes.length, relations: model.relations.length, flows: model.flows?.length ?? 0 },
       codeFacts, preflight: { edit: expectedEdit, full: expectedFull }, actualCoverageBeforeTiming: { edit: expectedEdit.checks, full: expectedFull.checks } };
     record.subjects.push(descriptor); save();
     for (const [kind, count, expected] of [["edit", 5, expectedEdit], ["full", 3, expectedFull]] as const) {
       for (let index = 1; index <= count; index++) {
-        if (snapshot(subject.root, visible, state) !== baseBytes) throw new Error("subject changed before sample");
+        if (benchmarkByteWitness(subject.root, state) !== baseBytes) throw new Error("subject changed before sample");
         const argv = kind === "edit"
           ? [process.execPath, record.engine.entry, "checkpoint", "--json", ...subject.paths.flatMap(path => ["--changed-path", path])]
           : [process.execPath, "--eval", "import {readCompleteTaskArchitectureDebt} from " + JSON.stringify(join(engineRoot, "packages/local-runtime/runtime-daemon/src/architecture-debt.ts")) + "; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"];
@@ -84,10 +92,10 @@ for (const subject of subjects) {
         const elapsedNs = process.hrtime.bigint() - start;
         let result: any; let report: any; let parseError: string | undefined;
         try { result = JSON.parse(stdout); report = kind === "edit" ? result.data : result; } catch (e) { parseError = String(e); }
-        const bytesUnchanged = snapshot(subject.root, visible, state) === baseBytes;
+        const bytesUnchanged = benchmarkByteWitness(subject.root, state) === baseBytes;
         const parity = report !== undefined && JSON.stringify(report) === JSON.stringify(expected);
         const valid = report !== undefined && architectureDebtReportIssues(report).length === 0;
-        const sample = { subject: subject.name, kind, index, engineSha, repoSha: subject.repoSha, inputFingerprint: baseBytes, changedPaths: kind === "edit" ? subject.paths : [],
+        const sample = { subject: subject.name, kind, index, engineSha, repoSha: subject.repoSha, inputFingerprint, changedPaths: kind === "edit" ? subject.paths : [],
           argv, elapsedNs: elapsedNs.toString(), elapsedMs: Number(elapsedNs) / 1e6, below3000ms: elapsedNs < 3_000_000_000n,
           exitCode, envelopeOk: kind === "edit" ? result?.ok : undefined, parity, valid, bytesUnchanged, report, stderr,
           ...(parseError ? { parseError, stdout } : {}) };
@@ -109,12 +117,5 @@ function git(root: string, ...args: string[]): string {
     { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 function hashFile(path: string): string { return createHash("sha256").update(readFileSync(path)).digest("hex"); }
-function snapshot(root: string, visible: string[], state: string): string {
-  const index = git(root, "rev-parse", "--git-path", "index");
-  return digestJson({ files: visible.map(path => ({ path, hash: hashFile(join(root, path)) })),
-    gitIndex: hashFile(resolve(root, index)), stateSentinel: hashFile(join(state, "sentinel")),
-    stateEntries: execFileSync("ls", ["-A", state], { encoding: "utf8" }).trim(),
-    codeGraph: ["codegraph.db", "codegraph.db-wal"].map(name => { const p = join(root, ".codegraph", name); return { name, hash: existsSync(p) ? hashFile(p) : null }; }) } as unknown as Json);
-}
 function save() { mkdirSync(dirname(output), { recursive: true }); writeFileSync(output, JSON.stringify(record, null, 2) + "\n"); }
 

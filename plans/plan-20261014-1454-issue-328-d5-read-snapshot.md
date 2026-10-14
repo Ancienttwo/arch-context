@@ -56,13 +56,15 @@ hashing/report parsing. Record preflight coverage and every raw sample under the
 - [x] Verify latest origin/main and create an isolated D5 branch/worktree; preserve U4/main.
 - [x] Trace duplicate discovery; provide the fixed workload/sample proposal.
 - [x] Resolve/freeze representative workload and sample counts before any timing.
-- [ ] Capture unmodified producer outputs and independent cold-process baseline samples (blocked
-      before timing by the frozen consumer's v2 manifest against the existing v3 reader floor).
+- [x] Capture original producer outputs and actual a697adad cold-process baseline samples on
+      the coordinator-approved audited v3-migrated temporary fixture; retain the original v2 refusal.
 - [x] Introduce narrowly scoped per-call read-input reuse; no cache across invocations.
-- [ ] Verify exact report/digest/coverage parity, additions/deletions/model edits/citation repair,
+- [x] Verify exact report/digest/coverage parity, additions/deletions/model edits/citation repair,
       canonical scanner behavior and unavailable indexes; prove read operations write no state.
-- [ ] Measure every agreed after sample on frozen inputs and report the first result immediately.
-- [ ] Run exact-HEAD checks, ordinary push and PR; hand off hosted CI/performance limits.
+- [x] Measure every agreed after sample on frozen inputs and report the first result immediately.
+- [x] Run initial exact-HEAD checks, ordinary push and Draft PR #353.
+- [ ] Finish benchmark/governance documentation exact-HEAD checks and hosted CI handoff;
+      independent acceptance/merge remains with the coordinator.
 
 ## Verification and rollback
 
