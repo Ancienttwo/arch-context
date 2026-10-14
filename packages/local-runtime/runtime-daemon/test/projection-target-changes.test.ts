@@ -202,7 +202,7 @@ test("a known proof change outranks a missing committed row: proof-change with t
   input.files = [MANIFEST_WRITE, write(PATH[ENTITY_A], "create")];
   const entry = classify(input).get(ENTITY_A)!;
   expect(entry).toMatchObject({ classification: "proof-change", stampChanged: null, semanticChanged: false, proofChanged: true, plannedAction: "create" });
-  expect(entry.reasonCodes).toEqual(["flow-proof-changed", "target-row-missing"]);
+  expect(entry.reasonCodes).toEqual(["file-bytes-changed", "flow-proof-changed", "target-row-missing"]);
   expect(entry.affectedCapabilityIds).toEqual([A]);
 });
 
