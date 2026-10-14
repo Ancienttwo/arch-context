@@ -5,7 +5,7 @@ import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { projectionPreimageFindings, type ChangeOperation, type ChangeSetDraft, type ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { architectureLedgerStateDigest, planChangeSetApplyToArchitectureLedgerEvent, type ArchitectureLedgerAppendInput, type ArchitectureLedgerAppendResult, type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { loadPracticeWaiverOwnerRegistry, validatePracticeWaiver } from "@archcontext/core/practice-engine";
-import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import { ProjectionPreconditionError, architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type ArchitectureEventV1, type Json, type JsonEnvelope, type ModelStorePort, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
 import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
@@ -524,7 +524,8 @@ export class ChangeSetAuthorityService {
         }
         return accepted(readback, false);
       } catch (error) {
-        return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+        const reasonCode = error instanceof ProjectionPreconditionError ? error.reasonCode : undefined;
+        return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error), reasonCode);
       }
     });
   }

@@ -87,11 +87,11 @@ describe("whole-file outputs carry no ownership marker (#327)", () => {
 
   test("the manifest row's outputDigest is the digest of the whole file", () => {
     const plan = render([]);
-    const rows = JSON.parse(plan.manifest.body).targets as { path: string; targetId: string; ownership: string; outputDigest: string }[];
+    const rows = Object.entries(JSON.parse(plan.manifest.body).targets as Record<string, { path: string; ownership: string; outputDigest: string }>);
     for (const path of generatedPaths) {
-      const row = rows.find((entry) => entry.path === path)!;
+      const [targetId, row] = rows.find(([, entry]) => entry.path === path)!;
       expect(row.ownership).toBe("generated");
-      expect(row.outputDigest).toBe(digestJson({ targetId: row.targetId, body: file(plan, path).body } as unknown as Json));
+      expect(row.outputDigest).toBe(digestJson({ targetId, body: file(plan, path).body } as unknown as Json));
     }
   });
 
@@ -110,7 +110,7 @@ describe("whole-file outputs carry no ownership marker (#327)", () => {
     }
     expect(stale.rejected).toEqual([]);
     const staleJson = stale.drift.diffs.find((diff) => diff.path === jsonPath)!;
-    expect(staleJson.actualDigest).toBe(JSON.parse(first.manifest.body).targets.find((row: { path: string }) => row.path === jsonPath).outputDigest);
+    expect(staleJson.actualDigest).toBe(JSON.parse(first.manifest.body).targets["projection_target.diagram.structurizr"].outputDigest);
     expect(staleJson.expectedDigest).toBe(file(stale, jsonPath).generatedBodyDigest);
   });
 
@@ -152,12 +152,11 @@ describe("whole-file outputs carry no ownership marker (#327)", () => {
     const legacyPath = "docs/architecture/diagrams/legacy.mmd";
     const legacyBody = "flowchart LR\n  a --> b\n";
     const manifest = JSON.parse(first.manifest.body);
-    manifest.targets.push({
-      ...manifest.targets.find((row: { path: string }) => row.path === mermaidPath),
-      targetId: legacyTargetId,
+    manifest.targets[legacyTargetId] = {
+      ...manifest.targets["projection_target.diagram.mermaid"],
       path: legacyPath,
       outputDigest: digestJson({ targetId: legacyTargetId, body: legacyBody } as unknown as Json)
-    });
+    };
     const tree = replaceBody(written(first), manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
     const intact = render([...tree, { path: legacyPath, body: legacyBody }]);
@@ -183,7 +182,7 @@ describe("whole-file outputs carry no ownership marker (#327)", () => {
       const legacyTargetId = "projection_target.diagram.legacy";
       const legacyPath = "docs/architecture/diagrams/legacy.mmd";
       const manifest = JSON.parse(first.manifest.body);
-      manifest.targets.push({ ...manifest.targets.find((row: { path: string }) => row.path === mermaidPath), targetId: legacyTargetId, path: legacyPath });
+      manifest.targets[legacyTargetId] = { ...manifest.targets["projection_target.diagram.mermaid"], path: legacyPath };
       const tree = [...replaceBody(written(first), manifestPath, `${JSON.stringify(manifest, null, 2)}\n`), { path: legacyPath, body: "flowchart LR\n" }];
       for (const entry of tree) {
         mkdirSync(join(root, dirname(entry.path)), { recursive: true });

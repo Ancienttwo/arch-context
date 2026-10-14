@@ -1,6 +1,8 @@
-import { posix } from "node:path";
-import type { ProjectionFreshnessV1, Sha256Digest } from "@archcontext/contracts";
+import { readFileSync } from "node:fs";
+import { posix, resolve } from "node:path";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, type ProjectionFreshnessV1, type Sha256Digest } from "@archcontext/contracts";
 import {
+  assertArchitectureDocsProjectionManifestAccepted,
   architectureProjectionStampedNodeIds,
   digestArchitectureDocumentationSourceTree,
   digestCapabilitySourceFootprints,
@@ -23,8 +25,8 @@ import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 /**
  * What the projection freshness evaluator compares the committed stamps against.
  *
- * - `tree`: every stamped node, plus the declared source tree digest against the manifest's
- *   snapshot provenance. `check`, the `complete` gate and an unscoped `projection freshness` use it.
+ * - `tree`: every stamped node, plus the declared source tree digest against the one the committed
+ *   manifest's per-target `sourceStamps` imply (computed when the manifest is read). `check`, the `complete` gate and an unscoped `projection freshness` use it.
  * - `nodes`: only the named stamped nodes (`projection freshness --changed-path`). The declared
  *   source tree digest needs every footprint hashed, so this scope does not compare it.
  */
@@ -96,6 +98,11 @@ function isProjectionModelPath(path: string): boolean {
  * committed manifest's profile selects the stamped nodes, as it selects the layout the `complete`
  * gate verifies.
  *
+ * The committed manifest is refused as `check` refuses it: a superseded one throws
+ * `projection-manifest-upgrade-required` and a current-format one that fails its contract throws
+ * `projection-manifest-invalid` (`assertArchitectureDocsProjectionManifestAccepted`). Only a
+ * manifest that names no current-format `schemaVersion` reaches the evaluator as unreadable.
+ *
  * With a non-empty `changedPaths`, only stamped nodes whose `source.include` matches one of the paths (and whose
  * `source.exclude` does not) are resolved, hashed and probed. Each path must be a normalized
  * repository-relative POSIX path (`assertProjectionFreshnessChangedPaths`).
@@ -111,6 +118,9 @@ export function measureProjectionFreshness(
 ): ProjectionFreshnessMeasurement {
   if (options.changedPaths !== undefined) assertProjectionFreshnessChangedPaths(options.changedPaths);
   const manifest = options.manifest ?? loadArchitectureProjectionManifestStamps(root);
+  if (manifest.status === "manifest-unreadable") {
+    assertArchitectureDocsProjectionManifestAccepted(readFileSync(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), "utf8"));
+  }
   const model = loadNativeModelFromArchContext(root);
   const profile = manifest.status === "present" ? loadArchitectureDocumentationProfile(root) : undefined;
   const sourceFiles = listGitVisibleFiles(root);

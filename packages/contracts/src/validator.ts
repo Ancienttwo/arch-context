@@ -179,6 +179,11 @@ function visit(
         if (!Object.hasOwn(schema.properties, key)) issues.push({ path: `${path}.${key}`, message: "additional property denied" });
       }
     }
+    if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
+      for (const [key, child] of Object.entries(objectValue)) {
+        if (!Object.hasOwn(schema.properties ?? {}, key)) visit(schema.additionalProperties, child, `${path}.${key}`, issues, root, resolveSchema);
+      }
+    }
   }
 }
 
