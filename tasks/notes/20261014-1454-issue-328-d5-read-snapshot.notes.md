@@ -32,3 +32,29 @@ The matching-lock copy succeeded; module resolution points to this D5 worktree. 
 state resolver recognizes the executing plan/owner, with zero blockers. Its shared Git
 coordination lock required scoped Git-metadata permission; no product runtime state was changed.
 
+## Original engine benchmark setup refusal
+
+The frozen protocol/oracle/runner is committed at 4a8ebf904e899f530cd2b7163dfbc5ed12990c75,
+with production source equal to a697adad. Frozen consumer/control Git fixtures were cloned
+read-only from local objects; real consumer/U4/main checkouts were not edited. Complete
+CodeGraph1.6.1 indexes were prepared (consumer1445 files/32120 nodes/113395 edges; control679
+files/19716 nodes/68590 edges).
+
+Before any cold subprocess sample, representative preflight was refused by the current
+producer: AC_PRECONDITION_FAILED / projection-manifest-upgrade-required. The approved90cd97fb
+subject commits a projection-manifest/v2, renderer/v5 manifest. The902c4ed snapshot and the
+local consumer HEAD also have v2 manifests. The current engine reads only v3; the typed refusal
+comes from the existing docs-anchors profile reader, not the D5 change. Zero timed samples were
+executed. The original failure/zero-sample record is retained outside this Git tree. No manifest
+was removed/hand-edited, no floor/gate/coverage was weakened, and no alternative workload was
+silently substituted. A supported explicit fixture migration or other approved input amendment
+is needed before a current-engine performance result can be produced.
+
+Independent D5 composition work now passes the red discovery guard: both model/file discovery
+counts are1 per invocation. The complete seven-state report/digest/coverage oracle still passes
+and sees every subsequent input/model/citation repair, with repo/Git-index bytes unchanged.
+Existing debt CLI regressions plus the new suite pass11/11; post-refactor typecheck and whitespace
+checks pass. Source changes are confined to the two assigned producer files; there is no cache
+across calls or canonical scanner/parser change. CodeGraph's required temporal evidence reads
+are retained, and standalone docs anchors keeps its own normal discovery/error path.
+

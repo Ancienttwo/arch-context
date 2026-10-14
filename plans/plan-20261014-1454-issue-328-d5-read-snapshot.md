@@ -56,8 +56,9 @@ hashing/report parsing. Record preflight coverage and every raw sample under the
 - [x] Verify latest origin/main and create an isolated D5 branch/worktree; preserve U4/main.
 - [x] Trace duplicate discovery; provide the fixed workload/sample proposal.
 - [x] Resolve/freeze representative workload and sample counts before any timing.
-- [ ] Capture unmodified producer outputs and independent cold-process baseline samples.
-- [ ] Introduce narrowly scoped per-call read-input reuse; no cache across invocations.
+- [ ] Capture unmodified producer outputs and independent cold-process baseline samples (blocked
+      before timing by the frozen consumer's v2 manifest against the existing v3 reader floor).
+- [x] Introduce narrowly scoped per-call read-input reuse; no cache across invocations.
 - [ ] Verify exact report/digest/coverage parity, additions/deletions/model edits/citation repair,
       canonical scanner behavior and unavailable indexes; prove read operations write no state.
 - [ ] Measure every agreed after sample on frozen inputs and report the first result immediately.
