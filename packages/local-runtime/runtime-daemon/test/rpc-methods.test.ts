@@ -96,13 +96,14 @@ describe("RPC method table wire contract", () => {
     expect([...new Set(cases.map(sample => sample.method))].sort()).toEqual(Object.keys(RUNTIME_RPC_METHODS).sort());
   });
 
-  test("unregistered and prototype names never dispatch a handler", async () => {
+  test("retired, unregistered and prototype names never dispatch a handler", async () => {
     const count = calls.length;
-    for (const method of ["notAnRpcMethod", "__proto__", "constructor", "toString"]) {
+    for (const method of ["checkpoint", "notAnRpcMethod", "__proto__", "constructor", "toString"]) {
       const response = await fetch(`${connection.url}rpc`, {
         method: "POST",
         headers: { Authorization: `Bearer ${connection.token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method, params: [] })
+        body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method,
+          params: method === "checkpoint" ? ["/rpc/fixture/repo", { task: "retired checkpoint", changedPaths: ["src/wire.ts"] }] : [] })
       });
       const body = await response.json() as any;
       expect(body.ok).toBe(false);
