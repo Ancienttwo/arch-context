@@ -21,14 +21,28 @@ export const PROJECTION_TARGETS = ["agent-context", "architecture-docs"] as cons
 export const PROJECTION_RESULT_STATUSES = [
   "adoption-required",
   "applied",
+  "applied-partial",
   "applied-reconcile-required",
   "blocked",
   "human-action-required",
   "noop",
   "permanent-failure",
   "planned",
+  "planned-partial",
   "retryable-failure"
 ] as const;
+/**
+ * The two statuses of a projection that covers only part of its targets (#327, Phase 1 capability
+ * isolation): `planned-partial` from `check` and `plan`, `applied-partial` from `apply`. Exactly
+ * these results carry `coverage`, always with `complete: false`; a complete result omits it.
+ */
+export const PROJECTION_PARTIAL_RESULT_STATUSES = ["applied-partial", "planned-partial"] as const;
+/**
+ * Why a target is carried forward instead of applied: a capability it depends on has an
+ * unprovable P1 or P2 proof (`unprovable-required-flow`), or its flow proof moved since the
+ * committed baseline while its semantic fingerprint held (`verified-flow-proof-changed`).
+ */
+export const PROJECTION_COVERAGE_REASON_CODES = ["unprovable-required-flow", "verified-flow-proof-changed"] as const;
 export const PROJECTION_HUMAN_ACTION_REASON_CODES = [
   "adoption-required",
   "manual-region-conflict",
@@ -77,6 +91,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-replay-restore-v1",
   "projection-apply-replay-v1",
   "projection-architecture-debt-v1",
+  "projection-capability-isolation-v1",
   "projection-check-freshness-v1",
   "projection-freshness-v1",
   "projection-manifest-contract-v3",
@@ -214,6 +229,8 @@ export type ProjectionMode = (typeof PROJECTION_MODES)[number];
 export type ProjectionFreshnessReasonCode = (typeof PROJECTION_FRESHNESS_REASON_CODES)[number];
 export type ProjectionTarget = (typeof PROJECTION_TARGETS)[number];
 export type ProjectionResultStatus = (typeof PROJECTION_RESULT_STATUSES)[number];
+export type ProjectionPartialResultStatus = (typeof PROJECTION_PARTIAL_RESULT_STATUSES)[number];
+export type ProjectionCoverageReasonCode = (typeof PROJECTION_COVERAGE_REASON_CODES)[number];
 export type ProjectionHumanActionReasonCode = (typeof PROJECTION_HUMAN_ACTION_REASON_CODES)[number];
 export type ProjectionPriorCommittedApplyOperation = (typeof PROJECTION_PRIOR_COMMITTED_APPLY_OPERATIONS)[number];
 export type ArchitectureMajorChangeReasonCode = (typeof ARCHITECTURE_MAJOR_CHANGE_REASON_CODES)[number];
@@ -457,6 +474,39 @@ export interface ProjectionArchitectureDebtV1 {
   items: ProjectionUndeclaredDependencyV1[];
 }
 
+/** One target a partial result carries forward instead of applying. */
+export interface ProjectionCoverageBlockedTargetV1 {
+  targetId: string;
+  path: string;
+  /** The blocked capabilities this target depends on, sorted. Never empty. */
+  capabilityIds: string[];
+  /** Why those capabilities block it, sorted. Never empty. */
+  reasonCodes: ProjectionCoverageReasonCode[];
+}
+
+/**
+ * Which part of the projection a `planned-partial` or `applied-partial` result covers (#327,
+ * Phase 1 capability isolation). The blocked capabilities are those whose proof is unprovable or
+ * whose flow proof moved without an accepted change, while their semantic fingerprint held. Every
+ * target that depends on one of them is carried forward unchanged: its document, its manifest row
+ * and the capability's baseline entry keep their committed bytes. `appliedTargetIds` are all the
+ * other targets, which the result renders from the current model and sources.
+ *
+ * `complete` is always `false`: a result that covers every target omits `coverage` instead. A
+ * partial result is never an acceptance. It carries no apply receipt and no refresh signal, and a
+ * complete check or the `complete` gate still reports the blocked capabilities until they are
+ * fixed or accepted.
+ */
+export interface ProjectionCoverageV1 {
+  complete: false;
+  /** Sorted and unique. Never empty. */
+  blockedCapabilityIds: string[];
+  /** Sorted and unique by targetId. Never empty. */
+  blockedTargets: ProjectionCoverageBlockedTargetV1[];
+  /** Sorted and unique; disjoint from the blocked targets. */
+  appliedTargetIds: string[];
+}
+
 export interface ProjectionResultV2 {
   schemaVersion: typeof PROJECTION_RESULT_SCHEMA_VERSION;
   requestId: string;
@@ -507,6 +557,11 @@ export interface ProjectionResultV2 {
    * so a caller can tell a declined flag from an absent one (#275).
    */
   majorChangeAcceptance?: "declined-unprovable-proof";
+  /**
+   * Present exactly on `planned-partial` and `applied-partial` results, with `complete: false`; a
+   * result that covers every target omits it. Consumers gate on `projection-capability-isolation-v1`.
+   */
+  coverage?: ProjectionCoverageV1;
   receiptDigest: Sha256Digest;
 }
 
@@ -696,6 +751,12 @@ export function projectionResultRequestModeIssues(input: ProjectionResultV2, mod
   if (mode !== "check" && mode !== "plan" && input.architectureDebt !== undefined) {
     issues.push(`architectureDebt is only allowed on a check or plan result, never when mode=${mode}`);
   }
+  if (input.status === "planned-partial" && mode !== "check" && mode !== "plan") {
+    issues.push(`planned-partial is only allowed on a check or plan result, never when mode=${mode}`);
+  }
+  if (input.status === "applied-partial" && mode !== "apply") {
+    issues.push(`applied-partial is only allowed on an apply result, never when mode=${mode}`);
+  }
   return issues;
 }
 
@@ -718,6 +779,15 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     if (!input.applyReceipt) issues.push("applied-reconcile-required status requires applyReceipt");
     if (input.refreshSignals.length > 0) issues.push("applied-reconcile-required status cannot deliver refreshSignals");
   }
+  const partial = (PROJECTION_PARTIAL_RESULT_STATUSES as readonly string[]).includes(input.status);
+  if (partial !== (input.coverage !== undefined)) issues.push("coverage must be present exactly when status is planned-partial or applied-partial");
+  if (input.coverage !== undefined) issues.push(...projectionCoverageIssues(input.coverage, input.files));
+  if (partial) {
+    // An incomplete projection is never an acceptance: it records no apply and signals no refresh.
+    if (input.applyReceipt !== undefined) issues.push(`${input.status} status never carries applyReceipt`);
+    if (input.refreshSignals.length > 0) issues.push(`${input.status} status carries no refreshSignals`);
+  }
+  const committedApply = input.applyReceipt !== undefined || input.status === "applied" || input.status === "applied-partial" || input.status === "applied-reconcile-required";
   for (const [index, action] of input.humanActions.entries()) {
     const prefix = `humanActions[${index}]`;
     if (!(PROJECTION_HUMAN_ACTION_REASON_CODES as readonly string[]).includes(action.reasonCode)) issues.push(`${prefix}.reasonCode is unsupported`);
@@ -753,8 +823,7 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
   }
   // The result does not carry its request mode; projectionResultRequestModeIssues binds a preview
   // to mode=plan. On the result alone, a committed apply (and so a persisted receipt) never carries one.
-  if (input.files.some((file) => file.preview !== undefined)
-    && (input.applyReceipt !== undefined || input.status === "applied" || input.status === "applied-reconcile-required")) {
+  if (input.files.some((file) => file.preview !== undefined) && committedApply) {
     issues.push("files[].preview is only allowed on a plan result, never on a committed apply");
   }
   if (input.priorCommittedApplies) {
@@ -763,7 +832,7 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
   if (input.freshness) issues.push(...projectionFreshnessIssues(input.freshness));
   if (input.architectureDebt) {
     issues.push(...projectionArchitectureDebtIssues(input.architectureDebt));
-    if (input.applyReceipt !== undefined || input.status === "applied" || input.status === "applied-reconcile-required") {
+    if (committedApply) {
       issues.push("architectureDebt is only allowed on a check or plan result, never on a committed apply");
     }
   }
@@ -821,6 +890,51 @@ const UTF8 = new TextEncoder();
 
 function utf8ByteLength(value: string): number {
   return UTF8.encode(value).length;
+}
+
+/**
+ * Shape and canonical order of a partial result's `coverage`, and its binding to the result's
+ * files: a carried-forward target is never also a written file.
+ */
+export function projectionCoverageIssues(input: ProjectionCoverageV1, files: readonly ProjectionFileResultV1[] = []): string[] {
+  const issues = [
+    ...sortedUniqueIssues("coverage.blockedCapabilityIds", input.blockedCapabilityIds),
+    ...sortedUniqueIssues("coverage.blockedTargets.targetId", input.blockedTargets.map((target) => target.targetId)),
+    ...sortedUniqueIssues("coverage.appliedTargetIds", input.appliedTargetIds)
+  ];
+  if (input.complete !== false) issues.push("coverage.complete must be false; a result that covers every target omits coverage");
+  if (input.blockedCapabilityIds.length === 0) issues.push("coverage.blockedCapabilityIds must name at least one capability");
+  if (input.blockedTargets.length === 0) issues.push("coverage.blockedTargets must name at least one target");
+  if (input.blockedCapabilityIds.some((id) => typeof id !== "string" || id.trim() === "")) issues.push("coverage.blockedCapabilityIds must not contain empty ids");
+  if (input.appliedTargetIds.some((id) => typeof id !== "string" || id.trim() === "")) issues.push("coverage.appliedTargetIds must not contain empty ids");
+  const blockedCapabilities = new Set(input.blockedCapabilityIds);
+  const blockingCapabilities = new Set<string>();
+  const blockedPaths = new Set<string>();
+  const reasons = new Set<string>(PROJECTION_COVERAGE_REASON_CODES);
+  for (const [index, target] of input.blockedTargets.entries()) {
+    const prefix = `coverage.blockedTargets[${index}]`;
+    if (typeof target.targetId !== "string" || target.targetId.trim() === "") issues.push(`${prefix}.targetId must not be empty`);
+    if (!isRepoRelativePosixPath(target.path)) issues.push(`${prefix}.path must be a repository-relative POSIX path`);
+    else if (blockedPaths.has(target.path)) issues.push(`${prefix}.path is named by another blocked target`);
+    blockedPaths.add(target.path);
+    issues.push(...sortedUniqueIssues(`${prefix}.capabilityIds`, target.capabilityIds), ...sortedUniqueIssues(`${prefix}.reasonCodes`, target.reasonCodes));
+    if (target.capabilityIds.length === 0) issues.push(`${prefix}.capabilityIds must name at least one capability`);
+    if (target.reasonCodes.length === 0) issues.push(`${prefix}.reasonCodes must name at least one reason`);
+    for (const capabilityId of target.capabilityIds) {
+      if (!blockedCapabilities.has(capabilityId)) issues.push(`${prefix}.capabilityIds names ${capabilityId}, which is not a blocked capability`);
+      blockingCapabilities.add(capabilityId);
+    }
+    const reason = target.reasonCodes.find((code) => !reasons.has(code));
+    if (reason !== undefined) issues.push(`${prefix}.reasonCodes contains unsupported reason: ${reason}`);
+    if (input.appliedTargetIds.includes(target.targetId)) issues.push(`${prefix}.targetId must not also be an applied target`);
+  }
+  for (const capabilityId of input.blockedCapabilityIds) {
+    if (!blockingCapabilities.has(capabilityId)) issues.push(`coverage.blockedCapabilityIds names ${capabilityId}, which blocks no target`);
+  }
+  for (const file of files) {
+    if (blockedPaths.has(file.path)) issues.push(`files[] must not write the carried-forward target path ${file.path}`);
+  }
+  return issues;
 }
 
 export function projectionFreshnessIssues(input: ProjectionFreshnessV1): string[] {
@@ -970,6 +1084,8 @@ export function projectionApplyReceiptInvariantIssues(input: ProjectionApplyRece
     issues.push("projection apply identity must bind the committed files and original refresh signals");
   }
   if (input.result.status !== "applied") issues.push("projection apply receipt result status must be applied");
+  // A partial projection is never accepted, so no receipt ever records one.
+  if (input.result.coverage !== undefined) issues.push("projection apply receipt result must cover every target");
   if (digestJson(input.result.applyReceipt as unknown as Json) !== digestJson(input.identity as unknown as Json)) {
     issues.push("projection apply receipt result must carry the same apply identity");
   }

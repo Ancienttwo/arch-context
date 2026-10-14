@@ -151,6 +151,28 @@
                           "const": true
                         }
                       }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "description": "Binds one projection-owned file the write set carries forward unchanged; accepted only by render_projection with the exact body hash the render read. Nothing is written; the apply fails unless the file still has that hash immediately before the commit.",
+                      "required": [
+                        "path",
+                        "expectedHash",
+                        "guard"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "expectedHash": {
+                          "type": "string",
+                          "pattern": "^sha256:[a-f0-9]{64}$"
+                        },
+                        "guard": {
+                          "const": true
+                        }
+                      }
                     }
                   ]
                 }
