@@ -1,13 +1,13 @@
 import {
   ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION,
   ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION,
+  architectureSemanticStateFromCapabilities,
   digestJson,
   type AcceptedArchitectureChangeReferenceV1,
   type ArchitectureCapabilityChangeV1,
   type ArchitectureCapabilitySemanticStateV1,
   type ArchitectureDigestSetV1,
   type ArchitectureMajorChangeReasonCode,
-  type ArchitectureProofEvidenceDigestsV1,
   type ArchitectureRefreshSignalV1,
   type ArchitectureSemanticFacet,
   type ArchitectureSemanticStateV1,
@@ -15,7 +15,7 @@ import {
   type Sha256Digest
 } from "@archcontext/contracts";
 import type { NativeModel, NativeNode } from "./index";
-import { proofRelevantSelectorEvidence, type ArchitectureSelectorEvidenceV1, type SemanticCapabilityDiagramCompilation } from "./semantic-diagrams";
+import type { SemanticCapabilityDiagramCompilation } from "./semantic-diagrams";
 
 const REFRESH_TARGETS = [
   "architecture-contract-context",
@@ -48,18 +48,6 @@ export interface ArchitectureMajorChangeClassificationV1 {
   /** Per-capability breakdown of `reasonCodes`, sorted by capabilityId; empty when mode is none (#264). */
   capabilities: ArchitectureCapabilityChangeV1[];
   acceptedChange?: AcceptedArchitectureChangeReferenceV1;
-}
-
-export function architectureProofEvidenceDigests(input: {
-  sourceTreeDigest: string;
-  selectorEvidence: readonly ArchitectureSelectorEvidenceV1[];
-  rendererVersion: string;
-}): ArchitectureProofEvidenceDigestsV1 {
-  return {
-    sourceTreeDigest: input.sourceTreeDigest,
-    selectorEvidenceDigest: digestJson(proofRelevantSelectorEvidence(input.selectorEvidence) as unknown as Json),
-    rendererVersion: input.rendererVersion
-  };
 }
 
 export function compileArchitectureSemanticState(input: {
@@ -108,12 +96,7 @@ export function compileArchitectureSemanticState(input: {
       facets
     };
   });
-  return {
-    schemaVersion: ARCHITECTURE_SEMANTIC_STATE_SCHEMA_VERSION,
-    capabilities,
-    semanticFingerprint: digestJson(capabilities.map(({ capabilityId, semanticFingerprint }) => ({ capabilityId, semanticFingerprint })) as unknown as Json),
-    flowProofFingerprint: digestJson(capabilities.map(({ capabilityId, flowProofFingerprint }) => ({ capabilityId, flowProofFingerprint })) as unknown as Json)
-  };
+  return architectureSemanticStateFromCapabilities(capabilities);
 }
 
 export function classifyArchitectureMajorChange(input: {

@@ -72,3 +72,4 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0044 | Authority-Aware Explorer View Compiler |
 | ADR-0045 | Authority-Separated Data Engine |
 | ADR-0046 | Refactor Decisions in Git |
+| ADR-0047 | Projection Manifest v3 and Per-Target Identity |

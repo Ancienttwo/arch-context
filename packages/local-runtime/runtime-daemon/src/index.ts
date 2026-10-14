@@ -21,7 +21,8 @@ import { ProjectionApplyService } from "./projection-apply";
 import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
 import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
-export { runProjectionCheckInvocation, runProjectionSnapshotCommand } from "./projection-service";
+export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand } from "./projection-service";
+import { measureProjectionFreshness } from "./projection-freshness";
 export { runDocsAnchorsCommand } from "./docs-anchors";
 export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
 export { runFlowSelectorCheckCommand } from "./flow-selector-check";
@@ -69,7 +70,7 @@ import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agen
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, digestArchitectureDocumentationSourceTree, digestCapabilitySourceFootprints, evaluateArchitectureProjectionSnapshotFreshness, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadCapabilitySourceFootprints, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { ProjectionPreconditionError, renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, digestCapabilitySourceFootprints, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
@@ -774,17 +775,22 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       })
       : undefined;
     let projectionDrift: CompleteTaskProjectionDriftInput | undefined;
+    let projectionFreshness: CompleteTaskProjectionFreshnessInput | undefined;
     try {
       projectionDrift = completeTaskProjectionDrift(session.workspace.root);
+      projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
     } catch (error) {
       // Same typed, retryable answer as the docs and projection paths (#258, #279): missing
       // required code facts are an environment state, never projection drift.
       if (error instanceof ProjectionCodeFactsUnavailableError) {
         return errorEnvelope("complete_task", "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
       }
+      // A superseded or invalid manifest, or an undocumented footprint, is a typed precondition (#327).
+      if (error instanceof ProjectionPreconditionError) {
+        return errorEnvelope("complete_task", "AC_PRECONDITION_FAILED", error.message, error.reasonCode);
+      }
       throw error;
     }
-    const projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
     const worktreeDigest = computeWorktreeDigest(session.workspace.root, listGitVisibleFiles(session.workspace.root));
     // Constraints and the review policy are read through the model store port, so the ledger read
     // mode sees the same model `validate` does.
@@ -1612,23 +1618,13 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
 /**
  * Freshness half of the projection gate: the drift check above asks whether the rendered files
  * still match the model, this one asks whether the code those files describe moved after each
- * document was verified, by comparing every node's stamped footprint digest with the current one.
- * A repository with no projection manifest has no projection to keep fresh, which is why the
- * missing-manifest case returns `undefined` here — the same short-circuit
+ * document was verified, through the shared evaluator `check` and `projection freshness` use
+ * (`measureProjectionFreshness`). A repository with no projection manifest has no projection to keep
+ * fresh, which is why the missing-manifest case returns `undefined` here — the same short-circuit
  * `completeTaskProjectionDrift` uses — rather than a blocking finding.
  */
 function completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFreshnessInput | undefined {
   const manifest = loadArchitectureProjectionManifestStamps(root);
   if (manifest.status === "manifest-missing") return undefined;
-  const model = loadNativeModelFromArchContext(root);
-  const footprints = loadCapabilitySourceFootprints(root, model, listGitVisibleFiles(root));
-  return evaluateArchitectureProjectionSnapshotFreshness({
-    model,
-    // The committed manifest's profile decides which nodes carry a stamp, as it decides the layout
-    // `completeTaskProjectionDrift` renders. An unreadable manifest has no profile to read.
-    profile: manifest.status === "present" ? loadArchitectureDocumentationProfile(root) : undefined,
-    manifest,
-    sourceFootprints: digestCapabilitySourceFootprints(root, model, footprints),
-    currentSourceTreeDigest: digestArchitectureDocumentationSourceTree(root, model, footprints)
-  });
+  return measureProjectionFreshness(root, { manifest }).evaluation;
 }

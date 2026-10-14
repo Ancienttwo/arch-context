@@ -6,7 +6,7 @@ import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   architectureDocumentationProjectionProvenance,
-  architectureProofEvidenceDigests,
+  capabilityProofRelevantSelectorEvidence,
   loadArchitectureDocumentationFiles,
   loadCapabilitySourceFootprints,
   loadCapabilitySourceScaleSignals,
@@ -18,7 +18,7 @@ import {
   type CapabilitySourceScaleSignal,
   type NativeModel
 } from "../src/index";
-import type { ProjectionTargetV1 } from "@archcontext/contracts";
+import { digestJson, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
 import { fixtureSourceFiles } from "./fixture-source-files";
 
 /** The region markers of a target that owns a marked region; every entity summary does. */
@@ -371,63 +371,67 @@ describe("entity-summary capability documentation projection", () => {
     expectNoProvenanceInBody(entityFile(again, "capability.docs.projection").body);
   });
 
-  test("committed provenance v3 carries no machine-dependent CodeGraph value; an older provenance is rewritten once (#277)", () => {
+  test("the committed manifest records no provenance and no global digest; a superseded manifest is refused (#277, #327)", () => {
     const first = render();
     const committed = JSON.parse(first.manifest.body);
-    expect(committed.provenance.schemaVersion).toBe("archcontext.architecture-docs-projection-provenance/v3");
-    for (const field of ["codeGraphDigest", "indexedWorktreeDigest", "codeGraphBinaryDigest", "baseHeadSha", "worktreeDigest"]) {
-      expect(committed.provenance).not.toHaveProperty(field);
+    expect(Object.keys(committed)).toEqual(["schemaVersion", "rendererVersion", "profile", "layoutVersion", "generatedFrom", "semanticBaseline", "targets"]);
+    expect(committed.schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v3");
+    expect(committed.generatedFrom).toEqual({ codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" });
+    expect(Object.keys(committed.semanticBaseline)).toEqual(["modelDigest", "capabilities"]);
+    for (const field of ["provenance", "sourceDigest", "projectionDigest", "receiptDigest", "targetCount", "fileCount", "projectionInputDigest", "sourceTreeDigest", "codeGraphDigest", "indexedWorktreeDigest"]) {
+      expect(first.manifest.body).not.toContain(`"${field}"`);
     }
-    expect(committed.provenance.generatedFrom).toEqual({ codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" });
 
-    // A v2 manifest (machine-dependent CodeGraph fields) is never reused or translated: the next
-    // projection rewrites it to v3 once, and the rewritten manifest is a fixed point.
-    const v2Manifest = {
-      ...committed,
-      provenance: {
-        ...committed.provenance,
-        schemaVersion: "archcontext.architecture-docs-projection-provenance/v2",
-        codeGraphDigest: `sha256:${"b".repeat(64)}`,
-        indexedWorktreeDigest: `sha256:${"c".repeat(64)}`,
-        generatedFrom: { ...committed.provenance.generatedFrom, codeGraphStatus: "ready" }
-      }
-    };
+    // A v1 or v2 manifest is read for its schemaVersion only and refused; `docs apply` re-baselines
+    // it once, as if no manifest existed, and the rewritten manifest is a fixed point.
     const docs = first.files.map(({ path, body }) => ({ path, body }));
-    const fromV2 = render({ existingFiles: [...docs, { path: first.manifest.path, body: `${JSON.stringify(v2Manifest, null, 2)}\n` }] });
-    expect(fromV2.drift.ok).toBe(false);
-    expect(fromV2.drift.diffs.map((diff) => diff.path)).toEqual([first.manifest.path]);
-    expect(fromV2.provenance).toEqual(first.provenance);
-    expect(fromV2.manifest.body).toBe(first.manifest.body);
-    const again = render({ existingFiles: [...docs, fromV2.manifest] });
-    expect(again.drift.ok).toBe(true);
-    expect(again.manifest.body).toBe(first.manifest.body);
+    for (const schemaVersion of ["archcontext.architecture-docs-projection-manifest/v1", "archcontext.architecture-docs-projection-manifest/v2"]) {
+      const superseded = { path: first.manifest.path, body: `${JSON.stringify({ schemaVersion, semanticBaseline: { anything: true } }, null, 2)}\n` };
+      expect(() => render({ existingFiles: [...docs, superseded] })).toThrow(`projection-manifest-upgrade-required: docs/architecture/.projection-manifest.json is ${schemaVersion}`);
+      const rebaselined = render({ existingFiles: [...docs, superseded], rebaselineSupersededManifest: true });
+      expect(rebaselined.drift.diffs.map((diff) => [diff.path, diff.reasonCode])).toEqual([[first.manifest.path, "projection-manifest-stale"]]);
+      expect(rebaselined.majorChange.mode).toBe("none");
+      expect(rebaselined.manifest.body).toBe(first.manifest.body);
+      const again = render({ existingFiles: [...docs, rebaselined.manifest] });
+      expect(again.drift.ok).toBe(true);
+    }
 
-    // Source and model authority changes still move the provenance and drift.
+    // A source change moves the stamps, a model change moves the model anchor; both drift, and the
+    // runtime provenance alone moves nothing committed.
     const existingFiles = [...docs, first.manifest];
     const reproject = (overrides: Partial<typeof provenance>) => {
       const { schemaVersion: _schemaVersion, projectionInputDigest: _projectionInputDigest, ...payload } = provenance;
       return architectureDocumentationProjectionProvenance({ ...payload, ...overrides });
     };
-    const sourceChanged = reproject({ sourceTreeDigest: `sha256:${"e".repeat(64)}` });
-    const sourceDrift = render({ existingFiles, provenance: sourceChanged });
-    expect(sourceDrift.drift.ok).toBe(false);
-    expect(sourceDrift.provenance).toEqual(sourceChanged);
+    const runtimeOnly = render({ existingFiles, provenance: reproject({ sourceTreeDigest: `sha256:${"e".repeat(64)}` }) });
+    expect(runtimeOnly.drift.ok).toBe(true);
+    const sourceDrift = render({ existingFiles, sourceFootprints: [{ nodeId: "capability.docs.projection", digest: movedStampDigest, fileCount: 1 }] });
+    expect(sourceDrift.drift.diffs.map((diff) => diff.reasonCode)).toEqual(["projection-manifest-stale"]);
     const modelChanged = reproject({ modelDigest: `sha256:${"0".repeat(64)}` });
     const modelDrift = render({ existingFiles, provenance: modelChanged });
     expect(modelDrift.drift.ok).toBe(false);
-    expect(modelDrift.provenance).toEqual(modelChanged);
+    expect(JSON.parse(modelDrift.manifest.body).semanticBaseline.modelDigest).toBe(modelChanged.modelDigest);
   });
 
-  test("the semantic baseline records the evidence it was rendered from; the committed provenance carries none", () => {
-    // Codex R2 P1: the committed provenance has no CodeGraph evidence identity, so it cannot
-    // attest what a re-baselined semantic state was compiled from; the baseline records that itself.
+  test("each capability entry records the selector evidence its flows cite; the manifest carries no global evidence (#327)", () => {
     const e0 = render({ selectorEvidence: [] });
     const e1 = render({ existingFiles: [...e0.files.map(({ path, body }) => ({ path, body })), e0.manifest], selectorEvidence });
-    const manifest = (plan: ArchitectureDocumentationProjectionPlan) => JSON.parse(plan.manifest.body);
-    expect(manifest(e1).provenance).toEqual(manifest(e0).provenance);
-    expect(manifest(e0).semanticBaseline.evidence).toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence: [], rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION }));
-    expect(manifest(e1).semanticBaseline.evidence).toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: provenance.sourceTreeDigest, selectorEvidence, rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION }));
-    expect(manifest(e1).semanticBaseline.evidence).not.toEqual(manifest(e0).semanticBaseline.evidence);
+    const capability = (plan: ArchitectureDocumentationProjectionPlan) => JSON.parse(plan.manifest.body).semanticBaseline.capabilities
+      .find((entry: { capabilityId: string }) => entry.capabilityId === "capability.docs.projection");
+    const cited = (evidence: ArchitectureSelectorEvidenceV1[]) =>
+      digestJson(capabilityProofRelevantSelectorEvidence({ capabilityId: "capability.docs.projection", flows: model.flows!, evidence }) as unknown as Json);
+    expect(capability(e0).selectorEvidenceDigest).toBe(cited([]));
+    expect(capability(e1).selectorEvidenceDigest).toBe(cited(selectorEvidence));
+    expect(capability(e1).selectorEvidenceDigest).not.toBe(capability(e0).selectorEvidenceDigest);
+    expect(e1.proofEvidence).toEqual({
+      rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
+      selectorEvidenceDigests: { "capability.docs.projection": cited(selectorEvidence) },
+      sourceStamps: { "capability.docs.projection": stampDigest }
+    });
+    expect(e1.manifest.body).not.toContain("\"evidence\"");
+    // Evidence for a selector no flow of the capability cites is not part of its proof.
+    const uncited: ArchitectureSelectorEvidenceV1 = { ...selectorEvidence[0]!, entrypointId: "entrypoint.other", sinkId: "sink.other" };
+    expect(capability(render({ selectorEvidence: [...selectorEvidence, uncited] })).selectorEvidenceDigest).toBe(cited(selectorEvidence));
   });
 
   test("a call-site line shift leaves the recorded evidence and the projection drift unchanged", () => {
@@ -437,45 +441,37 @@ describe("entity-summary capability documentation projection", () => {
     const shifted = selectorEvidence.map((entry) => ({ ...entry, callSites: entry.callSites.map((site) => ({ ...site, line: (site.line ?? 0) + 7 })) }));
     const next = render({ existingFiles, selectorEvidence: shifted });
     expect(next.semanticState.flowProofFingerprint).toBe(first.semanticState.flowProofFingerprint);
-    expect(JSON.parse(next.manifest.body).semanticBaseline.evidence).toEqual(JSON.parse(first.manifest.body).semanticBaseline.evidence);
+    expect(next.proofEvidence).toEqual(first.proofEvidence);
+    expect(next.manifest.body).toBe(first.manifest.body);
     expect(next.drift.ok, JSON.stringify(next.drift.reasonCodes)).toBe(true);
   });
 
-  describe("a manifest from a renderer that predates semanticBaseline.evidence", () => {
+  describe("the committed manifest is read strictly (#327)", () => {
     const first = render();
-    const reproject = (mutate: (manifest: Record<string, any>) => void) => {
-      const manifest = JSON.parse(first.manifest.body);
-      mutate(manifest);
-      return render({ existingFiles: [...first.files.map(({ path, body }) => ({ path, body })), { path: first.manifest.path, body: `${JSON.stringify(manifest, null, 2)}\n` }] });
-    };
+    const documents = first.files.map(({ path, body }) => ({ path, body }));
+    const reproject = (body: string) => render({ existingFiles: [...documents, { path: first.manifest.path, body }] });
     const staleManifest = [expect.objectContaining({ path: "docs/architecture/.projection-manifest.json", reasonCode: "projection-manifest-stale" })];
 
-    test("reads clean when the evidence key is absent and everything else matches", () => {
-      const legacy = reproject((manifest) => { delete manifest.semanticBaseline.evidence; });
-      expect(legacy.drift.ok, JSON.stringify(legacy.drift.reasonCodes)).toBe(true);
-      expect(legacy.drift.diffs).toEqual([]);
-      // Tolerated only when read: the renderer still writes the evidence.
-      expect(JSON.parse(legacy.manifest.body).semanticBaseline.evidence).toEqual(JSON.parse(first.manifest.body).semanticBaseline.evidence);
+    test("the same values in another byte layout are stale: the layout is part of the contract", () => {
+      const reformatted = reproject(`${JSON.stringify(JSON.parse(first.manifest.body), null, 2)}\n`);
+      expect(reformatted.drift.diffs).toEqual(staleManifest);
+      expect(reformatted.manifest.body).toBe(first.manifest.body);
     });
 
-    test("stays stale when evidence is present but any digest differs", () => {
-      const altered = reproject((manifest) => { manifest.semanticBaseline.evidence.selectorEvidenceDigest = `sha256:${"e".repeat(64)}`; });
-      expect(altered.drift.ok).toBe(false);
-      expect(altered.drift.diffs).toEqual(staleManifest);
-      const nulled = reproject((manifest) => { manifest.semanticBaseline.evidence = null; });
-      expect(nulled.drift.diffs).toEqual(staleManifest);
-    });
-
-    test("stays stale when evidence is absent and any other field is missing or altered", () => {
-      const withoutEvidence = (mutate: (manifest: Record<string, any>) => void) => reproject((manifest) => {
-        delete manifest.semanticBaseline.evidence;
-        mutate(manifest);
-      });
-      expect(withoutEvidence((manifest) => { delete manifest.receiptDigest; }).drift.diffs).toEqual(staleManifest);
-      expect(withoutEvidence((manifest) => { delete manifest.fileCount; }).drift.diffs).toEqual(staleManifest);
-      expect(withoutEvidence((manifest) => { manifest.semanticBaseline.digests.flowProofDigest = `sha256:${"f".repeat(64)}`; }).drift.diffs).toEqual(staleManifest);
-      expect(withoutEvidence((manifest) => { manifest.targetCount += 1; }).drift.diffs).toEqual(staleManifest);
-      expect(reproject((manifest) => { delete manifest.semanticBaseline; }).drift.diffs).toEqual(staleManifest);
+    test("a current-format manifest that breaks its contract is refused, never tolerated", () => {
+      const mutate = (change: (manifest: Record<string, any>) => void) => {
+        const manifest = JSON.parse(first.manifest.body);
+        change(manifest);
+        return `${JSON.stringify(manifest)}\n`;
+      };
+      for (const body of [
+        mutate((manifest) => { delete manifest.semanticBaseline.capabilities[0].selectorEvidenceDigest; }),
+        mutate((manifest) => { manifest.semanticBaseline.evidence = { selectorEvidenceDigest: `sha256:${"e".repeat(64)}` }; }),
+        mutate((manifest) => { manifest.receiptDigest = `sha256:${"e".repeat(64)}`; }),
+        mutate((manifest) => { delete manifest.semanticBaseline; })
+      ]) {
+        expect(() => reproject(body)).toThrow("projection-manifest-invalid");
+      }
     });
   });
 
@@ -484,8 +480,15 @@ describe("entity-summary capability documentation projection", () => {
       nodeId: "capability.docs.projection", entrypointId: "entrypoint.a", sourcePath: "src/a.ts", sourceSymbol: "run",
       sinkId: "sink.a", sinkPath: "src/b.ts", sinkSymbol: "write", matched: true, truncated: false, callSites: [{ path: "src/a.ts", line: 3 }]
     };
+    const citing: NativeModel["flows"] = [{
+      ...model.flows![0]!,
+      steps: [{ ...(model.flows![0] as any).steps[0], evidence: { entrypointId: "entrypoint.a", sourceSymbol: "run", sinkId: "sink.a" } },
+        { ...(model.flows![0] as any).steps[0], id: "b", evidence: { entrypointId: "entrypoint.a", sourceSymbol: "run", sinkId: "sink.b" } },
+        { ...(model.flows![0] as any).steps[0], id: "c", evidence: { entrypointId: "entrypoint.b", sourceSymbol: "run", sinkId: "sink.a" } },
+        { ...(model.flows![0] as any).steps[0], id: "d", evidence: { entrypointId: "entrypoint.a", sourceSymbol: "other", sinkId: "sink.a" } }]
+    } as any];
     const digestOf = (evidence: ArchitectureSelectorEvidenceV1[]) =>
-      architectureProofEvidenceDigests({ sourceTreeDigest: sourceDigest, selectorEvidence: evidence, rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION }).selectorEvidenceDigest;
+      digestJson(capabilityProofRelevantSelectorEvidence({ capabilityId: "capability.docs.projection", flows: citing!, evidence }) as unknown as Json);
     const baseline = digestOf([entry]);
     const consumed: Partial<ArchitectureSelectorEvidenceV1>[] = [
       { nodeId: "module.other" }, { entrypointId: "entrypoint.b" }, { sourceSymbol: "other" }, { sinkId: "sink.b" },
@@ -500,8 +503,8 @@ describe("entity-summary capability documentation projection", () => {
     const other = { ...entry, sinkId: "sink.b" };
     expect(digestOf([entry, other])).toBe(digestOf([other, entry]));
     expect(digestOf([entry, entry])).not.toBe(baseline);
-    expect(architectureProofEvidenceDigests({ sourceTreeDigest: sourceDigest, selectorEvidence: [entry], rendererVersion: "other-renderer" }))
-      .not.toEqual(architectureProofEvidenceDigests({ sourceTreeDigest: sourceDigest, selectorEvidence: [entry], rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION }));
+    // A selector no step cites is not an input of this capability's proof.
+    expect(digestOf([entry, { ...entry, sinkId: "sink.uncited" }])).toBe(baseline);
   });
 
   test("a covered source change re-stamps in the manifest and leaves the document byte-identical", () => {
@@ -523,12 +526,17 @@ describe("entity-summary capability documentation projection", () => {
     // Byte-identical, marker attributes included: the stamp is not a body input at all.
     expect(after.body).toBe(before.body);
     expect(regionMarkers(after.target).startMarker).toBe(regionMarkers(before.target).startMarker);
-    // The manifest is the one file that moved, and it moved because the stamp did.
+    // The manifest is the one file that moved, and it moved because the stamp did: exactly the
+    // capability's target row line.
     expect(reverified.drift.diffs).toEqual([expect.objectContaining({
       path: "docs/architecture/.projection-manifest.json",
       reasonCode: "projection-manifest-stale"
     })]);
     expect(reverified.manifest.body).toContain(movedStampDigest);
+    const firstLines = first.manifest.body.split("\n");
+    const changedLines = reverified.manifest.body.split("\n").filter((line, index) => line !== firstLines[index]);
+    expect(changedLines).toHaveLength(1);
+    expect(changedLines[0]).toContain(`"sourceStamps":{"capability.docs.projection":"${movedStampDigest}"}`);
     // The node that declares no source carries no stamp: nothing can change under it.
     expect(entityFile(reverified, "module.no-source").sourceFootprintDigest).toBeUndefined();
   });
@@ -594,23 +602,25 @@ describe("entity-summary capability documentation projection", () => {
     expect(() => label(1.5, 0)).toThrow("architecture-docs-projection-scale-signal-not-a-count");
   });
 
-  test("a malformed, legacy, or unreadable prior manifest never reaches the new stamp", () => {
-    // The stamp is measured, never read back from the previous manifest, so nothing a prior manifest
-    // carries — a commit stamp, garbage, or an unparseable body — can launder into the next one.
+  test("an unreadable prior manifest never reaches the new stamp; a corrupted current-format one is refused", () => {
+    // The stamp is measured, never read back from the previous manifest, so nothing an unreadable
+    // prior manifest carries can launder into the next one.
     const first = render();
     const seeded = entityFile(first, "capability.docs.projection");
     const documents = first.files.map(({ path, body }) => ({ path, body }));
-    const corruptions = [
-      first.manifest.body.replaceAll(`"sourceFootprintDigest": "${stampDigest}"`, '"sourceFootprintDigest": "not-a-stamp"'),
-      first.manifest.body.replaceAll(`"sourceFootprintDigest": "${stampDigest}"`, '"verifiedAgainst": { "branch": "main", "commit": "7415329", "committedAt": "2026-08-08T09:30:00+08:00" }'),
-      "{ not json"
-    ];
-    for (const body of corruptions) {
+    for (const body of ["{ not json", "{}\n"]) {
       const replan = render({ existingFiles: [...documents, { path: first.manifest.path, body }] });
       const reprojected = entityFile(replan, "capability.docs.projection");
       expect(reprojected.sourceFootprintDigest).toBe(stampDigest);
       expect(reprojected.body).toBe(seeded.body);
       expect(replan.manifest.body).toBe(first.manifest.body);
+    }
+    for (const body of [
+      first.manifest.body.replaceAll(`"capability.docs.projection":"${stampDigest}"`, '"capability.docs.projection":"not-a-stamp"'),
+      first.manifest.body.replaceAll(`"sourceStamps":{"capability.docs.projection":"${stampDigest}"}`, '"verifiedAgainst":{"branch":"main","commit":"7415329"}')
+    ]) {
+      expect(body).not.toBe(first.manifest.body);
+      expect(() => render({ existingFiles: [...documents, { path: first.manifest.path, body }] })).toThrow("projection-manifest-invalid");
     }
   });
 
@@ -905,15 +915,12 @@ describe("canonical body digest sticky key", () => {
     const run1 = render();
     const run2 = reapply(run1);
 
-    // Run 2's output is what sits on disk after `docs apply`. Every document holds; the manifest is
-    // the one file still stale: its receipt digests the major-change classification, which settles
-    // only after the semantic delta has been consumed by the first post-apply render — a property of
-    // the baseline machinery, orthogonal to stamps.
+    // Run 2's output is what sits on disk after `docs apply`. The manifest records no receipt digest
+    // of the classification (#327), so it is already the fixed point: every document and the
+    // manifest hold.
     const run3 = reapply(run2);
-    expect(run3.drift.diffs).toEqual([expect.objectContaining({
-      path: "docs/architecture/.projection-manifest.json",
-      reasonCode: "projection-manifest-stale"
-    })]);
+    expect(run3.drift.diffs).toEqual([]);
+    expect(run3.manifest.body).toBe(run2.manifest.body);
     for (const file of run2.files) {
       expect(run3.files.find((entry) => entry.path === file.path)?.body).toBe(file.body);
     }

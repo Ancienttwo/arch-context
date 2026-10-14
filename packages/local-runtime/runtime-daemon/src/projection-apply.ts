@@ -48,11 +48,11 @@ export class ProjectionApplyService {
       );
     }
     // changeset_journal is keyed by journal_id, not changeset_id, and the projection protocol derives
-    // its changeSetId from the projection digest. Two killed-then-retried attempts of the same
-    // request therefore commit two journal rows carrying one changeSetId, which the wire contract's
-    // sorted-unique changeSetId invariant would reject — permanently failing every later run for
-    // that requestId. Collapsing them is lossless: an equal changeSetId means an equal projection
-    // digest, so both rows declare the same output file set; only the commit instant differs. The
+    // its changeSetId from the projection-owned output bytes it writes. Two killed-then-retried
+    // attempts of the same request therefore commit two journal rows carrying one changeSetId, which
+    // the wire contract's sorted-unique changeSetId invariant would reject — permanently failing
+    // every later run for that requestId. Collapsing them is lossless: an equal changeSetId means
+    // equal owned output bytes, so both rows declare the same output file set; only the commit instant differs. The
     // store hands rows back ordered by committedAt then journal id, so upserting into an
     // insertion-ordered map keeps the latest commit of each changeSetId with that same tie-break.
     const byChangeSetId = new Map<string, ProjectionPriorCommittedApplyV1>();

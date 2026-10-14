@@ -63,6 +63,16 @@ try {
   const repositoryId = status.data?.repositoryId;
   const initialWorktreeDigest = status.data?.worktreeDigest;
 
+  // `projection freshness` is read-only and in-process: stamps against Git-visible files, no code
+  // facts, no render, no daemon call (#327).
+  const freshness = await runArchctx("projection", "freshness", "--json");
+  assert(freshness.ok === true, `packaged projection freshness must succeed: ${JSON.stringify(freshness.error ?? {})}`);
+  assert(freshness.requestId === "projection.freshness", "packaged projection freshness must answer as projection.freshness");
+  assert(typeof freshness.data?.freshness?.ok === "boolean" && Array.isArray(freshness.data?.freshness?.staleNodes), "packaged projection freshness must return the check freshness shape");
+  assert(Array.isArray(freshness.data?.changedPaths) && freshness.data.changedPaths.length === 0, "unscoped packaged projection freshness must report no changed paths");
+  const scopedFreshness = await runArchctx("projection", "freshness", "--changed-path", "README.md", "--json");
+  assert(scopedFreshness.ok === true && scopedFreshness.data?.changedPaths?.[0] === "README.md", "packaged projection freshness must accept --changed-path");
+
   const explorer = await runArchctx("explore", "projection", "--view", "system-map", "--level", "context", "--max-nodes", "20", "--max-relations", "40");
   assert(explorer.ok === true, "packaged Explorer V2 projection must succeed");
   assert(explorer.data?.schemaVersion === "archcontext.explorer-projection/v2", "packaged Explorer must expose only projection V2");

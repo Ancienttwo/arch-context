@@ -4,8 +4,8 @@ import { resolve } from "node:path";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import type { AcceptedCommittedChangeJournalV2, AcceptedCommittedChangePayloadV2, ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { assertPathHasNoSymlinkSegments, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
-import { classifyArchitectureMajorChange, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type NativeModel } from "@archcontext/core/projection-engine";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, digestJson, type AcceptedArchitectureChangeReferenceV1, type ArchitectureDigestSetV1, type ArchitectureEventV1, type ArchitectureProofEvidenceDigestsV1, type ArchitectureSemanticStateV1, type Json } from "@archcontext/contracts";
+import { classifyArchitectureMajorChange, loadNativeModelFromModelFiles, parseArchitectureDocsProjectionManifest, type ArchitectureMajorChangeClassificationV1, type NativeModel } from "@archcontext/core/projection-engine";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestProofEvidence, architectureDocsProjectionManifestSemanticState, digestJson, type AcceptedArchitectureChangeReferenceV1, type ArchitectureEventV1, type ArchitectureProjectionProofEvidenceV1, type ArchitectureSemanticStateV1, type Json } from "@archcontext/contracts";
 import { CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION, type ChangeSetModelTransitionV1, type CommittedChangeSetForTaskSession, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 
 /** Exactly the files `loadNativeModelFromArchContext` reads: direct YAML children of these directories. */
@@ -32,7 +32,8 @@ export function captureModelTransitionBase(root: string, draft: ChangeSetDraft, 
   for (const operation of draft.operations) {
     const writes = [
       ...(operation.path ? [{ path: operation.path, body: operation.body }] : []),
-      ...(operation.projectionFiles ?? [])
+      // A projection guard writes nothing, so it is not an expected write.
+      ...(operation.projectionFiles ?? []).flatMap((file) => "guard" in file ? [] : [file])
     ];
     for (const write of writes) {
       if (!isSemanticModelPath(write.path)) continue;
@@ -299,32 +300,35 @@ export function labelAcceptedNodeSets(input: {
   };
 }
 
-/** The recorded inputs, besides the model, that a capability's flow proof is computed from. */
-export type ProofEvidenceDigests = ArchitectureProofEvidenceDigestsV1;
+/** The recorded inputs, besides the model, that each capability's flow proof is computed from. */
+export type ProofEvidenceDigests = ArchitectureProjectionProofEvidenceV1;
 
 /**
  * A capability whose semantic fingerprint held while its flow proof moved is explained by the
- * model (which the chain binds) only when the proof's other inputs, the declared source tree and
- * the selector evidence, are the ones the baseline was rendered from. A journaled flow rewrite
- * does not explain an evidence change, and a baseline without recorded evidence explains nothing.
+ * model (which the chain binds) only when that capability's other proof inputs are the ones the
+ * baseline was rendered from: the footprint stamps of its baseline members, the digest of the
+ * selector evidence its flows cite, and the renderer version. A journaled flow rewrite does not
+ * explain an evidence change, and an evidence change in one capability never blocks another's.
  */
 export function assertProofChangesExplained(input: {
   base: ArchitectureSemanticStateV1;
   resulting: ArchitectureSemanticStateV1;
-  baselineEvidence: ProofEvidenceDigests | undefined;
+  baselineEvidence: ProofEvidenceDigests;
   currentEvidence: ProofEvidenceDigests;
 }): void {
-  const evidenceUnchanged = input.baselineEvidence !== undefined
-    && input.baselineEvidence.sourceTreeDigest === input.currentEvidence.sourceTreeDigest
-    && input.baselineEvidence.selectorEvidenceDigest === input.currentEvidence.selectorEvidenceDigest
-    && input.baselineEvidence.rendererVersion === input.currentEvidence.rendererVersion;
-  if (evidenceUnchanged) return;
   const baseById = new Map(input.base.capabilities.map((capability) => [capability.capabilityId, capability]));
   for (const capability of input.resulting.capabilities) {
     const before = baseById.get(capability.capabilityId);
     if (!before || before.semanticFingerprint !== capability.semanticFingerprint) continue;
-    if (before.flowProofFingerprint !== capability.flowProofFingerprint) {
-      throw new Error(`accepted-committed-change-proof-change-unexplained: ${capability.capabilityId} proof moved while source, selector evidence or renderer version changed since the baseline, or the baseline predates recorded evidence`);
+    if (before.flowProofFingerprint === capability.flowProofFingerprint) continue;
+    const id = capability.capabilityId;
+    const baselineSelector = input.baselineEvidence.selectorEvidenceDigests[id];
+    const evidenceUnchanged = input.baselineEvidence.rendererVersion === input.currentEvidence.rendererVersion
+      && baselineSelector !== undefined
+      && baselineSelector === input.currentEvidence.selectorEvidenceDigests[id]
+      && before.memberNodeIds.every((nodeId) => input.baselineEvidence.sourceStamps[nodeId] === input.currentEvidence.sourceStamps[nodeId]);
+    if (!evidenceUnchanged) {
+      throw new Error(`accepted-committed-change-proof-change-unexplained: ${id} proof moved while its member sources, its selector evidence or the renderer version changed since the baseline`);
     }
   }
 }
@@ -394,7 +398,7 @@ export function planCommittedChangeAcceptance(root: string, input: {
     semanticState: ArchitectureSemanticStateV1;
     architectureDigests: { modelDigest: string };
   };
-  /** Freshly measured (never sticky) proof-relevant selector-evidence, source-tree and renderer-version digests. */
+  /** Freshly measured (never sticky) per-capability selector-evidence digests, footprint stamps and renderer version. */
   currentEvidence: ProofEvidenceDigests;
   projectionWorktreeDigest: string;
   scope: ArchitectureLedgerScope;
@@ -560,43 +564,19 @@ function authenticateProjectionManifest(
   throw new Error(`accepted-committed-change-baseline-unanchored: ${PROJECTION_MANIFEST_PATH} matches neither HEAD nor the latest projection-owned journaled write; commit it, or re-baseline with archctx docs apply --approved`);
 }
 
-export function projectionManifestBaseline(body: string | undefined): { modelDigest: string; semanticState: ArchitectureSemanticStateV1; evidence: ProofEvidenceDigests | undefined } {
+/**
+ * The baseline a committed projection manifest anchors: its model digest, its semantic state and
+ * the per-capability proof evidence it was compiled from. Only a valid current-format manifest is
+ * read; a superseded one is refused with `projection-manifest-upgrade-required`.
+ */
+export function projectionManifestBaseline(body: string | undefined): { modelDigest: string; semanticState: ArchitectureSemanticStateV1; evidence: ProofEvidenceDigests } {
   if (body === undefined) throw new Error("accepted-committed-change-baseline-missing: no projection manifest");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    throw new Error("accepted-committed-change-baseline-missing: projection manifest is not JSON");
-  }
-  // Only the fields this gate reads, typed from the published manifest contract and checked below.
-  const manifest = parsed as {
-    semanticBaseline?: {
-      semanticState?: ArchitectureSemanticStateV1;
-      digests?: Partial<Record<keyof ArchitectureDigestSetV1, unknown>>;
-      evidence?: Partial<Record<keyof ArchitectureProofEvidenceDigestsV1, unknown>>;
-    };
-  } | null;
-  const baseline = manifest?.semanticBaseline;
-  const modelDigest = baseline?.digests?.modelDigest;
-  const state = baseline?.semanticState;
-  if (!state || !Array.isArray(state.capabilities) || typeof modelDigest !== "string" || !SHA256_DIGEST.test(modelDigest)) {
-    throw new Error("accepted-committed-change-baseline-missing: projection manifest has no semantic baseline");
-  }
-  // The renderer writes digests.flowProofDigest = semanticState.flowProofFingerprint and both
-  // aggregates from the per-capability fingerprints; a baseline that disagrees with itself is refused.
-  const aggregate = (key: "semanticFingerprint" | "flowProofFingerprint") =>
-    digestJson(state.capabilities.map((capability) => ({ capabilityId: capability.capabilityId, [key]: capability[key] })) as unknown as Json);
-  if (baseline.digests?.flowProofDigest !== state.flowProofFingerprint
-    || state.flowProofFingerprint !== aggregate("flowProofFingerprint")
-    || state.semanticFingerprint !== aggregate("semanticFingerprint")) {
-    throw new Error("accepted-committed-change-baseline-inconsistent: semantic baseline digests do not match its capability fingerprints");
-  }
-  // Recorded fresh per render; older manifests lack it and can then justify no proof-only change.
-  const recorded = baseline.evidence;
-  const evidence = typeof recorded?.sourceTreeDigest === "string" && typeof recorded.selectorEvidenceDigest === "string" && typeof recorded.rendererVersion === "string"
-    ? { sourceTreeDigest: recorded.sourceTreeDigest, selectorEvidenceDigest: recorded.selectorEvidenceDigest, rendererVersion: recorded.rendererVersion }
-    : undefined;
-  return { modelDigest, semanticState: state, evidence };
+  const manifest = parseArchitectureDocsProjectionManifest(body);
+  return {
+    modelDigest: manifest.semanticBaseline.modelDigest,
+    semanticState: architectureDocsProjectionManifestSemanticState(manifest),
+    evidence: architectureDocsProjectionManifestProofEvidence(manifest)
+  };
 }
 
 /** Re-proves every last writer against the strict snapshot; returns the written bodies. */

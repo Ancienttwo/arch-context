@@ -120,7 +120,7 @@ function docsSnapshot(root: string): Record<string, string> {
 
 function manifestTargetPath(root: string, scopeId: string): string {
   const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
-  const target = manifest.targets.find((entry: any) => entry.scope?.id === scopeId);
+  const target = Object.values(manifest.targets as Record<string, any>).find((entry) => entry.scope?.id === scopeId);
   if (!target) throw new Error(`fixture manifest has no target for ${scopeId}`);
   return target.path;
 }
@@ -406,7 +406,7 @@ test("an observed-change apply fails closed when the manifest moves mid-request"
     // moved baseline would also see REMOVED's responsibilities change; the write is bound to the
     // bytes classification read, so the move fails the hash precondition before any file is written.
     const tampered = JSON.parse(classifiedManifest);
-    const removedBaseline = tampered.semanticBaseline.semanticState.capabilities.find((entry: any) => entry.capabilityId === REMOVED);
+    const removedBaseline = tampered.semanticBaseline.capabilities.find((entry: any) => entry.capabilityId === REMOVED);
     removedBaseline.facets.responsibilities = `sha256:${"0".repeat(64)}`;
     removedBaseline.semanticFingerprint = `sha256:${"1".repeat(64)}`;
     const tamperedBody = `${JSON.stringify(tampered, null, 2)}\n`;
@@ -730,7 +730,7 @@ test("plan previews each file as a bounded body or unified diff and writes nothi
     writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("summary: \"Hook Adapters capability.\"", `summary: ${JSON.stringify(summary)}`), "utf8");
     // A missing generated document becomes a create that previews its rendered body.
     const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
-    const changelogPath: string = manifest.targets.find((target: any) => target.type === "architecture-changelog").path;
+    const changelogPath: string = (Object.values(manifest.targets) as any[]).find((target) => target.type === "architecture-changelog").path;
     rmSync(join(root, changelogPath));
     const modulePath = manifestTargetPath(root, KEPT);
 
@@ -804,21 +804,20 @@ const LEGACY_BODY = "flowchart LR\n  legacy_a --> legacy_b\n";
  */
 function seedWholeFileOrphan(root: string, onDiskBody: string): void {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8"));
-  const mermaid = manifest.targets.find((row: { path: string }) => row.path.endsWith("/architecture.mmd"));
+  const mermaid = (Object.values(manifest.targets) as Array<{ path: string }>).find((row) => row.path.endsWith("/architecture.mmd"));
   if (!mermaid) throw new Error("fixture manifest has no Mermaid diagram row");
-  manifest.targets.push({
+  manifest.targets[LEGACY_TARGET_ID] = {
     ...mermaid,
-    targetId: LEGACY_TARGET_ID,
     path: LEGACY_PATH,
     outputDigest: digestJson({ targetId: LEGACY_TARGET_ID, body: LEGACY_BODY } as any)
-  });
+  };
   writeFileSync(join(root, MANIFEST_PATH), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   writeFileSync(join(root, LEGACY_PATH), onDiskBody, "utf8");
   commitAll(root, "a whole-file output the layout no longer renders");
 }
 
 function manifestRowPaths(root: string): string[] {
-  return JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8")).targets.map((row: { path: string }) => row.path);
+  return (Object.values(JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8")).targets) as Array<{ path: string }>).map((row) => row.path);
 }
 
 for (const lineEnding of ["lf", "crlf"] as const) {
@@ -889,16 +888,16 @@ const V5_SOURCE_DIGEST = `sha256:${"5".repeat(64)}`;
 function rewriteOutputsAsV5(root: string, lineEnding: "lf" | "crlf"): string[] {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8"));
   const changed: string[] = [];
-  for (const row of manifest.targets as Array<{ targetId: string; path: string; ownership: string; outputDigest: string }>) {
+  for (const [targetId, row] of Object.entries(manifest.targets as Record<string, { path: string; ownership: string; outputDigest: string }>)) {
     const absolute = join(root, row.path);
     const body = readFileSync(absolute, "utf8");
-    const v5Marker = (targetId: string, outputDigest: string) =>
-      `<!-- BEGIN ARCHCONTEXT:generated target="${targetId}" sourceDigest="${V5_SOURCE_DIGEST}" rendererVersion="${V5_RENDERER_VERSION}" outputDigest="${outputDigest}" -->`;
+    const v5Marker = (markerTargetId: string, outputDigest: string) =>
+      `<!-- BEGIN ARCHCONTEXT:generated target="${markerTargetId}" sourceDigest="${V5_SOURCE_DIGEST}" rendererVersion="${V5_RENDERER_VERSION}" outputDigest="${outputDigest}" -->`;
     const next = row.ownership === "generated"
-      ? `${v5Marker(row.targetId, row.outputDigest)}\n${body.trimEnd()}\n<!-- END ARCHCONTEXT:generated target="${row.targetId}" -->\n`
+      ? `${v5Marker(targetId, row.outputDigest)}\n${body.trimEnd()}\n<!-- END ARCHCONTEXT:generated target="${targetId}" -->\n`
       : body.replace(
         /<!-- BEGIN ARCHCONTEXT:generated target="([^"]+)" rendererVersion="[^"]+" outputDigest="([^"]+)" -->/g,
-        (_match, targetId: string, outputDigest: string) => v5Marker(targetId, outputDigest)
+        (_match, regionTargetId: string, outputDigest: string) => v5Marker(regionTargetId, outputDigest)
       );
     const written = lineEnding === "crlf" ? next.replaceAll("\n", "\r\n") : next;
     if (written === body) continue;

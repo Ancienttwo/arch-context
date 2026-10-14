@@ -57,7 +57,7 @@ export interface ChangeOperation {
   body?: string;
   fields?: ManifestUpdateFields;
   references?: AdrReferenceReplacement[];
-  projectionFiles?: Array<ChangeSetProjectionFile | ChangeSetProjectionDelete>;
+  projectionFiles?: Array<ChangeSetProjectionFile | ChangeSetProjectionDelete | ChangeSetProjectionGuard>;
 }
 
 export interface ChangeSetProjectionFile {
@@ -75,6 +75,19 @@ export interface ChangeSetProjectionDelete {
   path: string;
   expectedHash: string;
   delete: true;
+}
+
+/**
+ * Binds one projection-owned file the write set depends on but does not write: a document a
+ * partial apply carries forward unchanged. Only `render_projection` accepts it, only with the exact
+ * hash of the bytes the render read, and only for a path no write of the same draft touches. The
+ * apply writes and journals nothing for it; it verifies the file still exists with `expectedHash`
+ * immediately before the commit, and any other state fails the whole apply.
+ */
+export interface ChangeSetProjectionGuard {
+  path: string;
+  expectedHash: string;
+  guard: true;
 }
 
 export const ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION = "archcontext.architecture-candidate-changeset-plan/v1" as const;
@@ -251,12 +264,15 @@ export class ChangeSetEngine {
     }
     try { assertRefactorDecisionDraft(draft); }
     catch (error) { findings.push(error instanceof Error ? error.message : String(error)); }
+    try { projectionGuards(draft); }
+    catch (error) { findings.push(error instanceof Error ? error.message : String(error)); }
     for (const operation of draft.operations) {
       try {
         if (operation.op === "update_adr_references") this.adrReferenceBody(root, operation);
         if (operation.op === "write_refactor_decision") refactorDecisionBody(root, operation);
         for (const file of operation.projectionFiles ?? []) {
           if ("delete" in file) assertProjectionDeleteAllowed(operation.op, file);
+          else if ("guard" in file) assertProjectionGuardAllowed(operation.op, file);
           else if (operation.op === "render_agent_context") this.validateRootContractWrite(root, file);
         }
       } catch (error) { findings.push(error instanceof Error ? error.message : String(error)); }
@@ -291,6 +307,7 @@ export class ChangeSetEngine {
     if (!approved) throw new Error("ChangeSet must be approved before apply");
     const deps = this.requireDeps();
     assertRefactorDecisionDraft(draft);
+    const guards = projectionGuards(draft);
     await this.validateModel(root, draft, deps, "before");
     const agentContextPaths = this.agentContextPathsFor(root, draft);
     const manifestBody = draft.operations.some(operation => operation.op === "update_manifest_fields")
@@ -304,6 +321,8 @@ export class ChangeSetEngine {
         if (operation.op === "render_projection" || operation.op === "render_agent_context") {
           if (operation.projectionFiles && operation.projectionFiles.length > 0) {
             for (const file of operation.projectionFiles) {
+              // A guard writes nothing; it is verified once, immediately before the commit.
+              if ("guard" in file) continue;
               if ("delete" in file) {
                 assertProjectionDeleteAllowed(operation.op, file);
                 await this.applyFileOperation(root, file.path, file.expectedHash, "", "delete_entity", backups, journalId, applied + 1, agentContextPaths);
@@ -355,6 +374,7 @@ export class ChangeSetEngine {
         }
       }
       await this.validateModel(root, draft, deps, "after");
+      for (const guard of guards) assertProjectionGuardHolds(root, guard);
       const commit = await options.afterModelValidatedBeforeCommit?.({ root, draft, journalId });
       if (commit?.journalCommitted) journalCommitted = true;
       if (journalId && !journalCommitted) {
@@ -808,6 +828,42 @@ export function projectionPreimageFindings(root: string, draft: ChangeSetDraft):
     }
   }
   return findings;
+}
+
+/**
+ * The draft's projection guards, each allowed by its operation and on a path no write or delete of
+ * the same draft touches: a guarded file is one the apply depends on and leaves alone.
+ */
+function projectionGuards(draft: ChangeSetDraft): ChangeSetProjectionGuard[] {
+  const guards: ChangeSetProjectionGuard[] = [];
+  const touched = new Set<string>();
+  for (const operation of draft.operations) {
+    if (operation.path) touched.add(operation.path);
+    for (const file of operation.projectionFiles ?? []) {
+      if (!("guard" in file)) {
+        touched.add(file.path);
+        continue;
+      }
+      assertProjectionGuardAllowed(operation.op, file);
+      guards.push(file);
+    }
+  }
+  const overlapping = guards.find((guard) => touched.has(guard.path));
+  if (overlapping) throw new Error(`Projection file guard must not be written by the same ChangeSet: ${overlapping.path}`);
+  return guards;
+}
+
+function assertProjectionGuardAllowed(op: ChangeOperationKind, file: ChangeSetProjectionGuard): void {
+  if (op !== "render_projection") throw new Error(`Projection file guard is only allowed in render_projection: ${file.path}`);
+  if (file.guard !== true || "body" in file || "delete" in file) throw new Error(`Projection file guard must carry guard: true and no body: ${file.path}`);
+  if (!/^sha256:[a-f0-9]{64}$/.test(file.expectedHash)) throw new Error(`Projection file guard requires the exact current hash: ${file.path}`);
+}
+
+/** The guarded file still exists with exactly the raw bytes the render read; nothing is written. */
+function assertProjectionGuardHolds(root: string, guard: ChangeSetProjectionGuard): void {
+  const absolute = assertPathHasNoSymlinkSegments(root, guard.path);
+  if (!existsSync(absolute) || !lstatSync(absolute).isFile()) throw new Error(`Expected hash mismatch: ${guard.path} (current missing)`);
+  assertExpectedHash(absolute, guard.expectedHash);
 }
 
 function assertProjectionDeleteAllowed(op: ChangeOperationKind, file: ChangeSetProjectionDelete): void {

@@ -61,7 +61,19 @@ import { ERROR_CATALOG, digestJson, errorEnvelope, okEnvelope, stableId, stableY
 import { validateJsonSchema } from "../src/validator";
 import { publishedSchemaFiles, publishedSchemaResolver } from "./published-schemas";
 import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
-import { architectureDocsProjectionManifestIssues, isArchitectureScaleBucket } from "../src/projection-manifest";
+import {
+  architectureDocsProjectionManifestDigests,
+  architectureDocsProjectionManifestIssues,
+  architectureDocsProjectionManifestProofEvidence,
+  architectureDocsProjectionManifestSchemaVersion,
+  architectureDocsProjectionManifestSemanticState,
+  architectureProjectionOutputsDigest,
+  architectureSourceStampsDigest,
+  isArchitectureScaleBucket,
+  isSupersededArchitectureDocsProjectionManifestSchemaVersion,
+  serializeArchitectureDocsProjectionManifest,
+  type ArchitectureDocsProjectionManifestV3
+} from "../src/projection-manifest";
 import {
   ARCHCTX_FEATURES,
   ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION,
@@ -78,7 +90,9 @@ import {
   projectionApplyRecoveryProofDigest,
   projectionApplyRecoveryResultInvariantIssues,
   projectionApplyRecoveryIntentInvariantIssues,
+  projectionApplyReceiptInvariantIssues,
   projectionArchitectureDebtIssues,
+  projectionCoverageIssues,
   projectionFreshnessIssues,
   projectionRequestInvariantIssues,
   projectionResultReceiptDigest,
@@ -449,46 +463,70 @@ test("refresh signals carry a per-capability change breakdown (#264)", () => {
   expect(validateJsonSchema(schema as any, { ...signal, capabilities: [{ ...capabilities[0]!, proofStatusAfter: { p1: "maybe", p2: "proven" } }] } as any).valid).toBe(false);
 });
 
-test("the projection manifest contract matches the schema and the writer's current format (#264)", () => {
+test("the projection manifest contract matches the schema and the writer's current format (#264, #327)", () => {
   const schema = readJson("schemas/runtime/projection-manifest.schema.json");
-  const manifest = readJson("packages/contracts/fixtures/valid/projection-manifest.json") as any;
+  // The fixture as this checkout has it: LF, or CRLF under `core.autocrlf` (Windows).
+  const body = readFileSync(join(root, "packages/contracts/fixtures/valid/projection-manifest.json"), "utf8").replace(/\r\n/g, "\n");
+  const manifest = JSON.parse(body) as any;
   expect(architectureDocsProjectionManifestIssues(manifest)).toEqual([]);
   expect(validateJsonSchema(schema as any, manifest).issues).toEqual([]);
-  const entityIndex = manifest.targets.findIndex((target: any) => target.type === "entity-summary");
-  const withTarget = (patch: Record<string, unknown>, index = entityIndex) => ({
+  // The fixture is in the canonical byte layout the writer produces.
+  expect(serializeArchitectureDocsProjectionManifest(manifest)).toBe(body);
+  const entityId = "projection_target.entity.capability-example-billing";
+  const indexId = "projection_target.architecture.index";
+  const withTarget = (patch: Record<string, unknown>, targetId = entityId) => ({
     ...manifest,
-    targets: manifest.targets.map((target: any, at: number) => at === index ? { ...target, ...patch } : target)
+    targets: { ...manifest.targets, [targetId]: { ...manifest.targets[targetId], ...patch } }
   });
-  const withoutEvidence = { ...manifest, semanticBaseline: { semanticState: manifest.semanticBaseline.semanticState, digests: manifest.semanticBaseline.digests } };
-  expect(architectureDocsProjectionManifestIssues(withoutEvidence)).toEqual([]);
-  expect(validateJsonSchema(schema as any, withoutEvidence).valid).toBe(true);
+  const withCapability = (patch: Record<string, unknown>) => ({
+    ...manifest,
+    semanticBaseline: { ...manifest.semanticBaseline, capabilities: manifest.semanticBaseline.capabilities.map((entry: any) => ({ ...entry, ...patch })) }
+  });
+  const v2Provenance = { schemaVersion: "archcontext.architecture-docs-projection-provenance/v3", sourceTreeDigest: `sha256:${"1".repeat(64)}`, modelDigest: `sha256:${"2".repeat(64)}`, projectionInputDigest: `sha256:${"3".repeat(64)}`, rendererVersion: manifest.rendererVersion, layoutVersion: manifest.layoutVersion, generatedFrom: manifest.generatedFrom };
   const rejected: Array<[string, unknown]> = [
-    ["binary digest (#266)", { ...manifest, provenance: { ...manifest.provenance, generatedFrom: { ...manifest.provenance.generatedFrom, codeGraphBinaryDigest: `sha256:${"9".repeat(64)}` } } }],
-    ["provenance v1", { ...manifest, provenance: { ...manifest.provenance, schemaVersion: "archcontext.architecture-docs-projection-provenance/v1" } }],
-    ["provenance v2 (#277)", { ...manifest, provenance: { ...manifest.provenance, schemaVersion: "archcontext.architecture-docs-projection-provenance/v2" } }],
-    ["CodeGraph evidence digest (#277)", { ...manifest, provenance: { ...manifest.provenance, codeGraphDigest: `sha256:${"3".repeat(64)}` } }],
-    ["indexed worktree digest (#277)", { ...manifest, provenance: { ...manifest.provenance, indexedWorktreeDigest: null } }],
-    ["CodeGraph status (#277)", { ...manifest, provenance: { ...manifest.provenance, generatedFrom: { ...manifest.provenance.generatedFrom, codeGraphStatus: "ready" } } }],
-    ["older renderer", { ...manifest, rendererVersion: "archcontext.docs-renderer/v4" }],
-    ["scale without footprint", withTarget({ sourceFootprintDigest: undefined })],
-    ["footprint on a non-entity target", withTarget({ sourceFootprintDigest: manifest.targets[entityIndex].sourceFootprintDigest, scale: manifest.targets[entityIndex].scale }, 0)],
+    ["v2 schemaVersion", { ...manifest, schemaVersion: "archcontext.architecture-docs-projection-manifest/v2" }],
+    ["committed provenance (#327)", { ...manifest, provenance: v2Provenance }],
+    ["global sourceDigest (#327)", { ...manifest, sourceDigest: `sha256:${"4".repeat(64)}` }],
+    ["global projectionDigest (#327)", { ...manifest, projectionDigest: `sha256:${"4".repeat(64)}` }],
+    ["receiptDigest (#327)", { ...manifest, receiptDigest: `sha256:${"4".repeat(64)}` }],
+    ["targetCount (#327)", { ...manifest, targetCount: 7 }],
+    ["global evidence (#327)", { ...manifest, semanticBaseline: { ...manifest.semanticBaseline, evidence: { selectorEvidenceDigest: `sha256:${"4".repeat(64)}` } } }],
+    ["baseline digests (#327)", { ...manifest, semanticBaseline: { ...manifest.semanticBaseline, digests: {} } }],
+    ["row sourceDigest (#327)", withTarget({ sourceDigest: `sha256:${"4".repeat(64)}` })],
+    ["row rendererVersion (#327)", withTarget({ rendererVersion: manifest.rendererVersion })],
+    ["binary digest (#266)", { ...manifest, generatedFrom: { ...manifest.generatedFrom, codeGraphBinaryDigest: `sha256:${"9".repeat(64)}` } }],
+    ["CodeGraph status (#277)", { ...manifest, generatedFrom: { ...manifest.generatedFrom, codeGraphStatus: "ready" } }],
+    ["empty renderer", { ...manifest, rendererVersion: "" }],
+    ["targets array", { ...manifest, targets: Object.values(manifest.targets) }],
+    ["scale without own stamp", withTarget({ sourceStamps: undefined })],
+    ["stamps on a non-entity target", withTarget({ sourceStamps: { "capability.example.billing": `sha256:${"6".repeat(64)}` } }, indexId)],
+    ["stamp that is not a digest", withTarget({ sourceStamps: { "capability.example.billing": "7415329" } })],
     ["verifiedAgainst", withTarget({ verifiedAgainst: { branch: "main", commit: "abc" } })],
-    ["missing facet", { ...manifest, semanticBaseline: { ...manifest.semanticBaseline, semanticState: { ...manifest.semanticBaseline.semanticState, capabilities: manifest.semanticBaseline.semanticState.capabilities.map((entry: any) => ({ ...entry, facets: { ...entry.facets, names: undefined } })) } } }]
+    ["missing selectorEvidenceDigest", withCapability({ selectorEvidenceDigest: undefined })],
+    ["missing facet", withCapability({ facets: { ...manifest.semanticBaseline.capabilities[0].facets, names: undefined } })]
   ];
   for (const [label, value] of rejected) {
     const json = JSON.parse(JSON.stringify(value));
     expect(architectureDocsProjectionManifestIssues(json), label).not.toEqual([]);
     expect(validateJsonSchema(schema as any, json).valid, label).toBe(false);
   }
+  // Beyond JSON Schema: one stamp per node across rows, and unique paths.
+  const twoRows = {
+    ...manifest,
+    targets: { ...manifest.targets, "projection_target.entity.other": { ...manifest.targets[entityId], path: "docs/architecture/modules/example/other.md" } }
+  };
+  expect(architectureDocsProjectionManifestIssues(twoRows)).toContain(`manifest.targets["projection_target.entity.other"].sourceStamps.capability.example.billing is already stamped on ${entityId}`);
+  expect(architectureDocsProjectionManifestIssues(withTarget({ path: manifest.targets[indexId].path })))
+    .toContain(`manifest.targets[${JSON.stringify(entityId)}].path is recorded by another target`);
   // Enum lookups are own-key only: an inherited Object.prototype key is not a supported value.
-  const first = manifest.targets[0];
+  const first = manifest.targets[indexId];
   for (const [field, patch] of [
     ["type", { type: "constructor" }],
     ["scope.kind", { scope: { ...first.scope, kind: "constructor" } }],
     ["ownership", { ownership: "constructor" }],
     ["format", { format: "constructor" }]
   ] as const) {
-    expect(architectureDocsProjectionManifestIssues(withTarget(patch, 0)), field).toContain(`manifest.targets[0].${field} is unsupported`);
+    expect(architectureDocsProjectionManifestIssues(withTarget(patch, indexId)), field).toContain(`manifest.targets[${JSON.stringify(indexId)}].${field} is unsupported`);
   }
   // The 1-2-5 ladder is beyond JSON Schema; the contract function enforces it.
   for (const bucket of [{ lower: 0, upper: 1 }, { lower: 1, upper: 2 }, { lower: 2, upper: 5 }, { lower: 5, upper: 10 }, { lower: 100_000, upper: 200_000 }]) {
@@ -498,8 +536,38 @@ test("the projection manifest contract matches the schema and the writer's curre
     expect(isArchitectureScaleBucket(bucket), JSON.stringify(bucket)).toBe(false);
   }
   expect(architectureDocsProjectionManifestIssues(withTarget({ scale: { fileCountBucket: { lower: 3, upper: 5 }, lineCountBucket: { lower: 0, upper: 1 } } })))
-    .toContain(`manifest.targets[${entityIndex}].scale.fileCountBucket must be a 1-2-5 magnitude bucket`);
-  expect(architectureDocsProjectionManifestIssues({ ...manifest, targetCount: manifest.targetCount + 1 })).toContain("manifest.targetCount must equal the number of targets");
+    .toContain(`manifest.targets[${JSON.stringify(entityId)}].scale.fileCountBucket must be a 1-2-5 magnitude bucket`);
+});
+
+test("the projection manifest's global digests are computed from its rows (#327)", () => {
+  const manifest = readJson("packages/contracts/fixtures/valid/projection-manifest.json") as unknown as ArchitectureDocsProjectionManifestV3;
+  const digests = architectureDocsProjectionManifestDigests(manifest);
+  expect(digests.modelDigest).toBe(manifest.semanticBaseline.modelDigest as any);
+  expect(digests.sourceTreeDigest).toBe(architectureSourceStampsDigest({ "capability.example.billing": `sha256:${"6".repeat(64)}` }));
+  expect(digests.flowProofDigest).toBe(architectureDocsProjectionManifestSemanticState(manifest).flowProofFingerprint as any);
+  expect(digests.projectionDigest).toBe(architectureProjectionOutputsDigest({
+    rendererVersion: manifest.rendererVersion,
+    profile: manifest.profile,
+    outputDigests: Object.fromEntries(Object.entries(manifest.targets).map(([targetId, row]) => [targetId, row.outputDigest]))
+  }));
+  // Row order does not move a derived digest; a stamp or an output digest does.
+  const reordered = { ...manifest, targets: Object.fromEntries(Object.entries(manifest.targets).reverse()) };
+  expect(architectureDocsProjectionManifestDigests(reordered)).toEqual(digests);
+  const entityId = "projection_target.entity.capability-example-billing";
+  const restamped = { ...manifest, targets: { ...manifest.targets, [entityId]: { ...manifest.targets[entityId]!, sourceStamps: { "capability.example.billing": `sha256:${"7".repeat(64)}` } } } };
+  expect(architectureDocsProjectionManifestDigests(restamped).sourceTreeDigest).not.toBe(digests.sourceTreeDigest);
+  expect(architectureDocsProjectionManifestDigests(restamped).projectionDigest).toBe(digests.projectionDigest);
+  expect(architectureDocsProjectionManifestProofEvidence(manifest)).toEqual({
+    rendererVersion: manifest.rendererVersion,
+    selectorEvidenceDigests: { "capability.example.billing": manifest.semanticBaseline.capabilities[0]!.selectorEvidenceDigest },
+    sourceStamps: { "capability.example.billing": `sha256:${"6".repeat(64)}` }
+  });
+  // Only the schemaVersion of a superseded manifest is read.
+  expect(architectureDocsProjectionManifestSchemaVersion(JSON.stringify({ schemaVersion: "archcontext.architecture-docs-projection-manifest/v2", anything: 1 })))
+    .toBe("archcontext.architecture-docs-projection-manifest/v2");
+  expect(isSupersededArchitectureDocsProjectionManifestSchemaVersion("archcontext.architecture-docs-projection-manifest/v2")).toBe(true);
+  expect(isSupersededArchitectureDocsProjectionManifestSchemaVersion("archcontext.architecture-docs-projection-manifest/v3")).toBe(false);
+  expect(architectureDocsProjectionManifestSchemaVersion("{ not json")).toBeUndefined();
 });
 
 test("projection readback schema embeds canonical request and result contracts", () => {
@@ -843,6 +911,78 @@ test("a declined acceptObservedMajorChange is explicit and replaces the unresolv
   expect(validateJsonSchema(schema as any, result("human-action-required", [unprovable], "declined") as any).valid).toBe(false);
 });
 
+test("a partial projection carries coverage, never counts as acceptance and never writes a carried-forward target (#327)", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const coverage: NonNullable<ProjectionResultV2["coverage"]> = {
+    complete: false,
+    blockedCapabilityIds: ["capability.web"],
+    blockedTargets: [{ targetId: "projection_target.entity.capability.web", path: "docs/architecture/modules/web.md", capabilityIds: ["capability.web"], reasonCodes: ["unprovable-required-flow", "verified-flow-proof-changed"] }],
+    appliedTargetIds: ["projection_target.architecture.index", "projection_target.entity.capability.api"]
+  };
+  const result = (extra: Record<string, unknown>) => {
+    const { receiptDigest: _receiptDigest, ...payload } = valid;
+    const withoutReceipt = { ...payload, ...extra } as Omit<ProjectionResultV2, "receiptDigest">;
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+  };
+  for (const status of ["planned-partial", "applied-partial"] as const) {
+    const partial = result({ status, coverage });
+    expect(projectionResultInvariantIssues(partial), status).toEqual([]);
+    expect(validateJsonSchema(schema as any, partial as any).issues, status).toEqual([]);
+  }
+  expect(projectionResultRequestModeIssues(result({ status: "planned-partial", coverage }), "check")).toEqual([]);
+  expect(projectionResultRequestModeIssues(result({ status: "planned-partial", coverage }), "apply")).toContain("planned-partial is only allowed on a check or plan result, never when mode=apply");
+  expect(projectionResultRequestModeIssues(result({ status: "applied-partial", coverage }), "plan")).toContain("applied-partial is only allowed on an apply result, never when mode=plan");
+
+  // complete: false is never acceptance: a complete status, a receipt or a signal never carries it.
+  const presence = "coverage must be present exactly when status is planned-partial or applied-partial";
+  const applied = result({ status: "applied", coverage });
+  expect(projectionResultInvariantIssues(applied)).toContain(presence);
+  expect(validateJsonSchema(schema as any, applied as any).valid).toBe(false);
+  const fixture = readJson("packages/contracts/fixtures/invalid/projection-result-applied-incomplete-coverage.json") as any;
+  expect(fixture.status).toBe("applied");
+  expect(fixture.coverage.complete).toBe(false);
+  expect(validateJsonSchema(schema as any, fixture).valid).toBe(false);
+  expect(projectionResultInvariantIssues(result({ status: "planned-partial" }))).toContain(presence);
+  expect(validateJsonSchema(schema as any, result({ status: "planned-partial" }) as any).valid).toBe(false);
+  const complete = result({ status: "planned-partial", coverage: { ...coverage, complete: true } });
+  expect(projectionResultInvariantIssues(complete)).toContain("coverage.complete must be false; a result that covers every target omits coverage");
+  expect(validateJsonSchema(schema as any, complete as any).valid).toBe(false);
+  const applyReceipt = { schemaVersion: "archcontext.projection-apply-identity/v1" } as unknown as ProjectionResultV2["applyReceipt"];
+  const receipted = result({ status: "applied-partial", coverage, applyReceipt });
+  expect(projectionResultInvariantIssues(receipted)).toContain("applied-partial status never carries applyReceipt");
+  expect(validateJsonSchema(schema as any, receipted as any).valid).toBe(false);
+  const identity = {
+    schemaVersion: "archcontext.projection-apply-identity/v1",
+    repositoryId: "repo.example",
+    workspaceId: "ws.example",
+    acceptedChange: { changeSetId: "changeset.x", eventId: "event.x", reasonCodes: ["verified-flow-proof-changed"], affectedNodeIds: ["capability.web"] },
+    semanticCommit: { changeSetId: "changeset.x", idempotencyKey: "idem_changeset.x" }
+  };
+  const receipt = { identity, result: result({ status: "applied-partial", coverage, applyReceipt: identity }) } as unknown as ProjectionApplyReceiptV1;
+  expect(projectionApplyReceiptInvariantIssues(receipt)).toEqual(expect.arrayContaining([
+    "projection apply receipt result status must be applied",
+    "projection apply receipt result must cover every target"
+  ]));
+
+  // A carried-forward target is never also written, and every blocked capability blocks a target.
+  expect(projectionResultInvariantIssues(result({ status: "applied-partial", coverage, files: [{ path: "docs/architecture/modules/web.md", action: "update", preimageDigest: `sha256:${"b".repeat(64)}`, outputDigest: `sha256:${"c".repeat(64)}` }] })))
+    .toContain("files[] must not write the carried-forward target path docs/architecture/modules/web.md");
+  expect(projectionCoverageIssues({ ...coverage, blockedCapabilityIds: ["capability.api", "capability.web"] })).toContain("coverage.blockedCapabilityIds names capability.api, which blocks no target");
+  expect(projectionCoverageIssues({ ...coverage, blockedTargets: [{ ...coverage.blockedTargets[0]!, capabilityIds: ["capability.other"] }] }))
+    .toContain("coverage.blockedTargets[0].capabilityIds names capability.other, which is not a blocked capability");
+  expect(projectionCoverageIssues({ ...coverage, appliedTargetIds: [...coverage.appliedTargetIds, coverage.blockedTargets[0]!.targetId].sort() }))
+    .toContain("coverage.blockedTargets[0].targetId must not also be an applied target");
+  expect(projectionCoverageIssues({ ...coverage, blockedTargets: [{ ...coverage.blockedTargets[0]!, reasonCodes: ["unresolved-major-change" as never] }] }))
+    .toContain("coverage.blockedTargets[0].reasonCodes contains unsupported reason: unresolved-major-change");
+  expect(projectionCoverageIssues({ ...coverage, blockedCapabilityIds: [], blockedTargets: [] })).toEqual(expect.arrayContaining([
+    "coverage.blockedCapabilityIds must name at least one capability",
+    "coverage.blockedTargets must name at least one target"
+  ]));
+  expect(validateJsonSchema(schema as any, result({ status: "planned-partial", coverage: { ...coverage, blockedTargets: [] } }) as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, result({ status: "planned-partial", coverage: { ...coverage, extra: true } }) as any).valid).toBe(false);
+});
+
 test("a committed projection apply is a distinct, non-retryable error code (#265)", () => {
   expect(ERROR_CATALOG.AC_PROJECTION_APPLY_COMMITTED).toEqual({
     code: "AC_PROJECTION_APPLY_COMMITTED",
@@ -1009,6 +1149,7 @@ test("capabilities fixture is the exact static handshake advertised by contracts
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
   expect(fixture.features).toContain("projection-prior-committed-applies-v1");
   expect(fixture.features).toContain("projection-check-freshness-v1");
+  expect(fixture.features).toContain("projection-capability-isolation-v1");
   expect(fixture.features).toContain("changeset-entity-operations-v1");
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
@@ -1017,7 +1158,7 @@ test("capabilities fixture is the exact static handshake advertised by contracts
 test("capabilities schema accepts a well-formed feature flag it does not list, so older validators accept newer releases", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
   expect(fixture.features).toContain("code-facts-unavailable-error-v1");
-  expect(fixture.features).toContain("projection-manifest-contract-v2");
+  expect(fixture.features).toContain("projection-manifest-contract-v3");
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json") as any;
   const items = schema.properties.features.items as { pattern: string; examples: string[] };
   expect(items.examples).toEqual([...ARCHCTX_FEATURES]);
@@ -1544,7 +1685,8 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.architecture-event/v1": "architecture-event",
     "archcontext.architecture-snapshot/v2": "architecture-snapshot",
     "archcontext.projection-target/v1": "projection-target",
-    "archcontext.architecture-docs-projection-manifest/v2": "projection-manifest",
+    "archcontext.projection-result/v2": "projection-result",
+    "archcontext.architecture-docs-projection-manifest/v3": "projection-manifest",
     "archcontext.evidence-item/v2": "evidence-item",
     "archcontext.evidence-binding/v1": "evidence-binding",
     "archcontext.architecture-candidate-delta-policy/v1": "architecture-candidate-delta-policy",
