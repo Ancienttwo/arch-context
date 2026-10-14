@@ -1,10 +1,11 @@
 # Plan: U4 native context export for repo-harness readers (#346)
 
-> **Status**: Draft — design for review; implementation has not started.
+> **Status**: Executing
+> **Stage**: Design accepted in #349; implementation authorized as U4 sole writer.
 > **Created**: 2026-10-14
 > **Slug**: issue-346-u4-native-context-export
 > **Artifact Level**: work-package design
-> **Baseline**: adecdd9c6e3f3b95d83a9d065d0aea52225328df, including #337
+> **Baseline**: 5e144af06c56a9d564d8a06356b732ded7f7fb22, including S4 #347 and D4 #348; reviewed design #349 at aadb427c79991e3bb987f3c89d11e51fb8047a75.
 > **Promotion Reason**: replace downstream model and document parsers with one upstream read contract.
 > **Verification Boundary**: this delivery changes only this plan; check scope, source references, requirements and whitespace. Product checks below belong to future implementation.
 > **Rollback Surface**: revert the plan commit. Future implementation is a stateless additive reader and can be reverted without data migration.
@@ -342,10 +343,18 @@ The implementation reviewer verifies every section 11 family and the scope exclu
 - [x] Define source selectors, public contract, full validation, lossless regions, typed failures and bounded resource policy.
 - [x] Identify current architecture conflicts, non-scope and shared-file ownership/start gates.
 - [x] Incorporate bounded review corrections for missing contract presence, all shared parser object-construction entries, canonical schema value constraints and D4's CLI write seat; synchronize contract/error/test/consumer sections.
-- [ ] Integration coordinator reviews this design and accepts or revises the contract.
-- [ ] Integration coordinator confirms #347 merged and assigns a separate sole implementation writer/worktree.
-- [ ] Before CLI/main.ts edits, integration coordinator confirms D4 released its write seat or explicitly hands over the exact shared hunk and records its boundaries.
-- [ ] Implementation: shared pure contract/schema and checked blob/region primitives, preserving existing adapters.
-- [ ] Implementation: both source adapters, complete model/profile/document assembly and stability checks.
-- [ ] Implementation: native CLI/help, final capability trio, packaged schema/CLI smoke and runbook/spec exception.
+- [x] Integration coordinator reviews this design and accepts or revises the contract.
+- [x] Integration coordinator confirms #347 merged and assigns a separate sole implementation writer/worktree.
+- [x] Before CLI/main.ts edits, integration coordinator confirms D4 released its write seat or explicitly hands over the exact shared hunk and records its boundaries.
+- [x] Implementation: shared pure contract/schema and checked blob/region primitives, preserving existing adapters.
+- [x] Implementation: both source adapters, complete model/profile/document assembly and stability checks.
+- [x] Implementation: native CLI/help, final capability trio, packaged schema/CLI smoke and runbook/spec exception.
 - [ ] Reviewer verifies section 11 evidence and repo-harness item 6–8 coverage; integration coordinator handles upstream PR/merge/confirmation.
+
+## Implementation authorization
+
+The integration coordinator assigned U4 as the sole writer after S4 #347 and D4 #348 merged and explicitly confirmed release of the CLI main.ts seat. Product edits belong only to the independent U4 implementation worktree. The historical planning-only statements above describe #349; the active implementation contract below governs this work. RPC schema/version metadata, #328 D5–D7, deployment, release, issue closure and merge are excluded. Feature advertisement remains gated on RPC-writer coordination and complete packaged smoke.
+
+- Contract: tasks/contracts/20261014-1325-issue-346-u4-native-context-export.contract.md
+- Review: tasks/reviews/20261014-1325-issue-346-u4-native-context-export.review.md
+- Notes: tasks/notes/20261014-1325-issue-346-u4-native-context-export.notes.md

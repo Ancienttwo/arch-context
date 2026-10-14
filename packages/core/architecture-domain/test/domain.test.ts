@@ -451,3 +451,26 @@ describe("@archcontext/core/architecture-domain", () => {
     });
   });
 });
+
+describe("shared parser duplicate-key ambiguity", () => {
+  test.each([
+    'a: 1\na: 2\n',
+    'outer:\n  a: 1\n  a: 2\n',
+    '[{"a":1,"a":2}]',
+    '{"a":1,"a":2}',
+    '{"a":1,"\\u0061":2}',
+    'value: {"a":1,"a":2}\n',
+    'value: [{"nested":{"a":1,"a":2}}]\n',
+    '{"objects":[{"a":1},{"b":2,"b":3}]}'
+  ])("rejects duplicate members in %j before overwrite", source => {
+    expect(() => parseJsonOrStableYaml(source, "fixture.yaml")).toThrow("duplicate object key");
+  });
+  test.each([
+    '{"objects":[{"a":1},{"a":2}]}',
+    '{"a":"text with \\\"key\\\":1,\\\"key\\\":2"}',
+    'first:\n  a: 1\nsecond:\n  a: 2\n',
+    'value: [{"a":1},{"a":2}]\n'
+  ])("separate objects and key-looking string literals stay valid: %j", source => {
+    expect(() => parseJsonOrStableYaml(source, "fixture.yaml")).not.toThrow();
+  });
+});

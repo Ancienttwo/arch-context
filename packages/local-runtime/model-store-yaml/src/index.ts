@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { REVIEW_FAIL_ON_CATEGORIES, digestJson, stableYaml, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
 import { readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
+export * from "./native-context";
 
 export interface ModelFile {
   path: string;

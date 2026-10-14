@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
 import { matchesGlob } from "@archcontext/core/projection-engine";
 import { digestJson, type Json, type ReviewCheckoutGitPort, type DetachedReviewWorktreeVerification } from "@archcontext/contracts";
+import { isGitRevisionArgument, readGitBlobTree, readGitBlobs } from "./blob-reader";
+export * from "./blob-reader";
 
 /** One `git cat-file --batch` carries every measured blob; a repository-sized tree needs the headroom. */
 const GIT_CAT_FILE_MAX_BYTES = 512 * 1024 * 1024;
@@ -214,11 +216,8 @@ export function readHeadTreeOid(root: string, ref = "HEAD"): string {
 
 export function readTrackedTreeEntries(root: string, ref = "HEAD"): GitTrackedTreeEntry[] {
   assertGitRevisionArgument(ref);
-  const output = runGit(root, ["ls-tree", "-rz", "-r", ref]);
-  if (output.length === 0) return [];
-  return output.split("\0")
-    .filter(Boolean)
-    .map(parseLsTreeEntry)
+  return readGitBlobTree(root, ref, { maxBytes: GIT_CAT_FILE_MAX_BYTES, sizes: false, trees: false })
+    .map(({ path, mode, type, objectId }) => ({ path, mode, type, objectId }))
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
@@ -255,29 +254,12 @@ export function readTrackedSourceFiles(root: string, options: { include?: string
     .filter((entry) => options.include === undefined || options.include.some((pattern) => matchesGlob(entry.path, pattern)))
     .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
   if (entries.length === 0) return [];
-  const batch = execFileSync("git", ["cat-file", "--batch"], {
-    cwd: root,
-    input: `${entries.map((entry) => entry.objectId).join("\n")}\n`,
-    maxBuffer: GIT_CAT_FILE_MAX_BYTES,
-    stdio: ["pipe", "pipe", "pipe"]
-  });
-  const files: TrackedSourceFileV1[] = [];
-  const unreadable: string[] = [];
-  let offset = 0;
-  for (const entry of entries) {
-    const headerEnd = batch.indexOf(0x0a, offset);
-    const header = headerEnd === -1 ? "" : batch.toString("utf8", offset, headerEnd);
-    const [, kind, size] = header.split(" ");
-    if (kind !== "blob" || !Number.isInteger(Number(size))) {
-      unreadable.push(entry.path);
-      break;
-    }
-    const start = headerEnd + 1;
-    files.push({ path: entry.path, lineCount: countLines(batch.subarray(start, start + Number(size))) });
-    offset = start + Number(size) + 1;
+  try {
+    const blobs = readGitBlobs(root, entries, { fileBytes: GIT_CAT_FILE_MAX_BYTES, inputBytes: GIT_CAT_FILE_MAX_BYTES, responseBytes: GIT_CAT_FILE_MAX_BYTES });
+    return entries.map((entry, index) => ({ path: entry.path, lineCount: countLines(blobs[index]!) }));
+  } catch {
+    throw new Error(`git-tracked-blob-unreadable: ${entries.map(entry => entry.path).join(", ")}`);
   }
-  if (unreadable.length > 0) throw new Error(`git-tracked-blob-unreadable: ${unreadable.join(", ")}`);
-  return files;
 }
 
 /**
@@ -444,17 +426,6 @@ function readCommitTreeOid(root: string, headSha: string): string | undefined {
   }
 }
 
-function parseLsTreeEntry(entry: string): GitTrackedTreeEntry {
-  const match = entry.match(/^(\d{6}) (blob|tree|commit) ([a-f0-9]{40,64})\t(.+)$/);
-  if (!match) throw new Error(`git-ls-tree-entry-invalid: ${entry}`);
-  return {
-    mode: match[1],
-    type: match[2] as GitTrackedTreeEntry["type"],
-    objectId: match[3],
-    path: match[4]
-  };
-}
-
 function parseNameStatusZ(output: string): GitPathChange[] {
   const tokens = output.split("\0").filter(Boolean);
   const changes: GitPathChange[] = [];
@@ -536,10 +507,6 @@ function readDetachedWorktreeObserved(worktreeRoot: string): DetachedReviewWorkt
  * Git ref names can never start with `-` or contain whitespace or NUL, so such a value is refused
  * before any Git process starts.
  */
-function isGitRevisionArgument(ref: string): boolean {
-  return ref.length > 0 && !ref.startsWith("-") && !/[\s\0]/.test(ref);
-}
-
 function assertGitRevisionArgument(ref: string): void {
   if (!isGitRevisionArgument(ref)) throw new Error(`invalid git revision argument: ${JSON.stringify(ref)}`);
 }

@@ -10,6 +10,7 @@ import {
   type DocsAnchorUncheckedV1
 } from "@archcontext/contracts";
 import type { ArchitectureProjectionProfile } from "./layout";
+import { scanDocumentRegions } from "./document-regions";
 
 // --- Prose anchors (#298) ---
 //
@@ -125,7 +126,6 @@ const SELECTOR_PATTERN = new RegExp(`^([A-Za-z][A-Za-z0-9_-]*)((?:\\.[A-Za-z0-9_
 const FILE_EXTENSION = /\.[A-Za-z0-9]+$/;
 /** Text allowed between a `path:line` span and the identifier span it binds. */
 const BINDING_GAP = /^\s*[([,:–—-]?\s*$/;
-const GENERATED_BEGIN = /<!-- BEGIN ARCHCONTEXT:generated target="([^"]+)"[^>]*-->/;
 
 export function checkProseAnchors(input: ProseAnchorCheckInput): DocsAnchorsReportV1 {
   const nodes: DocsAnchorsNodeV1[] = [];
@@ -190,20 +190,11 @@ function extractNodeProseCitations(node: Pick<ProseAnchorNodeInput, "summary" | 
  */
 export function humanOwnedMarkdownLines(body: string): { line: number; text: string }[] {
   const lines: { line: number; text: string }[] = [];
-  let generatedEnd: string | undefined;
+  const generatedLines = scanDocumentRegions(body, { generatedBodyLiterals: false }).generatedLines;
   let fence: { char: string; length: number } | undefined;
   let inComment = false;
   for (const [index, raw] of body.split(/\r?\n/).entries()) {
-    if (generatedEnd !== undefined) {
-      if (raw.includes(generatedEnd)) generatedEnd = undefined;
-      continue;
-    }
-    const begin = GENERATED_BEGIN.exec(raw);
-    if (begin) {
-      const end = `<!-- END ARCHCONTEXT:generated target="${begin[1]}" -->`;
-      if (!raw.slice(begin.index + begin[0].length).includes(end)) generatedEnd = end;
-      continue;
-    }
+    if (generatedLines.has(index + 1)) continue;
     if (fence) {
       const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(raw);
       if (close && close[1]![0] === fence.char && close[1]!.length >= fence.length) fence = undefined;

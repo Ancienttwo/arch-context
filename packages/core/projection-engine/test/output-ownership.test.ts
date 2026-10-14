@@ -69,6 +69,13 @@ function replaceBody(files: { path: string; body: string }[], path: string, body
 }
 
 describe("whole-file outputs carry no ownership marker (#327)", () => {
+  test("legacy projection can reread its own generated body with an unclosed Markdown fence", () => {
+    const proseModel: NativeModel = { ...model, nodes: model.nodes.map(node => node.id === "module.payment" ? { ...node, summary: "A summary\n\n```ts\nconst incompleteExample = true;" } : node) };
+    const first = render([], proseModel);
+    const second = render(written(first), proseModel);
+    expect(second.rejected).toEqual([]); expect(second.drift.diffs).toEqual([]);
+    expect(second.files.map(entry => ({ path: entry.path, body: entry.body }))).toEqual(first.files.map(entry => ({ path: entry.path, body: entry.body })));
+  });
   test("each generated file is exactly its format's own content and parses as that format", () => {
     const plan = render([]);
     for (const path of generatedPaths) {

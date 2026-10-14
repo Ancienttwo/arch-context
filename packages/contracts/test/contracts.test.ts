@@ -176,6 +176,7 @@ const schemaByFixture: Record<string, string> = {
   "projection-apply-recovery": "schemas/runtime/projection-apply-recovery.schema.json",
   "architecture-refresh-signal": "schemas/runtime/architecture-refresh-signal.schema.json",
   "archctx-capabilities": "schemas/runtime/archctx-capabilities.schema.json",
+  "native-context-export": "schemas/runtime/native-context-export.schema.json",
   "docs-anchors": "schemas/runtime/docs-anchors.schema.json",
   "flow-selector-check": "schemas/runtime/flow-selector-check.schema.json",
   "evidence-item": "schemas/runtime/evidence-item.schema.json",
@@ -1722,7 +1723,8 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.hook-debt-checkpoint/v1": "hook-debt-checkpoint",
     "archcontext.cloud-egress/v1": "cloud-egress-envelope",
     "archcontext.org-runner-identity/v1": "org-runner-identity",
-    "archcontext.entitlement/v1": "entitlement"
+    "archcontext.entitlement/v1": "entitlement",
+    "archcontext.native-context-export/v1": "native-context-export"
   };
   const fixtureName = byVersion[schemaVersion];
   if (!fixtureName) throw new Error(`Unknown schemaVersion: ${schemaVersion}`);

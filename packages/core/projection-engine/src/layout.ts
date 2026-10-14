@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, isRepoRelativePosixPath, stableId, type ArchitectureDocsProjectionManifestV3, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
+export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "./source-globs";
 
 export const REPO_HARNESS_PROJECTION_PROFILE = "repo-harness/v1" as const;
 export const ARCHITECTURE_DOCS_LAYOUT_VERSION = "archcontext.docs-layout/v1" as const;

@@ -1,0 +1,636 @@
+{
+  "schemaVersion": "archcontext.native-context-export/v1",
+  "profile": "repo-harness/v1",
+  "snapshot": {
+    "source": "ref",
+    "commitSha": "457907d4dc0737481dbf769b2b13abeb0d503107",
+    "treeOid": "dd4bda463c96add6600e2c2d3aa46d2ad338f7b7",
+    "validation": "immutable-tree"
+  },
+  "inputDigest": "sha256:7509b3e0838bd10db9603d2122da55348fc12614b07e4dffc89fc5f26ed8132c",
+  "inputs": [
+    {
+      "path": ".archcontext/manifest.yaml",
+      "role": "manifest",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 129,
+      "contentDigest": "sha256:bb02f21226882c8bb0246b37b21d0f27528b6b1691467eed607226466aa080f4"
+    },
+    {
+      "path": ".archcontext/model/flows/flow.demo.optional.yaml",
+      "role": "flow",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 193,
+      "contentDigest": "sha256:966204ddad5a3187b6e11193ea1c9dc253b59fee9ba59235e7943313d30ae4e2"
+    },
+    {
+      "path": ".archcontext/model/flows/flow.demo.primary.yaml",
+      "role": "flow",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 1165,
+      "contentDigest": "sha256:0bc40190c247ee7f7f5fcb640a8a1a457da34de409d6638ddb986e9897405471"
+    },
+    {
+      "path": ".archcontext/model/nodes/capability.demo.feature.yaml",
+      "role": "node",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 324,
+      "contentDigest": "sha256:010135743057cf3d9e7d43cd47f7f06024caee559093fbbe48745d5c764e1f8b"
+    },
+    {
+      "path": ".archcontext/model/nodes/component.demo.worker.yaml",
+      "role": "node",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 690,
+      "contentDigest": "sha256:64a8251c7677456658d7cafb318d58db3a130e6591488e9ca3394193e5d4a917"
+    },
+    {
+      "path": ".archcontext/model/nodes/datastore.demo.resource.yaml",
+      "role": "node",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 179,
+      "contentDigest": "sha256:11d419bdb855addae1ea5d5796a45afc069407e681b17fa81fcf4ec79e3b1339"
+    },
+    {
+      "path": ".archcontext/model/nodes/deployment.demo.resource.yaml",
+      "role": "node",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 183,
+      "contentDigest": "sha256:e8607b98f2e0e0bc9c0fb798cb15eb253585e9950adf8b95c535502ef7b64920"
+    },
+    {
+      "path": ".archcontext/model/nodes/event.demo.resource.yaml",
+      "role": "node",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 160,
+      "contentDigest": "sha256:87d37b6fa59b2f39b84088489de630716f5b0d05f79ff45aee8608a309d6edca"
+    },
+    {
+      "path": ".archcontext/model/nodes/external.demo.resource.yaml",
+      "role": "node",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 193,
+      "contentDigest": "sha256:9d1d08d0fb0e6c3898ecc343363f150c4e14bb363287807fb0b68b4f9f8b9d75"
+    },
+    {
+      "path": ".archcontext/model/nodes/interface.demo.resource.yaml",
+      "role": "node",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 179,
+      "contentDigest": "sha256:9bf569506f509ce277f39ff37c1c9f32a50ab75ec86871de37b08002a7cbbc5e"
+    },
+    {
+      "path": ".archcontext/model/nodes/module.demo.system.yaml",
+      "role": "node",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 161,
+      "contentDigest": "sha256:530859d02ef7a49fe4b7761a3114146b55387f03d67549259a9a529b81a1086b"
+    },
+    {
+      "path": ".archcontext/model/relations/relation.demo.call.yaml",
+      "role": "relation",
+      "requirement": "required",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 188,
+      "contentDigest": "sha256:72a357da298a15ea4aaabe462f8863a0d6afe9bf158c3a9a406997ca84e96fd2"
+    },
+    {
+      "path": "AGENTS.md",
+      "role": "contract",
+      "requirement": "declared",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 20,
+      "contentDigest": "sha256:7ca8b8dbdf0985eaa58d387e36600a98282e6f15ffbae2f48e62e219dcd14dd7"
+    },
+    {
+      "path": "CLAUDE.md",
+      "role": "contract",
+      "requirement": "declared",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 0,
+      "contentDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/architecture/changelog.md",
+      "role": "document",
+      "requirement": "optional",
+      "presence": "missing",
+      "mode": null,
+      "byteLength": null,
+      "contentDigest": null
+    },
+    {
+      "path": "docs/architecture/decisions/index.md",
+      "role": "document",
+      "requirement": "optional",
+      "presence": "missing",
+      "mode": null,
+      "byteLength": null,
+      "contentDigest": null
+    },
+    {
+      "path": "docs/architecture/index.md",
+      "role": "document",
+      "requirement": "optional",
+      "presence": "missing",
+      "mode": null,
+      "byteLength": null,
+      "contentDigest": null
+    },
+    {
+      "path": "docs/architecture/modules/demo/feature.md",
+      "role": "document",
+      "requirement": "optional",
+      "presence": "present",
+      "mode": "100644",
+      "byteLength": 576,
+      "contentDigest": "sha256:70e675d5c78ca5eebe2631aacf1e4543c68d591098803578464ed03d6887cf84"
+    }
+  ],
+  "allowedNodeKinds": [
+    "capability",
+    "module",
+    "component",
+    "interface",
+    "event",
+    "datastore",
+    "external-system",
+    "deployment"
+  ],
+  "contextBudgetBytes": 64,
+  "model": {
+    "nodes": [
+      {
+        "extensions": {
+          "contractFiles": {
+            "agents": "AGENTS.md",
+            "claude": "CLAUDE.md"
+          }
+        },
+        "id": "capability.demo.feature",
+        "kind": "capability",
+        "name": "Demo",
+        "schemaVersion": "archcontext.node/v2",
+        "source": {
+          "include": [
+            "src/app/[locale]/**",
+            "src/a.ts",
+            "src/a-*.ts",
+            "**/*.ts"
+          ]
+        },
+        "status": "active",
+        "summary": "Complete native demo"
+      },
+      {
+        "criticality": "medium",
+        "extensions": {
+          "example": {
+            "preserved": true
+          }
+        },
+        "id": "component.demo.worker",
+        "interfaces": {
+          "provides": [
+            "worker"
+          ]
+        },
+        "kind": "component",
+        "name": "",
+        "notes": [
+          "Preserve fields"
+        ],
+        "ownership": {
+          "lifecycle": [
+            "demo"
+          ]
+        },
+        "parent": "module.demo.system",
+        "responsibilities": [
+          "Work"
+        ],
+        "riskDomains": [
+          "integrity"
+        ],
+        "schemaVersion": "archcontext.node/v2",
+        "source": {
+          "entrypoints": [
+            {
+              "id": "entrypoint.demo.worker",
+              "path": "src/worker.ts",
+              "symbols": [
+                {
+                  "name": "run",
+                  "sinks": [
+                    {
+                      "id": "sink.demo.done",
+                      "path": "src/done.ts",
+                      "symbol": "finish"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "exclude": [
+            "src/worker.test.ts"
+          ],
+          "include": [
+            "src/worker.ts"
+          ]
+        },
+        "status": "planned",
+        "summary": ""
+      },
+      {
+        "id": "datastore.demo.resource",
+        "kind": "datastore",
+        "name": "datastore",
+        "parent": "capability.demo.feature",
+        "schemaVersion": "archcontext.node/v2",
+        "status": "deprecated",
+        "summary": "datastore"
+      },
+      {
+        "id": "deployment.demo.resource",
+        "kind": "deployment",
+        "name": "deployment",
+        "parent": "capability.demo.feature",
+        "schemaVersion": "archcontext.node/v2",
+        "status": "deprecated",
+        "summary": "deployment"
+      },
+      {
+        "id": "event.demo.resource",
+        "kind": "event",
+        "name": "event",
+        "parent": "capability.demo.feature",
+        "schemaVersion": "archcontext.node/v2",
+        "status": "removed",
+        "summary": "event"
+      },
+      {
+        "id": "external.demo.resource",
+        "kind": "external-system",
+        "name": "external-system",
+        "parent": "capability.demo.feature",
+        "schemaVersion": "archcontext.node/v2",
+        "status": "removed",
+        "summary": "external-system"
+      },
+      {
+        "id": "interface.demo.resource",
+        "kind": "interface",
+        "name": "interface",
+        "parent": "capability.demo.feature",
+        "schemaVersion": "archcontext.node/v2",
+        "status": "deprecated",
+        "summary": "interface"
+      },
+      {
+        "id": "module.demo.system",
+        "kind": "module",
+        "name": "System",
+        "parent": "capability.demo.feature",
+        "schemaVersion": "archcontext.node/v2",
+        "status": "active",
+        "summary": "System"
+      }
+    ],
+    "relations": [
+      {
+        "id": "relation.demo.call",
+        "intent": "",
+        "kind": "calls",
+        "schemaVersion": "archcontext.relation/v1",
+        "source": "interface.demo.resource",
+        "target": "component.demo.worker",
+        "via": "interface.demo.resource"
+      }
+    ],
+    "flows": [
+      {
+        "applicability": "not-applicable",
+        "capabilityId": "capability.demo.feature",
+        "id": "flow.demo.optional",
+        "name": "Not applicable",
+        "rationale": "No corresponding flow.",
+        "schemaVersion": "archcontext.flow/v1"
+      },
+      {
+        "applicability": "required",
+        "capabilityId": "capability.demo.feature",
+        "id": "flow.demo.primary",
+        "name": "Primary",
+        "outcomes": [
+          {
+            "id": "ok",
+            "kind": "success",
+            "label": "Success",
+            "steps": [
+              {
+                "evidence": {
+                  "entrypointId": "entrypoint.demo.worker",
+                  "sinkId": "sink.demo.done",
+                  "sourceSymbol": "run"
+                },
+                "from": "worker",
+                "id": "ok",
+                "label": "ok",
+                "to": "caller"
+              }
+            ],
+            "terminal": {
+              "label": "Success",
+              "participant": "caller"
+            }
+          },
+          {
+            "id": "failed",
+            "kind": "error",
+            "label": "Error",
+            "steps": [
+              {
+                "evidence": {
+                  "entrypointId": "entrypoint.demo.worker",
+                  "sinkId": "sink.demo.done",
+                  "sourceSymbol": "run"
+                },
+                "from": "worker",
+                "id": "failed",
+                "label": "failed",
+                "to": "caller"
+              }
+            ],
+            "terminal": {
+              "label": "Error",
+              "participant": "caller"
+            }
+          }
+        ],
+        "participants": [
+          {
+            "id": "caller",
+            "nodeId": "interface.demo.resource"
+          },
+          {
+            "id": "worker",
+            "nodeId": "component.demo.worker"
+          }
+        ],
+        "schemaVersion": "archcontext.flow/v1",
+        "steps": [
+          {
+            "evidence": {
+              "entrypointId": "entrypoint.demo.worker",
+              "sinkId": "sink.demo.done",
+              "sourceSymbol": "run"
+            },
+            "from": "caller",
+            "id": "request",
+            "label": "request",
+            "to": "worker"
+          }
+        ]
+      }
+    ],
+    "sourcePaths": {
+      "nodes": {
+        "capability.demo.feature": ".archcontext/model/nodes/capability.demo.feature.yaml",
+        "component.demo.worker": ".archcontext/model/nodes/component.demo.worker.yaml",
+        "datastore.demo.resource": ".archcontext/model/nodes/datastore.demo.resource.yaml",
+        "deployment.demo.resource": ".archcontext/model/nodes/deployment.demo.resource.yaml",
+        "event.demo.resource": ".archcontext/model/nodes/event.demo.resource.yaml",
+        "external.demo.resource": ".archcontext/model/nodes/external.demo.resource.yaml",
+        "interface.demo.resource": ".archcontext/model/nodes/interface.demo.resource.yaml",
+        "module.demo.system": ".archcontext/model/nodes/module.demo.system.yaml"
+      },
+      "relations": {
+        "relation.demo.call": ".archcontext/model/relations/relation.demo.call.yaml"
+      },
+      "flows": {
+        "flow.demo.optional": ".archcontext/model/flows/flow.demo.optional.yaml",
+        "flow.demo.primary": ".archcontext/model/flows/flow.demo.primary.yaml"
+      }
+    }
+  },
+  "capabilityProfiles": [
+    {
+      "nodeId": "capability.demo.feature",
+      "status": "active",
+      "domain": "demo",
+      "name": "feature",
+      "modulePath": "docs/architecture/modules/demo/feature.md",
+      "contractFiles": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "includeAnchors": [
+        "src",
+        "src/a.ts",
+        "src/app/[locale]"
+      ],
+      "lspProfile": null,
+      "verification": null,
+      "directChildNodeIds": [
+        "datastore.demo.resource",
+        "deployment.demo.resource",
+        "event.demo.resource",
+        "external.demo.resource",
+        "interface.demo.resource",
+        "module.demo.system"
+      ],
+      "componentNodeIds": [
+        "component.demo.worker"
+      ]
+    }
+  ],
+  "contracts": [
+    {
+      "path": "AGENTS.md",
+      "roles": [
+        "agents"
+      ],
+      "capabilityNodeIds": [
+        "capability.demo.feature"
+      ],
+      "presence": "missing",
+      "text": "# Agent contract\r\n\r\n",
+      "byteLength": 20,
+      "byteDigest": "sha256:7ca8b8dbdf0985eaa58d387e36600a98282e6f15ffbae2f48e62e219dcd14dd7"
+    },
+    {
+      "path": "CLAUDE.md",
+      "roles": [
+        "claude"
+      ],
+      "capabilityNodeIds": [
+        "capability.demo.feature"
+      ],
+      "presence": "present",
+      "text": "",
+      "byteLength": 0,
+      "byteDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "documents": [
+    {
+      "path": "docs/architecture/changelog.md",
+      "targetId": "projection_target.architecture.changelog",
+      "capabilityNodeIds": [
+        "capability.demo.feature"
+      ],
+      "presence": "missing",
+      "markerState": "missing",
+      "humanRegions": [],
+      "section3": {
+        "state": "missing",
+        "heading": null,
+        "bodyRanges": [],
+        "body": null
+      },
+      "backlog": {
+        "state": "missing",
+        "heading": null,
+        "bodyRanges": [],
+        "body": null
+      }
+    },
+    {
+      "path": "docs/architecture/decisions/index.md",
+      "targetId": "projection_target.decision.index",
+      "capabilityNodeIds": [
+        "capability.demo.feature"
+      ],
+      "presence": "missing",
+      "markerState": "missing",
+      "humanRegions": [],
+      "section3": {
+        "state": "missing",
+        "heading": null,
+        "bodyRanges": [],
+        "body": null
+      },
+      "backlog": {
+        "state": "missing",
+        "heading": null,
+        "bodyRanges": [],
+        "body": null
+      }
+    },
+    {
+      "path": "docs/architecture/index.md",
+      "targetId": "projection_target.architecture.index",
+      "capabilityNodeIds": [
+        "capability.demo.feature"
+      ],
+      "presence": "missing",
+      "markerState": "missing",
+      "humanRegions": [],
+      "section3": {
+        "state": "missing",
+        "heading": null,
+        "bodyRanges": [],
+        "body": null
+      },
+      "backlog": {
+        "state": "missing",
+        "heading": null,
+        "bodyRanges": [],
+        "body": null
+      }
+    },
+    {
+      "path": "docs/architecture/modules/demo/feature.md",
+      "targetId": "projection_target.entity.capability-demo-feature",
+      "capabilityNodeIds": [
+        "capability.demo.feature"
+      ],
+      "presence": "present",
+      "markerState": "present",
+      "humanRegions": [
+        {
+          "startByte": 0,
+          "endByte": 13,
+          "startLine": 1,
+          "endLine": 2,
+          "text": "﻿# Demo\r\n\r\n"
+        },
+        {
+          "startByte": 354,
+          "endByte": 576,
+          "startLine": 6,
+          "endLine": 18,
+          "text": "\r\n## 3. P3: Design Decisions and Invariants\r\n\r\nHuman café 🧭.\r\n<!-- keep this comment -->\r\n```md\r\n## Example heading\r\n<!-- BEGIN ARCHCONTEXT:generated literal -->\r\n```\r\n### Nested detail\r\n\r\n## Optimization Backlog\r\n \t\r\n"
+        }
+      ],
+      "section3": {
+        "state": "present",
+        "heading": {
+          "text": "## 3. P3: Design Decisions and Invariants\r\n",
+          "range": {
+            "startByte": 356,
+            "endByte": 399,
+            "startLine": 7,
+            "endLine": 7
+          }
+        },
+        "bodyRanges": [
+          {
+            "startByte": 399,
+            "endByte": 547,
+            "startLine": 8,
+            "endLine": 16
+          }
+        ],
+        "body": "\r\nHuman café 🧭.\r\n<!-- keep this comment -->\r\n```md\r\n## Example heading\r\n<!-- BEGIN ARCHCONTEXT:generated literal -->\r\n```\r\n### Nested detail\r\n\r\n"
+      },
+      "backlog": {
+        "state": "empty",
+        "heading": {
+          "text": "## Optimization Backlog\r\n",
+          "range": {
+            "startByte": 547,
+            "endByte": 572,
+            "startLine": 17,
+            "endLine": 17
+          }
+        },
+        "bodyRanges": [
+          {
+            "startByte": 572,
+            "endByte": 576,
+            "startLine": 18,
+            "endLine": 18
+          }
+        ],
+        "body": " \t\r\n"
+      }
+    }
+  ]
+}

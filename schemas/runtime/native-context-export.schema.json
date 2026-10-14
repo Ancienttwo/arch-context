@@ -1,0 +1,823 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/native-context-export.schema.json",
+  "title": "NativeContextExportV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "profile",
+    "snapshot",
+    "inputDigest",
+    "inputs",
+    "allowedNodeKinds",
+    "contextBudgetBytes",
+    "model",
+    "capabilityProfiles",
+    "contracts",
+    "documents"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.native-context-export/v1"
+    },
+    "profile": {
+      "const": "repo-harness/v1"
+    },
+    "snapshot": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "commitSha",
+            "treeOid",
+            "validation"
+          ],
+          "properties": {
+            "source": {
+              "const": "ref"
+            },
+            "commitSha": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "treeOid": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "validation": {
+              "const": "immutable-tree"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "headSha",
+            "headTreeOid",
+            "validation"
+          ],
+          "properties": {
+            "source": {
+              "const": "worktree"
+            },
+            "headSha": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "headTreeOid": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "validation": {
+              "const": "stable-read"
+            }
+          }
+        }
+      ]
+    },
+    "inputDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/input"
+      },
+      "minItems": 2,
+      "maxItems": 10000
+    },
+    "allowedNodeKinds": {
+      "type": "array",
+      "items": {
+        "$ref": "../repo/architecture-node.schema.json#/properties/kind"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "contextBudgetBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes",
+        "relations",
+        "flows",
+        "sourcePaths"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "../repo/architecture-node.schema.json"
+          },
+          "minItems": 1
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "$ref": "../repo/architecture-relation.schema.json"
+          }
+        },
+        "flows": {
+          "type": "array",
+          "items": {
+            "$ref": "../repo/architecture-flow.schema.json"
+          }
+        },
+        "sourcePaths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "nodes",
+            "relations",
+            "flows"
+          ],
+          "properties": {
+            "nodes": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/path"
+              }
+            },
+            "relations": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/path"
+              }
+            },
+            "flows": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/path"
+              }
+            }
+          }
+        }
+      }
+    },
+    "capabilityProfiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "status",
+          "domain",
+          "name",
+          "modulePath",
+          "contractFiles",
+          "includeAnchors",
+          "lspProfile",
+          "verification",
+          "directChildNodeIds",
+          "componentNodeIds"
+        ],
+        "properties": {
+          "nodeId": {
+            "type": "string",
+            "pattern": "^capability\\.[a-z0-9]+(?:-[a-z0-9]+)*\\.[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "status": {
+            "$ref": "../repo/architecture-node.schema.json#/properties/status"
+          },
+          "domain": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "modulePath": {
+            "$ref": "#/$defs/path"
+          },
+          "contractFiles": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agents",
+              "claude"
+            ],
+            "properties": {
+              "agents": {
+                "$ref": "#/$defs/path"
+              },
+              "claude": {
+                "$ref": "#/$defs/path"
+              }
+            }
+          },
+          "includeAnchors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/path"
+            },
+            "uniqueItems": true
+          },
+          "lspProfile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "verification": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "directChildNodeIds": {
+            "type": "array",
+            "items": {
+              "$ref": "../repo/architecture-node.schema.json#/properties/id"
+            },
+            "uniqueItems": true
+          },
+          "componentNodeIds": {
+            "type": "array",
+            "items": {
+              "$ref": "../repo/architecture-node.schema.json#/properties/id"
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/contract"
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/document"
+      }
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)[^\\\\\\u0000-\\u001f\\u007f-\\u009f]+$"
+    },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startByte",
+        "endByte",
+        "startLine",
+        "endLine"
+      ],
+      "properties": {
+        "startByte": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "endByte": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "startLine": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "humanRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startByte",
+        "endByte",
+        "startLine",
+        "endLine",
+        "text"
+      ],
+      "properties": {
+        "startByte": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "endByte": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "startLine": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "heading",
+        "bodyRanges",
+        "body"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "missing",
+            "absent",
+            "empty",
+            "present"
+          ]
+        },
+        "heading": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "text",
+                "range"
+              ],
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "range": {
+                  "$ref": "#/$defs/range"
+                }
+              }
+            }
+          ]
+        },
+        "bodyRanges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/range"
+          }
+        },
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "missing",
+                  "absent"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "heading": {
+                "type": "null"
+              },
+              "body": {
+                "type": "null"
+              },
+              "bodyRanges": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "heading": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text",
+                  "range"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "range": {
+                    "$ref": "#/$defs/range"
+                  }
+                }
+              },
+              "body": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "role",
+        "requirement",
+        "presence",
+        "mode",
+        "byteLength",
+        "contentDigest"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "role": {
+          "enum": [
+            "manifest",
+            "node",
+            "relation",
+            "flow",
+            "contract",
+            "document"
+          ]
+        },
+        "requirement": {
+          "enum": [
+            "required",
+            "declared",
+            "optional"
+          ]
+        },
+        "presence": {
+          "enum": [
+            "present",
+            "missing"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "100644",
+            "100755",
+            null
+          ]
+        },
+        "byteLength": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 8388608
+            }
+          ]
+        },
+        "contentDigest": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "presence": {
+                "const": "missing"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "mode": {
+                "type": "null"
+              },
+              "byteLength": {
+                "type": "null"
+              },
+              "contentDigest": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "mode": {
+                "enum": [
+                  "100644",
+                  "100755"
+                ]
+              },
+              "byteLength": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388608
+              },
+              "contentDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "requirement": {
+                "const": "required"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "presence": {
+                "const": "present"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "roles",
+        "capabilityNodeIds",
+        "presence",
+        "text",
+        "byteLength",
+        "byteDigest"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "agents",
+              "claude"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "capabilityNodeIds": {
+          "type": "array",
+          "items": {
+            "$ref": "../repo/architecture-node.schema.json#/properties/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "presence": {
+          "enum": [
+            "present",
+            "missing"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "byteLength": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          ]
+        },
+        "byteDigest": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "presence": {
+                "const": "missing"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "text": {
+                "type": "null"
+              },
+              "byteLength": {
+                "type": "null"
+              },
+              "byteDigest": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "byteLength": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "byteDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "targetId",
+        "capabilityNodeIds",
+        "presence",
+        "markerState",
+        "humanRegions",
+        "section3",
+        "backlog"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "targetId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilityNodeIds": {
+          "type": "array",
+          "items": {
+            "$ref": "../repo/architecture-node.schema.json#/properties/id"
+          },
+          "uniqueItems": true
+        },
+        "presence": {
+          "enum": [
+            "present",
+            "missing"
+          ]
+        },
+        "markerState": {
+          "enum": [
+            "present",
+            "absent",
+            "missing"
+          ]
+        },
+        "humanRegions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/humanRegion"
+          }
+        },
+        "section3": {
+          "$ref": "#/$defs/section"
+        },
+        "backlog": {
+          "$ref": "#/$defs/section"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "presence": {
+                "const": "missing"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "markerState": {
+                "const": "missing"
+              },
+              "humanRegions": {
+                "maxItems": 0
+              },
+              "section3": {
+                "properties": {
+                  "state": {
+                    "const": "missing"
+                  }
+                }
+              },
+              "backlog": {
+                "properties": {
+                  "state": {
+                    "const": "missing"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "markerState": {
+                "enum": [
+                  "present",
+                  "absent"
+                ]
+              },
+              "section3": {
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "absent",
+                      "empty",
+                      "present"
+                    ]
+                  }
+                }
+              },
+              "backlog": {
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "absent",
+                      "empty",
+                      "present"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
