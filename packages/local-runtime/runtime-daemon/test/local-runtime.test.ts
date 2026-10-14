@@ -447,6 +447,10 @@ describe("local runtime foundation", () => {
         status: "fail",
         deterministic: true
       });
+      expect((review.data as any).debt.items.filter((item: any) => item.kind === "practice-regression")).toHaveLength(1);
+      expect((review.data as any).findings.filter((finding: any) => finding.type === "practice-violation")).toHaveLength(1);
+      const practiceDebtIds = (review.data as any).debt.items.filter((item: any) => item.kind === "practice-regression").map((item: any) => item.id);
+      expect((review.data as any).findings.some((finding: any) => practiceDebtIds.includes(finding.id))).toBe(false);
       expect((review.data as any).snapshot.practiceCatalogDigest).toMatch(/^sha256:/);
       expect((review.data as any).snapshot.practicePolicyDigest).toMatch(/^sha256:/);
       expect((review.data as any).snapshot.practiceCheckResultDigest).toMatch(/^sha256:/);
@@ -462,6 +466,9 @@ describe("local runtime foundation", () => {
     try {
       daemon = await createStartedTestDaemon({ codeFacts: facts.port });
       await daemon.init(root, "Practice Fail Open App");
+      // This test isolates its named gate; declare source ownership so scaffold files are not debt.
+      writeFileSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`, "utf8");
       mkdirSync(join(root, ".archcontext/policies"), { recursive: true });
       writeFileSync(join(root, ".archcontext/policies/practices.yaml"), JSON.stringify({
         schemaVersion: "archcontext.practice-enforcement-policy/v1",
@@ -486,7 +493,7 @@ describe("local runtime foundation", () => {
 
       expect(review.ok).toBe(true);
       expect((review.data as any).result).toBe("pass_with_warnings");
-      expect((review.data as any).summary).toMatchObject({ errors: 0, warnings: 1 });
+      expect((review.data as any).summary).toMatchObject({ errors: 0, warnings: 2 });
       expect((review.data as any).practiceViolations).toEqual([]);
       expect((review.data as any).actionsRequired).toEqual([]);
       expect((review.data as any).findings).toContainEqual(expect.objectContaining({
@@ -512,6 +519,9 @@ describe("local runtime foundation", () => {
     try {
       daemon = await createStartedTestDaemon({ clock: () => "2026-06-26T10:40:00.000Z" });
       await daemon.init(root, "Projection Gate App");
+      // This test isolates its named gate; declare source ownership so scaffold files are not debt.
+      writeFileSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`, "utf8");
       // No CodeGraph index here: required code facts would refuse complete_task (#279).
       declareOptionalCodeFacts(root);
 
@@ -549,7 +559,7 @@ describe("local runtime foundation", () => {
         task: "finish architecture projection update"
       });
       expect(clean.ok).toBe(true);
-      expect((clean.data as any).result).toBe("pass");
+      expect((clean.data as any).result).toBe("pass_with_warnings");
       expect((clean.data as any).snapshot.projectionDigest).toMatch(/^sha256:/);
       expect((clean.data as any).findings.some((finding: any) => finding.id === "projection-drift")).toBe(false);
 
@@ -626,7 +636,7 @@ describe("local runtime foundation", () => {
         task: "finish with the projection verified against the current source"
       });
       expect(fresh.ok).toBe(true);
-      expect((fresh.data as any).result).toBe("pass");
+      expect((fresh.data as any).result).toBe("pass_with_warnings");
       expect((fresh.data as any).extensions.projectionFreshnessGate).toBeUndefined();
 
       // A commit outside every declared footprint leaves both projection gates silent: the stamp is
@@ -637,7 +647,7 @@ describe("local runtime foundation", () => {
         taskSessionId: "task_projection_freshness",
         task: "finish after an unrelated commit"
       });
-      expect((stillFresh.data as any).result).toBe("pass");
+      expect((stillFresh.data as any).result).toBe("pass_with_warnings");
       expect((stillFresh.data as any).findings.some((finding: any) => finding.id === "stale-context")).toBe(false);
       expect((stillFresh.data as any).extensions.projectionFreshnessGate).toBeUndefined();
 
@@ -787,8 +797,10 @@ describe("local runtime foundation", () => {
       expect(complete.ok).toBe(true);
       expect((complete.data as any).extensions.projectionDriftGate).toBeUndefined();
       expect((complete.data as any).extensions.projectionFreshnessGate).toBeUndefined();
-      expect((complete.data as any).findings).toEqual([]);
-      expect((complete.data as any).result).toBe("pass");
+      expect((complete.data as any).findings).toEqual([expect.objectContaining({
+        type: "architecture-debt-coverage", severity: "warning"
+      })]);
+      expect((complete.data as any).result).toBe("pass_with_warnings");
 
       // The manifest stamps the footprint content and names no commit, so nothing in it can dangle
       // after a squash merge — and the document itself names no commit at all.
@@ -860,8 +872,10 @@ describe("local runtime foundation", () => {
         taskSessionId: "task_docs_deadlock",
         task: "finish after re-verifying the projection"
       });
-      expect((complete.data as any).result).toBe("pass");
-      expect((complete.data as any).findings).toEqual([]);
+      expect((complete.data as any).result).toBe("pass_with_warnings");
+      expect((complete.data as any).findings).toEqual([expect.objectContaining({
+        type: "architecture-debt-coverage", severity: "warning"
+      })]);
       expect((complete.data as any).extensions.projectionFreshnessGate).toBeUndefined();
       expect((complete.data as any).extensions.projectionDriftGate).toBeUndefined();
 
@@ -917,7 +931,7 @@ describe("local runtime foundation", () => {
         taskSessionId: "task_docs_squash",
         task: "finish on the default branch after the squash merge"
       });
-      expect((complete.data as any).result).toBe("pass");
+      expect((complete.data as any).result).toBe("pass_with_warnings");
       expect((complete.data as any).extensions.projectionFreshnessGate).toBeUndefined();
       expect((complete.data as any).extensions.projectionDriftGate).toBeUndefined();
 
@@ -971,7 +985,7 @@ describe("local runtime foundation", () => {
         taskSessionId: "task_docs_crlf",
         task: "finish on a CRLF checkout"
       });
-      expect((complete.data as any).result).toBe("pass");
+      expect((complete.data as any).result).toBe("pass_with_warnings");
       expect((complete.data as any).extensions.projectionDriftGate).toBeUndefined();
       expect((complete.data as any).extensions.projectionFreshnessGate).toBeUndefined();
 
@@ -2343,6 +2357,8 @@ setInterval(() => undefined, 1 << 30);
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
       daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(provider), localStore: store });
+      writeFileSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"),
+        `${readText(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml")).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`, "utf8");
       const headSha = gitOut(root, "rev-parse", "HEAD");
       const passed = await daemon.completeTask(root, {
         taskSessionId: "task_runtime_complete",
@@ -2352,10 +2368,10 @@ setInterval(() => undefined, 1 << 30);
       expect((passed.data as any)).toMatchObject({
         schemaVersion: "archcontext.review/v1",
         taskSessionId: "task_runtime_complete",
-        result: "pass"
+        result: "pass_with_warnings"
       });
       expect(provider.indexedRoots.map((indexedRoot) => normalizeExistingPath(indexedRoot))).toEqual([normalizeExistingPath(root)]);
-      expect(store.reviews.get((passed.data as any).reviewId)).toMatchObject({ result: "pass" });
+      expect(store.reviews.get((passed.data as any).reviewId)).toMatchObject({ result: "pass_with_warnings" });
 
       await expect(daemon.completeTask(root, {
         taskSessionId: "task_runtime_forged",

@@ -39,6 +39,7 @@
       }
     },
     "findings": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "debt": { "$ref": "architecture-debt.schema.json" },
     "practiceViolations": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "waiversApplied": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "actionsRequired": { "type": "array", "items": { "type": "string" } },

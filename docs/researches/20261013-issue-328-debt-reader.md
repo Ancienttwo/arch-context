@@ -2,8 +2,8 @@
 
 Base: `ade6255d13cec021226b3b116cd7624e83fe524b` (2026-10-13).
 Claude planning proposal: Herdr `w8:p1`, `/tmp/worktrees/328-claude-proposal.md`.
-Initial implementation scope: D0/D1/D2. The S2 continuation after its merge is recorded below;
-S3 remains a separate integration gate.
+Initial implementation scope: D0/D1/D2. The S2 continuation and D3 integration after S3 merged
+are recorded below.
 
 ## P1: authority and scope
 
@@ -143,3 +143,35 @@ Validation on the frozen source over `f5b31d87`:
 These are 448 focused/acceptance tests, not a full repository suite. No expensive performance
 probe was repeated. The feature flag and complete actions remain blocked on S3; no owned S3
 entrypoint or feature-trio file is edited.
+
+
+## D3 integration after S3 (2026-10-14)
+
+Main `afeb0c38fa41e50bd90950d4c64f1d77f0914af0` was merged into #337 as
+`1432cbf29cce7cc2ee92d2286c6737bb3522d903`. The prior `9944a01b` and `4b86dc6c`
+patches remain identical in range-diff. This continuation does not rewrite branch history.
+
+The full completion reader reuses edit-time ownership/anchors, S2 read-only code facts and the
+daemon's existing practice evaluation. The review returns `data.debt`, blocks measured debt with
+actions, and reuses practice findings rather than duplicating them. Claude's bounded D3 decision
+was adopted: actual measurement gaps yield one advisory coverage finding; disabled practices
+and absent model adoption remain explicit gaps without another warning. Missing/invalid model
+validation and required-code-facts preconditions retain their existing authority. No-index
+completion can now be `pass_with_warnings` instead of `pass`. Stale HEAD skips debt judgment.
+S3's freshness evaluator and projection service are unchanged.
+
+The full read also exposes the ownership resolver's existing no-source-declarations rule:
+without declared source roots every repository file is unowned. Tests whose subject is another
+gate now declare a source boundary, preserving their original gate assertions. The Context7
+fixture fix follows that rule; it does not suppress debt or weaken the comparison.
+
+Validation on the final code (feature trio included in the tested tree):
+
+- Contracts + review-engine + full CLI: **594 passed**, no failures (576.35 s).
+- MCP local: **39 passed**, no failures (3.31 s).
+- Runtime-daemon full pass over 652 cases initially recorded **650 passed, 1 skipped, 1 failed** (320.91 s). The sole failure was the Context7 comparison fixture treating its newly pinned lockfile as unowned because it declared no source. The fixture now declares its source boundary; its complete **10-case file passed** on re-run (4.94 s). All other original assertions remain. The full runtime suite was not repeated after that fixture-only correction; the final covered result is **651 passed, 1 skipped**.
+- Dependency gate's **7 cases passed** after adding Bun GC before fixture deletion (26.92 s); these overlap the runtime total.
+- Root acceptance: **4 passed**, no failures (43.32 s).
+- Typecheck, package boundary audit (5 workspaces), packaged CLI smoke and whitespace checks passed.
+
+This covers **1,288 distinct passing cases and 1 existing skip**, with the runtime correction verified by its affected file rather than a second full suite. Hosted CI is a separate gate; no full-repository verify or repeated performance probe is claimed.

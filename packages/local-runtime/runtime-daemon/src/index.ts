@@ -1,3 +1,4 @@
+import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt } from "./architecture-debt";
 import type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
 export type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
 import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
@@ -776,10 +777,17 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       : undefined;
     let projectionDrift: CompleteTaskProjectionDriftInput | undefined;
     let projectionFreshness: CompleteTaskProjectionFreshnessInput | undefined;
+    let architectureDebt: CompleteTaskInput["architectureDebt"];
     try {
       projectionDrift = completeTaskProjectionDrift(session.workspace.root);
       projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
+      if (model.valid || !existsSync(resolve(session.workspace.root, ".archcontext/manifest.yaml"))) {
+        architectureDebt = readCompleteTaskArchitectureDebt(session.workspace.root, practiceEnforcement);
+      }
     } catch (error) {
+      if (error instanceof ArchitectureDebtReadError) {
+        return errorEnvelope("complete_task", error.code, error.message, error.reasonCode);
+      }
       // Same typed, retryable answer as the docs and projection paths (#258, #279): missing
       // required code facts are an environment state, never projection drift.
       if (error instanceof ProjectionCodeFactsUnavailableError) {
@@ -809,6 +817,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       reviewPolicy: readReviewPolicy(modelFiles).policy,
       ...(projectionDrift === undefined ? {} : { projectionDrift }),
       ...(projectionFreshness === undefined ? {} : { projectionFreshness }),
+      ...(architectureDebt === undefined ? {} : { architectureDebt }),
       ...(input.compatibilityContract === undefined ? {} : { compatibilityContract: input.compatibilityContract }),
       ...(input.compatibilityPathIntroduced === undefined ? {} : { compatibilityPathIntroduced: input.compatibilityPathIntroduced }),
       ...(input.cleanupRequired === undefined ? {} : { cleanupRequired: input.cleanupRequired }),

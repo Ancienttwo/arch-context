@@ -1,8 +1,8 @@
 # Issue #328: architecture debt
 
-Status: D1/D2 in Draft PR #337; S2 read-only evidence implemented; S3 integration gates remain
+Status: D1/D2/S2/D3 implemented and locally verified; Draft PR #337 awaits hosted CI and Dot acceptance
 Base: `ade6255d13cec021226b3b116cd7624e83fe524b`
-Reconciled base (2026-10-14): `f5b31d8794d89bde2ea90c8991e226e907028614`, including S2 and S5.
+Reconciled base (2026-10-14): `afeb0c38fa41e50bd90950d4c64f1d77f0914af0`, including S2/S3/S5/S6/S7; merged without rewriting #337 history.
 Owner: Codex, `/tmp/worktrees/arch-context-328`
 Planning: Claude in Herdr `w8:p1`, proposal `/tmp/worktrees/328-claude-proposal.md`.
 
@@ -41,20 +41,31 @@ cutover decision, not a hidden CLI state writer.
 - [x] Record exact evidence and RFC gaps; commit the bounded implementation.
 - [x] After S2 merge, add read-only selector/import evidence for the future completion consumer;
       reuse S2 readiness and enforce no-download on every shim invocation in this path.
-- [ ] After #327 S3 merges, rebase and append `architecture-debt-v1` to the feature list,
+- [x] After #327 S3 merges, merge main and append `architecture-debt-v1` to the feature list,
       capabilities fixture and schema as the final advertisement commit.
-- [ ] D3: after #327 S3 lands, integrate complete findings/actionsRequired on its actual base.
+- [x] D3: integrate complete findings/actionsRequired beside the unchanged S3 freshness gate.
 
 ## Coordination and remaining gates
 
-S2 and S5 have merged; Claude handed off codegraph-adapter for the bounded read-only change.
-Claude still owns #327 S3/S6/S7. Do not edit projection-service.ts, contracts/src/projection.ts,
-projection renderer/manifest, generated docs or duplicate CodeGraph status authority. CLI additions stay
-localized. D3 waits for S3 integration; renderer/protocol floors wait for S6. This plan does not
-authorize release, merge, downstream writes or closing the umbrella RFC before all its gates pass.
+S2/S3/S5/S6/S7 have merged. Claude handed off completeTask and the feature trio; this PR's
+last commit adds only the alphabetically ordered flag, fixture and schema entry. S4 will take
+contracts/src/projection.ts afterward. Projection service, renderer/manifest, generated docs
+and the single S3 freshness evaluator are unchanged by D3. Use plain push, keep Draft, no merge.
 
-S3 hands over the capability feature trio after merge; S5 rebases on the debt advertisement
-if it lands later. `docs/spec.md` belongs to this slice. Draft PR text must say
-"blocked on #327 S3 merge for feature advertisement" and use `Refs #328`, without closing it.
+P2 completion trace: RuntimeDaemon.completeTask -> existing model validation / daemon practice
+baseline and evaluation -> projection drift / shared freshness -> readCompleteTaskArchitectureDebt
+-> shared ownership/anchor evidence + S2 read-only code facts + existing practice evaluation
+-> pure evaluator -> completeTaskGate findings/actions -> saved review and data.debt.
+
+P3 decision (Claude w8:p1, 2026-10-14): measured debt blocks with the item's action; practice
+regressions reuse the existing practice finding. Actual coverage gaps produce one warning,
+not a new blocking optional-CodeGraph policy. Intentional not-enabled/model-not-adopted states
+remain explicit coverage without warning. Existing model validation still blocks missing or
+invalid adoption; stale task HEAD suppresses downstream debt judgment. At 10x size, the full
+completion read still pays repository enumeration and CodeGraph query cost; edit time remains
+ownership/anchors per D0. No shadow status reader or semantic fallback is introduced.
+
 The 3,016 ms cold edit-time sample remains an unresolved strict three-second budget result;
-passing functional checks does not convert it to a performance pass.
+passing functional checks does not convert it to a performance pass. Renderer/protocol floors
+and broader typed action normalization remain outside this bounded D3 work. This plan does not
+authorize release, merge, downstream writes or closing the umbrella RFC.

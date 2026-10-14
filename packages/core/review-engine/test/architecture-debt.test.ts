@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { architectureDebtReportIssues, type ArchitectureFlowSelectorCheckV1, type CapabilityDependenciesV1, type DocsAnchorsReportV1, type PracticeEnforcementEvaluationV1 } from "@archcontext/contracts";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
+import { completeTaskGate } from "../src/index";
 import { dependencyDebtFromMeasurement, evaluateArchitectureDebt, type ArchitectureDebtEvidence } from "../src/architecture-debt";
 
 const anchors: DocsAnchorsReportV1 = {
@@ -94,4 +95,50 @@ test("debt ids are stable across input ordering and import count changes", () =>
   input.dependencies.items[0]!.importEdgeCount = 2;
   expect(evaluateArchitectureDebt(input).items[0]!.id).toBe(first.items[0]!.id);
   expect(architectureDebtReportIssues({ ...first, actionsRequired: [] })).toContain("actionsRequired must name the measured debt actions");
+});
+
+const gateInput = { taskSessionId: "task.debt", posture: "normal" as const, headSha: "abc", currentHeadSha: "abc",
+  worktreeDigest: `sha256:${"a".repeat(64)}`, modelDigest: `sha256:${"b".repeat(64)}`, codeFactsDigest: `sha256:${"c".repeat(64)}` };
+
+test("completion gates measured debt and returns the same report with repair actions", () => {
+  const debt = evaluateArchitectureDebt({ ...clean(),
+    ownership: [{ path: "src/a.ts", nodeIds: [], capabilityIds: [], status: "unowned" }],
+    dependencies: { coverage: "complete", coverageReasonCodes: [], items: [{ reasonCode: "undeclared-dependency", fromCapabilityId: "capability.a", toCapabilityId: "capability.b", importEdgeCount: 1 }] },
+    flows: { ...flows, ok: false, capabilities: [{ capabilityId: "capability.a", p2Status: "unprovable", diagnostics: [{ code: "selector-unproven", flowId: "flow.a", stepId: "step.a", detail: "not copied" }] }] }
+  });
+  const review = completeTaskGate({ ...gateInput, architectureDebt: debt });
+  expect(review.result).toBe("fail_action_required");
+  expect(review.findings.map(finding => finding.id).sort()).toEqual(debt.items.map(item => item.id));
+  expect(review.actionsRequired).toEqual(debt.actionsRequired);
+  expect(review.debt).toEqual(debt);
+  expect(publishedSchemaIssues("runtime/review-result.schema.json", review)).toEqual([]);
+});
+
+test("real coverage gaps give one warning without repair actions, intentional disabled checks do not", () => {
+  const evidence = clean(); delete evidence.dependencies; delete evidence.flows;
+  const debt = evaluateArchitectureDebt({ ...evidence, unavailable: { dependencies: ["index-missing"], flows: ["index-missing"] } });
+  const review = completeTaskGate({ ...gateInput, architectureDebt: debt });
+  expect(review.result).toBe("pass_with_warnings");
+  expect(review.findings).toHaveLength(1);
+  expect(review.findings[0]).toMatchObject({ type: "architecture-debt-coverage", severity: "warning" });
+  expect(review.findings[0]!.message).toContain("coverage=partial");
+  expect(review.findings[0]!.message).toContain("dependencies:index-missing");
+  expect(review.actionsRequired).toEqual([]);
+  const disabled = clean(); delete disabled.practices;
+  expect(completeTaskGate({ ...gateInput, architectureDebt: evaluateArchitectureDebt({ ...disabled, unavailable: { practices: ["not-enabled"] } }) }).result).toBe("pass");
+  expect(completeTaskGate({ ...gateInput, architectureDebt: evaluateArchitectureDebt({ ...disabled }) }).result).toBe("pass_with_warnings");
+});
+
+test("stale task skips debt findings and does not publish debt as its judgment", () => {
+  const debt = evaluateArchitectureDebt({ ...clean(), ownership: [{ path: "src/a.ts", nodeIds: [], capabilityIds: [], status: "unowned" }] });
+  const review = completeTaskGate({ ...gateInput, headSha: "old", architectureDebt: debt });
+  expect(review.findings.map(finding => finding.type)).toEqual(["stale-context"]);
+  expect(review.debt).toBeUndefined();
+  expect(review.extensions.architectureDebtChecksSkipped).toBe("stale-context");
+  expect(review.actionsRequired).toEqual(["archctx prepare --task <task>"]);
+});
+
+test("completion rejects inconsistent debt digest or missing debt actions", () => {
+  const debt = evaluateArchitectureDebt(clean());
+  expect(() => completeTaskGate({ ...gateInput, architectureDebt: { ...debt, digest: "bad" } })).toThrow("architecture-debt-report-invalid");
 });

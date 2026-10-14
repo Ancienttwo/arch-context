@@ -1,11 +1,12 @@
 import {
-  architectureDebtReportIssues, errorEnvelope, isRepoRelativePosixPath, okEnvelope,
-  type ArchitectureDebtReportV1, type Json, type JsonEnvelope
+  ARCHITECTURE_DEBT_CHECKS, architectureDebtReportIssues, errorEnvelope, isRepoRelativePosixPath, okEnvelope,
+  type ArchitectureDebtReportV1, type Json, type JsonEnvelope, type PracticeEnforcementEvaluationV1
 } from "@archcontext/contracts";
 import { resolveOwnership } from "@archcontext/core/module-statistics";
 import { ancestorChain, loadNativeModelFromArchContext, nativeNodeSource, type NativeModel } from "@archcontext/core/projection-engine";
 import { evaluateArchitectureDebt, type ArchitectureDebtEvidence } from "@archcontext/core/review-engine";
 import { findRepositoryRoot, GitVisibleFilesUnavailableError, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
+import { readArchitectureDebtCodeFacts } from "./architecture-debt-code-facts";
 import { runDocsAnchorsCommand } from "./docs-anchors";
 import type { DocsAnchorsReportV1 } from "@archcontext/contracts";
 import { existsSync } from "node:fs";
@@ -19,6 +20,34 @@ export interface ArchitectureDebtReadInput { changedPaths?: string[] }
  * Unmeasured dependency/flow/practice checks remain explicit gaps, never a clean full verdict.
  */
 export function readArchitectureDebt(root: string, input: ArchitectureDebtReadInput = {}): ArchitectureDebtReportV1 {
+  const { evidence } = readArchitectureDebtEvidence(root, input);
+  return checkedDebt({ ...evidence,
+    unavailable: { dependencies: ["deferred-to-complete"], flows: ["deferred-to-complete"], practices: ["deferred-to-complete"] }
+  });
+}
+
+/** Repository-wide completion measurement; practice evidence stays owned by the daemon. */
+export function readCompleteTaskArchitectureDebt(root: string, practices?: PracticeEnforcementEvaluationV1): ArchitectureDebtReportV1 {
+  if (!existsSync(join(root, ".archcontext/manifest.yaml"))) {
+    return checkedDebt({ scope: { kind: "repository", changedPaths: [], capabilityIds: [] },
+      unavailable: Object.fromEntries(ARCHITECTURE_DEBT_CHECKS.map(check => [check, ["model-not-adopted"]])) });
+  }
+  const { model, evidence } = readArchitectureDebtEvidence(root, {});
+  const codeFacts = readArchitectureDebtCodeFacts(root, model);
+  return checkedDebt({ ...evidence, ...codeFacts, practices,
+    unavailable: { ...codeFacts.unavailable, ...(practices === undefined ? { practices: ["not-enabled"] } : {}) }
+  });
+}
+
+function checkedDebt(evidence: ArchitectureDebtEvidence): ArchitectureDebtReportV1 {
+  const report = evaluateArchitectureDebt(evidence);
+  if (architectureDebtReportIssues(report).length > 0) {
+    throw new ArchitectureDebtReadError("AC_SCHEMA_INVALID", "Architecture debt evidence violates its contract", "debt-report-invalid");
+  }
+  return report;
+}
+
+function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadInput): { model: NativeModel; evidence: ArchitectureDebtEvidence } {
   if (input.changedPaths !== undefined && (!Array.isArray(input.changedPaths) || input.changedPaths.some(path => typeof path !== "string"))) {
     throw new ArchitectureDebtReadError("AC_SCHEMA_INVALID", "changedPaths must be an array of paths", "changed-path-invalid");
   }
@@ -52,14 +81,10 @@ export function readArchitectureDebt(root: string, input: ArchitectureDebtReadIn
   });
   const anchors = runDocsAnchorsCommand(root);
   if (!anchors.ok) throw new ArchitectureDebtReadError(anchors.error!.code, anchors.error!.message, anchors.error!.reasonCode ?? "anchors-unavailable");
-  const report = evaluateArchitectureDebt({
+  return { model, evidence: {
     scope: { kind: repository ? "repository" : "changed-paths", changedPaths, capabilityIds },
-    ownership, anchors: anchors.data as unknown as DocsAnchorsReportV1, scopedNodeIds, capabilityByNodeId,
-    unavailable: { dependencies: ["deferred-to-complete"], flows: ["deferred-to-complete"], practices: ["deferred-to-complete"] }
-  });
-  const issues = architectureDebtReportIssues(report);
-  if (issues.length > 0) throw new ArchitectureDebtReadError("AC_SCHEMA_INVALID", "Architecture debt evidence violates its contract", "debt-report-invalid");
-  return report;
+    ownership, anchors: anchors.data as unknown as DocsAnchorsReportV1, scopedNodeIds, capabilityByNodeId
+  } };
 }
 
 export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtReadInput = {}): JsonEnvelope {
@@ -85,6 +110,6 @@ function nodeCapabilities(model: NativeModel): Map<string, string> {
   }));
 }
 
-class ArchitectureDebtReadError extends Error {
+export class ArchitectureDebtReadError extends Error {
   constructor(readonly code: import("@archcontext/contracts").ArchContextErrorCode, message: string, readonly reasonCode: string) { super(message); }
 }

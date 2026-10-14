@@ -340,6 +340,10 @@ describe("daemon external documentation", () => {
     const failureDaemons: Array<Awaited<ReturnType<typeof createStartedTestDaemon>>> = [];
     try {
       await staticDaemon.init(root, "React Docs App");
+      // External docs pins change repository metadata. Declare the source boundary so this
+      // comparison tests provider isolation rather than an entirely unowned repository.
+      const nodePath = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
+      writeFileSync(nodePath, `${readText(nodePath).trimEnd()}\nsource:\n  include:\n    - "src/**"\n`, "utf8");
       const staticPrepare = await staticDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_static");
       const staticComplete = await staticDaemon.completeTask(root, { taskSessionId: "task_static", task: "Use React state hooks and confirm package version unknowns" });
       const staticProjection = projectLocalCorePrepareComplete(staticPrepare, staticComplete);
