@@ -922,6 +922,15 @@ for (const lineEnding of ["lf", "crlf"] as const) {
       const plannedPaths = planned.files.map((file) => file.path);
       expect(plannedPaths).toEqual(v5Paths);
       expect(planned.files.every((file) => file.action === "update")).toBe(true);
+      // A marker-only rewrite keeps every rendered output: each rewritten target is an output
+      // change of its bytes alone, and the planned actions are exactly the files apply writes.
+      expect(checked.changes).toEqual(planned.changes);
+      for (const entry of planned.changes!) {
+        expect(entry, entry.path).toMatchObject(v5Paths.includes(entry.path)
+          ? { classification: "output-change", plannedAction: "update", stampChanged: false, semanticChanged: false, proofChanged: false, reasonCodes: ["file-bytes-changed"] }
+          : { classification: "unchanged", plannedAction: "none" });
+      }
+      expect(planned.changes!.filter((entry) => entry.plannedAction !== "none").map((entry) => entry.path)).toEqual(v5Paths);
 
       const applied = projectionResult(await projectionRun(request("apply", "projection_request.v5_apply")));
       expect(applied.status).toBe("applied");

@@ -246,6 +246,18 @@ export interface ArchitectureDocumentationProjectionPlan {
   /** Every `projection-orphaned` drift entry, sorted by path, with what may remove it. */
   orphans: ArchitectureDocumentationProjectionOrphan[];
   /**
+   * The committed current-format manifest this render classified against: its semantic baseline
+   * and its target rows. Absent without one (no manifest, an unrecognized one, or a superseded one
+   * a `docs apply` re-baselines).
+   */
+  committedManifest?: ArchitectureDocsProjectionManifestV3;
+  /**
+   * Every current target's manifest row as this render produced it, by targetId: its output digest
+   * and stamps. An isolated plan keeps the complete render's rows here, also for the targets whose
+   * committed rows its `manifest` carries forward.
+   */
+  renderedTargets: ArchitectureDocsProjectionManifestV3["targets"];
+  /**
    * Present only on a render that asked for `isolateBlockedCapabilities` and qualified for it
    * (Phase 1 capability isolation, #327). The plan then covers only the applied targets: `files`
    * omits the carried-forward documents, and `manifest` keeps their rows and their capabilities'
@@ -617,7 +629,9 @@ export function renderArchitectureDocumentationProjection(input: {
     },
     rejected,
     adoptionCandidates,
-    orphans: drift.orphans
+    orphans: drift.orphans,
+    ...(previousManifest ? { committedManifest: previousManifest } : {}),
+    renderedTargets: manifestValue.targets
   };
   if (input.isolateBlockedCapabilities !== true) return plan;
   return isolateBlockedCapabilityTargets({
