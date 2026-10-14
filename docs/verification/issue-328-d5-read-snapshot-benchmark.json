@@ -7573,24 +7573,37 @@
     "files": [
       {
         "file": "README.md",
-        "sha256": "71c112439ce12c921ba4f1ad83fc93589b64d9a1b3cacf850adf36d8ddbf548b"
+        "sha256": "b5c5ed42cf0f46609fb7d52e7c07ce3d2b148381f016055089094f568860b015",
+        "bytes": 4397
       },
       {
-        "file": "migration-audit.json",
-        "sha256": "fff670cd6e424f4968f0b375bb2ac1019f6116f7da6d4a6b29957764307ce7f0"
+        "file": "migration-provenance.json",
+        "sha256": "a073421b901cfbcb61ac1a79c133e5ce20788026c6b5fa1d073fe3e4322c353c",
+        "bytes": 3823
       },
       {
         "file": "migration.patch",
-        "sha256": "05b76f8d58ab096ce47c5c5425eb8bb0d2bef60dc9aa06f09d9ebf583c7fc44f"
+        "sha256": "05b76f8d58ab096ce47c5c5425eb8bb0d2bef60dc9aa06f09d9ebf583c7fc44f",
+        "bytes": 259325
       },
       {
         "file": "recompute-migration-audit.ts",
-        "sha256": "4f2953719ee1658e03aab97e2693a55eef811fa65ad58e555088541ea43ab963"
-      },
-      {
-        "file": "samples-allowlist.json",
-        "sha256": "e672d13a7cd8fe987cee01e7f53ba6b0f45935f6aa84678e04824aad66d7b88b"
+        "sha256": "641ec8b6fb6ef387450872b6e9942e91a5486f48661497f6e17ef21186735000",
+        "bytes": 13848
       }
-    ]
+    ],
+    "compaction": {
+      "sourceCommit": "a36ad3ef0237d458e12503cf6c464b3ea60efce5",
+      "provenanceFile": "migration-provenance.json",
+      "canonicalSamples": "/runs",
+      "canonicalReports": "/reports",
+      "omittedRecomputableMaterial": [
+        "5065 before/after file tuples",
+        "460 duplicate model rows",
+        "per-document/range rows",
+        "duplicate sample representation"
+      ],
+      "replacement": "Reconstruct both fixed Git subjects and apply the unchanged patch; verify counts and root digests at runtime."
+    }
   }
 }
