@@ -158,8 +158,12 @@ test("the change invariants refuse inconsistent entries (#327)", () => {
   expect(issues([changes[0]!, changes[1]!, blocked], [...files, { path: RENDERER, action: "delete", preimageDigest: digest("5"), outputDigest: null }]))
     .toContain("changes[2] is blocked, so plannedAction must be none");
   // A file entry rejected for adoption or ownership repair is reported in files[] but never written.
-  const rejected = change(CATALOG, { reasonCodes: ["adoption-required"] });
+  // Its file result still proves the bytes differ, so outputChanged follows the file, not the blocked write.
+  const rejected = change(CATALOG, { outputChanged: true, reasonCodes: ["adoption-required", "file-bytes-changed"] });
+  expect(rejected.classification).toBe("blocked");
   expect(issues([changes[0]!, rejected, changes[2]!])).toEqual([]);
+  expect(issues([changes[0]!, change(CATALOG, { reasonCodes: ["adoption-required"] }), changes[2]!]))
+    .toContain(`changes[1].outputChanged must be true, the files[] entry for ${CATALOG} changes its bytes`);
   const unexplained = change(CATALOG, { stampChanged: true, reasonCodes: ["source-stamp-changed"] });
   expect(issues([changes[0]!, unexplained, changes[2]!]))
     .toContain(`changes[1].plannedAction must be update, the files[] action for ${CATALOG}`);

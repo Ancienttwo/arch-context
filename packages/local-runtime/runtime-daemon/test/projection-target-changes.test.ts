@@ -285,6 +285,39 @@ test("a target rejected for adoption or ownership repair is blocked and not a pl
   input.rejected = [{ path: PATH[INDEX], reasonCode: "projection-adoption-required" }, { path: PATH[MERMAID], reasonCode: "projection-ambiguous-ownership" }];
   input.files = [write(PATH[INDEX], "update"), write(PATH[MERMAID], "update")];
   const changes = classify(input);
-  expect(summary(changes.get(INDEX))).toEqual({ classification: "blocked", plannedAction: "none", reasonCodes: ["adoption-required"], affectedCapabilityIds: [] });
-  expect(summary(changes.get(MERMAID))).toEqual({ classification: "blocked", plannedAction: "none", reasonCodes: ["ambiguous-ownership"], affectedCapabilityIds: [] });
+  // The rendered digests match the committed rows, but the files[] updates prove the on-disk bytes
+  // (an edited or unowned document) differ from the proposed ones: outputChanged stays true.
+  for (const [targetId, reason] of [[INDEX, "adoption-required"], [MERMAID, "ambiguous-ownership"]] as const) {
+    expect(changes.get(targetId)).toMatchObject({ classification: "blocked", plannedAction: "none", outputChanged: true, reasonCodes: [reason, "file-bytes-changed"], affectedCapabilityIds: [] });
+  }
+  // The contract refuses the same blocked entry with the file change suppressed.
+  const suppressed = { ...changes.get(INDEX)!, outputChanged: false, reasonCodes: ["adoption-required" as const] };
+  // Sorted by path: diagrams/architecture.mmd, then index.md.
+  expect(projectionTargetChangesIssues([changes.get(MERMAID)!, suppressed], input.files))
+    .toContain(`changes[1].outputChanged must be true, the files[] entry for ${PATH[INDEX]} changes its bytes`);
+});
+
+test("a model change outside every capability marks the global documents semantic-change, never the module documents", () => {
+  const input = unchangedInput();
+  // A module or system node no capability owns changed a rendered field (for example its risk):
+  // no capability fingerprint moves, only the model digest.
+  input.modelDigest = digest("9");
+  input.files = [MANIFEST_WRITE];
+  const changes = classify(input);
+  for (const targetId of [INDEX, MERMAID]) {
+    expect(changes.get(targetId)).toMatchObject({ classification: "semantic-change", semanticChanged: true, plannedAction: "none", reasonCodes: ["model-digest-changed"], affectedCapabilityIds: [] });
+  }
+  for (const targetId of [ENTITY_A, ENTITY_B]) expect(changes.get(targetId)!.classification).toBe("unchanged");
+  // With a capability change as well, the global documents name both reasons.
+  input.capabilities = input.capabilities.map((entry) => entry.capabilityId === A ? { ...entry, semanticFingerprint: digest("8") } : entry);
+  expect(summary(classify(input).get(INDEX))).toEqual({ classification: "semantic-change", plannedAction: "none", reasonCodes: ["model-digest-changed", "semantic-fingerprint-changed"], affectedCapabilityIds: [A] });
+});
+
+test("a source-only edit leaves the global documents unchanged, the model digest included", () => {
+  const input = unchangedInput();
+  input.renderedTargets[ENTITY_A] = entityRow(ENTITY_A, A, { [A]: digest("4"), [`${A}.child`]: digest("9") });
+  input.files = [MANIFEST_WRITE];
+  const changes = classify(input);
+  for (const targetId of [INDEX, MERMAID]) expect(summary(changes.get(targetId))).toEqual({ classification: "unchanged", plannedAction: "none", reasonCodes: [], affectedCapabilityIds: [] });
+  expect(changes.get(ENTITY_A)!.classification).toBe("stamp-only");
 });

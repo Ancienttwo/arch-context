@@ -13,6 +13,11 @@ export const PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION = "archcontext.proj
 export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v1" as const;
 export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
 export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v6" as const;
+/**
+ * The committed projection manifest's path. `projection-manifest.ts` owns its shape and byte layout;
+ * the path lives here because a projection result's `files[]` names the manifest write.
+ */
+export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH = "docs/architecture/.projection-manifest.json" as const;
 export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v1" as const;
 
 export const PROJECTION_MODES = ["check", "plan", "apply", "adopt"] as const;
@@ -1086,8 +1091,9 @@ export function projectionTargetChangeClassification(
  * Shape, canonical order and internal consistency of a result's `changes`, and their binding to its
  * `files`: a change with a planned action names the `files[]` entry of its path with that action; a
  * `files[]` entry a change names but does not plan is a path rejected for adoption or ownership
- * repair, so that change is blocked by that rejection. The one `files[]` entry no change names is
- * the projection manifest.
+ * repair, so that change is blocked by that rejection, and still reports the bytes that entry
+ * changes (`outputChanged`). Every `files[]` entry that changes a file has a change of its path,
+ * except the projection manifest, which is never a target.
  */
 export function projectionTargetChangesIssues(input: readonly ProjectionTargetChangeV1[], files: readonly ProjectionFileResultV1[] = []): string[] {
   const issues = sortedUniqueIssues("changes.path", input.map((entry) => entry.path));
@@ -1126,6 +1132,13 @@ export function projectionTargetChangesIssues(input: readonly ProjectionTargetCh
     if (entry.plannedAction !== fileAction && !(rejected && entry.plannedAction === "none" && fileAction === "update")) {
       issues.push(`${prefix}.plannedAction must be ${fileAction}, the files[] action for ${entry.path}`);
     }
+    // The file result proves the bytes change, whether or not this run may write them.
+    if (fileAction !== "none" && entry.outputChanged !== true) issues.push(`${prefix}.outputChanged must be true, the files[] entry for ${entry.path} changes its bytes`);
+  }
+  const changedPaths = new Set(input.map((entry) => entry.path));
+  for (const file of files) {
+    if (file.action === "unchanged" || file.path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH || changedPaths.has(file.path)) continue;
+    issues.push(`changes must name the files[] ${file.action} of ${file.path}; only the projection manifest has none`);
   }
   return issues;
 }

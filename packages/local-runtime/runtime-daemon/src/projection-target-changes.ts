@@ -151,8 +151,10 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
     }
 
     const file = fileByPath.get(entry.path);
-    const plannedAction: ProjectionTargetChangePlannedAction = rejection !== undefined || file === undefined || file.action === "unchanged" ? "none" : file.action;
-    if (plannedAction !== "none" && !reasons.has("rendered-output-changed") && !reasons.has("target-added") && !reasons.has("target-removed")) {
+    const fileAction: ProjectionTargetChangePlannedAction = file === undefined || file.action === "unchanged" ? "none" : file.action;
+    // A rejected path is never written, but its file result still proves the bytes differ.
+    const plannedAction: ProjectionTargetChangePlannedAction = rejection !== undefined ? "none" : fileAction;
+    if (fileAction !== "none" && !reasons.has("rendered-output-changed") && !reasons.has("target-added") && !reasons.has("target-removed")) {
       reasons.add("file-bytes-changed");
     }
     const outputChanged = ["file-bytes-changed", "rendered-output-changed", "target-added", "target-removed"]
