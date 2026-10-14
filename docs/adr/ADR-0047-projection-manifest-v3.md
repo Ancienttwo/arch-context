@@ -152,6 +152,29 @@ do.
 - Capability `projection-capability-isolation-v1`. Partial writes that accept a semantic change
   with row-scoped receipts (Phase 2) are not implemented.
 
+### 7. Per-target change classification
+
+The rows and capability entries also answer "which documents does this change really affect"
+(issue #327 finding 2, slice S4). `projection run` `check` and `plan` results carry `changes[]`,
+one entry per target path over the current targets, the committed rows and the orphans; the
+manifest is not a target.
+
+- Each entry compares the target with the committed manifest: its row's `sourceStamps` and
+  `outputDigest`, the `semanticFingerprint` of the capabilities it documents, and for a module
+  document their `flowProofFingerprint` and `selectorEvidenceDigest`. No new fingerprint is
+  computed. An unknown comparison (no v3 manifest, or no row for the target) is `null`, never
+  `false`.
+- `classification` is derived by one rule in the contracts package: blocked > baseline-missing >
+  proof-change > semantic-change > output-change > stamp-only > unchanged. `stamp-only` requires
+  unchanged output bytes and known, unchanged semantic and proof comparisons on a target nothing
+  blocks.
+- `plannedAction` is the result's `files[]` action for the path, the same decision `apply`
+  commits, so the targets with a planned action are exactly the documents apply writes or
+  deletes. `blocked` comes from the isolation's carried-forward targets (the `coverage`
+  authority), review orphans and adoption or ownership rejections, and never plans a write.
+- Classification is a report. It changes no status, write, receipt, gate, `staleNodes` or
+  `projection freshness` answer.
+
 ## Consequences
 
 - Branches that document different capabilities merge without manifest conflicts; model changes
