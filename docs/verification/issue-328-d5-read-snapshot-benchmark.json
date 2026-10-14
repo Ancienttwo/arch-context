@@ -33,14 +33,12 @@
     "subjects": [
       {
         "name": "representative",
-        "root": "/private/tmp/archcontext-d5-bench-repo-harness",
         "repoSha": "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
         "identity": "90cd97fb + audited supported v3 migration",
         "inputFingerprint": "sha256:86304321c404fc321f4fd0c8a86401c917660eab07f19d30a126d32309f8da17"
       },
       {
         "name": "control",
-        "root": "/private/tmp/archcontext-d5-bench-arch-context",
         "repoSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
         "identity": "unmodified a697adad control",
         "inputFingerprint": "sha256:4cf037a4d8ba68867c154b380f218ae95d88710a1821ced5109870bbf34c5aa5"
@@ -145,7 +143,6 @@
   "subjects": [
     {
       "name": "representative",
-      "root": "/private/tmp/archcontext-d5-bench-repo-harness",
       "repoSha": "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
       "paths": [
         "assets/templates/helpers/acceptance-receipt.ts",
@@ -189,7 +186,6 @@
     },
     {
       "name": "control",
-      "root": "/private/tmp/archcontext-d5-bench-arch-context",
       "repoSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
       "paths": [
         "packages/contracts/src/architecture-debt.ts",
@@ -6671,8 +6667,7 @@
       "engine": {
         "sha": "a697adad7bf686f309405d7a9feef8173d8140a5",
         "lockSha256": "6a0e4f93c700ceee00334037cc9e8672ba5bd408327d20e2871fb33f1dbd8645",
-        "productFingerprint": "sha256:d9b4995cd88d7a561110cda212820286b698fee86b08020ff8e5afc305d26e19",
-        "entry": "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts"
+        "productFingerprint": "sha256:d9b4995cd88d7a561110cda212820286b698fee86b08020ff8e5afc305d26e19"
       },
       "completedAt": "2026-10-14T16:20:41.184Z",
       "finalRepresentativeBudgetPassed": true,
@@ -6689,22 +6684,6 @@
             "assets/templates/helpers/capability-config.ts",
             "assets/templates/helpers/capability-resolver.ts",
             "assets/templates/helpers/change-assessment.ts",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
             "assets/templates/helpers/check-skill-version.ts"
           ],
           "elapsedNs": "2443138500",
@@ -6734,22 +6713,6 @@
             "assets/templates/helpers/change-assessment.ts",
             "assets/templates/helpers/check-skill-version.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
           "elapsedNs": "666072167",
           "elapsedMs": 666.072167,
           "below3000ms": true,
@@ -6775,22 +6738,6 @@
             "assets/templates/helpers/capability-config.ts",
             "assets/templates/helpers/capability-resolver.ts",
             "assets/templates/helpers/change-assessment.ts",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
             "assets/templates/helpers/check-skill-version.ts"
           ],
           "elapsedNs": "669114792",
@@ -6820,22 +6767,6 @@
             "assets/templates/helpers/change-assessment.ts",
             "assets/templates/helpers/check-skill-version.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
           "elapsedNs": "677669542",
           "elapsedMs": 677.669542,
           "below3000ms": true,
@@ -6863,22 +6794,6 @@
             "assets/templates/helpers/change-assessment.ts",
             "assets/templates/helpers/check-skill-version.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
           "elapsedNs": "691211458",
           "elapsedMs": 691.211458,
           "below3000ms": true,
@@ -6900,11 +6815,6 @@
           "repoSha": "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
           "inputFingerprint": "sha256:86304321c404fc321f4fd0c8a86401c917660eab07f19d30a126d32309f8da17",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/archcontext-d5-baseline-engine/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "2592896792",
           "elapsedMs": 2592.896792,
           "below3000ms": true,
@@ -6925,11 +6835,6 @@
           "repoSha": "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
           "inputFingerprint": "sha256:86304321c404fc321f4fd0c8a86401c917660eab07f19d30a126d32309f8da17",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/archcontext-d5-baseline-engine/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "2494512792",
           "elapsedMs": 2494.512792,
           "below3000ms": true,
@@ -6950,11 +6855,6 @@
           "repoSha": "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
           "inputFingerprint": "sha256:86304321c404fc321f4fd0c8a86401c917660eab07f19d30a126d32309f8da17",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/archcontext-d5-baseline-engine/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "2483884416",
           "elapsedMs": 2483.884416,
           "below3000ms": true,
@@ -6979,22 +6879,6 @@
             "packages/core/review-engine/src/architecture-debt.ts",
             "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "packages/surfaces/cli/src/main.ts"
-          ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
             "packages/surfaces/cli/src/main.ts"
           ],
           "elapsedNs": "230118708",
@@ -7024,22 +6908,6 @@
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
             "packages/surfaces/cli/src/main.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
-            "packages/surfaces/cli/src/main.ts"
-          ],
           "elapsedNs": "196747291",
           "elapsedMs": 196.747291,
           "below3000ms": true,
@@ -7065,22 +6933,6 @@
             "packages/core/review-engine/src/architecture-debt.ts",
             "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "packages/surfaces/cli/src/main.ts"
-          ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
             "packages/surfaces/cli/src/main.ts"
           ],
           "elapsedNs": "195489375",
@@ -7110,22 +6962,6 @@
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
             "packages/surfaces/cli/src/main.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
-            "packages/surfaces/cli/src/main.ts"
-          ],
           "elapsedNs": "203511916",
           "elapsedMs": 203.511916,
           "below3000ms": true,
@@ -7153,22 +6989,6 @@
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
             "packages/surfaces/cli/src/main.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/archcontext-d5-baseline-engine/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
-            "packages/surfaces/cli/src/main.ts"
-          ],
           "elapsedNs": "192983500",
           "elapsedMs": 192.9835,
           "below3000ms": true,
@@ -7190,11 +7010,6 @@
           "repoSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
           "inputFingerprint": "sha256:4cf037a4d8ba68867c154b380f218ae95d88710a1821ced5109870bbf34c5aa5",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/archcontext-d5-baseline-engine/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "1265375750",
           "elapsedMs": 1265.37575,
           "below3000ms": true,
@@ -7215,11 +7030,6 @@
           "repoSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
           "inputFingerprint": "sha256:4cf037a4d8ba68867c154b380f218ae95d88710a1821ced5109870bbf34c5aa5",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/archcontext-d5-baseline-engine/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "1246525791",
           "elapsedMs": 1246.525791,
           "below3000ms": true,
@@ -7240,11 +7050,6 @@
           "repoSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
           "inputFingerprint": "sha256:4cf037a4d8ba68867c154b380f218ae95d88710a1821ced5109870bbf34c5aa5",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/archcontext-d5-baseline-engine/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "1256087208",
           "elapsedMs": 1256.087208,
           "below3000ms": true,
@@ -7265,8 +7070,7 @@
       "engine": {
         "sha": "dabf86ab93cfea3566df0a994754086d5104e4a6",
         "lockSha256": "6a0e4f93c700ceee00334037cc9e8672ba5bd408327d20e2871fb33f1dbd8645",
-        "productFingerprint": "sha256:f7c3a35474ac18e5d7deee28b581b9a0094d18e71848710625d3d828b77aee96",
-        "entry": "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts"
+        "productFingerprint": "sha256:f7c3a35474ac18e5d7deee28b581b9a0094d18e71848710625d3d828b77aee96"
       },
       "completedAt": "2026-10-14T16:21:45.739Z",
       "finalRepresentativeBudgetPassed": true,
@@ -7283,22 +7087,6 @@
             "assets/templates/helpers/capability-config.ts",
             "assets/templates/helpers/capability-resolver.ts",
             "assets/templates/helpers/change-assessment.ts",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
             "assets/templates/helpers/check-skill-version.ts"
           ],
           "elapsedNs": "644328041",
@@ -7328,22 +7116,6 @@
             "assets/templates/helpers/change-assessment.ts",
             "assets/templates/helpers/check-skill-version.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
           "elapsedNs": "657905000",
           "elapsedMs": 657.905,
           "below3000ms": true,
@@ -7369,22 +7141,6 @@
             "assets/templates/helpers/capability-config.ts",
             "assets/templates/helpers/capability-resolver.ts",
             "assets/templates/helpers/change-assessment.ts",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
             "assets/templates/helpers/check-skill-version.ts"
           ],
           "elapsedNs": "629909667",
@@ -7414,22 +7170,6 @@
             "assets/templates/helpers/change-assessment.ts",
             "assets/templates/helpers/check-skill-version.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
           "elapsedNs": "626057875",
           "elapsedMs": 626.057875,
           "below3000ms": true,
@@ -7457,22 +7197,6 @@
             "assets/templates/helpers/change-assessment.ts",
             "assets/templates/helpers/check-skill-version.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "assets/templates/helpers/acceptance-receipt.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-config.ts",
-            "--changed-path",
-            "assets/templates/helpers/capability-resolver.ts",
-            "--changed-path",
-            "assets/templates/helpers/change-assessment.ts",
-            "--changed-path",
-            "assets/templates/helpers/check-skill-version.ts"
-          ],
           "elapsedNs": "607513208",
           "elapsedMs": 607.513208,
           "below3000ms": true,
@@ -7494,11 +7218,6 @@
           "repoSha": "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
           "inputFingerprint": "sha256:86304321c404fc321f4fd0c8a86401c917660eab07f19d30a126d32309f8da17",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "2400331541",
           "elapsedMs": 2400.331541,
           "below3000ms": true,
@@ -7519,11 +7238,6 @@
           "repoSha": "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
           "inputFingerprint": "sha256:86304321c404fc321f4fd0c8a86401c917660eab07f19d30a126d32309f8da17",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "2371452542",
           "elapsedMs": 2371.452542,
           "below3000ms": true,
@@ -7544,11 +7258,6 @@
           "repoSha": "90cd97fb84fb92e242c70f8f7f1a6eb4411d9a49",
           "inputFingerprint": "sha256:86304321c404fc321f4fd0c8a86401c917660eab07f19d30a126d32309f8da17",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "2410442916",
           "elapsedMs": 2410.442916,
           "below3000ms": true,
@@ -7573,22 +7282,6 @@
             "packages/core/review-engine/src/architecture-debt.ts",
             "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "packages/surfaces/cli/src/main.ts"
-          ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
             "packages/surfaces/cli/src/main.ts"
           ],
           "elapsedNs": "169040042",
@@ -7618,22 +7311,6 @@
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
             "packages/surfaces/cli/src/main.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
-            "packages/surfaces/cli/src/main.ts"
-          ],
           "elapsedNs": "175156834",
           "elapsedMs": 175.156834,
           "below3000ms": true,
@@ -7659,22 +7336,6 @@
             "packages/core/review-engine/src/architecture-debt.ts",
             "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "packages/surfaces/cli/src/main.ts"
-          ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
             "packages/surfaces/cli/src/main.ts"
           ],
           "elapsedNs": "168141333",
@@ -7704,22 +7365,6 @@
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
             "packages/surfaces/cli/src/main.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
-            "packages/surfaces/cli/src/main.ts"
-          ],
           "elapsedNs": "176549000",
           "elapsedMs": 176.549,
           "below3000ms": true,
@@ -7747,22 +7392,6 @@
             "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
             "packages/surfaces/cli/src/main.ts"
           ],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/surfaces/cli/src/main.ts",
-            "checkpoint",
-            "--json",
-            "--changed-path",
-            "packages/contracts/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/core/review-engine/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
-            "--changed-path",
-            "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-            "--changed-path",
-            "packages/surfaces/cli/src/main.ts"
-          ],
           "elapsedNs": "175310000",
           "elapsedMs": 175.31,
           "below3000ms": true,
@@ -7784,11 +7413,6 @@
           "repoSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
           "inputFingerprint": "sha256:4cf037a4d8ba68867c154b380f218ae95d88710a1821ced5109870bbf34c5aa5",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "1199620584",
           "elapsedMs": 1199.620584,
           "below3000ms": true,
@@ -7809,11 +7433,6 @@
           "repoSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
           "inputFingerprint": "sha256:4cf037a4d8ba68867c154b380f218ae95d88710a1821ced5109870bbf34c5aa5",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "1171868625",
           "elapsedMs": 1171.868625,
           "below3000ms": true,
@@ -7834,11 +7453,6 @@
           "repoSha": "a697adad7bf686f309405d7a9feef8173d8140a5",
           "inputFingerprint": "sha256:4cf037a4d8ba68867c154b380f218ae95d88710a1821ced5109870bbf34c5aa5",
           "changedPaths": [],
-          "argv": [
-            "/Users/kito/.bun/bin/bun",
-            "--eval",
-            "import {readCompleteTaskArchitectureDebt} from \"/private/tmp/worktrees/arch-context-328-d5-read-snapshot/packages/local-runtime/runtime-daemon/src/architecture-debt.ts\"; process.stdout.write(JSON.stringify(readCompleteTaskArchitectureDebt(process.cwd())));"
-          ],
           "elapsedNs": "1172992084",
           "elapsedMs": 1172.992084,
           "below3000ms": true,
@@ -7888,5 +7502,95 @@
     "Coverage remains partial; full-debt practice evidence is not enabled/evaluated. Existing acceptance-review P2 remains unprovable.",
     "Call-local reuse is not atomic and does not address edits during an invocation.",
     "The candidate product-source fingerprint is bound to dabf86ab; later benchmark/documentation/ownership commits do not change product source."
-  ]
+  ],
+  "publicEvidence": {
+    "directory": "issue-328-d5-read-snapshot-evidence/",
+    "redactionProtocol": "archcontext.d5-public-evidence-redaction/v1",
+    "originalSummarySha256": "79b8a6ecac0e8169e4d9245e13b696d530e53f79d9a1b248fc777ff68ed6b75c",
+    "rules": [
+      {
+        "selector": "fixtureLock.subjects[*].root; subjects[*].root",
+        "operation": "remove local fixture root only"
+      },
+      {
+        "selector": "runs[*].engine.entry",
+        "operation": "remove local engine entry path only"
+      },
+      {
+        "selector": "runs[*].samples[*].argv",
+        "operation": "remove local command vector only; preserve sample kind and literal changedPaths"
+      }
+    ],
+    "removedPointers": [
+      "/fixtureLock/subjects/0/root",
+      "/fixtureLock/subjects/1/root",
+      "/subjects/0/root",
+      "/subjects/1/root",
+      "/runs/0/engine/entry",
+      "/runs/0/samples/0/argv",
+      "/runs/0/samples/1/argv",
+      "/runs/0/samples/2/argv",
+      "/runs/0/samples/3/argv",
+      "/runs/0/samples/4/argv",
+      "/runs/0/samples/5/argv",
+      "/runs/0/samples/6/argv",
+      "/runs/0/samples/7/argv",
+      "/runs/0/samples/8/argv",
+      "/runs/0/samples/9/argv",
+      "/runs/0/samples/10/argv",
+      "/runs/0/samples/11/argv",
+      "/runs/0/samples/12/argv",
+      "/runs/0/samples/13/argv",
+      "/runs/0/samples/14/argv",
+      "/runs/0/samples/15/argv",
+      "/runs/1/engine/entry",
+      "/runs/1/samples/0/argv",
+      "/runs/1/samples/1/argv",
+      "/runs/1/samples/2/argv",
+      "/runs/1/samples/3/argv",
+      "/runs/1/samples/4/argv",
+      "/runs/1/samples/5/argv",
+      "/runs/1/samples/6/argv",
+      "/runs/1/samples/7/argv",
+      "/runs/1/samples/8/argv",
+      "/runs/1/samples/9/argv",
+      "/runs/1/samples/10/argv",
+      "/runs/1/samples/11/argv",
+      "/runs/1/samples/12/argv",
+      "/runs/1/samples/13/argv",
+      "/runs/1/samples/14/argv",
+      "/runs/1/samples/15/argv"
+    ],
+    "preserved": {
+      "sampleCount": 32,
+      "allElapsedNsAndMs": true,
+      "engineAndSourceShas": true,
+      "allInputAndHarnessFingerprints": true,
+      "allWholeReportsAndCoverage": true,
+      "allChangedPathsAndSampleOrder": true,
+      "firstSamplesAndFailureHistory": true
+    },
+    "files": [
+      {
+        "file": "README.md",
+        "sha256": "71c112439ce12c921ba4f1ad83fc93589b64d9a1b3cacf850adf36d8ddbf548b"
+      },
+      {
+        "file": "migration-audit.json",
+        "sha256": "fff670cd6e424f4968f0b375bb2ac1019f6116f7da6d4a6b29957764307ce7f0"
+      },
+      {
+        "file": "migration.patch",
+        "sha256": "05b76f8d58ab096ce47c5c5425eb8bb0d2bef60dc9aa06f09d9ebf583c7fc44f"
+      },
+      {
+        "file": "recompute-migration-audit.ts",
+        "sha256": "4f2953719ee1658e03aab97e2693a55eef811fa65ad58e555088541ea43ab963"
+      },
+      {
+        "file": "samples-allowlist.json",
+        "sha256": "e672d13a7cd8fe987cee01e7f53ba6b0f45935f6aa84678e04824aad66d7b88b"
+      }
+    ]
+  }
 }

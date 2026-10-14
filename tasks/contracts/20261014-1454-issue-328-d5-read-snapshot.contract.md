@@ -36,6 +36,7 @@ allowed_paths:
   - docs/runbooks/architecture-debt-read-benchmark.md
   - docs/researches/20261014-issue-328-d5-read-snapshot.md
   - docs/verification/issue-328-d5-read-snapshot-benchmark.json
+  - docs/verification/issue-328-d5-read-snapshot-evidence/
 ```
 
 ## Verification Plan
