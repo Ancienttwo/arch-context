@@ -13,6 +13,11 @@ export const PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION = "archcontext.proj
 export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v1" as const;
 export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
 export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v6" as const;
+/**
+ * The committed projection manifest's path. `projection-manifest.ts` owns its shape and byte layout;
+ * the path lives here because a projection result's `files[]` names the manifest write.
+ */
+export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH = "docs/architecture/.projection-manifest.json" as const;
 export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v1" as const;
 
 export const PROJECTION_MODES = ["check", "plan", "apply", "adopt"] as const;
@@ -93,6 +98,7 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-replay-v1",
   "projection-architecture-debt-v1",
   "projection-capability-isolation-v1",
+  "projection-change-classification-v1",
   "projection-check-freshness-v1",
   "projection-freshness-v1",
   "projection-manifest-contract-v3",
@@ -226,7 +232,68 @@ export const PROJECTION_ARCHITECTURE_DEBT_COVERAGE_REASON_CODES = [
   "workspace-resolution-failed"
 ] as const;
 
+/**
+ * How one target of a `check` or `plan` result changes (#327 finding 2), from the strongest reason
+ * down: `blocked` (a human must act before the target can be written: Phase 1 isolation, an orphan
+ * that needs review, an adoption or ownership rejection), `proof-change` (a known proof change,
+ * which a missing baseline never hides), `baseline-missing` (a comparison is unknown: no committed
+ * v3 manifest, or no committed row for the target), `semantic-change`, `output-change`,
+ * `stamp-only` (only the source stamps moved) and `unchanged`.
+ * `projectionTargetChangeClassification` is the one precedence rule.
+ */
+export const PROJECTION_TARGET_CHANGE_CLASSIFICATIONS = [
+  "baseline-missing",
+  "blocked",
+  "output-change",
+  "proof-change",
+  "semantic-change",
+  "stamp-only",
+  "unchanged"
+] as const;
+/** What the projection write does to the target's file: the result's own `files[]` decision for that path. */
+export const PROJECTION_TARGET_CHANGE_PLANNED_ACTIONS = ["create", "delete", "none", "update"] as const;
+/** The reason codes that block a target: no apply writes it until a human acts. */
+export const PROJECTION_TARGET_CHANGE_BLOCKING_REASON_CODES = [
+  "adoption-required",
+  "ambiguous-ownership",
+  "orphan-review-required",
+  "unprovable-required-flow",
+  "verified-flow-proof-changed"
+] as const;
+/**
+ * Why a target is classified as it is. Each comparison flag has its codes: `stampChanged` is
+ * `source-stamp-changed`; `semanticChanged` is `semantic-fingerprint-changed` or, for a target that
+ * describes the whole model, `model-digest-changed` (the committed `semanticBaseline.modelDigest`
+ * differs from the current model's); `proofChanged` is
+ * `flow-proof-changed` or `selector-evidence-changed`; `outputChanged` is `rendered-output-changed`
+ * (the rendered output differs from the committed row's `outputDigest`), `target-added`,
+ * `target-removed` or `file-bytes-changed` (the write changes the file although its rendered output
+ * is the committed one: a marker, a missing file, an edited region); an unknown comparison is
+ * `baseline-missing` or `target-row-missing`.
+ */
+export const PROJECTION_TARGET_CHANGE_REASON_CODES = [
+  "adoption-required",
+  "ambiguous-ownership",
+  "baseline-missing",
+  "file-bytes-changed",
+  "flow-proof-changed",
+  "model-digest-changed",
+  "orphan-review-required",
+  "rendered-output-changed",
+  "selector-evidence-changed",
+  "semantic-fingerprint-changed",
+  "source-stamp-changed",
+  "target-added",
+  "target-removed",
+  "target-row-missing",
+  "unprovable-required-flow",
+  "verified-flow-proof-changed"
+] as const;
+
 export type ProjectionMode = (typeof PROJECTION_MODES)[number];
+export type ProjectionTargetChangeClassification = (typeof PROJECTION_TARGET_CHANGE_CLASSIFICATIONS)[number];
+export type ProjectionTargetChangePlannedAction = (typeof PROJECTION_TARGET_CHANGE_PLANNED_ACTIONS)[number];
+export type ProjectionTargetChangeReasonCode = (typeof PROJECTION_TARGET_CHANGE_REASON_CODES)[number];
 export type ProjectionFreshnessReasonCode = (typeof PROJECTION_FRESHNESS_REASON_CODES)[number];
 export type ProjectionTarget = (typeof PROJECTION_TARGETS)[number];
 export type ProjectionResultStatus = (typeof PROJECTION_RESULT_STATUSES)[number];
@@ -508,6 +575,43 @@ export interface ProjectionCoverageV1 {
   appliedTargetIds: string[];
 }
 
+/**
+ * One target of a `check` or `plan` result (#327 finding 2): how it changes since the committed
+ * projection, and what this run's write does to its file. The entries cover the union of the
+ * current layout's targets and the committed manifest's rows (plus orphans the manifest does not
+ * record), one per path. The projection manifest is not a target; its write is the `files[]` entry
+ * no change names.
+ *
+ * Each comparison is against the committed v3 manifest: `stampChanged` the target row's
+ * `sourceStamps`; `outputChanged` the row's `outputDigest`, or any byte the write changes;
+ * `semanticChanged` the `semanticFingerprint` of a capability the target documents (every
+ * capability for a target that is not an entity summary, which also compares the manifest's
+ * `semanticBaseline.modelDigest`, because it renders the whole model); `proofChanged` the `flowProofFingerprint`
+ * or `selectorEvidenceDigest` of a capability an entity summary documents. `null` is an unknown
+ * comparison, never `false`.
+ *
+ * `plannedAction` is the result's own write decision (`files[]`) for that path. When `status` is
+ * `planned` or `planned-partial`, the targets whose action is not `none` are exactly the documents
+ * an apply of this run writes or deletes; under `adoption-required` or `human-action-required`
+ * apply writes nothing, and `plannedAction` reports only what the render would write. A
+ * path rejected for adoption or ownership repair is `blocked` and `none`, because only an
+ * approved adoption writes it. `classification` never changes `status`, the write set or a gate.
+ */
+export interface ProjectionTargetChangeV1 {
+  targetId: string;
+  path: string;
+  /** Sorted and unique: the documented capabilities whose change affects this target. Empty when unchanged. */
+  affectedCapabilityIds: string[];
+  stampChanged: boolean | null;
+  outputChanged: boolean;
+  semanticChanged: boolean | null;
+  proofChanged: boolean | null;
+  plannedAction: ProjectionTargetChangePlannedAction;
+  classification: ProjectionTargetChangeClassification;
+  /** Sorted and unique. Empty exactly when `classification` is `unchanged`. */
+  reasonCodes: ProjectionTargetChangeReasonCode[];
+}
+
 export interface ProjectionResultV2 {
   schemaVersion: typeof PROJECTION_RESULT_SCHEMA_VERSION;
   requestId: string;
@@ -536,6 +640,11 @@ export interface ProjectionResultV2 {
    * capability, not on field presence.
    */
   architectureDebt?: ProjectionArchitectureDebtV1;
+  /**
+   * Present on every `check` and `plan` result, and on no other: per-target change classification,
+   * sorted by path (#327). It never changes `status` or `files`.
+   */
+  changes?: ProjectionTargetChangeV1[];
   /**
    * Present, as `true`, only when this response returns an apply this requestId already committed
    * for the same request digest, without applying again (#265). It is excluded from
@@ -752,6 +861,13 @@ export function projectionResultRequestModeIssues(input: ProjectionResultV2, mod
   if (mode !== "check" && mode !== "plan" && input.architectureDebt !== undefined) {
     issues.push(`architectureDebt is only allowed on a check or plan result, never when mode=${mode}`);
   }
+  if (mode !== "check" && mode !== "plan" && input.changes !== undefined) {
+    issues.push(`changes is only allowed on a check or plan result, never when mode=${mode}`);
+  }
+  // The schema cannot condition on the request mode, so the presence promise is checked here.
+  if ((mode === "check" || mode === "plan") && input.changes === undefined) {
+    issues.push(`changes is required on every check or plan result, also when mode=${mode}`);
+  }
   if (input.status === "planned-partial" && mode !== "check" && mode !== "plan") {
     issues.push(`planned-partial is only allowed on a check or plan result, never when mode=${mode}`);
   }
@@ -835,6 +951,17 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     issues.push(...projectionArchitectureDebtIssues(input.architectureDebt));
     if (committedApply) {
       issues.push("architectureDebt is only allowed on a check or plan result, never on a committed apply");
+    }
+  }
+  if (input.changes) {
+    issues.push(...projectionTargetChangesIssues(input.changes, input.files));
+    if (committedApply) issues.push("changes is only allowed on a check or plan result, never on a committed apply");
+    // A carried-forward target is blocked, by the same reasons its coverage entry names.
+    for (const target of input.coverage?.blockedTargets ?? []) {
+      const entry = input.changes.find((candidate) => candidate.path === target.path);
+      if (!entry || entry.classification !== "blocked" || target.reasonCodes.some((code) => !entry.reasonCodes.includes(code))) {
+        issues.push(`changes must classify the carried-forward target ${target.path} as blocked with its coverage reason codes`);
+      }
     }
   }
   if (input.majorChangeAcceptance !== undefined) {
@@ -934,6 +1061,89 @@ export function projectionCoverageIssues(input: ProjectionCoverageV1, files: rea
   }
   for (const file of files) {
     if (blockedPaths.has(file.path)) issues.push(`files[] must not write the carried-forward target path ${file.path}`);
+  }
+  return issues;
+}
+
+const TARGET_CHANGE_BLOCKING_REASONS = new Set<string>(PROJECTION_TARGET_CHANGE_BLOCKING_REASON_CODES);
+const TARGET_CHANGE_UNKNOWN_REASONS = ["baseline-missing", "target-row-missing"] as const;
+const TARGET_CHANGE_OUTPUT_REASONS = ["file-bytes-changed", "rendered-output-changed", "target-added", "target-removed"] as const;
+const TARGET_CHANGE_PROOF_REASONS = ["flow-proof-changed", "selector-evidence-changed"] as const;
+const TARGET_CHANGE_SEMANTIC_REASONS = ["model-digest-changed", "semantic-fingerprint-changed"] as const;
+
+/**
+ * The one precedence rule of a target change: blocked > proof-change (`proofChanged === true`) >
+ * baseline-missing > semantic-change > output-change > stamp-only > unchanged. A known proof change
+ * is never hidden by an unknown comparison (a target without a committed row can still carry a
+ * moved flow proof); an unknown comparison outranks everything below the proof change and is never
+ * `unchanged`. `stamp-only` therefore means the stamps moved while the output bytes, and the
+ * semantic and proof comparisons, are known and unchanged on a target nothing blocks.
+ */
+export function projectionTargetChangeClassification(
+  input: Pick<ProjectionTargetChangeV1, "reasonCodes" | "stampChanged" | "outputChanged" | "semanticChanged" | "proofChanged">
+): ProjectionTargetChangeClassification {
+  if (input.reasonCodes.some((code) => TARGET_CHANGE_BLOCKING_REASONS.has(code))) return "blocked";
+  if (input.proofChanged === true) return "proof-change";
+  if (input.stampChanged === null || input.semanticChanged === null || input.proofChanged === null) return "baseline-missing";
+  if (input.semanticChanged) return "semantic-change";
+  if (input.outputChanged) return "output-change";
+  if (input.stampChanged) return "stamp-only";
+  return "unchanged";
+}
+
+/**
+ * Shape, canonical order and internal consistency of a result's `changes`, and their binding to its
+ * `files`: a change with a planned action names the `files[]` entry of its path with that action; a
+ * `files[]` entry a change names but does not plan is a path rejected for adoption or ownership
+ * repair, so that change is blocked by that rejection, and still reports the bytes that entry
+ * changes (`outputChanged`). Every `files[]` entry that changes a file has a change of its path,
+ * except the projection manifest, which is never a target.
+ */
+export function projectionTargetChangesIssues(input: readonly ProjectionTargetChangeV1[], files: readonly ProjectionFileResultV1[] = []): string[] {
+  const issues = sortedUniqueIssues("changes.path", input.map((entry) => entry.path));
+  const fileByPath = new Map(files.map((file) => [file.path, file]));
+  const reasons = new Set<string>(PROJECTION_TARGET_CHANGE_REASON_CODES);
+  for (const [index, entry] of input.entries()) {
+    const prefix = `changes[${index}]`;
+    const has = (codes: readonly string[]) => codes.some((code) => entry.reasonCodes.includes(code as ProjectionTargetChangeReasonCode));
+    if (typeof entry.targetId !== "string" || entry.targetId.trim() === "") issues.push(`${prefix}.targetId must not be empty`);
+    if (!isRepoRelativePosixPath(entry.path)) issues.push(`${prefix}.path must be a repository-relative POSIX path`);
+    issues.push(...sortedUniqueIssues(`${prefix}.affectedCapabilityIds`, entry.affectedCapabilityIds), ...sortedUniqueIssues(`${prefix}.reasonCodes`, entry.reasonCodes));
+    if (entry.affectedCapabilityIds.some((id) => typeof id !== "string" || id.trim() === "")) issues.push(`${prefix}.affectedCapabilityIds must not contain empty ids`);
+    const unsupported = entry.reasonCodes.find((code) => !reasons.has(code));
+    if (unsupported !== undefined) issues.push(`${prefix}.reasonCodes contains an unsupported code: ${unsupported}`);
+    for (const field of ["stampChanged", "semanticChanged", "proofChanged"] as const) {
+      if (entry[field] !== null && typeof entry[field] !== "boolean") issues.push(`${prefix}.${field} must be a boolean or null`);
+    }
+    if (typeof entry.outputChanged !== "boolean") issues.push(`${prefix}.outputChanged must be a boolean`);
+    if (!(PROJECTION_TARGET_CHANGE_PLANNED_ACTIONS as readonly string[]).includes(entry.plannedAction)) issues.push(`${prefix}.plannedAction is unsupported`);
+    if ((entry.stampChanged === true) !== has(["source-stamp-changed"])) issues.push(`${prefix}.stampChanged must be true exactly when source-stamp-changed is reported`);
+    if ((entry.semanticChanged === true) !== has(TARGET_CHANGE_SEMANTIC_REASONS)) issues.push(`${prefix}.semanticChanged must be true exactly when semantic-fingerprint-changed or model-digest-changed is reported`);
+    if ((entry.proofChanged === true) !== has(TARGET_CHANGE_PROOF_REASONS)) issues.push(`${prefix}.proofChanged must be true exactly when flow-proof-changed or selector-evidence-changed is reported`);
+    if (entry.outputChanged !== has(TARGET_CHANGE_OUTPUT_REASONS)) issues.push(`${prefix}.outputChanged must be true exactly when an output reason code is reported`);
+    if ((entry.stampChanged === null || entry.semanticChanged === null || entry.proofChanged === null) !== has(TARGET_CHANGE_UNKNOWN_REASONS)) {
+      issues.push(`${prefix} must report baseline-missing or target-row-missing exactly when a comparison is unknown`);
+    }
+    const derived = projectionTargetChangeClassification(entry);
+    if (entry.classification !== derived) issues.push(`${prefix}.classification must be ${derived} for its comparisons and reason codes`);
+    if ((entry.classification === "unchanged") !== (entry.reasonCodes.length === 0)) issues.push(`${prefix}.reasonCodes must be empty exactly when classification is unchanged`);
+    if (entry.classification === "unchanged" && entry.affectedCapabilityIds.length > 0) issues.push(`${prefix} is unchanged, so affectedCapabilityIds must be empty`);
+    if (entry.classification === "blocked" && entry.plannedAction !== "none") issues.push(`${prefix} is blocked, so plannedAction must be none`);
+    if (entry.plannedAction !== "none" && entry.outputChanged !== true) issues.push(`${prefix} writes its file, so outputChanged must be true`);
+    if (entry.path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH) issues.push(`${prefix} names the projection manifest, which is not a target`);
+    const file = fileByPath.get(entry.path);
+    const fileAction = file === undefined || file.action === "unchanged" ? "none" : file.action;
+    const rejected = has(["adoption-required", "ambiguous-ownership"]);
+    if (entry.plannedAction !== fileAction && !(rejected && entry.plannedAction === "none" && fileAction === "update")) {
+      issues.push(`${prefix}.plannedAction must be ${fileAction}, the files[] action for ${entry.path}`);
+    }
+    // The file result proves the bytes change, whether or not this run may write them.
+    if (fileAction !== "none" && entry.outputChanged !== true) issues.push(`${prefix}.outputChanged must be true, the files[] entry for ${entry.path} changes its bytes`);
+  }
+  const changedPaths = new Set(input.map((entry) => entry.path));
+  for (const file of files) {
+    if (file.action === "unchanged" || file.path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH || changedPaths.has(file.path)) continue;
+    issues.push(`changes must name the files[] ${file.action} of ${file.path}; only the projection manifest has none`);
   }
   return issues;
 }

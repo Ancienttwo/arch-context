@@ -25,7 +25,6 @@ import { digestJson, isRepoRelativePosixPath, type Json } from "./schema";
  * A `v1` or `v2` manifest is read only for its `schemaVersion` and refused with
  * `projection-manifest-upgrade-required`; nothing else in it is read.
  */
-export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH = "docs/architecture/.projection-manifest.json" as const;
 export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION = "archcontext.architecture-docs-projection-manifest/v3" as const;
 /** Manifest versions earlier releases wrote. Only their `schemaVersion` is read, to refuse them. */
 export const SUPERSEDED_ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSIONS = [

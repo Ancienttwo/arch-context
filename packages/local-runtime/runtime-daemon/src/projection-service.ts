@@ -6,9 +6,10 @@ import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import { ProjectionFreshnessChangedPathError, evaluateProjectionFreshness, measureProjectionFreshness, projectionFreshnessContract } from "./projection-freshness";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
+import { classifyProjectionTargetChanges } from "./projection-target-changes";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, Sha256Digest } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV1, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -1399,6 +1400,9 @@ function projectionProtocolResult(
       worktreeDigest: input.runtimeSnapshot.worktreeDigest
     })
     : undefined;
+  // Classification is reported, never acted on: it reads the input render and the files this
+  // result reports, and changes no status, file or gate (#327).
+  const changes = request.mode === "check" || request.mode === "plan" ? projectionTargetChanges(input, plannedFiles) : undefined;
   const withoutReceipt: Omit<ProjectionResultV2, "receiptDigest"> = {
     schemaVersion: "archcontext.projection-result/v2",
     requestId: request.requestId,
@@ -1413,6 +1417,7 @@ function projectionProtocolResult(
     ...(priorCommittedApplies.length > 0 ? { priorCommittedApplies } : {}),
     ...(freshness ? { freshness } : {}),
     ...(architectureDebt ? { architectureDebt } : {}),
+    ...(changes ? { changes } : {}),
     ...(declinedUnprovableNodeIds && status === "human-action-required" ? { majorChangeAcceptance: "declined-unprovable-proof" as const } : {}),
     ...(status === "planned-partial" || status === "applied-partial" ? { coverage: projectionCoverage(input) } : {})
   };
@@ -1425,6 +1430,30 @@ function projectionProtocolResult(
   const issues = [...projectionResultInvariantIssues(result), ...projectionResultRequestModeIssues(result, request.mode)];
   if (issues.length > 0) throw new Error(`projection result invariant failed: ${issues.join("; ")}`);
   return result;
+}
+
+/**
+ * The per-target change classification of a `check` or `plan` result (#327): the render's committed
+ * baseline, its complete rows and semantic state, and `files`, the result's own write decision
+ * (`projectionProtocolFiles`), so the targets with a planned action are exactly the documents an
+ * apply of this render writes or deletes. Blocked targets come from the isolation's carried-forward
+ * set, the review orphans and the adoption or ownership rejections.
+ */
+function projectionTargetChanges(
+  projection: ReturnType<typeof buildArchitectureDocsProjection>,
+  files: ProjectionResultV2["files"]
+): ProjectionTargetChangeV1[] {
+  return classifyProjectionTargetChanges({
+    committed: projection.plan.committedManifest,
+    renderedTargets: projection.plan.renderedTargets,
+    modelDigest: projection.plan.provenance.modelDigest,
+    capabilities: projection.plan.semanticState.capabilities,
+    selectorEvidenceDigests: projection.plan.proofEvidence.selectorEvidenceDigests,
+    files,
+    rejected: projection.plan.rejected,
+    orphans: projection.plan.orphans,
+    blockedTargets: projection.plan.isolation?.blockedTargets ?? []
+  });
 }
 
 /** A partial result's coverage: what the isolated plan carried forward and what it applies. */

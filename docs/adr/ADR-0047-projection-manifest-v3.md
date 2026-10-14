@@ -152,6 +152,39 @@ do.
 - Capability `projection-capability-isolation-v1`. Partial writes that accept a semantic change
   with row-scoped receipts (Phase 2) are not implemented.
 
+### 7. Per-target change classification
+
+The rows and capability entries also answer "which documents does this change really affect"
+(issue #327 finding 2, slice S4). `projection run` `check` and `plan` results carry `changes[]`,
+one entry per target path over the current targets, the committed rows and the orphans; the
+manifest is not a target.
+
+- Each entry compares the target with the committed manifest: its row's `sourceStamps` and
+  `outputDigest`, the `semanticFingerprint` of the capabilities it documents, and for a module
+  document their `flowProofFingerprint` and `selectorEvidenceDigest`. A global document (index,
+  decisions index, changelog, diagrams, relation summaries) renders the whole model, including
+  nodes no capability owns, so it also compares `semanticBaseline.modelDigest` with the current
+  model digest and is `semantic-change` (`model-digest-changed`) whenever the model moved; it may
+  over-report, and a source-only edit never moves it. No new fingerprint is computed. An unknown
+  comparison (no v3 manifest, or no row for the target) is `null`, never `false`.
+- `classification` is derived by one rule in the contracts package: blocked > proof-change (a
+  known proof change, `proofChanged === true`) > baseline-missing > semantic-change >
+  output-change > stamp-only > unchanged. A known proof change is never hidden by an unknown
+  comparison, so a target without a committed row whose capability's flow proof moved is
+  `proof-change` with `target-row-missing` among its reasons. `stamp-only` requires unchanged
+  output bytes and known, unchanged semantic and proof comparisons on a target nothing blocks.
+- `plannedAction` is the result's `files[]` action for the path, the same decision `apply`
+  commits. When `status` is `planned` or `planned-partial`, the targets with a planned action are
+  exactly the documents apply writes or deletes; under `adoption-required` or
+  `human-action-required` apply writes nothing, and `plannedAction` reports only what the render
+  would write. `blocked` comes from the isolation's carried-forward targets (the `coverage`
+  authority), review orphans and adoption or ownership rejections, and never plans a write. A
+  rejected path's `outputChanged` still follows its `files[]` entry. Every `files[]` entry that
+  changes a file has a change of its path; the manifest's write is the only one without, and
+  every `check` and `plan` result carries `changes[]`.
+- Classification is a report. It changes no status, write, receipt, gate, `staleNodes` or
+  `projection freshness` answer.
+
 ## Consequences
 
 - Branches that document different capabilities merge without manifest conflicts; model changes

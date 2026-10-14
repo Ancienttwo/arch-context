@@ -432,12 +432,14 @@ test("plan previews are bounded, action-typed and never ride a committed apply (
   expect(projectionResultInvariantIssues(withFiles([created], { status: "applied" }))).toContain("files[].preview is only allowed on a plan result, never on a committed apply");
 
   // Bound to its request mode, a preview is rejected on every non-plan result, whatever its status.
-  expect(projectionResultRequestModeIssues(valid, "plan")).toEqual([]);
+  // A check or plan result always carries changes (#327); the mode check reads only its presence.
+  const modeBound = (result: ProjectionResultV2, mode: string): ProjectionResultV2 => mode === "check" || mode === "plan" ? { ...result, changes: [] } : result;
+  expect(projectionResultRequestModeIssues(modeBound(valid, "plan"), "plan")).toEqual([]);
   for (const mode of ["check", "apply", "adopt"] as const) {
-    expect(projectionResultRequestModeIssues(valid, mode)).toEqual([`files[].preview is only allowed on a plan result, never when mode=${mode}`]);
+    expect(projectionResultRequestModeIssues(modeBound(valid, mode), mode)).toEqual([`files[].preview is only allowed on a plan result, never when mode=${mode}`]);
   }
   const { preview: _preview, ...createdWithoutPreview } = created;
-  expect(projectionResultRequestModeIssues(withFiles([createdWithoutPreview]), "check")).toEqual([]);
+  expect(projectionResultRequestModeIssues(modeBound(withFiles([createdWithoutPreview]), "check"), "check")).toEqual([]);
 });
 
 test("refresh signals carry a per-capability change breakdown (#264)", () => {
@@ -930,7 +932,7 @@ test("a partial projection carries coverage, never counts as acceptance and neve
     expect(projectionResultInvariantIssues(partial), status).toEqual([]);
     expect(validateJsonSchema(schema as any, partial as any).issues, status).toEqual([]);
   }
-  expect(projectionResultRequestModeIssues(result({ status: "planned-partial", coverage }), "check")).toEqual([]);
+  expect(projectionResultRequestModeIssues(result({ status: "planned-partial", coverage, changes: [] }), "check")).toEqual([]);
   expect(projectionResultRequestModeIssues(result({ status: "planned-partial", coverage }), "apply")).toContain("planned-partial is only allowed on a check or plan result, never when mode=apply");
   expect(projectionResultRequestModeIssues(result({ status: "applied-partial", coverage }), "plan")).toContain("applied-partial is only allowed on an apply result, never when mode=plan");
 
@@ -1080,7 +1082,7 @@ test("check and plan architecture debt is schema-valid, receipt-bound, mode-boun
   // Debt never rides on a committed apply, and is bound to check and plan requests.
   expect(projectionResultInvariantIssues({ ...valid, architectureDebt: debt }))
     .toContain("architectureDebt is only allowed on a check or plan result, never on a committed apply");
-  for (const mode of ["check", "plan"] as const) expect(projectionResultRequestModeIssues(signed(debt), mode)).toEqual([]);
+  for (const mode of ["check", "plan"] as const) expect(projectionResultRequestModeIssues({ ...signed(debt), changes: [] }, mode)).toEqual([]);
   for (const mode of ["apply", "adopt"] as const) {
     expect(projectionResultRequestModeIssues(signed(debt), mode)).toEqual([`architectureDebt is only allowed on a check or plan result, never when mode=${mode}`]);
   }
