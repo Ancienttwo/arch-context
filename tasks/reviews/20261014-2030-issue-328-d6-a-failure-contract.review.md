@@ -35,3 +35,13 @@ closed its P2. Other final passes were static; they do not establish canonical o
 Final affected suite: typecheck, package boundary audit, 398 tests/2434 assertions passed.
 Final packaged native Node and CLI smoke passed. Canonical governance remains separately pending
 because the ordinary helper runner stopped the first invocation at its 120-second budget.
+
+The exact committed-subject canonical run at 7fc6a9d9 recorded focused/package passes and
+a governance timeout at the approved ten-minute invocation bound (no snapshot drift).
+A subsequent test-only patch updates five stale message expectations in two existing CLI
+integration/preflight tests; independent assumption review found no weakened rejection or
+success checks and required exact details emptiness, which was included. Product source is
+unchanged. Full local governance/hosted current-HEAD acceptance remains unmet.
+
+The two corrected existing CLI cases passed (113 assertions); typecheck and contract
+validation passed. The full governance timeout remains an explicit acceptance gap.

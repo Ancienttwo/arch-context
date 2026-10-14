@@ -48,3 +48,23 @@ Tests use temporary state and local loopback fixtures. Sandbox listener restrict
 local execution outside the filesystem sandbox; no real service credentials or user state used.
 Hosted new-HEAD matrix and coordinator independent acceptance remain separate requirements.
 No self-merge, release, or closure of #328.
+
+## Committed-subject canonical result and test follow-up
+
+The coordinator approved one direct packaged-helper invocation capped at 600000ms. At exact
+7fc6a9d9122edcc96c7cea806f4215cf006b62fe the canonical report recorded two exact passes
+(focused 67397ms; packaged 15346ms), then governance timed out/SIGTERM after 517773ms.
+Overall report: failed, exact_passed=2, unmet=d6-a-governance; snapshot_changed=false.
+Before interruption diagnostics contain 3033 pass lines, zero fail lines and three skip lines;
+execution stopped during projection lifecycle tests before full-suite/remaining governance
+completion. These partial counts are not a suite pass. The earlier 120-second interruption
+is retained too. No test/CI/safety budget was edited.
+
+Independent narrow tests exposed two legacy CLI cases with five raw-message echo assertions.
+A test-only follow-up replaces them with strict registered refusal metadata, exact empty details
+and no flag echo; product files remain byte-identical to 7fc6a9d9. This correction and its
+canonical compatibility check remain within the selected CLI failure contract.
+Hosted current-HEAD full validation is still required; no complete local governance pass claimed.
+
+Follow-up verification: both existing CLI cases passed (2 tests/113 assertions), typecheck
+passed and the extended canonical contract validated. No production source differs from 7fc6a9d9.

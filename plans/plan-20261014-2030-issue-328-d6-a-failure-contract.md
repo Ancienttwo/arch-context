@@ -132,3 +132,13 @@ Discovery abort and post-start health remain excluded; this does not migrate eve
 Compared with #351 commit 468df532, these functions do not overlap upgradeDaemon's changed lines.
 Real CLI and official SDK stdio processes must preserve connection/lock/seeded baseline bytes,
 issue only the existing health probes and never invoke a mutation or start a competing daemon.
+
+## Verification-required CLI compatibility follow-up
+
+The coordinator authorized validation-required corrections and a new HEAD. Two existing CLI
+tests retained five assertions requiring raw flag/message echo, contradicting the approved safe
+fixed messages. Both tests were independently reproduced red. Add cli.test.ts to the exact test
+paths and replace only those expectations with code/reason/action, exact empty details and
+no flag echo. Retain existing refusal, preflight-before-runtime and successful integration checks.
+A read-only assumptions reviewer checked this patch; no production behavior changes.
+The canonical contract adds a narrow compatibility check without dropping any existing check.

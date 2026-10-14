@@ -36,6 +36,7 @@ allowed_paths:
   - packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts
   - packages/local-runtime/runtime-daemon/test/local-runtime.test.ts
   - packages/surfaces/cli/test/failure-envelope.test.ts
+  - packages/surfaces/cli/test/cli.test.ts
   - packages/surfaces/cli/test/architecture-debt.test.ts
   - packages/surfaces/mcp-local/test/mcp-local.test.ts
 ```
@@ -62,6 +63,23 @@ allowed_paths:
         ]
       },
       "command": "bun run typecheck && node scripts/package-boundary-audit.mjs && bun test --timeout 180000 packages/contracts/test/failure-envelope.test.ts packages/contracts/test/contracts.test.ts packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/failure-envelope.test.ts packages/surfaces/cli/test/architecture-debt.test.ts packages/surfaces/mcp-local/test/mcp-local.test.ts packages/local-runtime/runtime-daemon/test/architecture-debt-read-inputs.test.ts packages/surfaces/mcp-local/test/mcp-wire.test.ts packages/surfaces/mcp-local/test/client-boundary.test.ts"
+    },
+    {
+      "id": "d6-a-cli-compat",
+      "kind": "command",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Retain successful CLI integration and runtime-free preflight while replacing obsolete raw-message echo assertions with strict refusal metadata and exact empty details.",
+      "inputs": {
+        "env": [
+          "DO_NOT_TRACK",
+          "CODEGRAPH_NO_DOWNLOAD",
+          "ARCHCONTEXT_STATE_DIR"
+        ]
+      },
+      "command": "bun test --timeout 60000 packages/surfaces/cli/test/cli.test.ts --test-name-pattern 'CLI delegates init and context to the runtime|one argument check runs before every handler'"
     },
     {
       "id": "d6-a-packaged",
