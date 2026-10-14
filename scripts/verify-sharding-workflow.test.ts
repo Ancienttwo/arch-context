@@ -133,11 +133,45 @@ test("runner cost sums parallel jobs and counts install time separately from wal
   expect(runnerMinutes([{ ...jobs[0], runner_id: 0, status: "skipped" }]).completedMinutes).toBe(0);
 });
 
+test("four-target topology emits twelve shards, five full workers and twenty-five execution jobs", () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-four-target-topology-test-"));
+  try {
+    const outputPath = join(root, "github-output");
+    const cli = fileURLToPath(new URL("./verify-ci.mjs", import.meta.url));
+    const result = spawnSync("node", [cli, "topology"], {
+      encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: outputPath }
+    });
+    expect(result.status).toBe(0);
+    const outputs = Object.fromEntries(readFileSync(outputPath, "utf8").trim().split("\n").map(line => {
+      const separator = line.indexOf("=");
+      return [line.slice(0, separator), JSON.parse(line.slice(separator + 1))];
+    }));
+    const config = readConfig();
+    expect(outputs.split.include).toEqual(config.splitTargets);
+    expect(outputs.shards.include).toHaveLength(12);
+    expect(outputs.excluded).toEqual(config.splitTargets.map(({ os, "node-version": node }: { os: string; "node-version": string }) => ({ os, "node-version": node })));
+    for (const row of config.splitTargets) {
+      expect(outputs.shards.include.filter((shard: any) => shard.os === row.os && shard["node-version"] === row["node-version"]))
+        .toEqual(Array.from({ length: 3 }, (_, index) => ({ ...row, index, shard: index + 1 })));
+    }
+    const fullTargets = OS_TARGETS.flatMap(os => NODE_TARGETS.map(node => ({ os, "node-version": node })))
+      .filter(row => !outputs.excluded.some((excluded: any) => excluded.os === row.os && excluded["node-version"] === row["node-version"]));
+    expect(fullTargets).toHaveLength(5);
+    expect(fullTargets.every(row => expectedWorkers(config, row.os, row["node-version"]).length === 1)).toBe(true);
+    expect(OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node)))).toHaveLength(25);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("workflow targets only measured slow legs, keeps gate order, original nine names, timeouts and permissions", () => {
   const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   const config = readConfig();
-  expect(config.splitTargets).toEqual([{ os: "macos-15", "node-version": "24.x", shards: 3 }, { os: "windows-latest", "node-version": "25.x", shards: 3 }]);
+  expect(config.splitTargets).toEqual([
+    { os: "macos-15", "node-version": "24.x", shards: 3 },
+    { os: "macos-15", "node-version": "25.x", shards: 3 },
+    { os: "windows-latest", "node-version": "22.22.x", shards: 3 },
+    { os: "windows-latest", "node-version": "25.x", shards: 3 }
+  ]);
   expect(pkg.scripts.verify).toBe(`${pkg.scripts["verify:pre"]} && bun test --timeout 60000 && ${pkg.scripts["verify:post"]}`);
   expect(workflow.jobs["verify-split-tests"].needs).toContain("verify-split-pre");
   expect(workflow.jobs["verify-split-post"].needs).toContain("verify-split-tests");
