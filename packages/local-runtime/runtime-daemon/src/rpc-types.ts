@@ -19,7 +19,7 @@ import type {
 } from "@archcontext/contracts";
 import type { GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 
-export interface RuntimeCheckpointInput {
+export interface RuntimePracticeCheckpointInput {
   taskSessionId?: string;
   task?: string;
   event?: PracticeCheckpointEvent;

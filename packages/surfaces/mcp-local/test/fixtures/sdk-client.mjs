@@ -13,7 +13,17 @@ const client = new Client({ name: "archctx-contract-test", version: "1" });
 try {
   await client.connect(transport, { timeout: 10_000 });
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 7);
+  assert.equal(tools.length, 8);
+  assert.deepEqual(tools.map((tool) => tool.name), [
+    "archcontext_prepare_task",
+    "archcontext_practices",
+    "archcontext_checkpoint",
+    "archcontext_practice_checkpoint",
+    "archcontext_plan_update",
+    "archcontext_apply_update",
+    "archcontext_projection",
+    "archcontext_complete_task"
+  ]);
   for (const tool of tools) assert.equal(tool.inputSchema.type, "object");
   const result = await client.callTool({ name: "archcontext_practices", arguments: { root: "/fixture" } });
   assert.equal(result.isError, false);

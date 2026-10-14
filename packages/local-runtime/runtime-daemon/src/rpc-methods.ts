@@ -2,7 +2,7 @@ import type { AgentJobV1, ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, Json,
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import type { DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import type { DeveloperReviewAttestation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunPreparation, DeveloperReviewRunRecovery } from "./developer-review-codec";
-import type { ExplorerServerOptions, RuntimeAcceptCommittedChangeInput, RuntimeAgentContextProjectionInput, RuntimeAgentJobCancelRpcInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobRetryRpcInput, RuntimeApplyUpdateInput, RuntimeAuditApproveInput, RuntimeAuditRunInput, RuntimeBookInput, RuntimeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeDocsProjectionInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeProjectionInvocation, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput, RuntimeRefactorVerifyInput } from "./rpc-types";
+import type { ExplorerServerOptions, RuntimeAcceptCommittedChangeInput, RuntimeAgentContextProjectionInput, RuntimeAgentJobCancelRpcInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobRetryRpcInput, RuntimeApplyUpdateInput, RuntimeAuditApproveInput, RuntimeAuditRunInput, RuntimeBookInput, RuntimePracticeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeDocsProjectionInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeProjectionInvocation, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput, RuntimeRefactorVerifyInput } from "./rpc-types";
 import type { PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { okEnvelope } from "@archcontext/contracts";
 import { decodeStartDeveloperReviewRunParams, decodeSignedDeveloperReviewAttestationParams, decodeDeveloperReviewRunCleanupRequest, decodeRecoverDeveloperReviewRunsParams } from "./developer-review-codec";
@@ -120,9 +120,9 @@ export const RUNTIME_RPC_METHODS = {
     rpcOptionalNumber(params, 3, "prepare", "maxItems"),
     rpcOptionalString(params, 4, "prepare", "taskSessionId")
   )),
-  checkpoint: envelopeMethod("checkpoint", "long", (root: string, input: RuntimeCheckpointInput) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "checkpoint", "root"),
-    rpcRequiredObject<RuntimeCheckpointInput>(params, 1, "checkpoint", "input")
+  practiceCheckpoint: envelopeMethod("practiceCheckpoint", "long", (root: string, input: RuntimePracticeCheckpointInput) => [root, input] as const, (params) => rpcArgs(
+    rpcRequiredString(params, 0, "practiceCheckpoint", "root"),
+    rpcRequiredObject<RuntimePracticeCheckpointInput>(params, 1, "practiceCheckpoint", "input")
   )),
   jobsEnqueueGitHook: envelopeMethod("jobsEnqueueGitHook", "normal", (root: string, input: RuntimeAgentJobEnqueueGitInput = {}) => [root, input] as const, (params) => rpcArgs(
     rpcRequiredString(params, 0, "jobsEnqueueGitHook", "root"),

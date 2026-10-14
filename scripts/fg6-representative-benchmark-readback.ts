@@ -79,7 +79,7 @@ export async function runFg6RepresentativeBenchmark(config: ReturnType<typeof bu
     measurements.push({ phase: "archctx-prepare", ...prepare.measurement });
     const status = parseJsonCommand(measureCommand(ARCHCTX_BIN, ["status"], { cwd: repo, env, timeoutMs: 60_000 }), "status");
     measurements.push({ phase: "archctx-status", ...status.measurement });
-    const checkpoint = parseJsonCommand(measureCommand(ARCHCTX_BIN, ["checkpoint", "--expected-worktree-digest", String(readRecord(status.data.data).worktreeDigest ?? "")], { cwd: repo, env, timeoutMs: 60_000 }), "checkpoint");
+    const checkpoint = parseJsonCommand(measureCommand(ARCHCTX_BIN, ["practices", "checkpoint", "--expected-worktree-digest", String(readRecord(status.data.data).worktreeDigest ?? "")], { cwd: repo, env, timeoutMs: 60_000 }), "checkpoint");
     measurements.push({ phase: "archctx-checkpoint", ...checkpoint.measurement });
     const complete = parseJsonCommand(measureCommand(ARCHCTX_BIN, ["complete", "--task-session-id", "fg6_representative_complete", "--head-sha", cloneHeadSha], { cwd: repo, env, timeoutMs: 120_000 }), "complete");
     measurements.push({ phase: "archctx-complete", ...complete.measurement });

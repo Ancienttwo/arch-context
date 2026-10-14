@@ -184,10 +184,10 @@ describe("RPC method table: invalid positional input is a structured AC_SCHEMA_I
     // required string + required object: wrong type, malformed (array), and missing — every
     // required-object slot is fully strict now, so any of the 61 methods works; jobsClaim and
     // checkpoint are picked for variety.
-    { method: "checkpoint", params: ["/root", "not-an-object"], expectSubstring: "checkpoint input must be an object" },
-    { method: "checkpoint", params: ["/root", ["array", "not", "object"]], expectSubstring: "checkpoint input must be an object" },
-    { method: "checkpoint", params: ["/root"], expectSubstring: "checkpoint input must be an object" },
-    { method: "checkpoint", params: ["/root", null], expectSubstring: "checkpoint input must be an object" },
+    { method: "practiceCheckpoint", params: ["/root", "not-an-object"], expectSubstring: "practiceCheckpoint input must be an object" },
+    { method: "practiceCheckpoint", params: ["/root", ["array", "not", "object"]], expectSubstring: "practiceCheckpoint input must be an object" },
+    { method: "practiceCheckpoint", params: ["/root"], expectSubstring: "practiceCheckpoint input must be an object" },
+    { method: "practiceCheckpoint", params: ["/root", null], expectSubstring: "practiceCheckpoint input must be an object" },
     { method: "jobsClaim", params: ["/root", 42], expectSubstring: "jobsClaim input must be an object" },
     // required string + optional object: present but malformed (not simply omitted)
     { method: "jobsEnqueueGitHook", params: ["/root", "bad"], expectSubstring: "jobsEnqueueGitHook input must be an object" },
@@ -332,10 +332,10 @@ describe("RPC method table: well-formed objects still reach the handler's own va
     // `error`; the client still resolved (RuntimeRpcClient.request() parses the body regardless of
     // status), just with `error` as an unstructured string. After: HTTP 200 with a structured
     // `ArchContextError` object — strictly more informative, same "resolves, does not throw" shape.
-    const result = await client.checkpoint(root, "not-an-object" as never);
+    const result = await client.practiceCheckpoint(root, "not-an-object" as never);
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
-    expect(result.error?.message).toContain("runtime-rpc-input-invalid: checkpoint input must be an object");
+    expect(result.error?.message).toContain("runtime-rpc-input-invalid: practiceCheckpoint input must be an object");
   });
 
   test("client behavior: a developer-review dataMethod entry's decodeResponse now throws the real validation message, not the generic placeholder", async () => {

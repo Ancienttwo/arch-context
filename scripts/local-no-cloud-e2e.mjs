@@ -94,9 +94,20 @@ try {
   assert(status.data?.running === true, "status must report daemon running");
   assert(/^sha256:/.test(String(status.data?.worktreeDigest)), "status must return worktree digest");
 
-  const checkpoint = await runArchctx(repo, "checkpoint", "--expected-worktree-digest", status.data.worktreeDigest);
+  const checkpoint = await runArchctx(repo, "checkpoint");
   assert(checkpoint.ok === true, "checkpoint must succeed without GitHub, Cloud, or LLM");
-  assert(checkpoint.data?.fresh === true, "checkpoint must report a fresh worktree");
+  assert(checkpoint.data?.schemaVersion === "archcontext.architecture-debt/v1", "checkpoint must return debt directly");
+  deepStrictEqual(checkpoint.data.items, [], "clean reader must report no measured debt");
+  deepStrictEqual(checkpoint.data.actionsRequired, [], "clean reader must require no actions");
+  deepStrictEqual(checkpoint.data.coverageReasonCodes, [
+    "dependencies:deferred-to-complete", "dependencies:not-evaluated",
+    "flows:deferred-to-complete", "flows:not-evaluated",
+    "practices:deferred-to-complete", "practices:not-evaluated"
+  ], "reader must expose exactly the deferred full-debt checks");
+  const practiceCheckpoint = await runArchctx(repo, "practices", "checkpoint", "--expected-worktree-digest", status.data.worktreeDigest);
+  assert(practiceCheckpoint.ok === true, "explicit practice writer must succeed locally");
+  assert(practiceCheckpoint.data?.schemaVersion === "archcontext.practice-checkpoint/v1", "practice writer must return its own schema");
+  assert(practiceCheckpoint.data?.fresh === true, "explicit practice writer must report a fresh worktree");
 
   const complete = await runArchctx(
     repo,
@@ -128,10 +139,10 @@ try {
   const stopped = await runArchctx(repo, "daemon", "stop");
   assert(stopped.ok === true, "daemon stop must succeed");
 
-  console.log(JSON.stringify({
+  const recording = JSON.stringify({
     schemaVersion: "archcontext.local-no-cloud-e2e/v2",
     networkIsolation,
-    commands: ["doctor", "paths", "mcp install", "init", "sync", "practices validate", "context", "prepare", "status", "checkpoint", "complete", "review"],
+    commands: ["doctor", "paths", "mcp install", "init", "sync", "practices validate", "context", "prepare", "status", "checkpoint", "practices checkpoint", "complete", "review"],
     providerEnvRemoved: REMOVED_PROVIDER_ENV,
     git: {
       headSha
@@ -144,7 +155,7 @@ try {
     },
     taskLifecycle: {
       preparePosture: String(prepared.data.posture),
-      checkpointFresh: checkpoint.data.fresh,
+      checkpointFresh: practiceCheckpoint.data.fresh,
       completeSchemaVersion: complete.data.schemaVersion,
       completeResult: complete.data.result,
       completeErrors: complete.data.summary.errors,
@@ -175,7 +186,11 @@ try {
       localStorePath: displayPath(paths.data.localStorePath),
       npmGlobalInstallState: paths.data.npmGlobalInstallState
     }
-  }, null, 2));
+  }, null, 2);
+  const recordedLifecycle = JSON.parse(recording).taskLifecycle;
+  assert(Object.hasOwn(recordedLifecycle, "checkpointFresh"), "serialized output must retain checkpointFresh");
+  assert(recordedLifecycle.checkpointFresh === true, "serialized checkpointFresh must describe the explicit practice writer");
+  console.log(recording);
 } finally {
   await runArchctx(repo, "daemon", "stop").catch(() => undefined);
   rmSync(workspace, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });

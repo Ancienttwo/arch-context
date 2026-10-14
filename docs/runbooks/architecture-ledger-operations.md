@@ -282,7 +282,7 @@ Keep Local Core deterministic:
 
 ```bash
 ARCHCONTEXT_CONTEXT7_ENABLED=0 archctx prepare --task "<task>"
-ARCHCONTEXT_CONTEXT7_ENABLED=0 archctx checkpoint --task-session-id <session>
+ARCHCONTEXT_CONTEXT7_ENABLED=0 archctx practices checkpoint --task-session-id <session>
 ARCHCONTEXT_CONTEXT7_ENABLED=0 archctx complete --task-session-id <session>
 ```
 

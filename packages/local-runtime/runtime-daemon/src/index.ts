@@ -1,6 +1,6 @@
 import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt } from "./architecture-debt";
-import type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
-export type { RuntimeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
+import type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
+export type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
 import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
@@ -668,8 +668,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return this.practiceCheckpoints.prepare(root, task, maxBytes, maxItems, taskSessionId);
   }
 
-  async checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> {
-    return this.practiceCheckpoints.checkpoint(root, input);
+  async practiceCheckpoint(root: string, input: RuntimePracticeCheckpointInput): Promise<JsonEnvelope> {
+    return this.practiceCheckpoints.practiceCheckpoint(root, input);
   }
 
   async jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}): Promise<JsonEnvelope> {

@@ -107,7 +107,7 @@ test("S6 current adapter cannot be replaced by historical checkpoint evidence or
     (p: any) => { p.currentHookAdapter.data.entrypoint.args = ["hook", "checkpoint"]; },
     (p: any) => { p.currentHookAdapter.data.entrypoint.args.push("--extra"); },
     (p: any) => { p.currentHookAdapter.data.entrypoint.network = "allowed"; },
-    (p: any) => { p.currentHookAdapter.data.fallbackEntrypoint.network = "allowed"; }
+    (p: any) => { p.currentHookAdapter.data.readEntrypoint.network = "allowed"; }
   ];
   for (const mutate of mutations) {
     const packet: any = verifiedPracticeAssetsS6DocsOpsFixture();

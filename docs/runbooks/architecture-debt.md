@@ -30,11 +30,28 @@ gap. No parser or guessed dependency set replaces unavailable CodeGraph evidence
 that digest to deduplicate debt notices. Actions name a diagnostic command or the ChangeSet
 planning surface; reads never grant permission to apply a suggested model edit.
 
-`checkpoint` and `archcontext_checkpoint` attach the same result as `data.debt`. They retain
-their existing daemon-owned practice baseline writes and coalescing. A coalesced practice result
-still re-reads citation/ownership debt. The existing checkpoint `resultDigest` describes practice
-guidance; `debt.digest` describes architecture debt. An unadopted repository is rejected before
-the checkpoint saves a new baseline. This slice does not move checkpoint writes into the CLI.
+`checkpoint --changed-path src/pay.ts` and MCP `archcontext_checkpoint {root, changedPaths?}`
+return the same report directly as `data`, in process. They do not open a daemon, task session,
+SQLite store or baseline, on success or failure. The former task/session/event/tool/digest/budget
+inputs are rejected; CLI `--path` and `--changed` are also removed from this read operation.
+
+Practice updates are explicit: `archctx practices checkpoint`, MCP
+`archcontext_practice_checkpoint`, and daemon RPC `practiceCheckpoint`. They take the former
+practice inputs and retain `archcontext.practice-checkpoint/v1`, stale-context handling,
+coalescing and failure semantics. `prepare` remains an explicit state-writing operation that
+seeds the baseline. Repeating it for the same task/cursor converges on the same snapshot;
+its operational update timestamp can change. A debt read between prepare and the practice
+writer leaves that snapshot untouched. The writer is the only checkpoint that advances it.
+The practice `resultDigest` and `debt.digest` bind different results.
+
+`archctx hook checkpoint --event post-edit --changed-path src/pay.ts` is the read hook.
+Success is `archcontext.hook-debt-checkpoint/v1` with the debt report and a redacted `hookLog`.
+A producer failure returns `archcontext.hook-checkpoint-fail-open/v1`, `accepted: false`,
+`failOpen: true`, `coverage: unknown`, and the original typed error. It never fabricates a clean
+report. Invalid flags fail closed in argument preflight; former hook checkpoint task, session,
+tool, digest, budget, path and changed flags are rejected. Neither result accesses runtime/state.
+`hook enqueue` is the separate explicit daemon queue writer. Current hook metadata advertises
+these as separate enqueue/read entrypoints. Historical egress fixtures remain historical.
 
 ## Performance and remaining RFC work
 

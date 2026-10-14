@@ -262,7 +262,7 @@ async function runRepresentativeFixture(config: RepresentativeFixtureConfig, que
       maxQueuedJobs: 10
     }));
     const sync = await measureEnvelope(() => runCli("sync", ["--changed", changedPath], root, deps));
-    const checkpoint = await measureEnvelope(() => runCli("checkpoint", [
+    const checkpoint = await measureEnvelope(() => runCli("practices", ["checkpoint",
       "--task-session-id",
       taskSessionId(config),
       "--task",

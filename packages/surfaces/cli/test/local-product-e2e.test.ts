@@ -72,7 +72,7 @@ describe("local product first-experience E2E", () => {
     }
   }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
 
-  test("installed hook checkpoint updates and reverts practice deltas through the daemon", async () => {
+  test("installed explicit practice checkpoint updates and reverts practice deltas through the daemon", async () => {
     expect(existsSync(ARCHCTX_BIN)).toBe(true);
     const workspace = mkdtempSync(join(tmpdir(), "archctx-hook-delta-e2e-"));
     const repo = join(workspace, "single-repo-basic");
@@ -102,7 +102,7 @@ describe("local product first-experience E2E", () => {
 
       const edited = await runArchctx(
         repo,
-        "hook", "checkpoint",
+        "practices", "checkpoint",
         "--event", "post-edit",
         "--path", changedPath,
         "--task-session-id", "task_hook_delta",
@@ -110,7 +110,7 @@ describe("local product first-experience E2E", () => {
         "--max-items", "5"
       );
       expect(edited.ok).toBe(true);
-      expect(edited.requestId).toBe("hook.checkpoint");
+      expect(edited.requestId).toBe("practices.checkpoint");
       expect(practiceIds(edited.data.delta.upgraded)).toContain("compatibility.single-owner");
       expect(edited.data.hook.pathSummary).toMatchObject({
         schemaVersion: "archcontext.checkpoint-path-summary/v1",
@@ -118,20 +118,23 @@ describe("local product first-experience E2E", () => {
         source: 1,
         deleted: 0
       });
-      expect(edited.data.hookLog).toMatchObject({
+      const hookRead = await runArchctx(repo, "hook", "checkpoint", "--event", "post-edit", "--changed-path", changedPath);
+      expect(hookRead.ok).toBe(true);
+      expect(hookRead.data.schemaVersion).toBe("archcontext.hook-debt-checkpoint/v1");
+      expect(hookRead.data.hookLog).toMatchObject({
         schemaVersion: "archcontext.hook-log/v1",
         event: "post-edit",
         pathCount: 1,
         egress: "none",
         network: "forbidden"
       });
-      expect(JSON.stringify(edited.data.hookLog)).not.toContain(changedPath);
+      expect(JSON.stringify(hookRead.data.hookLog)).not.toContain(changedPath);
 
       rmSync(join(repo, changedPath), { force: true });
 
       const reverted = await runArchctx(
         repo,
-        "hook", "checkpoint",
+        "practices", "checkpoint",
         "--event", "post-edit",
         "--path", changedPath,
         "--task-session-id", "task_hook_delta",
@@ -139,7 +142,7 @@ describe("local product first-experience E2E", () => {
         "--max-items", "5"
       );
       expect(reverted.ok).toBe(true);
-      expect(reverted.requestId).toBe("hook.checkpoint");
+      expect(reverted.requestId).toBe("practices.checkpoint");
       expect(practiceIds(reverted.data.delta.downgraded)).toContain("compatibility.single-owner");
       expect(reverted.data.hook.pathSummary).toMatchObject({
         schemaVersion: "archcontext.checkpoint-path-summary/v1",
@@ -153,7 +156,7 @@ describe("local product first-experience E2E", () => {
     }
   }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
 
-  test("installed hook checkpoint keeps plain import edges advisory until a declared boundary violation exists", async () => {
+  test("installed explicit practice checkpoint keeps plain import edges advisory until a declared boundary violation exists", async () => {
     expect(existsSync(ARCHCTX_BIN)).toBe(true);
     const workspace = mkdtempSync(join(tmpdir(), "archctx-hook-import-edge-e2e-"));
     const repo = join(workspace, "single-repo-basic");
@@ -185,7 +188,7 @@ describe("local product first-experience E2E", () => {
 
       const edited = await runArchctx(
         repo,
-        "hook", "checkpoint",
+        "practices", "checkpoint",
         "--event", "post-edit",
         "--path", changedPath,
         "--task-session-id", "task_import_edge",
@@ -193,7 +196,7 @@ describe("local product first-experience E2E", () => {
         "--max-items", "5"
       );
       expect(edited.ok).toBe(true);
-      expect(edited.requestId).toBe("hook.checkpoint");
+      expect(edited.requestId).toBe("practices.checkpoint");
       expect(practiceIds(edited.data.delta.added)).not.toContain("modularity.respect-dependency-direction");
       expect(edited.data.hook.pathSummary).toMatchObject({
         schemaVersion: "archcontext.checkpoint-path-summary/v1",
@@ -273,7 +276,7 @@ async function runFirstExperience(
     expect(status.data.worktreeDigest).toMatch(/^sha256:/);
     input.afterStatus?.(repo, status);
 
-    const checkpoint = await runArchctx(repo, "checkpoint", "--expected-worktree-digest", status.data.worktreeDigest, "--max-items", "2");
+    const checkpoint = await runArchctx(repo, "practices", "checkpoint", "--expected-worktree-digest", status.data.worktreeDigest, "--max-items", "2");
     expect(checkpoint.ok).toBe(true);
     expect(checkpoint.data.fresh).toBe(true);
     expect(checkpoint.data.schemaVersion).toBe("archcontext.practice-checkpoint/v1");

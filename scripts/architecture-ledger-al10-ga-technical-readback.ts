@@ -357,7 +357,7 @@ async function runIncrementalAnalysisProbe() {
         "16",
         ...changedPaths.flatMap((path) => ["--path", path])
       ];
-      const measured = await measureEnvelope(() => runCli("checkpoint", args, root, deps));
+      const measured = await measureEnvelope(() => runCli("practices", ["checkpoint", ...args], root, deps));
       samples.push({
         sample,
         elapsedMs: measured.elapsedMs,

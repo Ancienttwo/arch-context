@@ -1,4 +1,4 @@
-import { digestJson, type Json } from "./schema";
+import { digestJson, type ArchContextError, type Json } from "./schema";
 
 /** Measured architecture work, distinct from generated-file freshness and source byte stamps. */
 export const ARCHITECTURE_DEBT_SCHEMA_VERSION = "archcontext.architecture-debt/v1" as const;
@@ -38,6 +38,40 @@ export interface ArchitectureDebtReportV1 {
   actionsRequired: string[];
   /** Binds the entire debt report. Checkpoint's existing resultDigest binds practice guidance only. */
   digest: string;
+}
+
+export interface ArchitectureDebtHookLogV1 {
+  schemaVersion: "archcontext.hook-log/v1";
+  event: string;
+  elapsedMs: number;
+  pathCount: number;
+  changedPathDigest: string;
+  reasonCode: string;
+  failOpen: boolean;
+  egress: "none";
+  network: "forbidden";
+}
+
+/** Hook-only observation; it never advances the practice baseline. */
+export interface ArchitectureDebtHookCheckpointV1 {
+  schemaVersion: "archcontext.hook-debt-checkpoint/v1";
+  debt: ArchitectureDebtReportV1;
+  hookLog: ArchitectureDebtHookLogV1;
+}
+
+/** Unavailable observation, never a clean debt report. Invalid arguments remain errors. */
+export interface ArchitectureDebtHookFailureV1 {
+  schemaVersion: "archcontext.hook-checkpoint-fail-open/v1";
+  accepted: false;
+  failOpen: true;
+  coverage: "unknown";
+  reasonCode: string;
+  error: ArchContextError;
+  event: string;
+  pathCount: number;
+  egress: "none";
+  network: "forbidden";
+  hookLog: ArchitectureDebtHookLogV1;
 }
 
 export function architectureDebtReportIssues(report: ArchitectureDebtReportV1): string[] {

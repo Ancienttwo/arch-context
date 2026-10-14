@@ -10,6 +10,7 @@ import { readArchitectureDebt } from "@archcontext/local-runtime/architecture-de
 import type { RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import { runCli } from "../src/main";
+import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -48,7 +49,14 @@ async function read(root: string, paths: string[]) {
   const previous = process.env.ARCHCONTEXT_STATE_DIR;
   process.env.ARCHCONTEXT_STATE_DIR = state;
   try {
-    const result = await runCli("debt", ["--json", ...paths.flatMap(path => ["--changed-path",path])], root, { runtimeClient: noRuntime });
+    const args = ["--json", ...paths.flatMap(path => ["--changed-path",path])];
+    const result = await runCli("checkpoint", args, root, { runtimeClient: noRuntime });
+    expect(result.requestId).toBe("checkpoint");
+    const debt = await runCli("debt", args, root, { runtimeClient: noRuntime });
+    expect(debt.data).toEqual(result.data);
+    const server = new McpLocalServer({ runtimeResolver: () => { throw new Error("checkpoint reached runtime resolver"); } });
+    const mcp = await server.callTool("archcontext_checkpoint", { root, changedPaths: paths });
+    expect(mcp.content as unknown).toEqual(result);
     expect(result.ok, JSON.stringify(result)).toBe(true);
     expect(tree(root)).toBe(before);
     expect(readdirSync(state)).toEqual(["sentinel"]);
@@ -62,6 +70,74 @@ async function read(root: string, paths: string[]) {
     else process.env.ARCHCONTEXT_STATE_DIR = previous;
   }
 }
+
+test("former checkpoint fields are rejected before any runtime access", async () => {
+  const { root } = fixture();
+  const fields = ["taskSessionId", "task", "event", "toolCallId", "expectedHeadSha", "expectedWorktreeDigest", "maxBytes", "maxItems"];
+  const server = new McpLocalServer({ runtimeResolver: () => { throw new Error("invalid reader input reached runtime"); } });
+  for (const field of fields) {
+    const result = await server.callTool("archcontext_checkpoint", { root, [field]: field.startsWith("max") ? 12 : "old" });
+    expect(result.content).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+  }
+  for (const flag of ["--task-session-id", "--task", "--event", "--tool-call-id", "--expected-head-sha", "--head-sha", "--expected-worktree-digest", "--max-bytes", "--max-items", "--path", "--changed"]) {
+    expect(await runCli("checkpoint", [flag, "old"], root, { runtimeClient: noRuntime })).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+    if (flag !== "--event") expect(await runCli("hook", ["checkpoint", flag, "old"], root, { runtimeClient: noRuntime })).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+  }
+  const missing = await server.callTool("archcontext_checkpoint", { root: join(root, "absent"), changedPaths: ["../outside"] });
+  expect(missing.content).toMatchObject({ ok: false });
+});
+
+test("hook read preserves the debt report and a typed unknown failure without state access", async () => {
+  const { root } = fixture();
+  const before = tree(root);
+  const result = await runCli("hook", ["checkpoint", "--event", "post-edit", "--changed-path", "src/a/main.ts"], root, { runtimeClient: noRuntime });
+  expect(result.ok).toBe(true);
+  expect((result.data as any).debt).toEqual(readArchitectureDebt(root, { changedPaths: ["src/a/main.ts"] }));
+  expect(publishedSchemaIssues("runtime/hook-debt-checkpoint.schema.json", result.data)).toEqual([]);
+  expect(tree(root)).toBe(before);
+  expect(await runCli("hook", ["checkpoint", "--changed-path", "../outside"], root, { runtimeClient: noRuntime }))
+    .toMatchObject({ ok: false, error: { reasonCode: "changed-path-invalid" } });
+  expect(await runCli("hook", ["checkpoint", "--event", ""], root, { runtimeClient: noRuntime }))
+    .toMatchObject({ ok: false, error: { reasonCode: "hook-event-invalid" } });
+  rmSync(join(root, ".archcontext/manifest.yaml"));
+  const missingModelTree = tree(root);
+  const failure = await runCli("hook", ["checkpoint"], root, { runtimeClient: noRuntime });
+  const producer = await runCli("checkpoint", [], root, { runtimeClient: noRuntime });
+  expect(failure.ok).toBe(true);
+  expect(failure.data).toMatchObject({ accepted: false, failOpen: true, coverage: "unknown", error: "error" in producer ? producer.error : undefined });
+  expect((failure.data as any).debt).toBeUndefined();
+  expect(tree(root)).toBe(missingModelTree);
+});
+
+test("invalid hook changed-path rejects before repository discovery even outside Git", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-hook-non-git-")); roots.push(root);
+  const state = mkdtempSync(join(tmpdir(), "archctx-hook-non-git-state-")); roots.push(state);
+  write(root, "sentinel", "preserve worktree\n");
+  write(state, "sentinel", "preserve state\n");
+  const before = tree(root);
+  const stateBefore = tree(state);
+  let runtimeAccesses = 0;
+  let storeAccesses = 0;
+  const forbiddenRuntime = new Proxy({}, { get: () => { runtimeAccesses++; throw new Error("runtime accessed"); } });
+  const forbiddenStore = new Proxy({}, { get: () => { storeAccesses++; throw new Error("store accessed"); } });
+  const previous = process.env.ARCHCONTEXT_STATE_DIR;
+  process.env.ARCHCONTEXT_STATE_DIR = state;
+  try {
+    const result = await runCli("hook", ["checkpoint", "--changed-path", "../outside"], root, {
+      runtimeClient: forbiddenRuntime as RuntimeDaemonClient, localStore: forbiddenStore as any
+    });
+    expect(result).toMatchObject({ ok: false, requestId: "hook.checkpoint",
+      error: { code: "AC_SCHEMA_INVALID", reasonCode: "changed-path-invalid" } });
+    expect(result.data).toBeUndefined();
+    expect(runtimeAccesses).toBe(0);
+    expect(storeAccesses).toBe(0);
+    expect(tree(root)).toBe(before);
+    expect(tree(state)).toBe(stateBefore);
+  } finally {
+    if (previous === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+    else process.env.ARCHCONTEXT_STATE_DIR = previous;
+  }
+});
 
 test("a logic-only edit owes no task and the process writes no worktree or runtime state", async () => {
   const { root } = fixture();

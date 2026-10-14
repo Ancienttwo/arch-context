@@ -984,7 +984,7 @@ function captureDlpReadback() {
 function captureHardGateScan(root: string) {
   const sources = readHardGateScanSources(root);
   return {
-    checkpointProviderReferences: countHardGateProviderReferences(sources, "checkpoint"),
+    checkpointProviderReferences: countHardGateProviderReferences(sources, "practiceCheckpoint"),
     completeProviderReferences: countHardGateProviderReferences(sources, "completeTask")
   };
 }
