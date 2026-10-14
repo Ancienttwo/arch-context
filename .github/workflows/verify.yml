@@ -73,7 +73,8 @@ jobs:
   verify:
     # Manual revalidation reruns Governance; PR/main events always retain the matrix.
     if: github.event_name != 'workflow_dispatch'
-    name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
+    needs: verify-topology
+    name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / full"
     runs-on: ${{ matrix.os }}
     # Windows Node 22 completed its tests at 29 min, then hit the 30 min job limit.
     # Green Windows jobs now take 31-45 min, and several were cancelled at the 45 min limit.
@@ -91,6 +92,7 @@ jobs:
           - 22.22.x
           - 24.x
           - 25.x
+        exclude: ${{ fromJSON(needs.verify-topology.outputs.excluded) }}
 
     steps:
       - name: Checkout
@@ -135,3 +137,201 @@ jobs:
 
       - name: Verify
         run: bun run verify
+
+  verify-topology:
+    if: github.event_name != 'workflow_dispatch'
+    name: Verify topology
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      split: ${{ steps.topology.outputs.split }}
+      shards: ${{ steps.topology.outputs.shards }}
+      excluded: ${{ steps.topology.outputs.excluded }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: topology
+        run: node scripts/verify-ci.mjs topology
+
+  verify-split-pre:
+    if: github.event_name != 'workflow_dispatch'
+    needs: verify-topology
+    name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / pre"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.verify-topology.outputs.split) }}
+    env:
+      VERIFY_TARGET: ${{ matrix.os }} / Node ${{ matrix.node-version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Windows control-file ACL regression
+        if: runner.os == 'Windows'
+        run: bun test --timeout 60000 packages/local-runtime/control-file-security/test/control-file-security.test.ts packages/local-runtime/runtime-daemon/test/daemon-control-acl.test.ts packages/local-runtime/runtime-daemon/test/rpc-server.test.ts packages/surfaces/cli/test/hook-state-paths.test.ts
+      - name: Platform IPC permission readback
+        run: node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json
+      - name: Upload platform IPC permission readback
+        uses: actions/upload-artifact@v6
+        with:
+          name: platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}
+          path: platform-ipc-permission-readback.json
+      - name: Verify pre-gates in original order
+        run: bun run verify:pre
+      - name: Inventory real Bun discovery and balance full files
+        run: bun run verify:ci plan
+      - name: Upload run-bound discovery plan
+        uses: actions/upload-artifact@v6
+        with:
+          name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verify-plan/plan.json
+          if-no-files-found: error
+
+  verify-split-tests:
+    if: github.event_name != 'workflow_dispatch'
+    needs: [verify-topology, verify-split-pre]
+    name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / shard ${{ matrix.shard }}"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.verify-topology.outputs.shards) }}
+    env:
+      VERIFY_TARGET: ${{ matrix.os }} / Node ${{ matrix.node-version }}
+      VERIFY_SHARD_INDEX: ${{ matrix.index }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Download run-bound discovery plan
+        uses: actions/download-artifact@v6
+        with:
+          name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verify-plan
+      - name: Execute assigned full files with all real assertions
+        run: bun run verify:ci shard
+      - name: Upload actual file inventory and JUnit
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: verify-shard-${{ matrix.os }}-node-${{ matrix.node-version }}-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verify-evidence
+          if-no-files-found: error
+
+  verify-split-post:
+    if: github.event_name != 'workflow_dispatch'
+    needs: [verify-topology, verify-split-pre, verify-split-tests]
+    name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / post"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.verify-topology.outputs.split) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Download run-bound discovery plan
+        uses: actions/download-artifact@v6
+        with:
+          name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verify-plan
+      - name: Download every shard inventory
+        uses: actions/download-artifact@v6
+        with:
+          pattern: verify-shard-${{ matrix.os }}-node-${{ matrix.node-version }}-*-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verify-reports
+      - name: Prove each discovered file executed exactly once
+        run: bun run verify:ci coverage
+      - name: Verify post-gates in original order with fresh local fixtures
+        run: bun run verify:post
+
+  verify-collect:
+    if: ${{ always() && github.event_name != 'workflow_dispatch' }}
+    needs: [verify-topology, verify, verify-split-pre, verify-split-tests, verify-split-post]
+    name: Verify job evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    outputs:
+      verdicts: ${{ steps.collect.outputs.verdicts }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: collect
+        run: node scripts/verify-ci.mjs collect
+      - name: Upload actual job conclusions and runner minutes
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: verify-job-evidence-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verify-evidence
+          if-no-files-found: error
+
+  verify-summary:
+    if: ${{ always() && github.event_name != 'workflow_dispatch' }}
+    needs: verify-collect
+    name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+        node-version: [22.22.x, 24.x, 25.x]
+    env:
+      VERIFY_TARGET: ${{ matrix.os }} / Node ${{ matrix.node-version }}
+      VERIFY_COLLECT_RESULT: ${{ needs.verify-collect.result }}
+      VERIFY_VERDICTS: ${{ needs.verify-collect.outputs.verdicts }}
+    steps:
+      - name: Require every expected job to have succeeded
+        run: |
+          node -e 'const e=process.env; if(e.VERIFY_COLLECT_RESULT!=="success" || JSON.parse(e.VERIFY_VERDICTS || "{}")[e.VERIFY_TARGET]!==true) { console.error("Missing, failed, skipped, cancelled or mismatched execution job for "+e.VERIFY_TARGET); process.exit(1); }'
+
+  verify-cost:
+    if: ${{ always() && github.event_name != 'workflow_dispatch' }}
+    needs: [verify-summary, governance-verify, linux-arm64-descriptor-write]
+    name: Verify runner cost
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Measure total runner minutes and repeated installs
+        run: node scripts/verify-ci.mjs cost
+      - name: Upload measured cost readback
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: verify-runner-cost-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verify-evidence
+          if-no-files-found: error

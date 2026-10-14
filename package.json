@@ -170,7 +170,10 @@
     "check:architecture-sync": "repo-harness run check-architecture-sync",
     "check:task-sync": "repo-harness run check-task-sync",
     "check:task-workflow": "repo-harness run check-task-workflow --strict",
-    "sync:brain-docs": "repo-harness run sync-brain-docs --all"
+    "sync:brain-docs": "repo-harness run sync-brain-docs --all",
+    "verify:pre": "bun scripts/check-bun-version.mjs && bun run typecheck && node scripts/package-boundary-audit.mjs && node scripts/production-mock-reachability-audit.mjs && bun run verify:architecture-mermaid && bun run verify:practices && bun run test:codegraph-selector-node",
+    "verify:post": "bun run verify:explorer && node scripts/packaged-cli-smoke.mjs && node scripts/privacy-route-audit.mjs && bun run verify:github-api-contract && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && bun run readback:s3:hook-egress && bun run readback:s5:context7 && node scripts/security-scan-manifest.mjs readback && node scripts/verify-acceptance-ledger.mjs && node scripts/verify-practice-assets-acceptance-ledger.mjs && node scripts/sprint-status-check.mjs && bun evals/run.ts --check",
+    "verify:ci": "node scripts/verify-ci.mjs"
   },
   "devDependencies": {
     "@mermaid-js/mermaid-cli": "11.16.0",
