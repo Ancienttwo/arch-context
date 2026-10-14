@@ -213,3 +213,70 @@ test("health timeout survives the actual CLI stdio MCP resolver without state wr
     expect(await client.ping()).toEqual({});
   } finally { await client.close(); await fixture.close(); }
 }, 45_000);
+
+test("P2 mutated typed failures and changing returned metadata stay private across selected surfaces", async () => {
+  const { FailureError, knownFailure, failureIssues } = await import("@archcontext/contracts");
+  let hooks = 0;
+  const cases: Array<() => { error: unknown; returned: boolean }> = [
+    ...[false, true].map(boxed => () => {
+      const error = new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-invalid");
+      (error.failure as any).reasonCode = boxed
+        ? Object.assign(new String("projection-manifest-invalid"), { toJSON() { hooks++; return { privateText: sentinel }; } })
+        : { privateText: sentinel, toString() { hooks++; return "projection-manifest-invalid"; } };
+      return { error, returned: false };
+    }),
+    ...["code", "reasonCode", "action", "severity", "retryable", "details"].map(key => () => {
+      const valid = knownFailure("AC_PRECONDITION_FAILED", "projection-manifest-invalid");
+      const error = { ...valid };
+      Object.defineProperty(error, key, { enumerable: true, get() { hooks++; return hooks === 1 ? (valid as any)[key] : { privateText: sentinel, toString() { hooks++; return "projection-manifest-invalid"; } }; } });
+      return { error, returned: true };
+    })
+  ];
+  for (const makeCase of cases) {
+    for (const [surface, command, args] of [["cli", "complete", []], ["cli", "review", []], ["cli", "practices", ["checkpoint"]], ["mcp", "archcontext_complete_task", []], ["mcp", "archcontext_practice_checkpoint", []]] as const) {
+      hooks = 0;
+      const { error, returned } = makeCase();
+      let calls = 0;
+      const operation = async () => { calls++; if (returned) return { ok: false, error }; throw error; };
+      const runtime = { completeTask: operation, practiceCheckpoint: operation } as unknown as RuntimeDaemonClient;
+      const value = surface === "cli" ? await runCli(command, [...args], "/unused", { runtimeClient: runtime })
+        : (await new McpLocalServer(runtime).callTool(command, { root: "/unused" })).content;
+      expect(value).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", action: "inspect-diagnostics", retryable: false } });
+      expect(JSON.stringify(value)).not.toContain(sentinel);
+      expect(failureIssues((value as any).error)).toEqual([]);
+      expect(hooks).toBe(0);
+      expect(calls).toBe(1);
+    }
+  }
+});
+
+
+test("P2 registered producer and transport metadata reject accessors and inherited values without reading them", async () => {
+  const { ProjectionManifestInvalidError } = await import("@archcontext/core/projection-engine");
+  const { ProjectionCodeFactsUnavailableError } = await import("@archcontext/local-runtime/codegraph-adapter");
+  const { failureIssues } = await import("@archcontext/contracts");
+  const cases: Array<[() => Error, string[]]> = [
+    [() => new GitVisibleFilesUnavailableError(sentinel, sentinel), ["code", "reasonCode"]],
+    [() => new ProjectionManifestInvalidError([sentinel]), ["reasonCode"]],
+    [() => new ProjectionCodeFactsUnavailableError("index-missing"), ["code", "reasonCode"]],
+    [() => new RuntimeRpcTransportError("RPC_TIMEOUT", "completeTask", 5, 6), ["code", "method", "timeoutMs", "elapsedMs"]],
+    [() => new RuntimeRpcTransportError("RPC_ABORTED", "practiceCheckpoint", 5, 6), ["code", "method", "timeoutMs", "elapsedMs"]]
+  ];
+  for (const [makeError, keys] of cases) for (const key of keys) for (const inherited of [false, true]) {
+    for (const [surface, command, args] of [["cli", "complete", []], ["cli", "review", []], ["cli", "practices", ["checkpoint"]], ["mcp", "archcontext_complete_task", []], ["mcp", "archcontext_practice_checkpoint", []]] as const) {
+      const error = makeError();
+      const original = Object.getOwnPropertyDescriptor(error, key)!.value;
+      let reads = 0;
+      const target = inherited ? Object.create(Object.getPrototypeOf(error)) : error;
+      Object.defineProperty(target, key, { get() { reads++; return original; } });
+      if (inherited) { Reflect.deleteProperty(error, key); Object.setPrototypeOf(error, target); }
+      const runtime = runtimeThrowing(error);
+      const value = surface === "cli" ? await runCli(command, [...args], "/unused", { runtimeClient: runtime })
+        : (await new McpLocalServer(runtime).callTool(command, { root: "/unused" })).content;
+      expect(value).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", details: { stage: "failure-metadata" } } });
+      expect(JSON.stringify(value)).not.toContain(sentinel);
+      expect(failureIssues((value as any).error)).toEqual([]);
+      expect(reads).toBe(0);
+    }
+  }
+});

@@ -417,12 +417,19 @@ function requiredArg(args: Record<string, any>, key: string): string {
 
 function selectedMcpFailure(requestId: string, error: unknown): ToolCallResult {
   if (error instanceof RuntimeRpcTransportError) {
-    try { return {
-      content: failureEnvelope(requestId, knownFailure(error.code, error.code === "RPC_TIMEOUT" ? "rpc-timeout" : "rpc-aborted", {
-        method: error.method, timeoutMs: error.timeoutMs, elapsedMs: error.elapsedMs, mutationOutcome: "unknown"
-      })) as unknown as Json,
-      dataClassification: "local-metadata"
-    }; }
+    try {
+      const metadata = Object.fromEntries(["code", "method", "timeoutMs", "elapsedMs"].map(key => {
+        const descriptor = Object.getOwnPropertyDescriptor(error, key);
+        if (!descriptor || !("value" in descriptor)) throw new Error("Invalid selected transport metadata");
+        return [key, descriptor.value];
+      }));
+      return {
+        content: failureEnvelope(requestId, knownFailure(metadata.code, metadata.code === "RPC_TIMEOUT" ? "rpc-timeout" : "rpc-aborted", {
+          method: metadata.method, timeoutMs: metadata.timeoutMs, elapsedMs: metadata.elapsedMs, mutationOutcome: "unknown"
+        })) as unknown as Json,
+        dataClassification: "local-metadata"
+      };
+    }
     catch { return { content: failureEnvelope(requestId, unclassifiedFailure("failure-metadata")) as unknown as Json, dataClassification: "local-metadata" }; }
   }
   return { content: selectedProducerFailureEnvelope(requestId, error, "mcp") as unknown as Json, dataClassification: "local-metadata" };

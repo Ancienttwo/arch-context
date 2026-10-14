@@ -123,3 +123,89 @@ test("selected failure defaults do not depend on later public catalog mutations"
     expect(failureIssues(result.error)).toEqual([]);
   } finally { Object.assign(entry, original); }
 });
+
+test("P2 primitive policy keys reject coercible and boxed reason values before lookup", () => {
+  let conversions = 0;
+  const reasons: unknown[] = [
+    { privateText, toString() { conversions++; return "projection-manifest-invalid"; } },
+    { privateText, [Symbol.toPrimitive]() { conversions++; return "projection-manifest-invalid"; } },
+    Object.assign(new String("projection-manifest-invalid"), { toJSON() { conversions++; return { privateText }; } })
+  ];
+  for (const reason of reasons) {
+    expect(() => knownFailure("AC_PRECONDITION_FAILED", reason as any)).toThrow();
+    const error = new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-invalid");
+    (error.failure as any).reasonCode = reason;
+    const result = toEnvelope("complete", error, "complete");
+    expect(result.error.code).toBe("AC_UNCLASSIFIED_FAILURE");
+    expect(result.error.details).toEqual({ stage: "failure-metadata" });
+    expect(JSON.stringify(result)).not.toContain(privateText);
+    expect(failureIssues(error.failure).length).toBeGreaterThan(0);
+  }
+  expect(conversions).toBe(0);
+});
+
+test("P2 metadata snapshots never invoke changing top-level accessors or inherited values", () => {
+  const valid = knownFailure("AC_PRECONDITION_FAILED", "projection-manifest-invalid");
+  for (const key of ["code", "reasonCode", "action", "severity", "retryable", "details"] as const) {
+    let reads = 0;
+    const failure = { ...valid };
+    Object.defineProperty(failure, key, { enumerable: true, get() { reads++; return reads === 1 ? valid[key] : { privateText, toString() { return "projection-manifest-invalid"; } }; } });
+    const result = normalizeFailureResult({ ok: false, error: failure }, "cli") as any;
+    expect(result.error.code).toBe("AC_UNCLASSIFIED_FAILURE");
+    expect(JSON.stringify(result)).not.toContain(privateText);
+    expect(failureIssues(failure).length).toBeGreaterThan(0);
+    expect(reads).toBe(0);
+  }
+  const inherited = normalizeFailureResult({ ok: false, error: Object.create(valid) }, "cli") as any;
+  expect(inherited.error.code).toBe("AC_UNCLASSIFIED_FAILURE");
+  for (const key of ["ok", "error"]) {
+    let reads = 0;
+    const result: any = { ok: false, error: valid };
+    Object.defineProperty(result, key, { get() { reads++; throw new Error(privateText); } });
+    expect((normalizeFailureResult(result, "cli") as any).error.code).toBe("AC_UNCLASSIFIED_FAILURE");
+    expect(reads).toBe(0);
+  }
+  let reads = 0;
+  const typed = new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-invalid");
+  Object.defineProperty(typed, "failure", { get() { reads++; return valid; } });
+  expect(toEnvelope("complete", typed, "complete").error.code).toBe("AC_UNCLASSIFIED_FAILURE");
+  expect(reads).toBe(0);
+});
+
+test("P2 attribute and stage types do not run conversion or accessor hooks", () => {
+  let calls = 0;
+  const hostile = { privateText, toString() { calls++; return "rebuild-plan"; } };
+  for (const key of ["action", "severity", "retryable"]) {
+    const attributes = Object.defineProperty({}, key, { get() { calls++; return key === "action" ? "rebuild-plan" : key === "severity" ? "error" : false; } });
+    expect(() => knownFailure("AC_PRECONDITION_FAILED", "projection-manifest-invalid", {}, attributes)).toThrow();
+    expect(() => knownFailure("AC_PRECONDITION_FAILED", "projection-manifest-invalid", {}, { [key]: hostile } as any)).toThrow();
+  }
+  expect(() => knownFailure(hostile as any, "projection-manifest-invalid")).toThrow();
+  expect(toEnvelope("complete", new Error("unknown"), hostile as any).error.code).toBe("AC_UNCLASSIFIED_FAILURE");
+  expect(calls).toBe(0);
+  const legacy = normalizeFailureResult({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "projection-manifest-invalid" } }, "cli") as any;
+  expect(legacy.error).toEqual(knownFailure("AC_PRECONDITION_FAILED", "projection-manifest-invalid"));
+});
+
+test("P2 strict validator refuses extra accessor metadata without executing it", () => {
+  let reads = 0;
+  const value = { ...knownFailure("AC_PRECONDITION_FAILED", "projection-manifest-invalid") };
+  Object.defineProperty(value, "extra", { enumerable: true, get() { reads++; return privateText; } });
+  expect(failureIssues(value).length).toBeGreaterThan(0);
+  expect(reads).toBe(0);
+});
+
+
+test("P2 strict validator rejects non-enumerable wire object fields", () => {
+  const valid = knownFailure("AC_SCHEMA_INVALID", "changed-path-invalid", { checks: ["ownership"], stage: "debt" });
+  for (const key of Object.keys(valid)) {
+    const value = { ...valid };
+    Object.defineProperty(value, key, { enumerable: false });
+    expect(failureIssues(value).length).toBeGreaterThan(0);
+  }
+  for (const key of Object.keys(valid.details)) {
+    const value = { ...valid, details: { ...valid.details } };
+    Object.defineProperty(value.details, key, { enumerable: false });
+    expect(failureIssues(value).length).toBeGreaterThan(0);
+  }
+});

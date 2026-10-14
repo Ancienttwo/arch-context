@@ -1,5 +1,5 @@
 import {
-  ARCHITECTURE_DEBT_CHECKS, architectureDebtReportIssues, FailureError, failureEnvelope, knownFailure, normalizeFailureResult, isRepoRelativePosixPath, okEnvelope,
+  ARCHITECTURE_DEBT_CHECKS, architectureDebtReportIssues, FailureError, failureEnvelope, knownFailure, normalizeFailureResult, toEnvelope, isRepoRelativePosixPath, okEnvelope,
   type ArchContextErrorCode, type FailureStage, type StrictFailure,
   type ArchitectureDebtReportV1, type Json, type JsonEnvelope, type PracticeEnforcementEvaluationV1
 } from "@archcontext/contracts";
@@ -123,15 +123,25 @@ export class ArchitectureDebtReadError extends FailureError<ArchContextErrorCode
   }
 }
 
+/** Selected producer metadata must remain own data fields, even on a recognized error class. */
+function selectedProducerData<T extends object, K extends keyof T>(error: T, key: K): T[K] {
+  const descriptor = Object.getOwnPropertyDescriptor(error, key);
+  if (!descriptor || !("value" in descriptor)) throw new Error("Invalid selected producer metadata");
+  return descriptor.value as T[K];
+}
+
 /** Class identity or registered producer metadata classifies a failure; message/stack never do. */
 export function selectedProducerFailure(error: unknown, stage: FailureStage): FailureError<ArchContextErrorCode> {
   try {
-    if (error instanceof FailureError && error.code !== "RPC_TIMEOUT" && error.code !== "RPC_ABORTED") {
-      return new FailureError(error.code as ArchContextErrorCode, error.reasonCode, error.details, error.failure);
+    if (error instanceof FailureError) {
+      const failure = toEnvelope("failure", error, stage).error;
+      if (failure.code !== "RPC_TIMEOUT" && failure.code !== "RPC_ABORTED") {
+        return new FailureError(failure.code, failure.reasonCode, failure.details, failure);
+      }
     }
-    if (error instanceof GitVisibleFilesUnavailableError) return new FailureError(error.code, error.reasonCode, { checks: ["ownership", "anchors"] });
-    if (error instanceof ProjectionPreconditionError) return new FailureError("AC_PRECONDITION_FAILED", error.reasonCode);
-    if (error instanceof ProjectionCodeFactsUnavailableError) return new FailureError(error.code, error.reasonCode);
+    if (error instanceof GitVisibleFilesUnavailableError) return new FailureError(selectedProducerData(error, "code"), selectedProducerData(error, "reasonCode"), { checks: ["ownership", "anchors"] });
+    if (error instanceof ProjectionPreconditionError) return new FailureError("AC_PRECONDITION_FAILED", selectedProducerData(error, "reasonCode"));
+    if (error instanceof ProjectionCodeFactsUnavailableError) return new FailureError(selectedProducerData(error, "code"), selectedProducerData(error, "reasonCode"));
   } catch { return new FailureError("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", { stage: "failure-metadata" }); }
   return new FailureError("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", { stage });
 }

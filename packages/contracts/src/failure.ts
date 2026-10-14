@@ -52,6 +52,18 @@ const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const finiteNonnegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const criticalKey = (key: string) => /id$|digest|receipt|binding|readback|lookupkey/i.test(key);
+/** Read a single own data value without executing accessors or accepting prototype metadata. */
+function ownData(input: unknown, key: string): unknown {
+  if (!record(input)) throw new Error("Failure metadata must be an object");
+  const descriptor = Object.getOwnPropertyDescriptor(input, key);
+  if (!descriptor) {
+    if (key in input) throw new Error("Failure metadata must use own data properties");
+    return undefined;
+  }
+  if (!("value" in descriptor)) throw new Error("Failure metadata cannot use accessors");
+  return descriptor.value;
+}
+
 function fact(key: string, value: unknown): Json | undefined {
   if (key === "stage") return typeof value === "string" && (FAILURE_STAGES as readonly string[]).includes(value) ? value : undefined;
   if (key === "checks") {
@@ -103,14 +115,22 @@ function budgetIssues(value: unknown, depth = 0): string[] {
 }
 type Attributes = Partial<Pick<StrictFailure, "action" | "severity" | "retryable">>;
 export function knownFailure<C extends FailureCode>(code: C, reasonCode: string, details: unknown = {}, attributes: Attributes = {}): StrictFailure<C> {
+  // TypeScript types do not protect this runtime boundary. Do not coerce policy keys.
+  if (typeof code !== "string" || typeof reasonCode !== "string") throw new Error("Failure code/reason must be primitive strings");
+  const suppliedAction = ownData(attributes, "action");
+  const suppliedSeverity = ownData(attributes, "severity");
+  const suppliedRetryable = ownData(attributes, "retryable");
+  if ((suppliedAction !== undefined && typeof suppliedAction !== "string")
+    || (suppliedSeverity !== undefined && typeof suppliedSeverity !== "string")
+    || (suppliedRetryable !== undefined && typeof suppliedRetryable !== "boolean")) throw new Error("Invalid failure attribute types");
   const policy = Object.hasOwn(FAILURE_POLICIES, reasonCode) ? FAILURE_POLICIES[reasonCode] : undefined;
   if (!policy || policy.code !== code) throw new Error("Failure code/reason pair is not registered");
   const catalog = code === "RPC_TIMEOUT" || code === "RPC_ABORTED"
     ? { severity: "error" as const, retryable: false, action: "reconcile-before-retry" }
     : catalogDefaults[code as ArchContextErrorCode];
-  const action = attributes.action ?? policy.action ?? catalog.action;
-  const severity = attributes.severity ?? catalog.severity;
-  const retryable = attributes.retryable ?? catalog.retryable;
+  const action = (suppliedAction as string | undefined) ?? policy.action ?? catalog.action;
+  const severity = (suppliedSeverity as Severity | undefined) ?? catalog.severity;
+  const retryable = (suppliedRetryable as boolean | undefined) ?? catalog.retryable;
   if (!actions.has(action) || !["notice", "warning", "error", "critical"].includes(severity) || typeof retryable !== "boolean") throw new Error("Invalid failure attributes");
   if ((code === "RPC_TIMEOUT" || code === "RPC_ABORTED") && retryable) throw new Error("Transport failures cannot request automatic retry");
   if (code === "AC_UNCLASSIFIED_FAILURE" && (action !== "inspect-diagnostics" || severity !== "error" || retryable)) throw new Error("Unclassified failure attributes are fixed");
@@ -118,12 +138,24 @@ export function knownFailure<C extends FailureCode>(code: C, reasonCode: string,
   if (budgetIssues(safeDetails).length || bytes(JSON.stringify(safeDetails)) > 8192 || bytes(policy.message) > 1024) throw new Error("Failure metadata exceeds its UTF-8 budget");
   return { code, message: policy.message, severity, retryable, action, reasonCode, details: safeDetails };
 }
+/** Snapshot caller-owned fields once, before validation or use. Missing legacy details stay optional. */
+function failureFromData<C extends FailureCode = FailureCode>(input: unknown): StrictFailure<C> {
+  const code = ownData(input, "code");
+  const reasonCode = ownData(input, "reasonCode");
+  const details = ownData(input, "details");
+  const action = ownData(input, "action");
+  const severity = ownData(input, "severity");
+  const retryable = ownData(input, "retryable");
+  return knownFailure(code as C, reasonCode as string, details, {
+    action: action as string | undefined, severity: severity as Severity | undefined, retryable: retryable as boolean | undefined
+  });
+}
 export function unclassifiedFailure(stage?: FailureStage): StrictFailure<"AC_UNCLASSIFIED_FAILURE"> {
   return knownFailure("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", stage ? { stage } : {});
 }
 export function failureEnvelope<C extends FailureCode>(requestId: string, failure: StrictFailure<C>): FailureEnvelope<C> {
   // Revalidate/copy even typed metadata so caller mutation cannot bypass the closed contract.
-  return { schemaVersion: "archcontext.envelope/v1", ok: false, requestId, error: knownFailure(failure.code, failure.reasonCode, failure.details, failure) };
+  return { schemaVersion: "archcontext.envelope/v1", ok: false, requestId, error: failureFromData<C>(failure) };
 }
 /** Public value readers retain their success signature and throw this typed failure. */
 export class FailureError<C extends FailureCode = ArchContextErrorCode> extends Error {
@@ -143,27 +175,55 @@ export class FailureError<C extends FailureCode = ArchContextErrorCode> extends 
 }
 export function toEnvelope(requestId: string, error: unknown, stage: FailureStage): FailureEnvelope {
   try {
-    return failureEnvelope(requestId, error instanceof FailureError ? error.failure : unclassifiedFailure(stage));
+    return failureEnvelope(requestId, error instanceof FailureError ? ownData(error, "failure") as StrictFailure : unclassifiedFailure(stage));
   } catch {
     return failureEnvelope(requestId, unclassifiedFailure("failure-metadata"));
   }
 }
 /** Successful results are returned by identity. Only selected surface callers use this adapter. */
 export function normalizeFailureResult<T>(result: T, stage: FailureStage, requestId = "failure"): T | FailureEnvelope {
-  if (!record(result) || result.ok !== false) return result;
+  if (!record(result)) return result;
   try {
-    const error = result.error;
-    if (!record(error) || typeof error.code !== "string" || typeof error.reasonCode !== "string") return toEnvelope(requestId, undefined, stage);
-    return failureEnvelope(requestId, knownFailure(error.code as FailureCode, error.reasonCode, error.details, error as Attributes));
+    if (ownData(result, "ok") !== false) return result;
+    return failureEnvelope(requestId, failureFromData(ownData(result, "error")));
   } catch {
     return toEnvelope(requestId, undefined, "failure-metadata");
   }
 }
+/** Bounded JSON copy for strict validation; never stringify caller-owned objects or run their hooks. */
+function jsonDataSnapshot(value: unknown, depth = 0): Json {
+  if (depth > 4) throw new Error("Failure details exceed depth budget");
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "string" && bytes(value) <= 256) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) {
+    const length = Object.getOwnPropertyDescriptor(value, "length")?.value;
+    if (!Number.isSafeInteger(length) || length > 32 || Reflect.ownKeys(value).length !== length + 1) throw new Error("Failure details violate array contract");
+    return Array.from({ length }, (_, index) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !("value" in descriptor)) throw new Error("Failure details cannot use accessors or sparse lists");
+      return jsonDataSnapshot(descriptor.value, depth + 1);
+    });
+  }
+  if (record(value)) {
+    const prototype = Object.getPrototypeOf(value);
+    const keys = Reflect.ownKeys(value);
+    if ((prototype !== Object.prototype && prototype !== null) || keys.length > 16 || Object.keys(value).length !== keys.length || keys.some(key => typeof key !== "string")) throw new Error("Failure details violate object contract");
+    return Object.fromEntries((keys as string[]).map(key => [key, jsonDataSnapshot(ownData(value, key), depth + 1)]));
+  }
+  throw new Error("Failure details are not bounded JSON data");
+}
 export function failureIssues(value: unknown): string[] {
   try {
     if (!record(value)) return ["failure must be an object"];
-    if (budgetIssues(value.details).length || bytes(JSON.stringify(value.details)) > 8192 || typeof value.message !== "string" || bytes(value.message) > 1024) return ["failure exceeds byte/shape budget"];
-    const expected = knownFailure(value.code as FailureCode, value.reasonCode as string, value.details, value as Attributes);
-    return canonicalize(value as Json) === canonicalize(expected as unknown as Json) ? [] : ["failure must match its closed registered contract"];
+    const fields = ["code", "message", "severity", "retryable", "action", "reasonCode", "details"];
+    const keys = Reflect.ownKeys(value);
+    const prototype = Object.getPrototypeOf(value);
+    if ((prototype !== Object.prototype && prototype !== null) || keys.length !== fields.length || Object.keys(value).length !== fields.length || keys.some(key => typeof key !== "string" || !fields.includes(key))) return ["failure must match its closed registered contract"];
+    const data = Object.fromEntries(fields.map(key => [key, ownData(value, key)]));
+    data.details = jsonDataSnapshot(data.details);
+    if (typeof data.message !== "string" || bytes(data.message) > 1024 || bytes(JSON.stringify(data.details)) > 8192) return ["failure exceeds byte/shape budget"];
+    const expected = failureFromData(data);
+    return canonicalize(data as Json) === canonicalize(expected as unknown as Json) ? [] : ["failure must match its closed registered contract"];
   } catch { return ["failure violates its registered contract or budget"]; }
 }

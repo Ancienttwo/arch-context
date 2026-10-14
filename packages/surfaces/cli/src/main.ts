@@ -481,10 +481,17 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
     if (selected) {
       if (error instanceof CliUsageError) return failureEnvelope(command, knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
       if (error instanceof RuntimeRpcTransportError) {
-        try { return failureEnvelope(command, knownFailure(error.code,
-          error.code === "RPC_TIMEOUT" ? "rpc-timeout" : "rpc-aborted", {
-            method: error.method, timeoutMs: error.timeoutMs, elapsedMs: error.elapsedMs, mutationOutcome: "unknown"
-          })); }
+        try {
+          const metadata = Object.fromEntries(["code", "method", "timeoutMs", "elapsedMs"].map(key => {
+            const descriptor = Object.getOwnPropertyDescriptor(error, key);
+            if (!descriptor || !("value" in descriptor)) throw new Error("Invalid selected transport metadata");
+            return [key, descriptor.value];
+          }));
+          return failureEnvelope(command, knownFailure(metadata.code,
+            metadata.code === "RPC_TIMEOUT" ? "rpc-timeout" : "rpc-aborted", {
+              method: metadata.method, timeoutMs: metadata.timeoutMs, elapsedMs: metadata.elapsedMs, mutationOutcome: "unknown"
+            }));
+        }
         catch { return failureEnvelope(command, unclassifiedFailure("failure-metadata")); }
       }
       if (error instanceof LocalEgressPolicyError) return failureEnvelope(command, knownFailure("AC_POLICY_VIOLATION", "egress-policy-denied"));
