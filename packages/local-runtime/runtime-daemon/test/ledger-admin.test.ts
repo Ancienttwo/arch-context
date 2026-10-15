@@ -485,3 +485,35 @@ function writeStaleLedgerProjection(root: string): void {
   );
 }
 
+
+
+for (const operation of ["project", "rollback"] as const) {
+  test(`ledger ${operation} refuses an invalid base model before any journal or file write`, async () => {
+    const { YamlModelStore, listModelFiles } = await import("@archcontext/local-runtime/model-store-yaml");
+    const { FailureError, failureIssues } = await import("@archcontext/contracts");
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    const modelStore = new YamlModelStore();
+    const daemon = await createStartedTestDaemon({ localStore: store, modelStore, architectureLedger: { rolloutMode: "ledger-authoritative" } });
+    try {
+      await daemon.init(root, "Invalid base model");
+      const session = await daemon.openSession(root);
+      const valid = await modelStore.validateModel(session.workspace);
+      const status = await daemon.runtimeStatus(root);
+      const input = { dryRun: false, expectedWorktreeDigest: (status.data as any).worktreeDigest };
+      const filesBefore = listModelFiles(root);
+      const journalsBefore = structuredClone([...store.changeSetJournals]);
+      const eventsBefore = structuredClone(store.architectureEventAppends);
+      const secret = "/private/customer/provider-body";
+      modelStore.validateModel = async () => ({ ...valid, valid: false, errors: [secret, "second error"] });
+      const error = await (operation === "project" ? daemon.ledgerProject(root, input) : daemon.ledgerRollback(root, { ...input, toYaml: true })).catch(error => error);
+      expect(error).toBeInstanceOf(FailureError);
+      expect(error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "apply-model-invalid", details: { issueCount: 2 }, action: "rebuild-plan" });
+      expect(failureIssues(error.failure)).toEqual([]);
+      expect(JSON.stringify(error.failure)).not.toContain(secret);
+      expect(listModelFiles(root)).toEqual(filesBefore);
+      expect([...store.changeSetJournals]).toEqual(journalsBefore);
+      expect(store.architectureEventAppends).toEqual(eventsBefore);
+    } finally { await daemon.stop(); removeTempRepo(root); }
+  });
+}

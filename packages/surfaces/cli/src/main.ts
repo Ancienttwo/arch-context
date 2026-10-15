@@ -9,7 +9,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
+import { FailureError, toEnvelope, ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
 import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
@@ -508,6 +508,7 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
     if (error instanceof RuntimeVersionUnsupportedError) {
       return errorEnvelope(command ?? "cli", "AC_RUNTIME_VERSION_UNSUPPORTED", error.message);
     }
+    if (error instanceof FailureError) return toEnvelope(command, error, "cli");
     throw error;
   }
 }
@@ -1632,6 +1633,7 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       adoptionPlanId: readFlag(args, "--adoption-plan-id")
     });
   } catch (error) {
+    if (error instanceof FailureError) return toEnvelope(`docs.${action}`, error, "cli");
     return errorEnvelope(`docs.${action}`, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
   }
 }
@@ -4345,10 +4347,12 @@ function nodeEngineErrorEnvelope(command: string, versions: { node: string; bun?
 
 /**
  * A process-path failure as an envelope. A CLI argument error is the caller's to fix, so it is not
- * reported as a retryable runtime outage; every other throw still reads as one.
+ * reported as a retryable runtime outage. Typed producer failures retain their contract; other
+ * throws keep the existing runtime-outage fallback.
  */
-function cliFailureEnvelope(error: unknown): JsonEnvelope {
+function cliFailureEnvelope(error: unknown): JsonEnvelope | FailureEnvelope {
   if (error instanceof CliUsageError) return errorEnvelope("cli", "AC_SCHEMA_INVALID", error.message);
+  if (error instanceof FailureError) return toEnvelope("cli", error, "cli");
   return errorEnvelope("cli", "AC_RUNTIME_UNAVAILABLE", error instanceof Error ? error.message : String(error));
 }
 

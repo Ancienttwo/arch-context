@@ -77,6 +77,11 @@ ChangeSet published it, and rollback could not safely restore all files. Existin
 including raised engine floors, are preserved; the original backup and pending journal are kept.
 Other safely reversible files are restored. Do not report this outcome as a complete rollback or
 retry the write as if it were uncommitted and harmless. Inspect the original journal and backup.
+Before the failed writer releases its lock, the daemon publishes the complete pending-journal
+list to status/health and refuses later writes with `changeset-recovery-unresolved`, including
+writes in another repository served by the same daemon. It does not automatically recover while
+an operation is active. If the journal snapshot cannot be read, status and later writes require
+a successful read before proceeding; the original failure or committed result is retained.
 Startup recovery refuses the same conflicting existing bytes, including a first-created manifest.
 
 A missing destination has no external bytes to protect, so existing recovery may restore its
@@ -84,3 +89,8 @@ complete backup. The current journal cannot distinguish a crash before publicati
 external deletion after publication; absence follows that existing recovery rule. No new persistent
 publication state or automatic reconstruction is introduced. A non-regular/unreadable replacement
 or non-UTF8 bytes cannot be mistaken for a missing or matching manifest.
+
+Manifest conflict checks protect the bytes observed at rollback/recovery boundaries under the
+existing cooperative single-writer ownership contract. The lstat/read/hash/remove/rename sequence
+is not an atomic filesystem transaction against arbitrary external processes racing those checks.
+Quiesce other writers during manual repair; no unconditional cross-process isolation is promised.

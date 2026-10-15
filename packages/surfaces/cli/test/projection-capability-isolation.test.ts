@@ -341,7 +341,7 @@ test.each(["edited", "deleted"] as const)("a partial apply refuses a carried-for
     expect(hook.drifted).toBe(true);
     expect(refused.ok, JSON.stringify(refused)).toBe(false);
     expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
-    expect((refused as any).error.message).toContain(`Expected hash mismatch: ${RENDERER_DOC} (current ${drift === "edited" ? "sha256:" : "missing"}`);
+    expect((refused as any).error).toMatchObject({ reasonCode: "apply-preimage-changed", action: "rebuild-plan", details: { issueCount: 1 } });
     const expected = { ...committed };
     if (drift === "edited") expected[RENDERER_DOC] = edited;
     else delete expected[RENDERER_DOC];

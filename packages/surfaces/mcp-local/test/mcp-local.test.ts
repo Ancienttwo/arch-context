@@ -328,7 +328,7 @@ describe("local MCP server", () => {
       const coerced = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest, approved: "true" });
       expect((coerced.content as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
       const stale = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest: `sha256:${"0".repeat(64)}`, approved: true });
-      expect(stale.content as any).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", message: "Worktree digest changed before apply" } });
+      expect(stale.content as any).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "apply-worktree-changed", action: "rebuild-plan", details: { expectedWorktreeDigest: `sha256:${"0".repeat(64)}`, actualWorktreeDigest: expectedWorktreeDigest } } });
       expect(existsSync(join(root, ".archcontext/model/nodes/module.mcp.yaml"))).toBe(false);
       const applied = await server.callTool("archcontext_apply_update", { root, id: "changeset.mcp", expectedWorktreeDigest, approved: true });
       expect((applied.content as any).ok, JSON.stringify(applied.content)).toBe(true);
@@ -368,7 +368,7 @@ describe("local MCP server", () => {
       const staleApply = await mcp.callTool("archcontext_apply_update", { root, id: "changeset.stale", expectedWorktreeDigest: stalePlan.data.draft.base.worktreeDigest, approved: true });
       // Over RPC a daemon precondition failure arrives as the transport's failure body.
       expect((staleApply.content as any).ok).toBe(false);
-      expect(JSON.stringify(staleApply.content)).toContain("Expected hash mismatch");
+      expect((staleApply.content as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "apply-preimage-changed", action: "rebuild-plan", details: { issueCount: 1 } });
       expect(readFileSync(join(root, path), "utf8")).toBe(node("Created"));
 
       const updatePlan = (await mcp.callTool("archcontext_plan_update", { root, id: "changeset.update", operations: [{ op: "update_entity_fields", path, expectedHash: currentHash(), body: node("Updated") }] })).content as any;
@@ -407,12 +407,12 @@ describe("local MCP server", () => {
       const plan = await daemon.planUpdate(root, planInput);
       const preview = plan.data as any;
       const input = { id: planInput.id, expectedWorktreeDigest: preview.draft.base.worktreeDigest, approved: true };
-      expect(await daemon.applyUpdate(otherRoot, input)).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", message: "ChangeSet was planned for a different repository" } });
+      expect(await daemon.applyUpdate(otherRoot, input)).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "apply-repository-mismatch", action: "rebuild-plan", details: {} } });
       expect(await daemon.applyUpdate(root, { ...input, approved: false })).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      await expect(daemon.applyUpdate(root, { ...input, id: "changeset.other" })).rejects.toThrow("Unknown ChangeSet: changeset.other");
-      await expect(daemon.applyUpdate(root, { ...input, expectedWorktreeDigest: "forged" })).rejects.toThrow("Worktree digest changed");
+      await expect(daemon.applyUpdate(root, { ...input, id: "changeset.other" })).rejects.toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "apply-draft-missing", details: { changeSetId: "changeset.other" } });
+      await expect(daemon.applyUpdate(root, { ...input, expectedWorktreeDigest: `sha256:${"f".repeat(64)}` })).rejects.toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "apply-worktree-changed", details: { expectedWorktreeDigest: `sha256:${"f".repeat(64)}`, actualWorktreeDigest: preview.draft.base.worktreeDigest } });
       writeFileSync(join(root, "README.md"), "changed after preview\n");
-      await expect(daemon.applyUpdate(root, input)).rejects.toThrow("Worktree digest changed");
+      await expect(daemon.applyUpdate(root, input)).rejects.toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "apply-worktree-changed" });
       writeFileSync(join(root, "README.md"), "# tmp\n");
       expect((await daemon.applyUpdate(root, input)).ok).toBe(true);
     } finally {

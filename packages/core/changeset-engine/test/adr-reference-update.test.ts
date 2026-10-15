@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestJson } from "@archcontext/contracts";
+import { toEnvelope, digestJson } from "@archcontext/contracts";
 import { initializeArchContextModel, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
 import { SqliteLocalStore } from "../../../local-runtime/local-store-sqlite/src/index";
 import { ChangeSetEngine, type ChangeOperation } from "../src/index";
@@ -141,4 +141,18 @@ test("pending ADR journal recovery restores the exact preimage after restart", a
   expect(reopened.recoverPendingChangeSets()).toBe(1);
   expect(readFileSync(path, "utf8")).toBe(before);
   expect(await reopened.listCommittedChangeSetsForTaskSession(root, "task.adr")).toEqual([]);
+});
+
+
+test("ADR stale preview retains its diagnostic while apply carries typed preimage metadata", async () => {
+  const { root, before, journal, engine, operation, plan } = await fixture();
+  const draft = plan([{ ...operation, expectedHash: `sha256:${"0".repeat(64)}` }]);
+  expect(engine.preview(root, draft).findings).toContain(`Expected hash mismatch: ${join(root, adrPath)}`);
+  const error = await engine.apply(root, draft, { approved: true }).catch(error => error);
+  expect(error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "apply-preimage-changed", details: { issueCount: 1 } });
+  const publicFailure = toEnvelope("changeset.apply", error, "public-operation");
+  expect(publicFailure.error.message).toBe("Projection preimage changed before apply.");
+  expect(JSON.stringify(publicFailure)).not.toContain(root);
+  expect(readFileSync(join(root, adrPath), "utf8")).toBe(before);
+  expect(await journal.listCommittedChangeSetsForTaskSession(root, "task.adr")).toEqual([]);
 });

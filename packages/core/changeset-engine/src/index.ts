@@ -496,7 +496,7 @@ export class ChangeSetEngine {
     const tempPath = operation === "delete_entity" ? undefined : `${absolute}.archctx-tmp-${process.pid}-${sequence}`;
     if (existsSync(backupPath)) throw new Error(`Backup path already exists: ${path}`);
     if (existed) assertExpectedHash(absolute, expectedHash);
-    else if (expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${path}`);
+    else if (expectedHash !== "missing") throw preimageFailure(`Expected missing file hash for new path: ${path}`);
     const backup = { path: absolute, backupPath, tempPath, existed, ...(isProjectionManifestDestination(root, path) ? { manifestBodyHash: operation === "delete_entity" ? "missing" : digestJson({ body }) } : {}) };
     if (journalId) {
       await deps.journal?.recordChangeSetFile(journalId, {
@@ -512,7 +512,7 @@ export class ChangeSetEngine {
     if (operation === "write_refactor_decision") {
       assertPathHasNoSymlinkSegments(root, path);
       if (existsSync(absolute)) assertExpectedHash(absolute, expectedHash);
-      else if (expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${path}`);
+      else if (expectedHash !== "missing") throw preimageFailure(`Expected missing file hash for new path: ${path}`);
     }
     if (operation === "update_adr_references" || (operation === "render_agent_context" && (path === "AGENTS.md" || path === "CLAUDE.md"))) {
       assertPathHasNoSymlinkSegments(root, path);
@@ -923,7 +923,7 @@ function assertProjectionGuardAllowed(op: ChangeOperationKind, file: ChangeSetPr
 /** The guarded file still exists with exactly the raw bytes the render read; nothing is written. */
 function assertProjectionGuardHolds(root: string, guard: ChangeSetProjectionGuard): void {
   const absolute = assertPathHasNoSymlinkSegments(root, guard.path);
-  if (!existsSync(absolute) || !lstatSync(absolute).isFile()) throw new Error(`Expected hash mismatch: ${guard.path} (current missing)`);
+  if (!existsSync(absolute) || !lstatSync(absolute).isFile()) throw preimageFailure(`Expected hash mismatch: ${guard.path} (current missing)`);
   assertExpectedHash(absolute, guard.expectedHash);
 }
 
@@ -982,7 +982,7 @@ function refactorDecisionBody(root: string, operation: ChangeOperation): string 
     throw new Error(`write_refactor_decision body must be the canonical serialization: ${operation.path}`);
   }
   if (existsSync(absolute)) assertExpectedHash(absolute, operation.expectedHash);
-  else if (operation.expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${operation.path}`);
+  else if (operation.expectedHash !== "missing") throw preimageFailure(`Expected missing file hash for new path: ${operation.path}`);
   return operation.body;
 }
 
@@ -1068,9 +1068,16 @@ function assertNoSymlinkSegments(absoluteRoot: string, segments: string[], displ
   }
 }
 
+/** Keep the existing local preview diagnostic; public adapters publish only `.failure`. */
+function preimageFailure(diagnostic: string): FailureError<"AC_PRECONDITION_FAILED"> {
+  const error = new FailureError("AC_PRECONDITION_FAILED", "apply-preimage-changed", { issueCount: 1 });
+  error.message = diagnostic;
+  return error;
+}
+
 function assertExpectedHash(path: string, expectedHash: string): void {
   const actual = digestJson({ body: readFileSync(path, "utf8") });
-  if (expectedHash !== actual) throw new Error(`Expected hash mismatch: ${path}`);
+  if (expectedHash !== actual) throw preimageFailure(`Expected hash mismatch: ${path}`);
 }
 
 function atomicWriteFile(path: string, tempPath: string, body: string, mode?: number): void {

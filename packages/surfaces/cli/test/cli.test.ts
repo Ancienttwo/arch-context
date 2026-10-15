@@ -474,11 +474,14 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
     expect(error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "projection-ambiguous-ownership" });
     expect(error.details).toEqual({
       paths: wholeFilePaths,
+      pathCount: wholeFilePaths.length,
+      omittedPathCount: 0,
+      omittedCommandCount: 0,
       action: "remove-whole-file-outputs-and-reapply",
       commands: [`git rm -- ${wholeFilePaths.join(" ")}`, "archctx docs apply --approved --profile repo-harness/v1"]
     });
-    for (const path of wholeFilePaths) expect(error.message).toContain(path);
-    expect(error.message).toContain(`remove them from Git (git rm -- ${wholeFilePaths.join(" ")})`);
+    for (const path of wholeFilePaths) expect(error.details.paths).toContain(path);
+    expect(error.details.commands).toContain(`git rm -- ${wholeFilePaths.join(" ")}`);
     expect(wholeFilePaths.map((path) => readFileSync(join(root, path), "utf8"))).toEqual(markedBodies);
     expect(JSON.parse(readFileSync(manifestPath, "utf8")).schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v2");
 
@@ -6039,7 +6042,7 @@ describe("archctx CLI", () => {
         "--adoption-plan-id", (preview.data as any).adoptionPlanId,
         "--expected-worktree-digest", expectedWorktreeDigest
       ], root);
-      expect(applied.ok).toBe(true);
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
       const adopted = readFileSync(join(root, modulePath), "utf8");
       expect(adopted).toStartWith("# runtime-harness/hook-adapters\n<!-- BEGIN ARCHCONTEXT:generated");
       expect(adopted).toEndWith("## 3. P3 Decisions\nhuman decision  \n\n## 4. History\nhuman history\n");

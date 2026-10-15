@@ -45,7 +45,22 @@
     "packages/local-runtime/runtime-daemon/src/developer-review-run.ts",
     "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
     "packages/local-runtime/runtime-daemon/test/developer-review-run.test.ts",
-    "deploy/release-checklists/archctx-0.8.0.md"
+    "deploy/release-checklists/archctx-0.8.0.md",
+    "packages/surfaces/cli/src/main.ts",
+    "packages/surfaces/mcp-local/src/index.ts",
+    "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+    "packages/local-runtime/runtime-daemon/test/rpc-version.test.ts",
+    "packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts",
+    "packages/local-runtime/runtime-daemon/test/refactor-scan.test.ts",
+    "packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts",
+    "packages/surfaces/mcp-local/test/mcp-local.test.ts",
+    "packages/surfaces/cli/test/projection-capability-isolation.test.ts",
+    "packages/surfaces/cli/test/cli.test.ts",
+    "packages/surfaces/cli/test/failure-envelope.test.ts",
+    "packages/core/changeset-engine/test/changeset-engine.test.ts",
+    "packages/core/changeset-engine/test/manifest-update.test.ts",
+    "packages/core/changeset-engine/test/adr-reference-update.test.ts",
+    "packages/core/changeset-engine/test/refactor-decision-write.test.ts"
   ],
   "soleWriter": "root",
   "review": {
@@ -82,5 +97,45 @@
     "runDeveloperReviewSession",
     "runSignedDeveloperReviewAttestation"
   ],
-  "releasePrepAuthorization": "Coordinator explicitly requests archctx/archctx-contracts 0.8.0 compatibility record and existing authorities/gates; no npm publish this turn"
+  "releasePrepAuthorization": "Coordinator explicitly requests archctx/archctx-contracts 0.8.0 compatibility record and existing authorities/gates; no npm publish this turn",
+  "pr360Followup": {
+    "base": "12f6f6a60e8ea91bf55551ba61207c11aac8daaf",
+    "authorization": "Parent explicitly requests red/green in-process pending-journal write gate, immediate status and restart preservation; no push until findings aggregated",
+    "productPaths": [
+      "packages/local-runtime/runtime-daemon/src/index.ts",
+      "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+      "packages/local-runtime/local-store-sqlite/src/index.ts",
+      "packages/local-runtime/runtime-daemon/src/changeset-recovery-error.ts",
+      "docs/runbooks/crash-recovery.md"
+    ],
+    "releasePrep": "Paused; separate clean worktree /private/tmp/worktrees/arch-context-release-0.8.0-prep",
+    "finalPushAuthorization": "Coordinator confirms CI38714639113 terminal failure; ordinary same-branch commit/push after affected whole files pass; no further approval, force/cancellation/dispatch/rerun."
+  },
+  "pr360CIFollowup": {
+    "authorization": "Parent explicit completed-job151-failure classification and three surface/preimage products plus ledger producer closure; related full-file and full-suite verification; no push until aggregate accepted",
+    "node25Job": 116354296480,
+    "governanceJob": 116354234740,
+    "sameUniqueFailures": 151,
+    "rpcMethodTableFailures": 140,
+    "paths": [
+      "packages/surfaces/cli/src/main.ts",
+      "packages/surfaces/mcp-local/src/index.ts",
+      "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+      "packages/local-runtime/runtime-daemon/test/rpc-version.test.ts",
+      "packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts",
+      "packages/local-runtime/runtime-daemon/test/refactor-scan.test.ts",
+      "packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts",
+      "packages/surfaces/mcp-local/test/mcp-local.test.ts",
+      "packages/surfaces/cli/test/projection-capability-isolation.test.ts",
+      "packages/surfaces/cli/test/cli.test.ts",
+      "packages/surfaces/cli/test/failure-envelope.test.ts",
+      "packages/core/changeset-engine/test/changeset-engine.test.ts"
+    ],
+    "previewDiagnosticGuardFiles": [
+      "packages/core/changeset-engine/test/manifest-update.test.ts",
+      "packages/core/changeset-engine/test/adr-reference-update.test.ts",
+      "packages/core/changeset-engine/test/refactor-decision-write.test.ts"
+    ],
+    "finalAuthorization": "Complete current fixes and bounded residual whole-file controls; no added scope. Preserve original failed overall attempt; do not raise budgets or endlessly repeat root."
+  }
 }

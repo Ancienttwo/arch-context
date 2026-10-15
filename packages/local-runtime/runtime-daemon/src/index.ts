@@ -100,7 +100,7 @@ export interface RuntimeStatus {
     deferredScopeCount: number;
     failureDigests: string[];
   };
-  /** Present only when startup recovery left ChangeSet journals unresolved; writes are refused. */
+  /** Present when startup recovery or an in-process rollback left journals unresolved; writes are refused. */
   changeSetRecovery?: {
     writable: false;
     unresolvedJournals: UnresolvedChangeSetJournal[];
@@ -303,6 +303,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private running = false;
   private writerLocked = false;
   private unresolvedChangeSetJournals: UnresolvedChangeSetJournal[] = [];
+  private changeSetRecoveryRefreshRequired = false;
   private readonly legacyLocalStoreMigrationRoot?: string;
 
   constructor(deps: RuntimeDeps = {}, options: RuntimeConstructionOptions = {}) {
@@ -507,7 +508,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       this.localStore.recoverPendingChangeSets();
       // Recovery gate (#172): a journal still pending here failed to recover. Its backups are kept
       // for the next start's retry, and nothing may write over them in the meantime.
-      this.unresolvedChangeSetJournals = this.localStore.listUnresolvedChangeSetJournals();
+      this.refreshChangeSetRecovery();
       await this.landscapes.restore();
       await this.restoreRepositorySessions();
     } catch (error) {
@@ -554,6 +555,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
 
   status(): RuntimeStatus {
     try {
+    if (this.running && !this.writerLocked && this.changeSetRecoveryRefreshRequired) this.refreshChangeSetRecovery();
     return {
       running: this.running,
       sessions: this.sessions.size,
@@ -1405,10 +1407,28 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     if (this.writerLocked) throw new FailureError("AC_PRECONDITION_FAILED", "runtime-writer-locked");
     this.writerLocked = true;
     try {
+      // A failed post-operation read must not permit a later writer to trust the stale cache.
+      if (this.changeSetRecoveryRefreshRequired) this.refreshChangeSetRecovery();
+      if (this.unresolvedChangeSetJournals.length > 0) throw new ChangeSetRecoveryUnresolvedError(this.unresolvedChangeSetJournals);
       return await fn();
     } finally {
-      this.writerLocked = false;
+      // The active operation has settled. A pending journal is now unresolved, not in flight.
+      // Publish its complete authority before releasing the writer; recovery remains startup-only.
+      this.changeSetRecoveryRefreshRequired = true;
+      try {
+        this.refreshChangeSetRecovery();
+      } catch {
+        // Preserve the original failure or committed result. The dirty flag gates the next writer
+        // and status until this read succeeds; neither may silently trust the previous snapshot.
+      } finally {
+        this.writerLocked = false;
+      }
     }
+  }
+
+  private refreshChangeSetRecovery(): void {
+    this.unresolvedChangeSetJournals = this.localStore.listUnresolvedChangeSetJournals();
+    this.changeSetRecoveryRefreshRequired = false;
   }
 
   private async appendArchitectureEventsWithFeed(

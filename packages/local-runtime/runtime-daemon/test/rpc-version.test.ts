@@ -81,7 +81,7 @@ test("RPC v2 refuses v1 headers and header-less bodies without baseline, SQLite 
         method: "POST", headers: { Authorization: `Bearer ${connection.token}`, "Content-Type": "application/json", "X-ArchContext-RPC-Version": V2 },
         body: JSON.stringify({ schemaVersion: V2, method: "checkpoint", params: [root, { taskSessionId: "task_rpc_v2" }] })
       });
-      expect(await legacy.json()).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", message: "Unknown runtime RPC method: checkpoint" } });
+      expect(await legacy.json()).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", reasonCode: "rpc-method-invalid", action: "upgrade-client", details: {} } });
       expect(openSession).not.toHaveBeenCalled();
       expect(saveBaseline).not.toHaveBeenCalled();
       expect(saveSession).not.toHaveBeenCalled();

@@ -62,7 +62,28 @@ test("all registered producer reasons survive selected CLI and MCP adapters", as
       evidenceDigest: "sha256:"+"a".repeat(64), assessmentDigest: "sha256:"+"b".repeat(64), expectedHeadSha: "a".repeat(40), actualHeadSha: "b".repeat(40),
       expectedWorktreeDigest: "sha256:"+"c".repeat(64), actualWorktreeDigest: "sha256:"+"d".repeat(64), expectedNamespace: "product.fixture", actualNamespace: "product.next", measuredBytes: 10, limitBytes: 9, kind: "timeout", confirmationToken: "public:github.com/acme/widgets:"+"a".repeat(40)+":audit_run.fixture", recordCommand: null, verifyCommand: null, observation: "before-resolve-append", field: reason === "projection-snapshot-mismatch" ? "worktreeDigest" : reason === "jobs-input-invalid" ? "workerId" : "into", issue: "unknown-node", inputDomain: "observed", availability: "unavailable", cause: "unclassified"
     };
-    const details = policy.native ? {} : Object.fromEntries((policy.fields ?? []).map(key => [key, facts[key]]));
+    const ruleFacts: Record<string, any> = {
+      id: "fixture.authority", uint: 2, sha256: "sha256:" + "a".repeat(64), head: "a".repeat(40), boolean: true,
+      reviewOwnershipRefusal: "persisted-manifest-missing", reviewWorktreeRefusal: "WORKTREE_NOT_CLEAN",
+      rpcVersion: "archcontext.runtime-rpc/v2", upgradeAction: "upgrade-archctx-runtime", upgradeCommand: "archctx daemon upgrade",
+      projectionInputField: "headSha", ownershipAction: "remove-whole-file-outputs-and-reapply", ledgerModeField: "readMode",
+      changedFields: ["headSha", "worktreeDigest"], publicConfirmationToken: facts.confirmationToken,
+      consentReason: "not-granted", searched: "recorded", decisionStatus: "accepted", disposition: "resolved",
+      commandSuggestion: null, context7Kind: "timeout"
+    };
+    // Dedicated recovery shapes are authorities, not ordinary summary facts.
+    const recoveryIds = { requestId: "request.fixture", lookupKey: "sha256:" + "a".repeat(64), applyId: "sha256:" + "b".repeat(64), written: false };
+    const details = policy.journalRecovery
+      ? { unresolvedJournals: [{ journalId: "journal.fixture", changeSetId: "changeset.fixture", root: "/fixture", reason: "rollback-conflict" }] }
+      : policy.recovery
+        ? reason === "projection-apply-committed-manual-only" ? { ...recoveryIds, manualRecoveryRequired: true, readbackUnavailable: "details-budget-exceeded" } : recoveryIds
+        : policy.native ? {}
+          : policy.facts
+            ? Object.fromEntries(Object.entries(policy.facts).filter(([,rule]) => !rule.startsWith("optional:")).map(([key,rule]) => {
+                if (!Object.hasOwn(ruleFacts, rule)) throw new Error(`Missing valid fixture for ${reason}.${key}:${rule}`);
+                return [key, ruleFacts[rule]];
+              }))
+            : Object.fromEntries((policy.fields ?? []).map(key => [key, facts[key]]));
     const failure = knownFailure(policy.code, reason, details);
     const result = failureEnvelope("complete_task", failure);
     const runtime = { completeTask: async () => result, practiceCheckpoint: async () => result } as unknown as RuntimeDaemonClient;
@@ -343,4 +364,42 @@ test("D6-B leaves other docs passthrough and imported runCli rejection unchanged
   const runtime = { docs: async () => legacy, runtimeStatus: async () => { throw legacy; } } as unknown as RuntimeDaemonClient;
   expect(await runCli("docs", ["status"], "/unused", { runtimeClient: runtime })).toBe(legacy);
   await expect(runCli("status", [], "/unused", { runtimeClient: runtime })).rejects.toBe(legacy);
+});
+
+
+test("nonselected CLI init preserves a thrown typed failure without changing its contract", async () => {
+  const { FailureError, failureIssues } = await import("@archcontext/contracts");
+  const failure = new FailureError("AC_REPO_NOT_FOUND", "git-worktree-required");
+  let calls = 0;
+  const runtime = { init: async () => { calls++; throw failure; } } as unknown as RuntimeDaemonClient;
+  const result = await runCli("init", ["--name", "Fixture"], process.cwd(), { runtimeClient: runtime }).catch(error => ({ caught: error }));
+  expect(calls).toBe(1);
+  expect(result).toMatchObject({ ok: false, requestId: "init", error: failure.failure });
+  expect(failureIssues((result as any).error)).toEqual([]);
+});
+
+test("CLI docs keeps typed failures across its inner command catch", async () => {
+  const { FailureError, failureIssues } = await import("@archcontext/contracts");
+  const failure = new FailureError("AC_PRECONDITION_FAILED", "projection-snapshot-mismatch", { field: "headSha" }, { action: "run-diagnostics", severity: "critical", retryable: false });
+  let calls = 0;
+  const runtime = { docsProjection: async () => { calls++; throw failure; } } as unknown as RuntimeDaemonClient;
+  const result = await runCli("docs", ["drift"], process.cwd(), { runtimeClient: runtime });
+  expect(calls).toBe(1);
+  expect((result as any).error).toEqual(failure.failure);
+  expect(failureIssues((result as any).error)).toEqual([]);
+});
+
+test("MCP apply preserves complete typed unresolved recovery authority", async () => {
+  const { failureIssues } = await import("@archcontext/contracts");
+  const { ChangeSetRecoveryUnresolvedError } = await import("../../../local-runtime/runtime-daemon/src/changeset-recovery-error");
+  const journals = [{ journalId: "journal." + "a".repeat(300), changeSetId: "changeset." + "b".repeat(300), root: "/" + "r".repeat(9000), reason: "incomplete rollback" }];
+  const failure = new ChangeSetRecoveryUnresolvedError(journals);
+  let calls = 0;
+  const runtime = { applyUpdate: async () => { calls++; throw failure; } } as unknown as RuntimeDaemonClient;
+  const result = await new McpLocalServer(runtime).callTool("archcontext_apply_update", { root: "/unused", id: "changeset.next", expectedWorktreeDigest: "sha256:" + "c".repeat(64), approved: true });
+  expect(calls).toBe(1);
+  expect((result.content as any).error).toEqual(failure.failure);
+  expect(failureIssues((result.content as any).error)).toEqual([]);
+  expect((result.content as any).error.details.unresolvedJournals).toEqual(journals);
+  expect(failure.unresolvedJournals).toBe(journals);
 });

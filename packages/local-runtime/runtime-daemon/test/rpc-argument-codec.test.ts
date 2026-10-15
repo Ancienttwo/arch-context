@@ -107,7 +107,7 @@ describe("rpc-argument-codec: shared positional decoders", () => {
 
 // Wire-level proof that a bad positional slot is rejected with the same shape a handler's own
 // input validation already answers with: HTTP 200, `ok: false`, a structured
-// `error: { code: "AC_SCHEMA_INVALID", message: "runtime-rpc-input-invalid: ...", ... }` — not the
+// `error: { code: "AC_SCHEMA_INVALID", reasonCode: "rpc-input-invalid", ... }` — not the
 // raw HTTP 500 string error a decode failure used to produce. The stub target below never needs
 // per-method handlers because a `decodeArgs` failure throws inside
 // `ArchctxRuntimeRpcServer.dispatch` before `Reflect.apply` ever reaches the handler.
@@ -150,17 +150,18 @@ describe("RPC method table: invalid positional input is a structured AC_SCHEMA_I
       body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method, params })
     });
     return {
+      method, params,
       status: response.status,
       body: await response.json() as { schemaVersion: string; ok: boolean; error?: { code: string; message: string; severity: string; retryable: boolean; action: string } }
     };
   };
 
-  const assertSchemaInvalid = (result: { status: number; body: { ok: boolean; error?: { code: string; message: string } } } , expectSubstring?: string) => {
+  const assertSchemaInvalid = (result: { method: string; params: unknown; status: number; body: { ok: boolean; error?: { code: string; message: string } } } , expectSubstring?: string) => {
     expect(result.status).toBe(200);
     expect(result.body.ok).toBe(false);
     expect(result.body.error?.code).toBe("AC_SCHEMA_INVALID");
-    expect(result.body.error?.message).toContain("runtime-rpc-input-invalid");
-    if (expectSubstring) expect(result.body.error?.message).toContain(expectSubstring);
+    expect(result.body.error).toMatchObject({ reasonCode: "rpc-input-invalid", action: "repair-model", details: {} });
+    if (expectSubstring) expect(() => RUNTIME_RPC_METHODS[result.method as RuntimeRpcMethodName].decodeArgs(result.params as unknown[])).toThrow(expectSubstring);
   };
 
   // One representative method per distinct decoder shape, covering wrong type, missing required
@@ -212,7 +213,7 @@ describe("RPC method table: invalid positional input is a structured AC_SCHEMA_I
   test("a well-formed mcpProjection input still lets the later approved slot fail on its own", async () => {
     const result = await rpcCall("mcpProjection", ["/root", { action: "run", request: {} }, 42]);
     assertSchemaInvalid(result, "approved must be a boolean");
-    expect(result.body.error?.message).not.toContain("input must be an object");
+    expect(() => RUNTIME_RPC_METHODS.mcpProjection.decodeArgs(["/root", { action: "run", request: {} }, 42])).toThrow("approved must be a boolean");
   });
 
   // Finding 2 (still in force): a non-array `params` container must be rejected before any
@@ -335,16 +336,12 @@ describe("RPC method table: well-formed objects still reach the handler's own va
     const result = await client.practiceCheckpoint(root, "not-an-object" as never);
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
-    expect(result.error?.message).toContain("runtime-rpc-input-invalid: practiceCheckpoint input must be an object");
+    expect(result.error).toMatchObject({ reasonCode: "rpc-input-invalid", action: "repair-model", details: {} });
   });
 
-  test("client behavior: a developer-review dataMethod entry's decodeResponse now throws the real validation message, not the generic placeholder", async () => {
-    // unwrapRpcData (rpc-methods.ts) does `if (!result.ok) throw new Error(result.error?.message ?? "runtime-rpc-call-failed")`.
-    // Before: `result.error` was a raw string, so `result.error?.message` was undefined and every
-    // decode failure threw the generic "runtime-rpc-call-failed", losing the actual detail. After:
-    // `result.error` is the structured ArchContextError object, so `.message` is the real
-    // "runtime-rpc-input-invalid: ..." text — strictly more useful, no code change needed in
-    // unwrapRpcData itself.
-    await expect(client.startDeveloperReviewRun("not-an-object" as never)).rejects.toThrow(/runtime-rpc-input-invalid: startDeveloperReviewRun/);
+  test("client behavior: a developer-review dataMethod throws the typed validation failure", async () => {
+    await expect(client.startDeveloperReviewRun("not-an-object" as never)).rejects.toMatchObject({
+      name: "FailureError", code: "AC_SCHEMA_INVALID", reasonCode: "rpc-input-invalid", action: "repair-model", details: {}
+    });
   });
 });

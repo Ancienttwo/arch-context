@@ -35,8 +35,27 @@ Add deterministic red regressions before edits. Run whole affected contract/core
 - [x] Run complete scoped checks and one independent review cycle.
 - [x] Ordinary implementation commit/push; merge accepted C1 main without changing verified product bytes.
 - [x] Record planned 0.8.0 compatibility and existing release authorities/gates; no npm publishing.
-- [ ] Deliver the single final PR and hand exact-head checks to the coordinator.
+- [x] Deliver the single final PR (#360); complete the follow-up below before the next exact-head handoff.
 
 Final local acceptance: 609 passed across 32 whole files (31 + one complete corrected-file rerun); type/boundary/production/packaged pass. Both lanes report no remaining P1/P2. The exact boundary/authority/D4-adoption matrix is retained in workspace closure-matrix.json and notes. C1 merge and accepted-main alignment are complete; one final PR remains to be delivered.
 
 C1 gate cleared: be19d8ec tree equals 1fd88cf6; local merge a713228c has two parents and exactly the tested ea063698 tree. Nine squash-ancestry conflicts were resolved from that verified tree equality. Release-prep checklist is preparation-only and keeps actual versions 0.7.2.
+
+## PR360 follow-up: in-process pending recovery gate
+
+Coordinator reports that an in-process incomplete rollback leaves a durable pending journal without refreshing the daemon startup-only cache. Reproduce J1 floor-v5 publication/external supported-v6 conflict, then prove immediate status, J2 refusal before journal begin, and restart preservation. Refresh/isolate pending authority while the original writer remains held; never run recovery during an active operation. Release-prep is paused in its clean separate worktree. The initial hold on push was superseded after the coordinator aggregated findings and confirmed the original hosted run terminal; ordinary same-branch push is authorized after the affected whole files pass. No CI cancellation, dispatch, or rerun.
+
+- [x] Run deterministic red status/J2/restart regressions.
+- [x] Repair the writer-held unresolved-authority publication boundary.
+- [x] Repair confirmed CI producer/surface losses and preserve original preview diagnostics; original two review lanes rechecked with no remaining P1/P2.
+- [x] Receive coordinator aggregate findings and ordinary same-branch push authorization.
+- [x] Run bounded whole-file residual controls and product post/governance readbacks, retaining every failed attempt; CLI acceptance remains blocked.
+- [ ] Commit the final follow-up locally; ordinary push/new hosted checks remain gated on whole-CLI acceptance or explicit coordinator disposition of the residual failure.
+
+## PR360 CI follow-up
+
+Both completed jobs have the same151 unique failures (140 RPC-table tests, 11 others). Preserve strict schemas and move legacy-message consumers to code/action/reason/facts; fix CLI/MCP typed boundary losses, stale preimage and ledger invalid-base producer escapes. No message parsing, extra RPC wire shape, CI cancellation/retry or early push. Run full affected files then full suite.
+
+Full unfiltered follow-up attempt finished with3234 pass/3 existing skip/2 fail across275 files. The pending-journal acceptance fixture now keeps pending last, retains every refusal assertion and adds immediate/later-writer quarantine checks; its whole file passes36/0. The unmodified15s CLI freshness test passed743.09ms in the first whole-file control. That control ended111/1 with a different opaque docs-adoption refusal; one assertion-context-only edit supports a bounded second whole-file control. No full-root repeat or timeout increase. Release-prep and CodeGraph1.6.2 remain queued; no added execution scope.
+
+Final bounded-control status: acceptance36/0; first whole CLI111/1, second110/2. Original freshness deadline passed in both controls743.09ms/735.80ms. The new intermittent refusals are docs.adopt and the shared helper signal plan; the diagnostic assertion captures registered W1 at public-operation, not an underlying cause. A diagnostic-only real shared helper passed once, then3/3 fresh fixtures in one process; these do not count as test acceptance or prove dependency/load attribution. No further full/root repetition or CodeGraph change. Existing verify:post and all23 governance inspect commands pass individually (no skip); the original overall governance command remains exit1. Freeze includes1477 exact inputs with no drift. Remaining CLI gate prevents push/merge; retain one local reviewable commit and report the blocker to the coordinator.

@@ -797,9 +797,6 @@ describe("committed change acceptance v2", () => {
         reason: { taskSessionId: "task_accept" }, operations: [], preconditions: [], postconditions: [], requiresConfirmation: true, idempotencyKey: `idem_${id}`
       });
       const semanticFile = { path: nodePath("component.later"), existed: true, operation: "update_entity_fields" as const, bodyHash: currentHash(fixture.root, nodePath("component.later")) };
-      const pending = await fixture.store.beginChangeSet(fixture.root, draft("changeset.pending"));
-      await fixture.store.recordChangeSetFile(pending, semanticFile);
-      await expectRefused(fixture, [{ journalId: pending, changeSetId: "changeset.pending" }], /journal-not-committed/);
       const aborted = await fixture.store.beginChangeSet(fixture.root, draft("changeset.aborted"));
       await fixture.store.abortChangeSet(aborted, "fault");
       await expectRefused(fixture, [{ journalId: aborted, changeSetId: "changeset.aborted" }], /journal-not-committed/);
@@ -812,6 +809,14 @@ describe("committed change acceptance v2", () => {
         const refused = await preview(fixture, journals);
         expect((refused as any).error).toMatchObject({ code: "AC_SCHEMA_INVALID" });
       }
+
+      // Seed pending last: once observed, it correctly quarantines this daemon for every later
+      // writer boundary. Keep the other independent refusal cases outside that quarantined state.
+      const pending = await fixture.store.beginChangeSet(fixture.root, draft("changeset.pending"));
+      await fixture.store.recordChangeSetFile(pending, semanticFile);
+      await expectRefused(fixture, [{ journalId: pending, changeSetId: "changeset.pending" }], /journal-not-committed/);
+      expect(fixture.daemon.status().changeSetRecovery).toMatchObject({ writable: false, unresolvedJournals: [{ journalId: pending, changeSetId: "changeset.pending" }] });
+      await expect(preview(fixture, [later])).rejects.toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "changeset-recovery-unresolved" });
     });
   }, TIMEOUT);
 

@@ -261,7 +261,7 @@ export class McpLocalServer {
           });
           return { content: result as unknown as Json, dataClassification: "local-architecture" };
         } catch (error) {
-          if (error instanceof GitVisibleFilesUnavailableError) return runtimeUnavailable("apply_update", error);
+          if (error instanceof GitVisibleFilesUnavailableError || error instanceof FailureError) return runtimeUnavailable("apply_update", error);
           return { content: errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error)) as unknown as Json, dataClassification: "local-metadata" };
         }
       }

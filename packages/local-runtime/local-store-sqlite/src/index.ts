@@ -1542,9 +1542,9 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   /**
-   * Pending ChangeSet journals that startup recovery could not resolve. Read after
-   * `recoverPendingChangeSets()` while holding writer ownership, every row is a failed recovery —
-   * never another process's in-flight transaction.
+   * Pending ChangeSet journals read while holding writer ownership, after startup recovery or
+   * after the active writer operation has settled. At those boundaries no row belongs to an
+   * in-flight operation; an incomplete rollback must quarantine later writes too.
    */
   listUnresolvedChangeSetJournals(): UnresolvedChangeSetJournal[];
   /**
@@ -7468,7 +7468,7 @@ function changeSetJournalRecoveryErrorMessage(metadataJson: string): string {
   } catch {
     // Fall through: unreadable metadata is itself a reason the journal stayed unresolved.
   }
-  return "pending after startup recovery without a recorded recovery error";
+  return "pending ChangeSet journal without a recorded recovery error";
 }
 
 
