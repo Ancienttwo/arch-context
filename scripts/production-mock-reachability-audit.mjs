@@ -200,6 +200,7 @@ function runRuntimeProductionAssertion() {
     import { tmpdir } from "node:os";
     import { join } from "node:path";
     import { createStartedProductionDaemon, assertProductionRuntimeDeps } from "@archcontext/local-runtime/runtime-daemon";
+    import { FailureError } from "@archcontext/contracts";
     const root = mkdtempSync(join(tmpdir(), "archctx-production-runtime-"));
     const stateRoot = mkdtempSync(join(tmpdir(), "archctx-production-state-"));
     process.env.ARCHCONTEXT_STATE_DIR = stateRoot;
@@ -226,7 +227,10 @@ function runRuntimeProductionAssertion() {
           assertProductionRuntimeDeps({ [key]: injected });
           throw new Error("accepted production injection " + key);
         } catch (error) {
-          if (!String(error?.message ?? error).includes(key)) throw error;
+          if (!(error instanceof FailureError)
+            || error.code !== "AC_SCHEMA_INVALID"
+            || error.reasonCode !== "production-injections-refused"
+            || error.details?.issueCount !== 1) throw error;
         }
       }
       console.log(JSON.stringify({ report, blockedKeys }));

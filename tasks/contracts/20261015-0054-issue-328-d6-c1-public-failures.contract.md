@@ -15,6 +15,8 @@ push and Draft PR from current main 31bbc3bbd5714a84776ec1c419c44e2d5db79603, wi
 59-boundary/24-source inventory and per-reason facts: tasks/notes/20261015-0054-issue-328-d6-c1-public-failures.scope.json. Existing code/action authority
 and success side effects are fixed. Ten explicit C2 recovery escape exceptions and six lifecycle
 symbols are held; do not implement their normalization.
+The coordinator additionally authorized the existing production mock reachability audit consumer
+script to migrate its legacy message assertion to the exact C1 typed contract.
 
 ## Allowed Paths
 
@@ -76,6 +78,7 @@ allowed_paths:
   - packages/surfaces/cli/test/cli.test.ts
   - packages/local-runtime/runtime-daemon/test/local-runtime.test.ts
   - packages/core/practice-catalog/test/practice-catalog.test.ts
+  - scripts/production-mock-reachability-audit.mjs
   - plans/plan-20261015-0054-issue-328-d6-c1-public-failures.md
   - tasks/contracts/20261015-0054-issue-328-d6-c1-public-failures.contract.md
   - tasks/notes/20261015-0054-issue-328-d6-c1-public-failures.notes.md
@@ -166,6 +169,23 @@ allowed_paths:
       "evidence_policy": "current_exact",
       "necessity": "Existing production constructor and held lifecycle/recovery regressions preserve ownership and success behavior.",
       "command": "bun test --timeout 180000 packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --test-name-pattern \"prepare seeds|init, validate, sync, context|production composition root|runtime default clock|startup that leaves|startup leaves|ledger read mode|ledger-authoritative runtime read surfaces|ledger-authoritative validate\"",
+      "inputs": {
+        "env": [
+          "DO_NOT_TRACK",
+          "CODEGRAPH_NO_DOWNLOAD",
+          "ARCHCONTEXT_STATE_DIR"
+        ]
+      }
+    },
+    {
+      "id": "c1-production-audit",
+      "kind": "command",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Verify the existing production graph/bundle and six forbidden injection consumers using exact C1 FailureError code/reason/issueCount.",
+      "command": "node scripts/production-mock-reachability-audit.mjs",
       "inputs": {
         "env": [
           "DO_NOT_TRACK",

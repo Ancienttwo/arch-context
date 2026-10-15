@@ -2218,5 +2218,18 @@
     "confirmedP2Groups": 5,
     "remainingReportedP1P2": 0,
     "allOriginalReviewersConfirmedRepairs": true
+  },
+  "additionalConsumerAllowedPaths": [
+    "scripts/production-mock-reachability-audit.mjs"
+  ],
+  "additionalConsumerAuthorization": "Coordinator explicitly admitted the existing production audit as a necessary consumer of this error-contract migration after hosted CI exposed its legacy message.includes(key) assertion. No CI workflow, budget, new entrypoint, reason or C2 change.",
+  "additionalConsumerVerification": {
+    "command": "node scripts/production-mock-reachability-audit.mjs",
+    "passed": true,
+    "productionExports": 54,
+    "graphFiles": 145,
+    "injectionKeys": 6,
+    "negativeWitnessesRejected": 4,
+    "productTestHashesUnchanged": true
   }
 }

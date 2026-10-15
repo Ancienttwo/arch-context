@@ -61,8 +61,9 @@ delegated workspace `c1-verification/reviewed-results.json`, associated reviewed
 `reviewed-input-manifest.json`. Earlier failing or pre-review runs remain historical only.
 Dependencies were installed offline with frozen lock and lifecycle scripts disabled.
 
-The actual delta is 48 owned files: 22 source, 21 tests and five task documents; no path is outside
-the allowed inventory. The held lifecycle/writer methods and legacy shared projection envelope
+The initial delivered delta was 48 owned files: 22 source, 21 tests and five task documents.
+The coordinator subsequently admitted one existing audit consumer script, making 49 total files;
+no path is outside the expanded explicit inventory. The held lifecycle/writer methods and legacy shared projection envelope
 were checked byte-for-byte against accepted main. Final delivery is an ordinary commit and push
 plus Draft PR; provider readback supplies the final HEAD and hosted CI state. No merge/release or
 #328 closure is authorized.
@@ -76,3 +77,25 @@ Base: `31bbc3bbd5714a84776ec1c419c44e2d5db79603`.
 A documentation-only follow-up records this delivery; the final provider readback is authoritative
 for the branch HEAD and hosted check state. Source/test hashes remain those of the reviewed run.
 The Draft PR is attached to this delegated task. Coordinator owns hosted acceptance and merging.
+
+## Authorized hosted-consumer correction
+
+Hosted run 38683388347 (HEAD 17fc6724b39a77e2fda56cf8bef3dbb25166cb34) ended completed/failure.
+Sampled Governance, Linux Node24 and macOS Node24 logs stopped at the same production audit
+assertion. `scripts/production-mock-reachability-audit.mjs:229` still required the injected key
+in error.message. C1 intentionally uses the fixed production-injections-refused message, so the
+actual injection was refused but the consumer rethrew it as an audit failure.
+
+The coordinator explicitly admitted this existing consumer into C1. The bounded patch imports
+FailureError and checks its type, AC_SCHEMA_INVALID, production-injections-refused and issueCount=1.
+All six injection keys, real composition/adapter checks, graph traversal and bundle scan remain.
+No production source/test, CI workflow/budget, dependency, entrypoint, reason or C2 change is made.
+The applied original audit passed: 5 workspaces, 54 production exports, 145 graph files, one
+2868123-byte production bundle and all six forbidden injection keys. Four temporary negative
+witnesses (accepted injection, raw message-only error, wrong registered reason, wrong issueCount)
+all failed as required. Product/test and audit hashes were unchanged throughout verification.
+Evidence: delegated workspace c1-verification/production-audit-applied-result.json and
+audit-repair-input-manifest.json. Contract validation passed with plan hash
+sha256:0f1af51d6f83f0e5ce9720e5694af9e2baa2dd6a05a771eafc5ffdfd7a747cfd.
+One ordinary push follows the old run's terminal failure; final provider readback supplies the
+follow-up HEAD and new hosted CI state. No still-running hosted run is cancelled.

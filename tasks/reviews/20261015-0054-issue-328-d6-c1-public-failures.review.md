@@ -45,3 +45,17 @@ bindings retain their original behavior. The upstream `authority-event-missing` 
 heuristic remains an explicit provenance residual. Static producer references do not establish
 exhaustive branch coverage. No merge, release, issue closure, shared writer/readback/RPC/SQLite,
 CI/budget, repo-harness or BYOK changes are included.
+
+## Hosted consumer correction
+
+After Draft delivery, hosted CI exposed one existing production-audit consumer still asserting
+message.includes(key). The coordinator explicitly admitted this one script to the same C1 branch.
+Its assertion now requires FailureError, AC_SCHEMA_INVALID, production-injections-refused and
+issueCount=1. Graph/bundle checks and all six forbidden injections are retained. This is a bounded
+consumer assertion migration; the independently reviewed product/test code and frozen 59/92/21
+inventory are unchanged. Exact applied-script verification and new hosted state accompany delivery.
+
+Applied original-script verification passed: 5 workspaces / 54 exports / 145 graph files / one
+production bundle / six injection refusals. All four temporary negative witnesses failed as
+required. Product/test hashes match the completed 484-test review run. Contract validation and
+git diff --check passed. No new semantic review cycle was opened for this consumer assertion fix.

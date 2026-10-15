@@ -27,6 +27,8 @@ Six lifecycle symbols remain held; nine state guards and approved docs-pin recov
 are explicit partial C2 exceptions, preserving original exception identity and complete bindings.
 No withWriter/recovery class/receipt/store/RPC wire, shared CLI/MCP, #354, repo-harness or B edits.
 
+The coordinator additionally admitted `scripts/production-mock-reachability-audit.mjs` as an existing error-contract consumer; its graph/bundle/six-injection gates remain intact.
+
 ## Verification and rollback
 
 Use the contract's type/boundary, affected families and packaged smoke. New regression witnesses
@@ -43,3 +45,9 @@ and policy changes only; no data migration, merge, release or issue closure is a
 - [x] Implement C1 local producer/public-boundary failures; record C2 stopped paths.
 - [x] Run affected checks and independent review; fix confirmed in-scope findings.
 - [x] Commit, ordinary push and Draft PR #359; final provider HEAD/base/CI readback accompanies the coordinator handoff.
+
+## Hosted consumer follow-up
+
+- [x] Identify the exact old message assertion and prepare a typed-contract candidate.
+- [x] Confirm run 38683388347 reached completed/failure before any follow-up push.
+- [x] Apply and verify the real production audit; terminal old run permits one ordinary follow-up push, with exact HEAD/CI supplied by provider readback.
