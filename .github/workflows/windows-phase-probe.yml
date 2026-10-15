@@ -24,7 +24,6 @@ jobs:
         node-version: [24.x]
         mode: [isolated, file]
     env:
-      PHASE_PROBE_OUT: ${{ runner.temp }}\phase-probe.out
       PHASE_PROBE_SLOW_MS: "250"
     steps:
       - name: Checkout probe
@@ -53,12 +52,16 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Probe the two slow tests 40 times each
+        env:
+          PHASE_PROBE_OUT: ${{ runner.temp }}\\phase-probe.out
         if: matrix.mode == 'isolated'
         continue-on-error: true
         working-directory: subject
         run: bun test --preload "${{ github.workspace }}/probe-src/probe/phase-probe.ts" packages/surfaces/cli/test/cli.test.ts -t "legacy local store migration status|keep the profile of the committed manifest" --rerun-each 40 --timeout 60000
 
       - name: Probe the whole CLI test file in its normal order
+        env:
+          PHASE_PROBE_OUT: ${{ runner.temp }}\\phase-probe.out
         if: matrix.mode == 'file'
         continue-on-error: true
         working-directory: subject
