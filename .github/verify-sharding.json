@@ -4,6 +4,11 @@
   "splitTargets": [
     {
       "os": "macos-15",
+      "node-version": "22.22.x",
+      "shards": 3
+    },
+    {
+      "os": "macos-15",
       "node-version": "24.x",
       "shards": 3
     },
