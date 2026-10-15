@@ -1,3 +1,4 @@
+import { PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionApplyReceiptDataSnapshot, projectionApplyRecoveryDetailsBytes, projectionApplyRecoveryDetailsFit, failureEnvelope, knownFailure } from "@archcontext/contracts";
 import { FailureError } from "@archcontext/contracts";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { existsSync, readFileSync } from "node:fs";
@@ -341,6 +342,13 @@ export class ChangeSetAuthorityService {
         : undefined;
       if (committedReceipt) {
         return projectionApplyCommittedEnvelope("apply_update", committedReceipt.receipt, "projection-accepted-change-committed", false);
+      }
+      if (input.projectionApplyReceipt) {
+        // Keep a private data snapshot through the asynchronous ChangeSet commit.
+        input = { ...input, projectionApplyReceipt: projectionApplyReceiptDataSnapshot(input.projectionApplyReceipt) };
+        if (!projectionApplyRecoveryDetailsFit(input.projectionApplyReceipt!)) return failureEnvelope("apply_update", knownFailure("AC_PRECONDITION_FAILED", "projection-apply-recovery-metadata-too-large", {
+          measuredBytes: projectionApplyRecoveryDetailsBytes(input.projectionApplyReceipt!), limitBytes: PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES
+        })) as JsonEnvelope;
       }
       // A projection body edited after the render read it fails here, under the writer lock and
       // before any file is written, rather than being overwritten by a body rendered without it.

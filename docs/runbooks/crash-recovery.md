@@ -14,3 +14,51 @@ ArchContext local state is rebuildable. Git `.archcontext/` files remain the sou
 6. Run `archctx context --task "recovery smoke"`.
 
 Expected result: model digest is restored from Git files and CodeGraph adapter state is regenerated.
+
+
+## Committed projection metadata over budget
+
+`AC_PROJECTION_APPLY_COMMITTED` with reason `projection-apply-committed-manual-only` means the apply
+already committed. Its stored receipt is retained, while the failure's details omit the complete
+readback request because it exceeds 256 KiB. Automatic restore/replay refuses this receipt. Keep
+both full `lookupKey` and `applyId`; `requestIdUnavailable: true` means the original request ID did
+not fit the bounded failure, not that it was deleted from the receipt.
+
+Use the existing source maintenance client from an authorized checkout connected to the local
+daemon. `createRuntimeRpcClientFromConnectionFile(root)` takes the repository root, discovers its
+existing connection file and does not start a replacement daemon. The ordinary packaged CLI has
+no lookup/export-by-ID command; this procedure does not add one.
+
+```ts
+import { createRuntimeRpcClientFromConnectionFile } from "@archcontext/local-runtime/runtime-rpc-client";
+import { projectionApplyReadbackRequestFromReceipt } from "@archcontext/contracts";
+
+const client = createRuntimeRpcClientFromConnectionFile(root);
+if (!client) throw new Error("The existing daemon connection is unavailable");
+const inspected = await client.inspectProjectionApplyReceipt(root, lookupKey);
+if (!inspected.ok) throw new Error("Receipt inspection failed");
+// Validate the successful found/receipt shape before using data in an operator script.
+const { found, receipt } = inspected.data as unknown as {
+  found: boolean; receipt?: Parameters<typeof projectionApplyReadbackRequestFromReceipt>[0];
+};
+if (!found || !receipt || receipt.identity.applyId !== applyId) {
+  throw new Error("The stored receipt does not match both original identities");
+}
+const request = projectionApplyReadbackRequestFromReceipt(receipt);
+if (!request) throw new Error("The historical receipt has no recovery binding");
+const proof = await client.readbackProjectionApply(root, request);
+if (!proof.ok) throw new Error("The current fixed point cannot prove this receipt");
+```
+
+Lookup returns the original full receipt and its pending/delivered checkpoint. Compare its full
+`applyId` before deriving the readback request, then send that complete request unchanged. Readback
+proves the current fixed point; it neither restores files nor consumes pending refresh signals.
+The isolated protocol fixture verifies this flow over the real local RPC registry with oversized
+historical metadata, including a receipt without an original request digest.
+
+After a successful proof and explicit delivery intent, the existing `recoverProjectionApply`
+method or `projection recover --request-json` can process the original identities under the
+existing recovery contract. A failed proof requires operator investigation of the original
+snapshot/outputs; the manual-only error does not authorize reconstruction or automatic replay.
+The existing RPC request-body limit remains 16 MiB. A legacy request beyond that transport limit
+cannot be proved by this wire flow; never truncate a request, identity or approval binding to fit.

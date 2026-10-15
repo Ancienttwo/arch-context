@@ -59,6 +59,16 @@
       "additionalProperties": {
         "$ref": "#/$defs/target"
       }
+    },
+    "minimumRendererVersion": {
+      "type": "string",
+      "pattern": "^archcontext\\.docs-renderer/v[1-9][0-9]*$",
+      "description": "Optional minimum engine renderer; an older engine refuses rendering and writes."
+    },
+    "minimumProtocolVersion": {
+      "type": "string",
+      "pattern": "^archcontext\\.projection-request/v[1-9][0-9]*$",
+      "description": "Optional minimum projection request protocol supported by the engine."
     }
   },
   "$defs": {

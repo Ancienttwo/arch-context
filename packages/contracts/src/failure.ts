@@ -1,3 +1,4 @@
+import { PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionRecoveryDetailsSnapshot } from "./projection-recovery";
 import { ERROR_CATALOG, canonicalize, type ArchContextErrorCode, type Json, type Severity } from "./schema";
 
 /** Only selected entrypoints support transport failures; the legacy AC-only envelope is unchanged. */
@@ -20,7 +21,7 @@ export interface FailureEnvelope<C extends FailureCode = FailureCode> {
   data?: never;
   error: StrictFailure<C>;
 }
-type Policy = { code: FailureCode; message: string; fields?: readonly string[]; action?: string; facts?: Readonly<Record<string, string>>; native?: boolean; retryable?: boolean };
+type Policy = { code: FailureCode; message: string; fields?: readonly string[]; action?: string; facts?: Readonly<Record<string, string>>; native?: boolean; recovery?: boolean; retryable?: boolean };
 /** Each reason has a closed fact vocabulary. No source text or recovery binding is a summary fact. */
 const policies: Record<string, Policy> = {
   "git-worktree-required": { code: "AC_REPO_NOT_FOUND", message: "This operation requires a Git worktree.", fields: ["checks"] },
@@ -157,6 +158,13 @@ Object.assign(policies, {
   "refactor-measurement-changed": {"code": "AC_REFACTOR_STALE","facts": {"changedFields": "changedFields"},"message": "Refactor measurement changed."},
   "audit-issue-list-inconclusive": {"code": "AC_PRECONDITION_FAILED","facts": {"runId": "id"},"message": "Audit issue list inconclusive."},
   "audit-issue-create-inconclusive": {"code": "AC_PRECONDITION_FAILED","facts": {"runId": "id","draftId": "id"},"message": "Audit issue create inconclusive."}
+} as Record<string, Policy>);
+Object.assign(policies, {
+  "projection-accepted-change-committed": {code: "AC_PROJECTION_APPLY_COMMITTED", recovery: true, message: "This accepted change is already committed. When available, send error.details.readbackRequest unchanged to projection readback; use the original identities for explicit recovery."},
+  "projection-apply-request-differs": {code: "AC_PROJECTION_APPLY_COMMITTED", recovery: true, message: "This requestId already committed a different request. Use a new requestId for new work; read back the committed result with error.details.readbackRequest when available."},
+  "projection-apply-request-digest-unrecorded": {code: "AC_PROJECTION_APPLY_COMMITTED", recovery: true, message: "This requestId committed before request digests were recorded and cannot be reused. Use a new requestId for new work. Use error.details.readbackRequest when available; otherwise inspect the original receipt manually."},
+  "projection-apply-committed-manual-only": {code: "AC_PROJECTION_APPLY_COMMITTED", recovery: true, message: "This apply is committed. Its complete readback metadata exceeds the details budget. Automatic restore and replay are refused; inspect the original receipt using the complete lookupKey and verify applyId for manual maintenance."},
+  "projection-apply-recovery-metadata-too-large": {code: "AC_PRECONDITION_FAILED", facts: {measuredBytes: "uint", limitBytes: "uint"}, message: "The final projection recovery metadata exceeds its byte budget. Reduce the accepted change or changed paths before applying; no business write was started."}
 } as Record<string, Policy>);
 for (const policy of Object.values(policies)) {
   if (policy.facts) { policy.fields = Object.freeze(Object.keys(policy.facts)); Object.freeze(policy.facts); }
@@ -540,6 +548,10 @@ export function knownFailure<C extends FailureCode>(code: C, reasonCode: string,
   if (!actions.has(action) || !["notice", "warning", "error", "critical"].includes(severity) || typeof retryable !== "boolean") throw new Error("Invalid failure attributes");
   if ((code === "RPC_TIMEOUT" || code === "RPC_ABORTED") && retryable) throw new Error("Transport failures cannot request automatic retry");
   if (code === "AC_UNCLASSIFIED_FAILURE" && (action !== "inspect-diagnostics" || severity !== "error" || retryable)) throw new Error("Unclassified failure attributes are fixed");
+  if (policy.recovery) {
+    if (action !== catalog.action || severity !== catalog.severity || retryable !== catalog.retryable) throw new Error("Committed recovery attributes are fixed");
+    return { code, message: policy.message, severity, retryable, action, reasonCode, details: projectionRecoveryDetailsSnapshot(reasonCode, details) };
+  }
   const safeDetails = detailsFor(policy, details);
   const extendedFacts = Object.values(policy.facts ?? {}).some(rule => rule === "publicConfirmationToken" || rule === "commandSuggestion");
   if (budgetIssues(safeDetails, 0, extendedFacts ? 1024 : 256).length || bytes(JSON.stringify(safeDetails)) > 8192 || bytes(policy.message) > 1024) throw new Error("Failure metadata exceeds its UTF-8 budget");
@@ -564,7 +576,7 @@ export function failureEnvelope<C extends FailureCode>(requestId: string, failur
   // Revalidate/copy even typed metadata so caller mutation cannot bypass the closed contract.
   if (typeof requestId !== "string" || bytes(requestId) > 256) throw new Error("Failure surface identity exceeds budget");
   const result: FailureEnvelope<C> = { schemaVersion: "archcontext.envelope/v1", ok: false, requestId, error: failureFromData<C>(failure) };
-  if (bytes(JSON.stringify(result)) > 8192 || bytes(JSON.stringify(result, null, 2) + "\n") > 8192) throw new Error("Failure envelope exceeds budget");
+  if (!FAILURE_POLICIES[result.error.reasonCode]?.recovery && (bytes(JSON.stringify(result)) > 8192 || bytes(JSON.stringify(result, null, 2) + "\n") > 8192)) throw new Error("Failure envelope exceeds budget");
   return result;
 }
 /** Public value readers retain their success signature and throw this typed failure. */
@@ -633,8 +645,8 @@ export function failureIssues(value: unknown): string[] {
     const data = Object.fromEntries(fields.map(key => [key, ownData(value, key)]));
     const policy = typeof data.reasonCode === "string" ? policies[data.reasonCode] : undefined;
     const extendedFacts = policy !== undefined && policy.code === data.code && Object.values(policy.facts ?? {}).some(rule => rule === "publicConfirmationToken" || rule === "commandSuggestion");
-    data.details = jsonDataSnapshot(data.details, 0, extendedFacts ? 1024 : 256);
-    if (typeof data.message !== "string" || bytes(data.message) > 1024 || bytes(JSON.stringify(data.details)) > 8192) return ["failure exceeds byte/shape budget"];
+    data.details = policy?.recovery && policy.code === data.code ? projectionRecoveryDetailsSnapshot(data.reasonCode as string, data.details) : jsonDataSnapshot(data.details, 0, extendedFacts ? 1024 : 256);
+    if (typeof data.message !== "string" || bytes(data.message) > 1024 || bytes(JSON.stringify(data.details)) > (policy?.recovery ? PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES : 8192)) return ["failure exceeds byte/shape budget"];
     const expected = failureFromData(data);
     return canonicalize(data as Json) === canonicalize(expected as unknown as Json) ? [] : ["failure must match its closed registered contract"];
   } catch { return ["failure violates its registered contract or budget"]; }

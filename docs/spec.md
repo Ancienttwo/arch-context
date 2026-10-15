@@ -79,7 +79,41 @@ RF2 assessment path. Target required relations must not overlap migration-only t
 invalid proposals fail through the existing `AC_SCHEMA_INVALID` boundary. These source changes do
 not imply a new published provider version or activation of a downstream scheduler.
 
+### Projection Engine Floors
+
+Manifest v3 may declare optional `minimumRendererVersion` (`archcontext.docs-renderer/vN`) and
+`minimumProtocolVersion` (`archcontext.projection-request/vN`). The engine compares these floors
+with its supported versions before rendering and at the ChangeSet write boundary, including
+pre-rendered projection files and implicit generated rebuilds. A floor raised after planning is
+checked again immediately before file mutation. The manifest is written after other supplied or
+implicit files so a later floor refusal cannot roll it back over a concurrently raised floor.
+Unsupported floors or a future manifest format
+return `AC_PRECONDITION_FAILED` / `projection-manifest-incompatible`; a future format is never
+reinterpreted as a missing manifest or re-baselined by an older engine. Existing v1/v2 re-baselining
+keeps its explicit `docs apply` route. Missing floors retain the existing v3 behavior and byte
+layout; renders preserve declared floors. This adds no command or version bump.
+
 ### Accepted Projection Delivery Recovery
+
+Committed projection failures preserve `AC_PROJECTION_APPLY_COMMITTED`, severity `error`,
+`retryable: false` and action `readback-committed-projection-apply`. Their dedicated closed
+`details` contract permits at most 262144 compact UTF-8 JSON bytes, including complete IDs and
+`readbackRequest`; ordinary summary failures retain the 8192-byte budget. New accepted apply/adopt
+receipts are measured after final expansion, including the longest `written` branch, before
+business planning/writes. Direct `applyUpdate` checks again under the writer before ChangeSet
+apply. Existing session/snapshot administrative writes are distinct from business journal,
+projection file, receipt and ledger writes.
+
+A historical committed receipt whose complete recovery details exceed that limit remains stored
+unchanged. It returns `projection-apply-committed-manual-only`, `manualRecoveryRequired: true` and
+`readbackUnavailable: details-budget-exceeded`, with complete `lookupKey` and `applyId`; automatic
+restore and replay stop before proof or mutation. The original request ID is retained whole when
+it fits, otherwise omitted with `requestIdUnavailable: true`. A known `written` value is preserved;
+an absent value stays absent. This failure reports a committed outcome, never an uncommitted one.
+An operator can inspect the full original receipt and prove it through the existing source
+maintenance client; [the runbook](runbooks/crash-recovery.md#committed-projection-metadata-over-budget)
+describes that path. Inspection/readback does not consume delivery checkpoints.
+
 
 已提交的 accepted projection apply 若在写入后因并发非 owned 变更返回
 `applied-reconcile-required`，其 refresh signal 保持在原始 receipt 中且不被普通

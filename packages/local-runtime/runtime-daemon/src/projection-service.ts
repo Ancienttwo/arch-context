@@ -1,3 +1,4 @@
+import { FailureError, failureEnvelope, knownFailure, PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionApplyCommittedDetails, projectionApplyManualOnlyDetails, projectionApplyRecoveryDetailsBytes, projectionApplyRecoveryDetailsFit } from "@archcontext/contracts";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -449,6 +450,11 @@ async function applyProjectionProtocolFixedPoint(
         recovery: recoveryBinding
       }
     : undefined;
+  if (applyReceipt && !projectionApplyRecoveryDetailsFit(applyReceipt)) {
+    return failureEnvelope("projection.run", knownFailure("AC_PRECONDITION_FAILED", "projection-apply-recovery-metadata-too-large", {
+      measuredBytes: projectionApplyRecoveryDetailsBytes(applyReceipt), limitBytes: PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES
+    })) as JsonEnvelope;
+  }
   const planned = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: request.requestId },
@@ -590,6 +596,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
         if (!existing.receipt) throw new Error("committed projection apply receipt lookup returned no receipt");
         // Another request already applied this exact accepted change. Its outputs are proven, or
         // restored under the original receipt, before the refusal points the caller at readback (#325).
+        if (!projectionApplyRecoveryDetailsFit(existing.receipt)) return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed", false);
         const outputs = await proveOrRestoreCommittedProjectionApply(existing.receipt, root, daemon);
         if (outputs.kind === "failed") return outputs.envelope;
         return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed", outputs.kind === "restored");
@@ -752,6 +759,7 @@ async function replayCommittedProjectionApply(
       latest.receipt.recovery?.requestDigest === undefined ? "projection-apply-request-digest-unrecorded" : "projection-apply-request-differs"
     );
   }
+  if (!projectionApplyRecoveryDetailsFit(match.receipt)) return projectionApplyCommittedEnvelope("projection.run", match.receipt, "projection-accepted-change-committed", false);
   const outputs = await proveOrRestoreCommittedProjectionApply(match.receipt, root, daemon);
   if (outputs.kind === "failed") return outputs.envelope;
   // A receipt whose refresh signals were never delivered answers as the first run would have
@@ -889,34 +897,11 @@ export function projectionApplyCommittedEnvelope(
   reasonCode: "projection-accepted-change-committed" | "projection-apply-request-differs" | "projection-apply-request-digest-unrecorded",
   written?: boolean
 ): JsonEnvelope {
-  const requestId = receipt.result.requestId;
-  const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
-  const requestDigest = receipt.recovery?.requestDigest;
-  const cause = {
-    "projection-accepted-change-committed": `this accepted change was already applied under requestId ${requestId}`,
-    "projection-apply-request-differs": `requestId ${requestId} already committed an apply for a different request; send this request under a new requestId`,
-    "projection-apply-request-digest-unrecorded": `requestId ${requestId} committed an apply before request digests were recorded, so no request can be proven equal to it and the requestId cannot be reused; send this request under a new requestId`
-  }[reasonCode];
-  const readback = readbackRequest
-    ? "to read the committed result, send error.details.readbackRequest unchanged as the projection readback request (CLI: projection readback --request-json); deliver pending refresh signals with projection recover and error.details requestId, lookupKey and applyId"
-    : "the committed receipt has no recovery binding, so projection readback and projection recover cannot prove it";
-  const restored = written === true
-    ? "; its projection-owned outputs differed from the approved result at the approved snapshot and were written again under the original receipt"
-    : "";
-  return errorEnvelope(
-    envelopeRequestId,
-    "AC_PROJECTION_APPLY_COMMITTED",
-    `${cause}${restored}; ${readback}`,
-    reasonCode,
-    {
-      requestId,
-      lookupKey: receipt.identity.lookupKey,
-      applyId: receipt.identity.applyId,
-      ...(requestDigest === undefined ? {} : { requestDigest }),
-      ...(readbackRequest === undefined ? {} : { readbackRequest: readbackRequest as unknown as Json }),
-      ...(written === undefined ? {} : { written })
-    }
-  );
+  const fits = projectionApplyRecoveryDetailsFit(receipt);
+  return failureEnvelope(envelopeRequestId, knownFailure("AC_PROJECTION_APPLY_COMMITTED",
+    fits ? reasonCode : "projection-apply-committed-manual-only",
+    fits ? projectionApplyCommittedDetails(receipt, written) : projectionApplyManualOnlyDetails(receipt, written)
+  )) as JsonEnvelope;
 }
 
 /**
@@ -979,6 +964,7 @@ function rebaselineUnvouchedWholeFileOutputs(projection: ReturnType<typeof build
  * whose files footprints could be measured over (`AC_REPO_NOT_FOUND`, `git-worktree-required`).
  */
 export function projectionFailureEnvelope(requestId: string, error: unknown): JsonEnvelope {
+  if (error instanceof FailureError) return failureEnvelope(requestId, error.failure) as JsonEnvelope;
   if (error instanceof ProjectionPreconditionError) {
     return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error.message, error.reasonCode);
   }

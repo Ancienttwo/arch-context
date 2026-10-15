@@ -13,7 +13,7 @@ test("every registered failure reason has the strict four fields and bounded UTF
       evidenceDigest: "sha256:"+"a".repeat(64), assessmentDigest: "sha256:"+"b".repeat(64), expectedHeadSha: "a".repeat(40), actualHeadSha: "b".repeat(40),
       expectedWorktreeDigest: "sha256:"+"c".repeat(64), actualWorktreeDigest: "sha256:"+"d".repeat(64), expectedNamespace: "product.fixture", actualNamespace: "product.next", measuredBytes: 10, limitBytes: 9, kind: "timeout", confirmationToken: "public:github.com/acme/widgets:"+"a".repeat(40)+":audit_run.fixture", recordCommand: null, verifyCommand: null, observation: "before-resolve-append", field: reason === "projection-snapshot-mismatch" ? "worktreeDigest" : reason === "jobs-input-invalid" ? "workerId" : "into", issue: "unknown-node", inputDomain: "observed", availability: "unavailable", cause: "unclassified"
     };
-    const details = policy.native ? {} : policy.facts ? Object.fromEntries(Object.keys(policy.facts).map(key => [key, facts[key]])) : {stage: "debt"};
+    const details = policy.recovery ? {requestId: "request.fixture", lookupKey: "sha256:"+"a".repeat(64), applyId: "sha256:"+"b".repeat(64), ...(reason === "projection-apply-committed-manual-only" ? {manualRecoveryRequired: true, readbackUnavailable: "details-budget-exceeded"} : {})} : policy.native ? {} : policy.facts ? Object.fromEntries(Object.keys(policy.facts).map(key => [key, facts[key]])) : {stage: "debt"};
     const failure = knownFailure(policy.code, reason, details);
     expect(failureIssues(failure)).toEqual([]);
     expect(size(failure.details)).toBeLessThanOrEqual(8192);

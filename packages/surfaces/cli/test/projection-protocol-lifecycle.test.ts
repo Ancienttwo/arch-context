@@ -9,9 +9,9 @@ import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromA
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, createRuntimeRpcClientFromConnectionFile, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { PROJECTION_FILE_PREVIEW_MAX_BYTES, architectureRefreshSignalInvariantIssues, digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { PROJECTION_FILE_PREVIEW_MAX_BYTES, projectionApplyReadbackRequestFromReceipt, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryDetailsBytes, type ProjectionApplyReceiptV1, architectureRefreshSignalInvariantIssues, digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { runCli } from "../src/main";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
@@ -649,7 +649,7 @@ test("a new requestId for a committed accepted change restores reverted outputs 
         written: true
       }
     });
-    expect(committed.message).toContain("written again under the original receipt");
+    expect(committed.details.written).toBe(true);
     expect(docsSnapshot(root)).toEqual(docsAfterFirst);
     const readback = await cli("projection", ["readback", "--request-json", JSON.stringify(committed.details.readbackRequest)]);
     expect(readback.ok, JSON.stringify(readback)).toBe(true);
@@ -949,3 +949,128 @@ for (const lineEnding of ["lf", "crlf"] as const) {
     });
   }, TEST_TIMEOUT_MS);
 }
+
+
+test("new accepted applies reject final expanded recovery metadata before planning any business write", async () => {
+  await withProtocolFixture("archctx-projection-new-budget-", async ({ root, daemon, localStore, request, projectionRun }) => {
+    editKeptSummary(root);
+    const before = docsSnapshot(root);
+    const journals = localStore.changeSetJournals.size;
+    let plans = 0;
+    const originalPlan = daemon.planUpdate.bind(daemon);
+    daemon.planUpdate = async (...args) => { plans++; return originalPlan(...args); };
+    const observed = projectionResult(await projectionRun(request("plan", "request.budget.plan")));
+    const signal = observed.refreshSignals.find(signal => signal.mode === "human-action-required")!;
+    expect(signal).toBeDefined();
+    for (const explicit of [false, true]) {
+      const value = request("apply", "r".repeat(140000), explicit ? { acceptedChange: { changeSetId: "changeset.budget", eventId: "event.budget", reasonCodes: signal.reasonCodes, affectedNodeIds: signal.affectedNodeIds } } : { acceptObservedMajorChange: true });
+      expect(new TextEncoder().encode(JSON.stringify(value)).length).toBeLessThan(262144);
+      const result = await projectionRun(value);
+      expect(result).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "projection-apply-recovery-metadata-too-large", details: { limitBytes: 262144 } } });
+      expect((result as any).error.details.measuredBytes).toBeGreaterThan(262144);
+      expect(plans).toBe(0);
+      expect(docsSnapshot(root)).toEqual(before);
+      expect(localStore.changeSetJournals.size).toBe(journals);
+    }
+  });
+}, TEST_TIMEOUT_MS);
+
+test("legacy oversized receipts refuse automatic replay/restore; existing maintenance client reads full original evidence", async () => {
+  await withProtocolFixture("archctx-projection-legacy-budget-", async ({ root, localStore, request, projectionRun }) => {
+    editKeptSummary(root);
+    const beforeApply = docsSnapshot(root);
+    const original = request("apply", "request.legacy.budget", { acceptObservedMajorChange: true });
+    const first = projectionResult(await projectionRun(original));
+    const committed = await localStore.inspectProjectionApplyReceipt(first.applyReceipt!.lookupKey);
+    if (!committed) throw new Error("fixture did not commit a receipt");
+    const committedTree = docsSnapshot(root);
+    const changedPath = Object.keys(committedTree).find(path => beforeApply[path] !== committedTree[path] && path.endsWith(".md"))!;
+    expect(changedPath).toBeString();
+    const entry = [...localStore.changeSetJournals.values()].find(entry => entry.projectionApplyReceipt?.identity.applyId === first.applyReceipt!.applyId)!;
+    for (const recorded of [true, false]) {
+      const historical: ProjectionApplyReceiptV1 = structuredClone(committed.receipt);
+      historical.recovery!.changedPaths = ["src/" + "x".repeat(270000) + ".ts"];
+      const legacyRequest = { ...original, changedPaths: [...historical.recovery!.changedPaths] };
+      if (recorded) historical.recovery!.requestDigest = digestJson(legacyRequest as any) as any;
+      else delete historical.recovery!.requestDigest;
+      expect(projectionApplyReceiptInvariantIssues(historical)).toEqual([]);
+      expect(projectionApplyRecoveryDetailsBytes(historical)).toBeGreaterThan(262144);
+      const legacyStore = new TestLocalStore();
+      const journal = await legacyStore.beginChangeSet(root, entry.draft);
+      for (const file of entry.files) await legacyStore.recordChangeSetFile(journal, file);
+      await legacyStore.recordChangeSetProjectionOwner(journal);
+      await legacyStore.recordProjectionApplyReceipt(journal, historical);
+      await legacyStore.commitChangeSet(journal);
+      const legacyDaemon = await createStartedDaemon({ codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()), codeGraphProviderFactory: () => new MockCodeGraphProvider(), localStore: legacyStore });
+      const server = new ArchctxRuntimeRpcServer(legacyDaemon, { root, port: 0, idleTimeoutMs: 0 });
+      try {
+        let automaticReadbacks = 0, plans = 0;
+        const readback = legacyDaemon.readbackProjectionApply.bind(legacyDaemon);
+        legacyDaemon.readbackProjectionApply = async (...args) => { automaticReadbacks++; return readback(...args); };
+        const plan = legacyDaemon.planUpdate.bind(legacyDaemon);
+        legacyDaemon.planUpdate = async (...args) => { plans++; return plan(...args); };
+        writeFileSync(join(root, changedPath), beforeApply[changedPath]!, "utf8");
+        const drifted = docsSnapshot(root);
+        const before = JSON.stringify(await legacyStore.inspectProjectionApplyReceipt(historical.identity.lookupKey));
+        const candidates = [legacyRequest, { ...legacyRequest, changedPaths: [] }, { ...legacyRequest, requestId: "request.legacy.other", acceptObservedMajorChange: undefined, acceptedChange: historical.identity.acceptedChange }];
+        for (const value of candidates) {
+          const result = await runCli("projection", ["run", "--request-json", JSON.stringify(value)], root, { runtimeClient: legacyDaemon });
+          expect(result).toMatchObject({ ok: false, error: { code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-apply-committed-manual-only", retryable: false, action: "readback-committed-projection-apply", details: { requestId: historical.result.requestId, lookupKey: historical.identity.lookupKey, applyId: historical.identity.applyId, manualRecoveryRequired: true } } });
+          expect(new TextEncoder().encode(JSON.stringify((result as any).error.details)).length).toBeLessThanOrEqual(262144);
+          expect(automaticReadbacks).toBe(0);
+          expect(plans).toBe(0);
+          expect(docsSnapshot(root)).toEqual(drifted);
+          expect(JSON.stringify(await legacyStore.inspectProjectionApplyReceipt(historical.identity.lookupKey))).toBe(before);
+        }
+        // Explicit fixture restoration puts the original fixed point back; maintenance reads it, never repairs it.
+        writeFileSync(join(root, changedPath), committedTree[changedPath]!, "utf8");
+        await server.start();
+        const client = createRuntimeRpcClientFromConnectionFile(root);
+        expect(client).toBeDefined();
+        const found = await client!.inspectProjectionApplyReceipt(root, historical.identity.lookupKey);
+        expect(found).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "pending", receipt: { identity: { applyId: historical.identity.applyId } } } });
+        const fullReceipt = (found.data as any).receipt as ProjectionApplyReceiptV1;
+        expect(fullReceipt.identity.applyId).toBe(historical.identity.applyId);
+        expect(fullReceipt).toEqual(historical);
+        const fullReadback = projectionApplyReadbackRequestFromReceipt(fullReceipt)!;
+        const proof = await client!.readbackProjectionApply(root, fullReadback);
+        expect(proof.ok, JSON.stringify(proof)).toBe(true);
+        expect((proof.data as any).receipt).toEqual(historical);
+        expect(await legacyStore.inspectProjectionApplyReceipt(historical.identity.lookupKey)).toMatchObject({ receipt: historical, deliveryStatus: "pending" });
+        expect(legacyStore.changeSetJournals.size).toBe(1);
+        expect(docsSnapshot(root)).toEqual(committedTree);
+      } finally { await server.stop(); }
+    }
+  });
+}, TEST_TIMEOUT_MS);
+
+
+test("accepted adopt rejects complete expanded recovery metadata before its business writer", async () => {
+  await withProtocolFixture("archctx-projection-adopt-budget-", async ({ root, daemon, localStore, cli, request, projectionRun }) => {
+    editKeptSummary(root);
+    writeFileSync(join(root, "docs/architecture/index.md"), "# Human architecture index\n\nPreserve this paragraph.\n", "utf8");
+    const observed = projectionResult(await projectionRun(request("plan", "request.budget.adopt.plan")));
+    expect(observed.status).toBe("adoption-required");
+    const signal = observed.refreshSignals.find(signal => signal.mode === "human-action-required")!;
+    expect(signal).toBeDefined();
+    const acceptedChange = { changeSetId: "changeset.budget.adopt", eventId: "event.budget.adopt", reasonCodes: signal.reasonCodes, affectedNodeIds: signal.affectedNodeIds };
+    const preview = await cli("docs", ["adopt", "--profile", "repo-harness/v1", "--accepted-change-set-id", acceptedChange.changeSetId, "--accepted-event-id", acceptedChange.eventId, ...acceptedChange.reasonCodes.flatMap(reason => ["--major-reason", reason]), ...acceptedChange.affectedNodeIds.flatMap(id => ["--affected-node", id])]);
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    expect((preview.data as any).allowed).toBe(true);
+    const before = docsSnapshot(root);
+    const journals = localStore.changeSetJournals.size;
+    let plans = 0;
+    const plan = daemon.planUpdate.bind(daemon);
+    daemon.planUpdate = async (...args) => { plans++; return plan(...args); };
+    for (const explicit of [true, false]) {
+      const value = request("adopt", "r".repeat(140000), { adoptionPlanId: (preview.data as any).adoptionPlanId, ...(explicit ? { acceptedChange } : { acceptObservedMajorChange: true }) });
+      expect(new TextEncoder().encode(JSON.stringify(value)).length).toBeLessThan(262144);
+      const result = await projectionRun(value);
+      expect(result).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "projection-apply-recovery-metadata-too-large" } });
+      expect((result as any).error.details.measuredBytes).toBeGreaterThan(262144);
+      expect(plans).toBe(0);
+      expect(localStore.changeSetJournals.size).toBe(journals);
+      expect(docsSnapshot(root)).toEqual(before);
+    }
+  });
+}, TEST_TIMEOUT_MS);
