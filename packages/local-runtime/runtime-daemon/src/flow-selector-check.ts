@@ -1,8 +1,8 @@
-import { okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
+import { FailureError, okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import { architectureDocumentationSourceTreeDigest, checkArchitectureFlowSelectors, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { assertProjectionCodeFactsAvailable, prepareProjectionCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { projectionFailureEnvelope } from "./projection-service";
+import { selectedProducerFailureEnvelope } from "./producer-failure";
 
 /**
  * `archctx flows check`: the P2 flow proof of every capability and the proof status of every
@@ -13,7 +13,9 @@ import { projectionFailureEnvelope } from "./projection-service";
  */
 export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: string } = {}): JsonEnvelope {
   try {
-    const root = findRepositoryRoot(cwd);
+    let root: string;
+    try { root = findRepositoryRoot(cwd); }
+    catch { throw new FailureError("AC_REPO_NOT_FOUND", "git-worktree-required"); }
     const model = loadNativeModelFromArchContext(root);
     const sourceFiles = listGitVisibleFiles(root);
     const prepared = prepareProjectionCodeFacts(root, model, {
@@ -28,6 +30,6 @@ export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: str
       codeGraph: { availability: prepared.handshake.availability, version: prepared.handshake.actualVersion }
     }) as unknown as Json);
   } catch (error) {
-    return projectionFailureEnvelope("flows.check", error);
+    return selectedProducerFailureEnvelope("flows.check", error, "flows-check");
   }
 }

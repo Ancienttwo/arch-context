@@ -28,6 +28,13 @@ and explicit graph authority. Run one complete unfiltered bun test at the existi
 per-test budget, then affected audits/type/packaging. Wait for all current hosted failures and
 terminal status before one ordinary push. Do not restore provider-message inference.
 
+The coordinator accepted B as main 670b7474d76d3cadfecc1b138513b6ed9546e7fc and authorized
+local integration into original C1 b824f402, preserving A/B/C1 behavior. Merge only this exact
+accepted main, with no D6/D7 implementation. Preserve both scoped producer adapters and the
+one FailureError/policy authority. Retain every B stage/reader/cleanup/CLI test and all C1 facts,
+budgets/remedies/guard tests. Resolve only real conflicts; do not replace shared files wholesale.
+Current b824 Verify38694500518 must reach terminal before one final integration push.
+
 ## Allowed Paths
 
 ```yaml
@@ -102,6 +109,15 @@ allowed_paths:
   - tasks/notes/20261015-0054-issue-328-d6-c1-public-failures.notes.md
   - tasks/reviews/20261015-0054-issue-328-d6-c1-public-failures.review.md
   - tasks/notes/20261015-0054-issue-328-d6-c1-public-failures.scope.json
+  - packages/local-runtime/runtime-daemon/src/architecture-debt.ts
+  - packages/local-runtime/runtime-daemon/src/docs-anchors.ts
+  - packages/local-runtime/runtime-daemon/src/flow-selector-check.ts
+  - packages/local-runtime/runtime-daemon/src/producer-failure.ts
+  - packages/local-runtime/runtime-daemon/test/read-failure-boundaries.test.ts
+  - plans/plan-20261014-2242-issue-328-d6-b-read-failures.md
+  - tasks/contracts/20261014-2242-issue-328-d6-b-read-failures.contract.md
+  - tasks/notes/20261014-2242-issue-328-d6-b-read-failures.notes.md
+  - tasks/reviews/20261014-2242-issue-328-d6-b-read-failures.review.md
 ```
 
 ## Verification Plan
@@ -111,14 +127,14 @@ allowed_paths:
   "protocol": 1,
   "checks": [
     {
-      "id": "c1-type-boundary",
+      "id": "c1-b-joint-boundaries",
       "kind": "command",
       "cwd": ".",
       "phase": "verification",
       "cost": "normal",
       "evidence_policy": "current_exact",
-      "necessity": "Verify selected operation adapters keep contracts and package direction.",
-      "command": "bun run typecheck && node scripts/package-boundary-audit.mjs",
+      "necessity": "Complete affected A/B/C1 contracts, reader producer/cleanup, CLI privacy/facts, MCP/RPC metadata, runtime/lifecycle and DE3 witnesses after exact accepted-main integration. No name filtering, added skip or raised timeout.",
+      "command": "bun test --timeout 60000 packages/contracts/test/failure-envelope.test.ts packages/contracts/test/public-operation-failures.test.ts packages/local-runtime/runtime-daemon/test/read-failure-boundaries.test.ts packages/local-runtime/runtime-daemon/test/architecture-debt-read-inputs.test.ts packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts packages/local-runtime/runtime-daemon/test/public-operation-failures.test.ts packages/surfaces/cli/test/failure-envelope.test.ts packages/surfaces/cli/test/docs-anchors.test.ts packages/surfaces/cli/test/architecture-debt.test.ts packages/surfaces/cli/test/public-operation-failures.test.ts packages/surfaces/cli/test/deps.test.ts packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/mcp-local/test/mcp-local.test.ts scripts/data-engine-source-invariants.test.ts",
       "inputs": {
         "env": [
           "DO_NOT_TRACK",
@@ -128,14 +144,31 @@ allowed_paths:
       }
     },
     {
-      "id": "c1-full-bun",
+      "id": "c1-b-cli-integration",
       "kind": "command",
       "cwd": ".",
       "phase": "verification",
       "cost": "normal",
       "evidence_policy": "current_exact",
-      "necessity": "Coordinator requires one complete repository bun test discovery, with no file selection, no name filtering, no skips and unchanged existing timeout. Report real environment or budget limits explicitly.",
-      "command": "bun test --timeout 60000",
+      "necessity": "Complete CLI plus accepted-main daemon identity/RPC version files exercise merged selected routes and preserve the seven C1 consumer semantics.",
+      "command": "bun test --timeout 60000 packages/surfaces/cli/test/cli.test.ts packages/surfaces/cli/test/daemon-upgrade-identity.test.ts packages/surfaces/cli/test/rpc-version-upgrade.test.ts",
+      "inputs": {
+        "env": [
+          "DO_NOT_TRACK",
+          "CODEGRAPH_NO_DOWNLOAD",
+          "ARCHCONTEXT_STATE_DIR"
+        ]
+      }
+    },
+    {
+      "id": "c1-type-boundary",
+      "kind": "command",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Verify selected operation adapters keep contracts and package direction.",
+      "command": "bun run typecheck && node scripts/package-boundary-audit.mjs",
       "inputs": {
         "env": [
           "DO_NOT_TRACK",
@@ -170,23 +203,6 @@ allowed_paths:
       "evidence_policy": "current_exact",
       "necessity": "Verify the existing production graph/bundle and six forbidden injection consumers using exact C1 FailureError code/reason/issueCount.",
       "command": "node scripts/production-mock-reachability-audit.mjs",
-      "inputs": {
-        "env": [
-          "DO_NOT_TRACK",
-          "CODEGRAPH_NO_DOWNLOAD",
-          "ARCHCONTEXT_STATE_DIR"
-        ]
-      }
-    },
-    {
-      "id": "c1-wiring-audit",
-      "kind": "command",
-      "cwd": ".",
-      "phase": "verification",
-      "cost": "normal",
-      "evidence_policy": "current_exact",
-      "necessity": "Verify declaration-scoped current observed absence facts and independent removal negatives, preserving bounded reads, no-empty fallback and explicit graph authority.",
-      "command": "bun test --timeout 60000 scripts/data-engine-source-invariants.test.ts",
       "inputs": {
         "env": [
           "DO_NOT_TRACK",

@@ -217,3 +217,13 @@ test("P2 strict validator rejects non-enumerable wire object fields", () => {
     expect(failureIssues(value).length).toBeGreaterThan(0);
   }
 });
+
+
+test("D6-B standalone reader stages are fixed and valid under the same failure contract", () => {
+  for (const stage of ["docs-anchors", "flows-check"]) {
+    expect(FAILURE_STAGES as readonly string[]).toContain(stage);
+    const value = knownFailure("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", { stage });
+    expect(value.details).toEqual({ stage });
+    expect(failureIssues(value)).toEqual([]);
+  }
+});

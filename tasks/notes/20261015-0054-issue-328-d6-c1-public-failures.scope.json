@@ -2404,5 +2404,61 @@
         "originallyNoDirectCause": 9
       }
     }
+  },
+  "acceptedBIntegration": {
+    "authorized": true,
+    "originalC1": "b824f402056998455c2c4d47324b92673d0277c6",
+    "acceptedMain": "670b7474d76d3cadfecc1b138513b6ed9546e7fc",
+    "acceptedBHead": "ca35871dd5fc4deab4edc1d26712c998b9df33d2",
+    "acceptedMainTreeEqualsReviewedBTree": true,
+    "commonBase": "31bbc3bbd5714a84776ec1c419c44e2d5db79603",
+    "sharedPaths": [
+      "packages/contracts/src/failure.ts",
+      "packages/contracts/test/failure-envelope.test.ts",
+      "packages/surfaces/cli/src/main.ts",
+      "packages/surfaces/cli/test/failure-envelope.test.ts"
+    ],
+    "admittedMainPaths": [
+      "packages/contracts/src/failure.ts",
+      "packages/contracts/test/failure-envelope.test.ts",
+      "packages/local-runtime/runtime-daemon/src/architecture-debt.ts",
+      "packages/local-runtime/runtime-daemon/src/docs-anchors.ts",
+      "packages/local-runtime/runtime-daemon/src/flow-selector-check.ts",
+      "packages/local-runtime/runtime-daemon/src/producer-failure.ts",
+      "packages/local-runtime/runtime-daemon/test/read-failure-boundaries.test.ts",
+      "packages/surfaces/cli/src/main.ts",
+      "packages/surfaces/cli/test/failure-envelope.test.ts",
+      "plans/plan-20261014-2242-issue-328-d6-b-read-failures.md",
+      "tasks/contracts/20261014-2242-issue-328-d6-b-read-failures.contract.md",
+      "tasks/notes/20261014-2242-issue-328-d6-b-read-failures.notes.md",
+      "tasks/reviews/20261014-2242-issue-328-d6-b-read-failures.review.md"
+    ],
+    "newFeatureScope": false,
+    "d6D7Implementation": false,
+    "pushGate": "Wait for Verify38694500518 terminal; one ordinary reviewed final integration push",
+    "verification": "15 joint whole files plus3 complete CLI/identity/version files, type/boundaries/production audit/packaging; existing60000ms timeout, no name filters",
+    "preservation": "Exact unshared blob hashes; shared stage union, C1 policy/schema bodies and both appended-test sets retained.",
+    "verificationResult": {
+      "completeFiles": 18,
+      "pass": 502,
+      "fail": 0,
+      "assertions": 6941,
+      "jointBoundaryFiles": 15,
+      "jointBoundaryPass": 383,
+      "wholeCliIdentityVersionFiles": 3,
+      "wholeCliIdentityVersionPass": 119,
+      "typeBoundaries": "passed",
+      "productionAudit": "passed",
+      "packagedNativeAndCli": "passed",
+      "inputsUnchanged": true,
+      "fullRootRerun": false,
+      "sourceConflicts": [
+        "packages/contracts/src/failure.ts"
+      ],
+      "resolution": "11-stage union; remainder of C1 policy/schema byte-identical",
+      "BOnlyExactBlobs": 9,
+      "C1OnlyNonWorkflowExactBlobs": 48,
+      "sharedAcceptedBPatchesUnchanged": 3
+    }
   }
 }

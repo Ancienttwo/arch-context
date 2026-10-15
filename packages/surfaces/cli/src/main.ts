@@ -467,19 +467,23 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
     }
     return runCapabilitiesCommand();
   }
-  const selected = ["debt", "checkpoint", "complete", "review"].includes(command)
+  const readerStage = command === "docs" && args[0] === "anchors" ? "docs-anchors"
+    : command === "flows" ? "flows-check" : undefined;
+  const readerRequestId = readerStage === "docs-anchors" ? "docs.anchors" : readerStage === "flows-check" ? "flows.check" : undefined;
+  const selectedRequestId = readerRequestId ?? command;
+  const selected = readerStage !== undefined || ["debt", "checkpoint", "complete", "review"].includes(command)
     || (command === "practices" && args[0] === "checkpoint")
     || (command === "hook" && args[0] === "checkpoint");
   try {
     if (selected) {
       const preflight = preflightCliArguments(command, args);
-      if (preflight) return preflight.ok ? preflight : failureEnvelope(command, knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
+      if (preflight) return preflight.ok ? preflight : failureEnvelope(selectedRequestId, knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
     }
     const result = await runCliUnchecked(command, args, cwd, deps);
-    return selected ? normalizeFailureResult(result, "cli", command === "practices" ? "practices.checkpoint" : command === "hook" ? "hook.checkpoint" : command) : result;
+    return selected ? normalizeFailureResult(result, readerStage ?? "cli", readerRequestId ?? (command === "practices" ? "practices.checkpoint" : command === "hook" ? "hook.checkpoint" : command)) : result;
   } catch (error) {
     if (selected) {
-      if (error instanceof CliUsageError) return failureEnvelope(command, knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
+      if (error instanceof CliUsageError) return failureEnvelope(selectedRequestId, knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
       if (error instanceof RuntimeRpcTransportError) {
         try {
           const metadata = Object.fromEntries(["code", "method", "timeoutMs", "elapsedMs"].map(key => {
@@ -487,16 +491,16 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
             if (!descriptor || !("value" in descriptor)) throw new Error("Invalid selected transport metadata");
             return [key, descriptor.value];
           }));
-          return failureEnvelope(command, knownFailure(metadata.code,
+          return failureEnvelope(selectedRequestId, knownFailure(metadata.code,
             metadata.code === "RPC_TIMEOUT" ? "rpc-timeout" : "rpc-aborted", {
               method: metadata.method, timeoutMs: metadata.timeoutMs, elapsedMs: metadata.elapsedMs, mutationOutcome: "unknown"
             }));
         }
-        catch { return failureEnvelope(command, unclassifiedFailure("failure-metadata")); }
+        catch { return failureEnvelope(selectedRequestId, unclassifiedFailure("failure-metadata")); }
       }
-      if (error instanceof LocalEgressPolicyError) return failureEnvelope(command, knownFailure("AC_POLICY_VIOLATION", "egress-policy-denied"));
-      if (error instanceof RuntimeVersionUnsupportedError) return failureEnvelope(command, knownFailure("AC_RUNTIME_VERSION_UNSUPPORTED", "runtime-version-unsupported"));
-      return selectedProducerFailureEnvelope(command, error, "cli");
+      if (error instanceof LocalEgressPolicyError) return failureEnvelope(selectedRequestId, knownFailure("AC_POLICY_VIOLATION", "egress-policy-denied"));
+      if (error instanceof RuntimeVersionUnsupportedError) return failureEnvelope(selectedRequestId, knownFailure("AC_RUNTIME_VERSION_UNSUPPORTED", "runtime-version-unsupported"));
+      return selectedProducerFailureEnvelope(selectedRequestId, error, readerStage ?? "cli");
     }
     if (error instanceof LocalEgressPolicyError) return errorEnvelope(command, "AC_POLICY_VIOLATION", error.message);
     // archctx requires a Git worktree; an embedded runtime throws this before any RPC envelope exists.
@@ -1603,13 +1607,13 @@ function runDocsAnchorsCliCommand(args: string[], cwd: string) {
       index += 1;
       continue;
     }
-    return errorEnvelope("docs.anchors", "AC_SCHEMA_INVALID", `docs anchors does not accept ${arg}; use --help`);
+    return failureEnvelope("docs.anchors", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
   }
   let profile: ArchitectureProjectionProfile | undefined;
   try {
     profile = architectureProjectionProfile(args);
   } catch (error) {
-    return errorEnvelope("docs.anchors", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    return failureEnvelope("docs.anchors", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
   }
   return runDocsAnchorsCommand(cwd, profile ? { profile } : {});
 }
@@ -1691,7 +1695,7 @@ function runFlowsCommand(args: string[], cwd: string): JsonEnvelope {
   const formatAt = args.indexOf("--format");
   const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
   if (args[0] !== "check" || unexpected.length > 0) {
-    return errorEnvelope("flows", "AC_SCHEMA_INVALID", "flows requires check [--json]; use --help");
+    return failureEnvelope("flows.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
   }
   return runFlowSelectorCheckCommand(cwd);
 }

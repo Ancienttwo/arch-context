@@ -238,3 +238,27 @@ second full execution or full green claim. Windows Node22 shard2 codegraph init 
 retained with its #261 test name, Done stdout and empty stderr; no common root with
 UV_HANDLE_CLOSING is presumed. At verification-commit time the old Win24 full is still active;
 terminal provider inventory and exact final delivery HEAD/CI are supplied separately after it ends.
+
+## Accepted main 670b7474 integration verification
+
+Only one source conflict occurred, in FAILURE_STAGES. Its resolution retains both reviewed
+sets: C1 public-operation/native-export and B docs-anchors/flows-check, under the same authority.
+Every other byte of the C1 failure policy/schema module is unchanged. Both scoped adapters are
+byte-identical to their reviewed owners. All 9 B-only files and 48 C1-only non-workflow files are
+byte-identical; the three other shared files retain the exact B added/deleted patch lines.
+B's reviewed ca35871d tree equals accepted main 670b7474, so no accepted B behavior was replaced.
+
+Current joint verification passed with no name filters or added skips at the existing 60000ms
+budget: 15 complete boundary/consumer files, 383 pass/0 fail/4750 assertions (72.48s); complete
+CLI plus identity/RPC version files, 119 pass/0 fail/2191 assertions (208.49s). Total 502 pass/
+0 fail/6941 assertions across 18 full files. Typecheck/five-workspace boundary audit (0.76s),
+production reachability audit (0.26s), packaged native-context/CLI smoke (15.25s) all pass.
+All recorded package/script/test/CI input hashes remain unchanged. No full-root suite was
+repeated. Earlier non-green full-root and separate CodeGraph exit5 evidence remain historical.
+
+Evidence lives in the delegated workspace c1-main670-integration/: baseline-manifest.json,
+merge-preservation-proof.json, verification-final.json and command logs. Contract plan hash:
+sha256:c7e9787e0f869ef45f6c4e3ca2b615962cb1a32b6ea892e3cd6d579fa01cf884.
+The merge commit is local only while b824 Verify 38694500518 runs. Terminal provider readback
+precedes the single final integration push. D6/C2+D7 now has separate user authorization for
+an independent tree; no such implementation is included in this C1 integration.

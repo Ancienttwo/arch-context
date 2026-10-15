@@ -108,3 +108,25 @@ execution-permission dependency; the original full result remains non-green. The
 case passes under normal approved browser execution (2 assertions). Approved packaged native/CLI
 smoke passes in 14.61s. npm cache EPERM is retained without ownership changes; hosted CodeGraph
 exit5 is separate from any UV_HANDLE_CLOSING theory.
+
+## Accepted-main B integration into C1
+
+The coordinator accepted B/PR357 on main 670b7474 and admitted one local integration owner in
+the original C1 worktree at b824f402. The accepted main tree equals reviewed B ca35871d.
+Merge this exact main and retain A/B/C1 semantics; no D6/D7 feature work or alternate writer.
+
+- [x] Archive the exact original C1 and accepted B manifests, patches and shared paths.
+- [x] Amend integration scope and whole-file affected verification before merge.
+- [x] Merge exact accepted main; union the one shared-stage conflict.
+- [x] Prove B-only and C1-only blobs unchanged, shared-stage union and both test additions intact.
+- [x] Run complete joint affected files, whole CLI/identity/version, type/boundary, audits and packaging.
+- [ ] Wait for b824 Verify 38694500518 terminal, then one normal final integration push/readback.
+
+C1's earlier full-root default-execution failures and bounded approved rechecks remain historical
+evidence. This integration runs the newly affected complete files at the existing 60000ms budget;
+it does not repeat the full root suite or loosen any assertion. Both producer adapters retain
+their reviewed ownership; shared FailureError/policy remains the authority.
+
+Local integration passes 502 tests/6941 assertions across 18 complete files, plus type/boundary,
+production audit and packaged smoke. Product/test/CI input hashes remain unchanged. The only
+manual source resolution is the 11-stage union; no accepted B or C1 nonshared blob was changed.

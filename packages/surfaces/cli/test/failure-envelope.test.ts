@@ -286,3 +286,61 @@ test("P2 registered producer and transport metadata reject accessors and inherit
     }
   }
 });
+
+
+test("D6-B selected reader CLI refusals are strict and never obtain a runtime", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { failureIssues } = await import("@archcontext/contracts");
+  const root = mkdtempSync(join(tmpdir(), "d6-b-cli-non-git-"));
+  let accesses = 0;
+  const noRuntime = new Proxy({}, { get() { accesses++; throw new Error(sentinel); } }) as RuntimeDaemonClient;
+  try {
+    for (const [command, args, requestId] of [["docs", ["anchors"], "docs.anchors"], ["flows", ["check"], "flows.check"]] as const) {
+      const result = await runCli(command, [...args], root, { runtimeClient: noRuntime });
+      expect(result).toMatchObject({ ok: false, requestId, error: { code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required", action: "open-correct-repository" } });
+      expect((result as any).error.details).toEqual({});
+      expect(failureIssues((result as any).error)).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain(root);
+      for (const extra of [["--" + sentinel], ["--profile", sentinel]]) {
+        const refusal = await runCli(command, [...args, ...extra], root, { runtimeClient: noRuntime });
+        expect(refusal).toMatchObject({ ok: false, requestId, error: { code: "AC_SCHEMA_INVALID", reasonCode: "cli-input-invalid", action: "correct-command-arguments" } });
+        expect(failureIssues((refusal as any).error)).toEqual([]);
+        expect(JSON.stringify(refusal)).not.toContain(sentinel);
+      }
+    }
+    const wrongVerb = await runCli("flows", ["verify"], root, { runtimeClient: noRuntime });
+    expect(wrongVerb).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", reasonCode: "cli-input-invalid" } });
+    expect(accesses).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("D6-B real CLI reader errors keep strict metadata with no diagnostics or state output", async () => {
+  const { mkdtempSync, rmSync, existsSync, readdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { failureIssues } = await import("@archcontext/contracts");
+  const root = mkdtempSync(join(tmpdir(), "d6-b-reader-process-"));
+  const state = join(root, "private-runtime-state");
+  try {
+    for (const args of [["docs", "anchors"], ["flows", "check"], ["docs", "anchors", "--" + sentinel], ["flows", "check", "--" + sentinel]]) {
+      const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), ...args], { cwd: root,
+        env: { ...process.env, ARCHCONTEXT_STATE_DIR: state, ARCHCONTEXT_CHECK_UPDATES: "0", DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" }, stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      expect(exit).toBe(1); expect(stderr).toBe("");
+      const value = JSON.parse(stdout);
+      expect(failureIssues(value.error)).toEqual([]);
+      expect(value.requestId).toBe(args[0] === "docs" ? "docs.anchors" : "flows.check");
+      expect(stdout).not.toContain(root); expect(stdout).not.toContain(sentinel);
+      expect(existsSync(state)).toBe(false); expect(readdirSync(root)).toEqual([]);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("D6-B leaves other docs passthrough and imported runCli rejection unchanged", async () => {
+  const legacy = { schemaVersion: "archcontext.envelope/v1", ok: false, requestId: "legacy", error: { code: "AC_PRECONDITION_FAILED", message: "legacy", severity: "warning", retryable: false, action: "legacy-action", reasonCode: "unregistered-legacy" } } as const;
+  const runtime = { docs: async () => legacy, runtimeStatus: async () => { throw legacy; } } as unknown as RuntimeDaemonClient;
+  expect(await runCli("docs", ["status"], "/unused", { runtimeClient: runtime })).toBe(legacy);
+  await expect(runCli("status", [], "/unused", { runtimeClient: runtime })).rejects.toBe(legacy);
+});
