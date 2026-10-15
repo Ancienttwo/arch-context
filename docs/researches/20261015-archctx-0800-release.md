@@ -38,14 +38,15 @@ CodeGraph moves to `@colbymchenry/codegraph` 1.6.2, with the wrapper and all six
 
 ## Verification
 
-Run in the release-prep worktree on `8272951e` (PR #360 head) plus this release commit, with Bun 1.4.3. This is not the final release candidate: the branch will be rebased onto main after #360 merges, and the checks below will be repeated there.
+Run in the release-prep worktree on `main@2d623306` (after #360, #361, #362, #363 and #364) plus the release commits, with Bun 1.4.3.
 
 - `bun install --frozen-lockfile` passes after the version sweep. `bun install` changed only the five workspace version lines in `bun.lock`.
 - `bun run typecheck` (`tsc --noEmit`) exits 0 with no output.
 - `bun test packages/contracts packages/core/practice-catalog scripts/fg4-deterministic-conclusion-readback.test.ts scripts/fg6-no-provider-deterministic-readback.test.ts scripts/fg6-npm-release-dry-run.test.ts`: 469 pass, 0 fail, 14 files.
 - The practice catalog digest was regenerated with `loadPracticeCatalog`. A second generation is byte-identical to the committed `catalog.yaml`.
-- The version-bound deterministic records (fg4, fg6) were regenerated with `readback:fg4:deterministic-conclusion` and `readback:fg6:no-provider-deterministic`. `modelDigest` and `generatedAt` changed, and both report no failures.
+- The version-bound deterministic records (fg4, fg6) were regenerated on this base with `readback:fg4:deterministic-conclusion` and `readback:fg6:no-provider-deterministic`. Only `generatedAt` changed, so the committed records stand; both report no failures.
+- `bun scripts/fg6-npm-release-dry-run.ts run` reports `ok: true`, status `verified`, no failures, for `archctx@0.8.0` and `archctx-contracts@0.8.0`.
 
-Not run in this commit: `bun run verify`, the hosted CI matrix, `readback:fg6:npm-release-dry-run`, `readback:fg6:local-product-tarball`, the npm preflights and the clean-room install. The npm publish, the tarballs, tag `v0.8.0` and the GitHub Release are not done yet.
+Not run in this commit: `bun run verify` locally, `readback:fg6:local-product-tarball`, the npm preflights and the clean-room install. The hosted CI matrix runs on the release-prep pull request. The npm publish, tag `v0.8.0` and the GitHub Release are not done yet.
 
-Publish both npm packages after the release-prep CI passes on the rebased branch. Rebuild the tarballs from the merged main commit. Create tag `v0.8.0` and the GitHub Release only after both npm publishes succeed.
+Publish both npm packages after the release-prep CI passes and the pull request merges. Rebuild the tarballs from the merged main commit. Create tag `v0.8.0` and the GitHub Release only after both npm publishes succeed.
