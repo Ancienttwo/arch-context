@@ -293,4 +293,13 @@ test("workflow targets only measured slow legs, keeps gate order, original nine 
     expect(artifact.with.name).toBe("platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}");
   }
   expect(workflow.jobs["verify-cost"].needs).toContain("verify-summary");
+  for (const id of ["verify", "verify-split-pre", "verify-split-tests", "verify-split-post"]) {
+    const jobSteps = workflow.jobs[id].steps;
+    const temp = jobSteps.findIndex((step: any) => step.name === "Keep temporary files on the Windows runner work disk");
+    expect(temp).toBeGreaterThan(-1);
+    expect(jobSteps[temp].if).toBe("runner.os == 'Windows'");
+    expect(jobSteps[temp].run).toContain('"TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV');
+    expect(jobSteps[temp].run).toContain('"TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV');
+    expect(temp).toBeLessThan(jobSteps.findIndex((step: any) => step.name === "Install dependencies"));
+  }
 });

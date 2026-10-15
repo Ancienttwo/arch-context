@@ -157,6 +157,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Keep temporary files on the Windows runner work disk
+        # The system-drive temp directory has multi-second write and fsync stalls on hosted
+        # Windows runners; RUNNER_TEMP is on the work disk (Windows phase probe, 2026-10-15).
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -214,6 +223,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Keep temporary files on the Windows runner work disk
+        # The system-drive temp directory has multi-second write and fsync stalls on hosted
+        # Windows runners; RUNNER_TEMP is on the work disk (Windows phase probe, 2026-10-15).
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -260,6 +278,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Keep temporary files on the Windows runner work disk
+        # The system-drive temp directory has multi-second write and fsync stalls on hosted
+        # Windows runners; RUNNER_TEMP is on the work disk (Windows phase probe, 2026-10-15).
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -297,6 +324,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Keep temporary files on the Windows runner work disk
+        # The system-drive temp directory has multi-second write and fsync stalls on hosted
+        # Windows runners; RUNNER_TEMP is on the work disk (Windows phase probe, 2026-10-15).
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
