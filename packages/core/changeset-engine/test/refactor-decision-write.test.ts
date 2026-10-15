@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestJson, refactorDecisionPath, serializeRefactorDecision, type RefactorDecisionV1 } from "@archcontext/contracts";
+import { toEnvelope, digestJson, refactorDecisionPath, serializeRefactorDecision, type RefactorDecisionV1 } from "@archcontext/contracts";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
 import { ChangeSetEngine, isRefactorDecisionOnly, type ChangeOperation, type ChangeSetJournalFile, type ChangeSetJournalPort } from "../src/index";
 
@@ -200,4 +200,24 @@ describe("write_refactor_decision (ADR-0046)", () => {
       rmSync(outside, { recursive: true, force: true });
     }
   });
+});
+
+
+test("decision stale preview retains its diagnostic while apply carries typed preimage metadata", async () => {
+  const root = tempModelRoot();
+  const journal = new RecordingJournal();
+  const engine = engineWith(journal);
+  try {
+    mkdirSync(join(root, ".archcontext/refactor-decisions"), { recursive: true });
+    writeFileSync(join(root, PATH), BODY);
+    const draft = plan(engine, [decisionOperation({ expectedHash: `sha256:${"0".repeat(64)}` })]);
+    expect(engine.preview(root, draft).findings).toContain(`Expected hash mismatch: ${join(root, PATH)}`);
+    const error = await engine.apply(root, draft, { approved: true }).catch(error => error);
+  expect(error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "apply-preimage-changed", details: { issueCount: 1 } });
+  const publicFailure = toEnvelope("changeset.apply", error, "public-operation");
+  expect(publicFailure.error.message).toBe("Projection preimage changed before apply.");
+  expect(JSON.stringify(publicFailure)).not.toContain(root);
+    expect(readFileSync(join(root, PATH), "utf8")).toBe(BODY);
+    expect(journal.committed).toEqual([]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

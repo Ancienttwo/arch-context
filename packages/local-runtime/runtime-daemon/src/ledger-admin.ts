@@ -1,3 +1,4 @@
+import { FailureError } from "@archcontext/contracts";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -567,7 +568,7 @@ export class LedgerAdminService {
     const session = await this.context.openSession(root);
     const model = await this.context.modelStore.validateModel(session.workspace);
     const baseErrors = baseModelBlockingErrors(model);
-    if (baseErrors.length > 0) throw new Error(`Architecture projection ChangeSet base model is invalid: ${baseErrors.join("; ")}`);
+    if (baseErrors.length > 0) throw new FailureError("AC_PRECONDITION_FAILED", "apply-model-invalid", { issueCount: baseErrors.length });
     const projectionFiles = input.files.map((file) => ({
       path: file.path,
       body: file.body.endsWith("\n") ? file.body : `${file.body}\n`,

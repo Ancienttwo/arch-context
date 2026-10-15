@@ -120,7 +120,7 @@ test("D6-A explicit checkpoint failure preserves its seeded baseline", async () 
     expect([...store.taskStates]).toEqual(before);
     await daemon.stop();
     const stopped = await daemon.practiceCheckpoint(root, { taskSessionId: "task_d6" });
-    expect(stopped).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", details: { stage: "practice-checkpoint" } } });
+    expect(stopped).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "runtime-not-running", action: "rebuild-plan", details: {} } });
     expect([...store.taskStates]).toEqual(before);
   } finally { await daemon.stop(); removeTempRepo(root); }
 });

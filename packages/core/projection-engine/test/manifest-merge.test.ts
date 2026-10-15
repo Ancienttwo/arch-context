@@ -81,6 +81,7 @@ function render(input: {
   model?: NativeModel;
   modelDigest?: string;
   existingFiles?: ArchitectureDocumentationExistingFile[];
+  rebaselineSupersededManifest?: boolean;
 }): ArchitectureDocumentationProjectionPlan {
   const footprints = input.footprints ?? baseFootprints;
   const fileCounts = input.fileCounts ?? baseScale;
@@ -100,6 +101,7 @@ function render(input: {
     })),
     importGraphs: [],
     selectorEvidence: [],
+    rebaselineSupersededManifest: input.rebaselineSupersededManifest,
     existingFiles: input.existingFiles ?? []
   });
 }
@@ -112,6 +114,25 @@ function tree(plan: ArchitectureDocumentationProjectionPlan): Map<string, string
 function existing(plan: ArchitectureDocumentationProjectionPlan): ArchitectureDocumentationExistingFile[] {
   return [...tree(plan)].map(([path, body]) => ({ path, body }));
 }
+
+test("compatible manifest floors survive rendering without changing no-floor output", () => {
+  const baseline = render({});
+  const unchanged = render({ existingFiles: existing(baseline) });
+  expect(unchanged.manifest.body).toBe(baseline.manifest.body);
+  const manifest = JSON.parse(baseline.manifest.body);
+  manifest.minimumRendererVersion = "archcontext.docs-renderer/v6";
+  manifest.minimumProtocolVersion = "archcontext.projection-request/v1";
+  const inputs = existing(baseline).map(file => file.path === baseline.manifest.path ? { ...file, body: JSON.stringify(manifest) } : file);
+  const next = render({ existingFiles: inputs });
+  expect(JSON.parse(next.manifest.body)).toMatchObject({ minimumRendererVersion: manifest.minimumRendererVersion, minimumProtocolVersion: manifest.minimumProtocolVersion });
+});
+
+test("future manifests are refused instead of being treated as absent", () => {
+  const baseline = render({});
+  const manifest = JSON.parse(baseline.manifest.body);
+  manifest.schemaVersion = "archcontext.architecture-docs-projection-manifest/v4";
+  for (const rebaselineSupersededManifest of [false, true]) expect(() => render({ rebaselineSupersededManifest, existingFiles: existing(baseline).map(file => file.path === baseline.manifest.path ? { ...file, body: JSON.stringify(manifest) } : file) })).toThrow("Projection manifest incompatible.");
+});
 
 /** `git merge-file -p ours base theirs`: the merged text and the number of conflicts. */
 function mergeFile(ours: string, base: string, theirs: string): { merged: string; conflicts: number } {
@@ -232,4 +253,13 @@ describe("manifest v3 merges (#327 finding 4)", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+
+test("render entry refuses each unsupported floor even when a plan requests rebaselining", () => {
+  const baseline = render({});
+  for (const floors of [{ minimumRendererVersion: "archcontext.docs-renderer/v7" }, { minimumProtocolVersion: "archcontext.projection-request/v2" }]) {
+    const manifest = { ...JSON.parse(baseline.manifest.body), ...floors };
+    expect(() => render({ rebaselineSupersededManifest: true, existingFiles: existing(baseline).map(file => file.path === baseline.manifest.path ? { ...file, body: JSON.stringify(manifest) } : file) })).toThrow("Projection manifest incompatible.");
+  }
 });

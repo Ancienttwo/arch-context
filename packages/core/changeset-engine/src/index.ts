@@ -2,6 +2,9 @@ import { chmodSync, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, open
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   ARCHITECTURE_EVENT_SCHEMA_VERSION,
+  ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
+  architectureDocsProjectionCompatibilityIssues,
+  FailureError,
   architectureEventHash,
   baseModelBlockingErrors,
   digestJson,
@@ -312,10 +315,42 @@ export class ChangeSetEngine {
     const agentContextPaths = this.agentContextPathsFor(root, draft);
     const manifestBody = draft.operations.some(operation => operation.op === "update_manifest_fields")
       ? this.manifestUpdateBody(root, draft) : undefined;
-    const backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[] = [];
+    // The same predicate controls the implicit rebuild below; check before any business write.
+    const explicitProjectionOnly = draft.operations.length > 0 && draft.operations.every(operation =>
+      (operation.op === "render_projection" || operation.op === "render_agent_context") &&
+      operation.projectionFiles !== undefined && operation.projectionFiles.length > 0
+    );
+    const projects = draft.operations.some(operation => operation.op === "render_projection" || operation.op === "render_agent_context")
+      || (!explicitProjectionOnly && manifestBody === undefined && !isRefactorDecisionOnly(draft.operations));
+    const proposedManifests = draft.operations.flatMap(operation => operation.projectionFiles ?? [])
+      .filter(file => isProjectionManifestDestination(root, file.path) && !("guard" in file)) as Array<ChangeSetProjectionFile | ChangeSetProjectionDelete>;
+    for (const operation of draft.operations) {
+      if (operation.path && operation.op !== "render_projection" && operation.op !== "render_agent_context" && isProjectionManifestDestination(root, operation.path)) {
+        proposedManifests.push(operation.op === "delete_entity"
+          ? { path: operation.path, expectedHash: operation.expectedHash, delete: true }
+          : { path: operation.path, expectedHash: operation.expectedHash, body: operation.body ?? "" });
+      }
+    }
+    if (proposedManifests.length > 1) throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");
+    const checkProjectionCompatibility = projects ? () => {
+      assertProjectionWriteCompatibility(root);
+      for (const proposed of proposedManifests) assertProjectionWriteCompatibility(root, proposed);
+    } : undefined;
+    checkProjectionCompatibility?.();
+    const backups: { path: string; backupPath: string; tempPath?: string; existed: boolean; manifestBodyHash?: string }[] = [];
     const journalId = await deps.journal?.beginChangeSet(root, draft);
     let journalCommitted = false;
     let applied = 0;
+    const deferredManifests: Array<{ path: string; expectedHash: string; body: string; operation: ChangeOperationKind }> = [];
+    const writeOrDeferManifest = async (path: string, expectedHash: string, body: string, operation: ChangeOperationKind): Promise<boolean> => {
+      if (isProjectionManifestDestination(root, path)) {
+        if (operation === "delete_entity" || deferredManifests.length > 0) throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");
+        deferredManifests.push({ path, expectedHash, body, operation });
+        return false;
+      }
+      await this.applyFileOperation(root, path, expectedHash, body, operation, backups, journalId, applied + 1, agentContextPaths, checkProjectionCompatibility);
+      return true;
+    };
     try {
       for (const operation of draft.operations) {
         if (operation.op === "render_projection" || operation.op === "render_agent_context") {
@@ -323,13 +358,8 @@ export class ChangeSetEngine {
             for (const file of operation.projectionFiles) {
               // A guard writes nothing; it is verified once, immediately before the commit.
               if ("guard" in file) continue;
-              if ("delete" in file) {
-                assertProjectionDeleteAllowed(operation.op, file);
-                await this.applyFileOperation(root, file.path, file.expectedHash, "", "delete_entity", backups, journalId, applied + 1, agentContextPaths);
-              } else {
-                await this.applyFileOperation(root, file.path, file.expectedHash, file.body, operation.op, backups, journalId, applied + 1, agentContextPaths);
-              }
-              applied += 1;
+              if ("delete" in file) assertProjectionDeleteAllowed(operation.op, file);
+              if (await writeOrDeferManifest(file.path, file.expectedHash, "delete" in file ? "" : file.body, "delete" in file ? "delete_entity" : operation.op)) applied += 1;
               if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
             }
           } else {
@@ -343,35 +373,32 @@ export class ChangeSetEngine {
           : operation.op === "update_adr_references" ? this.adrReferenceBody(root, operation)
           : operation.op === "write_refactor_decision" ? refactorDecisionBody(root, operation)
           : operation.body ?? "";
-        await this.applyFileOperation(root, operation.path, operation.expectedHash, body, operation.op, backups, journalId, applied + 1, agentContextPaths);
-        applied += 1;
+        if (await writeOrDeferManifest(operation.path, operation.expectedHash, body, operation.op)) applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
       // Explicit projection-only drafts own their complete write set. Rebuilding
       // unrelated generated outputs here would escape preview/receipt ownership
       // and invalidate the caller's unchanged-input snapshot after commit.
-      const explicitProjectionOnly = draft.operations.length > 0 && draft.operations.every(operation =>
-        (operation.op === "render_projection" || operation.op === "render_agent_context") &&
-        operation.projectionFiles !== undefined && operation.projectionFiles.length > 0
-      );
       // A decision-only draft writes Git-visible decision files, which are not model input: no
       // generated projection can change, so none is planned (ADR-0046).
       if (!explicitProjectionOnly && manifestBody === undefined && !isRefactorDecisionOnly(draft.operations)) {
         for (const projection of deps.projection.planGeneratedProjection(root)) {
-          await this.applyFileOperation(
-            root,
+          if (await writeOrDeferManifest(
             projection.path,
             projection.expectedHash,
             projection.body,
-            projection.operation,
-            backups,
-            journalId,
-            applied + 1,
-            agentContextPaths
-          );
-          applied += 1;
+            projection.operation
+          )) applied += 1;
           if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
         }
+      }
+      // Keep the live manifest outside rollback backups while any later file/journal guard can
+      // refuse a newly raised floor. Supplied operations and implicit rebuilds share this queue.
+      for (const manifest of deferredManifests) {
+        checkProjectionCompatibility?.();
+        await this.applyFileOperation(root, manifest.path, manifest.expectedHash, manifest.body, manifest.operation, backups, journalId, applied + 1, agentContextPaths, checkProjectionCompatibility);
+        applied += 1;
+        if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
       await this.validateModel(root, draft, deps, "after");
       for (const guard of guards) assertProjectionGuardHolds(root, guard);
@@ -392,7 +419,10 @@ export class ChangeSetEngine {
       return appliedDraft;
     } catch (error) {
       if (!journalCommitted) {
-        rollback(backups);
+        if (!rollback(backups)) {
+          // Keep the pending journal and original backup for an operator; do not claim a rollback.
+          throw new FailureError("AC_PRECONDITION_FAILED", "changeset-rollback-conflict", { ...(journalId ? { journalId } : {}), changeSetId: draft.id, manualRecoveryRequired: true });
+        }
         if (journalId) await deps.journal?.abortChangeSet(journalId, error instanceof Error ? error.message : String(error));
       }
       const rolledBack = { ...draft, status: "rolled-back" as const };
@@ -451,10 +481,11 @@ export class ChangeSetEngine {
     expectedHash: string,
     body: string,
     operation: ChangeOperationKind,
-    backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[],
+    backups: { path: string; backupPath: string; tempPath?: string; existed: boolean; manifestBodyHash?: string }[],
     journalId: string | undefined,
     sequence: number,
-    agentContextPaths: ReadonlySet<string> = EMPTY_PATH_SET
+    agentContextPaths: ReadonlySet<string> = EMPTY_PATH_SET,
+    checkProjectionCompatibility?: () => void
   ): Promise<void> {
     assertSafeTarget(root, path, pathScope(operation, agentContextPaths));
     const deps = this.requireDeps();
@@ -465,8 +496,8 @@ export class ChangeSetEngine {
     const tempPath = operation === "delete_entity" ? undefined : `${absolute}.archctx-tmp-${process.pid}-${sequence}`;
     if (existsSync(backupPath)) throw new Error(`Backup path already exists: ${path}`);
     if (existed) assertExpectedHash(absolute, expectedHash);
-    else if (expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${path}`);
-    const backup = { path: absolute, backupPath, tempPath, existed };
+    else if (expectedHash !== "missing") throw preimageFailure(`Expected missing file hash for new path: ${path}`);
+    const backup = { path: absolute, backupPath, tempPath, existed, ...(isProjectionManifestDestination(root, path) ? { manifestBodyHash: operation === "delete_entity" ? "missing" : digestJson({ body }) } : {}) };
     if (journalId) {
       await deps.journal?.recordChangeSetFile(journalId, {
         path,
@@ -481,7 +512,7 @@ export class ChangeSetEngine {
     if (operation === "write_refactor_decision") {
       assertPathHasNoSymlinkSegments(root, path);
       if (existsSync(absolute)) assertExpectedHash(absolute, expectedHash);
-      else if (expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${path}`);
+      else if (expectedHash !== "missing") throw preimageFailure(`Expected missing file hash for new path: ${path}`);
     }
     if (operation === "update_adr_references" || (operation === "render_agent_context" && (path === "AGENTS.md" || path === "CLAUDE.md"))) {
       assertPathHasNoSymlinkSegments(root, path);
@@ -491,6 +522,11 @@ export class ChangeSetEngine {
         assertSafeTarget(root, path, pathScope(operation, currentPaths));
         this.validateRootContractWrite(root, { path, expectedHash, body });
       }
+    }
+    // No await remains between the live compatibility check and this file mutation.
+    checkProjectionCompatibility?.();
+    if (checkProjectionCompatibility && isProjectionManifestDestination(root, path)) {
+      assertProjectionWriteCompatibility(root, operation === "delete_entity" ? { path, expectedHash, delete: true } : { path, body, expectedHash });
     }
     backups.push(backup);
     if (existed) {
@@ -502,6 +538,31 @@ export class ChangeSetEngine {
     } else {
       atomicWriteFile(absolute, tempPath!, body);
     }
+  }
+}
+
+/** Reserve the manifest destination through dot/slash aliases and case-insensitive filesystems. */
+function isProjectionManifestDestination(root: string, path: string): boolean {
+  return resolve(root, path).toLowerCase() === resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH).toLowerCase();
+}
+
+/** Live repository floors also govern supplied output and implicit generated rebuilds. */
+function assertProjectionWriteCompatibility(root: string, proposed?: ChangeSetProjectionFile | ChangeSetProjectionDelete): void {
+  const path = resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
+  let current: unknown;
+  if (existsSync(path)) {
+    const body = readFileSync(path, "utf8");
+    try { current = JSON.parse(body); } catch { /* Existing malformed-manifest handling remains. */ }
+  }
+  if (architectureDocsProjectionCompatibilityIssues(current).length) throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");
+  if (!proposed) return;
+  if ("delete" in proposed) throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");
+  let candidate: unknown;
+  try { candidate = JSON.parse(proposed.body); } catch { throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible"); }
+  if (architectureDocsProjectionCompatibilityIssues(candidate).length) throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");
+  for (const key of ["minimumRendererVersion", "minimumProtocolVersion"] as const) {
+    const floor = current && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined;
+    if (floor !== undefined && (!candidate || typeof candidate !== "object" || (candidate as Record<string, unknown>)[key] !== floor)) throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");
   }
 }
 
@@ -862,7 +923,7 @@ function assertProjectionGuardAllowed(op: ChangeOperationKind, file: ChangeSetPr
 /** The guarded file still exists with exactly the raw bytes the render read; nothing is written. */
 function assertProjectionGuardHolds(root: string, guard: ChangeSetProjectionGuard): void {
   const absolute = assertPathHasNoSymlinkSegments(root, guard.path);
-  if (!existsSync(absolute) || !lstatSync(absolute).isFile()) throw new Error(`Expected hash mismatch: ${guard.path} (current missing)`);
+  if (!existsSync(absolute) || !lstatSync(absolute).isFile()) throw preimageFailure(`Expected hash mismatch: ${guard.path} (current missing)`);
   assertExpectedHash(absolute, guard.expectedHash);
 }
 
@@ -921,7 +982,7 @@ function refactorDecisionBody(root: string, operation: ChangeOperation): string 
     throw new Error(`write_refactor_decision body must be the canonical serialization: ${operation.path}`);
   }
   if (existsSync(absolute)) assertExpectedHash(absolute, operation.expectedHash);
-  else if (operation.expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${operation.path}`);
+  else if (operation.expectedHash !== "missing") throw preimageFailure(`Expected missing file hash for new path: ${operation.path}`);
   return operation.body;
 }
 
@@ -1007,9 +1068,16 @@ function assertNoSymlinkSegments(absoluteRoot: string, segments: string[], displ
   }
 }
 
+/** Keep the existing local preview diagnostic; public adapters publish only `.failure`. */
+function preimageFailure(diagnostic: string): FailureError<"AC_PRECONDITION_FAILED"> {
+  const error = new FailureError("AC_PRECONDITION_FAILED", "apply-preimage-changed", { issueCount: 1 });
+  error.message = diagnostic;
+  return error;
+}
+
 function assertExpectedHash(path: string, expectedHash: string): void {
   const actual = digestJson({ body: readFileSync(path, "utf8") });
-  if (expectedHash !== actual) throw new Error(`Expected hash mismatch: ${path}`);
+  if (expectedHash !== actual) throw preimageFailure(`Expected hash mismatch: ${path}`);
 }
 
 function atomicWriteFile(path: string, tempPath: string, body: string, mode?: number): void {
@@ -1081,8 +1149,22 @@ function isIgnorableDirectoryFsyncError(error: unknown): boolean {
   return code === "EINVAL" || code === "EISDIR" || (process.platform === "win32" && code === "EPERM");
 }
 
-function rollback(backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[]): void {
-  for (const backup of backups.reverse()) {
+function rollback(backups: { path: string; backupPath: string; tempPath?: string; existed: boolean; manifestBodyHash?: string }[]): boolean {
+  let complete = true;
+  for (const backup of [...backups].reverse()) {
+    // An await after the manifest write may let another writer raise its floor. Never erase
+    // external bytes or unreadable replacements. A missing target can be restored from its backup.
+    if (backup.manifestBodyHash !== undefined) {
+      let current = "unreadable";
+      try {
+        const stat=lstatSync(backup.path);
+        if(stat.isFile() && !stat.isSymbolicLink()) {
+          const bytes=readFileSync(backup.path),body=bytes.toString("utf8");
+          if(Buffer.from(body,"utf8").equals(bytes)) current=digestJson({body});
+        }
+      } catch(error) { if((error as NodeJS.ErrnoException).code === "ENOENT") current="missing"; }
+      if (current !== "missing" && current !== backup.manifestBodyHash) { complete = false; continue; }
+    }
     if (backup.tempPath) rmSync(backup.tempPath, { recursive: true, force: true });
     if (backup.existed) {
       if (existsSync(backup.backupPath)) {
@@ -1094,6 +1176,7 @@ function rollback(backups: { path: string; backupPath: string; tempPath?: string
     }
     fsyncDirectory(dirname(backup.path));
   }
+  return complete;
 }
 
 function cleanupBackups(backups: { backupPath: string; tempPath?: string }[]): void {

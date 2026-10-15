@@ -1,3 +1,4 @@
+import { FailureError } from "@archcontext/contracts";
 import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { isProcessAlive } from "../../process-liveness/src/index";
@@ -1541,9 +1542,9 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   /**
-   * Pending ChangeSet journals that startup recovery could not resolve. Read after
-   * `recoverPendingChangeSets()` while holding writer ownership, every row is a failed recovery —
-   * never another process's in-flight transaction.
+   * Pending ChangeSet journals read while holding writer ownership, after startup recovery or
+   * after the active writer operation has settled. At those boundaries no row belongs to an
+   * in-flight operation; an incomplete rollback must quarantine later writes too.
    */
   listUnresolvedChangeSetJournals(): UnresolvedChangeSetJournal[];
   /**
@@ -7360,7 +7361,7 @@ function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWrite
       } catch (error) {
         if (!isSqliteBusyError(error)) throw error;
         if (attempt >= LOCAL_STORE_OWNER_LOCK_ATTEMPTS) {
-          throw new Error(`${LOCAL_STORE_WRITER_OWNED_ERROR}: ${databasePath} is owned by another live process (${describeOwnerRecord(recordPath)}); lock=${lockPath}`);
+          throw new FailureError("AC_PRECONDITION_FAILED","runtime-writer-owned");
         }
         sleepSync(LOCAL_STORE_OWNER_LOCK_RETRY_MS + Math.floor(Math.random() * LOCAL_STORE_OWNER_LOCK_RETRY_MS));
       }
@@ -7368,7 +7369,7 @@ function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWrite
     const legacyPath = localStoreLegacyOwnerLockPath(databasePath);
     const legacyOwnerPid = readLegacyOwnerLockPid(legacyPath);
     if (legacyOwnerPid !== undefined && legacyOwnerPid !== process.pid && isProcessAlive(legacyOwnerPid)) {
-      throw new Error(`${LOCAL_STORE_WRITER_OWNED_ERROR}: ${databasePath} is owned by live process ${legacyOwnerPid} of an older archctx build; lock=${legacyPath}`);
+      throw new FailureError("AC_PRECONDITION_FAILED","runtime-writer-owned");
     }
     // Dead, unreadable, or ours: crash residue of an older build. Best effort; it never blocks a start.
     try {
@@ -7467,7 +7468,7 @@ function changeSetJournalRecoveryErrorMessage(metadataJson: string): string {
   } catch {
     // Fall through: unreadable metadata is itself a reason the journal stayed unresolved.
   }
-  return "pending after startup recovery without a recorded recovery error";
+  return "pending ChangeSet journal without a recorded recovery error";
 }
 
 
@@ -7965,20 +7966,46 @@ function isJsonRecord(value: unknown): value is Record<string, Json> {
 }
 
 function recoverJournalFiles(root: string, files: ChangeSetJournalFile[]): void {
-  // A single ChangeSet can touch the same path twice — e.g. an explicit op creates a file that
-  // `planGeneratedProjection` then deletes in the same apply(). The second entry's `existed: true`
-  // only reflects that the first entry created it earlier in this same ChangeSet; the path's real
-  // pre-ChangeSet state is its *first* journal entry's `existed`. Without this, a fully-unwound
-  // duplicate-path pair (both gone, correctly) reads as indistinguishable from real data loss.
-  // Windows and default macOS volumes are case-insensitive, so `Notes.md` and `notes.md` in one
-  // journal name the same destination; key the lookup the way those filesystems compare names.
+  // Windows and default macOS volumes compare case-insensitively. Use the same destination key
+  // for the final manifest postimage and for the original duplicate-path rollback bookkeeping.
   const pathKey = process.platform === "win32" || process.platform === "darwin"
     ? (absolute: string) => absolute.toLowerCase()
     : (absolute: string) => absolute;
   const firstExistedByPath = new Map<string, boolean>();
+  const finalManifestByPath = new Map<string, ChangeSetJournalFile>();
+  const rollbackManifestByPath = new Map<string, ChangeSetJournalFile>();
+  const manifestDestination = resolve(root, "docs/architecture/.projection-manifest.json").toLowerCase();
   for (const file of files) {
-    const key = pathKey(resolve(root, file.path));
+    const absolute = resolve(root, file.path);
+    const key = pathKey(absolute);
+    // A later existed:true can refer to a file created earlier by this same ChangeSet.
     if (!firstExistedByPath.has(key)) firstExistedByPath.set(key, file.existed);
+    if (absolute.toLowerCase() !== manifestDestination) continue;
+    // Legacy journals may write A then B to one destination. Live B is ours, not an external
+    // conflict with intermediate A; inspect only the last journal postimage for that destination.
+    finalManifestByPath.set(key, file);
+    if (!file.existed || (file.backupPath && existsSync(file.backupPath))) rollbackManifestByPath.set(key, file);
+  }
+  // Check before any recovery mutation. An intent-only existing file with no backups is left
+  // untouched by rollback. A prior create still deletes the destination even when a later
+  // entry's backup is missing, so that destination must retain the external-byte guard.
+  for (const [key, file] of finalManifestByPath) {
+    const rollbackEntry = rollbackManifestByPath.get(key);
+    if (!rollbackEntry) continue;
+    const absolute = resolve(root, file.path);
+    let current = "unreadable";
+    try {
+      const stat = lstatSync(absolute);
+      if (stat.isFile() && !stat.isSymbolicLink()) {
+        const bytes = readFileSync(absolute), body = bytes.toString("utf8");
+        if (Buffer.from(body, "utf8").equals(bytes)) current = digestJson({ body });
+      }
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") current = "missing"; }
+    // A later existing-file entry without its backup may still be intent-only, or already
+    // unwound by an interrupted recovery. Its predecessor's published bytes must retain the
+    // original recovery path. When the final entry has a backup, both entries below are the
+    // same final postimage; arbitrary external bytes never satisfy either owned snapshot.
+    if (current !== "missing" && current !== file.bodyHash && current !== rollbackEntry.bodyHash) throw new Error("changeset-recovery-manifest-conflict: external manifest differs from journal postimage; manual recovery required");
   }
   const missing: string[] = [];
   for (const file of [...files].reverse()) {

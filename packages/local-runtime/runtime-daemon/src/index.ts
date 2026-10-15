@@ -100,7 +100,7 @@ export interface RuntimeStatus {
     deferredScopeCount: number;
     failureDigests: string[];
   };
-  /** Present only when startup recovery left ChangeSet journals unresolved; writes are refused. */
+  /** Present when startup recovery or an in-process rollback left journals unresolved; writes are refused. */
   changeSetRecovery?: {
     writable: false;
     unresolvedJournals: UnresolvedChangeSetJournal[];
@@ -303,9 +303,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private running = false;
   private writerLocked = false;
   private unresolvedChangeSetJournals: UnresolvedChangeSetJournal[] = [];
+  private changeSetRecoveryRefreshRequired = false;
   private readonly legacyLocalStoreMigrationRoot?: string;
 
   constructor(deps: RuntimeDeps = {}, options: RuntimeConstructionOptions = {}) {
+    try {
     if (options.compositionMode === "production") assertProductionRuntimeDeps(deps);
     this.legacyLocalStoreMigrationRoot = options.legacyLocalStoreMigrationRoot;
     this.codeFacts = deps.codeFacts ?? new CodeGraphAdapter(new CodeGraphCliProvider());
@@ -373,7 +375,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       architectureLedger: this.architectureLedger,
       architectureLedgerScope: (root) => this.architectureLedgerScope(root),
       architectureLedgerGitScope: (root) => this.architectureLedgerGitScope(root),
-      assertFreshWorktree: (root, digest, command) => this.assertFreshWorktree(root, digest, command),
+      assertFreshWorktree: (root, digest, command) => this.assertFreshWorktree(root, digest, command, "ledger"),
       appendArchitectureEventsWithFeed: (root, input) => this.appendArchitectureEventsWithFeed(root, input),
       localStore: this.localStore,
       openSession: (root) => this.openSession(root),
@@ -491,9 +493,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       computeDeveloperReviewDigestBundle: (input) => this.computeDeveloperReviewDigestBundle(input),
       runDeveloperReviewSession: (input) => this.runDeveloperReviewSession(input)
     });
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async start(): Promise<void> {
+    try {
     // Ownership first (#160): migrations and crash recovery rewrite state, and recovery cannot tell a
     // crashed writer's pending journal from a live one's, so no other process may be writing.
     this.localStore.acquireWriterOwnership?.();
@@ -504,7 +508,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       this.localStore.recoverPendingChangeSets();
       // Recovery gate (#172): a journal still pending here failed to recover. Its backups are kept
       // for the next start's retry, and nothing may write over them in the meantime.
-      this.unresolvedChangeSetJournals = this.localStore.listUnresolvedChangeSetJournals();
+      this.refreshChangeSetRecovery();
       await this.landscapes.restore();
       await this.restoreRepositorySessions();
     } catch (error) {
@@ -512,15 +516,18 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       throw error;
     }
     this.running = true;
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async stop(): Promise<void> {
+    try {
     try {
       await this.closeExplorer();
     } finally {
       // Store writer ownership (#160) must be released even if the explorer fails to close.
       this.stopAfterExplorerClosed();
     }
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   private stopAfterExplorerClosed(): void {
@@ -547,6 +554,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   status(): RuntimeStatus {
+    try {
+    if (this.running && !this.writerLocked && this.changeSetRecoveryRefreshRequired) this.refreshChangeSetRecovery();
     return {
       running: this.running,
       sessions: this.sessions.size,
@@ -557,13 +566,17 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         ? {}
         : { changeSetRecovery: { writable: false, unresolvedJournals: this.unresolvedChangeSetJournals.map((journal) => ({ ...journal })) } })
     };
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   compositionReport(): RuntimeCompositionReport {
+    try {
     return this.composition;
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async egressReport(root: string) {
+    try {
     const repositoryRoot = runtimeStatePaths(root).repositoryRoot;
     const workspace = { root: repositoryRoot, repositoryId: repositoryFingerprint(repositoryRoot), headSha: readHeadSha(repositoryRoot) };
     const documentation = await this.externalDocumentation.health();
@@ -579,6 +592,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       }),
       source: "daemon" as const
     };
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   /**
@@ -600,6 +614,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
    * nothing can drive work for a deleted worktree, and keeping it would hold the daemon forever.
    */
   async hasActiveBackgroundWork(): Promise<boolean> {
+    try {
     if (this.auditRunAbortControllers.size > 0) return true;
     for (const [repositoryId, session] of this.sessions) {
       if (!existsSync(session.workspace.root)) {
@@ -610,18 +625,20 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       if (stats.queuedDepth > 0 || stats.runningDepth > 0) return true;
     }
     return false;
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async init(root: string, productName?: string): Promise<JsonEnvelope> {
+    try {
     this.assertRunning();
-    return this.withWriter(async () => {
+    return await this.withWriter(async () => {
       // archctx requires a Git worktree: refuse before writing, so a non-Git root keeps no partial model.
       listGitVisibleFiles(root);
       try {
         initializeArchContextModel(root, productName);
       } catch (error) {
         if (error instanceof ArchContextInitRefusedError) {
-          return errorEnvelope("init", "AC_PRECONDITION_FAILED", error.message, "init-would-overwrite-existing-model");
+          return publicFailureEnvelope("init", "AC_PRECONDITION_FAILED", "init-would-overwrite-existing-model");
         }
         throw error;
       }
@@ -634,6 +651,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         modelDigest: session.modelDigest
       } as Json);
     });
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async sync(root: string, changedPaths: string[] = []): Promise<JsonEnvelope> {
@@ -738,7 +756,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   practiceWaivers(root: string): JsonEnvelope {
+    try {
     return this.practiceCheckpoints.practiceWaivers(root);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> {
@@ -869,24 +889,30 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async docsProjection(root: string, input: RuntimeDocsProjectionInput): Promise<JsonEnvelope> {
+    try {
     this.assertRunning();
     try { validateDocsProjectionInput(input); }
-    catch (error) { return errorEnvelope("docs", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)); }
-    return runArchitectureDocsProjectionCommand(input, root, this.projectionHost());
+    catch (error) { return publicFailureEnvelope("docs", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
+    return await runArchitectureDocsProjectionCommand(input, root, this.projectionHost());
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async agentContextProjection(root: string, input: RuntimeAgentContextProjectionInput): Promise<JsonEnvelope> {
+    try {
     this.assertRunning();
     try { validateAgentContextProjectionInput(input); }
-    catch (error) { return errorEnvelope("agent-context", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)); }
-    return runAgentContextProjectionCommand(input, root, this.projectionHost());
+    catch (error) { return publicFailureEnvelope("agent-context", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
+    return await runAgentContextProjectionCommand(input, root, this.projectionHost());
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async projection(root: string, input: RuntimeProjectionInvocation): Promise<JsonEnvelope> {
+    try {
     this.assertRunning();
     try { validateProjectionInvocation(input); }
-    catch (error) { return errorEnvelope(`projection.${input?.action ?? "run"}`, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)); }
-    return runProjectionProtocolCommand(input, root, this.projectionHost());
+    catch (error) { return publicFailureEnvelope("projection", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
+    return await runProjectionProtocolCommand(input, root, this.projectionHost());
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async mcpProjection(root: string, input: RuntimeProjectionInvocation, approved: boolean): Promise<JsonEnvelope> {
@@ -1089,10 +1115,10 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     };
   }
 
-  private assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string): void {
-    if (!expectedWorktreeDigest) throw new Error(`${command} requires expectedWorktreeDigest`);
+  private assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string, domain: "ledger" | "refactor" = "refactor"): void {
+    if (!expectedWorktreeDigest) throw new FailureError(domain === "ledger" ? "AC_PRECONDITION_FAILED" : "AC_REFACTOR_STALE", domain === "ledger" ? "ledger-worktree-claim-required" : "worktree-claim-required");
     const current = computeWorktreeDigest(root, listGitVisibleFiles(root));
-    if (current !== expectedWorktreeDigest) throw new Error(`Worktree digest changed before ${command}`);
+    if (current !== expectedWorktreeDigest) throw new FailureError(domain === "ledger" ? "AC_PRECONDITION_FAILED" : "AC_REFACTOR_STALE", domain === "ledger" ? "ledger-worktree-claim-changed" : "worktree-claim-changed", {expectedWorktreeDigest, actualWorktreeDigest:current});
   }
 
   prepareDeveloperReviewWorktree(input: {
@@ -1101,7 +1127,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     expectedHeadTreeOid?: string;
     tempRoot?: string;
   }): DetachedReviewWorktreePreparation {
+    try {
     return this.developerReviewRuns.prepareDeveloperReviewWorktree(input);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   startDeveloperReviewRun(input: {
@@ -1111,7 +1139,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     /** In-process callers only; the production RPC contract does not accept a temp root. */
     tempRoot?: string;
   }): DeveloperReviewRunPreparation {
+    try {
     return this.developerReviewRuns.startDeveloperReviewRun(input);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async withDeveloperReviewRun<T>(input: {
@@ -1121,22 +1151,30 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     /** In-process callers only; the production RPC contract does not accept a temp root. */
     tempRoot?: string;
   }, run: (developerReviewRun: DeveloperReviewRun) => Promise<T> | T): Promise<T> {
-    return this.developerReviewRuns.withDeveloperReviewRun(input, run);
+    try {
+    return await this.developerReviewRuns.withDeveloperReviewRun(input, run);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   cleanupOwnedDeveloperReviewRun(run: DeveloperReviewRunManifest): DeveloperReviewRunCleanup {
+    try {
     return this.developerReviewRuns.cleanupOwnedDeveloperReviewRun(run);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   cleanupDeveloperReviewRun(input: DeveloperReviewRunCleanupRequest): DeveloperReviewRunCleanup {
+    try {
     return this.developerReviewRuns.cleanupDeveloperReviewRun(input);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   recoverDeveloperReviewRuns(input: {
     repositoryRoot: string;
     force?: boolean;
   }): DeveloperReviewRunRecovery {
+    try {
     return this.developerReviewRuns.recoverDeveloperReviewRuns(input);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async computeDeveloperReviewDigestBundle(input: {
@@ -1145,7 +1183,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     codeFactsSnapshot?: CodeFactsSnapshot;
     sparseScope?: string[];
   }): Promise<DeveloperReviewDigestBundle> {
-    return this.developerReviewSessions.computeDeveloperReviewDigestBundle(input);
+    try {
+    return await this.developerReviewSessions.computeDeveloperReviewDigestBundle(input);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async runDeveloperReviewSession(input: {
@@ -1158,7 +1198,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     cleanupRequired?: number;
     cleanupCompleted?: number;
   }): Promise<DeveloperReviewSession> {
-    return this.developerReviewSessions.runDeveloperReviewSession(input);
+    try {
+    return await this.developerReviewSessions.runDeveloperReviewSession(input);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async runSignedDeveloperReviewAttestation(input: {
@@ -1172,7 +1214,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     startedAt?: string;
     completedAt?: string;
   }): Promise<DeveloperReviewAttestation> {
-    return this.developerReviewSessions.runSignedDeveloperReviewAttestation(input);
+    try {
+    return await this.developerReviewSessions.runSignedDeveloperReviewAttestation(input);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async repoAdd(root: string, name?: string): Promise<JsonEnvelope> {
@@ -1268,6 +1312,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async runtimeStatus(root?: string): Promise<JsonEnvelope> {
+    try {
     const status = this.status();
     if (!root) return okEnvelope("status", status as unknown as Json);
     const repositoryId = repositoryFingerprint(root);
@@ -1278,9 +1323,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       headSha: session?.workspace.headSha ?? readHeadSha(root),
       worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
     } as unknown as Json);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async openSession(root: string): Promise<RepositorySession> {
+    try {
     this.assertRunning();
     const headSha = readHeadSha(root);
     const binding = bindRepository(root, headSha, listGitVisibleFiles(root));
@@ -1314,6 +1361,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     this.sessions.set(binding.repositoryId, session);
     this.evictOldSessions();
     return session;
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   private async restoreRepositorySessions(): Promise<void> {
@@ -1351,18 +1399,36 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   private assertRunning(): void {
-    if (!this.running) throw new Error("archctxd is not running");
+    if (!this.running) throw new FailureError("AC_PRECONDITION_FAILED", "runtime-not-running");
   }
 
   private async withWriter<T>(fn: () => Promise<T>): Promise<T> {
     if (this.unresolvedChangeSetJournals.length > 0) throw new ChangeSetRecoveryUnresolvedError(this.unresolvedChangeSetJournals);
-    if (this.writerLocked) throw new Error("runtime writer is locked");
+    if (this.writerLocked) throw new FailureError("AC_PRECONDITION_FAILED", "runtime-writer-locked");
     this.writerLocked = true;
     try {
+      // A failed post-operation read must not permit a later writer to trust the stale cache.
+      if (this.changeSetRecoveryRefreshRequired) this.refreshChangeSetRecovery();
+      if (this.unresolvedChangeSetJournals.length > 0) throw new ChangeSetRecoveryUnresolvedError(this.unresolvedChangeSetJournals);
       return await fn();
     } finally {
-      this.writerLocked = false;
+      // The active operation has settled. A pending journal is now unresolved, not in flight.
+      // Publish its complete authority before releasing the writer; recovery remains startup-only.
+      this.changeSetRecoveryRefreshRequired = true;
+      try {
+        this.refreshChangeSetRecovery();
+      } catch {
+        // Preserve the original failure or committed result. The dirty flag gates the next writer
+        // and status until this read succeeds; neither may silently trust the previous snapshot.
+      } finally {
+        this.writerLocked = false;
+      }
     }
+  }
+
+  private refreshChangeSetRecovery(): void {
+    this.unresolvedChangeSetJournals = this.localStore.listUnresolvedChangeSetJournals();
+    this.changeSetRecoveryRefreshRequired = false;
   }
 
   private async appendArchitectureEventsWithFeed(
@@ -1477,12 +1543,15 @@ function schemaVersionFromModelBody(body: string): string {
 
 
 export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<ArchctxDaemon> {
+  try {
   const daemon = new ArchctxDaemon(deps);
   await daemon.start();
   return daemon;
+  } catch (error) { throw publicOperationFailure(error); }
 }
 
 export function createProductionDaemon(options: ProductionRuntimeOptions = {}): ArchctxDaemon {
+  try {
   const deps: RuntimeDeps = {
     localStorePath: options.localStorePath ?? defaultLocalStorePath(options.root),
     maxRepoSessions: options.maxRepoSessions
@@ -1493,12 +1562,15 @@ export function createProductionDaemon(options: ProductionRuntimeOptions = {}): 
     // Deferred into `start()`, behind store writer ownership (#160).
     ...(options.localStorePath ? {} : { legacyLocalStoreMigrationRoot: options.root ?? process.cwd() })
   });
+  } catch (error) { throw publicOperationFailure(error); }
 }
 
 export async function createStartedProductionDaemon(options: ProductionRuntimeOptions = {}): Promise<ArchctxDaemon> {
+  try {
   const daemon = createProductionDaemon(options);
   await daemon.start();
   return daemon;
+  } catch (error) { throw publicOperationFailure(error); }
 }
 
 export function assertProductionRuntimeDeps(deps: RuntimeDeps): void {
@@ -1611,17 +1683,17 @@ function architectureLedgerDefaultsForRolloutMode(
 function readRuntimeArchitectureLedgerRolloutMode(value: string): RuntimeArchitectureLedgerRolloutMode {
   if (value === "yaml" || value === "dual" || value === "ledger-shadow" || value === "ledger-authoritative") return value;
   if (value === "ledger") return "ledger-authoritative";
-  throw new Error(`invalid ARCHCONTEXT_LEDGER_MODE: ${value}`);
+  throw new FailureError("AC_SCHEMA_INVALID","runtime-ledger-mode-invalid",{field:"rolloutMode"});
 }
 
 function readRuntimeArchitectureLedgerReadMode(value: string): RuntimeArchitectureLedgerReadMode {
   if (value === "yaml" || value === "dual-compare" || value === "ledger-shadow" || value === "ledger") return value;
-  throw new Error(`invalid architecture ledger read mode: ${value}`);
+  throw new FailureError("AC_SCHEMA_INVALID","runtime-ledger-mode-invalid",{field:"readMode"});
 }
 
 function readRuntimeArchitectureLedgerWriteMode(value: string): RuntimeArchitectureLedgerWriteMode {
   if (value === "yaml" || value === "dual" || value === "ledger-with-projection") return value;
-  throw new Error(`invalid architecture ledger write mode: ${value}`);
+  throw new FailureError("AC_SCHEMA_INVALID","runtime-ledger-mode-invalid",{field:"writeMode"});
 }
 
 function architectureLedgerReadAuthority(mode: RuntimeArchitectureLedgerReadMode): RuntimeArchitectureLedgerModes["readAuthority"] {

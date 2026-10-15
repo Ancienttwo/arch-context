@@ -1,6 +1,7 @@
 import type { ProjectionTargetFormat, ProjectionTargetOwnership, ProjectionTargetScopeKind, ProjectionTargetType } from "./ledger";
 import {
   ARCHITECTURE_DOCS_RENDERER_VERSION,
+  PROJECTION_REQUEST_SCHEMA_VERSION,
   ARCHITECTURE_SEMANTIC_FACETS,
   isArchitectureCapabilityProofStatus,
   type ArchitectureCapabilityProofStatusV1,
@@ -151,6 +152,9 @@ export interface ArchitectureDocsProjectionManifestV3 {
    * the owned outputs (drift reports them stale) and the per-capability proof check compares it.
    */
   rendererVersion: string;
+  /** Optional repository-declared engine floors; preserved by every render. */
+  minimumRendererVersion?: string;
+  minimumProtocolVersion?: string;
   profile: ArchitectureDocsProjectionProfile;
   layoutVersion: typeof ARCHITECTURE_DOCS_LAYOUT_VERSION_V1;
   generatedFrom: ArchitectureDocsProjectionGeneratedFromV1;
@@ -184,9 +188,12 @@ export function architectureDocsProjectionManifestIssues(value: unknown): string
   const issues: string[] = [];
   const manifest = record(value);
   if (!manifest) return ["manifest must be an object"];
-  issues.push(...exactKeys(manifest, ["schemaVersion", "rendererVersion", "profile", "layoutVersion", "generatedFrom", "semanticBaseline", "targets"], [], "manifest"));
+  issues.push(...exactKeys(manifest, ["schemaVersion", "rendererVersion", "profile", "layoutVersion", "generatedFrom", "semanticBaseline", "targets"], ["minimumRendererVersion", "minimumProtocolVersion"], "manifest"));
   if (manifest.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION) issues.push("manifest.schemaVersion is unsupported");
   if (!isNonEmptyString(manifest.rendererVersion)) issues.push("manifest.rendererVersion must be a non-empty string");
+  for (const [key, family] of [["minimumRendererVersion", "archcontext.docs-renderer/v"], ["minimumProtocolVersion", "archcontext.projection-request/v"]] as const) {
+    if (Object.hasOwn(manifest, key) && versionNumber(manifest[key], family) === undefined) issues.push(`manifest.${key} must name a supported version family`);
+  }
   if (!(ARCHITECTURE_DOCS_PROJECTION_PROFILES as readonly unknown[]).includes(manifest.profile)) issues.push("manifest.profile is unsupported");
   if (manifest.layoutVersion !== ARCHITECTURE_DOCS_LAYOUT_VERSION_V1) issues.push("manifest.layoutVersion is unsupported");
   issues.push(...generatedFromIssues(manifest.generatedFrom, "manifest.generatedFrom"));
@@ -276,6 +283,8 @@ export function serializeArchitectureDocsProjectionManifest(manifest: Architectu
     "{",
     `  "schemaVersion": ${JSON.stringify(manifest.schemaVersion)},`,
     `  "rendererVersion": ${JSON.stringify(manifest.rendererVersion)},`,
+    ...(manifest.minimumRendererVersion === undefined ? [] : [`  "minimumRendererVersion": ${JSON.stringify(manifest.minimumRendererVersion)},`]),
+    ...(manifest.minimumProtocolVersion === undefined ? [] : [`  "minimumProtocolVersion": ${JSON.stringify(manifest.minimumProtocolVersion)},`]),
     `  "profile": ${JSON.stringify(manifest.profile)},`,
     `  "layoutVersion": ${JSON.stringify(manifest.layoutVersion)},`,
     `  "generatedFrom": ${JSON.stringify({ codeGraphPackage: manifest.generatedFrom.codeGraphPackage, codeGraphVersion: manifest.generatedFrom.codeGraphVersion })},`,
@@ -545,4 +554,35 @@ function isSortedUniqueStrings(values: readonly unknown[]): boolean {
 
 function compareStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function versionNumber(value: unknown, family: string): number | undefined {
+  if (typeof value !== "string" || !value.startsWith(family)) return undefined;
+  const suffix = value.slice(family.length);
+  if (!/^[1-9][0-9]*$/.test(suffix)) return undefined;
+  const version = Number(suffix);
+  return Number.isSafeInteger(version) ? version : undefined;
+}
+
+/** Pure engine compatibility; absent floors retain the v3 behavior. Future formats never rebaseline. */
+export function architectureDocsProjectionCompatibilityIssues(value: unknown, engine: { rendererVersion: string; protocolVersion: string } = {
+  rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, protocolVersion: PROJECTION_REQUEST_SCHEMA_VERSION
+}): string[] {
+  const manifest = record(value);
+  if (!manifest) return [];
+  const issues: string[] = [];
+  if (["minimumRendererVersion", "minimumProtocolVersion"].some(key => Object.hasOwn(manifest, key))
+    && manifest.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION) issues.push("projection manifest floors require the current schema");
+  if (typeof manifest.schemaVersion === "string" && manifest.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION
+    && !isSupersededArchitectureDocsProjectionManifestSchemaVersion(manifest.schemaVersion)) issues.push("projection manifest schema is unsupported by this engine");
+  for (const [key, family, current] of [
+    ["minimumRendererVersion", "archcontext.docs-renderer/v", engine.rendererVersion],
+    ["minimumProtocolVersion", "archcontext.projection-request/v", engine.protocolVersion]
+  ] as const) {
+    if (!Object.hasOwn(manifest, key)) continue;
+    const required = versionNumber(manifest[key], family);
+    const supported = versionNumber(current, family);
+    if (required === undefined || supported === undefined || supported < required) issues.push(`projection manifest ${key} is unsupported by this engine`);
+  }
+  return issues;
 }

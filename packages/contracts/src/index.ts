@@ -10,9 +10,12 @@ export * from "./ownership-dependencies";
 export * from "./ports";
 export * from "./practices";
 export * from "./projection";
+export * from "./projection-recovery";
 export * from "./projection-manifest";
 export * from "./product-version";
 export * from "./refactor";
 export * from "./schema";
 export * from "./failure";
 export * from "./validator";
+
+export * from "./changeset-recovery";

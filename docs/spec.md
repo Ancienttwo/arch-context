@@ -79,7 +79,41 @@ RF2 assessment path. Target required relations must not overlap migration-only t
 invalid proposals fail through the existing `AC_SCHEMA_INVALID` boundary. These source changes do
 not imply a new published provider version or activation of a downstream scheduler.
 
+### Projection Engine Floors
+
+Manifest v3 may declare optional `minimumRendererVersion` (`archcontext.docs-renderer/vN`) and
+`minimumProtocolVersion` (`archcontext.projection-request/vN`). The engine compares these floors
+with its supported versions before rendering and at the ChangeSet write boundary, including
+pre-rendered projection files and implicit generated rebuilds. A floor raised after planning is
+checked again immediately before file mutation. The manifest is written after other supplied or
+implicit files so a later floor refusal cannot roll it back over a concurrently raised floor.
+Unsupported floors or a future manifest format
+return `AC_PRECONDITION_FAILED` / `projection-manifest-incompatible`; a future format is never
+reinterpreted as a missing manifest or re-baselined by an older engine. Existing v1/v2 re-baselining
+keeps its explicit `docs apply` route. Missing floors retain the existing v3 behavior and byte
+layout; renders preserve declared floors. This adds no command or version bump.
+
 ### Accepted Projection Delivery Recovery
+
+Committed projection failures preserve `AC_PROJECTION_APPLY_COMMITTED`, severity `error`,
+`retryable: false` and action `readback-committed-projection-apply`. Their dedicated closed
+`details` contract permits at most 262144 compact UTF-8 JSON bytes, including complete IDs and
+`readbackRequest`; ordinary summary failures retain the 8192-byte budget. New accepted apply/adopt
+receipts are measured after final expansion, including the longest `written` branch, before
+business planning/writes. Direct `applyUpdate` checks again under the writer before ChangeSet
+apply. Existing session/snapshot administrative writes are distinct from business journal,
+projection file, receipt and ledger writes.
+
+A historical committed receipt whose complete recovery details exceed that limit remains stored
+unchanged. It returns `projection-apply-committed-manual-only`, `manualRecoveryRequired: true` and
+`readbackUnavailable: details-budget-exceeded`, with complete `lookupKey` and `applyId`; automatic
+restore and replay stop before proof or mutation. The original request ID is retained whole when
+it fits, otherwise omitted with `requestIdUnavailable: true`. A known `written` value is preserved;
+an absent value stays absent. This failure reports a committed outcome, never an uncommitted one.
+An operator can inspect the full original receipt and prove it through the existing source
+maintenance client; [the runbook](runbooks/crash-recovery.md#committed-projection-metadata-over-budget)
+describes that path. Inspection/readback does not consume delivery checkpoints.
+
 
 已提交的 accepted projection apply 若在写入后因并发非 owned 变更返回
 `applied-reconcile-required`，其 refresh signal 保持在原始 receipt 中且不被普通
@@ -329,3 +363,29 @@ fail closed on an unavailable or version-mismatched artifact.
 - Public 免费版是否包含 GitHub Check，还是仅本地 Runtime。
 - 个人 Pro 是否提供年付（约 $50）。
 - 完整待确认清单见 PRD §29。
+
+
+### Public failure boundaries
+
+Runtime operation failures carry registered code, action, reasonCode and bounded own-data details.
+Explicit refusals select their policy at the producer; diagnostic messages never select a reason.
+Unknown exceptions use safe unclassified metadata. Existing value APIs still throw typed errors and
+envelope APIs retain their return-versus-throw conventions; successful values retain their shapes
+and identity. Lifecycle adapters preserve acquisition, recovery and cleanup order.
+
+Unresolved ChangeSet recovery keeps the same sentinel identity and original journal authority.
+Its dedicated details budget is256KiB compact UTF-8 JSON: a fitting authority contains every
+journalId, changeSetId, root and reason whole. If it cannot fit, an explicit manual-only reference
+contains the complete authority digest/count and directs the operator to the existing authenticated
+status/health read. No journal ID or recovery token is truncated. General summaries retain8KiB.
+RPC v2 arguments, success responses and version negotiation remain unchanged; ordinary HTTP500
+operation failures use the existing envelope/v1 typed error slot. Old v2 peers without classified
+metadata yield a safe unknown failure. All four value-returning review methods still throw, and
+retain the complete existing version-upgrade authority when negotiation is refused.
+
+The stateless read adoption covers resolve, docs anchors, flows check, deps, checkpoint and
+freshness. Flows check may sync CodeGraph, and read-only SQLite access for anchors/checkpoint may
+create WAL/cache files. Freshness uses its accepted non-rendering stamp path. Checkpoint measures
+ownership and anchors; deps, flows and practices remain deferred to complete. Existing status,
+context, prepare and management paths may still use the runtime, with prepare/practices checkpoint
+as explicit writers. This scope does not claim that apply is the daemon's sole operation.

@@ -1,0 +1,173 @@
+{
+  "base": "386d3f8ca2725be176619baf8449d76febbc976d",
+  "authorization": "Parent explicit expanded D6 closure and D7 post-manifest-await rollback regression, same final branch; ordinary additional commits/push, no force/no PR until accepted C1 main",
+  "allowedPaths": [
+    "packages/contracts/src/failure.ts",
+    "packages/contracts/src/index.ts",
+    "packages/contracts/src/changeset-recovery.ts",
+    "packages/core/changeset-engine/src/index.ts",
+    "packages/local-runtime/local-store-sqlite/src/index.ts",
+    "packages/local-runtime/runtime-daemon/src/index.ts",
+    "packages/local-runtime/runtime-daemon/src/changeset-recovery-error.ts",
+    "packages/local-runtime/runtime-daemon/src/public-operation-failure.ts",
+    "packages/local-runtime/runtime-daemon/src/changeset-authority.ts",
+    "packages/local-runtime/runtime-daemon/src/projection-service.ts",
+    "packages/local-runtime/runtime-daemon/src/projection-apply.ts",
+    "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+    "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+    "packages/local-runtime/runtime-daemon/src/rpc-client.ts",
+    "packages/local-runtime/runtime-daemon/src/rpc-server.ts",
+    "packages/local-runtime/runtime-daemon/src/rpc-methods.ts",
+    "packages/contracts/test/failure-envelope.test.ts",
+    "packages/contracts/test/changeset-recovery.test.ts",
+    "packages/core/changeset-engine/test/projection-manifest-floors.test.ts",
+    "packages/local-runtime/local-store-sqlite/test/changeset-recovery.test.ts",
+    "packages/local-runtime/runtime-daemon/test/public-operation-failures.test.ts",
+    "packages/local-runtime/runtime-daemon/test/final-public-failures.test.ts",
+    "packages/local-runtime/runtime-daemon/test/rpc-v2-failure-compat.test.ts",
+    "packages/local-runtime/runtime-daemon/test/fixtures/runtime-rpc-v2-386d.ts",
+    "docs/spec.md",
+    "docs/runbooks/crash-recovery.md",
+    "plans/plan-20261015-0845-issue-328-public-failure-closure.md",
+    "tasks/contracts/20261015-0845-issue-328-public-failure-closure.contract.md",
+    "tasks/notes/20261015-0845-issue-328-public-failure-closure.notes.md",
+    "tasks/notes/20261015-0845-issue-328-public-failure-closure.scope.json",
+    "tasks/reviews/20261015-0845-issue-328-public-failure-closure.review.md",
+    "packages/local-runtime/runtime-daemon/src/committed-change-acceptance.ts",
+    "packages/local-runtime/runtime-daemon/test/accepted-committed-change.test.ts",
+    "packages/local-runtime/runtime-daemon/test/audit.test.ts",
+    "packages/local-runtime/runtime-daemon/test/ledger-admin.test.ts",
+    "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+    "packages/local-runtime/runtime-daemon/test/rpc-methods.test.ts",
+    "packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts",
+    "packages/surfaces/cli/test/projection-protocol-lifecycle.test.ts",
+    "packages/local-runtime/runtime-daemon/test/git-visible-worktree-digest.test.ts",
+    "packages/local-runtime/runtime-daemon/src/developer-review-run.ts",
+    "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
+    "packages/local-runtime/runtime-daemon/test/developer-review-run.test.ts",
+    "deploy/release-checklists/archctx-0.8.0.md",
+    "packages/surfaces/cli/src/main.ts",
+    "packages/surfaces/mcp-local/src/index.ts",
+    "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+    "packages/local-runtime/runtime-daemon/test/rpc-version.test.ts",
+    "packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts",
+    "packages/local-runtime/runtime-daemon/test/refactor-scan.test.ts",
+    "packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts",
+    "packages/surfaces/mcp-local/test/mcp-local.test.ts",
+    "packages/surfaces/cli/test/projection-capability-isolation.test.ts",
+    "packages/surfaces/cli/test/cli.test.ts",
+    "packages/surfaces/cli/test/failure-envelope.test.ts",
+    "packages/core/changeset-engine/test/changeset-engine.test.ts",
+    "packages/core/changeset-engine/test/manifest-update.test.ts",
+    "packages/core/changeset-engine/test/adr-reference-update.test.ts",
+    "packages/core/changeset-engine/test/refactor-decision-write.test.ts",
+    "packages/core/changeset-engine/src/descriptor-relative-write.ts"
+  ],
+  "soleWriter": "root",
+  "review": {
+    "cycles": 1,
+    "agents": 2,
+    "repairLoops": 2,
+    "newPackage": "Explicit user-expanded remaining D6 scope; prior finite receipt/floors package review is historical, not reset"
+  },
+  "preserve": [
+    "public success identity",
+    "throw versus envelope",
+    "recovery locks/process ordering",
+    "C1 candidate and Mini BYOK",
+    "existing v2 method/arguments/protocol version"
+  ],
+  "newFields": "No decision before frozen v2 cross verification",
+  "D7": "Detect external manifest bytes during rollback; preserve bytes and pending journal/manual recovery; preflight existing startup recovery against same manifest bodyHash before rollback mutation",
+  "repair1": "Five independent review P2 and deterministic acceptance producer escapes found by whole-file regressions; predicate metadata only, no algorithm changes",
+  "additionalPublicInventory": [
+    "init",
+    "practiceWaivers",
+    "runtimeStatus",
+    "status",
+    "compositionReport",
+    "egressReport",
+    "hasActiveBackgroundWork",
+    "prepareDeveloperReviewWorktree",
+    "startDeveloperReviewRun",
+    "withDeveloperReviewRun",
+    "cleanupOwnedDeveloperReviewRun",
+    "cleanupDeveloperReviewRun",
+    "recoverDeveloperReviewRuns",
+    "computeDeveloperReviewDigestBundle",
+    "runDeveloperReviewSession",
+    "runSignedDeveloperReviewAttestation"
+  ],
+  "releasePrepAuthorization": "Coordinator explicitly requests archctx/archctx-contracts 0.8.0 compatibility record and existing authorities/gates; no npm publish this turn",
+  "pr360Followup": {
+    "base": "12f6f6a60e8ea91bf55551ba61207c11aac8daaf",
+    "authorization": "Parent explicitly requests red/green in-process pending-journal write gate, immediate status and restart preservation; no push until findings aggregated",
+    "productPaths": [
+      "packages/local-runtime/runtime-daemon/src/index.ts",
+      "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+      "packages/local-runtime/local-store-sqlite/src/index.ts",
+      "packages/local-runtime/runtime-daemon/src/changeset-recovery-error.ts",
+      "docs/runbooks/crash-recovery.md"
+    ],
+    "releasePrep": "Paused; separate clean worktree /private/tmp/worktrees/arch-context-release-0.8.0-prep",
+    "finalPushAuthorization": "Coordinator confirms CI38714639113 terminal failure; ordinary same-branch commit/push after affected whole files pass; no further approval, force/cancellation/dispatch/rerun."
+  },
+  "pr360CIFollowup": {
+    "authorization": "Parent explicit completed-job151-failure classification and three surface/preimage products plus ledger producer closure; related full-file and full-suite verification; no push until aggregate accepted",
+    "node25Job": 116354296480,
+    "governanceJob": 116354234740,
+    "sameUniqueFailures": 151,
+    "rpcMethodTableFailures": 140,
+    "paths": [
+      "packages/surfaces/cli/src/main.ts",
+      "packages/surfaces/mcp-local/src/index.ts",
+      "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+      "packages/local-runtime/runtime-daemon/test/rpc-version.test.ts",
+      "packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts",
+      "packages/local-runtime/runtime-daemon/test/refactor-scan.test.ts",
+      "packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts",
+      "packages/surfaces/mcp-local/test/mcp-local.test.ts",
+      "packages/surfaces/cli/test/projection-capability-isolation.test.ts",
+      "packages/surfaces/cli/test/cli.test.ts",
+      "packages/surfaces/cli/test/failure-envelope.test.ts",
+      "packages/core/changeset-engine/test/changeset-engine.test.ts"
+    ],
+    "previewDiagnosticGuardFiles": [
+      "packages/core/changeset-engine/test/manifest-update.test.ts",
+      "packages/core/changeset-engine/test/adr-reference-update.test.ts",
+      "packages/core/changeset-engine/test/refactor-decision-write.test.ts"
+    ],
+    "finalAuthorization": "Complete current fixes and bounded residual whole-file controls; no added scope. Preserve original failed overall attempt; do not raise budgets or endlessly repeat root."
+  },
+  "legacyDuplicateManifestP1": {
+    "authorization": "Coordinator explicit same-writer repair, discussion_r4281450751",
+    "paths": [
+      "packages/local-runtime/local-store-sqlite/src/index.ts",
+      "packages/local-runtime/local-store-sqlite/test/changeset-recovery.test.ts",
+      "packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts"
+    ],
+    "gate": "Wait current CI38724679198 terminal before concentrated ordinary push",
+    "requirements": [
+      "persistent legacy duplicate-path red/green",
+      "normalized final destination postimage only",
+      "original reverse rollback",
+      "true external conflict bytes/backups/pending preserved"
+    ],
+    "intentOnlyCompatibility": "If the later existing-file entry has no backup, preserve the original recovery of its predecessor owned postimage; final B with a backup remains the only eligible postimage. External C still refused. Reverse loop unchanged."
+  },
+  "descriptorPreimageProducerClosure": {
+    "authorization": "Coordinator explicit public-reachable known stale/EEXIST producer closure for docs pin and init; do not infer W1 cause",
+    "paths": [
+      "packages/core/changeset-engine/src/descriptor-relative-write.ts",
+      "packages/local-runtime/runtime-daemon/test/final-public-failures.test.ts"
+    ],
+    "requirements": [
+      "registered preimage reason/facts at predicates",
+      "preserve local diagnostics",
+      "real public pin/init conflict and no-write assertions",
+      "unknown I/O stays unclassified",
+      "no writer/lock changes"
+    ]
+  },
+  "ciGovernance": "Coordinator owns separate proposed CI budget/dedup change pending user approval; do not research further or edit workflow."
+}

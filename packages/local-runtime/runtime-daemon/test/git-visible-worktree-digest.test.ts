@@ -90,7 +90,7 @@ describe("Git-visible worktree digest (#323)", () => {
     expect(tracked.projection).not.toBe(before.projection);
     expect<string>(snapshot(root).worktreeDigest).toBe(tracked.projection);
     expect(() => assertProjectionInvocationSnapshot(root, { action: "run", request: checkRequest(expected) }))
-      .toThrow("projection request expected snapshot mismatch: worktreeDigest");
+      .toThrow("Projection snapshot mismatch.");
 
     write(root, "src/index.ts", "export const value = 1;\n");
     expect(digests(root)).toEqual(before);

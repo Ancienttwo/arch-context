@@ -1,3 +1,4 @@
+import { FailureError, failureEnvelope, knownFailure, PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionApplyCommittedDetails, projectionApplyManualOnlyDetails, projectionApplyRecoveryDetailsBytes, projectionApplyRecoveryDetailsFit } from "@archcontext/contracts";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -18,6 +19,7 @@ export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, Ru
 export type ProjectionServiceHost = Pick<RuntimeDaemonClient, "planUpdate" | "applyUpdate" | "listProjectionPriorCommittedApplies" | "inspectProjectionApplyReceipt" | "readbackProjectionApply" | "recoverProjectionApply">;
 
 export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsProjectionInput, cwd: string, daemon: ProjectionServiceHost) {
+  try {
   const subcommand = input.action ?? "plan";
   const root = findRepositoryRoot(cwd);
   let profile: ArchitectureProjectionProfile;
@@ -60,27 +62,26 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     } as unknown as Json);
   }
   if (subcommand === "adopt") {
-    return runArchitectureDocsAdoptionCommand(input, root, daemon, projection, profile);
+    return await runArchitectureDocsAdoptionCommand(input, root, daemon, projection, profile);
   }
   if (projection.plan.rejected.length > 0) {
     const repair = `Architecture documentation projection requires explicit adoption or ownership repair: ${projection.plan.rejected.map((diff) => `${diff.path} (${diff.reasonCode})`).join(", ")}`;
     const unvouched = subcommand === "apply" ? rebaselineUnvouchedWholeFileOutputs(projection) : [];
-    if (unvouched.length === 0) return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", repair);
+    if (unvouched.length === 0) return publicFailureEnvelope("docs.plan", "AC_PRECONDITION_FAILED", "projection-ownership-repair-required", {issueCount: projection.plan.rejected.length});
     const commands = [`git rm -- ${unvouched.join(" ")}`, `archctx docs apply --approved --profile ${profile}`];
-    return errorEnvelope(
-      "docs.plan",
-      "AC_PRECONDITION_FAILED",
-      `${repair}; these whole-file outputs have no current-format manifest row vouching for them, so nothing proves the projection owns them, so the re-baseline never overwrites them: remove them from Git (${commands[0]}) and run ${commands[1]} again`,
-      "projection-ambiguous-ownership",
-      { paths: unvouched, action: "remove-whole-file-outputs-and-reapply", commands }
-    );
+    const paths = unvouched.filter(path => Buffer.byteLength(path,"utf8") <= 256).slice(0, 8);
+    const safeCommands = commands.filter(command => Buffer.byteLength(command,"utf8") <= 1024).slice(0, 2);
+    return publicFailureEnvelope("docs.plan", "AC_PRECONDITION_FAILED", "projection-ambiguous-ownership", {
+      pathCount: unvouched.length, paths, action: "remove-whole-file-outputs-and-reapply", commands: safeCommands,
+      omittedPathCount: unvouched.length-paths.length, omittedCommandCount: commands.length-safeCommands.length
+    });
   }
   // An orphan that may hold human text stops `plan` and `apply` before any write, as it stops the
   // protocol (#268). Writing the new manifest would drop the row that keeps a whole-file orphan
   // visible, so the file would silently stop being projection output (#327).
   const reviewOrphans = projectionReviewOrphans(projection);
   if (reviewOrphans.length > 0) {
-    return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection has orphaned documents that need human review: ${reviewOrphans.map((orphan) => `${orphan.path} (projection-orphaned)`).join(", ")}`);
+    return publicFailureEnvelope("docs.plan", "AC_PRECONDITION_FAILED", "projection-orphan-review-required", {issueCount: reviewOrphans.length});
   }
   if (subcommand === "apply" && profile === REPO_HARNESS_PROJECTION_PROFILE && projection.plan.drift.ok) {
     return okEnvelope("docs.apply", {
@@ -138,6 +139,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     draft: (plan.data as any).draft,
     preview: (plan.data as any).preview
   } as unknown as Json);
+  } catch (error) { throw publicOperationFailure(error); }
 }
 
 /**
@@ -242,12 +244,12 @@ function rerenderArchitectureDocsProjection(
   const { inputs } = previous;
   const measured = inputs.codeGraphInputs;
   const sourceFiles = listGitVisibleFiles(root);
-  if (readHeadSha(root) !== measured.runtimeSnapshot.headSha) throw new Error("architecture-docs-projection-inputs-changed-during-run: headSha");
+  if (readHeadSha(root) !== measured.runtimeSnapshot.headSha) throw new FailureError("AC_PRECONDITION_FAILED", "projection-inputs-changed-during-run", {field:"headSha"});
   if (architectureDocumentationProjectionWorktreeDigest(root, inputs.loaded.model, sourceFiles) !== measured.runtimeSnapshot.worktreeDigest) {
-    throw new Error("architecture-docs-projection-inputs-changed-during-run: worktreeDigest");
+    throw new FailureError("AC_PRECONDITION_FAILED", "projection-inputs-changed-during-run", {field:"worktreeDigest"});
   }
   if (sourceFiles.length !== measured.sourceFiles.length || sourceFiles.some((path, index) => path !== measured.sourceFiles[index])) {
-    throw new Error("architecture-docs-projection-inputs-changed-during-run: sourceFiles");
+    throw new FailureError("AC_PRECONDITION_FAILED", "projection-inputs-changed-during-run", {field:"sourceFiles"});
   }
   return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFiles, acceptedChange, options);
 }
@@ -314,13 +316,13 @@ async function runArchitectureDocsAdoptionCommand(
   acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   if (profile !== REPO_HARNESS_PROJECTION_PROFILE) {
-    return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", `docs adopt requires --profile ${REPO_HARNESS_PROJECTION_PROFILE}`);
+    return publicFailureEnvelope("docs.adopt", "AC_SCHEMA_INVALID", "projection-adoption-profile-invalid", {});
   }
   const currentWorktreeDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
   const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
   const missingCandidate = projection.plan.adoptionCandidates.find((file) => !existingByPath.has(file.path));
   if (missingCandidate) {
-    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", `projection-adoption-preimage-missing: ${missingCandidate.path}`);
+    return publicFailureEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-preimage-missing", {});
   }
   const adoption = buildArchitectureDocumentationAdoptionPlan({
     profile,
@@ -340,19 +342,19 @@ async function runArchitectureDocsAdoptionCommand(
     return okEnvelope("docs.adopt", publicPlan as unknown as Json);
   }
   if (!adoption.allowed) {
-    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", adoption.issues.join(", "));
+    return publicFailureEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-refused", {issueCount: adoption.issues.length});
   }
   const reviewOrphans = projectionReviewOrphans(projection);
   if (reviewOrphans.length > 0) {
-    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", `Architecture documentation projection has orphaned documents that need human review: ${reviewOrphans.map((orphan) => `${orphan.path} (projection-orphaned)`).join(", ")}`);
+    return publicFailureEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-orphan-review-required", {issueCount: reviewOrphans.length});
   }
   const expectedPlanId = input.adoptionPlanId;
   const expectedWorktreeDigest = input.expectedWorktreeDigest;
   if (!expectedPlanId || !expectedWorktreeDigest) {
-    return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", "approved docs adopt requires --adoption-plan-id and --expected-worktree-digest from preview");
+    return publicFailureEnvelope("docs.adopt", "AC_SCHEMA_INVALID", "projection-adoption-approval-input-invalid", {});
   }
   if (expectedPlanId !== adoption.adoptionPlanId || expectedWorktreeDigest !== adoption.expectedWorktreeDigest) {
-    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-preview-mismatch");
+    return publicFailureEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-preview-mismatch", {});
   }
   const simulatedByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file]));
   // The adoption write also deletes generated-only orphans, so the fixed point is proven without them.
@@ -370,7 +372,7 @@ async function runArchitectureDocsAdoptionCommand(
   if (!canonical.plan.drift.ok || canonical.plan.rejected.length > 0 || canonical.plan.projectionDigest !== canonicalFirst.plan.projectionDigest) {
     const reasons = canonical.plan.rejected.map((entry) => entry.reasonCode).join(",") || "none";
     const drift = canonical.plan.drift.diffs.map((entry) => `${entry.path}:${entry.reasonCode}`).join(",") || "none";
-    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", `projection-adoption-fixed-point-unproven: drift=${drift}; rejected=${reasons}; digest=${canonical.plan.projectionDigest === canonicalFirst.plan.projectionDigest ? "stable" : "changed"}`);
+    return publicFailureEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-fixed-point-unproven", {driftCount: canonical.plan.drift.diffs.length, rejectedCount: canonical.plan.rejected.length, digestStable: canonical.plan.projectionDigest === canonicalFirst.plan.projectionDigest});
   }
   if (protocolRequest) {
     return applyProjectionProtocolFixedPoint(protocolRequest, projection, canonical, adoption.changeSetId, root, daemon, priorCommittedApplies, acceptedChange);
@@ -438,7 +440,7 @@ async function applyProjectionProtocolFixedPoint(
     try {
       recoveryBinding = createProjectionApplyRecoveryBinding(request, fixedPoint, appliedResult);
     } catch (error) {
-      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+      return projectionFailureEnvelope("projection.run", error);
     }
   }
   const applyReceipt: ProjectionApplyReceiptV1 | undefined = applyIdentity
@@ -449,6 +451,11 @@ async function applyProjectionProtocolFixedPoint(
         recovery: recoveryBinding
       }
     : undefined;
+  if (applyReceipt && !projectionApplyRecoveryDetailsFit(applyReceipt)) {
+    return failureEnvelope("projection.run", knownFailure("AC_PRECONDITION_FAILED", "projection-apply-recovery-metadata-too-large", {
+      measuredBytes: projectionApplyRecoveryDetailsBytes(applyReceipt), limitBytes: PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES
+    })) as JsonEnvelope;
+  }
   const planned = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: request.requestId },
@@ -504,7 +511,7 @@ async function applyProjectionProtocolFixedPoint(
   if (!delivery.ok) return delivery;
   const delivered = delivery.data as any;
   if (delivered.found !== true || delivered.refreshSignalsDelivered !== true) {
-    return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "committed projection apply receipt was not available for first delivery");
+    return publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-apply-first-delivery-unavailable", {lookupKey:applyReceipt.identity.lookupKey,applyId:applyReceipt.identity.applyId});
   }
   return projectionProtocolResultEnvelope(projectionResultDelivery(
     appliedResult,
@@ -521,17 +528,18 @@ async function applyProjectionProtocolFixedPoint(
  * the contracts package before it crosses the process boundary.
  */
 export async function runProjectionProtocolCommand(invocation: RuntimeProjectionInvocation, cwd: string, daemon: ProjectionServiceHost): Promise<JsonEnvelope> {
+  try {
   const subcommand = invocation.action;
-  if (subcommand === "readback") return runProjectionApplyReadbackCommand(invocation.request, cwd, daemon);
-  if (subcommand === "recover") return runProjectionApplyRecoveryCommand(invocation.request, cwd, daemon);
-  if (subcommand !== "run") return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>");
+  if (subcommand === "readback") return await runProjectionApplyReadbackCommand(invocation.request, cwd, daemon);
+  if (subcommand === "recover") return await runProjectionApplyRecoveryCommand(invocation.request, cwd, daemon);
+  if (subcommand !== "run") return publicFailureEnvelope("projection", "AC_SCHEMA_INVALID", "projection-input-invalid", {});
   const raw = JSON.stringify(invocation.request);
 
   let request: ProjectionRequestV1;
   try {
     request = parseProjectionProtocolRequest(raw);
   } catch (error) {
-    return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    return publicFailureEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection-input-invalid", {});
   }
 
   if (request.mode === "check") return runProjectionCheckCommand(request, findRepositoryRoot(cwd));
@@ -547,14 +555,14 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
     if (!listed.ok) return listed;
     priorCommittedApplies = parseProjectionPriorCommittedApplies(listed.data, request.requestId);
   } catch (error) {
-    return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `projection prior committed apply lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+    return projectionFailureEnvelope("projection.run", error);
   }
   if (request.mode === "apply" || request.mode === "adopt") {
     let replay: JsonEnvelope | undefined;
     try {
       replay = await replayCommittedProjectionApply(request, root, daemon, priorCommittedApplies);
     } catch (error) {
-      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `projection committed apply lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+      return projectionFailureEnvelope("projection.run", error);
     }
     if (replay) return replay;
   }
@@ -590,12 +598,13 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
         if (!existing.receipt) throw new Error("committed projection apply receipt lookup returned no receipt");
         // Another request already applied this exact accepted change. Its outputs are proven, or
         // restored under the original receipt, before the refusal points the caller at readback (#325).
+        if (!projectionApplyRecoveryDetailsFit(existing.receipt)) return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed", false);
         const outputs = await proveOrRestoreCommittedProjectionApply(existing.receipt, root, daemon);
         if (outputs.kind === "failed") return outputs.envelope;
         return projectionApplyCommittedEnvelope("projection.run", existing.receipt, "projection-accepted-change-committed", outputs.kind === "restored");
       }
     } catch (error) {
-      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+      return projectionFailureEnvelope("projection.run", error);
     }
   }
   // The flag path renders the accepted change against the documents it classified. The semantic
@@ -646,7 +655,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
         || fixedPointProjection.plan.majorChange.mode !== "none"
         || fixedPointProjection.plan.refreshSignals.length > 0
       )) {
-        return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "accepted projection did not produce a no-accepted-change semantic fixed point");
+        return publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-accepted-fixed-point-unproven", {});
       }
     } catch (error) {
       return projectionFailureEnvelope("projection.run", error);
@@ -655,6 +664,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   }
 
   return projectionProtocolEnvelope(request, projection, projectionPlannedStatus(projection), projection, priorCommittedApplies);
+  } catch (error) { throw publicOperationFailure(error); }
 }
 
 /** `check` and `plan` without a human action: nothing to write, a complete plan, or a partial one. */
@@ -752,6 +762,7 @@ async function replayCommittedProjectionApply(
       latest.receipt.recovery?.requestDigest === undefined ? "projection-apply-request-digest-unrecorded" : "projection-apply-request-differs"
     );
   }
+  if (!projectionApplyRecoveryDetailsFit(match.receipt)) return projectionApplyCommittedEnvelope("projection.run", match.receipt, "projection-accepted-change-committed", false);
   const outputs = await proveOrRestoreCommittedProjectionApply(match.receipt, root, daemon);
   if (outputs.kind === "failed") return outputs.envelope;
   // A receipt whose refresh signals were never delivered answers as the first run would have
@@ -804,7 +815,7 @@ async function proveOrRestoreCommittedProjectionApply(
   const readback = await daemon.readbackProjectionApply(root, readbackRequest);
   if (readback.ok) {
     if ((readback.data as { schemaVersion?: unknown } | undefined)?.schemaVersion !== PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION) {
-      return { kind: "failed", envelope: errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "committed projection apply receipt was unavailable for its readback proof") };
+      return { kind: "failed", envelope: publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-apply-readback-proof-unavailable", {lookupKey:receipt.identity.lookupKey,applyId:receipt.identity.applyId}) };
     }
     return { kind: "proven" };
   }
@@ -842,7 +853,7 @@ async function proveOrRestoreCommittedProjectionApply(
   if (issues.length > 0) {
     return {
       kind: "failed",
-      envelope: errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", `committed projection apply outputs differ from the approved result and cannot be restored: ${issues.join("; ")}`)
+      envelope: publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-apply-restore-unproven", {lookupKey:receipt.identity.lookupKey,applyId:receipt.identity.applyId,issueCount:issues.length})
     };
   }
   const orphanDeletes = projectionOrphanDeleteOperations(input);
@@ -868,7 +879,7 @@ async function proveOrRestoreCommittedProjectionApply(
   const proven = await daemon.readbackProjectionApply(root, readbackRequest);
   if (!proven.ok) return { kind: "failed", envelope: proven };
   if ((proven.data as { schemaVersion?: unknown } | undefined)?.schemaVersion !== PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION) {
-    return { kind: "failed", envelope: errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "restored projection apply outputs were unavailable for their readback proof") };
+    return { kind: "failed", envelope: publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-apply-restored-proof-unavailable", {lookupKey:receipt.identity.lookupKey,applyId:receipt.identity.applyId}) };
   }
   return { kind: "restored" };
 }
@@ -889,34 +900,11 @@ export function projectionApplyCommittedEnvelope(
   reasonCode: "projection-accepted-change-committed" | "projection-apply-request-differs" | "projection-apply-request-digest-unrecorded",
   written?: boolean
 ): JsonEnvelope {
-  const requestId = receipt.result.requestId;
-  const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt);
-  const requestDigest = receipt.recovery?.requestDigest;
-  const cause = {
-    "projection-accepted-change-committed": `this accepted change was already applied under requestId ${requestId}`,
-    "projection-apply-request-differs": `requestId ${requestId} already committed an apply for a different request; send this request under a new requestId`,
-    "projection-apply-request-digest-unrecorded": `requestId ${requestId} committed an apply before request digests were recorded, so no request can be proven equal to it and the requestId cannot be reused; send this request under a new requestId`
-  }[reasonCode];
-  const readback = readbackRequest
-    ? "to read the committed result, send error.details.readbackRequest unchanged as the projection readback request (CLI: projection readback --request-json); deliver pending refresh signals with projection recover and error.details requestId, lookupKey and applyId"
-    : "the committed receipt has no recovery binding, so projection readback and projection recover cannot prove it";
-  const restored = written === true
-    ? "; its projection-owned outputs differed from the approved result at the approved snapshot and were written again under the original receipt"
-    : "";
-  return errorEnvelope(
-    envelopeRequestId,
-    "AC_PROJECTION_APPLY_COMMITTED",
-    `${cause}${restored}; ${readback}`,
-    reasonCode,
-    {
-      requestId,
-      lookupKey: receipt.identity.lookupKey,
-      applyId: receipt.identity.applyId,
-      ...(requestDigest === undefined ? {} : { requestDigest }),
-      ...(readbackRequest === undefined ? {} : { readbackRequest: readbackRequest as unknown as Json }),
-      ...(written === undefined ? {} : { written })
-    }
-  );
+  const fits = projectionApplyRecoveryDetailsFit(receipt);
+  return failureEnvelope(envelopeRequestId, knownFailure("AC_PROJECTION_APPLY_COMMITTED",
+    fits ? reasonCode : "projection-apply-committed-manual-only",
+    fits ? projectionApplyCommittedDetails(receipt, written) : projectionApplyManualOnlyDetails(receipt, written)
+  )) as JsonEnvelope;
 }
 
 /**
@@ -979,16 +967,7 @@ function rebaselineUnvouchedWholeFileOutputs(projection: ReturnType<typeof build
  * whose files footprints could be measured over (`AC_REPO_NOT_FOUND`, `git-worktree-required`).
  */
 export function projectionFailureEnvelope(requestId: string, error: unknown): JsonEnvelope {
-  if (error instanceof ProjectionPreconditionError) {
-    return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error.message, error.reasonCode);
-  }
-  if (error instanceof ProjectionCodeFactsUnavailableError) {
-    return errorEnvelope(requestId, "AC_CODE_FACTS_UNAVAILABLE", error.message, error.reasonCode);
-  }
-  if (error instanceof GitVisibleFilesUnavailableError) {
-    return errorEnvelope(requestId, error.code, error.message, error.reasonCode);
-  }
-  return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+  return publicOperationErrorEnvelope(requestId, error);
 }
 
 /**
@@ -1027,7 +1006,7 @@ async function runProjectionApplyReadbackCommand(input: ProjectionRequestV1, cwd
     const issues = projectionApplyReadbackRequestInvariantIssues(request);
     if (issues.length > 0) throw new Error(issues.join("; "));
   } catch (error) {
-    return errorEnvelope("projection.readback", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    return publicFailureEnvelope("projection.readback", "AC_SCHEMA_INVALID", "projection-readback-input-invalid", {});
   }
   try {
     const result = await daemon.readbackProjectionApply(findRepositoryRoot(cwd), request);
@@ -1035,9 +1014,9 @@ async function runProjectionApplyReadbackCommand(input: ProjectionRequestV1, cwd
     const issues = (result.data as any)?.schemaVersion === "archcontext.projection-apply-absence/v1"
       ? projectionApplyAbsenceInvariantIssues(result.data as unknown as ProjectionApplyAbsenceV1, request)
       : projectionApplyReadbackResultInvariantIssues(result.data as unknown as ProjectionApplyReadbackResultV1, request);
-    return issues.length === 0 ? result : errorEnvelope("projection.readback", "AC_SCHEMA_INVALID", issues.join("; "));
+    return issues.length === 0 ? result : publicFailureEnvelope("projection.readback", "AC_SCHEMA_INVALID", "projection-readback-result-invalid", {issueCount:issues.length});
   } catch (error) {
-    return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+    return projectionFailureEnvelope("projection.readback", error);
   }
 }
 
@@ -1052,7 +1031,7 @@ async function runProjectionApplyRecoveryCommand(input: ProjectionApplyRecoveryI
   try {
     intent = parseProjectionApplyRecoveryIntent(raw);
   } catch (error) {
-    return errorEnvelope("projection.recover", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    return publicFailureEnvelope("projection.recover", "AC_SCHEMA_INVALID", "projection-recovery-input-invalid", {});
   }
   return recoverProjectionApplyIntent(intent, findRepositoryRoot(cwd), daemon);
 }
@@ -1066,7 +1045,7 @@ async function recoverProjectionApplyIntent(
   try {
     recovered = await daemon.recoverProjectionApply(root, intent);
   } catch (error) {
-    return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+    return projectionFailureEnvelope("projection.recover", error);
   }
   if (!recovered.ok) return recovered;
   const consumption = recovered.data as {
@@ -1076,7 +1055,7 @@ async function recoverProjectionApplyIntent(
     refreshSignalsDelivered?: boolean;
   };
   if (consumption.found !== true || !consumption.receipt || !consumption.proof) {
-    return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "committed projection apply receipt was unavailable for recovery delivery");
+    return publicFailureEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "projection-recovery-delivery-unavailable", {lookupKey:intent.receipt.lookupKey,applyId:intent.receipt.applyId});
   }
   return projectionApplyRecoveryResultEnvelope({
     schemaVersion: PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION,
@@ -1118,7 +1097,7 @@ function projectionApplyRecoveryResultEnvelope(result: ProjectionApplyRecoveryRe
   const issues = projectionApplyRecoveryResultInvariantIssues(result);
   return issues.length === 0
     ? okEnvelope("projection.recover", result as unknown as Json)
-    : errorEnvelope("projection.recover", "AC_SCHEMA_INVALID", `projection recovery result invariant failed: ${issues.join("; ")}`);
+    : publicFailureEnvelope("projection.recover", "AC_SCHEMA_INVALID", "projection-recovery-result-invalid", {issueCount:issues.length});
 }
 
 function parseProjectionApplyRecoveryIntent(raw: string): ProjectionApplyRecoveryIntentV1 {
@@ -1306,9 +1285,9 @@ function assertProjectionExpectedSnapshotAgainstModel(
 }
 
 /** The current snapshot was read and differs from the expected one; any other failure is not a mismatch. */
-class ProjectionExpectedSnapshotMismatchError extends Error {
+class ProjectionExpectedSnapshotMismatchError extends FailureError<"AC_PRECONDITION_FAILED"> {
   constructor(readonly field: "repositoryId" | "workspaceId" | "headSha" | "worktreeDigest") {
-    super(`projection request expected snapshot mismatch: ${field}`);
+    super("AC_PRECONDITION_FAILED", "projection-snapshot-mismatch", {field});
     this.name = "ProjectionExpectedSnapshotMismatchError";
   }
 }
@@ -1495,7 +1474,7 @@ function projectionProtocolResultEnvelope(result: ProjectionResultV2): JsonEnvel
   const issues = projectionResultInvariantIssues(result);
   return issues.length === 0
     ? okEnvelope("projection.run", result as unknown as Json)
-    : errorEnvelope("projection.run", "AC_SCHEMA_INVALID", `projection result invariant failed: ${issues.join("; ")}`);
+    : publicFailureEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection-result-invalid", {});
 }
 
 function projectionResultDelivery(
@@ -1642,9 +1621,10 @@ function projectionDigestOrNull(value: string | undefined): Sha256Digest | null 
  * designate — and a mistakenly-kinded operation carrying the same path is still denied.
  */
 export async function runAgentContextProjectionCommand(input: RuntimeAgentContextProjectionInput, cwd: string, daemon: ProjectionServiceHost) {
+  try {
   const subcommand = input.action ?? "plan";
   if (!["plan", "preview", "apply"].includes(subcommand)) {
-    return errorEnvelope("agent-context", "AC_SCHEMA_INVALID", "agent-context requires plan|preview|apply");
+    return publicFailureEnvelope("agent-context", "AC_SCHEMA_INVALID", "agent-context-input-invalid", {});
   }
   const channel = `agent-context.${subcommand}`;
   const root = findRepositoryRoot(cwd);
@@ -1652,7 +1632,7 @@ export async function runAgentContextProjectionCommand(input: RuntimeAgentContex
   try {
     projection = buildAgentContextProjection(root);
   } catch (error) {
-    return errorEnvelope(channel, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+    return projectionFailureEnvelope(channel, error);
   }
   const changeSetId = input.id
     ?? `changeset.agent-context-${projection.sourceDigest.replace(/^sha256:/, "").slice(0, 16)}`;
@@ -1688,6 +1668,7 @@ export async function runAgentContextProjectionCommand(input: RuntimeAgentContex
     draft: (plan.data as any).draft,
     preview: (plan.data as any).preview
   } as unknown as Json);
+  } catch (error) { throw publicOperationFailure(error); }
 }
 
 function buildAgentContextProjection(root: string) {

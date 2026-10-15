@@ -1,3 +1,4 @@
+import { normalizeFailureResult } from "@archcontext/contracts";
 import { RUNTIME_RPC_METHODS, runtimeRpcMethod, type RuntimeRpcClientMethods, type RuntimeRpcMethodName } from "./rpc-methods";
 import { RUNTIME_RPC_VERSION } from "./rpc-protocol";
 import type { Json, JsonEnvelope } from "@archcontext/contracts";
@@ -91,7 +92,7 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
   }
 
   private async call(method: RuntimeRpcMethodName | "shutdown", params: readonly unknown[]): Promise<JsonEnvelope> {
-    return await this.request(method, runtimeRpcMethodTimeout(method, this.timeouts), `${this.connection.url}rpc`, {
+    const result = await this.request(method, runtimeRpcMethodTimeout(method, this.timeouts), `${this.connection.url}rpc`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.connection.token}`,
@@ -100,6 +101,12 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
       },
       body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method, params })
     }) as JsonEnvelope;
+    // v2 negotiation has its own complete upgrade authority and existing CLI discriminator.
+    if ((result as any)?.error === "runtime RPC version mismatch") return result;
+    // Old v2 peers may return an HTTP500 string; preserve return/throw conventions without
+    // guessing a classification from diagnostics. Success objects retain their identity.
+    const requestId = result && typeof result === "object" ? Object.getOwnPropertyDescriptor(result, "requestId") : undefined;
+    return normalizeFailureResult(result, "public-operation", requestId && "value" in requestId && typeof requestId.value === "string" && Buffer.byteLength(requestId.value,"utf8") <= 256 ? requestId.value : `runtime-rpc.${method}`) as JsonEnvelope;
   }
 
   /**

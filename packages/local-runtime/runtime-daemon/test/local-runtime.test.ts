@@ -1098,7 +1098,7 @@ setInterval(() => undefined, 1 << 30);
       writer = spawn(process.execPath, [writerScript, dbPath, root, relativePath, absolutePath, backupPath, tempPath], { stdio: ["ignore", "pipe", "inherit"] });
       await waitForStdoutLine(writer, "READY");
 
-      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toThrow(`local-store-writer-owned: ${dbPath} is owned by another live process (owner record: pid ${writer.pid}`);
+      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"runtime-writer-owned"});
       expect(existsSync(absolutePath)).toBe(false);
       expect(readText(backupPath)).toBe(original);
       expect(readText(tempPath)).toBe("partial write");
@@ -1356,7 +1356,7 @@ setInterval(() => undefined, 1 << 30);
       const again = await daemon.init(root, "Second App");
       expect(again.ok).toBe(false);
       expect(again.error?.code).toBe("AC_PRECONDITION_FAILED");
-      expect(again.error?.message).toContain("archcontext-init-refused");
+      expect(again.error?.reasonCode).toBe("init-would-overwrite-existing-model");
       expect(readText(manifestPath)).toBe(manifestBefore);
       expect(readText(productPath)).toBe(productBefore);
     } finally {
@@ -1504,7 +1504,7 @@ setInterval(() => undefined, 1 << 30);
         id: "changeset.agent-context-mis-kinded",
         approved: true,
         expectedWorktreeDigest: (misKinded.data as any).draft.base.worktreeDigest
-      })).rejects.toThrow("Path is outside ArchContext write allowlist");
+      })).rejects.toMatchObject({code:"AC_UNCLASSIFIED_FAILURE",reasonCode:"failure-unclassified"});
       expect(readText(claudePath)).toBe(before.claude);
     } finally {
       await daemon?.stop();
@@ -1866,7 +1866,7 @@ setInterval(() => undefined, 1 << 30);
         id: (plan.data as any).draft.id,
         approved: true,
         expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      })).rejects.toThrow("ChangeSet worktree digest changed before apply");
+      })).rejects.toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"apply-worktree-changed"});
       expect(existsSync(join(root, ".archcontext/model/nodes/module.stale-worktree.yaml"))).toBe(false);
     } finally {
       removeTempRepo(root);
@@ -2112,7 +2112,7 @@ setInterval(() => undefined, 1 << 30);
         id: "changeset.dual-ledger-rollback",
         approved: true,
         expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      })).rejects.toThrow("ledger-append-down");
+      })).rejects.toMatchObject({code:"AC_UNCLASSIFIED_FAILURE",reasonCode:"failure-unclassified"});
 
       expect(existsSync(join(root, path))).toBe(false);
       expect([...store.changeSetJournals.values()].some((journal) => journal.status === "aborted" && journal.reason === "ledger-append-down")).toBe(true);
@@ -2480,7 +2480,7 @@ setInterval(() => undefined, 1 << 30);
         });
         if (profile === "repository") {
           expect((sameProfileApply as any).ok).toBe(false);
-          expect(String((sameProfileApply as any).error)).toContain(`Unknown ChangeSet: ${id}`);
+          expect(sameProfileApply.error).toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"apply-draft-missing",details:{changeSetId:id}});
         } else {
           expect(sameProfileApply).toMatchObject({
             schemaVersion: "archcontext.envelope/v1",
@@ -2496,7 +2496,7 @@ setInterval(() => undefined, 1 << 30);
           expectedWorktreeDigest: repositoryDigest
         });
         expect(missingDraft.ok).toBe(false);
-        expect(String((missingDraft as any).error)).toContain(`Unknown ChangeSet: ${id}`);
+        expect(missingDraft.error).toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"apply-draft-missing",details:{changeSetId:id}});
       }
 
       const validPlan = await client.planUpdate(root, {
@@ -3052,3 +3052,159 @@ function gitCommitAll(root: string, message: string): void {
     { cwd: root, stdio: ["ignore", "pipe", "pipe"] }
   );
 }
+
+/** Real journal/file sequence: J0 committed, J1 rollback conflicts, then same-process J2. */
+async function inProcessRecoveryConflictFixture(options: { failSnapshotReads?: boolean } = {}) {
+  const root = createInitializedGitRepo();
+  const dir = mkdtempSync(join(tmpdir(), "archctx-in-process-recovery-"));
+  const databasePath = join(dir, "runtime.sqlite");
+  const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  const laterPath = "docs/architecture/later.md";
+  const preservedPath = "docs/architecture/previously-committed.md";
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify({
+    schemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+    minimumRendererVersion: "archcontext.docs-renderer/v5"
+  }));
+  let armed = false;
+  let snapshotUnavailable = false;
+  let postimage = "";
+  let raised = "";
+  const trace: Array<{ event: string; changeSetId?: string; writerHeld?: boolean; pending?: string[] }> = [];
+  const modelStore = new class extends YamlModelStore {
+    override async validateModel(workspace: Parameters<YamlModelStore["validateModel"]>[0]) {
+      const result = await super.validateModel(workspace);
+      if (armed && existsSync(join(root, laterPath))) {
+        armed = false;
+        postimage = readText(manifestPath);
+        raised = JSON.stringify({ ...JSON.parse(postimage), minimumRendererVersion: "archcontext.docs-renderer/v6" });
+        writeFileSync(manifestPath, raised);
+        trace.push({ event: "J1-post-validation-conflict" });
+        snapshotUnavailable = options.failSnapshotReads === true;
+        return { ...result, valid: false, errors: ["injected post-publication validation failure"] };
+      }
+      return result;
+    }
+  }();
+  const store = new SqliteLocalStore(databasePath);
+  let activeStore = store;
+  let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+  const begin = store.beginChangeSet.bind(store);
+  store.beginChangeSet = async (root, draft) => {
+    trace.push({ event: "journal-begin", changeSetId: draft.id });
+    return begin(root, draft);
+  };
+  const list = store.listUnresolvedChangeSetJournals.bind(store);
+  store.listUnresolvedChangeSetJournals = () => {
+    const journals = list();
+    trace.push({ event: "pending-read", writerHeld: (daemon as any)?.writerLocked === true, pending: journals.map(journal => journal.changeSetId) });
+    if (snapshotUnavailable) throw new Error("journal snapshot unavailable /private/fixture");
+    return journals;
+  };
+  const recover = store.recoverPendingChangeSets.bind(store);
+  store.recoverPendingChangeSets = () => { trace.push({ event: "startup-recovery" }); return recover(); };
+  const apply = async (id: string, projectionFiles: Array<{ path: string; expectedHash: string; body: string }>) => {
+    const planned = await daemon!.planUpdate(root, { id, operations: [{ op: "render_projection", expectedHash: "missing", projectionFiles }] });
+    expect(planned.ok).toBe(true);
+    const draft = (planned.data as any).draft;
+    return daemon!.applyUpdate(root, { id, approved: true, expectedWorktreeDigest: draft.base.worktreeDigest });
+  };
+  try {
+    daemon = await createStartedTestDaemon({ localStore: store, modelStore });
+    const previous = await apply("changeset.in-process-J0", [{ path: preservedPath, expectedHash: "missing", body: "previously committed\n" }]);
+    expect(previous.ok).toBe(true);
+    const previousJournalId = (previous.data as any).journalId as string;
+    const before = readText(manifestPath);
+    armed = true;
+    const failure = await apply("changeset.in-process-J1", [
+      { path: laterPath, expectedHash: "missing", body: "J1 uncommitted\n" },
+      { path: "docs/architecture/.projection-manifest.json", expectedHash: digestJson({ body: before }), body: JSON.stringify({ ...JSON.parse(before), rendererVersion: "archcontext.docs-renderer/v6" }) }
+    ]).catch(error => error);
+    expect(failure).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "changeset-rollback-conflict" });
+    trace.push({ event: "J1-rejected" });
+    expect(raised).not.toBe("");
+    expect(readText(manifestPath)).toBe(raised);
+    expect(existsSync(join(root, laterPath))).toBe(false);
+    const pending = list();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.changeSetId).toBe("changeset.in-process-J1");
+    return {
+      root, store, daemon, trace, pending, manifestPath, laterPath, preservedPath, previousJournalId,
+      applyJ2: () => apply("changeset.in-process-J2", [{ path: laterPath, expectedHash: "missing", body: "J2 committed\n" }]),
+      restoreJ1Manifest: () => writeFileSync(manifestPath, postimage),
+      async restart() {
+        await daemon!.stop();
+        activeStore = new SqliteLocalStore(databasePath);
+        daemon = await createStartedTestDaemon({ localStore: activeStore });
+        return daemon;
+      },
+      readPreviousCommitted: () => activeStore.readCommittedChangeSet(root, previousJournalId),
+      restoreSnapshotReads: () => { snapshotUnavailable = false; },
+      async cleanup() { await daemon?.stop(); removeTempRepo(root); removeTempRepo(dir); }
+    };
+  } catch (error) {
+    await daemon?.stop(); store.close(); removeTempRepo(root); removeTempRepo(dir); throw error;
+  }
+}
+
+test("in-process rollback conflicts publish full unresolved authority before the writer is released", async () => {
+  const f = await inProcessRecoveryConflictFixture();
+  try {
+    console.info("[in-process-recovery/status]", JSON.stringify({ trace: f.trace, recovery: f.daemon.status().changeSetRecovery }));
+    expect(f.daemon.status().changeSetRecovery).toEqual({ writable: false, unresolvedJournals: f.pending });
+    const rejection = f.trace.findIndex(entry => entry.event === "J1-rejected");
+    expect(f.trace.slice(0, rejection)).toContainEqual({ event: "pending-read", writerHeld: true, pending: ["changeset.in-process-J1"] });
+    expect(f.trace.filter(entry => entry.event === "startup-recovery")).toHaveLength(1);
+  } finally { await f.cleanup(); }
+});
+
+test("in-process unresolved J1 refuses J2 before beginning any later journal or file write", async () => {
+  const f = await inProcessRecoveryConflictFixture();
+  try {
+    const result = await f.applyJ2().then(value => ({ applied: value.ok, error: undefined }), error => ({ applied: false, error }));
+    console.info("[in-process-recovery/J2]", JSON.stringify({ applied: result.applied, reason: result.error?.reasonCode, trace: f.trace }));
+    expect(result.error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "changeset-recovery-unresolved", unresolvedJournals: f.pending });
+    expect(existsSync(join(f.root, f.laterPath))).toBe(false);
+    expect(f.trace.filter(entry => entry.event === "journal-begin").map(entry => entry.changeSetId)).toEqual(["changeset.in-process-J0", "changeset.in-process-J1"]);
+    expect(readText(f.manifestPath)).toContain('"minimumRendererVersion":"archcontext.docs-renderer/v6"');
+    expect(f.trace.filter(entry => entry.event === "startup-recovery")).toHaveLength(1);
+  } finally { await f.cleanup(); }
+});
+
+test("manual recovery and restart cannot delete a successful later ChangeSet", async () => {
+  const f = await inProcessRecoveryConflictFixture();
+  try {
+    const later = await f.applyJ2().then(value => ({ committed: value.ok, error: undefined }), error => ({ committed: false, error }));
+    f.restoreJ1Manifest();
+    const restarted = await f.restart();
+    const after = existsSync(join(f.root, f.laterPath)) ? readText(join(f.root, f.laterPath)) : undefined;
+    console.info("[in-process-recovery/restart]", JSON.stringify({ laterCommitted: later.committed, laterFile: after ?? null, recovery: restarted.status().changeSetRecovery ?? null }));
+    // This invariant fails on the old code: J2 reports committed, then pending J1 removes its file.
+    expect(after).toBe(later.committed ? "J2 committed\n" : undefined);
+    expect(later.error).toMatchObject({ reasonCode: "changeset-recovery-unresolved" });
+    expect(restarted.status().changeSetRecovery).toBeUndefined();
+    expect(readText(join(f.root, f.preservedPath))).toBe("previously committed\n");
+    // J0 remains committed and readable after J1 recovery; no active-operation recovery ran.
+    expect(await f.readPreviousCommitted()).toMatchObject({ journalId: f.previousJournalId, changeSetId: "changeset.in-process-J0" });
+  } finally { await f.cleanup(); }
+});
+
+
+test("a failed pending snapshot read retains the rollback failure and gates status and later writes", async () => {
+  const f = await inProcessRecoveryConflictFixture({ failSnapshotReads: true });
+  try {
+    let statusError: any;
+    try { f.daemon.status(); } catch (error) { statusError = error; }
+    expect(statusError).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
+    const blocked = await f.applyJ2().catch(error => error);
+    expect(blocked).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
+    expect(JSON.stringify(blocked.failure)).not.toContain("/private/fixture");
+    expect(f.trace.filter(entry => entry.event === "journal-begin").map(entry => entry.changeSetId)).toEqual(["changeset.in-process-J0", "changeset.in-process-J1"]);
+    expect(existsSync(join(f.root, f.laterPath))).toBe(false);
+    f.restoreSnapshotReads();
+    const refused = await f.applyJ2().catch(error => error);
+    expect(refused).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "changeset-recovery-unresolved", unresolvedJournals: f.pending });
+    expect(f.daemon.status().changeSetRecovery).toEqual({ writable: false, unresolvedJournals: f.pending });
+    expect(f.trace.filter(entry => entry.event === "startup-recovery")).toHaveLength(1);
+  } finally { await f.cleanup(); }
+});

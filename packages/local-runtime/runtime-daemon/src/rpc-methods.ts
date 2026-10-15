@@ -1,3 +1,4 @@
+import { FailureError, normalizeFailureResult } from "@archcontext/contracts";
 import type { AgentJobV1, ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, Json, JsonEnvelope, ProjectionApplyRecoveryIntentV1, ProjectionRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import type { DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
@@ -75,7 +76,15 @@ function dataMethod<Args extends unknown[], Result>(
 }
 
 function unwrapRpcData<Result>(result: JsonEnvelope): Result {
-  if (!result.ok) throw new Error(result.error?.message ?? "runtime-rpc-call-failed");
+  if (!result.ok) {
+    const negotiation = result as unknown as Record<string, unknown>;
+    if (negotiation.error === "runtime RPC version mismatch") {
+      try { throw new FailureError("AC_RUNTIME_VERSION_UNSUPPORTED", "rpc-version-mismatch", {expected:negotiation.expected,received:negotiation.received,action:negotiation.action,upgradeCommand:negotiation.upgradeCommand}); }
+      catch(error) { if(error instanceof FailureError) throw error; }
+    }
+    const failure = (normalizeFailureResult(result, "public-operation", "runtime-rpc.data") as JsonEnvelope).error!;
+    throw new FailureError(failure.code, failure.reasonCode!, failure.details, failure);
+  }
   return result.data as unknown as Result;
 }
 

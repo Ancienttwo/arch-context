@@ -1003,7 +1003,7 @@ describe("recommendation decisions and listing", () => {
         expectedWorktreeDigest: `sha256:${"1".repeat(64)}`
       });
       expect(stale.ok, JSON.stringify(stale)).toBe(false);
-      expect(errorOf(stale)).toMatchObject({ code: "AC_REFACTOR_STALE", message: "Worktree digest changed before recommendations accept" });
+      expect(errorOf(stale)).toMatchObject({ code: "AC_REFACTOR_STALE", reasonCode: "worktree-claim-changed", action: "rerun-refactor-scan", details: { expectedWorktreeDigest: `sha256:${"1".repeat(64)}`, actualWorktreeDigest: scan.worktree.worktreeDigest } });
       expect(stale.requestId).toBe("recommendations.accept");
       expect(store.architectureEventAppends).toHaveLength(0);
 

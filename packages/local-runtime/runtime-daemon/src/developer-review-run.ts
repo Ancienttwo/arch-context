@@ -1,8 +1,9 @@
+import { FailureError } from "@archcontext/contracts";
 import {
   computeReviewWorktreeDigest
 } from "@archcontext/core/architecture-domain";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
-import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, productVersionManifest, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
+import { findCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, productVersionManifest, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
 import { readTrackedTreeEntries, verifyDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { randomBytes } from "node:crypto";
@@ -81,7 +82,7 @@ export class DeveloperReviewRunService {
     };
     if (existsSync(paths.lockPath) || existsSync(paths.manifestPath)) {
       removePathWithRetry(paths.runRoot);
-      throw new Error(`developer-review-run-already-active: ${input.challenge.challengeId}`);
+      throw new FailureError("AC_PRECONDITION_FAILED", "developer-review-run-already-active", {challengeId:input.challenge.challengeId});
     }
     let lockAcquired = false;
     try {
@@ -130,7 +131,7 @@ export class DeveloperReviewRunService {
   }, run: (developerReviewRun: DeveloperReviewRun) => Promise<T> | T): Promise<T> {
     const prepared = this.startDeveloperReviewRun(input);
     if (!prepared.accepted || !prepared.run) {
-      throw new Error(`developer-review-run-prepare-failed: ${prepared.reasonCode ?? "UNKNOWN"}`);
+      throw new FailureError("AC_PRECONDITION_FAILED", "developer-review-run-prepare-failed");
     }
     try {
       return await run(prepared.run);
@@ -364,7 +365,7 @@ function readDeveloperReviewRunOwnerMarker(path: string): DeveloperReviewRunOwne
 }
 
 function developerReviewRunNotOwned(reason: string): Error {
-  return new Error(`developer-review-run-not-owned: ${reason}`);
+  return new FailureError("AC_PRECONDITION_FAILED","developer-review-run-not-owned",{refusal:reason});
 }
 
 /**
@@ -520,7 +521,7 @@ export class DeveloperReviewSessionService {
       expectedHeadSha: input.challenge.headSha,
       expectedHeadTreeOid: input.worktree.headTreeOid
     });
-    if (!verification.accepted) throw new Error(`developer-review-worktree-invalid: ${verification.reasonCode ?? "UNKNOWN"}`);
+    if (!verification.accepted) throw new FailureError("AC_PRECONDITION_FAILED", "developer-review-worktree-invalid", {refusal:verification.reasonCode ?? "UNKNOWN"});
 
     const workspace: WorkspaceRef = {
       root: input.worktree.worktreeRoot,
@@ -604,8 +605,9 @@ export class DeveloperReviewSessionService {
     completedAt?: string;
   }): Promise<DeveloperReviewAttestation> {
     this.context.assertRunning();
-    assertNoCallerProvidedAttestationFields(input, "developer-review-attestation");
-    if (!this.context.devicePrivateKeySigner) throw new Error("device-private-key-signer-unavailable");
+    const forbidden = findCallerProvidedAttestationFields(input);
+    if (forbidden.length > 0) throw new FailureError("AC_SCHEMA_INVALID","developer-review-attestation-input-invalid",{issueCount:forbidden.length});
+    if (!this.context.devicePrivateKeySigner) throw new FailureError("AC_PRECONDITION_FAILED", "device-private-key-signer-unavailable");
     const startedAt = input.startedAt ?? this.context.clock();
     const reviewSession = await this.context.runDeveloperReviewSession({
       challenge: input.challenge,

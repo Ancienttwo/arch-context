@@ -18,6 +18,8 @@ import {
   PROJECTION_MANIFEST_UPGRADE_REQUIRED,
   PROJECTION_TARGET_SCHEMA_VERSION,
   architectureDocsProjectionManifestDigests,
+  architectureDocsProjectionCompatibilityIssues,
+  FailureError,
   architectureDocsProjectionManifestIssues,
   architectureDocsProjectionManifestSchemaVersion,
   architectureDocsProjectionManifestSemanticState,
@@ -402,6 +404,10 @@ export function renderArchitectureDocumentationProjection(input: {
   const model = normalizeNativeModel(input.model);
   const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile: input.profile });
   const existingByPath = new Map((input.existingFiles ?? []).map((file) => [file.path, file.body]));
+  const previousManifest = previousArchitectureDocsProjectionManifest(
+    existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH),
+    input.rebaselineSupersededManifest === true
+  );
   const provenance = input.provenance;
   const scaleSignalsByNodeId = new Map((input.sourceScaleSignals ?? []).map((signal) => [signal.nodeId, signal]));
   // One structured value per node: the module document prints it and the manifest records it.
@@ -418,10 +424,6 @@ export function renderArchitectureDocumentationProjection(input: {
     model,
     compilations: [...semanticCompilationsByNodeId.values()]
   });
-  const previousManifest = previousArchitectureDocsProjectionManifest(
-    existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH),
-    input.rebaselineSupersededManifest === true
-  );
   const majorChange = classifyArchitectureMajorChange({
     base: previousManifest ? architectureDocsProjectionManifestSemanticState(previousManifest) : undefined,
     resulting: semanticState,
@@ -560,6 +562,8 @@ export function renderArchitectureDocumentationProjection(input: {
   const manifestValue: ArchitectureDocsProjectionManifestV3 = {
     schemaVersion: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
     rendererVersion,
+    ...(previousManifest?.minimumRendererVersion === undefined ? {} : { minimumRendererVersion: previousManifest.minimumRendererVersion }),
+    ...(previousManifest?.minimumProtocolVersion === undefined ? {} : { minimumProtocolVersion: previousManifest.minimumProtocolVersion }),
     profile: layout.profile,
     layoutVersion: provenance.layoutVersion,
     generatedFrom: provenance.generatedFrom,
@@ -917,13 +921,16 @@ export function parseArchitectureDocsProjectionManifest(body: string): Architect
 
 /**
  * The manifest the previous projection committed, which carries the semantic baseline this run is
- * classified against. No manifest, or one that is not JSON or names no recognizable
- * `schemaVersion`, carries no baseline: the drift check reports it and `apply` rewrites it. A
+ * classified against. No manifest, or one that is not JSON or declares no
+ * `schemaVersion` and no floors, carries no baseline: the drift check reports it and `apply` rewrites it. A
  * superseded manifest is refused unless `docs apply` re-baselines; a current-format manifest that
- * fails its contract is refused.
+ * fails its contract is refused. An unrecognized declared schema or unsupported floor is refused.
  */
 function previousArchitectureDocsProjectionManifest(body: string | undefined, rebaselineSuperseded: boolean): ArchitectureDocsProjectionManifestV3 | undefined {
   if (body === undefined) return undefined;
+  let candidate: unknown;
+  try { candidate = JSON.parse(body); } catch { /* Existing malformed/missing-baseline handling remains below. */ }
+  if (architectureDocsProjectionCompatibilityIssues(candidate).length) throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");
   const schemaVersion = architectureDocsProjectionManifestSchemaVersion(body);
   if (isSupersededArchitectureDocsProjectionManifestSchemaVersion(schemaVersion)) {
     if (rebaselineSuperseded) return undefined;
@@ -937,7 +944,7 @@ function previousArchitectureDocsProjectionManifest(body: string | undefined, re
  * Refuses a committed manifest exactly as a projection render refuses it, without rendering: a
  * superseded one throws `projection-manifest-upgrade-required` and a current-format one that fails
  * its contract throws `projection-manifest-invalid`. A manifest that is not JSON or names no
- * recognizable `schemaVersion` carries no baseline and passes, as it does for a render. Surfaces
+ * declared `schemaVersion` or floors carries no baseline and passes, as it does for a render. Surfaces
  * that read only the stamps (`projection freshness`) call it so they refuse what `check` refuses.
  */
 export function assertArchitectureDocsProjectionManifestAccepted(body: string): void {

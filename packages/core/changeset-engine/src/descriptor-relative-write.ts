@@ -1,6 +1,6 @@
 import { chmodSync, closeSync, constants as fsConstants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { digestJson } from "@archcontext/contracts";
+import { digestJson, FailureError } from "@archcontext/contracts";
 import koffi from "koffi";
 
 export interface DescriptorRelativeWriteRequest {
@@ -54,6 +54,13 @@ const POSIX_FLAGS: Record<"darwin" | "linux", PosixFlags> = {
 /** The mode `open(..., 0o666)` would produce under the process umask, i.e. a plain new file. */
 function defaultCreateMode(): number {
   return 0o666 & ~process.umask();
+}
+
+/** Local diagnostics remain exact; public adapters publish the registered refusal metadata. */
+function descriptorPreimageFailure(diagnostic: string): FailureError<"AC_PRECONDITION_FAILED"> {
+  const error = new FailureError("AC_PRECONDITION_FAILED", "apply-preimage-changed", { issueCount: 1 });
+  error.message = diagnostic;
+  return error;
 }
 
 export function descriptorRelativeWrite(request: DescriptorRelativeWriteRequest): void {
@@ -140,7 +147,7 @@ function writeWithPosixDirectoryDescriptor(
       // missing-check above, so a concurrent writer can never be overwritten. The temp name is
       // unlinked in the finally block.
       if (linkat(directoryFd, request.tempName, directoryFd, leaf, 0) < 0) {
-        if (koffi.errno() === koffi.os.errno.EEXIST) throw new Error(`Expected hash mismatch: ${leaf}`);
+        if (koffi.errno() === koffi.os.errno.EEXIST) throw descriptorPreimageFailure(`Expected hash mismatch: ${leaf}`);
         throw posixError(`linkat ${leaf}`);
       }
     } else {
@@ -179,12 +186,12 @@ function assertExpectedHashAt(
   const fd = openat(directoryFd, leaf, flags.readOnly | flags.noFollow | flags.closeOnExec, 0);
   if (fd < 0) {
     if (koffi.errno() === koffi.os.errno.ENOENT && expectedHash === "missing") return;
-    if (koffi.errno() === koffi.os.errno.ENOENT) throw new Error(`Expected missing file hash for new path: ${leaf}`);
+    if (koffi.errno() === koffi.os.errno.ENOENT) throw descriptorPreimageFailure(`Expected missing file hash for new path: ${leaf}`);
     throw posixError(`openat destination ${leaf}`);
   }
   try {
     const actual = digestJson({ body: readUtf8(fd, read) });
-    if (expectedHash !== actual) throw new Error(`Expected hash mismatch: ${leaf}`);
+    if (expectedHash !== actual) throw descriptorPreimageFailure(`Expected hash mismatch: ${leaf}`);
   } finally {
     checkedResult(close(fd), `close destination ${leaf}`);
   }
@@ -289,13 +296,13 @@ function windowsAtomicPathWrite(request: DescriptorRelativeWriteRequest): void {
   if (request.expectedHash === "missing") {
     try {
       readFileSync(absolute);
-      throw new Error(`Expected hash mismatch: ${request.path}`);
+      throw descriptorPreimageFailure(`Expected hash mismatch: ${request.path}`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   } else {
     const actual = digestJson({ body: readFileSync(absolute, "utf8") });
-    if (actual !== request.expectedHash) throw new Error(`Expected hash mismatch: ${request.path}`);
+    if (actual !== request.expectedHash) throw descriptorPreimageFailure(`Expected hash mismatch: ${request.path}`);
   }
   mkdirSync(dirname(absolute), { recursive: true });
   const temp = join(dirname(absolute), request.tempName);
@@ -329,13 +336,13 @@ function commitCreateOnly(temp: string, absolute: string, request: DescriptorRel
     return;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") throw new Error(`Expected hash mismatch: ${request.path}`);
+    if (code === "EEXIST") throw descriptorPreimageFailure(`Expected hash mismatch: ${request.path}`);
     if (code !== "EPERM" && code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "ENOSYS") throw error;
   }
   try {
     writeFileSync(absolute, request.body, request.mode === undefined ? { encoding: "utf8", flag: "wx" } : { encoding: "utf8", mode: request.mode, flag: "wx" });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Expected hash mismatch: ${request.path}`);
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw descriptorPreimageFailure(`Expected hash mismatch: ${request.path}`);
     throw error;
   }
 }
