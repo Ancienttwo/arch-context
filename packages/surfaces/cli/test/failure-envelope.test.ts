@@ -55,8 +55,14 @@ test("selected RPC timeout and abort codes survive adaptation and never trigger 
 test("all registered producer reasons survive selected CLI and MCP adapters", async () => {
   const { FAILURE_POLICIES, knownFailure, failureEnvelope, failureIssues } = await import("@archcontext/contracts");
   for (const [reason, policy] of Object.entries(FAILURE_POLICIES)) {
-    const facts: Record<string, any> = { checks: ["ownership", "anchors"], issueCount: 2, method: "completeTask", timeoutMs: 5, elapsedMs: 6, mutationOutcome: "unknown" };
-    const details = Object.fromEntries((policy.fields ?? []).map(key => [key, facts[key]]));
+    const facts: Record<string, any> = {
+      stage: "debt", checks: ["ownership", "anchors"], issueCount: 2, method: "completeTask", timeoutMs: 5, elapsedMs: 6, mutationOutcome: "unknown",
+      jobId: "job.fixture", runId: "audit_run.fixture", draftId: "draft.fixture", recommendationId: "recommendation."+"a".repeat(16), currentRecommendationId: "recommendation."+"b".repeat(16), currentRecorded: true,
+      consentReason: "not-granted", searched: "recorded", decisionStatus: "accepted", disposition: "resolved", changedFields: ["headSha", "worktreeDigest"],
+      evidenceDigest: "sha256:"+"a".repeat(64), assessmentDigest: "sha256:"+"b".repeat(64), expectedHeadSha: "a".repeat(40), actualHeadSha: "b".repeat(40),
+      expectedWorktreeDigest: "sha256:"+"c".repeat(64), actualWorktreeDigest: "sha256:"+"d".repeat(64), expectedNamespace: "product.fixture", actualNamespace: "product.next", measuredBytes: 10, limitBytes: 9, kind: "timeout", confirmationToken: "public:github.com/acme/widgets:"+"a".repeat(40)+":audit_run.fixture", recordCommand: null, verifyCommand: null, observation: "before-resolve-append"
+    };
+    const details = policy.native ? {} : Object.fromEntries((policy.fields ?? []).map(key => [key, facts[key]]));
     const failure = knownFailure(policy.code, reason, details);
     const result = failureEnvelope("complete_task", failure);
     const runtime = { completeTask: async () => result, practiceCheckpoint: async () => result } as unknown as RuntimeDaemonClient;

@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
@@ -670,8 +671,13 @@ function projectionPlannedStatus(projection: ReturnType<typeof buildArchitecture
  * it has no prior committed applies to report; `apply` and `readback` own that journal.
  */
 export function runProjectionCheckCommand(request: ProjectionRequestV1, root: string): JsonEnvelope {
+  try { return publicOperationResult("projection.run", runProjectionCheckCommandUnchecked(request, root)) as JsonEnvelope; }
+  catch (error) { throw publicOperationFailure(error); }
+}
+
+function runProjectionCheckCommandUnchecked(request: ProjectionRequestV1, root: string): JsonEnvelope {
   if (request.mode !== "check") {
-    return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", `projection check requires mode check, got ${request.mode}`);
+    return publicFailureEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection-check-mode-invalid");
   }
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
@@ -679,11 +685,13 @@ export function runProjectionCheckCommand(request: ProjectionRequestV1, root: st
       request.acceptedChange === undefined ? { isolateBlockedCapabilities: true } : {});
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
-    return projectionFailureEnvelope("projection.run", error);
+    if (error instanceof ProjectionExpectedSnapshotMismatchError) return publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-snapshot-mismatch");
+    return publicOperationErrorEnvelope("projection.run", error);
   }
   const freshness = projectionCheckFreshness(root, projection);
   const status = projectionProtocolHumanStatus(request, projection) ?? projectionPlannedStatus(projection);
-  return projectionProtocolEnvelope(request, projection, status, projection, [], freshness);
+  const result = projectionProtocolEnvelope(request, projection, status, projection, [], freshness);
+  return result.ok ? result : publicFailureEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection-result-invalid");
 }
 
 /**
@@ -691,11 +699,16 @@ export function runProjectionCheckCommand(request: ProjectionRequestV1, root: st
  * is decoded and validated here, before any runtime client exists.
  */
 export function runProjectionCheckInvocation(rawRequest: unknown, cwd: string): JsonEnvelope {
+  try { return publicOperationResult("projection.run", runProjectionCheckInvocationUnchecked(rawRequest, cwd)) as JsonEnvelope; }
+  catch (error) { throw publicOperationFailure(error); }
+}
+
+function runProjectionCheckInvocationUnchecked(rawRequest: unknown, cwd: string): JsonEnvelope {
   let request: ProjectionRequestV1;
   try {
     request = parseProjectionProtocolRequest(JSON.stringify(rawRequest));
   } catch (error) {
-    return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    return publicFailureEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection-check-input-invalid");
   }
   return runProjectionCheckCommand(request, findRepositoryRoot(cwd));
 }
@@ -1211,18 +1224,23 @@ export function currentProjectionExpectedSnapshot(
  * that is not a Git worktree fails with `AC_REPO_NOT_FOUND` (`git-worktree-required`).
  */
 export function runProjectionSnapshotCommand(cwd: string): JsonEnvelope {
+  try { return publicOperationResult("projection.snapshot", runProjectionSnapshotCommandUnchecked(cwd)) as JsonEnvelope; }
+  catch (error) { return publicOperationErrorEnvelope("projection.snapshot", error); }
+}
+
+function runProjectionSnapshotCommandUnchecked(cwd: string): JsonEnvelope {
   let root: string;
   try {
     root = findRepositoryRoot(cwd);
   } catch (error) {
-    return errorEnvelope("projection.snapshot", "AC_REPO_NOT_FOUND", error instanceof Error ? error.message : String(error), "git-worktree-required");
+    return publicFailureEnvelope("projection.snapshot", "AC_REPO_NOT_FOUND", "git-worktree-required");
   }
   try {
     return okEnvelope("projection.snapshot", {
       expected: currentProjectionExpectedSnapshot(root, loadNativeModelFromArchContext(root))
     } as unknown as Json);
   } catch (error) {
-    return projectionFailureEnvelope("projection.snapshot", error);
+    return publicOperationErrorEnvelope("projection.snapshot", error);
   }
 }
 
@@ -1237,11 +1255,16 @@ export function runProjectionSnapshotCommand(cwd: string): JsonEnvelope {
  * root that is not a Git worktree fails with `AC_REPO_NOT_FOUND` (`git-worktree-required`).
  */
 export function runProjectionFreshnessCommand(cwd: string, options: { changedPaths?: readonly string[] } = {}): JsonEnvelope {
+  try { return publicOperationResult("projection.freshness", runProjectionFreshnessCommandUnchecked(cwd, options)) as JsonEnvelope; }
+  catch (error) { return publicOperationErrorEnvelope("projection.freshness", error); }
+}
+
+function runProjectionFreshnessCommandUnchecked(cwd: string, options: { changedPaths?: readonly string[] } = {}): JsonEnvelope {
   let root: string;
   try {
     root = findRepositoryRoot(cwd);
   } catch (error) {
-    return errorEnvelope("projection.freshness", "AC_REPO_NOT_FOUND", error instanceof Error ? error.message : String(error), "git-worktree-required");
+    return publicFailureEnvelope("projection.freshness", "AC_REPO_NOT_FOUND", "git-worktree-required");
   }
   try {
     const measured = measureProjectionFreshness(root, options.changedPaths === undefined ? {} : { changedPaths: options.changedPaths });
@@ -1259,7 +1282,7 @@ export function runProjectionFreshnessCommand(cwd: string, options: { changedPat
     if (error instanceof ProjectionFreshnessChangedPathError) {
       return errorEnvelope("projection.freshness", error.code, error.message, error.reasonCode, { changedPath: error.changedPath });
     }
-    return projectionFailureEnvelope("projection.freshness", error);
+    return publicOperationErrorEnvelope("projection.freshness", error);
   }
 }
 

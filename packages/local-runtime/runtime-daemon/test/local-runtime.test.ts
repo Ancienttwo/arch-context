@@ -2625,10 +2625,15 @@ setInterval(() => undefined, 1 << 30);
       daemon = undefined;
 
       const codeFacts = new CodeGraphAdapter(new MockCodeGraphProvider());
-      expect(() => assertProductionRuntimeDeps({ codeFacts })).toThrow("codeFacts");
-      expect(() => assertProductionRuntimeDeps({ codeGraphProviderFactory: () => new MockCodeGraphProvider() })).toThrow("codeGraphProviderFactory");
-      expect(() => assertProductionRuntimeDeps({ localStore: new TestLocalStore() })).toThrow("localStore");
-      expect(() => assertProductionRuntimeDeps({ clock: () => "2026-06-20T00:00:00.000Z" })).toThrow("clock");
+      const expectRefused = (deps: Parameters<typeof assertProductionRuntimeDeps>[0]) => {
+        let caught: unknown;
+        try { assertProductionRuntimeDeps(deps); } catch (error) { caught = error; }
+        expect(caught).toMatchObject({code: "AC_SCHEMA_INVALID", reasonCode: "production-injections-refused", details: {issueCount: 1}});
+      };
+      expectRefused({ codeFacts });
+      expectRefused({ codeGraphProviderFactory: () => new MockCodeGraphProvider() });
+      expectRefused({ localStore: new TestLocalStore() });
+      expectRefused({ clock: () => "2026-06-20T00:00:00.000Z" });
     } finally {
       if (daemon) await daemon.stop().catch(() => undefined);
       removeTempRepo(root);

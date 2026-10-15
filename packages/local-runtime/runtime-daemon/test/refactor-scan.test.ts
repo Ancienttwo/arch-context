@@ -181,8 +181,8 @@ function storedRecommendationBindings(store: TestLocalStore, recommendationId: s
   return found;
 }
 
-function errorOf(envelope: JsonEnvelope): { code: string; message: string } {
-  return (envelope as { error?: { code: string; message: string } }).error!;
+function errorOf(envelope: JsonEnvelope): { code: string; message: string; reasonCode?: string } {
+  return (envelope as { error?: { code: string; message: string; reasonCode?: string } }).error!;
 }
 
 function gitOut(root: string, ...args: string[]): string {
@@ -420,8 +420,8 @@ describe("daemon refactorScan", () => {
 
       expect(envelope.ok, JSON.stringify(envelope)).toBe(false);
       expect(errorOf(envelope).code).toBe("AC_REFACTOR_STALE");
-      expect(errorOf(envelope).message).toContain("headSha");
-      expect(errorOf(envelope).message).toContain("worktreeDigest");
+      expect(errorOf(envelope).reasonCode).toBe("refactor-measurement-changed");
+      expect(errorOf(envelope).reasonCode).toBe("refactor-measurement-changed");
       expect(gitOut(root, "rev-parse", "HEAD")).not.toBe(capturedHead);
       // Nothing measured under a mixed state may reach the registry `refactor record` reads.
       expect(registeredAssessmentCount(daemon)).toBe(0);
@@ -465,7 +465,7 @@ describe("daemon refactorScan", () => {
 
       expect(recorded.ok, JSON.stringify(recorded)).toBe(false);
       expect(errorOf(recorded).code).toBe("AC_REFACTOR_STALE");
-      expect(errorOf(recorded).message).toContain("worktreeDigest");
+      expect(errorOf(recorded).reasonCode).toBe("refactor-record-snapshot-changed");
       expect(store.architectureEvents).toHaveLength(1);
       expect(store.architectureEventAppends).toHaveLength(1);
     } finally {
@@ -502,7 +502,7 @@ describe("daemon refactorScan", () => {
       } as never);
       expect(badSelection.ok).toBe(false);
       expect(errorOf(badSelection).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(badSelection).message).toContain("selection");
+      expect(errorOf(badSelection).reasonCode).toBe("refactor-input-invalid");
 
       // A well-formed selection is still rejected: nothing consumes it, so honouring it would
       // record every planned recommendation under a narrower request.
@@ -513,7 +513,7 @@ describe("daemon refactorScan", () => {
       } as never);
       expect(wellFormedSelection.ok, JSON.stringify(wellFormedSelection)).toBe(false);
       expect(errorOf(wellFormedSelection).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(wellFormedSelection).message).toContain("does not support selection");
+      expect(errorOf(wellFormedSelection).reasonCode).toBe("refactor-input-invalid");
       expect(store.architectureEventAppends).toHaveLength(0);
     } finally {
       await rpc.stop();
@@ -643,7 +643,7 @@ describe("deciding a scan candidate", () => {
       expect(missing.ok).toBe(false);
       expect(errorOf(missing)).toMatchObject({ code: "AC_REFACTOR_STALE" });
       expect((missing as { error: { reasonCode?: string } }).error.reasonCode).toBe("recommendation-not-found");
-      expect(errorOf(missing).message).toContain("neither recorded nor a candidate");
+      expect(errorOf(missing).reasonCode).toBe("recommendation-not-found");
 
       // `resolve` needs verify evidence bound to a record, so it never reaches the scan.
       const scan = scanData(await daemon.refactorScan(root));
@@ -654,7 +654,7 @@ describe("deciding a scan candidate", () => {
       });
       expect(unrecordedResolve.ok).toBe(false);
       expect(errorOf(unrecordedResolve).code).toBe("AC_REFACTOR_STALE");
-      expect(errorOf(unrecordedResolve).message).toContain("is not recorded");
+      expect(errorOf(unrecordedResolve).reasonCode).toBe("recommendation-not-found");
       expect(store.architectureEventAppends).toHaveLength(0);
     } finally {
       await daemon.stop();

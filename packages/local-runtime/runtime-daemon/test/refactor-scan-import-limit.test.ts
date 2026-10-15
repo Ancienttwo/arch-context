@@ -161,7 +161,7 @@ describe("refactor scan over an index with more than 5000 import nodes", () => {
       expect(envelope.ok).toBe(false);
       expect((envelope as { error?: { code: string; message: string } }).error).toMatchObject({
         code: "AC_SCHEMA_INVALID",
-        message: expect.stringContaining("importNodeLimit must be a positive integer")
+        reasonCode: "refactor-input-invalid"
       });
     } finally {
       await daemon.stop();
@@ -259,7 +259,7 @@ describe("a scan candidate found with a custom import node limit", () => {
         const envelope = await daemon.recommendations(root, { command, recommendationId: "recommendation.any", reason: "r", importNodeLimit: 0 });
         expect(errorOf(envelope), command).toMatchObject({
           code: "AC_SCHEMA_INVALID",
-          message: expect.stringContaining("importNodeLimit must be a positive integer")
+          reasonCode: "recommendations-input-invalid"
         });
       }
       const verify = await daemon.refactorVerify(root, {
@@ -267,7 +267,7 @@ describe("a scan candidate found with a custom import node limit", () => {
         recommendationId: "recommendation.any",
         importNodeLimit: 1.5
       });
-      expect(errorOf(verify)).toMatchObject({ code: "AC_SCHEMA_INVALID", message: expect.stringContaining("importNodeLimit must be a positive integer") });
+      expect(errorOf(verify)).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "refactor-input-invalid" });
     } finally {
       await daemon.stop();
     }

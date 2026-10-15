@@ -949,7 +949,7 @@ test("CLI projection freshness refuses non-Git roots, paths outside the worktree
       expect(await freshness("--changed-path", outside), outside).toMatchObject({
         ok: false,
         requestId: "projection.freshness",
-        error: { code: "AC_SCHEMA_INVALID", reasonCode: "changed-path-outside-worktree", details: { changedPath: outside } }
+        error: { code: "AC_SCHEMA_INVALID", reasonCode: "changed-path-outside-worktree", details: { omittedCount: 1 } }
       });
     }
     for (const unnormalized of ["./README.md", "src//app.ts", "src/", "src/./app.ts", "."]) {
@@ -2578,7 +2578,7 @@ describe("archctx CLI", () => {
         expect(denied.ok).toBe(false);
         expect((denied as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
         expect((denied as any).error.reasonCode).toBe("audit-user-consent-required");
-        expect((denied as any).error.message).toContain("archctx audit consent");
+        expect((denied as any).error.details).toEqual({ consentReason: "not-granted" });
       }
       expect(calls).toEqual([]);
 

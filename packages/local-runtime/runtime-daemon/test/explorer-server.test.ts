@@ -265,7 +265,7 @@ describe("daemon Explorer server", () => {
       });
       expect(projectionOnlyDelta.status).toBe(409);
       const projectionOnlyDeltaBody = await projectionOnlyDelta.json() as any;
-      expect(projectionOnlyDeltaBody.error.message).toContain("incompatible Explorer delta: manifest");
+      expect(projectionOnlyDeltaBody.error.reasonCode).toBe("projection-manifest-incompatible");
       expect(projectionOnlyDeltaBody.error.reasonCode).toBe("projection-manifest-incompatible");
 
       const sseAbort = new AbortController();

@@ -40,7 +40,7 @@ describe("daemon recommendations", () => {
         actor: "developer",
         source: "cli",
         now: "2026-06-26T12:09:00.000Z"
-      })).rejects.toThrow("architecture-ledger-privacy-denied");
+      })).rejects.toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
       expect(store.architectureEvents).toHaveLength(1);
 
       const accepted = await daemon.recommendations(root, {

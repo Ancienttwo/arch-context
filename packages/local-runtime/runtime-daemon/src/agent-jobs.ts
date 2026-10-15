@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { randomBytes } from "node:crypto";
 import {
@@ -27,6 +28,11 @@ export class AgentJobService {
   constructor(private readonly context: AgentJobContext) {}
 
   async jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}): Promise<JsonEnvelope> {
+    try { return publicOperationResult("jobsEnqueueGitHook", await this.jobsEnqueueGitHookUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async jobsEnqueueGitHookUnchecked(root: string, input: RuntimeAgentJobEnqueueGitInput = {}): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const repositoryRoot = findRepositoryRoot(root);
     const session = await this.context.openSession(repositoryRoot);
@@ -200,6 +206,11 @@ export class AgentJobService {
   }
 
   async jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}): Promise<JsonEnvelope> {
+    try { return publicOperationResult("jobsList", await this.jobsListUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async jobsListUnchecked(root: string, input: { statuses?: AgentJobV1["status"][] } = {}): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const scope = await this.context.architectureLedgerScope(findRepositoryRoot(root));
     const jobs = await this.context.localStore.listRuntimeAgentJobs({ ...scope, statuses: input.statuses });
@@ -207,6 +218,11 @@ export class AgentJobService {
   }
 
   async jobsStats(root: string, input: { now?: string } = {}): Promise<JsonEnvelope> {
+    try { return publicOperationResult("jobsStats", await this.jobsStatsUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async jobsStatsUnchecked(root: string, input: { now?: string } = {}): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const scope = await this.context.architectureLedgerScope(findRepositoryRoot(root));
     const stats = await this.context.localStore.queueStatsRuntimeAgentJobs({ ...scope, now: input.now ?? this.context.clock() });
@@ -214,8 +230,13 @@ export class AgentJobService {
   }
 
   async jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> {
+    try { return publicOperationResult("jobsClaim", await this.jobsClaimUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async jobsClaimUnchecked(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> {
     this.context.assertRunning();
-    if (!input.workerId) return errorEnvelope("jobs.claim", "AC_SCHEMA_INVALID", "jobs.claim requires workerId");
+    if (!input.workerId) return publicFailureEnvelope("jobs.claim", "AC_SCHEMA_INVALID", "jobs-input-invalid", {});
     const scope = await this.context.architectureLedgerScope(findRepositoryRoot(root));
     const job = await this.context.localStore.claimRuntimeAgentJob({
       ...scope,
@@ -228,6 +249,11 @@ export class AgentJobService {
   }
 
   async jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
+    try { return publicOperationResult("jobsComplete", await this.jobsCompleteUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async jobsCompleteUnchecked(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
     this.context.assertRunning();
     try {
       assertArchitectureLedgerPersistenceSafe({
@@ -236,7 +262,7 @@ export class AgentJobService {
         ...(input.proposalPlan === undefined ? {} : { proposalPlan: input.proposalPlan })
       } as unknown as Json, "jobs.complete");
     } catch (error) {
-      return errorEnvelope("jobs.complete", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : "Unsafe job completion payload");
+      return publicFailureEnvelope("jobs.complete", "AC_SCHEMA_INVALID", "jobs-input-invalid", {});
     }
     const repositoryRoot = findRepositoryRoot(root);
     const scope = await this.context.architectureLedgerScope(repositoryRoot);
@@ -244,11 +270,7 @@ export class AgentJobService {
     const record = jobs.find((candidate) => candidate.job.jobId === input.jobId);
     if (!record) return runtimeAgentJobOutOfScopeEnvelope("jobs.complete", input.jobId);
     if (record.job.status !== "running") {
-      return errorEnvelope(
-        "jobs.complete",
-        "AC_PRECONDITION_FAILED",
-        `runtime agent job completion requires a running job: ${input.jobId}`
-      );
+      return publicFailureEnvelope("jobs.complete", "AC_PRECONDITION_FAILED", "job-running-required", {jobId: input.jobId});
     }
     if (input.status === "succeeded") {
       // Mirrors cancelStaleRuntimeAgentJobs's own stalePolicy gate: a job that opted into
@@ -265,11 +287,7 @@ export class AgentJobService {
           now: input.now ?? this.context.clock(),
           reason: "stale-head-or-worktree"
         });
-        return errorEnvelope(
-          "jobs.complete",
-          "AC_CONTEXT_STALE",
-          `runtime agent job is stale for current HEAD/worktree: ${input.jobId}`
-        );
+        return publicFailureEnvelope("jobs.complete", "AC_CONTEXT_STALE", "job-context-stale", {jobId: input.jobId, expectedHeadSha: record.job.worktree.headSha, actualHeadSha: scope.worktree.headSha, expectedWorktreeDigest: record.job.worktree.worktreeDigest, actualWorktreeDigest: scope.worktree.worktreeDigest});
       }
     }
     if (input.proposalPlan) {
@@ -279,7 +297,7 @@ export class AgentJobService {
         jobId: input.jobId,
         outputDigest: input.outputDigest
       });
-      if (!validation.ok) return errorEnvelope("jobs.complete", "AC_SCHEMA_INVALID", validation.reason);
+      if (!validation.ok) return publicFailureEnvelope("jobs.complete", "AC_SCHEMA_INVALID", "jobs-input-invalid", {});
     }
     const runMetadata = input.proposalPlan
       ? {
@@ -301,6 +319,11 @@ export class AgentJobService {
   }
 
   async jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> {
+    try { return publicOperationResult("jobsRetry", await this.jobsRetryUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async jobsRetryUnchecked(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const scope = await this.context.architectureLedgerScope(findRepositoryRoot(root));
     if (!(await this.runtimeAgentJobInScope(scope, input.jobId))) {
@@ -316,6 +339,11 @@ export class AgentJobService {
   }
 
   async jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> {
+    try { return publicOperationResult("jobsCancel", await this.jobsCancelUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async jobsCancelUnchecked(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const scope = await this.context.architectureLedgerScope(findRepositoryRoot(root));
     if (!(await this.runtimeAgentJobInScope(scope, input.jobId))) {
@@ -370,12 +398,7 @@ function isRuntimeAgentJobCursorStale(job: AgentJobV1, scope: ArchitectureLedger
  * repository's queue state.
  */
 function runtimeAgentJobOutOfScopeEnvelope(requestId: string, jobId: string): JsonEnvelope {
-  return errorEnvelope(
-    requestId,
-    "AC_PRECONDITION_FAILED",
-    `runtime agent job does not belong to this repository/worktree: ${jobId}`,
-    "runtime-agent-job-out-of-scope"
-  );
+  return publicFailureEnvelope(requestId, "AC_PRECONDITION_FAILED", "runtime-agent-job-out-of-scope", {jobId});
 }
 
 export function runtimeAgentJobId(fingerprint: string, inputDigest: string, queuedAt: string): string {

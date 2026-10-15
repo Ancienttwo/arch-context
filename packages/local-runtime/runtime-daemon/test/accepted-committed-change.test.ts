@@ -1109,7 +1109,7 @@ describe("committed change acceptance v2", () => {
     await withFixture(async (fixture) => {
       const added = await change(fixture, "changeset.add", [addComponent()]);
       const refused = await fixture.daemon.acceptCommittedChange(fixture.root, { journals: [added] });
-      expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED", message: expect.stringMatching(/YAML read and write authority/) });
+      expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "accept-committed-authority-required" });
     }, { rolloutMode: "dual" });
     await withFixture(async (fixture) => {
       const added = await change(fixture, "changeset.add", [addComponent()]);

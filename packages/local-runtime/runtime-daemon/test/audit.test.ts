@@ -40,8 +40,8 @@ describe("daemon audit service", () => {
       });
       const eventCount = store.architectureEvents.length;
       process.env.ARCHCONTEXT_EGRESS_MODE = "local-only";
-      await expect(daemon.auditRun(root, { wait: true })).rejects.toThrow("egress-denied: agent-audit");
-      await expect(daemon.auditApprove(root, { runId: "audit_run.not_enqueued" })).rejects.toThrow("egress-denied: github-issue-publishing");
+      await expect(daemon.auditRun(root, { wait: true })).rejects.toMatchObject({ code: "AC_POLICY_VIOLATION", reasonCode: "egress-policy-denied" });
+      await expect(daemon.auditApprove(root, { runId: "audit_run.not_enqueued" })).rejects.toMatchObject({ code: "AC_POLICY_VIOLATION", reasonCode: "egress-policy-denied" });
       expect(transportCalls).toBe(0);
       expect(publisherCalls).toBe(0);
       expect(store.architectureEvents.length).toBe(eventCount);
@@ -204,7 +204,7 @@ describe("daemon audit service", () => {
       expect(withoutConsent.ok).toBe(false);
       expect((withoutConsent as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
       expect((withoutConsent as any).error.reasonCode).toBe(AUDIT_CONSENT_REQUIRED_REASON_CODE);
-      expect((withoutConsent as any).error.message).toContain("archctx audit consent");
+      expect((withoutConsent as any).error.reasonCode).toBe("audit-user-consent-required");
       expect(transportCalls).toBe(0);
       expect(((await daemon.auditList(root)).data as any).count).toBe(0);
 
@@ -727,7 +727,7 @@ describe("daemon audit service", () => {
         const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
         expect(result.ok).toBe(false);
         expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((result as any).error.message).toContain("resolvable GitHub owner/repo");
+        expect((result as any).error.reasonCode).toBe("audit-github-refused");
       });
       expect(calls.repoView).toHaveLength(0);
       expect(calls.createIssue).toHaveLength(0);
@@ -744,7 +744,7 @@ describe("daemon audit service", () => {
         const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
         expect(result.ok).toBe(false);
         expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((result as any).error.message).toContain("ARCHCONTEXT_GH_ISSUES_TOKEN");
+        expect((result as any).error.reasonCode).toBe("audit-github-refused");
       });
       expect(calls.repoView).toHaveLength(0);
       expect(calls.createIssue).toHaveLength(0);
@@ -761,7 +761,7 @@ describe("daemon audit service", () => {
         const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
         expect(result.ok).toBe(false);
         expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((result as any).error.message).toContain("visibility");
+        expect((result as any).error.reasonCode).toBe("audit-github-refused");
       });
       expect(calls.createIssue).toHaveLength(0);
     } finally {
@@ -777,8 +777,8 @@ describe("daemon audit service", () => {
         const withoutToken = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
         expect(withoutToken.ok).toBe(false);
         expect((withoutToken as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
-        expect((withoutToken as any).error.message).toContain("archctx audit approve");
-        expect((withoutToken as any).error.message).toContain("--confirm-public-repo");
+        expect((withoutToken as any).error.reasonCode).toBe("audit-confirmation-required");
+        expect((withoutToken as any).error.reasonCode).toBe("audit-confirmation-required");
 
         const wrongToken = await fixture.daemon.auditApprove(fixture.root, {
           runId: fixture.runId,
@@ -801,7 +801,7 @@ describe("daemon audit service", () => {
       await withAuditApproveToken("gh_pat_test_token", async () => {
         const rejected = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
         expect(rejected.ok).toBe(false);
-        const tokenMatch = /--confirm-public-repo (\S+)/.exec((rejected as any).error.message);
+        const tokenMatch = /^(public:github\.com\/\S+)$/.exec((rejected as any).error.details.confirmationToken);
         expect(tokenMatch).not.toBeNull();
         const token = tokenMatch![1]!;
         expect(token).toMatch(/^public:github\.com\/acme\/widgets:[0-9a-f]+:audit_run\./);
@@ -833,7 +833,7 @@ describe("daemon audit service", () => {
         const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
         expect(result.ok).toBe(false);
         expect((result as any).error.code).toBe("AC_SCHEMA_INVALID");
-        expect((result as any).error.message).toContain("no longer match");
+        expect((result as any).error.reasonCode).toBe("audit-proposal-invalid");
       });
       expect(calls.repoView).toHaveLength(0);
       expect(calls.createIssue).toHaveLength(0);
@@ -863,7 +863,7 @@ describe("daemon audit service", () => {
         const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
         expect(run.ok).toBe(false);
         expect(run.error?.code).toBe("AC_SCHEMA_INVALID");
-        expect(run.error?.message).toContain(expectedMessage);
+        expect(run.error?.reasonCode).toBe("jobs-input-invalid");
         expect(JSON.stringify(await daemon.jobsList(root))).not.toContain(JSON.stringify(bodyMarkdown).slice(1, -1));
         const jobs = (await daemon.jobsList(root)).data as any;
         expect(jobs.jobs).toHaveLength(1);
@@ -914,7 +914,7 @@ describe("daemon audit service", () => {
           const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
           expect(result.ok).toBe(false);
           expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-          expect((result as any).error.message).toContain("github.com");
+          expect((result as any).error.reasonCode).toBe("audit-github-refused");
         });
         expect(calls.repoView).toHaveLength(0);
         expect(calls.listRecentIssues).toHaveLength(0);
@@ -939,7 +939,7 @@ describe("daemon audit service", () => {
         await withAuditApproveToken("gh_pat_test_token", async () => {
           const rejected = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
           expect(rejected.ok).toBe(false);
-          const tokenMatch = /--confirm-public-repo (\S+)/.exec((rejected as any).error.message);
+          const tokenMatch = /^(public:github\.com\/\S+)$/.exec((rejected as any).error.details.confirmationToken);
           expect(tokenMatch).not.toBeNull();
           expect(tokenMatch![1]!).toMatch(/^public:github\.com\/acme\/widgets:[0-9a-f]+:audit_run\./);
         });
@@ -970,7 +970,7 @@ describe("daemon audit service", () => {
         const result = await daemon.auditApprove(root, { runId });
         expect(result.ok).toBe(false);
         expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((result as any).error.message).toContain("failed during investigation");
+        expect((result as any).error.reasonCode).toBe("audit-run-failed");
       });
       expect(calls.repoView).toHaveLength(0);
       expect(calls.createIssue).toHaveLength(0);
@@ -1036,12 +1036,12 @@ describe("daemon audit service", () => {
         const rejected = settled.filter((entry): entry is PromiseRejectedResult => entry.status === "rejected");
 
         // Exactly one caller gets to run the approve flow; the other is rejected outright by the
-        // writer lock (a clear, retryable failure) rather than silently reading stale state.
+        // writer lock, retaining rejection shape without silently reading stale state.
         expect(fulfilled).toHaveLength(1);
         expect(rejected).toHaveLength(1);
         expect(fulfilled[0]!.value.ok).toBe(true);
         expect(fulfilled[0]!.value.data).toMatchObject({ status: "issued", issuedCount: 2, totalCount: 2 });
-        expect(String(rejected[0]!.reason)).toContain("runtime writer is locked");
+        expect(rejected[0]!.reason).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
       });
 
       // The concurrency bug this test guards against would have created every draft twice (once
@@ -1085,7 +1085,7 @@ describe("daemon audit service", () => {
         const firstAttempt = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
         expect(firstAttempt.ok).toBe(false);
         expect((firstAttempt as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((firstAttempt as any).error.message).toContain("--resume");
+        expect((firstAttempt as any).error.reasonCode).toBe("audit-issue-create-inconclusive");
         expect(calls.createIssue).toHaveLength(2);
         firstSucceededTitle = calls.createIssue[0]!.title;
 
@@ -1096,7 +1096,7 @@ describe("daemon audit service", () => {
         const withoutResume = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
         expect(withoutResume.ok).toBe(false);
         expect((withoutResume as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((withoutResume as any).error.message).toContain("--resume");
+        expect((withoutResume as any).error.reasonCode).toBe("audit-already-issuing");
         expect(calls.createIssue).toHaveLength(2);
 
         const resumed = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId, resume: true });
@@ -1151,7 +1151,7 @@ describe("daemon audit service", () => {
         const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
         expect(result.ok).toBe(false);
         expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
-        expect((result as any).error.message).toContain("inconclusive");
+        expect((result as any).error.reasonCode).toBe("audit-issue-list-inconclusive");
       });
       expect(calls.createIssue).toHaveLength(0);
     } finally {

@@ -142,7 +142,7 @@ describe("daemon external documentation", () => {
       });
 
       expect(pin.ok).toBe(false);
-      expect(JSON.stringify(pin)).toContain("symlink");
+      expect(pin.error).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
       expect(readText(victim)).toBe("do-not-touch\n");
       expect(statSync(victim).mode).toBe(modeBefore);
     } finally {
@@ -168,7 +168,7 @@ describe("daemon external documentation", () => {
       });
 
       expect(pin.ok).toBe(false);
-      expect(JSON.stringify(pin)).toContain("symlink");
+      expect(pin.error).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
       expect(existsSync(join(outside, "context7.lock.yaml"))).toBe(false);
     } finally {
       await daemon.stop();

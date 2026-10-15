@@ -515,7 +515,7 @@ describe("refactorRecord", () => {
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(result).message).toContain("refactor scan again");
+      expect(errorOf(result).reasonCode).toBe("refactor-assessment-missing");
       expect(store.architectureEvents).toHaveLength(0);
     } finally {
       await daemon.stop();
@@ -657,7 +657,7 @@ describe("recommendations resolve gate", () => {
       expect(supplied.ok).toBe(false);
       expect(errorOf(supplied).code).toBe("AC_REFACTOR_EVIDENCE_REQUIRED");
       expect(errorOf(supplied).reasonCode).toBe("evidence-unknown");
-      expect(errorOf(supplied).message).toContain("refactor verify");
+      expect(errorOf(supplied).reasonCode).toBe("evidence-unknown");
 
       const accepted = await daemon.recommendations(root, {
         command: "accept", approved: true,
@@ -688,7 +688,7 @@ describe("recommendations resolve gate", () => {
       });
       expect(beforeMigration.ok).toBe(false);
       expect(errorOf(beforeMigration).code).toBe("AC_PRECONDITION_FAILED");
-      expect(errorOf(beforeMigration).message).toContain("ledger migrate --recommendation-v3");
+      expect(errorOf(beforeMigration).reasonCode).toBe("recommendation-v2-not-migrated");
 
       const migrated = await daemon.ledgerMigrate(root, {
         recommendationV3: true,
@@ -723,11 +723,11 @@ describe("ledger migrate --recommendation-v3", () => {
 
       const both = await daemon.ledgerMigrate(root, { fromYaml: true, recommendationV3: true });
       expect(both.ok).toBe(false);
-      expect(errorOf(both).message).toContain("not both");
+      expect(errorOf(both).reasonCode).toBe("ledger-input-invalid");
 
       const neither = await daemon.ledgerMigrate(root, {});
       expect(neither.ok).toBe(false);
-      expect(errorOf(neither).message).toContain("--recommendation-v3");
+      expect(errorOf(neither).reasonCode).toBe("ledger-input-invalid");
     } finally {
       await daemon.stop();
     }

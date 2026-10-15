@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import {
   addRepositoryToLandscape,
   createLandscape,
@@ -28,6 +29,11 @@ export class LandscapeService {
   constructor(private readonly context: LandscapeContext) {}
 
   async repoAdd(root: string, name?: string): Promise<JsonEnvelope> {
+    try { return publicOperationResult("repoAdd", await this.repoAddUnchecked(root, name)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async repoAddUnchecked(root: string, name?: string): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const session = await this.context.openSession(root);
     const repository: RepositoryRegistration = {
@@ -46,6 +52,11 @@ export class LandscapeService {
   }
 
   async repoList(): Promise<JsonEnvelope> {
+    try { return publicOperationResult("repoList", await this.repoListUnchecked()) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async repoListUnchecked(): Promise<JsonEnvelope> {
     this.context.assertRunning();
     return okEnvelope("repo.list", {
       repositories: this.landscape?.repositories ?? [],
@@ -70,13 +81,18 @@ export class LandscapeService {
    * otherwise the daemon reports failure while already having dropped the session.
    */
   async repoRemove(repositoryId: string): Promise<JsonEnvelope> {
+    try { return publicOperationResult("repoRemove", await this.repoRemoveUnchecked(repositoryId)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async repoRemoveUnchecked(repositoryId: string): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const hadOpenSession = this.context.sessions.has(repositoryId);
     const hadPersistedSession = (await this.context.localStore.listRepositorySessions())
       .some((session) => session.repositoryId === repositoryId);
     const registered = this.landscape?.repositories.some((repo) => repo.repositoryId === repositoryId) ?? false;
     if (!registered && !hadOpenSession && !hadPersistedSession) {
-      return errorEnvelope("repo.remove", "AC_REPO_NOT_FOUND", `repository is not registered: ${repositoryId}`);
+      return publicFailureEnvelope("repo.remove", "AC_REPO_NOT_FOUND", "repository-not-registered", {});
     }
     let detachedRelationIds: string[] = [];
     let nextLandscape: Landscape | undefined;
@@ -100,7 +116,7 @@ export class LandscapeService {
       };
       const validation = validateLandscape(next, await this.context.localStore.listCrossRepoRelations(next));
       if (!validation.valid) {
-        return errorEnvelope("repo.remove", "AC_SCHEMA_INVALID", validation.errors.join("; "));
+        return publicFailureEnvelope("repo.remove", "AC_SCHEMA_INVALID", "landscape-invalid", {});
       }
       nextLandscape = next;
     }
@@ -116,21 +132,15 @@ export class LandscapeService {
   }
 
   async loadLandscape(landscape: Landscape): Promise<JsonEnvelope> {
+    try { return publicOperationResult("loadLandscape", await this.loadLandscapeUnchecked(landscape)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async loadLandscapeUnchecked(landscape: Landscape): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const validation = validateLandscape(landscape);
     if (!validation.valid) {
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: false,
-        requestId: "landscape",
-        error: {
-          code: "AC_SCHEMA_INVALID",
-          message: validation.errors.join("; "),
-          severity: "error",
-          retryable: false,
-          action: "repair-model"
-        }
-      };
+      return publicFailureEnvelope("landscape", "AC_SCHEMA_INVALID", "landscape-invalid");
     }
     this.landscape = landscape;
     await this.context.localStore.saveLandscape(landscape);
@@ -138,6 +148,11 @@ export class LandscapeService {
   }
 
   async landscapeStatus(): Promise<JsonEnvelope> {
+    try { return publicOperationResult("landscapeStatus", await this.landscapeStatusUnchecked()) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async landscapeStatusUnchecked(): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const landscape = this.landscape ?? createLandscape({ id: "local", name: "Local Landscape", repositories: [] });
     return okEnvelope("landscape", {
@@ -147,20 +162,14 @@ export class LandscapeService {
   }
 
   async contextLandscape(task: string, maxSymbols = 12): Promise<JsonEnvelope> {
+    try { return publicOperationResult("context", await this.contextLandscapeUnchecked(task, maxSymbols)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async contextLandscapeUnchecked(task: string, maxSymbols = 12): Promise<JsonEnvelope> {
     this.context.assertRunning();
     if (!this.landscape || this.landscape.repositories.length === 0) {
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: false,
-        requestId: "context",
-        error: {
-          code: "AC_PRECONDITION_FAILED",
-          message: "landscape context requires registered repositories",
-          severity: "warning",
-          retryable: true,
-          action: "archctx repo add"
-        }
-      };
+      return publicFailureEnvelope("context", "AC_PRECONDITION_FAILED", "landscape-repositories-required", {}, {action: "archctx repo add", severity: "warning", retryable: true});
     }
     const workspaces = await Promise.all(
       this.landscape.repositories.map(async (repo) => {

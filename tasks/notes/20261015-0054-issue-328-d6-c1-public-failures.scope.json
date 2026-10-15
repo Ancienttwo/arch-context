@@ -1,0 +1,2222 @@
+{
+  "schemaVersion": "archcontext.d6-c1-frozen-scope/v1",
+  "status": "frozen-before-product-edits",
+  "base": "31bbc3bbd5714a84776ec1c419c44e2d5db79603",
+  "branch": "codex/issue-328-d6-c1-public-failures",
+  "worktree": "/private/tmp/worktrees/arch-context-328-d6-c1-public-failures",
+  "canonicalBoundaryCount": 59,
+  "boundaryGroups": {
+    "deps": [
+      "readCapabilityDependencies"
+    ],
+    "projection-read": [
+      "runProjectionCheckCommand",
+      "runProjectionCheckInvocation",
+      "runProjectionSnapshotCommand",
+      "runProjectionFreshnessCommand"
+    ],
+    "ordinary": [
+      "sync",
+      "validate",
+      "context",
+      "prepare",
+      "practices",
+      "docs"
+    ],
+    "landscape": [
+      "repoAdd",
+      "repoList",
+      "repoRemove",
+      "loadLandscape",
+      "landscapeStatus",
+      "contextLandscape"
+    ],
+    "explorer": [
+      "explorerProjectionV2",
+      "explorerProjectionDelta",
+      "startExplorer",
+      "stopExplorer",
+      "revokeExplorerToken",
+      "explorerStatus",
+      "explorerServiceContract"
+    ],
+    "resource": [
+      "readResource"
+    ],
+    "native": [
+      "NativeContextError.constructor",
+      "nativeContextErrorEnvelope",
+      "exportNativeContext",
+      "runNativeContextCommand"
+    ],
+    "production": [
+      "assertProductionRuntimeDeps"
+    ],
+    "state": [
+      "planUpdate",
+      "acceptCommittedChange",
+      "ledgerState",
+      "ledgerDrift",
+      "ledgerProject",
+      "ledgerMigrate",
+      "ledgerRollback",
+      "ledgerRebuild",
+      "book",
+      "recommendations",
+      "refactorScan",
+      "refactorRecord",
+      "refactorVerify",
+      "registerRefactorAssessment",
+      "jobsEnqueueGitHook",
+      "jobsList",
+      "jobsStats",
+      "jobsClaim",
+      "jobsComplete",
+      "jobsRetry",
+      "jobsCancel",
+      "auditRun",
+      "auditList",
+      "auditShow",
+      "auditApprove",
+      "readAuditConsent",
+      "grantAuditConsent",
+      "revokeAuditConsent",
+      "runFastHookEnqueue"
+    ]
+  },
+  "countingRule": "canonical operation APIs; pure delegating facade aliases covered by the same operation, not extra defects/catches",
+  "sourceAllowedPaths": [
+    "packages/contracts/src/failure.ts",
+    "packages/contracts/src/native-context.ts",
+    "packages/core/practice-catalog/src/index.ts",
+    "packages/local-runtime/model-store-yaml/src/native-context.ts",
+    "packages/local-runtime/runtime-daemon/src/capability-dependencies.ts",
+    "packages/local-runtime/runtime-daemon/src/projection-service.ts",
+    "packages/local-runtime/runtime-daemon/src/index.ts",
+    "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
+    "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+    "packages/local-runtime/runtime-daemon/src/landscape.ts",
+    "packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts",
+    "packages/local-runtime/runtime-daemon/src/explorer-server.ts",
+    "packages/local-runtime/runtime-daemon/src/changeset-authority.ts",
+    "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+    "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+    "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+    "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+    "packages/local-runtime/runtime-daemon/src/refactor-decisions.ts",
+    "packages/local-runtime/runtime-daemon/src/agent-jobs.ts",
+    "packages/local-runtime/runtime-daemon/src/audit.ts",
+    "packages/local-runtime/runtime-daemon/src/audit-consent.ts",
+    "packages/local-runtime/runtime-daemon/src/public-operation-failure.ts",
+    "packages/surfaces/cli/src/native-context.ts",
+    "packages/surfaces/cli/src/hook-fast.ts"
+  ],
+  "sourceAllowedCount": 24,
+  "reasonSchemas": {
+    "deps-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "capability-dependencies.ts:42-51",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/capability-dependencies.ts",
+          "line": 28
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/capability-dependencies.ts",
+          "line": 53
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/capability-dependencies.ts",
+          "line": 60
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "deps-workspace-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "capability-dependencies.ts:87-94",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/capability-dependencies.ts",
+          "line": 103
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "deps-model-unreadable": {
+      "code": "AC_MODEL_ADOPTION_REQUIRED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "capability-dependencies.ts:98-105",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/capability-dependencies.ts",
+          "line": 28
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/capability-dependencies.ts",
+          "line": 115
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "code-facts-unavailable": {
+      "code": "AC_CODE_FACTS_UNAVAILABLE",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "capability-dependencies.ts:74-82",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/capability-dependencies.ts",
+          "line": 28
+        },
+        {
+          "path": "packages/core/module-statistics/src/index.ts",
+          "line": 385
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "projection-check-mode-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "projection-service.ts:673-674",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/projection-service.ts",
+          "line": 680
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "projection-check-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "projection-service.ts:693-698",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/projection-service.ts",
+          "line": 711
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "projection-snapshot-mismatch": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "projection-service.ts:1286",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/projection-service.ts",
+          "line": 688
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "changed-path-outside-worktree": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "projection-freshness.ts:180-201",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/projection-freshness.ts",
+          "line": 178
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/projection-freshness.ts",
+          "line": 183
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/projection-freshness.ts",
+          "line": 198
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "changed-path-not-normalized": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "projection-freshness.ts:180-201",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/projection-freshness.ts",
+          "line": 178
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/projection-freshness.ts",
+          "line": 201
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "projection-result-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "projection-service.ts:1471-1475",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/projection-service.ts",
+          "line": 694
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "repository-not-registered": {
+      "code": "AC_REPO_NOT_FOUND",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "landscape.ts:78-79",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/landscape.ts",
+          "line": 95
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "landscape-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "landscape.ts:101-103,120-132",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/landscape.ts",
+          "line": 119
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/landscape.ts",
+          "line": 143
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "landscape-repositories-required": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "landscape.ts:151-162",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/landscape.ts",
+          "line": 172
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "docs-provider-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "external-documentation.ts:83",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 89
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "docs-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "external-documentation.ts:108,141,154",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 114
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 147
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 158
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "docs-network-authorization-required": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "external-documentation.ts:140,151",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 146
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 157
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "docs-pin-required": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "external-documentation.ts:156",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 162
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "docs-command-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "external-documentation.ts:212",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 218
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "resource-uri-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "external-documentation.ts:225",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 236
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "resource-cache-miss": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "external-documentation.ts:229",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/external-documentation.ts",
+          "line": 240
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "explorer-query-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "explorer-projection-service.ts:82-87",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/public-operation-failure.ts",
+          "line": 31
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "explorer-precondition-failed": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "explorer-projection-service.ts:82-87",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/public-operation-failure.ts",
+          "line": 30
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "invalid-delta-query": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "explorer-projection-service.ts:95-97",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts",
+          "line": 104
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "projection-cache-miss": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "explorer-projection-service.ts:105-110",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts",
+          "line": 117
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "authority-event-missing": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "explorer-projection-service.ts:125; preexisting producer heuristic unchanged",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts",
+          "line": 133
+        }
+      ],
+      "producerEvidenceKind": "preserved legacy reason; upstream message-prefix heuristic remains outside this adapter and is not claimed as strong store evidence"
+    },
+    "authority-cursor-reversed": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "explorer-projection-service.ts:130",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts",
+          "line": 138
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "projection-authority-mismatch": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "explorer-projection-service.ts:140",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/explorer-projection-service.ts",
+          "line": 147
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "projection-manifest-incompatible": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "explorer-projection-service.ts:165",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/public-operation-failure.ts",
+          "line": 32
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "practice-catalog-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "core/practice-catalog/src/index.ts:219-220",
+      "producerReferences": [
+        {
+          "path": "packages/core/practice-catalog/src/index.ts",
+          "line": 221
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "practice-not-found": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "core/practice-catalog/src/index.ts:229-231",
+      "producerReferences": [
+        {
+          "path": "packages/core/practice-catalog/src/index.ts",
+          "line": 232
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "practice-command-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "core/practice-catalog/src/index.ts:268",
+      "producerReferences": [
+        {
+          "path": "packages/core/practice-catalog/src/index.ts",
+          "line": 269
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "production-injections-refused": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {
+        "issueCount": "uint"
+      },
+      "required": [
+        "issueCount"
+      ],
+      "producerEvidence": "index.ts:1452-1457",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/index.ts",
+          "line": 1507
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "plan-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "changeset-authority.ts:218",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/changeset-authority.ts",
+          "line": 228
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "plan-worktree-changed": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "expectedWorktreeDigest": "sha256",
+        "actualWorktreeDigest": "sha256"
+      },
+      "required": [
+        "expectedWorktreeDigest",
+        "actualWorktreeDigest"
+      ],
+      "producerEvidence": "changeset-authority.ts:229",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/changeset-authority.ts",
+          "line": 237
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "accept-committed-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "changeset-authority.ts:475",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/changeset-authority.ts",
+          "line": 489
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "accept-committed-authority-required": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "changeset-authority.ts:480",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/changeset-authority.ts",
+          "line": 493
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "ledger-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "ledger-admin.ts:136,139,191,344,391,428",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+          "line": 147
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+          "line": 150
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+          "line": 202
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+          "line": 360
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+          "line": 412
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/ledger-admin.ts",
+          "line": 449
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "book-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "architecture-book.ts:141-238",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+          "line": 147
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+          "line": 149
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+          "line": 153
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+          "line": 164
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+          "line": 181
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+          "line": 182
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+          "line": 197
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+          "line": 233
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/architecture-book.ts",
+          "line": 244
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "recommendations-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "recommendations.ts:153-168,337,577",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 159
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 164
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 168
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 171
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 174
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 328
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 554
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "recommendation-snapshot-changed": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "recommendationId": "id",
+        "changedFields": "changedFields"
+      },
+      "required": [
+        "recommendationId",
+        "changedFields"
+      ],
+      "producerEvidence": "recommendations.ts:235,385",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 371
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "recommendation-decision-invalid": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "recommendations.ts:448,687",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 430
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 656
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "recommendations.ts:847,911,1053",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 817
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 891
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1022
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+          "line": 154
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-assessment-missing": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {
+        "assessmentDigest": "sha256"
+      },
+      "required": [
+        "assessmentDigest"
+      ],
+      "producerEvidence": "recommendations.ts:918",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 898
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-assessment-stale": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "assessmentDigest": "sha256",
+        "expectedHeadSha": "head",
+        "actualHeadSha": "head",
+        "expectedWorktreeDigest": "sha256",
+        "actualWorktreeDigest": "sha256"
+      },
+      "required": [
+        "assessmentDigest",
+        "expectedHeadSha",
+        "actualHeadSha",
+        "expectedWorktreeDigest",
+        "actualWorktreeDigest"
+      ],
+      "producerEvidence": "recommendations.ts:933",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 909
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-proposal-unauthored": {
+      "code": "AC_REFACTOR_PROPOSAL_UNAUTHORED",
+      "facts": {
+        "issueCount": "uint"
+      },
+      "required": [
+        "issueCount"
+      ],
+      "producerEvidence": "recommendations.ts:946",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 918
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-invariant-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {
+        "issueCount": "uint"
+      },
+      "required": [
+        "issueCount"
+      ],
+      "producerEvidence": "recommendations.ts:954,1104",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 926
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1064
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-namespace-changed": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "assessmentDigest": "sha256",
+        "expectedNamespace": "id",
+        "actualNamespace": "id"
+      },
+      "required": [
+        "assessmentDigest",
+        "expectedNamespace",
+        "actualNamespace"
+      ],
+      "producerEvidence": "recommendations.ts:967",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 939
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-record-snapshot-changed": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "assessmentDigest": "sha256",
+        "changedFields": "changedFields"
+      },
+      "required": [
+        "assessmentDigest",
+        "changedFields"
+      ],
+      "producerEvidence": "recommendations.ts:995",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 963
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-head-mismatch": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "recommendationId": "id",
+        "expectedHeadSha": "head",
+        "actualHeadSha": "head"
+      },
+      "required": [
+        "recommendationId",
+        "expectedHeadSha",
+        "actualHeadSha"
+      ],
+      "producerEvidence": "recommendations.ts:1069",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1038
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-recommendation-missing": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {
+        "recommendationId": "id"
+      },
+      "required": [
+        "recommendationId"
+      ],
+      "producerEvidence": "recommendations.ts:1084",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1049
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-verify-snapshot-changed": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "recommendationId": "id",
+        "changedFields": "changedFields"
+      },
+      "required": [
+        "recommendationId",
+        "changedFields"
+      ],
+      "producerEvidence": "recommendations.ts:1182",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1142
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-decision-approval-required": {
+      "code": "AC_USER_CONFIRMATION_REQUIRED",
+      "facts": {
+        "recommendationId": "id"
+      },
+      "required": [
+        "recommendationId"
+      ],
+      "producerEvidence": "recommendations.ts:1663",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1588
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "jobs-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "agent-jobs.ts:218,239,282",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/agent-jobs.ts",
+          "line": 239
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/agent-jobs.ts",
+          "line": 265
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/agent-jobs.ts",
+          "line": 300
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "job-running-required": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "jobId": "id"
+      },
+      "required": [
+        "jobId"
+      ],
+      "producerEvidence": "agent-jobs.ts:247",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/agent-jobs.ts",
+          "line": 273
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "job-context-stale": {
+      "code": "AC_CONTEXT_STALE",
+      "facts": {
+        "jobId": "id",
+        "expectedHeadSha": "head",
+        "actualHeadSha": "head",
+        "expectedWorktreeDigest": "sha256",
+        "actualWorktreeDigest": "sha256"
+      },
+      "required": [
+        "jobId",
+        "expectedHeadSha",
+        "actualHeadSha",
+        "expectedWorktreeDigest",
+        "actualWorktreeDigest"
+      ],
+      "producerEvidence": "agent-jobs.ts:268",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/agent-jobs.ts",
+          "line": 290
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-disabled": {
+      "code": "AC_CAPABILITY_UNSUPPORTED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "audit.ts:117,531",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 123
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 548
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-active": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "audit.ts:207",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 209
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-claim-failed": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "jobId": "id"
+      },
+      "required": [
+        "jobId"
+      ],
+      "producerEvidence": "audit.ts:223",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 225
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-run-missing": {
+      "code": "AC_REPO_NOT_FOUND",
+      "facts": {
+        "runId": "id"
+      },
+      "required": [
+        "runId"
+      ],
+      "producerEvidence": "audit.ts:502,542",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 514
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 555
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-run-failed": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "runId": "id"
+      },
+      "required": [
+        "runId"
+      ],
+      "producerEvidence": "audit.ts:548",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 561
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-already-issuing": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "runId": "id"
+      },
+      "required": [
+        "runId"
+      ],
+      "producerEvidence": "audit.ts:551",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 564
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-proposal-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {
+        "runId": "id"
+      },
+      "required": [
+        "runId"
+      ],
+      "producerEvidence": "audit.ts:566,574,580",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 575
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 583
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 589
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-drafts-required": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "runId": "id"
+      },
+      "required": [
+        "runId"
+      ],
+      "producerEvidence": "audit.ts:583",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 592
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-confirmation-required": {
+      "code": "AC_USER_CONFIRMATION_REQUIRED",
+      "facts": {
+        "runId": "id",
+        "confirmationToken": "publicConfirmationToken"
+      },
+      "required": [
+        "runId",
+        "confirmationToken"
+      ],
+      "producerEvidence": "audit.ts:593",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 602
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-preflight-refused": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "runId": "id"
+      },
+      "required": [
+        "runId"
+      ],
+      "producerEvidence": "audit.ts:601",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 606
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-github-refused": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "runId": "id"
+      },
+      "required": [
+        "runId"
+      ],
+      "producerEvidence": "audit.ts:587; inspectAuditGithubCapability explicit code return",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 596
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "hook-input-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "surfaces/cli/src/hook-fast.ts:29,202",
+      "producerReferences": [
+        {
+          "path": "packages/surfaces/cli/src/hook-fast.ts",
+          "line": 129
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "runtime-agent-job-out-of-scope": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "jobId": "id"
+      },
+      "required": [
+        "jobId"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/agent-jobs.ts",
+          "line": 401
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-user-consent-required": {
+      "code": "AC_USER_CONFIRMATION_REQUIRED",
+      "facts": {
+        "consentReason": "consentReason"
+      },
+      "required": [
+        "consentReason"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit-consent.ts",
+          "line": 27
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit-consent.ts",
+          "line": 212
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "recommendation-not-found": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "recommendationId": "id",
+        "searched": "searched"
+      },
+      "required": [
+        "recommendationId",
+        "searched"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1415
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "git-decision-subject-not-observed": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "recommendationId": "id"
+      },
+      "required": [
+        "recommendationId"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 316
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "scan-candidate-not-recorded": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "recommendationId": "id"
+      },
+      "required": [
+        "recommendationId"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 351
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "ledger-audit-generation": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "currentRecommendationId": "id",
+        "currentRecorded": "boolean"
+      },
+      "required": [
+        "currentRecommendationId",
+        "currentRecorded"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1548
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "git-decision-not-recorded": {
+      "code": "AC_REFACTOR_EVIDENCE_REQUIRED",
+      "facts": {
+        "recommendationId": "id",
+        "decisionStatus": "decisionStatus",
+        "recordCommand": "commandSuggestion",
+        "verifyCommand": "commandSuggestion"
+      },
+      "required": [
+        "recommendationId",
+        "decisionStatus",
+        "recordCommand",
+        "verifyCommand"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1574
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1579
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "recommendation-v2-not-migrated": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "recommendationId": "id"
+      },
+      "required": [
+        "recommendationId"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1060
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1624
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "evidence-digest-missing": {
+      "code": "AC_REFACTOR_EVIDENCE_REQUIRED",
+      "facts": {
+        "recommendationId": "id"
+      },
+      "required": [
+        "recommendationId"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1633
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "evidence-unknown": {
+      "code": "AC_REFACTOR_EVIDENCE_REQUIRED",
+      "facts": {
+        "recommendationId": "id",
+        "evidenceDigest": "sha256"
+      },
+      "required": [
+        "recommendationId",
+        "evidenceDigest"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1642
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "evidence-head-drift": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "recommendationId": "id",
+        "evidenceDigest": "sha256",
+        "expectedHeadSha": "head",
+        "actualHeadSha": "head",
+        "expectedWorktreeDigest": "optional:sha256",
+        "actualWorktreeDigest": "optional:sha256",
+        "changedFields": "optional:changedFields",
+        "observation": "optional:evidenceObservation"
+      },
+      "required": [
+        "recommendationId",
+        "evidenceDigest",
+        "expectedHeadSha",
+        "actualHeadSha"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 241
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1650
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "evidence-worktree-drift": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "recommendationId": "id",
+        "evidenceDigest": "sha256",
+        "expectedWorktreeDigest": "sha256",
+        "actualWorktreeDigest": "sha256"
+      },
+      "required": [
+        "recommendationId",
+        "evidenceDigest",
+        "expectedWorktreeDigest",
+        "actualWorktreeDigest"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1658
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "evidence-not-resolved": {
+      "code": "AC_REFACTOR_EVIDENCE_REQUIRED",
+      "facts": {
+        "recommendationId": "id",
+        "evidenceDigest": "sha256",
+        "disposition": "disposition"
+      },
+      "required": [
+        "recommendationId",
+        "evidenceDigest",
+        "disposition"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1666
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-run-exceeds-ledger-size-limit": {
+      "code": "AC_REFACTOR_RUN_TOO_LARGE",
+      "facts": {
+        "measuredBytes": "uint",
+        "limitBytes": "uint"
+      },
+      "required": [
+        "measuredBytes",
+        "limitBytes"
+      ],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 1212
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "product-id-missing": {
+      "code": "AC_MODEL_ADOPTION_REQUIRED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+          "line": 436
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+          "line": 455
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "product-id-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+          "line": 446
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+          "line": 459
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-decision-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "state inventory producer refs; exact branch ledger in producer-branches.json",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-decisions.ts",
+          "line": 248
+        },
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-decisions.ts",
+          "line": 251
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "context7-provider-refused": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {
+        "kind": "context7Kind"
+      },
+      "required": [
+        "kind"
+      ],
+      "producerEvidence": "packages/local-runtime/context7-adapter/src/index.ts:109-130; six own kind values; operation code/action remain docs original catalog defaults",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/public-operation-failure.ts",
+          "line": 40
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-measurement-changed": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "changedFields": "changedFields"
+      },
+      "required": [
+        "changedFields"
+      ],
+      "producerEvidence": "recommendations.ts:813-825 explicit before/after scope mismatch",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/recommendations.ts",
+          "line": 788
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-issue-list-inconclusive": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "runId": "id"
+      },
+      "required": [
+        "runId"
+      ],
+      "producerEvidence": "audit.ts:632 controlled dedup list failure, no publish this call",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 637
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "audit-issue-create-inconclusive": {
+      "code": "AC_PRECONDITION_FAILED",
+      "facts": {
+        "runId": "id",
+        "draftId": "id"
+      },
+      "required": [
+        "runId",
+        "draftId"
+      ],
+      "producerEvidence": "audit.ts:653 controlled create failure; prior published drafts already recorded",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/audit.ts",
+          "line": 654
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-request-head-changed": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "expectedHeadSha": "head",
+        "actualHeadSha": "head"
+      },
+      "required": [
+        "expectedHeadSha",
+        "actualHeadSha"
+      ],
+      "producerEvidence": "refactor-scan.ts: assertRequestedStateIsCurrent explicit comparison branches",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+          "line": 407
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-request-worktree-changed": {
+      "code": "AC_REFACTOR_STALE",
+      "facts": {
+        "expectedWorktreeDigest": "sha256",
+        "actualWorktreeDigest": "sha256"
+      },
+      "required": [
+        "expectedWorktreeDigest",
+        "actualWorktreeDigest"
+      ],
+      "producerEvidence": "refactor-scan.ts: assertRequestedStateIsCurrent explicit comparison branches",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+          "line": 414
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-scan-invalid": {
+      "code": "AC_SCHEMA_INVALID",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "refactor-scan.ts RefactorScanError: preserve explicit original producer code on existing reason-less constructor branches; no message inference",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+          "line": 72
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    },
+    "refactor-model-unreadable": {
+      "code": "AC_MODEL_ADOPTION_REQUIRED",
+      "facts": {},
+      "required": [],
+      "producerEvidence": "refactor-scan.ts RefactorScanError: preserve explicit original producer code on existing reason-less constructor branches; no message inference",
+      "producerReferences": [
+        {
+          "path": "packages/local-runtime/runtime-daemon/src/refactor-scan.ts",
+          "line": 72
+        }
+      ],
+      "producerEvidenceKind": "existing typed class or explicit producer branch; no diagnostic text selected by new adapter"
+    }
+  },
+  "nativeReasonCount": 21,
+  "nativeFacts": {
+    "git-worktree-required": {
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-arguments-invalid": {
+      "flag": "diagnostic",
+      "category": "diagnostic",
+      "supportedFormat": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-profile-invalid": {
+      "supportedProfile": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-model-missing": {
+      "path": "diagnostic",
+      "category": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-model-invalid": {
+      "path": "diagnostic",
+      "invariant": "diagnostic",
+      "issues": "issues",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-budget-invalid": {
+      "path": "diagnostic",
+      "field": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-profile-incomplete": {
+      "nodeId": "diagnostic",
+      "field": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-text-invalid": {
+      "path": "diagnostic",
+      "encoding": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-input-ambiguous": {
+      "path": "diagnostic",
+      "branch": "diagnostic",
+      "key": "diagnostic",
+      "offset": "uint",
+      "omittedKeyCharacters": "uint",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-path-unsafe": {
+      "path": "diagnostic",
+      "category": "diagnostic",
+      "issues": "issues",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-entry-kind-unsupported": {
+      "path": "diagnostic",
+      "mode": "diagnostic",
+      "kind": "diagnostic",
+      "category": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-ref-unsafe": {
+      "selector": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-ref-unavailable": {
+      "selector": "diagnostic",
+      "category": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-blob-unavailable": {
+      "category": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-input-missing": {
+      "path": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-input-unreadable": {
+      "path": "diagnostic",
+      "category": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-input-changed": {
+      "category": "diagnostic",
+      "changedPaths": "diagnosticList",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-document-marker-invalid": {
+      "path": "diagnostic",
+      "targetId": "diagnostic",
+      "diagnostics": "diagnostics",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-document-section-ambiguous": {
+      "path": "diagnostic",
+      "targetId": "diagnostic",
+      "section": "diagnostic",
+      "headingCount": "uint",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-limit-exceeded": {
+      "limit": "diagnostic",
+      "maximum": "uint",
+      "observed": "uint",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    },
+    "native-context-git-read-failed": {
+      "operation": "diagnostic",
+      "category": "diagnostic",
+      "omittedDiagnosticCount": "uint",
+      "omittedDiagnosticCharacters": "uint"
+    }
+  },
+  "nativeDiagnosticEnums": {
+    "category": [
+      "ambiguous",
+      "ambiguous-tree-path",
+      "descriptor-content",
+      "descriptor-identity",
+      "duplicate",
+      "exactly-one-selector-required",
+      "export-read",
+      "filesystem-path-alias",
+      "gitlink",
+      "head-or-tree",
+      "input-digest",
+      "input-identity",
+      "invalid-metadata-size",
+      "invalid-oid",
+      "invalid-request-oid",
+      "invalid-size",
+      "invalid-tree-oid",
+      "link",
+      "malformed-header",
+      "malformed-record",
+      "metadata-count-mismatch",
+      "metadata-size-mismatch",
+      "missing-header",
+      "missing-object-or-metadata-mismatch",
+      "missing-terminator",
+      "missing-value",
+      "model-layout",
+      "model-membership",
+      "model-path-encoding",
+      "nested-repository",
+      "no-native-nodes",
+      "non-regular",
+      "object-content-mismatch",
+      "oid-or-type-mismatch",
+      "open-or-read",
+      "path-encoding-or-alias",
+      "path-identity",
+      "path-presence-or-identity",
+      "repository-boundary-stat",
+      "second-observation-invalid",
+      "size-mismatch",
+      "stat",
+      "timeout",
+      "tree-unavailable",
+      "truncated-body-or-terminator",
+      "unavailable",
+      "unexpected-positional",
+      "unexpected-trailing-bytes",
+      "unknown-flag",
+      "unsupported-operation",
+      "unsupported-read-arguments",
+      "windows-path-alias"
+    ],
+    "field": [
+      "$",
+      "extensions.contractFiles",
+      "extensions.lspProfile",
+      "extensions.verification",
+      "identity-or-contractFiles",
+      "layout-target-identity",
+      "runtime.contextBudgetBytes"
+    ],
+    "encoding": [
+      "utf-8"
+    ],
+    "section": [
+      "section3",
+      "backlog"
+    ],
+    "selector": [
+      "ref"
+    ],
+    "supportedProfile": [
+      "repo-harness/v1"
+    ],
+    "supportedFormat": [
+      "json"
+    ],
+    "operation": [
+      "rev-parse",
+      "ls-tree",
+      "ls-files",
+      "cat-file"
+    ],
+    "limit": [
+      "batch-response-bytes",
+      "batchOverheadBytes",
+      "fileBytes",
+      "git-read-output",
+      "gitTimeoutMs",
+      "inputBytes",
+      "inputFiles",
+      "responseBytes",
+      "treeListingBytes"
+    ],
+    "kind": [
+      "marker-syntax-or-attributes",
+      "marker-nested",
+      "marker-duplicate",
+      "marker-unmatched-end",
+      "marker-target-mismatch",
+      "marker-unmatched-begin",
+      "unexpected-target",
+      "unsupported-renderer",
+      "output-digest-mismatch"
+    ]
+  },
+  "fieldRules": {
+    "id": {
+      "type": "string",
+      "primitive": true,
+      "minUtf8Bytes": 1,
+      "maxUtf8Bytes": 256,
+      "onOverrun": "reject-whole-metadata"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "head": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "uint": {
+      "type": "number",
+      "safeInteger": true,
+      "minimum": 0
+    },
+    "boolean": {
+      "type": "boolean"
+    },
+    "changedFields": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "enum": [
+          "headSha",
+          "worktreeDigest"
+        ]
+      }
+    },
+    "searched": {
+      "enum": [
+        "recorded",
+        "recorded-or-scanned"
+      ]
+    },
+    "decisionStatus": {
+      "enum": [
+        "acknowledged",
+        "accepted",
+        "deferred",
+        "rejected",
+        "resolved",
+        "waived"
+      ]
+    },
+    "disposition": {
+      "enum": [
+        "not_improved",
+        "partially_resolved",
+        "regressed",
+        "resolved",
+        "stale"
+      ]
+    },
+    "consentReason": {
+      "enum": [
+        "not-granted",
+        "unreadable",
+        "repository-mismatch",
+        "origin-mismatch",
+        "egress-policy-changed"
+      ]
+    },
+    "diagnostic": {
+      "type": "primitive string",
+      "maxUtf8Bytes": 256,
+      "onOverrun": "omit-whole-diagnostic-item-with-count"
+    },
+    "diagnosticList": {
+      "type": "array",
+      "maxItems": 32,
+      "items": "diagnostic",
+      "onOverrun": "omit-whole-items-with-count"
+    },
+    "issues": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "entityId": "diagnostic",
+        "field": "diagnostic",
+        "invariant": "diagnostic"
+      },
+      "onOverrun": "omit-whole-issue-with-count"
+    },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "kind": [
+          "marker-syntax-or-attributes",
+          "marker-nested",
+          "marker-duplicate",
+          "marker-unmatched-end",
+          "marker-target-mismatch",
+          "marker-unmatched-begin",
+          "unexpected-target",
+          "unsupported-renderer",
+          "output-digest-mismatch"
+        ],
+        "range": {
+          "startByte": "uint",
+          "endByte": "uint",
+          "startLine": "uint",
+          "endLine": "uint"
+        }
+      },
+      "onOverrun": "omit-whole-diagnostic-with-count"
+    },
+    "context7Kind": {
+      "enum": [
+        "http-error",
+        "timeout",
+        "rate-limited",
+        "malformed",
+        "transport-error",
+        "circuit-open"
+      ]
+    },
+    "publicConfirmationToken": {
+      "type": "string",
+      "maxUtf8Bytes": 1024,
+      "onOverrun": "reject-whole-metadata",
+      "authority": "exact existing public:<canonical target>:<baseSha>:<runId> token; never truncated"
+    },
+    "commandSuggestion": {
+      "type": "string or null",
+      "maxUtf8Bytes": 1024,
+      "onOverrun": "reject-whole-metadata",
+      "authority": "source-generated archctx recommendations/refactor verify command"
+    },
+    "evidenceObservation": {
+      "enum": [
+        "before-resolve-append"
+      ]
+    }
+  },
+  "factsClosed": true,
+  "unknown": "safe W1 fixed stage public-operation or native-export; never match English message",
+  "attributes": "preserve actual existing producer code/action/severity/retryability; catalog defaults authoritative for old bare envelope branches; native 21 original actions/retryability and landscape archctx repo add preserved",
+  "commonBudgets": {
+    "stringUtf8Bytes": 256,
+    "arrayItems": 32,
+    "objectFields": 16,
+    "depth": 4,
+    "detailsBytes": 8192,
+    "entireFailureEnvelopeBytes": 8192,
+    "renderedCliFailureEnvelopeBytes": 8192,
+    "nativeOmission": "whole diagnostic item; no truncated ID/path/issue",
+    "extendedCompleteBindingFields": {
+      "fields": [
+        "confirmationToken",
+        "recordCommand",
+        "verifyCommand"
+      ],
+      "maxUtf8Bytes": 1024,
+      "onOverrun": "reject-whole-metadata; no truncation",
+      "allOtherStringFactsMaxUtf8Bytes": 256
+    }
+  },
+  "partialC2Boundaries": [
+    "acceptCommittedChange",
+    "ledgerProject",
+    "ledgerMigrate",
+    "ledgerRollback",
+    "ledgerRebuild",
+    "recommendations",
+    "refactorRecord",
+    "refactorVerify",
+    "auditApprove",
+    "docs (approved pin recovery sentinel only)"
+  ],
+  "partialC2Rule": "Preserve unresolved recovery sentinel identity/full journal objects; do not normalize returned legacy failures across the nine named state/writer owners. C1 changes their local declared refusals and preserves original raw throw versus returned envelope shape. The approved docs pin recovery catch remains legacy. Shared writer/recovery/readback implementations are unchanged.",
+  "stoppedLifecycleSymbols": [
+    "ArchctxDaemon.constructor broad failures",
+    "ArchctxDaemon.start",
+    "ArchctxDaemon.stop",
+    "ArchctxDaemon.openSession",
+    "createStartedDaemon",
+    "createStartedProductionDaemon"
+  ],
+  "productionFactoryAlias": "createProductionDaemon retains direct propagation of the sole selected assertProductionRuntimeDeps producer",
+  "excluded": [
+    "applyUpdate and all receipt-bearing guards",
+    "projection apply/adopt/replay/inspect/readback/recover",
+    "global projectionFailureEnvelope",
+    "withWriter and recovery classes",
+    "Sqlite receipts/writer/migrate/recovery",
+    "global RPC/CLI/MCP gateways and Explorer HTTP wire",
+    "repo-harness",
+    "#354",
+    "B unmerged changes",
+    "credentials/network/GUI"
+  ],
+  "newPublicSurface": false,
+  "nativeObservedOverflow": "Finite observed values outside uint are omitted as whole diagnostics; NaN/Infinity remain malformed. Producer evidence blob-reader.ts:157, assertNativeContextLimit.",
+  "revisionNotes": [
+    "Originally 88 local schemas; add two observed request identity comparison branches (90), preserve original reason for pre-append drift, retain complete confirmation/command facts.",
+    "Existing CLI exhaustive policy adapter test added to affected test-only scope; no CI or budget change.",
+    "Outer raw throws remain throws; explicitly held C2 returned failures bypass result normalization.",
+    "Final class authority audit adds two source-owned RefactorScanError fallback reasons (92 local schemas); no algorithm or success change."
+  ],
+  "originalFreezeBase": "71d8b65b6efe0be2daee26608cc37c02baeba6d5",
+  "integrationEvidence": {
+    "acceptedMain": "#354 @ 31bbc3bbd5714a84776ec1c419c44e2d5db79603",
+    "dirtyOverlap": [],
+    "dirtyFilesRetained": 48,
+    "unmergedBIncluded": false
+  },
+  "coverageClaim": "59 canonical boundary inventory; named C2 return/recovery exceptions and six lifecycle symbols are held. Static producer references and policy compatibility tests do not prove exhaustive branch coverage.",
+  "reviewRepair": "Single review cycle: protect hostile-throw type checks, own schema lookup, restore check throw shape and Context7 own retryable, complete five existing native enum values. No entrypoint/reason added.",
+  "finalReview": {
+    "cycleCount": 1,
+    "readOnlyReviewerCount": 3,
+    "perspectiveCount": 6,
+    "confirmedP2Groups": 5,
+    "remainingReportedP1P2": 0,
+    "allOriginalReviewersConfirmedRepairs": true
+  }
+}

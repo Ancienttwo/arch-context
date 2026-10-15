@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { assertLocalEgressAllowed, LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -78,9 +79,14 @@ export class ExternalDocumentationService {
   constructor(private readonly context: ExternalDocumentationContext) {}
 
   async docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> {
+    try { return await this.docsUnchecked(root, input); }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async docsUnchecked(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const provider = input.provider ?? "context7";
-    if (provider !== "context7") return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs provider must be context7");
+    if (provider !== "context7") return publicFailureEnvelope("docs", "AC_SCHEMA_INVALID", "docs-provider-invalid", {});
     const session = await this.context.openSession(root);
     try {
       if (input.command === "status") {
@@ -105,7 +111,7 @@ export class ExternalDocumentationService {
         } as unknown as Json);
       }
       if (input.command === "pin") {
-        if (!input.libraryId || !input.version) return errorEnvelope("docs.pin", "AC_SCHEMA_INVALID", "docs pin requires --library-id and --version");
+        if (!input.libraryId || !input.version) return publicFailureEnvelope("docs.pin", "AC_SCHEMA_INVALID", "docs-input-invalid", {});
         assertContext7LibraryId(input.libraryId);
         assertContext7Version(input.version);
         const pin = {
@@ -137,8 +143,8 @@ export class ExternalDocumentationService {
         });
       }
       if (input.command === "resolve") {
-        if (!input.allowNetwork) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --allow-network");
-        if (!input.libraryName || !input.query) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --library and --query");
+        if (!input.allowNetwork) return publicFailureEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs-network-authorization-required", {});
+        if (!input.libraryName || !input.query) return publicFailureEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs-input-invalid", {});
         assertLocalEgressAllowed("context7");
         return okEnvelope("docs.resolve", await this.manualExternalDocumentation().resolve({
           provider: "context7",
@@ -148,12 +154,12 @@ export class ExternalDocumentationService {
         }) as unknown as Json);
       }
       if (input.command === "fetch") {
-        if (!input.allowNetwork) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --allow-network");
-        if (!input.libraryId || !input.intent) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --library-id and --intent");
+        if (!input.allowNetwork) return publicFailureEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs-network-authorization-required", {});
+        if (!input.libraryId || !input.intent) return publicFailureEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs-input-invalid");
         assertContext7LibraryId(input.libraryId);
         const lock = readContext7Lockfile(session.workspace.root);
         const pinned = lock.libraries.find((library) => library.libraryId === input.libraryId);
-        if (!pinned) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires a pinned library in .archcontext/integrations/context7.lock.yaml");
+        if (!pinned) return publicFailureEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs-pin-required", {});
         const query = buildContext7Query({ intent: input.intent, query: input.query });
         const queryDigest = digestJson({ provider: "context7", libraryId: input.libraryId, version: pinned.version, query });
         const cached = await this.context.localStore.readExternalDocumentation({
@@ -209,24 +215,29 @@ export class ExternalDocumentationService {
           purged
         } as unknown as Json);
       }
-      return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
+      return publicFailureEnvelope("docs", "AC_SCHEMA_INVALID", "docs-command-invalid", {});
     } catch (error) {
-      if (error instanceof LocalEgressPolicyError) return errorEnvelope(`docs.${input.command}`, "AC_POLICY_VIOLATION", error.message);
-      const code = error instanceof ChangeSetRecoveryUnresolvedError ? "AC_PRECONDITION_FAILED" : "AC_SCHEMA_INVALID";
-      return errorEnvelope(`docs.${input.command}`, code, error instanceof Error ? error.message : String(error));
+      if (error instanceof LocalEgressPolicyError) return publicOperationErrorEnvelope(`docs.${input.command}`, error);
+      if (error instanceof ChangeSetRecoveryUnresolvedError) return errorEnvelope(`docs.${input.command}`, "AC_PRECONDITION_FAILED", error.message);
+      return publicOperationErrorEnvelope(`docs.${input.command}`, error);
     }
   }
 
   async readResource(root: string, uri: string): Promise<JsonEnvelope> {
+    try { return publicOperationResult("resource.read", await this.readResourceUnchecked(root, uri)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async readResourceUnchecked(root: string, uri: string): Promise<JsonEnvelope> {
     this.context.assertRunning();
     await this.context.openSession(root);
     const parsed = parseExternalDocumentationResourceUri(uri);
     if (!parsed) {
-      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "unsupported resource URI");
+      return publicFailureEnvelope("resource.read", "AC_SCHEMA_INVALID", "resource-uri-invalid", {});
     }
     const cached = await this.context.localStore.readExternalDocumentationByContentDigest(parsed);
     if (!cached) {
-      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "external documentation resource is not present in the local daemon cache");
+      return publicFailureEnvelope("resource.read", "AC_SCHEMA_INVALID", "resource-cache-miss", {});
     }
     const cacheStatus = Date.parse(cached.expiresAt) > Date.parse(this.context.clock()) ? "fresh" : "stale";
     const resource: ExternalDocumentationResourceV1 = {

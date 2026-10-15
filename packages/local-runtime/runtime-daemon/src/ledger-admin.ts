@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ChangeSetEngine, type ChangeOperation } from "@archcontext/core/changeset-engine";
@@ -85,6 +86,11 @@ export class LedgerAdminService {
   constructor(private readonly context: LedgerAdminContext) {}
 
   async ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
+    try { return await this.ledgerProjectUnchecked(root, input); }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async ledgerProjectUnchecked(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const writes = input.dryRun === false;
     const project = async () => {
@@ -131,12 +137,17 @@ export class LedgerAdminService {
   }
 
   async ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }): Promise<JsonEnvelope> {
+    try { return await this.ledgerMigrateUnchecked(root, input); }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async ledgerMigrateUnchecked(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }): Promise<JsonEnvelope> {
     this.context.assertRunning();
     if (input.fromYaml && input.recommendationV3) {
-      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate accepts --from-yaml or --recommendation-v3, not both");
+      return publicFailureEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger-input-invalid", {});
     }
     if (input.recommendationV3) return this.ledgerMigrateRecommendationV3(root, input);
-    if (!input.fromYaml) return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate requires --from-yaml or --recommendation-v3");
+    if (!input.fromYaml) return publicFailureEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger-input-invalid", {});
     const writes = input.dryRun === false;
     const migrate = async () => {
       const repositoryRoot = root;
@@ -188,7 +199,7 @@ export class LedgerAdminService {
         } as unknown as Json);
       }
       if (plan.unsupportedFiles.length > 0) {
-        return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate --from-yaml --write requires supported YAML model files");
+        return publicFailureEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger-input-invalid", {});
       }
       const paths = runtimeStatePaths(repositoryRoot);
       const backupCreatedAt = this.context.clock();
@@ -277,7 +288,7 @@ export class LedgerAdminService {
           now: this.context.clock()
         });
       } catch (error) {
-        return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+        return publicOperationErrorEnvelope("ledger.migrate", error);
       }
       const base = {
         schemaVersion: "archcontext.runtime-recommendation-v3-migrate/v1",
@@ -340,8 +351,13 @@ export class LedgerAdminService {
   }
 
   async ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }): Promise<JsonEnvelope> {
+    try { return await this.ledgerRollbackUnchecked(root, input); }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async ledgerRollbackUnchecked(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }): Promise<JsonEnvelope> {
     this.context.assertRunning();
-    if (!input.toYaml) return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback currently requires --to-yaml");
+    if (!input.toYaml) return publicFailureEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger-input-invalid", {});
     const writes = input.dryRun === false;
     const rollback = async () => {
       if (writes) this.context.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger rollback --to-yaml");
@@ -387,8 +403,13 @@ export class LedgerAdminService {
   }
 
   async ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}): Promise<JsonEnvelope> {
+    try { return await this.ledgerRebuildUnchecked(root, input); }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async ledgerRebuildUnchecked(root: string, input: RuntimeLedgerRebuildInput = {}): Promise<JsonEnvelope> {
     this.context.assertRunning();
-    if (!input.fromGit) return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild currently requires --from-git");
+    if (!input.fromGit) return publicFailureEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger-input-invalid", {});
     return this.context.withWriter(async () => {
       this.context.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger rebuild --from-git");
       const scope = await this.context.architectureLedgerGitScope(root);
@@ -425,7 +446,7 @@ export class LedgerAdminService {
         command: rebuildCommand
       });
       if (plan.unsupportedFiles.length > 0) {
-        return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild requires supported YAML model files");
+        return publicFailureEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger-input-invalid", {});
       }
       const cursor = architectureLedgerGitCursorFromPlan({ ...scope, plan });
       const previousCursor = await this.context.localStore.readArchitectureLedgerSourceCursor({

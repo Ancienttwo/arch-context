@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import {
   architectureLedgerBookSubjects,
   architectureLedgerPayload,
@@ -59,6 +60,11 @@ export class ArchitectureBookService {
   constructor(private readonly context: ArchitectureBookContext) {}
 
   async book(root: string, input: RuntimeBookInput = {}): Promise<JsonEnvelope> {
+    try { return publicOperationResult("book", await this.bookUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async bookUnchecked(root: string, input: RuntimeBookInput = {}): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const command = input.command ?? "status";
     const readback = await this.context.architectureLedgerReadback(root);
@@ -138,13 +144,13 @@ export class ArchitectureBookService {
       } as unknown as Json);
     }
     if (command === "show") {
-      if (!input.id) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", "book show requires <entity-id> or --id");
+      if (!input.id) return publicFailureEnvelope("book.show", "AC_SCHEMA_INVALID", "book-input-invalid", {});
       const result = showArchitectureLedgerBookSubject(state, input.id);
-      if (!result.found) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", `Book subject not found: ${input.id}`);
+      if (!result.found) return publicFailureEnvelope("book.show", "AC_SCHEMA_INVALID", "book-input-invalid", {});
       return okEnvelope("book.show", { ...result, freshness, provenance } as unknown as Json);
     }
     if (command === "neighbors") {
-      if (!input.id) return errorEnvelope("book.neighbors", "AC_SCHEMA_INVALID", "book neighbors requires <entity-id> or --id");
+      if (!input.id) return publicFailureEnvelope("book.neighbors", "AC_SCHEMA_INVALID", "book-input-invalid", {});
       const depth = input.depth ?? 1;
       const neighborhoodState = await this.context.localStore.readArchitectureLedgerNeighborhood({ ...scope, id: input.id, depth });
       return okEnvelope("book.neighbors", {
@@ -155,7 +161,7 @@ export class ArchitectureBookService {
     }
     if (command === "timeline") {
       const sinceRef = input.sinceRef ? await architectureBookResolveTimelineSinceRef(this.context.localStore, scope, replay.events, input.sinceRef) : undefined;
-      if (input.sinceRef && !sinceRef) return errorEnvelope("book.timeline", "AC_SCHEMA_INVALID", `Book timeline --since ref not found: ${input.sinceRef}`);
+      if (input.sinceRef && !sinceRef) return publicFailureEnvelope("book.timeline", "AC_SCHEMA_INVALID", "book-input-invalid", {});
       return okEnvelope("book.timeline", {
         ...queryArchitectureLedgerBookTimeline({
           events: replay.events,
@@ -172,8 +178,8 @@ export class ArchitectureBookService {
       const toRef = input.toRef ?? "current";
       const fromResolved = await architectureBookResolveRef(this.context.localStore, scope, replay.events, fromRef);
       const toResolved = await architectureBookResolveRef(this.context.localStore, scope, replay.events, toRef);
-      if (!fromResolved) return errorEnvelope("book.diff", "AC_SCHEMA_INVALID", `Book diff --from ref not found: ${fromRef}`);
-      if (!toResolved) return errorEnvelope("book.diff", "AC_SCHEMA_INVALID", `Book diff --to ref not found: ${toRef}`);
+      if (!fromResolved) return publicFailureEnvelope("book.diff", "AC_SCHEMA_INVALID", "book-input-invalid", {});
+      if (!toResolved) return publicFailureEnvelope("book.diff", "AC_SCHEMA_INVALID", "book-input-invalid", {});
       return okEnvelope("book.diff", {
         ...diffArchitectureLedgerBookStates({
           previousState: fromResolved.state,
@@ -188,7 +194,7 @@ export class ArchitectureBookService {
       } as unknown as Json);
     }
     if (command === "evidence") {
-      if (!input.id) return errorEnvelope("book.evidence", "AC_SCHEMA_INVALID", "book evidence requires <finding-or-entity-id> or --id");
+      if (!input.id) return publicFailureEnvelope("book.evidence", "AC_SCHEMA_INVALID", "book-input-invalid", {});
       return okEnvelope("book.evidence", {
         ...queryArchitectureLedgerBookEvidence({ events: replay.events, id: input.id, ...budget }),
         freshness,
@@ -206,7 +212,7 @@ export class ArchitectureBookService {
           const decisions = readRefactorDecisionSet(repositoryRoot);
           refactorDecisionStatuses = new Map(decisions.decisions.map((decision) => [decision.recommendationId, decision.status]));
         } catch (error) {
-          if (error instanceof RefactorScanError) return errorEnvelope("book.recommendations", error.code, error.message, error.reasonCode);
+          if (error instanceof RefactorScanError) return publicOperationErrorEnvelope("book.recommendations", error);
           throw error;
         }
       }
@@ -224,7 +230,7 @@ export class ArchitectureBookService {
     }
     if (command === "export") {
       const format = input.format ?? "json";
-      if (!["json", "yaml", "markdown"].includes(format)) return errorEnvelope("book.export", "AC_SCHEMA_INVALID", "book export --format must be json, yaml, or markdown");
+      if (!["json", "yaml", "markdown"].includes(format)) return publicFailureEnvelope("book.export", "AC_SCHEMA_INVALID", "book-input-invalid", {});
       return okEnvelope("book.export", {
         schemaVersion: "archcontext.book-export/v1",
         format,
@@ -235,7 +241,7 @@ export class ArchitectureBookService {
         ...(format === "markdown" ? { markdown: architectureBookMarkdown(state) } : {})
       } as unknown as Json);
     }
-    return errorEnvelope("book", "AC_SCHEMA_INVALID", "book requires status|query|show|neighbors|timeline|diff|evidence|recommendations|export");
+    return publicFailureEnvelope("book", "AC_SCHEMA_INVALID", "book-input-invalid", {});
   }
 
   contextPort(root: string): ArchitectureContextLedgerPort {
