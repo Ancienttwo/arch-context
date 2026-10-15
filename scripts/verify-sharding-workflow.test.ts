@@ -215,8 +215,8 @@ test("runner cost sums parallel jobs and counts install time separately from wal
   expect(runnerMinutes([{ ...jobs[0], runner_id: 0, status: "skipped" }]).completedMinutes).toBe(0);
 });
 
-test("five-target topology shares one Linux full worker, retains twenty-nine executions and thirty-one installs in forty-three jobs", () => {
-  const root = mkdtempSync(join(tmpdir(), "archctx-five-target-topology-test-"));
+test("six-target topology shares one Linux full worker, emits eighteen shards, thirty-three executions and thirty-five installs in forty-seven jobs", () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-six-target-topology-test-"));
   try {
     const outputPath = join(root, "github-output");
     const cli = fileURLToPath(new URL("./verify-ci.mjs", import.meta.url));
@@ -230,8 +230,8 @@ test("five-target topology shares one Linux full worker, retains twenty-nine exe
     }));
     const config = readConfig();
     expect(outputs.split.include).toEqual(config.splitTargets);
-    expect(outputs.split.include).toHaveLength(5);
-    expect(outputs.shards.include).toHaveLength(15);
+    expect(outputs.split.include).toHaveLength(6);
+    expect(outputs.shards.include).toHaveLength(18);
     expect(outputs.excluded).toEqual([
       ...config.splitTargets.map(({ os, "node-version": node }: { os: string; "node-version": string }) => ({ os, "node-version": node })),
       { os: "ubuntu-latest", "node-version": "22.22.x" }
@@ -242,9 +242,9 @@ test("five-target topology shares one Linux full worker, retains twenty-nine exe
     }
     const fullTargets = OS_TARGETS.flatMap(os => NODE_TARGETS.map(node => ({ os, "node-version": node })))
       .filter(row => !outputs.excluded.some((excluded: any) => excluded.os === row.os && excluded["node-version"] === row["node-version"]));
-    expect(fullTargets).toHaveLength(3);
+    expect(fullTargets).toHaveLength(2);
     expect(fullTargets.every(row => expectedWorkers(config, row.os, row["node-version"]).length === 1)).toBe(true);
-    expect(OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node)))).toHaveLength(29);
+    expect(OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node)))).toHaveLength(33);
     const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
     const counts: Record<string, number> = {
       verify: fullTargets.length,
@@ -254,8 +254,8 @@ test("five-target topology shares one Linux full worker, retains twenty-nine exe
       "verify-summary": OS_TARGETS.length * NODE_TARGETS.length
     };
     const jobs = Object.entries(workflow.jobs).flatMap(([id, job]) => Array.from({ length: counts[id] ?? 1 }, () => job as any));
-    expect(jobs).toHaveLength(43);
-    expect(jobs.filter(job => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(31);
+    expect(jobs).toHaveLength(47);
+    expect(jobs.filter(job => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(35);
     expect(workflow.jobs["verify-collect"].needs).toContain("verify-linux-full");
     expect(workflow.jobs["verify-linux-full"].name).toBe("Verify execution: ubuntu-latest / Node 22.22.x / full");
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -270,6 +270,7 @@ test("workflow targets only measured slow legs, keeps gate order, original nine 
     { os: "macos-15", "node-version": "24.x", shards: 3 },
     { os: "macos-15", "node-version": "25.x", shards: 3 },
     { os: "windows-latest", "node-version": "22.22.x", shards: 3 },
+    { os: "windows-latest", "node-version": "24.x", shards: 3 },
     { os: "windows-latest", "node-version": "25.x", shards: 3 }
   ]);
   expect(pkg.scripts.verify).toBe(`${pkg.scripts["verify:pre"]} && bun test --timeout 60000 && ${pkg.scripts["verify:post"]}`);
