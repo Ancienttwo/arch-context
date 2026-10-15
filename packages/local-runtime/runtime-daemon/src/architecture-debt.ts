@@ -1,11 +1,13 @@
 import {
-  ARCHITECTURE_DEBT_CHECKS, architectureDebtReportIssues, errorEnvelope, isRepoRelativePosixPath, okEnvelope,
+  ARCHITECTURE_DEBT_CHECKS, architectureDebtReportIssues, FailureError, failureEnvelope, knownFailure, normalizeFailureResult, toEnvelope, isRepoRelativePosixPath, okEnvelope,
+  type ArchContextErrorCode, type FailureStage, type StrictFailure,
   type ArchitectureDebtReportV1, type Json, type JsonEnvelope, type PracticeEnforcementEvaluationV1
 } from "@archcontext/contracts";
 import { resolveOwnership } from "@archcontext/core/module-statistics";
-import { ancestorChain, loadNativeModelFromArchContext, nativeNodeSource, type NativeModel } from "@archcontext/core/projection-engine";
+import { ancestorChain, loadNativeModelFromArchContext, nativeNodeSource, ProjectionPreconditionError, type NativeModel } from "@archcontext/core/projection-engine";
 import { evaluateArchitectureDebt, type ArchitectureDebtEvidence } from "@archcontext/core/review-engine";
 import { findRepositoryRoot, GitVisibleFilesUnavailableError, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
+import { ProjectionCodeFactsUnavailableError } from "@archcontext/local-runtime/codegraph-adapter";
 import { readArchitectureDebtCodeFacts } from "./architecture-debt-code-facts";
 import { runDocsAnchorsCommand } from "./docs-anchors";
 import type { DocsAnchorsReportV1 } from "@archcontext/contracts";
@@ -20,23 +22,27 @@ export interface ArchitectureDebtReadInput { changedPaths?: string[] }
  * Unmeasured dependency/flow/practice checks remain explicit gaps, never a clean full verdict.
  */
 export function readArchitectureDebt(root: string, input: ArchitectureDebtReadInput = {}): ArchitectureDebtReportV1 {
-  const { evidence } = readArchitectureDebtEvidence(root, input);
-  return checkedDebt({ ...evidence,
-    unavailable: { dependencies: ["deferred-to-complete"], flows: ["deferred-to-complete"], practices: ["deferred-to-complete"] }
-  });
+  try {
+    const { evidence } = readArchitectureDebtEvidence(root, input);
+    return checkedDebt({ ...evidence,
+      unavailable: { dependencies: ["deferred-to-complete"], flows: ["deferred-to-complete"], practices: ["deferred-to-complete"] }
+    });
+  } catch (error) { throw selectedProducerFailure(error, "debt"); }
 }
 
 /** Repository-wide completion measurement; practice evidence stays owned by the daemon. */
 export function readCompleteTaskArchitectureDebt(root: string, practices?: PracticeEnforcementEvaluationV1): ArchitectureDebtReportV1 {
-  if (!existsSync(join(root, ".archcontext/manifest.yaml"))) {
-    return checkedDebt({ scope: { kind: "repository", changedPaths: [], capabilityIds: [] },
-      unavailable: Object.fromEntries(ARCHITECTURE_DEBT_CHECKS.map(check => [check, ["model-not-adopted"]])) });
-  }
-  const { model, evidence } = readArchitectureDebtEvidence(root, {});
-  const codeFacts = readArchitectureDebtCodeFacts(root, model);
-  return checkedDebt({ ...evidence, ...codeFacts, practices,
-    unavailable: { ...codeFacts.unavailable, ...(practices === undefined ? { practices: ["not-enabled"] } : {}) }
-  });
+  try {
+    if (!existsSync(join(root, ".archcontext/manifest.yaml"))) {
+      return checkedDebt({ scope: { kind: "repository", changedPaths: [], capabilityIds: [] },
+        unavailable: Object.fromEntries(ARCHITECTURE_DEBT_CHECKS.map(check => [check, ["model-not-adopted"]])) });
+    }
+    const { model, evidence } = readArchitectureDebtEvidence(root, {});
+    const codeFacts = readArchitectureDebtCodeFacts(root, model);
+    return checkedDebt({ ...evidence, ...codeFacts, practices,
+      unavailable: { ...codeFacts.unavailable, ...(practices === undefined ? { practices: ["not-enabled"] } : {}) }
+    });
+  } catch (error) { throw selectedProducerFailure(error, "debt"); }
 }
 
 function checkedDebt(evidence: ArchitectureDebtEvidence): ArchitectureDebtReportV1 {
@@ -82,7 +88,11 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
   // Ownership and citations use the same call-local model/file discovery. A new
   // invocation still reads both again, so edits and repairs are never cached.
   const anchors = runDocsAnchorsCommand(root, {}, { model, files });
-  if (!anchors.ok) throw new ArchitectureDebtReadError(anchors.error!.code, anchors.error!.message, anchors.error!.reasonCode ?? "anchors-unavailable");
+  if (!anchors.ok) {
+    const normalized = normalizeFailureResult(anchors, "debt", "docs.anchors") as JsonEnvelope;
+    const failure = normalized.error!;
+    throw new ArchitectureDebtReadError(failure.code, failure.message, failure.reasonCode!, failure.details, failure);
+  }
   return { model, evidence: {
     scope: { kind: repository ? "repository" : "changed-paths", changedPaths, capabilityIds },
     ownership, anchors: anchors.data as unknown as DocsAnchorsReportV1, scopedNodeIds, capabilityByNodeId
@@ -92,15 +102,9 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
 export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtReadInput = {}): JsonEnvelope {
   let root: string;
   try { root = findRepositoryRoot(cwd); }
-  catch { return errorEnvelope("debt", "AC_REPO_NOT_FOUND", "Architecture debt requires a Git worktree", "git-worktree-required", { checks: ["ownership", "anchors"] }); }
-  try {
-    return okEnvelope("debt", readArchitectureDebt(root, input) as unknown as Json);
-  } catch (error) {
-    if (error instanceof ArchitectureDebtReadError || error instanceof GitVisibleFilesUnavailableError) {
-      return errorEnvelope("debt", error.code, error.message.slice(0, 1024), error.reasonCode ?? "git-files-unavailable", { checks: ["ownership", "anchors"] });
-    }
-    return errorEnvelope("debt", "AC_PRECONDITION_FAILED", (error instanceof Error ? error.message : String(error)).slice(0, 1024), "debt-input-unavailable", { checks: ["ownership", "anchors"] });
-  }
+  catch { return failureEnvelope("debt", knownFailure("AC_REPO_NOT_FOUND", "git-worktree-required", { checks: ["ownership", "anchors"] })); }
+  try { return okEnvelope("debt", readArchitectureDebt(root, input) as unknown as Json); }
+  catch (error) { return selectedProducerFailureEnvelope("debt", error, "debt"); }
 }
 
 function nodeCapabilities(model: NativeModel): Map<string, string> {
@@ -112,6 +116,36 @@ function nodeCapabilities(model: NativeModel): Map<string, string> {
   }));
 }
 
-export class ArchitectureDebtReadError extends Error {
-  constructor(readonly code: import("@archcontext/contracts").ArchContextErrorCode, message: string, readonly reasonCode: string) { super(message); }
+export class ArchitectureDebtReadError extends FailureError<ArchContextErrorCode> {
+  constructor(code: ArchContextErrorCode, _message: string, reasonCode: string, details: unknown = { checks: ["ownership", "anchors"] }, attributes: Partial<StrictFailure> = {}) {
+    super(code, reasonCode, details, attributes);
+    this.name = "ArchitectureDebtReadError";
+  }
+}
+
+/** Selected producer metadata must remain own data fields, even on a recognized error class. */
+function selectedProducerData<T extends object, K extends keyof T>(error: T, key: K): T[K] {
+  const descriptor = Object.getOwnPropertyDescriptor(error, key);
+  if (!descriptor || !("value" in descriptor)) throw new Error("Invalid selected producer metadata");
+  return descriptor.value as T[K];
+}
+
+/** Class identity or registered producer metadata classifies a failure; message/stack never do. */
+export function selectedProducerFailure(error: unknown, stage: FailureStage): FailureError<ArchContextErrorCode> {
+  try {
+    if (error instanceof FailureError) {
+      const failure = toEnvelope("failure", error, stage).error;
+      if (failure.code !== "RPC_TIMEOUT" && failure.code !== "RPC_ABORTED") {
+        return new FailureError(failure.code, failure.reasonCode, failure.details, failure);
+      }
+    }
+    if (error instanceof GitVisibleFilesUnavailableError) return new FailureError(selectedProducerData(error, "code"), selectedProducerData(error, "reasonCode"), { checks: ["ownership", "anchors"] });
+    if (error instanceof ProjectionPreconditionError) return new FailureError("AC_PRECONDITION_FAILED", selectedProducerData(error, "reasonCode"));
+    if (error instanceof ProjectionCodeFactsUnavailableError) return new FailureError(selectedProducerData(error, "code"), selectedProducerData(error, "reasonCode"));
+  } catch { return new FailureError("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", { stage: "failure-metadata" }); }
+  return new FailureError("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", { stage });
+}
+export function selectedProducerFailureEnvelope(requestId: string, error: unknown, stage: FailureStage): JsonEnvelope {
+  const failure = selectedProducerFailure(error, stage);
+  return failureEnvelope(requestId, failure.failure);
 }

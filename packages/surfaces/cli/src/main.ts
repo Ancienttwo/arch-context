@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { LocalEgressPolicyError, localEgressAdmission, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
-import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
+import { runArchitectureDebtCommand, selectedProducerFailureEnvelope } from "@archcontext/local-runtime/architecture-debt";
 import { runNativeContextCommand } from "./native-context";
 import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, discardLegacyGithubDeveloperReviewState, readGithubDeveloperReviewState, sanitizeGithubDeveloperReviewState, writeGithubDeveloperReviewState, type GitHubDeveloperReviewState } from "./github-review-state";
@@ -9,8 +9,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
 import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
@@ -452,7 +452,7 @@ interface CliRuntimeHandle {
 
 type AgentHost = "codex" | "claude" | "generic";
 
-type CliCommandResult = Awaited<ReturnType<typeof runCliUnchecked>>;
+type CliCommandResult = Awaited<ReturnType<typeof runCliUnchecked>> | FailureEnvelope;
 
 export function runCli(command: "capabilities", args?: string[], cwd?: string, deps?: CliRuntimeDeps): Promise<ArchctxCapabilitiesV1 | CliCommandResult>;
 export function runCli(command?: string, args?: string[], cwd?: string, deps?: CliRuntimeDeps): Promise<CliCommandResult>;
@@ -467,9 +467,37 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
     }
     return runCapabilitiesCommand();
   }
+  const selected = ["debt", "checkpoint", "complete", "review"].includes(command)
+    || (command === "practices" && args[0] === "checkpoint")
+    || (command === "hook" && args[0] === "checkpoint");
   try {
-    return await runCliUnchecked(command, args, cwd, deps);
+    if (selected) {
+      const preflight = preflightCliArguments(command, args);
+      if (preflight) return preflight.ok ? preflight : failureEnvelope(command, knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
+    }
+    const result = await runCliUnchecked(command, args, cwd, deps);
+    return selected ? normalizeFailureResult(result, "cli", command === "practices" ? "practices.checkpoint" : command === "hook" ? "hook.checkpoint" : command) : result;
   } catch (error) {
+    if (selected) {
+      if (error instanceof CliUsageError) return failureEnvelope(command, knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
+      if (error instanceof RuntimeRpcTransportError) {
+        try {
+          const metadata = Object.fromEntries(["code", "method", "timeoutMs", "elapsedMs"].map(key => {
+            const descriptor = Object.getOwnPropertyDescriptor(error, key);
+            if (!descriptor || !("value" in descriptor)) throw new Error("Invalid selected transport metadata");
+            return [key, descriptor.value];
+          }));
+          return failureEnvelope(command, knownFailure(metadata.code,
+            metadata.code === "RPC_TIMEOUT" ? "rpc-timeout" : "rpc-aborted", {
+              method: metadata.method, timeoutMs: metadata.timeoutMs, elapsedMs: metadata.elapsedMs, mutationOutcome: "unknown"
+            }));
+        }
+        catch { return failureEnvelope(command, unclassifiedFailure("failure-metadata")); }
+      }
+      if (error instanceof LocalEgressPolicyError) return failureEnvelope(command, knownFailure("AC_POLICY_VIOLATION", "egress-policy-denied"));
+      if (error instanceof RuntimeVersionUnsupportedError) return failureEnvelope(command, knownFailure("AC_RUNTIME_VERSION_UNSUPPORTED", "runtime-version-unsupported"));
+      return selectedProducerFailureEnvelope(command, error, "cli");
+    }
     if (error instanceof LocalEgressPolicyError) return errorEnvelope(command, "AC_POLICY_VIOLATION", error.message);
     // archctx requires a Git worktree; an embedded runtime throws this before any RPC envelope exists.
     if (error instanceof GitVisibleFilesUnavailableError) return errorEnvelope(command, error.code, error.message, error.reasonCode);
@@ -495,7 +523,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
   // second writer on the same store.
   let runtimeHandle: Promise<CliRuntimeHandle> | undefined;
   const runtime = async () => {
-    runtimeHandle ??= createCliRuntime(cwd, deps);
+    runtimeHandle ??= createCliRuntime(cwd, deps, command === "complete" || command === "review" || (command === "practices" && args[0] === "checkpoint"));
     return (await runtimeHandle).client;
   };
   // Commands may return an unsettled promise; it must settle before the runtime closes below.
@@ -3281,10 +3309,10 @@ function isPrivatePath(path: string): boolean {
   }
 }
 
-async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliRuntimeHandle> {
+async function createCliRuntime(cwd: string, deps: CliRuntimeDeps, preserveHealthFailure = false): Promise<CliRuntimeHandle> {
   if (deps.runtimeClient) return { client: deps.runtimeClient, close: async () => undefined };
   if (!deps.disableRpcDiscovery && !hasEmbeddedRuntimeDeps(deps)) {
-    return { client: await createOrStartRuntimeRpcClient(cwd), close: async () => undefined };
+    return { client: await createOrStartRuntimeRpcClient(cwd, preserveHealthFailure), close: async () => undefined };
   }
   const {
     runtimeClient: _runtimeClient,
@@ -3305,16 +3333,19 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliR
   return { client: daemon, close: () => daemon.stop() };
 }
 
-async function createOrStartRuntimeRpcClient(cwd: string): Promise<RuntimeDaemonClient> {
+async function createOrStartRuntimeRpcClient(cwd: string, preserveHealthFailure = false): Promise<RuntimeDaemonClient> {
   const fileIssue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
   if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
   const client = createRuntimeRpcClientFromConnectionFile(cwd);
   if (client) {
-    const { health, unresponsivePid } = await probeDaemonHealth(client);
+    const { health, unresponsivePid, transportFailure } = await probeDaemonHealth(client);
     const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
     if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
     if ((health as any)?.ok === true) return client;
-    if (unresponsivePid !== undefined) throw new Error(unresponsiveDaemonMessage(unresponsivePid));
+    if (unresponsivePid !== undefined) {
+      if (preserveHealthFailure && transportFailure) throw transportFailure;
+      throw new Error(unresponsiveDaemonMessage(unresponsivePid));
+    }
     recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
   } else {
     recoverStaleDaemonControlFiles(cwd);
@@ -3755,13 +3786,13 @@ function runtimeVersionUnsupportedMessage(issue: RuntimeRpcCompatibilityIssue): 
  * busy, not gone. Its connection file must stay. Without it the live process keeps the store and
  * the lock, no client can reach it, and every new daemon start loses to it (#318).
  */
-async function probeDaemonHealth(client: RuntimeRpcClient): Promise<{ health: unknown; unresponsivePid?: number }> {
+async function probeDaemonHealth(client: RuntimeRpcClient): Promise<{ health: unknown; unresponsivePid?: number; transportFailure?: RuntimeRpcTransportError }> {
   try {
     return { health: await client.health() };
   } catch (error) {
     const pid = client.connectionInfo().pid;
     const busy = error instanceof RuntimeRpcTransportError && error.code === "RPC_TIMEOUT" && typeof pid === "number" && isPidAlive(pid);
-    return { health: undefined, ...(busy ? { unresponsivePid: pid } : {}) };
+    return { health: undefined, ...(busy ? { unresponsivePid: pid, transportFailure: error as RuntimeRpcTransportError } : {}) };
   }
 }
 
@@ -4285,7 +4316,7 @@ if (import.meta.main) {
       stdinLines(),
       (line) => process.stdout.write(`${line}\n`),
       (line) => process.stderr.write(`${line}\n`),
-      { runtimeResolver: (root) => createOrStartRuntimeRpcClient(root) }
+      { runtimeResolver: (root, options) => createOrStartRuntimeRpcClient(root, options?.preserveHealthFailure) }
     );
   } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground") && preflightCliArguments(command, args) === undefined) {
     await runForegroundDaemon(process.cwd(), args).catch((error) => {

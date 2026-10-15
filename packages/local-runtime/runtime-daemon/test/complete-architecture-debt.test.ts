@@ -86,3 +86,41 @@ test("invalid models keep the schema gate and never publish a fabricated clean d
     expect(review.actionsRequired).toContain("archctx validate");
   } finally { await daemon.stop(); Bun.gc(true); removeTempRepo(root); }
 });
+
+test("D6-A embedded unknown provider failure is safe and never saves a successful review", async () => {
+  const { CodeGraphAdapter } = await import("@archcontext/local-runtime/codegraph-adapter");
+  const { MockCodeGraphProvider } = await import("@archcontext/local-runtime/test/codegraph-factories");
+  const { failureIssues } = await import("@archcontext/contracts");
+  const root = tempRepo();
+  const store = new TestLocalStore();
+  const facts = new CodeGraphAdapter(new MockCodeGraphProvider());
+  const daemon = await createStartedTestDaemon({ codeFacts: facts, localStore: store });
+  const sentinel = "/private/provider/root Authorization=provider-secret source-body";
+  try {
+    await daemon.init(root, "D6 unknown provider");
+    facts.sync = async () => { throw new Error(sentinel); };
+    const result = await daemon.completeTask(root);
+    expect(result).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", retryable: false, details: { stage: "complete" } } });
+    expect(failureIssues(result.error)).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+    expect(store.reviews.size).toBe(0);
+  } finally { await daemon.stop(); removeTempRepo(root); }
+});
+
+test("D6-A explicit checkpoint failure preserves its seeded baseline", async () => {
+  const root = tempRepo();
+  const store = new TestLocalStore();
+  const daemon = await createStartedTestDaemon({ localStore: store });
+  try {
+    await daemon.init(root, "D6 baseline");
+    await daemon.prepare(root, "keep checkpoint baseline", 12288, 12, "task_d6");
+    const before = structuredClone([...store.taskStates]);
+    const invalid = await daemon.practiceCheckpoint(root, { taskSessionId: "task_d6", changedPaths: ["../outside"] });
+    expect(invalid).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", reasonCode: "changed-path-invalid", details: { checks: ["ownership", "anchors"] } } });
+    expect([...store.taskStates]).toEqual(before);
+    await daemon.stop();
+    const stopped = await daemon.practiceCheckpoint(root, { taskSessionId: "task_d6" });
+    expect(stopped).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", details: { stage: "practice-checkpoint" } } });
+    expect([...store.taskStates]).toEqual(before);
+  } finally { await daemon.stop(); removeTempRepo(root); }
+});

@@ -14,4 +14,5 @@ export * from "./projection-manifest";
 export * from "./product-version";
 export * from "./refactor";
 export * from "./schema";
+export * from "./failure";
 export * from "./validator";
