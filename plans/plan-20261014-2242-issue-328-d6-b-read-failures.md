@@ -2,7 +2,8 @@
 
 > **Status**: Review
 > **Owner**: delegated Codex D6-B sole implementation writer
-> **Frozen code baseline**: 550ae58b2376b35548e332066932dfe782f517b7 (#356 D6-A; not yet merged)
+> **Preparation baseline**: 550ae58b2376b35548e332066932dfe782f517b7
+> **Accepted main integration base**: 71d8b65b6efe0be2daee26608cc37c02baeba6d5 (#356 squash merged)
 > **Worktree**: /private/tmp/worktrees/arch-context-328-d6-b-read-failures
 > **Branch**: codex/issue-328-d6-b-read-failures
 > **Task Contract**: tasks/contracts/20261014-2242-issue-328-d6-b-read-failures.contract.md
@@ -11,12 +12,14 @@
 
 ## Authority and delivery boundary
 
-The coordinator explicitly authorized parallel preparation and local implementation of this slice
-from frozen 550ae58b while A finishes CI. A's original worktree stays unchanged. No push, PR,
-merge, release or issue closure is authorized now. Do not publish a stacked PR or duplicate A.
-After A merges, coordinate the accepted main baseline and incremental verification before an
-independent Draft PR. If A requires a real product repair, pause B expansion for integration.
-B is not all of D6 and does not close #328. No second implementation writer.
+The coordinator authorized preparing this slice from frozen 550ae58b, then explicitly
+confirmed #356 squash-merged at 71d8b65b6efe0be2daee26608cc37c02baeba6d5 and authorized
+incremental B delivery: preserve the local delta, rebase only B onto accepted main, run the
+agreed affected checks and independent review, ordinary push and create an independent Draft PR.
+The original 13 files were archived with per-file SHA-256 before any commit/rebase. Only B's
+single preparation commit was replayed; no old A commit was duplicated. A/BYOK checkouts stay
+unchanged. No merge, release, #328 closure, C/D implementation or repo-harness edit is authorized.
+B is not all of D6. No second implementation writer.
 
 ## Scope and due diligence
 
@@ -76,7 +79,7 @@ Rollback only B imports/adapters/stages/tests; no data migration or state transi
 - [x] Extract/reuse producer adapter and implement only two reader/CLI failure boundaries.
 - [x] Run approved affected verification and one scoped review; address confirmed in-scope issues.
 - [x] Report local delta/evidence, preserve A, and wait for accepted-main integration window.
-- [ ] After A merge and explicit coordination, verify incremental B delivery without duplicate A.
+- [x] After A merge and explicit coordination, verify incremental B delivery without duplicate A.
 
 ## Local review outcome
 
@@ -87,7 +90,7 @@ revision removes the compatibility path, preserves known metadata and primary-fa
 and updates semantic regressions. Current approved checks pass: 62 affected tests / 1732 assertions,
 three flow/CLI tests / 134 assertions, typecheck, boundary audit and packaged smoke. The original
 reviewer confirmed this bounded delta with two focused tests / 123 assertions / zero failures.
-The accepted-main/hosted-CI gate remains open. No B commit, push or PR has been created.
+Those are historical preparation results. B is now rebased as 99a980a547ebaefba42377bb4db44fbeade6ceee on accepted main; current integration checks/review and hosted CI are separate evidence below.
 
 ## Coordinator-directed design convergence
 
@@ -96,3 +99,17 @@ The accepted-main/hosted-CI gate remains open. No B commit, push or PR has been 
   nested failures and require one anchors entrypoint, known metadata and primary-error cleanup.
 - [x] Replace compatibility assertions, reproduce the revised contract red, then remove the branch.
 - [x] Run bounded affected checks and original-reviewer delta confirmation; update final evidence.
+
+## Accepted-main delivery
+
+- [x] Archive all 13 original files and prove the nine source/test files remain byte-identical after rebase.
+- [x] Replay only B onto accepted main 71d8b65b6efe0be2daee26608cc37c02baeba6d5.
+- [x] Re-run the contract checks and bounded independent integration review.
+- [x] Record final local delivery evidence; ordinary push/Draft PR and hosted CI readback follow this docs-only commit.
+
+Source/test manifest SHA-256 remains 043c2a32e1855fade64d98d5cb32dce966d9a16733f42c6c4c2a2b0cd23ce842.
+
+Accepted-main verification passed with the same 62 affected tests / 1732 assertions and three
+flow/CLI tests / 134 assertions, typecheck, boundary audit and packaged smoke. Three fresh read-only
+integration lanes (security/abuse, architecture/composition, assumptions/cascade/adversarial)
+returned no concrete new finding at confidence >=0.60. Hosted CI remains the final integration gate.

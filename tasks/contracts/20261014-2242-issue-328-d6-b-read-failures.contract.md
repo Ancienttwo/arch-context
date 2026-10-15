@@ -10,9 +10,10 @@
 
 ## Goal and Scope
 
-Implement only docs anchors and flows check direct/CLI failure exits from frozen 550ae58b.
+Implement only docs anchors and flows check direct/CLI failure exits, prepared from 550ae58b
+and delivered incrementally on accepted main 71d8b65b6efe0be2daee26608cc37c02baeba6d5.
 The plan's frozen failure/compatibility table and delivery boundary are authoritative. This is
-local preparation while #356 finishes CI, not a stacked or duplicate delivery of A. Preserve all
+incremental B delivery after #356 merged, with no duplicated A commits. Preserve all
 success/value APIs, D5 discovery and existing CodeGraph behavior; do not edit A's checkout.
 Coordinator-directed amendment: use one anchors entrypoint/adapter for standalone and debt calls.
 Unknown nested anchors failures may use actual producer stage docs-anchors as an expected B change.
@@ -106,8 +107,9 @@ allowed_paths:
 
 Strict known/unknown/mutated metadata and cleanup failures must pass direct and selected CLI
 regressions without secret output. Preserve success/coverage/probe/reader-close semantics.
-Stop on an A repair, competing writer or required excluded-file edit. No push/PR until A merges
-and the coordinator freezes the accepted-main integration route. B does not complete D6/#328.
+Stop on an A repair, competing writer or required excluded-file edit. The coordinator confirmed
+A merged and authorized the accepted-main route, affected checks, independent review, ordinary
+push and Draft PR. No self-merge, issue closure or C/D implementation. B does not complete D6/#328.
 
 ## Rollback
 

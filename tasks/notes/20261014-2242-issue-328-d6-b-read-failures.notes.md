@@ -2,8 +2,8 @@
 
 Frozen baseline: 550ae58b2376b35548e332066932dfe782f517b7. Worktree:
 /private/tmp/worktrees/arch-context-328-d6-b-read-failures; branch:
-codex/issue-328-d6-b-read-failures. HEAD remains the frozen baseline with the local B delta
-uncommitted. The original exact 15-path contract preceded implementation; the coordinator's
+codex/issue-328-d6-b-read-failures. This section records the original local preparation; the accepted-main delivery below supersedes
+its uncommitted/awaiting-A status. The original exact 15-path contract preceded implementation; the coordinator's
 single-boundary amendment also preceded this bounded source revision. A checkout remains clean.
 
 ## Current design and intended semantic changes
@@ -57,7 +57,7 @@ and registered precondition refusals survive simultaneous close failure through 
 Initial B red baseline before any product edits was 1 pass / 8 fail / 16 assertions, with the other
 docs passthrough control already passing. That remains historical evidence, not a current result.
 
-## Current approved verification
+## Preparation verification (before accepted-main integration)
 
 Bun 1.4.3 / Node 24.18.0; DO_NOT_TRACK=1 and CODEGRAPH_NO_DOWNLOAD=1. Dependencies were installed
 offline with frozen lockfile and scripts disabled. package/lock are unchanged.
@@ -96,9 +96,38 @@ SHA-256 of the sorted nine-file product/test manifest (file SHA-256, two spaces,
 043c2a32e1855fade64d98d5cb32dce966d9a16733f42c6c4c2a2b0cd23ce842.
 The earlier 1186f31d... manifest belongs to the superseded compatibility revision.
 
-## Remaining delivery gate
+## Historical preparation delivery gate
 
 No B commit, push, PR, merge or issue closure. A CI/merge and the coordinator's accepted-main
 integration baseline remain separate gates; this revision did not query or mutate A's hosted state.
 After coordination, deliver incremental B-only changes with the agreed checks. This slice does
 not complete D6/#328 or authorize any global RPC/MCP migration.
+
+## Accepted-main integration
+
+The coordinator confirmed A merged at 71d8b65b6efe0be2daee26608cc37c02baeba6d5 and authorized
+B-only commit/rebase, affected checks, independent review, normal push and Draft PR. All 13 original
+files were archived first with all-file manifest 037225b3f6c04ab7d5b0ea03372ccb564b29d6f150d93bf33e0d2a1f0c15369f.
+The B-only commit rebased without conflicts to 99a980a547ebaefba42377bb4db44fbeade6ceee; source/test
+manifest remains 043c2a32e1855fade64d98d5cb32dce966d9a16733f42c6c4c2a2b0cd23ce842. No old A commits
+were replayed and no source/test bytes changed during integration.
+
+Current accepted-main checks all pass: typecheck; five-workspace package-boundary audit; seven-file
+affected suite 62 pass / 0 fail / 1732 assertions; three flow/CLI cases 3 pass / 0 fail /
+134 assertions; packaged native Node and CLI smoke; verification-plan validation with unchanged
+plan hash sha256:9cf1568256ffcbab35512c46373119e9bc3da88389f068ae649ba5cd021917c7; git diff --check.
+Real CLI readback confirms fixed safe JSON errors, exit 1, empty stderr, successful help exit 0
+and no runtime state for the empty non-Git fixture. No full local governance was run.
+
+The accepted-main product patch is byte-identical to the original B patch. The anchors success
+body is byte-identical to main. Exact scope remains 13 paths, including only four dirty evidence
+files after verification. Writers, all RPC modules, MCP, CI workflows and package/lock are unchanged.
+A remains clean at cbbc31819139464c8b2bb18544fa5159f47eb2d8; BYOK main checkout remains clean at
+e23ed5dafd492c79e2217f6793eacd9b66187bab. Hosted B CI is not yet started.
+
+All three fresh independent integration lanes completed without a concrete new finding at
+confidence >=0.60: security/abuse, architecture/composition, assumptions/cascade/adversarial.
+Their scopes and exact focused evidence are recorded in the review file. No source/test bytes
+changed after independent review. The follow-up evidence commit changes only the same four
+workflow artifacts and does not require repeating unchanged product checks. Normal push and
+Draft PR are authorized; hosted Verify is still pending, self-merge/#328 closure remain excluded.
