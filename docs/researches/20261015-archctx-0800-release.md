@@ -30,11 +30,11 @@ The runtime RPC stays v2. The final failure adapters add no method, argument, wi
 
 A caller that parsed diagnostic strings, assumed every projection exception was a precondition, or used the retired checkpoint task and session flags must move to the structured contract. A manual-only committed failure does not authorize replay or reconstruction. Existing journal metadata cannot tell a prepublication crash from a later external deletion, so a missing destination keeps the original backup-restoration behavior, as the [recovery runbook](../runbooks/crash-recovery.md) describes.
 
-CodeGraph remains pinned to `@colbymchenry/codegraph` 1.6.1, Koffi to 3.1.6, Bun to 1.4.3, and Node to `>=22.22 <26`. No runtime dependency, credential or config migration is added.
+CodeGraph moves to `@colbymchenry/codegraph` 1.6.2, with the wrapper and all six platform bundles pinned exactly (#362). 1.6.2 no longer emits the old builtin false call edges; those selectors stay unproven. Koffi stays at 3.1.6, Bun at 1.4.3 and Node at `>=22.22 <26`. No new runtime dependency, credential or config migration is added.
 
 ## Known limitations
 
-- #358: the CodeGraph sync child process crashes intermittently on Windows with `UV_HANDLE_CLOSING`. The cause is not found. It is tracked as a diagnostics issue and is not a release blocker.
+- #358: the CodeGraph sync child process crashed intermittently on Windows with `UV_HANDLE_CLOSING` under 1.6.1. The cause is not found. CodeGraph 1.6.2 is shipped as a mitigation candidate, not a fix, and #358 stays open.
 
 ## Verification
 
