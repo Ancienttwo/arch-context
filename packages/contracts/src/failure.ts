@@ -2,7 +2,7 @@ import { ERROR_CATALOG, canonicalize, type ArchContextErrorCode, type Json, type
 
 /** Only selected entrypoints support transport failures; the legacy AC-only envelope is unchanged. */
 export type FailureCode = ArchContextErrorCode | "RPC_TIMEOUT" | "RPC_ABORTED";
-export const FAILURE_STAGES = Object.freeze(["debt", "complete", "practice-checkpoint", "cli", "mcp", "hook-checkpoint", "failure-metadata"] as const);
+export const FAILURE_STAGES = Object.freeze(["debt", "complete", "practice-checkpoint", "cli", "mcp", "hook-checkpoint", "failure-metadata", "docs-anchors", "flows-check"] as const);
 export type FailureStage = typeof FAILURE_STAGES[number];
 export interface StrictFailure<C extends FailureCode = FailureCode> {
   code: C;
