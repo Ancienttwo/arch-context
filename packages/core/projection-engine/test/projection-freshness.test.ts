@@ -32,7 +32,7 @@ const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
   modelDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
 });
 
 const model: NativeModel = {
@@ -497,7 +497,7 @@ describe("profile-scoped freshness (#290)", () => {
         sourceTreeDigest: architectureDocumentationSourceTreeDigest(root, memberModel, sourceFiles),
         modelDigest: sourceDigest,
         rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-        generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
+        generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
       }),
       sourceFootprints: loadCapabilitySourceFootprintDigests(root, memberModel, sourceFiles),
       sourceScaleSignals: loadCapabilitySourceScaleSignals(root, memberModel, sourceFiles),

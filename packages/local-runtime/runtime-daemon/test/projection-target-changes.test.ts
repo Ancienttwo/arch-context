@@ -64,7 +64,7 @@ function manifest(capabilities = [capability(A, [`${A}.child`]), capability(B, [
     rendererVersion: "archcontext.docs-renderer/v6",
     profile: "repo-harness/v1",
     layoutVersion: "archcontext.docs-layout/v1",
-    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" },
+    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" },
     semanticBaseline: { modelDigest: digest("d"), capabilities },
     targets
   };

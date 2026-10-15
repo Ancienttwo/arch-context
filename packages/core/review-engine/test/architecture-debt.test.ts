@@ -8,7 +8,7 @@ const anchors: DocsAnchorsReportV1 = {
   schemaVersion: "archcontext.docs-anchors/v1", profile: "default", codeGraph: { availability: "unavailable", reasonCode: "index-missing" },
   summary: { nodes: 0, documents: 0, citations: 0, findings: 0, unchecked: 0, byKind: { "line-moved": 0, "line-out-of-range": 0, "missing-path": 0, "missing-symbol": 0, "unknown-selector": 0 } }, nodes: []
 };
-const flows: ArchitectureFlowSelectorCheckV1 = { schemaVersion: "archcontext.flow-selector-check/v1", ok: true, codeGraph: { availability: "ready", version: "1.6.1" },
+const flows: ArchitectureFlowSelectorCheckV1 = { schemaVersion: "archcontext.flow-selector-check/v1", ok: true, codeGraph: { availability: "ready", version: "1.6.2" },
   summary: { selectors: 0, proven: 0, unproven: 0, usedUnproven: 0 }, selectors: [], capabilities: [] };
 const practices = { schemaVersion: "archcontext.practice-enforcement-evaluation/v1", results: [], violations: [], nonBlockingViolations: [], waiversApplied: [], actionsRequired: [] } as unknown as PracticeEnforcementEvaluationV1;
 function clean(): ArchitectureDebtEvidence {
@@ -59,7 +59,7 @@ test("dependency debt uses producer declarations and scopes either endpoint with
 });
 
 test("a missing flow evidence producer is not a fabricated failed flow", () => {
-  const report = evaluateArchitectureDebt({ ...clean(), flows: { ...flows, codeGraph: { availability: "unavailable", version: "1.6.1" }, capabilities: [
+  const report = evaluateArchitectureDebt({ ...clean(), flows: { ...flows, codeGraph: { availability: "unavailable", version: "1.6.2" }, capabilities: [
     { capabilityId: "capability.a", p2Status: "unprovable", diagnostics: [{ code: "evidence-missing", detail: "not measured" }] }
   ] } });
   expect(report.items).toEqual([]);

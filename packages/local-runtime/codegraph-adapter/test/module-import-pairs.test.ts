@@ -9,7 +9,7 @@ const WORKTREE_DIGEST = `sha256:${"a".repeat(64)}`;
 interface FakeIndexOptions {
   /** Extra import nodes beyond the seven named ones, to exceed one fixed-size read. */
   generated?: number;
-  /** Report `nodesByKind.import` in the status, as CodeGraph 1.6.1 does. */
+  /** Report `nodesByKind.import` in the status, as CodeGraph 1.6.2 does. */
   reportCount?: boolean;
   /** Return this many fewer nodes than the status reports, as an index that changed mid-read. */
   queryShortBy?: number;
@@ -48,7 +48,7 @@ if (argv[0] === "query") {
 } else if (argv[0] === "status") {
   process.stdout.write(JSON.stringify({
     initialized: true,
-    version: "1.6.1",
+    version: "1.6.2",
     projectPath: process.cwd(),
     lastIndexed: "2026-09-03T00:00:00Z",
     ...(${index.reportCount ?? false} ? { nodesByKind: { file: 5, [${JSON.stringify(index.countKey ?? "import")}]: importNodes.length } } : {}),

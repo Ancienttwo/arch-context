@@ -332,7 +332,7 @@ test("projection result contract denies raw bodies and keeps deterministic resul
       ...valid.inputSnapshot,
       generatedFrom: {
         codeGraphPackage: "@colbymchenry/codegraph",
-        codeGraphVersion: "1.6.1"
+        codeGraphVersion: "1.6.2"
       }
     }
   } as any).valid).toBe(false);
@@ -352,13 +352,15 @@ test("projection result contract denies raw bodies and keeps deterministic resul
       generatedFrom: { ...valid.inputSnapshot.generatedFrom, codeGraphStatus: "unavailable" }
     }
   } as any).valid).toBe(true);
-  expect(validateJsonSchema(schema as any, {
-    ...valid,
-    outputSnapshot: {
-      ...valid.outputSnapshot,
-      generatedFrom: { ...valid.outputSnapshot.generatedFrom, codeGraphVersion: "1.4.0" }
-    }
-  } as any).valid).toBe(false);
+  for (const codeGraphVersion of ["1.4.0", "1.6.1"]) {
+    expect(validateJsonSchema(schema as any, {
+      ...valid,
+      outputSnapshot: {
+        ...valid.outputSnapshot,
+        generatedFrom: { ...valid.outputSnapshot.generatedFrom, codeGraphVersion }
+      }
+    } as any).valid).toBe(false);
+  }
 });
 
 test("projection result receipt binds refresh signals without a circular hash", () => {
@@ -702,7 +704,7 @@ function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): Projecti
     layoutVersion: "archcontext.docs-layout/v1" as const,
     generatedFrom: {
       codeGraphPackage: "@colbymchenry/codegraph" as const,
-      codeGraphVersion: "1.6.1" as const,
+      codeGraphVersion: "1.6.2" as const,
       codeGraphStatus: "ready" as const
     }
   };

@@ -1138,14 +1138,16 @@ test("CLI flows check reports each selector proof status from a real index witho
     expect(check.codeGraph).toEqual({ availability: "ready", version: productVersionManifest().runtime.codeGraph.requiredVersion });
     expect(Object.fromEntries(check.selectors.map((selector: any) => [selector.sinkId.slice("sink.flows.".length), selector.status]))).toEqual({
       "render": "proven",
-      "resolve": "false-builtin-call",
+      // CodeGraph 1.6.2 omits the old false builtin edge; this selector remains unproven.
+      "resolve": "no-direct-call",
       "wired-render": "only-references",
       "wired-resolve": "no-direct-call",
       "helper-render": "ambiguous-symbol"
     });
     const bySink = (id: string) => check.selectors.find((selector: any) => selector.sinkId === `sink.flows.${id}`);
     expect(bySink("render").callSites).toEqual([{ path: "src/main.ts", line: 6 }]);
-    expect(bySink("resolve").rejectedBuiltinCallSites).toEqual([{ path: "src/main.ts", line: 5 }]);
+    expect(bySink("resolve").callSites).toEqual([]);
+    expect(bySink("resolve").rejectedBuiltinCallSites).toEqual([]);
     expect(bySink("wired-render").referenceSites).toEqual([{ path: "src/wiring.ts", line: 8 }]);
     expect(bySink("resolve").flowSteps).toEqual([{ flowId: "flow.flows-check", stepId: "resolve" }]);
     expect(bySink("wired-resolve").flowSteps).toEqual([]);
@@ -1589,7 +1591,7 @@ describe("archctx CLI", () => {
       expect((doctor.data as any).git).toMatchObject({ ok: true, headSha: "unborn" });
       expectSameExistingPath((doctor.data as any).git.root, root);
       expect((doctor.data as any).permissions.workspace.writable).toBe(true);
-      expect((doctor.data as any).codeGraph.requiredVersion).toBe("1.6.1");
+      expect((doctor.data as any).codeGraph.requiredVersion).toBe("1.6.2");
       expect((doctor.data as any).update).toMatchObject({
         schemaVersion: "archcontext.update-check/v1",
         packageName: "archctx",
@@ -6056,7 +6058,7 @@ describe("archctx CLI", () => {
         layoutVersion: "archcontext.docs-layout/v1",
         generatedFrom: {
           codeGraphPackage: "@colbymchenry/codegraph",
-          codeGraphVersion: "1.6.1"
+          codeGraphVersion: "1.6.2"
         }
       });
       expect((second.data as any).provenance.projectionInputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);

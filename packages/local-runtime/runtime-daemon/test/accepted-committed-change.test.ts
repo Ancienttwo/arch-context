@@ -183,7 +183,7 @@ describe("committed change acceptance helpers", () => {
       rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
       profile: "repo-harness/v1",
       layoutVersion: "archcontext.docs-layout/v1",
-      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" },
+      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" },
       semanticBaseline: { modelDigest: digest("d"), capabilities: [{ ...cap(digest("6")), facets: facets as never, selectorEvidenceDigest }] },
       targets: {
         "projection_target.entity.capability-a": {
@@ -536,7 +536,7 @@ test("planCommittedChangeAcceptance refuses a stale model that no longer matches
       rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
       profile: "repo-harness/v1",
       layoutVersion: "archcontext.docs-layout/v1",
-      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" },
+      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" },
       semanticBaseline: { modelDigest: digest("d"), capabilities: [{ ...capabilityA, facets: facets as never, selectorEvidenceDigest: digest("b") }] },
       targets: {}
     });

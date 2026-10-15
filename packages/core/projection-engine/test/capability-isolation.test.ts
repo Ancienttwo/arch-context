@@ -140,7 +140,7 @@ function render(input: RenderInput = {}): ArchitectureDocumentationProjectionPla
       modelDigest: digestJson(current as unknown as Json),
       rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
       layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
+      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
     }),
     sourceFootprints: declared.map((node) => ({ nodeId: node.id, digest: footprints[node.id]!, fileCount: counts[node.id]! })),
     sourceScaleSignals: declared.map((node) => ({

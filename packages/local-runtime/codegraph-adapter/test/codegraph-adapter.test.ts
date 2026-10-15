@@ -17,14 +17,14 @@ describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
     const invocation = packagedCodeGraphCliInvocation();
     expect(invocation.command).toBe(process.execPath);
     expect(invocation.argsPrefix[0]).toEndWith(join("node_modules", "@colbymchenry", "codegraph", "npm-shim.js"));
-    expect(REQUIRED_CODEGRAPH_VERSION).toBe("1.6.1");
+    expect(REQUIRED_CODEGRAPH_VERSION).toBe("1.6.2");
     const root = mkdtempSync(join(tmpdir(), "archctx-packaged-codegraph-runtime-"));
     try {
       const prepared = prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
         sourceTreeDigest: `sha256:${"0".repeat(64)}`
       });
       expect(prepared.handshake).toMatchObject({
-        actualVersion: "1.6.1",
+        actualVersion: "1.6.2",
         availability: "unavailable",
         reasonCode: "index-missing"
       });
@@ -45,13 +45,13 @@ describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
       writeFileSync(binary, `
 import { existsSync, writeFileSync } from "node:fs";
 const argv = process.argv.slice(2);
-if (argv[0] === "--version") { process.stdout.write("1.6.1\\n"); process.exit(0); }
+if (argv[0] === "--version") { process.stdout.write("1.6.2\\n"); process.exit(0); }
 if (argv[0] === "sync") { writeFileSync(${JSON.stringify(synced)}, "ok"); process.exit(0); }
 if (argv[0] === "status") {
   const clean = existsSync(${JSON.stringify(synced)});
   process.stdout.write(JSON.stringify({
     initialized: true,
-    version: "1.6.1",
+    version: "1.6.2",
     projectPath: ${JSON.stringify(actualRoot)},
     lastIndexed: clean ? "2026-08-08T09:00:00.000Z" : "2026-08-08T08:00:00.000Z",
     fileCount: 2,
@@ -61,7 +61,7 @@ if (argv[0] === "status") {
     languages: ["typescript"],
     pendingChanges: { added: 0, modified: clean ? 0 : 1, removed: 0 },
     worktreeMismatch: null,
-    index: { builtWithVersion: "1.6.1", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
+    index: { builtWithVersion: "1.6.2", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
   }));
   process.exit(0);
 }
@@ -74,9 +74,9 @@ process.exit(2);
       });
       expect(prepared.importGraphs).toEqual([]);
       expect(prepared.handshake).toMatchObject({
-        actualVersion: "1.6.1",
+        actualVersion: "1.6.2",
         availability: "ready",
-        requiredVersion: "1.6.1"
+        requiredVersion: "1.6.2"
       });
       expect(prepared.handshake.binaryDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
       expect(prepared.handshake.preSyncStatusDigest).not.toBe(prepared.handshake.postSyncStatusDigest);
@@ -92,11 +92,13 @@ process.exit(2);
     const binary = join(root, "fake-codegraph.js");
     try {
       mkdirSync(join(root, ".codegraph"));
-      writeFileSync(binary, "if (process.argv[2] === '--version') process.stdout.write('1.4.0\\n');\n");
-      expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
-        binary,
-        sourceTreeDigest: `sha256:${"2".repeat(64)}`
-      })).toThrow("actual binary 1.4.0");
+      for (const version of ["1.4.0", "1.6.1"]) {
+        writeFileSync(binary, `if (process.argv[2] === '--version') process.stdout.write('${version}\\n');\n`);
+        expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+          binary,
+          sourceTreeDigest: `sha256:${"2".repeat(64)}`
+        })).toThrow(`actual binary ${version}`);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -106,7 +108,7 @@ process.exit(2);
     const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-timeout-"));
     const binary = join(root, "fake-codegraph.js");
     try {
-      writeFileSync(binary, "setTimeout(() => process.stdout.write('1.6.1\\n'), 500);\n");
+      writeFileSync(binary, "setTimeout(() => process.stdout.write('1.6.2\\n'), 500);\n");
       let failure: unknown;
       try {
         prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
@@ -148,7 +150,7 @@ process.exit(2);
       writeFileSync(binary, `
 import { appendFileSync } from "node:fs";
 appendFileSync(${JSON.stringify(calls)}, process.argv[2] + "\\n");
-if (process.argv[2] === "--version") { process.stdout.write("1.6.1\\n"); process.exit(0); }
+if (process.argv[2] === "--version") { process.stdout.write("1.6.2\\n"); process.exit(0); }
 process.stderr.write("status probe rejected");
 process.exit(7);
 `);
@@ -173,12 +175,12 @@ process.exit(7);
       mkdirSync(join(root, ".codegraph"));
       writeFileSync(binary, `
 const argv = process.argv.slice(2);
-if (argv[0] === "--version") process.stdout.write("1.6.1\\n");
+if (argv[0] === "--version") process.stdout.write("1.6.2\\n");
 else if (argv[0] === "sync") process.exit(0);
 else if (argv[0] === "status") process.stdout.write(JSON.stringify({
-  initialized: true, version: "1.6.1", projectPath: ${JSON.stringify(actualRoot)}, lastIndexed: "2026-08-08T09:00:00.000Z",
+  initialized: true, version: "1.6.2", projectPath: ${JSON.stringify(actualRoot)}, lastIndexed: "2026-08-08T09:00:00.000Z",
   pendingChanges: { added: 0, modified: 1, removed: 0 }, worktreeMismatch: null,
-  index: { builtWithVersion: "1.6.1", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
+  index: { builtWithVersion: "1.6.2", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
 }));
 else process.exit(2);
 `);

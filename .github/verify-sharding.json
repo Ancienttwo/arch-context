@@ -24,6 +24,11 @@
     },
     {
       "os": "windows-latest",
+      "node-version": "24.x",
+      "shards": 3
+    },
+    {
+      "os": "windows-latest",
       "node-version": "25.x",
       "shards": 3
     }
