@@ -50,7 +50,8 @@ Coordinator reports that an in-process incomplete rollback leaves a durable pend
 - [x] Repair confirmed CI producer/surface losses and preserve original preview diagnostics; original two review lanes rechecked with no remaining P1/P2.
 - [x] Receive coordinator aggregate findings and ordinary same-branch push authorization.
 - [x] Run bounded whole-file residual controls and product post/governance readbacks, retaining every failed attempt; CLI acceptance remains blocked.
-- [ ] Commit the final follow-up locally; ordinary push/new hosted checks remain gated on whole-CLI acceptance or explicit coordinator disposition of the residual failure.
+- [x] Commit the follow-up locally at805eed211dc31dafe7b3a310c412cdae423192f7; coordinator latest instruction directs ordinary same-branch push for remote verification.
+- [ ] Complete exact-head hosted verification and coordinator merge acceptance.
 
 ## PR360 CI follow-up
 
@@ -59,3 +60,6 @@ Both completed jobs have the same151 unique failures (140 RPC-table tests, 11 ot
 Full unfiltered follow-up attempt finished with3234 pass/3 existing skip/2 fail across275 files. The pending-journal acceptance fixture now keeps pending last, retains every refusal assertion and adds immediate/later-writer quarantine checks; its whole file passes36/0. The unmodified15s CLI freshness test passed743.09ms in the first whole-file control. That control ended111/1 with a different opaque docs-adoption refusal; one assertion-context-only edit supports a bounded second whole-file control. No full-root repeat or timeout increase. Release-prep and CodeGraph1.6.2 remain queued; no added execution scope.
 
 Final bounded-control status: acceptance36/0; first whole CLI111/1, second110/2. Original freshness deadline passed in both controls743.09ms/735.80ms. The new intermittent refusals are docs.adopt and the shared helper signal plan; the diagnostic assertion captures registered W1 at public-operation, not an underlying cause. A diagnostic-only real shared helper passed once, then3/3 fresh fixtures in one process; these do not count as test acceptance or prove dependency/load attribution. No further full/root repetition or CodeGraph change. Existing verify:post and all23 governance inspect commands pass individually (no skip); the original overall governance command remains exit1. Freeze includes1477 exact inputs with no drift. Remaining CLI gate prevents push/merge; retain one local reviewable commit and report the blocker to the coordinator.
+
+
+Coordinator publication update: after the local hold above, the coordinator explicitly requests completing the necessary post checks and promptly delivering the exact HEAD for remote verification. All post checks and23 inspect commands are now complete and green; final typecheck passes. Proceed with ordinary same-branch push under that latest instruction, retaining the full/CLI failed attempts and unresolved intermittent W1 in the handoff and PR validation. This supersedes the earlier temporary publication hold; it does not claim local overall-governance success, classify the intermittent cause, or authorize merge/CI cancellation/manual rerun. Product inputs remain unchanged from805eed21.
