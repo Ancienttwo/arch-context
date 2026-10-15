@@ -15,6 +15,8 @@ Implement only the coordinator/user-approved independent Governance CI adjustmen
 
 ```yaml
 allowed_paths:
+  - docs/architecture/.projection-manifest.json
+  - docs/verification/architecture-ledger-al9-doc-projections-readback.json
   - .github/workflows/verify.yml
   - scripts/verify-ci.mjs
   - scripts/verify-governance.mjs
@@ -36,3 +38,7 @@ allowed_paths:
 ## Change Assessment
 
 The change affects orchestration only: no product API/runtime, ledger data, dependency or version change. Failure propagation and current-provider binding require negative tests; all existing23 inspection entries, FG6-EG2 condition, nine-target coverage and permissions must be preserved.
+
+## Later explicit authorization: accepted main integration
+
+After #362 provider43of43success and exact-head independentLGTM, the coordinator directed root to Ready+squash362, keep358open, then ordinary merge accepted main into361, reverify and ordinary push. This authorizes upstream dependency/contracts/fixture changes through that merge despite the original CI-only change scope. It does not authorize a new dependency decision, product code changes, sharding takeover, runtime/flag/budget/exit relaxation or release. Refresh any necessary generated stamp only through supported docs apply and current AL9 record/readback; preserve the5original CI source hashes. Hosted evidence on the new exact head remains necessary.
