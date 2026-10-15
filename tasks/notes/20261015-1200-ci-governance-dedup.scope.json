@@ -1,0 +1,32 @@
+{
+  "base": "be19d8ec1fb8767a2edff4de92188f43557cb958",
+  "allowedPaths": [
+    ".github/workflows/verify.yml",
+    "docs/architecture/.projection-manifest.json",
+    "docs/verification/architecture-ledger-al9-doc-projections-readback.json",
+    "plans/plan-20261015-1200-ci-governance-dedup.md",
+    "scripts/governance-verify-workflow.test.ts",
+    "scripts/verify-ci.mjs",
+    "scripts/verify-governance.mjs",
+    "scripts/verify-sharding-workflow.test.ts",
+    "tasks/contracts/20261015-1200-ci-governance-dedup.contract.md",
+    "tasks/notes/20261015-1200-ci-governance-dedup.notes.md",
+    "tasks/notes/20261015-1200-ci-governance-dedup.scope.json",
+    "tasks/reviews/20261015-1200-ci-governance-dedup.review.md"
+  ],
+  "protected": [
+    "PR360 product worktree",
+    "primary checkout",
+    "Mini Claude BYOK",
+    "release prep",
+    "all dependency versions",
+    "contents:read",
+    "existing budgets and inspection/ledger conditions"
+  ],
+  "acceptedMainIntegration": {
+    "source": "e18e0428b9dc51aa4ecf30fafd76def3f7cff27b",
+    "ordinaryMerge": "e7928b24d7e45a37f7ef5b70d6f3852a2eede936",
+    "ciFilesMustMatch": "b3875dc83bfae7d141292e7fe0da0aca96d42c30",
+    "excluded": "PR363 Claude branch and Windows sharding implementation"
+  }
+}

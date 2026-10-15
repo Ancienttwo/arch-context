@@ -6,10 +6,92 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import {
   discoverTestFiles, executeShard, expectedWorkers, jobVerdicts, NODE_TARGETS, OS_TARGETS,
-  partitionFiles, readConfig, runnerMinutes, targetName, validateCoverage
+  partitionFiles, readConfig, runnerMinutes, targetName, validateCoverage,
+  GOVERNANCE_WORKER, governanceSourceHead, hostedJobs, validateGovernancePrerequisite
 } from "./verify-ci.mjs";
 
 const identity = { runId: 123, attempt: 1, checkoutSha: "a".repeat(40) };
+
+function governanceFixture(eventName = "pull_request") {
+  const sourceHeadSha = eventName === "pull_request" ? "b".repeat(40) : identity.checkoutSha;
+  const run = { id: identity.runId, run_attempt: identity.attempt, head_sha: sourceHeadSha, event: eventName, path: ".github/workflows/verify.yml" };
+  const job = { id: 17, name: GOVERNANCE_WORKER, status: "completed", conclusion: "success", run_id: run.id, run_attempt: run.run_attempt,
+    head_sha: sourceHeadSha, steps: [{ name: "Verify", status: "completed", conclusion: "success" }] };
+  return { run, jobs: [job], context: { eventName, sourceHeadSha, actualCheckoutSha: identity.checkoutSha,
+    prerequisiteResult: "success", prerequisiteCheckoutSha: identity.checkoutSha } };
+}
+
+test("Governance binds the provider's current full worker and both checkouts while distinguishing PR merge/source SHAs", () => {
+  for (const event of ["pull_request", "push", "workflow_dispatch"]) {
+    const { run, jobs, context } = governanceFixture(event);
+    expect(validateGovernancePrerequisite(identity, run, jobs, context)).toBe(jobs[0]);
+    expect(run.head_sha === identity.checkoutSha).toBe(event !== "pull_request");
+  }
+});
+
+test("Governance rejects green booleans with missing, stale, duplicate, cancelled, skipped or mismatched provider evidence", () => {
+  const mutations: ((fixture: any) => void)[] = [
+    f => f.jobs = [], f => f.jobs.push(structuredClone(f.jobs[0])),
+    f => f.jobs[0].id = undefined, f => f.jobs[0].name = "unrelated worker",
+    f => f.run.id++, f => f.run.run_attempt++, f => f.run.head_sha = "c".repeat(40),
+    f => f.run.path = ".github/workflows/other.yml", f => f.run.event = "push",
+    f => f.context.eventName = "pull_request_target", f => f.context.sourceHeadSha = "",
+    f => f.context.actualCheckoutSha = "b".repeat(40),
+    f => f.context.prerequisiteCheckoutSha = "b".repeat(40), f => f.context.prerequisiteCheckoutSha = "",
+    f => f.jobs[0].run_id++, f => f.jobs[0].run_attempt++, f => f.jobs[0].head_sha = "c".repeat(40),
+    f => f.jobs[0].status = "in_progress", f => f.jobs[0].steps = [],
+    f => f.jobs[0].steps.push(structuredClone(f.jobs[0].steps[0])), f => f.jobs[0].steps[0].status = "in_progress"
+  ];
+  for (const conclusion of ["failure", "skipped", "cancelled", "timed_out", "neutral", null]) {
+    mutations.push(f => f.jobs[0].conclusion = conclusion, f => f.jobs[0].steps[0].conclusion = conclusion,
+      f => f.context.prerequisiteResult = conclusion);
+  }
+  for (const mutate of mutations) {
+    const fixture = governanceFixture(); mutate(fixture);
+    expect(() => validateGovernancePrerequisite(identity, fixture.run, fixture.jobs, fixture.context)).toThrow();
+  }
+});
+
+test("Governance reads the immutable PR event source head and rejects missing or malformed authority", () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-governance-event-"));
+  const path = join(root, "event.json");
+  const env = { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: path, GITHUB_SHA: identity.checkoutSha };
+  try {
+    writeFileSync(path, JSON.stringify({ pull_request: { head: { sha: "b".repeat(40) } } }));
+    expect(governanceSourceHead(env)).toBe("b".repeat(40));
+    for (const body of ["{", "{}", JSON.stringify({ pull_request: { head: { sha: "invalid" } } })]) {
+      writeFileSync(path, body); expect(() => governanceSourceHead(env)).toThrow();
+    }
+    rmSync(path);
+    expect(() => governanceSourceHead(env)).toThrow();
+    for (const event of ["push", "workflow_dispatch"]) expect(governanceSourceHead({ ...env, GITHUB_EVENT_NAME: event })).toBe(identity.checkoutSha);
+    expect(() => governanceSourceHead({ ...env, GITHUB_EVENT_NAME: "pull_request_target" })).toThrow();
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("hosted readback uses only this attempt's provider jobs and refuses API/pagination failures without artifacts", async () => {
+  const env = { GITHUB_REPOSITORY: "Ancienttwo/arch-context", GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha };
+  const { run, jobs } = governanceFixture();
+  const paths: string[] = [];
+  const valid = await hostedJobs(env, async (path: string) => {
+    paths.push(path); return path.includes("/jobs?") ? { total_count: jobs.length, jobs } : run;
+  });
+  expect(valid).toEqual({ run, jobs });
+  expect(paths).toEqual(["repos/Ancienttwo/arch-context/actions/runs/123", "repos/Ancienttwo/arch-context/actions/runs/123/attempts/1/jobs?per_page=100&page=1"]);
+  for (const changed of [{ ...run, id: 122 }, { ...run, run_attempt: 2 }]) {
+    await expect(hostedJobs(env, async () => changed)).rejects.toThrow();
+  }
+  await expect(hostedJobs(env, async () => { throw new Error("provider read failed"); })).rejects.toThrow("provider read failed");
+  for (const mode of ["missing-page", "duplicate-id", "overcount", "invalid-count"]) {
+    await expect(hostedJobs(env, async (path: string) => {
+      if (!path.includes("/jobs?")) return run;
+      if (mode === "invalid-count") return { total_count: -1, jobs: [] };
+      if (mode === "overcount") return { total_count: 0, jobs };
+      if (path.endsWith("page=1")) return { total_count: 2, jobs };
+      return { total_count: 2, jobs: mode === "missing-page" ? [] : jobs };
+    })).rejects.toThrow();
+  }
+});
 
 test("native Bun discovery, additions/deletions, spaces and empty files agree with a real unfiltered run", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-shard-discovery-test-"));
@@ -133,7 +215,7 @@ test("runner cost sums parallel jobs and counts install time separately from wal
   expect(runnerMinutes([{ ...jobs[0], runner_id: 0, status: "skipped" }]).completedMinutes).toBe(0);
 });
 
-test("six-target topology emits eighteen shards, three full workers, thirty-three execution jobs and thirty-five installs in forty-seven jobs", () => {
+test("six-target topology shares one Linux full worker, emits eighteen shards, thirty-three executions and thirty-five installs in forty-seven jobs", () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-six-target-topology-test-"));
   try {
     const outputPath = join(root, "github-output");
@@ -150,14 +232,17 @@ test("six-target topology emits eighteen shards, three full workers, thirty-thre
     expect(outputs.split.include).toEqual(config.splitTargets);
     expect(outputs.split.include).toHaveLength(6);
     expect(outputs.shards.include).toHaveLength(18);
-    expect(outputs.excluded).toEqual(config.splitTargets.map(({ os, "node-version": node }: { os: string; "node-version": string }) => ({ os, "node-version": node })));
+    expect(outputs.excluded).toEqual([
+      ...config.splitTargets.map(({ os, "node-version": node }: { os: string; "node-version": string }) => ({ os, "node-version": node })),
+      { os: "ubuntu-latest", "node-version": "22.22.x" }
+    ]);
     for (const row of config.splitTargets) {
       expect(outputs.shards.include.filter((shard: any) => shard.os === row.os && shard["node-version"] === row["node-version"]))
         .toEqual(Array.from({ length: 3 }, (_, index) => ({ ...row, index, shard: index + 1 })));
     }
     const fullTargets = OS_TARGETS.flatMap(os => NODE_TARGETS.map(node => ({ os, "node-version": node })))
       .filter(row => !outputs.excluded.some((excluded: any) => excluded.os === row.os && excluded["node-version"] === row["node-version"]));
-    expect(fullTargets).toHaveLength(3);
+    expect(fullTargets).toHaveLength(2);
     expect(fullTargets.every(row => expectedWorkers(config, row.os, row["node-version"]).length === 1)).toBe(true);
     expect(OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node)))).toHaveLength(33);
     const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
@@ -171,6 +256,8 @@ test("six-target topology emits eighteen shards, three full workers, thirty-thre
     const jobs = Object.entries(workflow.jobs).flatMap(([id, job]) => Array.from({ length: counts[id] ?? 1 }, () => job as any));
     expect(jobs).toHaveLength(47);
     expect(jobs.filter(job => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(35);
+    expect(workflow.jobs["verify-collect"].needs).toContain("verify-linux-full");
+    expect(workflow.jobs["verify-linux-full"].name).toBe("Verify execution: ubuntu-latest / Node 22.22.x / full");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

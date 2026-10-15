@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { verifyGovernancePrerequisite } from "./verify-ci.mjs";
 
-const commands = [
+export const GOVERNANCE_COMMANDS = [
   command("bun", ["run", "verify"]),
   command("bun", ["scripts/fg3-real-pr-synchronize-e2e.ts", "inspect", "--evidence", "docs/verification/fg3-real-pr-synchronize-e2e.json", "--json"]),
   command("bun", ["scripts/fg4-public-fork-adversarial-readback.ts", "inspect", "--evidence", "docs/verification/fg4-public-fork-adversarial-readback.json", "--json"]),
@@ -31,49 +34,63 @@ const commands = [
   command("bun", ["scripts/fg6-rollback-compat-readback.ts", "inspect", "--evidence", "docs/verification/fg6-rollback-compat-readback.json", "--json"])
 ];
 
-const results = [];
-const ledgerStatuses = readLedgerStatuses();
-for (const entry of commands) {
-  const skipReason = skipReasonFor(entry, ledgerStatuses);
-  if (skipReason) {
+export function runGovernanceCommands(commands, { ledgerStatuses = readLedgerStatuses(), spawn = spawnSync, env = process.env, logger = console } = {}) {
+  const results = [];
+  for (const entry of commands) {
+    const skipReason = skipReasonFor(entry, ledgerStatuses);
+    if (skipReason) {
+      const result = {
+        command: [entry.command, ...entry.args].join(" "),
+        exitCode: 0,
+        durationMs: 0,
+        skipped: true,
+        reason: skipReason
+      };
+      results.push(result);
+      logger.log(`[verify-governance] skipped pending evidence: ${result.command} (${skipReason})`);
+      continue;
+    }
+
+    const startedAt = Date.now();
+    const child = spawn(entry.command, entry.args, {
+      stdio: "inherit",
+      env,
+      shell: false
+    });
     const result = {
       command: [entry.command, ...entry.args].join(" "),
-      exitCode: 0,
-      durationMs: 0,
-      skipped: true,
-      reason: skipReason
+      exitCode: child.status ?? 1,
+      durationMs: Date.now() - startedAt
     };
     results.push(result);
-    console.log(`[verify-governance] skipped pending evidence: ${result.command} (${skipReason})`);
-    continue;
+    if (result.exitCode !== 0) {
+      logger.error(`[verify-governance] failed: ${result.command}`);
+      throw Object.assign(new Error(`Governance command failed: ${result.command}`), { exitCode: result.exitCode });
+    }
   }
 
-  const startedAt = Date.now();
-  const child = spawnSync(entry.command, entry.args, {
-    stdio: "inherit",
-    env: process.env,
-    shell: false
-  });
-  const result = {
-    command: [entry.command, ...entry.args].join(" "),
-    exitCode: child.status ?? 1,
-    durationMs: Date.now() - startedAt
+  const report = {
+    schemaVersion: "archcontext.verify-governance/v1",
+    status: "verified",
+    ok: true,
+    commandCount: results.length,
+    skippedCount: results.filter((result) => result.skipped === true).length,
+    results
   };
-  results.push(result);
-  if (result.exitCode !== 0) {
-    console.error(`[verify-governance] failed: ${result.command}`);
-    process.exit(result.exitCode);
-  }
+  logger.log(JSON.stringify(report, null, 2));
+  return report;
 }
 
-console.log(JSON.stringify({
-  schemaVersion: "archcontext.verify-governance/v1",
-  status: "verified",
-  ok: true,
-  commandCount: results.length,
-  skippedCount: results.filter((result) => result.skipped === true).length,
-  results
-}, null, 2));
+export async function main(args = process.argv.slice(2)) {
+  if (args.length !== 0 && (args.length !== 1 || args[0] !== "--ci-inspect")) throw new Error("Expected no arguments or --ci-inspect");
+  if (args.length === 1) {
+    // No boolean, cached artifact or local flag can stand in for this provider readback.
+    const prerequisite = await verifyGovernancePrerequisite();
+    console.log(`[verify-governance] current prerequisite: ${JSON.stringify(prerequisite)}`);
+    return runGovernanceCommands(GOVERNANCE_COMMANDS.slice(1));
+  }
+  return runGovernanceCommands(GOVERNANCE_COMMANDS);
+}
 
 function command(command, args, options = {}) {
   return { command, args, ...options };
@@ -87,4 +104,8 @@ function readLedgerStatuses() {
 function skipReasonFor(entry, ledgerStatuses) {
   const pendingIds = (entry.requiresCompletedLedgerIds ?? []).filter((id) => ledgerStatuses.get(id) !== "completed");
   return pendingIds.length > 0 ? `waiting for completed acceptance ledger entries: ${pendingIds.join(", ")}` : "";
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(error => { console.error(error); process.exitCode = error.exitCode ?? 1; });
 }
