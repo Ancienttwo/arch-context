@@ -2,6 +2,11 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { join } from "node:path";
 
+// Set-Acl launches powershell.exe like the product's native control-file create, so it gets the
+// same 60 s budget (src/index.ts). Hosted launches reach 12-25 s under load; at 10 s this fixture
+// timed out four times in Windows CI shards while the same test passed in isolation.
+export const WINDOWS_ACL_FIXTURE_TIMEOUT_MS = 60_000;
+
 export function grantEveryoneRead(path: string): void {
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -17,7 +22,7 @@ Set-Acl -LiteralPath $path -AclObject $acl
 `;
   execFileSync(join(process.env.SystemRoot!, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), [
     "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")
-  ], { input: JSON.stringify(path), encoding: "utf8", timeout: 10_000 });
+  ], { input: JSON.stringify(path), encoding: "utf8", timeout: WINDOWS_ACL_FIXTURE_TIMEOUT_MS });
 }
 
 /** Opens `path` the way a private read does (delete sharing denied) and holds it for `holdMs`. */
