@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { FailureError, failureIssues } from "@archcontext/contracts";
+import { FailureError, failureIssues, knownFailure, toEnvelope } from "@archcontext/contracts";
 import { ArchctxDaemon, createStartedDaemon } from "../src/index";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
@@ -161,4 +161,111 @@ test("projection mismatch metadata is copied from the typed failure without read
   expect(envelope.error).toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"projection-snapshot-mismatch",details:{field:"repositoryId"}});
   expect(failureIssues(envelope.error)).toEqual([]);expect(calls).toBe(0);
  }finally{removeTempRepo(root);}
+});
+
+
+function publicWriterFiles(root: string): Record<string, string> {
+  const { readFileSync, readdirSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  const files: Record<string, string> = {};
+  const walk = (relative: string) => {
+    for (const entry of readdirSync(join(root, relative), { withFileTypes: true })) {
+      if (entry.name === ".git") continue;
+      const path = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile()) files[path] = readFileSync(join(root, path), "utf8");
+    }
+  };
+  walk("");
+  return files;
+}
+
+test("approved public docs pin preserves a racing descriptor preimage and returns its registered refusal", async () => {
+  const { createInitializedGitRepo, removeTempRepo } = await import("./runtime-test-fixtures");
+  const { setDescriptorRelativeWriteTestHook } = await import("../../../core/changeset-engine/src/descriptor-relative-write");
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = createInitializedGitRepo();
+  const { daemon, store } = fixture();
+  await daemon.start();
+  const relative = ".archcontext/integrations/context7.lock.yaml";
+  const external = JSON.stringify({ schemaVersion: "archcontext.context7-lockfile/v1", provider: "context7", libraries: [], marker: "racing writer" });
+  const before = publicWriterFiles(root);
+  let reached = 0;
+  setDescriptorRelativeWriteTestHook(() => {
+    reached++;
+    setDescriptorRelativeWriteTestHook(undefined);
+    writeFileSync(join(root, relative), external, "utf8");
+  });
+  try {
+    const result = await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true });
+    expect(reached).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.error).toEqual(knownFailure("AC_PRECONDITION_FAILED", "apply-preimage-changed", { issueCount: 1 }));
+    expect(failureIssues(result.error)).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(root);
+    expect(publicWriterFiles(root)).toEqual({ ...before, [relative]: external });
+    expect(store.changeSetJournals.size).toBe(0);
+  } finally {
+    setDescriptorRelativeWriteTestHook(undefined);
+    await daemon.stop();
+    removeTempRepo(root);
+  }
+});
+
+test("public init rolls back its created model and preserves a racing generated preimage with typed refusal", async () => {
+  const { createGitRepo, removeTempRepo } = await import("./runtime-test-fixtures");
+  const { setDescriptorRelativeWriteTestHook } = await import("../../../core/changeset-engine/src/descriptor-relative-write");
+  const { existsSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = createGitRepo();
+  const { daemon, store } = fixture();
+  await daemon.start();
+  const relative = ".archcontext/generated/ARCHITECTURE.md";
+  const external = "racing generated destination; preserve these bytes\n";
+  const before = publicWriterFiles(root);
+  let reached = 0;
+  setDescriptorRelativeWriteTestHook(() => {
+    if (!existsSync(join(root, ".archcontext/generated"))) return;
+    reached++;
+    setDescriptorRelativeWriteTestHook(undefined);
+    writeFileSync(join(root, relative), external, "utf8");
+  });
+  try {
+    const error = await daemon.init(root, "Racing init").catch((caught: unknown) => caught);
+    expect(reached).toBe(1);
+    strict(error, "AC_PRECONDITION_FAILED");
+    const envelope = toEnvelope("init", error, "public-operation");
+    expect(envelope.error).toEqual(knownFailure("AC_PRECONDITION_FAILED", "apply-preimage-changed", { issueCount: 1 }));
+    expect(JSON.stringify(envelope)).not.toContain(root);
+    expect(publicWriterFiles(root)).toEqual({ ...before, [relative]: external });
+    expect(store.changeSetJournals.size).toBe(0);
+  } finally {
+    setDescriptorRelativeWriteTestHook(undefined);
+    await daemon.stop();
+    removeTempRepo(root);
+  }
+});
+
+test("unknown descriptor I/O with a lookalike diagnostic remains safe unclassified at public pin", async () => {
+  const { createInitializedGitRepo, removeTempRepo } = await import("./runtime-test-fixtures");
+  const { setDescriptorRelativeWriteTestHook } = await import("../../../core/changeset-engine/src/descriptor-relative-write");
+  const root = createInitializedGitRepo();
+  const { daemon, store } = fixture();
+  await daemon.start();
+  const before = publicWriterFiles(root);
+  setDescriptorRelativeWriteTestHook(() => { throw new Error(`Expected hash mismatch: ${privateText}`); });
+  try {
+    const result = await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
+    expect(failureIssues(result.error)).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(privateText);
+    expect(publicWriterFiles(root)).toEqual(before);
+    expect(store.changeSetJournals.size).toBe(0);
+  } finally {
+    setDescriptorRelativeWriteTestHook(undefined);
+    await daemon.stop();
+    removeTempRepo(root);
+  }
 });

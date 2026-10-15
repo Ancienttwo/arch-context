@@ -15,6 +15,7 @@ Explicit latest coordinator authorization expands the prior finite recovery/floo
 
 ```yaml
 allowed_paths:
+  - packages/core/changeset-engine/src/descriptor-relative-write.ts
   - packages/contracts/src/failure.ts
   - packages/contracts/src/index.ts
   - packages/contracts/src/changeset-recovery.ts
@@ -94,3 +95,7 @@ Latest coordinator authorization supersedes the temporary push hold: original CI
 
 
 Coordinator publication update: after the local hold above, the coordinator explicitly requests completing the necessary post checks and promptly delivering the exact HEAD for remote verification. All post checks and23 inspect commands are now complete and green; final typecheck passes. Proceed with ordinary same-branch push under that latest instruction, retaining the full/CLI failed attempts and unresolved intermittent W1 in the handoff and PR validation. This supersedes the earlier temporary publication hold; it does not claim local overall-governance success, classify the intermittent cause, or authorize merge/CI cancellation/manual rerun. Product inputs remain unchanged from805eed21.
+
+Coordinator explicitly authorizes same-branch P1 legacy duplicate manifest recovery repair in local-store-sqlite/src/index.ts and complete test/changeset-recovery.test.ts plus existing local-store-sqlite.test.ts. Compare only the final postimage per normalized manifest destination, retain reverse rollback and true external conflict protection. Pending CLI W1 attribution stays isolated/read-only until a product regression is confirmed. No push until current CI38724679198 terminal.
+
+Coordinator explicitly adds only descriptor-relative-write known stale-preimage/EEXIST predicates, reusing registered preimage failure data while retaining local diagnostic messages. Add real public docs.pin/init adversarial conflict/no-write regressions in final-public-failures.test.ts. Unknown I/O stays safe-unclassified; no locking redesign and no claim this is the intermittent W1 cause.

@@ -83,6 +83,11 @@ writes in another repository served by the same daemon. It does not automaticall
 an operation is active. If the journal snapshot cannot be read, status and later writes require
 a successful read before proceeding; the original failure or committed result is retained.
 Startup recovery refuses the same conflicting existing bytes, including a first-created manifest.
+Historical journals may record a manifest destination more than once. Recovery checks that
+normalized destination against its final journal postimage, then uses the existing reverse
+rollback to unwind the entries. If a later existing-file entry has no backup, its earlier
+rollback-relevant postimage remains eligible for an unpublished intent or interrupted unwind;
+arbitrary external bytes still require manual recovery.
 
 A missing destination has no external bytes to protect, so existing recovery may restore its
 complete backup. The current journal cannot distinguish a crash before publication from an

@@ -8,6 +8,8 @@ import {
   ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION,
   architectureEventHash,
   digestJson,
+  FailureError,
+  knownFailure,
   validateJsonSchema,
   type ArchitectureCandidateDeltaPolicyEvaluationV1,
   type ArchitectureCandidateDeltaV1
@@ -811,6 +813,14 @@ describe("writeFileWithoutFollowingSymlinks", () => {
     return { root, outside };
   }
 
+  function expectDescriptorPreimageRefusal(write: () => void): void {
+    let refusal: unknown;
+    try { write(); } catch (error) { refusal = error; }
+    expect(refusal).toBeInstanceOf(FailureError);
+    expect((refusal as FailureError).failure).toEqual(knownFailure("AC_PRECONDITION_FAILED", "apply-preimage-changed", { issueCount: 1 }));
+    expect((refusal as Error).message).toContain("Expected hash mismatch");
+  }
+
   function bodyHash(body: string): string {
     return digestJson({ body });
   }
@@ -836,22 +846,22 @@ describe("writeFileWithoutFollowingSymlinks", () => {
       writeFileWithoutFollowingSymlinks({ root, path: RELATIVE, body: "second\n", mode: 0o600, expectedHash: bodyHash("first\n") });
       expect(readFileSync(join(root, RELATIVE), "utf8")).toBe("second\n");
 
-      expect(() => writeFileWithoutFollowingSymlinks({
+      expectDescriptorPreimageRefusal(() => writeFileWithoutFollowingSymlinks({
         root,
         path: RELATIVE,
         body: "third\n",
         mode: 0o600,
         expectedHash: bodyHash("first\n")
-      })).toThrow("Expected hash mismatch");
+      }));
       expect(readFileSync(join(root, RELATIVE), "utf8")).toBe("second\n");
 
-      expect(() => writeFileWithoutFollowingSymlinks({
+      expectDescriptorPreimageRefusal(() => writeFileWithoutFollowingSymlinks({
         root,
         path: RELATIVE,
         body: "third\n",
         mode: 0o600,
         expectedHash: "missing"
-      })).toThrow("Expected hash mismatch");
+      }));
       expect(readFileSync(join(root, RELATIVE), "utf8")).toBe("second\n");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -953,12 +963,12 @@ describe("writeFileWithoutFollowingSymlinks", () => {
       writeFileSync(destination, "concurrent writer\n", "utf8");
     });
     try {
-      expect(() => writeFileWithoutFollowingSymlinks({
+      expectDescriptorPreimageRefusal(() => writeFileWithoutFollowingSymlinks({
         root,
         path: RELATIVE,
         body: "late create\n",
         expectedHash: "missing"
-      })).toThrow("Expected hash mismatch");
+      }));
       expect(readFileSync(destination, "utf8")).toBe("concurrent writer\n");
     } finally {
       setDescriptorRelativeWriteTestHook(undefined);

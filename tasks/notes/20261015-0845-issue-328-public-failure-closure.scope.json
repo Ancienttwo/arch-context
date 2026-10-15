@@ -60,7 +60,8 @@
     "packages/core/changeset-engine/test/changeset-engine.test.ts",
     "packages/core/changeset-engine/test/manifest-update.test.ts",
     "packages/core/changeset-engine/test/adr-reference-update.test.ts",
-    "packages/core/changeset-engine/test/refactor-decision-write.test.ts"
+    "packages/core/changeset-engine/test/refactor-decision-write.test.ts",
+    "packages/core/changeset-engine/src/descriptor-relative-write.ts"
   ],
   "soleWriter": "root",
   "review": {
@@ -137,5 +138,36 @@
       "packages/core/changeset-engine/test/refactor-decision-write.test.ts"
     ],
     "finalAuthorization": "Complete current fixes and bounded residual whole-file controls; no added scope. Preserve original failed overall attempt; do not raise budgets or endlessly repeat root."
-  }
+  },
+  "legacyDuplicateManifestP1": {
+    "authorization": "Coordinator explicit same-writer repair, discussion_r4281450751",
+    "paths": [
+      "packages/local-runtime/local-store-sqlite/src/index.ts",
+      "packages/local-runtime/local-store-sqlite/test/changeset-recovery.test.ts",
+      "packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts"
+    ],
+    "gate": "Wait current CI38724679198 terminal before concentrated ordinary push",
+    "requirements": [
+      "persistent legacy duplicate-path red/green",
+      "normalized final destination postimage only",
+      "original reverse rollback",
+      "true external conflict bytes/backups/pending preserved"
+    ],
+    "intentOnlyCompatibility": "If the later existing-file entry has no backup, preserve the original recovery of its predecessor owned postimage; final B with a backup remains the only eligible postimage. External C still refused. Reverse loop unchanged."
+  },
+  "descriptorPreimageProducerClosure": {
+    "authorization": "Coordinator explicit public-reachable known stale/EEXIST producer closure for docs pin and init; do not infer W1 cause",
+    "paths": [
+      "packages/core/changeset-engine/src/descriptor-relative-write.ts",
+      "packages/local-runtime/runtime-daemon/test/final-public-failures.test.ts"
+    ],
+    "requirements": [
+      "registered preimage reason/facts at predicates",
+      "preserve local diagnostics",
+      "real public pin/init conflict and no-write assertions",
+      "unknown I/O stays unclassified",
+      "no writer/lock changes"
+    ]
+  },
+  "ciGovernance": "Coordinator owns separate proposed CI budget/dedup change pending user approval; do not research further or edit workflow."
 }

@@ -63,3 +63,27 @@ Final bounded-control status: acceptance36/0; first whole CLI111/1, second110/2.
 
 
 Coordinator publication update: after the local hold above, the coordinator explicitly requests completing the necessary post checks and promptly delivering the exact HEAD for remote verification. All post checks and23 inspect commands are now complete and green; final typecheck passes. Proceed with ordinary same-branch push under that latest instruction, retaining the full/CLI failed attempts and unresolved intermittent W1 in the handoff and PR validation. This supersedes the earlier temporary publication hold; it does not claim local overall-governance success, classify the intermittent cause, or authorize merge/CI cancellation/manual rerun. Product inputs remain unchanged from805eed21.
+
+
+## Coordinator follow-up: legacy duplicate manifest recovery and W1 attribution
+
+Explicit same-writer authorization adds automatic-review P1 discussion_r4281450751: a persisted legacy journal may create manifest A then replace it with B. Recovery must compare the live destination to only that normalized destination's final postimage, then retain the existing reverse rollback. Cover first-created and preexisting destinations, aliases, real external conflict preservation and missing later backup; do not restore unconditional rollback. Run deterministic persisted close/reopen red before product repair and whole affected SQLite recovery files after. Continue W1 only with isolated diagnostic fixtures and a be19d8ec source snapshot; do not seek green by repeating the full root/CLI file. Wait for current CI38724679198 terminal before the next concentrated ordinary push. No CodeGraph upgrade writes or new review fleet.
+
+- [x] Reproduce legacy duplicate manifest journal from persisted SQLite (2 pass/5 fail before repair).
+- [x] Guard the final postimage per normalized destination while preserving byte-identical reverse rollback and external conflicts (7/0).
+- [x] Verify both new fixes across6whole files162/0; preserve inconclusive W1 attribution with exact be19/current paired evidence.
+- [ ] Wait current CI terminal, then concentrate any authorized same-branch publication.
+
+
+Descriptor producer closure: seven explicit stale/EEXIST branches now construct the registered apply-preimage-changed refusal while retaining exact original local diagnostics. Real daemon pin/init tests reproduce13/2 red ->15/0 green; an unknown-I/O lookalike message stays unclassified and no business journal is created. Complete six-file verification passes162tests/1178assertions; type/boundary/production/packaged checks all pass. No lock, dependency, schema or workflow change.
+
+W1 attribution is bounded and inconclusive: shared helper body equals be19 after removing the added assertion diagnostic; same-dependency isolated be19/current sequences each complete12steps/260child executions without failures. The observed full2fail versus CLI1/2fail sets are retained in w1-failure-attribution.json; no product/upstream/load cause is inferred. The two newly fixed findings are independently confirmed, not relabeled as the W1 cause.
+
+Governance job116387478083 reached its15min job boundary, with no assertion failure reported by the coordinator, after verdictPASS and packaged-native smoke. Treat as budget/cancellation evidence, not an assertion regression. Prepare existing remaining-command timings and a bounded split/dedup proposal only; do not change workflow or timeout. Current CI38724679198 still has running sibling legs, so next push remains held.
+
+
+Final recovery edge check before commit: a trailing existing-file intent can be durable before its backup/mutation exists, leaving live A. Checking only recorded B would newly block that previously recoverable state. The added persisted intent-only pair reproduced7/2 against the initial repair, then9/0 after retaining the last rollback-relevant owned postimage when the tail has no backup. When the last B backup exists, that rollback entry is B itself, so the original P1 compares only final B. External C is refused in both initially-present/absent intent-only cases, with bytes/backups/temps retained. Reverse-loop bytes remain identical. This is bounded owned-postimage evidence, not unconditional rollback or a filesystem transaction redesign.
+
+Final affected verification supersedes the earlier162-test intermediate result:164pass/0fail,1198assertions across the same6whole files,51.76s. Final typecheck, boundary, production and packaged checks all exit0;1477 tracked product/config/docs/test hashes are frozen. No filters/new skips/budget change or further full/CLI suite run. W1 remains unclassified; the exact failure matrix and causal limits are in workspace w1-failure-attribution.json.
+
+Coordinator has completed the Governance budget analysis and owns the proposed independent CI adjustment pending human approval. Stop duplicate Governance research; this branch has no workflow change. Keep the current CI terminal gate before any concentrated same-branch push. Release-prep and CodeGraph upgrade remain queued.
