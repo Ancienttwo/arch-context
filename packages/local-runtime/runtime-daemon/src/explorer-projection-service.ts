@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import {
   computeWorktreeDigest
 } from "@archcontext/core/architecture-domain";
@@ -74,27 +75,33 @@ export class ExplorerProjectionService {
   }
 
   async explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2): Promise<JsonEnvelope> {
+    try { return publicOperationResult("explorer.projection.v2", await this.explorerProjectionV2Unchecked(root, query)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async explorerProjectionV2Unchecked(root: string, query: ExplorerProjectionQueryV2): Promise<JsonEnvelope> {
     this.assertRunning();
     try {
       const projection = await this.buildExplorerProjectionV2(root, query);
       return okEnvelope("explorer.projection.v2", projection as unknown as Json);
     } catch (error) {
       if (error instanceof ExplorerProjectionCompileError) {
-        return errorEnvelope(
-          "explorer.projection.v2",
-          error.reason === "precondition-failed" ? "AC_PRECONDITION_FAILED" : "AC_SCHEMA_INVALID",
-          error.message
-        );
+        return publicOperationErrorEnvelope("explorer.projection.v2", error);
       }
       throw error;
     }
   }
 
   async explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV2): Promise<JsonEnvelope> {
+    try { return publicOperationResult("explorer.delta", await this.explorerProjectionDeltaUnchecked(root, query)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async explorerProjectionDeltaUnchecked(root: string, query: ExplorerDeltaQueryV2): Promise<JsonEnvelope> {
     this.assertRunning();
     const queryFailure = validateExplorerDeltaQueryV2(query);
     if (queryFailure) {
-      return errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", queryFailure, "invalid-delta-query");
+      return publicFailureEnvelope("explorer.delta", "AC_SCHEMA_INVALID", "invalid-delta-query", {});
     }
     const readback = await this.architectureLedgerReadback(root);
     const scope = { repository: readback.repository, worktree: readback.worktree };
@@ -159,10 +166,11 @@ export class ExplorerProjectionService {
       return okEnvelope("explorer.delta", delta as unknown as Json);
     } catch (error) {
       if (error instanceof ExplorerDeltaPreconditionError) {
-        return errorEnvelope("explorer.delta", "AC_PRECONDITION_FAILED", error.message, error.reasonCode);
+        const reason = Object.getOwnPropertyDescriptor(error, "reasonCode");
+        return publicFailureEnvelope("explorer.delta", "AC_PRECONDITION_FAILED", reason && "value" in reason ? reason.value : undefined);
       }
       if (error instanceof ExplorerProjectionCompileError) {
-        return errorEnvelope("explorer.delta", "AC_PRECONDITION_FAILED", error.message, "projection-manifest-incompatible");
+        return publicOperationErrorEnvelope("explorer.delta", error);
       }
       throw error;
     }
@@ -227,9 +235,10 @@ export class ExplorerProjectionService {
         includeSource: false
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const reasonCode = message.includes("CodeGraph index missing") ? "codegraph-index-missing" : "codegraph-unavailable";
-      throw new ExplorerProjectionCompileError("precondition-failed", `required-input-unavailable:observed:${reasonCode}`);
+      // The operation proves observed facts are unavailable; arbitrary provider text proves no cause.
+      throw new ExplorerProjectionCompileError("precondition-failed", "required-input-unavailable:observed", {
+        inputDomain: "observed", availability: "unavailable", cause: "unclassified"
+      });
     }
     await this.processArchitectureChangeFeed(root, scope);
     const pressureResult = observedAvailability.status === "ready" ? detectArchitecturePressure({

@@ -1,3 +1,4 @@
+import { FailureError, knownFailure, unclassifiedFailure } from "@archcontext/contracts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -66,9 +67,11 @@ export function repositoryRefactorRequest(importNodeLimit: number | undefined): 
  * A scan failure the caller can act on. The daemon maps `code` straight onto the envelope; any
  * other throw is a defect and surfaces as `AC_SCHEMA_INVALID`.
  */
-export class RefactorScanError extends Error {
-  constructor(readonly code: ArchContextErrorCode, message: string, readonly reasonCode?: string) {
-    super(message);
+export class RefactorScanError extends FailureError {
+  constructor(code: ArchContextErrorCode, _message: string, reasonCode?: string, details: Record<string, Json> = {}) {
+    const sourceReason = reasonCode ?? (code === "AC_SCHEMA_INVALID" ? "refactor-scan-invalid" : code === "AC_MODEL_ADOPTION_REQUIRED" ? "refactor-model-unreadable" : undefined);
+    const failure = sourceReason === undefined ? unclassifiedFailure("public-operation") : knownFailure(code, sourceReason, details);
+    super(failure.code, failure.reasonCode, failure.details, failure);
     this.name = "RefactorScanError";
   }
 }
@@ -148,7 +151,7 @@ export function refactorRequestId(request: RefactorRequestV1): string {
  */
 export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV1 {
   const issues = refactorRequestInvariantIssues(input.request);
-  if (issues.length > 0) throw new RefactorScanError("AC_SCHEMA_INVALID", issues.join("; "));
+  if (issues.length > 0) throw new RefactorScanError("AC_SCHEMA_INVALID", issues.join("; "), "refactor-input-invalid");
   assertRequestedStateIsCurrent(input.request, input.worktree);
 
   const model = loadModel(input.root);
@@ -400,13 +403,15 @@ function assertRequestedStateIsCurrent(request: RefactorRequestV1, worktree: Arc
   if (request.expectedHeadSha !== undefined && request.expectedHeadSha !== worktree.headSha) {
     throw new RefactorScanError(
       "AC_REFACTOR_STALE",
-      `refactor scan expected HEAD ${request.expectedHeadSha}, current ${worktree.headSha}`
+      `refactor scan expected HEAD ${request.expectedHeadSha}, current ${worktree.headSha}`,
+      "refactor-request-head-changed", { expectedHeadSha: request.expectedHeadSha, actualHeadSha: worktree.headSha }
     );
   }
   if (request.expectedWorktreeDigest !== undefined && request.expectedWorktreeDigest !== worktree.worktreeDigest) {
     throw new RefactorScanError(
       "AC_REFACTOR_STALE",
-      `refactor scan expected worktree digest ${request.expectedWorktreeDigest}, current ${worktree.worktreeDigest}`
+      `refactor scan expected worktree digest ${request.expectedWorktreeDigest}, current ${worktree.worktreeDigest}`,
+      "refactor-request-worktree-changed", { expectedWorktreeDigest: request.expectedWorktreeDigest, actualWorktreeDigest: worktree.worktreeDigest }
     );
   }
 }

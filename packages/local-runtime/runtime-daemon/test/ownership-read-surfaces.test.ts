@@ -232,6 +232,6 @@ describe("deps workspace discovery (#301)", () => {
       caught = error;
     }
     expect(caught).toBeInstanceOf(CapabilityDependenciesError);
-    expect(caught).toMatchObject({ code: "AC_SCHEMA_INVALID", message: expect.stringContaining("workspace-glob-unsupported: packages/**") });
+    expect(caught).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "deps-workspace-invalid" });
   });
 });

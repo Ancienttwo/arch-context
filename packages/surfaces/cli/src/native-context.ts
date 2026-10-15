@@ -1,4 +1,4 @@
-import { NATIVE_CONTEXT_PROFILE, NativeContextError, assertNativeContextLimit, nativeContextErrorEnvelope, okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
+import { toEnvelope, NATIVE_CONTEXT_PROFILE, NativeContextError, assertNativeContextLimit, nativeContextErrorEnvelope, okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import { assertNativeGitRevision } from "@archcontext/local-runtime/git-adapter";
 import { exportNativeContext, type NativeContextSelector } from "@archcontext/local-runtime/model-store-yaml";
 
@@ -37,7 +37,9 @@ export function runNativeContextCommand(args: string[], cwd: string, reader: Nat
     assertNativeContextLimit("responseBytes", Buffer.byteLength(JSON.stringify(envelope, null, 2) + "\n", "utf8"));
     return envelope;
   } catch (error) {
-    const envelope = nativeContextErrorEnvelope(error instanceof NativeContextError ? error : new NativeContextError("native-context-input-unreadable", { category: "export-read" }));
+    let typed: NativeContextError | undefined;
+    try { if (error instanceof NativeContextError) typed = error; } catch { /* Uninspectable throws remain unknown. */ }
+    const envelope = typed ? nativeContextErrorEnvelope(typed) : toEnvelope("export.native", error, "native-export") as JsonEnvelope;
     try { assertNativeContextLimit("responseBytes", Buffer.byteLength(JSON.stringify(envelope, null, 2) + "\n", "utf8")); }
     catch (limit) { return nativeContextErrorEnvelope(limit as NativeContextError); }
     return envelope;

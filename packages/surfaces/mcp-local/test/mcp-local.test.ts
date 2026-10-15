@@ -121,7 +121,7 @@ describe("local MCP server", () => {
     try {
       writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
       const server = await createTestServer();
-      const typed = { ok: false, error: { code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required" } };
+      const typed = { ok: false, error: { code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required", action: "open-correct-repository", severity: "error", retryable: false } };
       const checkpoint = await server.callTool("archcontext_checkpoint", { root });
       expect(checkpoint.content).toMatchObject({ ...typed, requestId: "checkpoint" });
       const planned = await server.callTool("archcontext_plan_update", { root, id: "changeset.non-git", operations: [] });

@@ -174,7 +174,7 @@ describe("daemon landscape", () => {
       const rejected = await daemon.repoRemove(removedId);
       expect(rejected.ok).toBe(false);
       expect((rejected as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((rejected as any).error.message).toContain("repo.never-registered");
+      expect((rejected as any).error.reasonCode).toBe("landscape-invalid");
 
       expect([...store.repositorySessions.keys()].sort()).toEqual([removedId, keptId].sort());
       expect((await daemon.repoList()).data).toMatchObject({ activeSessions: [removedId, keptId].sort() });

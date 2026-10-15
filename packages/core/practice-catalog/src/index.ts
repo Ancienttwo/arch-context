@@ -1,3 +1,4 @@
+import { failureEnvelope, knownFailure } from "@archcontext/contracts";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -217,7 +218,7 @@ export function practiceCatalogEnvelope(root: string, input: PracticeCatalogComm
     return okEnvelope("practices.validate", validationPayload(catalog, input.strict === true) as unknown as Json);
   }
   if (catalog.errors.length > 0) {
-    return errorEnvelope("practices", "AC_SCHEMA_INVALID", catalog.errors.map((issue) => issue.message).join("; "));
+    return failureEnvelope("practices", knownFailure("AC_SCHEMA_INVALID", "practice-catalog-invalid"));
   }
   if (input.action === "sources") {
     return okEnvelope("practices.sources", {
@@ -228,7 +229,7 @@ export function practiceCatalogEnvelope(root: string, input: PracticeCatalogComm
   }
   if (input.action === "show") {
     const effective = catalog.effectiveAssets.find((candidate) => candidate.asset.id === input.id);
-    if (!effective) return errorEnvelope("practices.show", "AC_SCHEMA_INVALID", `Unknown practice: ${input.id ?? "<missing>"}`);
+    if (!effective) return failureEnvelope("practices.show", knownFailure("AC_SCHEMA_INVALID", "practice-not-found"));
     return okEnvelope("practices.show", {
       schemaVersion: "archcontext.practice-show/v1",
       catalogDigest: catalog.catalogDigest,
@@ -265,7 +266,7 @@ export function practiceCatalogEnvelope(root: string, input: PracticeCatalogComm
       practices: summaries
     } as unknown as Json);
   }
-  return errorEnvelope("practices", "AC_SCHEMA_INVALID", `Unknown practices action: ${(input as { action?: string }).action ?? "<missing>"}`);
+  return failureEnvelope("practices", knownFailure("AC_SCHEMA_INVALID", "practice-command-invalid"));
 }
 
 export function practiceAssetDigest(asset: PracticeAssetV1): string {

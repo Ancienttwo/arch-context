@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { failureEnvelope, knownFailure, toEnvelope } from "@archcontext/contracts";
 import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { spawnSync } from "node:child_process";
@@ -19,6 +20,11 @@ if (import.meta.main) {
 }
 
 export async function runFastHookEnqueue(args: string[], cwd = process.cwd()): Promise<FastHookResult> {
+  try { return await runFastHookEnqueueUnchecked(args, cwd); }
+  catch (error) { return {handled: true, envelope: toEnvelope("hook.enqueue", error, "public-operation")}; }
+}
+
+async function runFastHookEnqueueUnchecked(args: string[], cwd: string): Promise<FastHookResult> {
   if (args[0] !== "hook" || (args[1] ?? "enqueue") !== "enqueue") return { handled: false };
   const hookArgs = args.slice(args[0] === "hook" ? 2 : 0);
   const started = Date.now();
@@ -119,8 +125,8 @@ function okEnvelope(requestId: string, data: Json) {
   return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId, data };
 }
 
-function errorEnvelope(requestId: string, code: string, message: string) {
-  return { schemaVersion: "archcontext.envelope/v1", ok: false, requestId, error: { code, message } };
+function errorEnvelope(requestId: string, code: "AC_SCHEMA_INVALID", _message: string) {
+  return failureEnvelope(requestId, knownFailure(code, "hook-input-invalid"));
 }
 
 async function callRuntimeRpc(connection: Record<string, unknown>, method: string, params: unknown[]) {

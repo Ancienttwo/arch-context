@@ -4097,14 +4097,14 @@ const CLI_DEPS_HELP = {
 /** `archctx deps`: in-process and read-only, like `resolve`, so it starts no daemon and writes no state. */
 function runDepsCommand(args: string[], cwd: string) {
   const importNodeLimit = readOptionalPositiveIntegerFlag(args, "--import-node-limit", "deps");
-  if (!importNodeLimit.ok) return importNodeLimit.envelope;
+  if (!importNodeLimit.ok) return failureEnvelope("deps", knownFailure("AC_SCHEMA_INVALID", "deps-input-invalid", {field: "importNodeLimit", issue: "invalid-limit"}));
   const edgeLimit = readOptionalNonNegativeIntegerFlag(args, "--edge-limit", "deps");
-  if (!edgeLimit.ok) return edgeLimit.envelope;
+  if (!edgeLimit.ok) return failureEnvelope("deps", knownFailure("AC_SCHEMA_INVALID", "deps-input-invalid", {field: "edgeLimit", issue: "invalid-limit"}));
   const from = readFlag(args, "--from");
   const into = readFlag(args, "--into");
   for (const [flag, value] of [["--from", from], ["--into", into]] as const) {
     if (args.includes(flag) && (value === undefined || value.startsWith("--"))) {
-      return errorEnvelope("deps", "AC_SCHEMA_INVALID", `deps ${flag} requires a node id`);
+      return failureEnvelope("deps", knownFailure("AC_SCHEMA_INVALID", "deps-input-invalid", {field: flag === "--from" ? "from" : "into", issue: "missing-value"}));
     }
   }
   try {
@@ -4115,7 +4115,7 @@ function runDepsCommand(args: string[], cwd: string) {
       ...(edgeLimit.value === undefined ? {} : { edgeLimit: edgeLimit.value })
     }) as unknown as Json);
   } catch (error) {
-    if (error instanceof CapabilityDependenciesError) return errorEnvelope("deps", error.code, error.message, error.reasonCode);
+    if (error instanceof CapabilityDependenciesError) return selectedProducerFailureEnvelope("deps", error, "cli");
     throw error;
   }
 }

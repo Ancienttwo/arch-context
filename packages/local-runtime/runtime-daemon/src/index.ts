@@ -1,3 +1,5 @@
+import { FailureError } from "@archcontext/contracts";
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt, selectedProducerFailureEnvelope } from "./architecture-debt";
 import type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
 export type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
@@ -635,6 +637,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async sync(root: string, changedPaths: string[] = []): Promise<JsonEnvelope> {
+    try { return publicOperationResult("sync", await this.syncUnchecked(root, changedPaths)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async syncUnchecked(root: string, changedPaths: string[] = []): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace, changedPaths });
@@ -643,6 +650,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async validate(root: string): Promise<JsonEnvelope> {
+    try { return publicOperationResult("validate", await this.validateUnchecked(root)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async validateUnchecked(root: string): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
     const result = await this.readModelStore.validateModel(session.workspace);
@@ -651,6 +663,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async context(root: string, task: string, maxSymbols = 12): Promise<JsonEnvelope> {
+    try { return publicOperationResult("context", await this.contextUnchecked(root, task, maxSymbols)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async contextUnchecked(root: string, task: string, maxSymbols = 12): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
     const context = await compileTaskContext({
@@ -906,11 +923,21 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
 
 
   async ledgerState(root: string): Promise<JsonEnvelope> {
+    try { return publicOperationResult("ledgerState", await this.ledgerStateUnchecked(root)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async ledgerStateUnchecked(root: string): Promise<JsonEnvelope> {
     this.assertRunning();
     return okEnvelope("ledger.state", await this.architectureLedgerReadback(root) as unknown as Json);
   }
 
   async ledgerDrift(root: string): Promise<JsonEnvelope> {
+    try { return publicOperationResult("ledgerDrift", await this.ledgerDriftUnchecked(root)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async ledgerDriftUnchecked(root: string): Promise<JsonEnvelope> {
     this.assertRunning();
     const readback = await this.architectureLedgerReadback(root);
     return okEnvelope("ledger.drift", {
@@ -1169,6 +1196,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   explorerServiceContract(tokenTtlSeconds = 900): JsonEnvelope {
+    try { return publicOperationResult("explorerServiceContract", this.explorerServiceContractUnchecked(tokenTtlSeconds)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private explorerServiceContractUnchecked(tokenTtlSeconds = 900): JsonEnvelope {
     const contract: ExplorerServiceContract = {
       schemaVersion: "archcontext.explorer-service/v1",
       bindHost: "127.0.0.1",
@@ -1192,18 +1224,38 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   async startExplorer(root: string, options: ExplorerServerOptions = {}): Promise<JsonEnvelope> {
+    try { return publicOperationResult("startExplorer", await this.startExplorerUnchecked(root, options)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async startExplorerUnchecked(root: string, options: ExplorerServerOptions = {}): Promise<JsonEnvelope> {
     return this.explorerServer.startExplorer(root, options);
   }
 
   async stopExplorer(): Promise<JsonEnvelope> {
+    try { return publicOperationResult("stopExplorer", await this.stopExplorerUnchecked()) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async stopExplorerUnchecked(): Promise<JsonEnvelope> {
     return this.explorerServer.stopExplorer();
   }
 
   async revokeExplorerToken(): Promise<JsonEnvelope> {
+    try { return publicOperationResult("revokeExplorerToken", await this.revokeExplorerTokenUnchecked()) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async revokeExplorerTokenUnchecked(): Promise<JsonEnvelope> {
     return this.explorerServer.revokeExplorerToken();
   }
 
   explorerStatus(): JsonEnvelope {
+    try { return publicOperationResult("explorerStatus", this.explorerStatusUnchecked()) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private explorerStatusUnchecked(): JsonEnvelope {
     return this.explorerServer.explorerStatus();
   }
 
@@ -1452,7 +1504,7 @@ export async function createStartedProductionDaemon(options: ProductionRuntimeOp
 export function assertProductionRuntimeDeps(deps: RuntimeDeps): void {
   const blocked = blockedProductionInjections(deps);
   if (blocked.length > 0) {
-    throw new Error(`Production archctxd cannot inject runtime test doubles: ${blocked.join(", ")}`);
+    throw new FailureError("AC_SCHEMA_INVALID", "production-injections-refused", {issueCount: blocked.length});
   }
 }
 

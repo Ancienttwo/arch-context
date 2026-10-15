@@ -2625,10 +2625,15 @@ setInterval(() => undefined, 1 << 30);
       daemon = undefined;
 
       const codeFacts = new CodeGraphAdapter(new MockCodeGraphProvider());
-      expect(() => assertProductionRuntimeDeps({ codeFacts })).toThrow("codeFacts");
-      expect(() => assertProductionRuntimeDeps({ codeGraphProviderFactory: () => new MockCodeGraphProvider() })).toThrow("codeGraphProviderFactory");
-      expect(() => assertProductionRuntimeDeps({ localStore: new TestLocalStore() })).toThrow("localStore");
-      expect(() => assertProductionRuntimeDeps({ clock: () => "2026-06-20T00:00:00.000Z" })).toThrow("clock");
+      const expectRefused = (deps: Parameters<typeof assertProductionRuntimeDeps>[0]) => {
+        let caught: unknown;
+        try { assertProductionRuntimeDeps(deps); } catch (error) { caught = error; }
+        expect(caught).toMatchObject({code: "AC_SCHEMA_INVALID", reasonCode: "production-injections-refused", details: {issueCount: 1}});
+      };
+      expectRefused({ codeFacts });
+      expectRefused({ codeGraphProviderFactory: () => new MockCodeGraphProvider() });
+      expectRefused({ localStore: new TestLocalStore() });
+      expectRefused({ clock: () => "2026-06-20T00:00:00.000Z" });
     } finally {
       if (daemon) await daemon.stop().catch(() => undefined);
       removeTempRepo(root);
@@ -2690,7 +2695,10 @@ setInterval(() => undefined, 1 << 30);
       });
       expect(result.ok).toBe(false);
       expect(result.error?.code).toBe("AC_PRECONDITION_FAILED");
-      expect(result.error?.message).toContain("required-input-unavailable:observed:codegraph-index-missing");
+      expect(result.error).toMatchObject({reasonCode: "explorer-precondition-failed", details: {
+        inputDomain: "observed", availability: "unavailable", cause: "unclassified"
+      }});
+      expect(JSON.stringify(result)).not.toContain("codegraph-index-missing");
     } finally {
       removeTempRepo(root);
     }

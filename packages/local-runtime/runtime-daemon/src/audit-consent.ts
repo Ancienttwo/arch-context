@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -123,6 +124,11 @@ export function sanitizeOriginUrl(url: string): string {
  * at the same path with a different repository does not inherit the earlier consent.
  */
 export function readAuditConsent(root: string, env: Env = process.env): AuditConsentStatus {
+  try { return readAuditConsentUnchecked(root, env); }
+  catch (error) { throw publicOperationFailure(error); }
+}
+
+function readAuditConsentUnchecked(root: string, env: Env = process.env): AuditConsentStatus {
   const binding = auditConsentBinding(root, env);
   if (!existsSync(binding.path)) return { granted: false, path: binding.path, reason: "not-granted" };
   let record: Partial<AuditConsentRecordV1>;
@@ -144,6 +150,11 @@ export function readAuditConsent(root: string, env: Env = process.env): AuditCon
 }
 
 export function grantAuditConsent(root: string, env: Env = process.env, now: string = new Date().toISOString()): { path: string; record: AuditConsentRecordV1 } {
+  try { return grantAuditConsentUnchecked(root, env, now); }
+  catch (error) { throw publicOperationFailure(error); }
+}
+
+function grantAuditConsentUnchecked(root: string, env: Env = process.env, now: string = new Date().toISOString()): { path: string; record: AuditConsentRecordV1 } {
   const binding = auditConsentBinding(root, env);
   const record: AuditConsentRecordV1 = {
     schemaVersion: AUDIT_CONSENT_SCHEMA_VERSION,
@@ -178,6 +189,11 @@ function writePrivateJsonAtomically(path: string, value: unknown): void {
 }
 
 export function revokeAuditConsent(root: string, env: Env = process.env): { path: string; revoked: boolean } {
+  try { return revokeAuditConsentUnchecked(root, env); }
+  catch (error) { throw publicOperationFailure(error); }
+}
+
+function revokeAuditConsentUnchecked(root: string, env: Env = process.env): { path: string; revoked: boolean } {
   const binding = auditConsentBinding(root, env);
   let existed = false;
   try {
@@ -193,12 +209,5 @@ export function revokeAuditConsent(root: string, env: Env = process.env): { path
 /** Typed fail-closed error shared by the CLI fast-fail check and the daemon's own gate. */
 export function auditConsentRequiredEnvelope(requestId: "audit.run" | "audit.approve", reason: AuditConsentMissingReason): JsonEnvelope {
   const command = requestId === "audit.run" ? "archctx audit run" : "archctx audit approve";
-  return errorEnvelope(
-    requestId,
-    "AC_USER_CONFIRMATION_REQUIRED",
-    `${command} requires user-level consent for this repository (${reason}); the repository manifest only declares the capability. ` +
-      `An audit sends repository content read by the \`claude\` runner to its configured model provider. ` +
-      `To allow that for this repository, run: ${AUDIT_CONSENT_GRANT_COMMAND}`,
-    AUDIT_CONSENT_REQUIRED_REASON_CODE
-  );
+  return publicFailureEnvelope(requestId, "AC_USER_CONFIRMATION_REQUIRED", "audit-user-consent-required", {consentReason: reason});
 }

@@ -1,3 +1,4 @@
+import { FailureError, knownFailure, toEnvelope, unclassifiedFailure } from "./failure";
 import { canonicalize, errorEnvelope, type ArchContextErrorCode, type Json, type JsonEnvelope } from "./schema";
 import { jsonSchemaResolver, validateJsonSchema, type JsonSchemaResolver } from "./validator";
 
@@ -104,35 +105,24 @@ export interface NativeContextExportV1 {
 const PATH_REASONS = new Set<NativeContextReasonCode>(["native-context-path-unsafe", "native-context-entry-kind-unsupported", "native-context-ref-unsafe"]);
 const PRECONDITION_REASONS = new Set<NativeContextReasonCode>(["native-context-ref-unavailable", "native-context-blob-unavailable", "native-context-input-missing", "native-context-input-unreadable", "native-context-input-changed", "native-context-limit-exceeded", "native-context-git-read-failed"]);
 
-export class NativeContextError extends Error {
-  readonly code: ArchContextErrorCode;
-  constructor(readonly reasonCode: NativeContextReasonCode, readonly details: Record<string, Json> = {}) {
-    super(reasonCode);
+/** Compatible native class, backed by the single strict failure authority. */
+export class NativeContextError extends FailureError {
+  constructor(reasonCode: NativeContextReasonCode, details: Record<string, Json> = {}) {
+    let failure;
+    try {
+      const code: ArchContextErrorCode = reasonCode === "git-worktree-required" ? "AC_REPO_NOT_FOUND"
+        : reasonCode === "native-context-model-missing" ? "AC_MODEL_ADOPTION_REQUIRED"
+        : PATH_REASONS.has(reasonCode) ? "AC_PATH_DENIED"
+        : PRECONDITION_REASONS.has(reasonCode) ? "AC_PRECONDITION_FAILED" : "AC_SCHEMA_INVALID";
+      failure = knownFailure(code, reasonCode, details);
+    } catch { failure = unclassifiedFailure("failure-metadata"); }
+    super(failure.code, failure.reasonCode, failure.details, failure);
     this.name = "NativeContextError";
-    this.code = reasonCode === "git-worktree-required" ? "AC_REPO_NOT_FOUND"
-      : reasonCode === "native-context-model-missing" ? "AC_MODEL_ADOPTION_REQUIRED"
-      : PATH_REASONS.has(reasonCode) ? "AC_PATH_DENIED"
-      : PRECONDITION_REASONS.has(reasonCode) ? "AC_PRECONDITION_FAILED" : "AC_SCHEMA_INVALID";
   }
 }
 
 export function nativeContextErrorEnvelope(error: NativeContextError): JsonEnvelope {
-  let omittedDiagnosticCharacters = 0;
-  const bound = (value: Json): Json => {
-    if (typeof value === "string" && value.length > 1024) { omittedDiagnosticCharacters += value.length - 1024; return value.slice(0, 1024); }
-    if (Array.isArray(value)) return value.map(bound);
-    if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, bound(child)]));
-    return value;
-  };
-  const details = bound(error.details) as Record<string, Json>;
-  if (omittedDiagnosticCharacters > 0) details.omittedDiagnosticCharacters = omittedDiagnosticCharacters;
-  const envelope = errorEnvelope("export.native", error.code, error.reasonCode, error.reasonCode, details);
-  envelope.error!.retryable = error.reasonCode === "native-context-input-changed";
-  envelope.error!.action = error.reasonCode === "native-context-input-changed" ? "rerun-native-export"
-    : error.code === "AC_REPO_NOT_FOUND" ? "open-correct-repository"
-    : error.code === "AC_PATH_DENIED" ? "repair-native-input-path"
-    : error.reasonCode === "native-context-limit-exceeded" ? "reduce-native-input-size" : "repair-native-input";
-  return envelope;
+  return toEnvelope("export.native", error, "native-export") as JsonEnvelope;
 }
 
 export function assertNativeContextLimit(limit: keyof typeof NATIVE_CONTEXT_LIMITS, observed: number): void {

@@ -262,12 +262,12 @@ describe("refactor decisions travel through Git (ADR-0046)", () => {
       try {
         const id = accepted.recommendationId;
         const decisionPath = `${DECISIONS}/${id}.json`;
-        type Refusal = { error: { reasonCode?: string; message: string; details: { decisionStatus: string; recordCommand?: string; verifyCommand?: string } } };
+        type Refusal = { error: { reasonCode?: string; message: string; details: { recommendationId: string; decisionStatus: string; recordCommand?: string | null; verifyCommand?: string | null } } };
         const verify = await daemonB.refactorVerify(b, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: id }) as unknown as Refusal;
         expect(verify.error.reasonCode).toBe("git-decision-not-recorded");
         expect(verify.error.details.decisionStatus).toBe("accepted");
         expect(verify.error.details.recordCommand).toBe(`archctx recommendations accept --id ${id} --reason <why>`);
-        expect(verify.error.message).toContain("before changing the code");
+        expect(verify.error.reasonCode).toBe("git-decision-not-recorded");
 
         // A resolved file is terminal: no record command is suggested and nothing is written.
         const resolvedPath = `${DECISIONS}/${deferred.recommendationId}.json`;
@@ -276,7 +276,7 @@ describe("refactor decisions travel through Git (ADR-0046)", () => {
         const appends = storeB.architectureEventAppends.length;
         const verifyResolved = await daemonB.refactorVerify(b, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: deferred.recommendationId }) as unknown as Refusal;
         expect(verifyResolved.error.reasonCode).toBe("git-decision-not-recorded");
-        expect(verifyResolved.error.details).toEqual({ decisionStatus: "resolved" });
+        expect(verifyResolved.error.details).toEqual({ recommendationId: deferred.recommendationId, decisionStatus: "resolved", recordCommand: null, verifyCommand: null });
         expect(storeB.architectureEventAppends).toHaveLength(appends);
         git(b, "checkout", "--", resolvedPath);
 
@@ -419,7 +419,7 @@ describe("refactor decision write boundary", () => {
         operations: [{ op: "write_refactor_decision", path: `${DECISIONS}/recommendation.0123456789abcdef.json`, expectedHash: "missing", body: "{}\n" }]
       });
       expect(errorOf(planned)).toMatchObject({ code: "AC_SCHEMA_INVALID" });
-      expect(errorOf(planned).message).toContain("write_refactor_decision");
+      expect(errorOf(planned).reasonCode).toBe("plan-input-invalid");
     } finally {
       await daemon.stop();
     }
@@ -437,7 +437,7 @@ describe("refactor decision write boundary", () => {
     try {
       const scan = scanData(await daemon.refactorScan(root));
       await expect(daemon.recommendations(root, { command: "reject", approved: true, recommendationId: candidateFor(scan, "module.decide-a").recommendationId, reason: "Intentional." }))
-        .rejects.toThrow("injected ledger append failure");
+        .rejects.toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
       expect(decisionFiles(root)).toEqual([]);
       expect(git(root, "status", "--porcelain")).toBe("");
       expect(store.architectureEventAppends).toHaveLength(0);
@@ -445,7 +445,7 @@ describe("refactor decision write boundary", () => {
       // The writer lock was released: the next decision reaches the append again instead of
       // failing on a held lock.
       await expect(daemon.recommendations(root, { command: "reject", approved: true, recommendationId: candidateFor(scan, "module.decide-b").recommendationId, reason: "Intentional." }))
-        .rejects.toThrow("injected ledger append failure");
+        .rejects.toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
       expect(decisionFiles(root)).toEqual([]);
     } finally {
       await daemon.stop();
@@ -480,12 +480,12 @@ describe("refactor decision write boundary", () => {
       writeFileSync(join(root, DECISIONS, "recommendation.0123456789abcdef.json"), "<<<<<<< ours\n{}\n=======\n{}\n>>>>>>> theirs\n");
       const scan = await daemon.refactorScan(root);
       expect(errorOf(scan)).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "refactor-decision-invalid" });
-      expect(errorOf(scan).message).toContain("refactor-decision-conflicted");
+      expect(errorOf(scan).reasonCode).toBe("refactor-decision-invalid");
       const listed = await daemon.recommendations(root, { command: "list", status: "rejected" });
       expect(errorOf(listed).code).toBe("AC_SCHEMA_INVALID");
       rmSync(join(root, DECISIONS), { recursive: true, force: true });
       mkdirSync(join(root, DECISIONS, "nested"), { recursive: true });
-      expect(errorOf(await daemon.refactorScan(root)).message).toContain("must be a regular file");
+      expect(errorOf(await daemon.refactorScan(root)).reasonCode).toBe("refactor-decision-invalid");
     } finally {
       await daemon.stop();
     }
@@ -516,7 +516,7 @@ describe("refactor decision write boundary", () => {
       writeFileSync(join(root, DECISIONS, "notes.md.orig"), "merge leftovers\n");
       const stray = await daemon.refactorScan(root);
       expect(errorOf(stray)).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "refactor-decision-invalid" });
-      expect(errorOf(stray).message).toContain("notes.md.orig");
+      expect(errorOf(stray).reasonCode).toBe("refactor-decision-invalid");
     } finally {
       await daemon.stop();
     }
@@ -552,7 +552,7 @@ describe("refactor decision write boundary", () => {
         writeFileSync(join(root, decisionPath), altered);
         for (const read of [await daemon.refactorScan(root), await daemon.recommendations(root, { command: "list", status: "rejected" })]) {
           expect(errorOf(read)).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "refactor-decision-invalid" });
-          expect(errorOf(read).message).toContain("refactor-decision-noncanonical");
+          expect(errorOf(read).reasonCode).toBe("refactor-decision-invalid");
         }
       }
     } finally {
@@ -574,7 +574,7 @@ describe("refactor decision write boundary", () => {
         await daemon.recommendations(root, { command: "list", status: "deferred" })
       ]) {
         expect(errorOf(read)).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "refactor-decision-invalid" });
-        expect(errorOf(read).message).toContain(`${DECISIONS}/${id}.json is ignored by Git`);
+        expect(errorOf(read).reasonCode).toBe("refactor-decision-invalid");
       }
       // A committed decision stays Git-visible whatever the ignore rules say.
       git(root, "add", "-f", `${DECISIONS}/${id}.json`);

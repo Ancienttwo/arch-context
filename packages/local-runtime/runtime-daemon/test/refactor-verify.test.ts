@@ -579,7 +579,7 @@ describe("daemon refactorVerify", () => {
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_REFACTOR_STALE");
-      expect(errorOf(result).message).toContain("expected HEAD");
+      expect(errorOf(result).reasonCode).toBe("refactor-head-mismatch");
       expect(resolutionEventCount(store)).toBe(0);
     } finally {
       await daemon.stop();
@@ -598,7 +598,7 @@ describe("daemon refactorVerify", () => {
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(result).message).toContain("recommendation not found");
+      expect(errorOf(result).reasonCode).toBe("refactor-recommendation-missing");
       expect(resolutionEventCount(store)).toBe(0);
     } finally {
       await daemon.stop();
@@ -623,7 +623,7 @@ describe("daemon refactorVerify", () => {
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(result).message).toContain("practice recommendation");
+      expect(errorOf(result).reasonCode).toBe("refactor-invariant-invalid");
       expect(resolutionEventCount(store)).toBe(0);
     } finally {
       await daemon.stop();
@@ -696,7 +696,7 @@ describe("daemon refactorVerify", () => {
       const missingId = await daemon.refactorVerify(root, {} as never);
       expect(missingId.ok).toBe(false);
       expect(errorOf(missingId).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(missingId).message).toContain("recommendationId");
+      expect(errorOf(missingId).reasonCode).toBe("refactor-input-invalid");
 
       const badRefs = await daemon.refactorVerify(root, {
         schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
@@ -704,14 +704,14 @@ describe("daemon refactorVerify", () => {
         executionEvidenceRefs: "nope"
       } as never);
       expect(badRefs.ok).toBe(false);
-      expect(errorOf(badRefs).message).toContain("executionEvidenceRefs");
+      expect(errorOf(badRefs).reasonCode).toBe("refactor-input-invalid");
 
       // RF5b made the RPC ingress the frozen contract type, so a request that names no schema
       // version is refused before anything measures on its behalf.
       const noSchemaVersion = await daemon.refactorVerify(root, { recommendationId: "recommendation.x" } as never);
       expect(noSchemaVersion.ok).toBe(false);
       expect(errorOf(noSchemaVersion).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(noSchemaVersion).message).toContain("schemaVersion");
+      expect(errorOf(noSchemaVersion).reasonCode).toBe("refactor-input-invalid");
 
       // The contract invariants run over the rebuilt request, so a claim the daemon would later
       // compare against a real Git identity is rejected at ingress rather than at comparison time.
@@ -722,7 +722,7 @@ describe("daemon refactorVerify", () => {
       });
       expect(badHeadSha.ok).toBe(false);
       expect(errorOf(badHeadSha).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(badHeadSha).message).toContain("expectedHeadSha");
+      expect(errorOf(badHeadSha).reasonCode).toBe("refactor-input-invalid");
     } finally {
       await daemon.stop();
     }
@@ -748,7 +748,7 @@ describe("daemon refactorVerify", () => {
       expect(errorOf(smuggled).code).toBe("AC_SCHEMA_INVALID");
       // The extra key is named before the kind is even considered: a caller must learn which key
       // was rejected, not just that the payload was.
-      expect(errorOf(smuggled).message).toContain("rawDiff");
+      expect(errorOf(smuggled).reasonCode).toBe("refactor-input-invalid");
       expect(resolutionEventCount(store)).toBe(0);
 
       const badKind = await daemon.refactorVerify(root, {
@@ -759,8 +759,8 @@ describe("daemon refactorVerify", () => {
 
       expect(badKind.ok).toBe(false);
       expect(errorOf(badKind).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(badKind).message).toContain("not-a-real-kind");
-      expect(errorOf(badKind).message).toContain("kind");
+      expect(errorOf(badKind).reasonCode).toBe("refactor-input-invalid");
+      expect(errorOf(badKind).reasonCode).toBe("refactor-input-invalid");
       expect(resolutionEventCount(store)).toBe(0);
     } finally {
       await daemon.stop();
@@ -786,8 +786,8 @@ describe("daemon refactorVerify", () => {
       });
       expect(rawDiffLocator.ok).toBe(false);
       expect(errorOf(rawDiffLocator).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(rawDiffLocator).message).toContain("executionEvidenceRefs[0].locator");
-      expect(errorOf(rawDiffLocator).message).toContain("bounded reference");
+      expect(errorOf(rawDiffLocator).reasonCode).toBe("refactor-input-invalid");
+      expect(errorOf(rawDiffLocator).reasonCode).toBe("refactor-input-invalid");
       expect(resolutionEventCount(store)).toBe(0);
 
       const tooLong = await daemon.refactorVerify(root, {
@@ -797,7 +797,7 @@ describe("daemon refactorVerify", () => {
       });
       expect(tooLong.ok).toBe(false);
       expect(errorOf(tooLong).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(tooLong).message).toContain("bounded reference");
+      expect(errorOf(tooLong).reasonCode).toBe("refactor-input-invalid");
       expect(resolutionEventCount(store)).toBe(0);
     } finally {
       await daemon.stop();
@@ -821,7 +821,7 @@ describe("daemon refactorVerify", () => {
       } as never);
       expect(typo.ok).toBe(false);
       expect(errorOf(typo).code).toBe("AC_SCHEMA_INVALID");
-      expect(errorOf(typo).message).toContain("expectedWorktreeDigset");
+      expect(errorOf(typo).reasonCode).toBe("refactor-input-invalid");
       expect(resolutionEventCount(store)).toBe(0);
     } finally {
       await daemon.stop();
@@ -1194,8 +1194,8 @@ describe("recommendations resolve re-reads the tree before it appends", () => {
       expect(errorOf(result).reasonCode).toBe("evidence-head-drift");
       // Named so the gate's own drift refusal cannot be mistaken for this one, and the moved
       // half of the identity is named so the assertion cannot pass on the wrong movement.
-      expect(errorOf(result).message).toContain("before the recommendations resolve append");
-      expect(errorOf(result).message).toContain("worktreeDigest");
+      expect((result.error?.details as any).observation).toBe("before-resolve-append");
+      expect((result.error?.details as any).changedFields).toContain("worktreeDigest");
       expect(store.architectureEvents).toHaveLength(eventsBefore);
       const status = await daemon.book(root, { command: "recommendations", openOnly: false });
       expect(((status.data as any).recommendations as RecommendationV3[])

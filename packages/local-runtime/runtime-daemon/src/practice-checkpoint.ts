@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import type { ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
@@ -69,6 +70,11 @@ export class PracticeCheckpointService {
   }
 
   async prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId = "task_runtime"): Promise<JsonEnvelope> {
+    try { return publicOperationResult("prepare", await this.prepareUnchecked(root, task, maxBytes, maxItems, taskSessionId)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async prepareUnchecked(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId = "task_runtime"): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
     const result = await prepareTask({
@@ -169,6 +175,11 @@ export class PracticeCheckpointService {
   }
 
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
+    try { return publicOperationResult("practices", this.practicesUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private practicesUnchecked(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
     this.assertRunning();
     return practiceCatalogEnvelope(root, input);
   }

@@ -175,7 +175,7 @@ describe("daemon ledger admin", () => {
       await expect(daemon.ledgerProject(root, {
         dryRun: false,
         expectedWorktreeDigest: (status.data as any).worktreeDigest
-      })).rejects.toThrow("Worktree digest changed before ledger project --to-git");
+      })).rejects.toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
 
       expect(readText(join(root, staleNodePath))).toContain("Edited after the projection was planned");
       expect(existsSync(join(root, staleRelationPath))).toBe(true);

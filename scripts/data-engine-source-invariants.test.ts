@@ -67,8 +67,14 @@ describe("DE1/DE3 current source wiring", () => {
     expect(inspectDataEngineAuthorityBinding(remove(compiler, witness), daemon)).toBe(false);
   });
 
-  test("DE3 rejects a missing daemon observed failure or inferred graph authority", () => {
-    expect(inspectDataEngineRequiredDomains(compiler, remove(daemon, "required-input-unavailable:observed:${reasonCode}"))).toBe(false);
+  for (const witness of [
+    'throw new ExplorerProjectionCompileError("precondition-failed", "required-input-unavailable:observed", {',
+    'inputDomain: "observed"', 'availability: "unavailable"', 'cause: "unclassified"'
+  ]) test(`DE3 rejects missing daemon observed refusal or safe fact: ${witness}`, () => {
+    expect(inspectDataEngineRequiredDomains(compiler, remove(daemon, witness))).toBe(false);
+  });
+
+  test("DE3 rejects inferred graph authority", () => {
     expect(inspectDataEngineAuthorityBinding(compiler, remove(daemon, "ledgerMatchesGit && ledgerMatchesGitScope"))).toBe(false);
     expect(inspectDataEngineAuthorityBinding(compiler, remove(daemon, "compileProjectionInputManifest(projectionInput)"))).toBe(false);
   });
@@ -77,6 +83,9 @@ describe("DE1/DE3 current source wiring", () => {
     const witness = "input.readSet.selectedGraphDigest !== selectedGraphDigest";
     const moved = `${remove(compiler, witness)}\nfunction unrelated() { return ${witness}; }\n`;
     expect(inspectDataEngineRequiredDomains(moved, daemon)).toBe(false);
+    const fact = 'inputDomain: "observed"';
+    const movedFact = `${remove(daemon, fact)}\nfunction unrelated() { return { ${fact} }; }\n`;
+    expect(inspectDataEngineRequiredDomains(compiler, movedFact)).toBe(false);
   });
 
   test("missing or ambiguous declaration fails closed", () => {

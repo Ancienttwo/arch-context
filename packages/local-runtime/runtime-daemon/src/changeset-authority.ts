@@ -1,3 +1,5 @@
+import { FailureError } from "@archcontext/contracts";
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
@@ -212,13 +214,18 @@ export class ChangeSetAuthorityService {
   }
 
   async planUpdate(root: string, rawInput: RuntimePlanUpdateInput): Promise<JsonEnvelope> {
+    try { return publicOperationResult("plan_update", await this.planUpdateUnchecked(root, rawInput)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async planUpdateUnchecked(root: string, rawInput: RuntimePlanUpdateInput): Promise<JsonEnvelope> {
     this.assertRunning();
     let input: RuntimePlanUpdateInput;
     try {
       input = decodeRuntimePlanUpdateInput(rawInput);
     } catch (error) {
       if (error instanceof RuntimeUpdateInputError) {
-        return errorEnvelope("plan_update", "AC_SCHEMA_INVALID", error.message);
+        return publicFailureEnvelope("plan_update", "AC_SCHEMA_INVALID", "plan-input-invalid", {});
       }
       throw error;
     }
@@ -227,7 +234,7 @@ export class ChangeSetAuthorityService {
     const worktreeDigestProfile: RuntimeWorktreeDigestProfile = input.worktreeDigestPrecondition?.profile ?? "repository";
     const worktreeDigest = runtimeWorktreeDigest(root, worktreeDigestProfile);
     if (input.worktreeDigestPrecondition && input.worktreeDigestPrecondition.expectedDigest !== worktreeDigest) {
-      throw new Error("Worktree digest changed before plan");
+      throw new FailureError("AC_PRECONDITION_FAILED", "plan-worktree-changed", {expectedWorktreeDigest: input.worktreeDigestPrecondition.expectedDigest, actualWorktreeDigest: worktreeDigest});
     }
     const draft = this.changeSetEngine.plan({
       id: input.id,
@@ -469,16 +476,21 @@ export class ChangeSetAuthorityService {
    * promoting ledger graph authority. Without `approved` it only previews the acceptance plan.
    */
   async acceptCommittedChange(root: string, rawInput: RuntimeAcceptCommittedChangeInput): Promise<JsonEnvelope> {
+    try { return await this.acceptCommittedChangeUnchecked(root, rawInput); }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async acceptCommittedChangeUnchecked(root: string, rawInput: RuntimeAcceptCommittedChangeInput): Promise<JsonEnvelope> {
     this.assertRunning();
     let input: AcceptCommittedChangeRequest;
     try {
       input = decodeAcceptCommittedChangeInput(rawInput);
     } catch (error) {
-      if (error instanceof AcceptCommittedChangeInputError) return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", error.message);
+      if (error instanceof AcceptCommittedChangeInputError) return publicFailureEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", "accept-committed-input-invalid", {});
       throw error;
     }
     if (this.architectureLedger.readMode !== "yaml" || this.architectureLedger.writeMode !== "yaml") {
-      return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", "committed YAML acceptance requires YAML read and write authority");
+      return publicFailureEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", "accept-committed-authority-required", {});
     }
     return this.withWriter(async () => {
       try {

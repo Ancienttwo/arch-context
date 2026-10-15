@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { assertLocalEgressAllowed } from "@archcontext/local-runtime/egress-admission";
 import { readCurrentBranch } from "./projection-inputs";
 import { execFileSync } from "node:child_process";
@@ -110,15 +111,16 @@ export class AuditService {
   constructor(private readonly context: AuditContext) {}
 
   async auditRun(root: string, input: RuntimeAuditRunInput = {}): Promise<JsonEnvelope> {
+    try { return publicOperationResult("auditRun", await this.auditRunUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async auditRunUnchecked(root: string, input: RuntimeAuditRunInput = {}): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const repositoryRoot = findRepositoryRoot(root);
     const session = await this.context.openSession(repositoryRoot);
     if (!(await this.auditGithubIssuesEnabled(session.workspace))) {
-      return errorEnvelope(
-        "audit.run",
-        "AC_CAPABILITY_UNSUPPORTED",
-        "archctx audit run is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
-      );
+      return publicFailureEnvelope("audit.run", "AC_CAPABILITY_UNSUPPORTED", "audit-disabled", {});
     }
     // The manifest above is repository-controlled; user-level consent (outside the repository) is
     // the separate boundary that lets this repository's content reach a model provider (#161).
@@ -204,7 +206,7 @@ export class AuditService {
       maxAttempts: 1
     });
     if (!enqueue.enqueued) {
-      return errorEnvelope("audit.run", "AC_PRECONDITION_FAILED", "an equivalent architecture audit is already queued or running");
+      return publicFailureEnvelope("audit.run", "AC_PRECONDITION_FAILED", "audit-active", {});
     }
 
     const timeoutMs = input.timeoutMs ?? AUDIT_RUN_DEFAULT_TIMEOUT_MS;
@@ -220,7 +222,7 @@ export class AuditService {
       jobId
     });
     if (!claimed || claimed.job.jobId !== jobId) {
-      return errorEnvelope("audit.run", "AC_PRECONDITION_FAILED", `agent audit job could not be claimed: ${jobId}`);
+      return publicFailureEnvelope("audit.run", "AC_PRECONDITION_FAILED", "audit-claim-failed", {jobId});
     }
 
     // The claim above is the last step that has to happen synchronously. The investigation itself
@@ -407,7 +409,7 @@ export class AuditService {
       // The job queue itself is unreachable (e.g. the local store already closed during
       // ArchctxDaemon.stop()); no further recovery is possible from a detached background task.
     }
-    return errorEnvelope("audit.run", "AC_PRECONDITION_FAILED", `agent audit job ${jobId} failed unexpectedly: ${message}`);
+    return publicOperationErrorEnvelope("audit.run", error);
   }
 
   /**
@@ -485,6 +487,11 @@ export class AuditService {
   }
 
   async auditList(root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}): Promise<JsonEnvelope> {
+    try { return publicOperationResult("auditList", await this.auditListUnchecked(root, input)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async auditListUnchecked(root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const scope = await this.context.architectureLedgerScope(findRepositoryRoot(root));
     const runs = await this.context.localStore.listAuditRuns({ ...scope, statuses: input.statuses });
@@ -496,10 +503,15 @@ export class AuditService {
   }
 
   async auditShow(root: string, runId: string): Promise<JsonEnvelope> {
+    try { return publicOperationResult("auditShow", await this.auditShowUnchecked(root, runId)) as JsonEnvelope; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async auditShowUnchecked(root: string, runId: string): Promise<JsonEnvelope> {
     this.context.assertRunning();
     const scope = await this.context.architectureLedgerScope(findRepositoryRoot(root));
     const run = await this.context.localStore.getAuditRun({ ...scope, runId });
-    if (!run) return errorEnvelope("audit.show", "AC_REPO_NOT_FOUND", `audit run not found: ${runId}`);
+    if (!run) return publicFailureEnvelope("audit.show", "AC_REPO_NOT_FOUND", "audit-run-missing", {runId});
     const jobs = await this.context.localStore.listRuntimeAgentJobs(scope);
     const jobRecord = jobs.find((record) => record.job.jobId === run.jobId);
     const agentRun = jobRecord?.job.extensions?.agentRun as { proposalPlan?: { githubIssueDrafts?: Json[] } } | undefined;
@@ -523,36 +535,33 @@ export class AuditService {
    * resumable only via an explicit `--resume`.
    */
   async auditApprove(root: string, input: RuntimeAuditApproveInput): Promise<JsonEnvelope> {
+    try { return await this.auditApproveUnchecked(root, input); }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  private async auditApproveUnchecked(root: string, input: RuntimeAuditApproveInput): Promise<JsonEnvelope> {
     this.context.assertRunning();
     return this.context.withWriter(async () => {
       const repositoryRoot = findRepositoryRoot(root);
       const session = await this.context.openSession(repositoryRoot);
       if (!(await this.auditGithubIssuesEnabled(session.workspace))) {
-        return errorEnvelope(
-          "audit.approve",
-          "AC_CAPABILITY_UNSUPPORTED",
-          "archctx audit approve is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
-        );
+        return publicFailureEnvelope("audit.approve", "AC_CAPABILITY_UNSUPPORTED", "audit-disabled", {});
       }
       const consent = readAuditConsent(repositoryRoot);
       if (!consent.granted) return auditConsentRequiredEnvelope("audit.approve", consent.reason);
       assertLocalEgressAllowed("github-issue-publishing");
       const scope = await this.context.architectureLedgerScope(repositoryRoot);
       const run = await this.context.localStore.getAuditRun({ ...scope, runId: input.runId });
-      if (!run) return errorEnvelope("audit.approve", "AC_REPO_NOT_FOUND", `audit run not found: ${input.runId}`);
+      if (!run) return publicFailureEnvelope("audit.approve", "AC_REPO_NOT_FOUND", "audit-run-missing", {runId: input.runId});
 
       if (run.status === "issued") {
         return okEnvelope("audit.approve", auditApproveResultPayload(run.runId, "issued", run.issueDraftDigests.length, run.issuedIssues ?? []));
       }
       if (run.status === "failed") {
-        return errorEnvelope("audit.approve", "AC_PRECONDITION_FAILED", `audit run ${run.runId} failed during investigation and has no drafts to publish`);
+        return publicFailureEnvelope("audit.approve", "AC_PRECONDITION_FAILED", "audit-run-failed", {runId: run.runId});
       }
       if (run.status === "issuing" && !input.resume) {
-        return errorEnvelope(
-          "audit.approve",
-          "AC_PRECONDITION_FAILED",
-          `audit run ${run.runId} is already issuing from a prior approve call; rerun with --resume to continue: archctx audit approve ${run.runId} --resume`
-        );
+        return publicFailureEnvelope("audit.approve", "AC_PRECONDITION_FAILED", "audit-already-issuing", {runId: run.runId});
       }
 
       // Re-validate the recorded proposal plan from scratch — the same digest-chain checks
@@ -563,7 +572,7 @@ export class AuditService {
       const agentRun = jobRecord?.job.extensions?.agentRun as { proposalPlan?: InvestigationReportProposalPlan } | undefined;
       const proposalPlan = agentRun?.proposalPlan;
       if (!proposalPlan) {
-        return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", `audit run ${run.runId} has no recorded proposal plan to re-validate`);
+        return publicFailureEnvelope("audit.approve", "AC_SCHEMA_INVALID", "audit-proposal-invalid", {runId: run.runId});
       }
       const validation = this.context.validateProposal({
         proposalPlan,
@@ -571,34 +580,30 @@ export class AuditService {
         jobId: run.jobId,
         outputDigest: run.outputDigest
       });
-      if (!validation.ok) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", validation.reason);
+      if (!validation.ok) return publicFailureEnvelope("audit.approve", "AC_SCHEMA_INVALID", "audit-proposal-invalid", {runId: run.runId});
 
       const drafts = proposalPlan.githubIssueDrafts ?? [];
       const recordedDigests = [...run.issueDraftDigests].sort();
       const currentDigests = drafts.map((draft) => draft.draftDigest).sort();
       if (JSON.stringify(recordedDigests) !== JSON.stringify(currentDigests)) {
-        return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", `audit run ${run.runId} draft digests no longer match the recorded ledger run`);
+        return publicFailureEnvelope("audit.approve", "AC_SCHEMA_INVALID", "audit-proposal-invalid", {runId: run.runId});
       }
       if (drafts.length === 0) {
-        return errorEnvelope("audit.approve", "AC_PRECONDITION_FAILED", `audit run ${run.runId} has no github issue drafts to publish`);
+        return publicFailureEnvelope("audit.approve", "AC_PRECONDITION_FAILED", "audit-drafts-required", {runId: run.runId});
       }
 
       const capability = await this.canFileGithubIssues(repositoryRoot);
-      if (!capability.ok) return errorEnvelope("audit.approve", capability.code, capability.message);
+      if (!capability.ok) return publicFailureEnvelope("audit.approve", "AC_PRECONDITION_FAILED", "audit-github-refused", {runId: run.runId});
 
       // The canonical host is part of the token so the human confirming a public publish is
       // confirming a fully qualified target, not a hostless slug.
       const expectedConfirmToken = `public:${capability.host}/${capability.repoNameWithOwner}:${run.baseSha}:${run.runId}`;
       if (capability.visibility !== "private" && input.confirmPublicToken !== expectedConfirmToken) {
-        return errorEnvelope(
-          "audit.approve",
-          "AC_USER_CONFIRMATION_REQUIRED",
-          `audit run ${run.runId} targets a ${capability.visibility} repository (${capability.host}/${capability.repoNameWithOwner}); rerun with explicit confirmation: archctx audit approve ${run.runId} --confirm-public-repo ${expectedConfirmToken}`
-        );
+        return publicFailureEnvelope("audit.approve", "AC_USER_CONFIRMATION_REQUIRED", "audit-confirmation-required", {runId: run.runId, confirmationToken: expectedConfirmToken});
       }
 
       const preflight = preflightGithubIssueDrafts(run.runId, drafts);
-      if (!preflight.ok) return errorEnvelope("audit.approve", "AC_PRECONDITION_FAILED", preflight.reason);
+      if (!preflight.ok) return publicFailureEnvelope("audit.approve", "AC_PRECONDITION_FAILED", "audit-preflight-refused", {runId: run.runId});
 
       const env = { GH_TOKEN: capability.token };
       const confirmPublicTokenDigest = capability.visibility === "private"
@@ -629,11 +634,7 @@ export class AuditService {
       try {
         existingIssues = await this.context.githubIssueExecutor.listRecentIssues(capability.repoNameWithOwner, env);
       } catch (error) {
-        return errorEnvelope(
-          "audit.approve",
-          "AC_PRECONDITION_FAILED",
-          `audit run ${run.runId} could not list existing GitHub issues for crash-recovery dedup (inconclusive, publishing nothing this call): ${error instanceof Error ? error.message : String(error)}; rerun with --resume: archctx audit approve ${run.runId} --resume`
-        );
+        return publicFailureEnvelope("audit.approve", "AC_PRECONDITION_FAILED", "audit-issue-list-inconclusive", {runId: run.runId});
       }
 
       for (const draft of drafts) {
@@ -650,11 +651,7 @@ export class AuditService {
               this.context.githubIssueExecutor.createIssue({ repo: capability.repoNameWithOwner, title: draft.title, bodyFile, env })
             );
           } catch (error) {
-            return errorEnvelope(
-              "audit.approve",
-              "AC_PRECONDITION_FAILED",
-              `audit run ${run.runId} failed to publish github issue draft ${draft.draftId}: ${error instanceof Error ? error.message : String(error)}; already-published drafts are recorded, rerun with --resume to continue: archctx audit approve ${run.runId} --resume`
-            );
+            return publicFailureEnvelope("audit.approve", "AC_PRECONDITION_FAILED", "audit-issue-create-inconclusive", {runId: run.runId, draftId: draft.draftId});
           }
         }
         issuedIssues.push({ draftId: draft.draftId, draftDigest: draft.draftDigest, number: issued.number, url: issued.url, issuedAt: this.context.clock() });

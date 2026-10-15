@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { constants, closeSync, fstatSync, lstatSync, openSync, readSync, realpathSync, type BigIntStats } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  NATIVE_CONTEXT_LIMITS, NATIVE_CONTEXT_PROFILE, NATIVE_CONTEXT_SCHEMA_VERSION, NativeContextError, assertNativeContextLimit,
+  FailureError, toEnvelope, NATIVE_CONTEXT_LIMITS, NATIVE_CONTEXT_PROFILE, NATIVE_CONTEXT_SCHEMA_VERSION, NativeContextError, assertNativeContextLimit,
   assertNativeContextPath, canonicalize, digestJson, nativeAllowedNodeKinds, nativeByteCompare,
   nativeContextModelIssues, okEnvelope, type Json, type NativeCapabilityProfile, type NativeContextContract,
   type NativeContextDocument, type NativeContextExportV1, type NativeContextInput, type NativeContextModel,
@@ -258,7 +258,13 @@ function parseInput(source: CapturedSource, path: string): Json {
   try { return parseJsonOrStableYaml(source.text(path)!, path); }
   catch (error) {
     if (error instanceof NativeContextError) throw error;
-    if (error instanceof DuplicateModelKeyError) throw new NativeContextError("native-context-input-ambiguous", { path, branch: error.branch, key: error.key.slice(0, 256), offset: error.offset, omittedKeyCharacters: Math.max(0, error.key.length - 256) });
+    if (error instanceof DuplicateModelKeyError) {
+      const fields = Object.getOwnPropertyDescriptors(error);
+      const offset = fields.offset?.value;
+      if (!["branch", "key", "offset"].every(key => fields[key] && "value" in fields[key]) || typeof fields.branch.value !== "string" || typeof fields.key.value !== "string" || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) throw new FailureError("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", {stage: "failure-metadata"});
+      const key = fields.key.value as string;
+      throw new NativeContextError("native-context-input-ambiguous", {path, branch: fields.branch.value, key, offset, omittedKeyCharacters: Buffer.byteLength(key, "utf8") > 256 ? key.length : 0});
+    }
     throw new NativeContextError("native-context-model-invalid", { path, invariant: "model-parse" });
   }
 }
@@ -360,6 +366,17 @@ function capture(source: CapturedSource, snapshot: NativeContextSnapshot): Nativ
 
 /** Stateless native read. The success payload contains no local paths, timestamps or daemon identity. */
 export function exportNativeContext(start: string, selector: NativeContextSelector, hooks: NativeContextReadHooks = {}): NativeContextExportV1 {
+  try { return readNativeContext(start, selector, hooks); }
+  catch (error) {
+    let typed: NativeContextError | undefined;
+    try { if (error instanceof NativeContextError) typed = error; } catch { /* Uninspectable throws remain unknown. */ }
+    if (typed) throw typed;
+    const failure = toEnvelope("export.native", error, "native-export").error;
+    throw new FailureError(failure.code, failure.reasonCode, failure.details, failure);
+  }
+}
+
+function readNativeContext(start: string, selector: NativeContextSelector, hooks: NativeContextReadHooks): NativeContextExportV1 {
   if (selector.source === "ref") assertNativeGitRevision(selector.ref);
   const root = readNativeGitRoot(start);
   if (selector.source === "ref") {

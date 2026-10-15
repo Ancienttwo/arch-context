@@ -654,7 +654,7 @@ describe("daemon agent jobs", () => {
       } as any);
       expect(tamperedBodyDigest.ok).toBe(false);
       expect((tamperedBodyDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedBodyDigest as any).error.message).toContain("bodyDigest mismatch");
+      expect((tamperedBodyDigest as any).error.reasonCode).toBe("jobs-input-invalid");
 
       const tamperedAuthority = await daemon.jobsComplete(root, {
         jobId,
@@ -668,7 +668,7 @@ describe("daemon agent jobs", () => {
         now: "2026-06-25T02:45:03.600Z"
       } as any);
       expect(tamperedAuthority.ok).toBe(false);
-      expect((tamperedAuthority as any).error.message).toContain("advisory-only");
+      expect((tamperedAuthority as any).error.reasonCode).toBe("jobs-input-invalid");
 
       // A draft's own draftDigest is recomputed from its full content (not just bodyDigest), so
       // tampering the digest label itself is caught even though every other field is untouched.
@@ -685,7 +685,7 @@ describe("daemon agent jobs", () => {
       } as any);
       expect(tamperedDraftDigest.ok).toBe(false);
       expect((tamperedDraftDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedDraftDigest as any).error.message).toContain("draftDigest mismatch");
+      expect((tamperedDraftDigest as any).error.reasonCode).toBe("jobs-input-invalid");
 
       // plan.githubIssueDraftDigests (what actually gets written to the architecture ledger) must
       // match the digests of plan.githubIssueDrafts, even though the drafts themselves are untouched.
@@ -702,7 +702,7 @@ describe("daemon agent jobs", () => {
       } as any);
       expect(tamperedDigestsArray.ok).toBe(false);
       expect((tamperedDigestsArray as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedDigestsArray as any).error.message).toContain("githubIssueDraftDigests must match");
+      expect((tamperedDigestsArray as any).error.reasonCode).toBe("jobs-input-invalid");
 
       // plan.validationDigest is a claimed top-level integrity digest over the plan's own digests
       // (proposedDeltaDigests/documentationDraftDigests/githubIssueDraftDigests); the daemon must
@@ -721,7 +721,7 @@ describe("daemon agent jobs", () => {
       } as any);
       expect(tamperedValidationDigest.ok).toBe(false);
       expect((tamperedValidationDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedValidationDigest as any).error.message).toContain("validationDigest mismatch");
+      expect((tamperedValidationDigest as any).error.reasonCode).toBe("jobs-input-invalid");
 
       // plan.proposalDigest is recomputed as digestJson(plan minus proposalDigest) and must cover
       // the whole plan; forging just the digest label, with every other field untouched, must
@@ -739,7 +739,7 @@ describe("daemon agent jobs", () => {
       } as any);
       expect(tamperedProposalDigest.ok).toBe(false);
       expect((tamperedProposalDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((tamperedProposalDigest as any).error.message).toContain("proposalDigest mismatch");
+      expect((tamperedProposalDigest as any).error.reasonCode).toBe("jobs-input-invalid");
 
       const complete = await daemon.jobsComplete(root, {
         jobId,

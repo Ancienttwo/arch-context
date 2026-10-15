@@ -1,3 +1,5 @@
+import { FailureError, knownFailure, unclassifiedFailure } from "@archcontext/contracts";
+import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import type { ArchContextErrorCode, CapabilityDependenciesV1 } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { measureCapabilityDependencies } from "@archcontext/core/module-statistics";
@@ -21,9 +23,11 @@ export interface CapabilityDependenciesResultV1 extends CapabilityDependenciesV1
   privacy: { writes: "none" };
 }
 
-export class CapabilityDependenciesError extends Error {
-  constructor(readonly code: ArchContextErrorCode, message: string, readonly reasonCode?: string) {
-    super(message);
+export class CapabilityDependenciesError extends FailureError {
+  constructor(code: ArchContextErrorCode, _message: string, reasonCode?: string, details: unknown = {}) {
+    const sourceReason = reasonCode ?? (code === "AC_SCHEMA_INVALID" ? "deps-input-invalid" : code === "AC_MODEL_ADOPTION_REQUIRED" ? "deps-model-unreadable" : code === "AC_CODE_FACTS_UNAVAILABLE" ? "code-facts-unavailable" : undefined);
+    const failure = sourceReason === undefined ? unclassifiedFailure("public-operation") : knownFailure(code, sourceReason, details);
+    super(failure.code, failure.reasonCode, failure.details, failure);
     this.name = "CapabilityDependenciesError";
   }
 }
@@ -38,17 +42,27 @@ export class CapabilityDependenciesError extends Error {
  * never an empty matrix: an empty matrix would read as "no dependencies".
  */
 export function readCapabilityDependencies(root: string, request: CapabilityDependenciesRequestV1 = {}): CapabilityDependenciesResultV1 {
+  try { return readCapabilityDependenciesUnchecked(root, request); }
+  catch (error) {
+    let typed: CapabilityDependenciesError | undefined;
+    try { if (error instanceof CapabilityDependenciesError) typed = error; } catch { /* Uninspectable throws remain unknown. */ }
+    if (typed) throw typed;
+    throw publicOperationFailure(error);
+  }
+}
+
+function readCapabilityDependenciesUnchecked(root: string, request: CapabilityDependenciesRequestV1 = {}): CapabilityDependenciesResultV1 {
   const importNodeLimit = request.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
   for (const [name, value] of [["importNodeLimit", request.importNodeLimit], ["edgeLimit", request.edgeLimit]] as const) {
     if (value !== undefined && (!Number.isInteger(value) || value < (name === "edgeLimit" ? 0 : 1))) {
-      throw new CapabilityDependenciesError("AC_SCHEMA_INVALID", `${name} must be a ${name === "edgeLimit" ? "non-negative" : "positive"} integer, got ${value}`);
+      throw new CapabilityDependenciesError("AC_SCHEMA_INVALID", "Dependency limit is invalid.", "deps-input-invalid", {field: name, issue: "invalid-limit"});
     }
   }
   const model = loadModel(root);
   const nodeIds = new Set(model.nodes.map((node) => node.id));
   for (const [flag, nodeId] of [["--from", request.from], ["--into", request.into]] as const) {
     if (nodeId !== undefined && !nodeIds.has(nodeId)) {
-      throw new CapabilityDependenciesError("AC_SCHEMA_INVALID", `deps ${flag} names no node in the model: ${nodeId}`);
+      throw new CapabilityDependenciesError("AC_SCHEMA_INVALID", "Dependency filter names no model node.", "deps-input-invalid", {field: flag === "--from" ? "from" : "into", issue: "unknown-node"});
     }
   }
   const headSha = readHeadSha(root);
@@ -90,7 +104,8 @@ function readWorkspaces(root: string): ReturnType<typeof declaredWorkspacePackag
   } catch (error) {
     throw new CapabilityDependenciesError(
       "AC_SCHEMA_INVALID",
-      `workspace packages are unreadable: ${error instanceof Error ? error.message : String(error)}`
+      `workspace packages are unreadable: ${error instanceof Error ? error.message : String(error)}`,
+      "deps-workspace-invalid"
     );
   }
 }
@@ -101,7 +116,8 @@ function loadModel(root: string): NativeModel {
   } catch (error) {
     throw new CapabilityDependenciesError(
       "AC_MODEL_ADOPTION_REQUIRED",
-      `architecture model is unreadable: ${error instanceof Error ? error.message : String(error)}`
+      `architecture model is unreadable: ${error instanceof Error ? error.message : String(error)}`,
+      "deps-model-unreadable"
     );
   }
 }
