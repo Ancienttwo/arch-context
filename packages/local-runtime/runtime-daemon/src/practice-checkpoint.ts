@@ -7,7 +7,7 @@ import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import type { ExternalDocumentationService } from "./external-documentation";
 import type { RuntimePracticeCheckpointInput } from "./rpc-types";
-import { runArchitectureDebtCommand } from "./architecture-debt";
+import { runArchitectureDebtCommand, selectedProducerFailureEnvelope } from "./architecture-debt";
 
 /** The parts of the daemon's repository session this service reads. */
 type RepositorySession = { workspace: WorkspaceRef; snapshot: RepositorySnapshot };
@@ -96,6 +96,11 @@ export class PracticeCheckpointService {
   }
 
   async practiceCheckpoint(root: string, input: RuntimePracticeCheckpointInput): Promise<JsonEnvelope> {
+    try { return await this.practiceCheckpointUnchecked(root, input); }
+    catch (error) { return selectedProducerFailureEnvelope("practices.checkpoint", error, "practice-checkpoint"); }
+  }
+
+  private async practiceCheckpointUnchecked(root: string, input: RuntimePracticeCheckpointInput): Promise<JsonEnvelope> {
     this.assertRunning();
     const started = Date.now();
     const session = await this.openSession(root);

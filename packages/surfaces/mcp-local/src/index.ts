@@ -1,9 +1,9 @@
 import { MCP_PLAN_OPERATIONS_SCHEMA, MCP_TOOL_INPUT_SCHEMAS } from "./tool-schemas";
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
-import { assertNoCallerProvidedAttestationFields, errorEnvelope, productVersionManifest, validateJsonSchema, type Json } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, productVersionManifest, validateJsonSchema, type Json } from "@archcontext/contracts";
 import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
-import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
-import { createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-rpc-client";
+import { runArchitectureDebtCommand, selectedProducerFailureEnvelope } from "@archcontext/local-runtime/architecture-debt";
+import { RuntimeRpcTransportError, createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-rpc-client";
 
 export { MCP_PLAN_OPERATIONS_SCHEMA };
 
@@ -35,7 +35,7 @@ export interface McpResourceDefinition {
   };
 }
 
-export type McpRuntimeResolver = (root: string) => RuntimeDaemonClient | Promise<RuntimeDaemonClient>;
+export type McpRuntimeResolver = (root: string, options?: { preserveHealthFailure?: boolean }) => RuntimeDaemonClient | Promise<RuntimeDaemonClient>;
 
 export interface McpLocalServerOptions {
   runtime?: RuntimeDaemonClient;
@@ -163,17 +163,27 @@ export class McpLocalServer {
   }
 
   async callTool(name: string, args: Record<string, any>, surface: "local" | "chatgpt" = "local", writeEnabled = false): Promise<ToolCallResult> {
+    if (!["archcontext_checkpoint", "archcontext_practice_checkpoint", "archcontext_complete_task"].includes(name)) {
+      return this.callToolUnchecked(name, args, surface, writeEnabled);
+    }
+    try {
+      const result = await this.callToolUnchecked(name, args, surface, writeEnabled);
+      return { ...result, content: normalizeFailureResult(result.content, "mcp", name === "archcontext_practice_checkpoint" ? "practices.checkpoint" : name === "archcontext_complete_task" ? "complete_task" : "checkpoint") as unknown as Json };
+    } catch (error) { return selectedMcpFailure(name === "archcontext_practice_checkpoint" ? "practices.checkpoint" : name === "archcontext_complete_task" ? "complete_task" : "checkpoint", error); }
+  }
+
+  private async callToolUnchecked(name: string, args: Record<string, any>, surface: "local" | "chatgpt", writeEnabled: boolean): Promise<ToolCallResult> {
     const tools = surface === "chatgpt" ? this.listChatGptTools(writeEnabled) : this.listTools();
     if (!tools.some((tool) => tool.name === name)) return {
       content: errorEnvelope("mcp", "AC_CAPABILITY_UNSUPPORTED", "Tool is unavailable on this surface") as unknown as Json,
       dataClassification: "local-metadata"
     };
-    if (name === "archcontext_checkpoint" || name === "archcontext_practice_checkpoint") {
+    if (name === "archcontext_checkpoint" || name === "archcontext_practice_checkpoint" || name === "archcontext_complete_task") {
       const validation = validateJsonSchema(MCP_TOOL_INPUT_SCHEMAS[name], args as Json);
       if (validation.issues.length > 0) return {
-        content: errorEnvelope(name === "archcontext_checkpoint" ? "checkpoint" : "practices.checkpoint",
-          "AC_SCHEMA_INVALID", "Checkpoint arguments violate the declared input schema",
-          "checkpoint-input-invalid", { issueCount: validation.issues.length }) as unknown as Json,
+        content: failureEnvelope(name === "archcontext_checkpoint" ? "checkpoint" : name === "archcontext_complete_task" ? "complete_task" : "practices.checkpoint",
+          knownFailure("AC_SCHEMA_INVALID", name === "archcontext_complete_task" ? "complete-input-invalid" : "checkpoint-input-invalid",
+            name === "archcontext_complete_task" ? {} : { issueCount: validation.issues.length })) as unknown as Json,
         dataClassification: "local-metadata"
       };
     }
@@ -212,7 +222,7 @@ export class McpLocalServer {
       case "archcontext_practice_checkpoint": {
         const root = requiredArg(args, "root");
         try {
-          const result = await (await this.runtime(root)).practiceCheckpoint(root, {
+          const result = await (await this.runtime(root, { preserveHealthFailure: true })).practiceCheckpoint(root, {
             taskSessionId: args.taskSessionId ?? "task_mcp",
             task: args.task,
             event: args.event ?? "manual",
@@ -225,7 +235,7 @@ export class McpLocalServer {
           });
           return { content: result as unknown as Json, dataClassification: "local-metadata" };
         } catch (error) {
-          return runtimeUnavailable("practices.checkpoint", error);
+          return selectedMcpFailure("practices.checkpoint", error);
         }
       }
       case "archcontext_plan_update": {
@@ -268,11 +278,11 @@ export class McpLocalServer {
         try {
           assertNoCallerProvidedAttestationFields(args, "complete-task");
         } catch (error) {
-          return { content: errorEnvelope("complete_task", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)) as unknown as Json, dataClassification: "local-metadata" };
+          return { content: failureEnvelope("complete_task", knownFailure("AC_SCHEMA_INVALID", "complete-input-invalid")) as unknown as Json, dataClassification: "local-metadata" };
         }
         try {
           const root = requiredArg(args, "root");
-          const result = await (await this.runtime(root)).completeTask(root, {
+          const result = await (await this.runtime(root, { preserveHealthFailure: true })).completeTask(root, {
             taskSessionId: args.taskSessionId,
             task: args.task,
             posture: args.posture,
@@ -284,7 +294,7 @@ export class McpLocalServer {
           });
           return { content: result as unknown as Json, dataClassification: "local-metadata" };
         } catch (error) {
-          return runtimeUnavailable("complete_task", error);
+          return selectedMcpFailure("complete_task", error);
         }
       }
       default:
@@ -370,20 +380,27 @@ export class McpLocalServer {
     };
   }
 
-  private async runtime(root = process.cwd(), options: { allowResolver?: boolean } = { allowResolver: true }): Promise<RuntimeDaemonClient> {
+  private async runtime(root = process.cwd(), options: { allowResolver?: boolean; preserveHealthFailure?: boolean } = { allowResolver: true }): Promise<RuntimeDaemonClient> {
     if (this.runtimeInstance) return this.runtimeInstance;
     const client = createRuntimeRpcClientFromConnectionFile(root);
+    let healthFailure: RuntimeRpcTransportError | undefined;
     if (client) {
-      const health = await client.health().catch(() => undefined);
+      const health = await client.health().catch(error => {
+        if (options.preserveHealthFailure && error instanceof RuntimeRpcTransportError && error.code === "RPC_TIMEOUT") healthFailure = error;
+        return undefined;
+      });
       if ((health as any)?.ok === true) {
         this.runtimeInstance = client;
         return this.runtimeInstance;
       }
     }
     if (options.allowResolver !== false && this.runtimeResolver) {
-      this.runtimeInstance = await this.runtimeResolver(root);
+      this.runtimeInstance = await (options.preserveHealthFailure
+        ? this.runtimeResolver(root, { preserveHealthFailure: true })
+        : this.runtimeResolver(root));
       return this.runtimeInstance;
     }
+    if (healthFailure) throw healthFailure;
     throw new Error("archctxd RPC is unavailable; run `archctx daemon start` before using the local MCP surface");
   }
 }
@@ -396,6 +413,26 @@ function requiredArg(args: Record<string, any>, key: string): string {
   const value = args[key];
   if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required`);
   return value;
+}
+
+function selectedMcpFailure(requestId: string, error: unknown): ToolCallResult {
+  if (error instanceof RuntimeRpcTransportError) {
+    try {
+      const metadata = Object.fromEntries(["code", "method", "timeoutMs", "elapsedMs"].map(key => {
+        const descriptor = Object.getOwnPropertyDescriptor(error, key);
+        if (!descriptor || !("value" in descriptor)) throw new Error("Invalid selected transport metadata");
+        return [key, descriptor.value];
+      }));
+      return {
+        content: failureEnvelope(requestId, knownFailure(metadata.code, metadata.code === "RPC_TIMEOUT" ? "rpc-timeout" : "rpc-aborted", {
+          method: metadata.method, timeoutMs: metadata.timeoutMs, elapsedMs: metadata.elapsedMs, mutationOutcome: "unknown"
+        })) as unknown as Json,
+        dataClassification: "local-metadata"
+      };
+    }
+    catch { return { content: failureEnvelope(requestId, unclassifiedFailure("failure-metadata")) as unknown as Json, dataClassification: "local-metadata" }; }
+  }
+  return { content: selectedProducerFailureEnvelope(requestId, error, "mcp") as unknown as Json, dataClassification: "local-metadata" };
 }
 
 function runtimeUnavailable(requestId: string, error: unknown): ToolCallResult {

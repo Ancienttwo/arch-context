@@ -11,6 +11,7 @@ export type Json =
 export type Severity = "notice" | "warning" | "error" | "critical";
 
 export type ArchContextErrorCode =
+  | "AC_UNCLASSIFIED_FAILURE"
   | "AC_REPO_NOT_FOUND"
   | "AC_RUNTIME_UNAVAILABLE"
   | "AC_RUNTIME_VERSION_UNSUPPORTED"
@@ -58,6 +59,7 @@ export interface JsonEnvelope<T extends Json = Json> {
 }
 
 export const ERROR_CATALOG: Record<ArchContextErrorCode, Omit<ArchContextError, "message">> = {
+  AC_UNCLASSIFIED_FAILURE: { code: "AC_UNCLASSIFIED_FAILURE", severity: "error", retryable: false, action: "inspect-diagnostics" },
   AC_REPO_NOT_FOUND: { code: "AC_REPO_NOT_FOUND", severity: "error", retryable: false, action: "open-correct-repository" },
   AC_RUNTIME_UNAVAILABLE: { code: "AC_RUNTIME_UNAVAILABLE", severity: "error", retryable: true, action: "start-or-reconnect-runtime" },
   AC_RUNTIME_VERSION_UNSUPPORTED: { code: "AC_RUNTIME_VERSION_UNSUPPORTED", severity: "error", retryable: true, action: "upgrade-archctx-runtime" },

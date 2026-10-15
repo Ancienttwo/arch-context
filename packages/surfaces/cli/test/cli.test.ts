@@ -1545,7 +1545,9 @@ describe("archctx CLI", () => {
       ], root);
       expect(forgedReview.ok).toBe(false);
       expect((forgedReview as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((forgedReview as any).error.message).toContain("--result");
+      expect((forgedReview as any).error).toMatchObject({ reasonCode: "cli-input-invalid", action: "correct-command-arguments" });
+      expect((forgedReview as any).error.details).toEqual({});
+      expect((forgedReview as any).error.message).not.toContain("--result");
 
       const forgedDigest = await runTestCli("complete", [
         "--task-session-id", "task_cli_forged_digest",
@@ -1554,7 +1556,9 @@ describe("archctx CLI", () => {
       ], root);
       expect(forgedDigest.ok).toBe(false);
       expect((forgedDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((forgedDigest as any).error.message).toContain("--model-digest");
+      expect((forgedDigest as any).error).toMatchObject({ reasonCode: "cli-input-invalid", action: "correct-command-arguments" });
+      expect((forgedDigest as any).error.details).toEqual({});
+      expect((forgedDigest as any).error.message).not.toContain("--model-digest");
 
       const forgedPractice = await runTestCli("complete", [
         "--task-session-id", "task_cli_forged_practice",
@@ -1563,7 +1567,9 @@ describe("archctx CLI", () => {
       ], root);
       expect(forgedPractice.ok).toBe(false);
       expect((forgedPractice as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((forgedPractice as any).error.message).toContain("--practice-violations");
+      expect((forgedPractice as any).error).toMatchObject({ reasonCode: "cli-input-invalid", action: "correct-command-arguments" });
+      expect((forgedPractice as any).error.details).toEqual({});
+      expect((forgedPractice as any).error.message).not.toContain("--practice-violations");
 
       const config = await runTestCli("config", [], root);
       expect((config.data as any).generic.transport).toBe("stdio");
@@ -2809,11 +2815,17 @@ describe("archctx CLI", () => {
         expect(rejected.ok, `${command} ${args.join(" ")}`).toBe(false);
         expect(rejected.error, `${command} ${args.join(" ")}`).toMatchObject({ code: "AC_SCHEMA_INVALID", retryable: false });
       }
-      expect((await cli("checkpoint", "--bogus")).error?.message).toBe("checkpoint does not recognize the flag --bogus");
+      const checkpointRefusal = await cli("checkpoint", "--bogus");
+      expect(checkpointRefusal.error).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "cli-input-invalid", action: "correct-command-arguments" });
+      expect(checkpointRefusal.error?.details).toEqual({});
+      expect(checkpointRefusal.error?.message).not.toContain("--bogus");
       expect((await cli("sync", "--changed")).error?.message).toBe("sync requires a value for --changed");
       expect(await cli("audit", "list", "--run-id", "x")).toMatchObject({ requestId: "audit.list", error: { message: "audit list does not recognize the flag --run-id" } });
       // Daemon-owned review fields keep their own refusal, ahead of the unknown-flag scan.
-      expect((await cli("complete", "--signature", "x")).error?.message).toContain("Review attestation fields are daemon-owned");
+      const attestationRefusal = await cli("complete", "--signature", "x");
+      expect(attestationRefusal.error).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "cli-input-invalid", action: "correct-command-arguments" });
+      expect(attestationRefusal.error?.details).toEqual({});
+      expect(attestationRefusal.error?.message).not.toContain("--signature");
 
       // prepare/context: options are never read as task text.
       for (const [command, option] of [["prepare", "--max-bytes"], ["context", "--max-symbols"]] as const) {
