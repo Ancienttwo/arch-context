@@ -1,0 +1,24 @@
+{
+  "base": "be19d8ec1fb8767a2edff4de92188f43557cb958",
+  "allowedPaths": [
+    ".github/workflows/verify.yml",
+    "scripts/verify-ci.mjs",
+    "scripts/verify-governance.mjs",
+    "scripts/governance-verify-workflow.test.ts",
+    "scripts/verify-sharding-workflow.test.ts",
+    "plans/plan-20261015-1200-ci-governance-dedup.md",
+    "tasks/contracts/20261015-1200-ci-governance-dedup.contract.md",
+    "tasks/notes/20261015-1200-ci-governance-dedup.notes.md",
+    "tasks/reviews/20261015-1200-ci-governance-dedup.review.md",
+    "tasks/notes/20261015-1200-ci-governance-dedup.scope.json"
+  ],
+  "protected": [
+    "PR360 product worktree",
+    "primary checkout",
+    "Mini Claude BYOK",
+    "release prep",
+    "all dependency versions",
+    "contents:read",
+    "existing budgets and inspection/ledger conditions"
+  ]
+}
