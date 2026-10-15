@@ -9,6 +9,8 @@ export const OS_TARGETS = ["ubuntu-latest", "macos-15", "windows-latest"];
 export const NODE_TARGETS = ["22.22.x", "24.x", "25.x"];
 export const targetName = (os, node) => `${os} / Node ${node}`;
 export const workerName = (os, node, part) => `Verify execution: ${targetName(os, node)} / ${part}`;
+export const GOVERNANCE_TARGET = { os: "ubuntu-latest", "node-version": "22.22.x" };
+export const GOVERNANCE_WORKER = workerName(GOVERNANCE_TARGET.os, GOVERNANCE_TARGET["node-version"], "full");
 const CONFIG_PATH = new URL("../.github/verify-sharding.json", import.meta.url);
 
 export function readConfig() {
@@ -19,6 +21,7 @@ export function readConfig() {
     assert(Number.isInteger(row.shards) && row.shards > 1);
   }
   assert.equal(new Set(config.splitTargets.map(row => targetName(row.os, row["node-version"]))).size, config.splitTargets.length);
+  assert(!config.splitTargets.some(row => row.os === GOVERNANCE_TARGET.os && row["node-version"] === GOVERNANCE_TARGET["node-version"]), "shared Governance prerequisite must remain a full worker");
   return config;
 }
 
@@ -170,31 +173,86 @@ export function runnerMinutes(jobs, sampledAt = Date.now()) {
     note: "Runner time is summed across jobs, not workflow wall clock. Per-job rounding is a model, not a billing statement; OS rates and account allowances are not queried. The reporting job's remaining time is not yet measured." };
 }
 
-async function githubRead(path) {
+async function githubRead(path, env = process.env) {
   // Public repository read API; keep the workflow's existing contents:read permission unchanged.
   const response = await fetch(`https://api.github.com/${path}`, { signal: AbortSignal.timeout(30_000), headers: {
     Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "archcontext-verify-ci",
-    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`
   } });
   if (!response.ok) throw new Error(`GitHub read API ${response.status}: ${path}`);
   return response.json();
 }
 
-async function hostedJobs() {
-  const repository = process.env.GITHUB_REPOSITORY;
-  const identity = subject();
-  const run = await githubRead(`repos/${repository}/actions/runs/${identity.runId}`);
+export async function hostedJobs(env = process.env, read = githubRead) {
+  const repository = env.GITHUB_REPOSITORY;
+  assert.match(repository ?? "", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
+  const identity = subject(env);
+  const run = await read(`repos/${repository}/actions/runs/${identity.runId}`, env);
   assert.equal(run.id, identity.runId);
   assert.equal(run.run_attempt, identity.attempt);
   const jobs = [];
   for (let page = 1; ; page++) {
-    const response = await githubRead(`repos/${repository}/actions/runs/${identity.runId}/attempts/${identity.attempt}/jobs?per_page=100&page=${page}`);
+    const response = await read(`repos/${repository}/actions/runs/${identity.runId}/attempts/${identity.attempt}/jobs?per_page=100&page=${page}`, env);
+    assert(Number.isSafeInteger(response.total_count) && response.total_count >= 0 && Array.isArray(response.jobs), "invalid GitHub jobs response");
     jobs.push(...response.jobs);
     if (jobs.length >= response.total_count) { assert.equal(jobs.length, response.total_count); break; }
     assert(response.jobs.length, "GitHub jobs pagination is incomplete");
   }
   assert.equal(new Set(jobs.map(job => job.id)).size, jobs.length, "GitHub jobs pagination contains duplicates");
   return { run, jobs };
+}
+
+export function governanceSourceHead(env = process.env) {
+  assert(["pull_request", "push", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME), "unsupported Governance event");
+  // pull_request checks out a synthetic merge commit; the API's run/job head is the source head.
+  const head = env.GITHUB_EVENT_NAME === "pull_request"
+    ? JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8")).pull_request?.head?.sha
+    : env.GITHUB_SHA;
+  assert.match(head ?? "", /^[a-f0-9]{40}$/, "missing/invalid source HEAD");
+  return head;
+}
+
+export function validateGovernancePrerequisite(identity, run, jobs, context) {
+  assert(["pull_request", "push", "workflow_dispatch"].includes(context.eventName));
+  assert.equal(context.prerequisiteResult, "success", "Linux full prerequisite did not succeed");
+  assert.match(context.prerequisiteCheckoutSha ?? "", /^[a-f0-9]{40}$/, "missing/invalid prerequisite checkout");
+  assert.equal(context.actualCheckoutSha, identity.checkoutSha, "Governance checkout differs from this event");
+  assert.equal(context.prerequisiteCheckoutSha, identity.checkoutSha, "Linux full verified a different checkout");
+  assert.equal(run.id, identity.runId, "different prerequisite run");
+  assert.equal(run.run_attempt, identity.attempt, "different prerequisite attempt");
+  assert.equal(run.path, ".github/workflows/verify.yml", "different prerequisite workflow");
+  assert.equal(run.event, context.eventName, "different prerequisite event");
+  assert.match(context.sourceHeadSha ?? "", /^[a-f0-9]{40}$/);
+  assert.equal(run.head_sha, context.sourceHeadSha, "different prerequisite source HEAD");
+  const matches = jobs.filter(job => job.name === GOVERNANCE_WORKER);
+  assert.equal(matches.length, 1, "missing/duplicate Linux full prerequisite");
+  const job = matches[0];
+  assert(Number.isSafeInteger(job.id) && job.id > 0, "missing/invalid prerequisite job id");
+  assert.equal(job.status, "completed", "Linux full prerequisite is incomplete");
+  assert.equal(job.conclusion, "success", "Linux full prerequisite was not successful");
+  assert.equal(job.run_id, run.id);
+  assert.equal(job.run_attempt, run.run_attempt);
+  assert.equal(job.head_sha, run.head_sha);
+  const verifySteps = (job.steps ?? []).filter(step => step.name === "Verify");
+  assert.equal(verifySteps.length, 1, "missing/duplicate full Verify step");
+  assert.equal(verifySteps[0].status, "completed");
+  assert.equal(verifySteps[0].conclusion, "success", "full Verify step was not successful");
+  return job;
+}
+
+export async function verifyGovernancePrerequisite(env = process.env) {
+  assert.equal(env.GITHUB_ACTIONS, "true", "hosted inspections require the current GitHub Actions run");
+  const identity = subject(env);
+  const sourceHeadSha = governanceSourceHead(env);
+  const checkout = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", shell: false });
+  assert.equal(checkout.status, 0, "cannot read Governance checkout");
+  const { run, jobs } = await hostedJobs(env);
+  const job = validateGovernancePrerequisite(identity, run, jobs, {
+    eventName: env.GITHUB_EVENT_NAME, sourceHeadSha, actualCheckoutSha: checkout.stdout.trim(),
+    prerequisiteResult: env.VERIFY_PREREQUISITE_RESULT,
+    prerequisiteCheckoutSha: env.VERIFY_PREREQUISITE_CHECKOUT_SHA
+  });
+  return { runId: run.id, attempt: run.run_attempt, sourceHeadSha: run.head_sha, checkoutSha: identity.checkoutSha, jobId: job.id };
 }
 
 export async function main(command, env = process.env) {
@@ -207,7 +265,7 @@ export async function main(command, env = process.env) {
   if (command === "topology") {
     const split = config.splitTargets;
     const shards = split.flatMap(row => Array.from({ length: row.shards }, (_, index) => ({ ...row, index, shard: index + 1 })));
-    for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shards }, excluded: split.map(({ os, "node-version": node }) => ({ os, "node-version": node })) })) {
+    for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shards }, excluded: [...split.map(({ os, "node-version": node }) => ({ os, "node-version": node })), GOVERNANCE_TARGET] })) {
       appendFileSync(env.GITHUB_OUTPUT, `${key}=${JSON.stringify(value)}\n`);
     }
   } else if (command === "plan") {
@@ -229,7 +287,7 @@ export async function main(command, env = process.env) {
     validateCoverage(plan, reports, subject(env));
     console.log(`Verified ${plan.files.length} Bun-discovered files exactly once across ${plan.groups.length} isolated shards`);
   } else if (command === "collect" || command === "cost") {
-    const { run, jobs } = await hostedJobs();
+    const { run, jobs } = await hostedJobs(env);
     const metrics = runnerMinutes(jobs);
     const evidence = temporaryPath("VERIFY_EVIDENCE", "verify-evidence");
     jsonWrite(join(evidence, "runner-minutes.json"), { runId: run.id, attempt: run.run_attempt, headSha: run.head_sha, ...metrics });
