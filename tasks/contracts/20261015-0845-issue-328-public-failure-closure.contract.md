@@ -58,6 +58,7 @@ allowed_paths:
   - packages/local-runtime/runtime-daemon/src/developer-review-run.ts
   - packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts
   - packages/local-runtime/runtime-daemon/test/developer-review-run.test.ts
+  - deploy/release-checklists/archctx-0.8.0.md
 ```
 
 ## Verification Plan
@@ -67,3 +68,5 @@ allowed_paths:
 ```
 
 Broaden only to affected whole files when new edits justify it. Record exact command/results in notes/review. No full-root or hosted matrix restart. Rollback removes task delta only, never persistent actual runtime state.
+
+Coordinator follow-through: accepted main be19d8ec is tree-identical to original C1 baseline 1fd88cf6; merge alignment preserves tested product bytes. Create one final PR now. Record planned 0.8.0 compatibility and existing release gates only; do not bump/publish/upload/tag in this task.

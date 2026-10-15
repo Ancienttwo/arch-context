@@ -1,6 +1,6 @@
 # Plan: #328 remaining public failure closure and post-write floor safety
 
-> **Status**: Executing
+> **Status**: Review
 > **Owner**: delegated Codex sole writer
 > **Base**: 386d3f8ca2725be176619baf8449d76febbc976d
 > **Task Contract**: tasks/contracts/20261015-0845-issue-328-public-failure-closure.contract.md
@@ -33,6 +33,10 @@ Add deterministic red regressions before edits. Run whole affected contract/core
 - [x] Close D6 deterministic/unknown public failures and bounded unresolved authority.
 - [x] Verify frozen v2 old/new compatibility before final wire choice.
 - [x] Run complete scoped checks and one independent review cycle.
-- [ ] Ordinary commit/push; wait accepted C1 main then align and deliver one final PR.
+- [x] Ordinary implementation commit/push; merge accepted C1 main without changing verified product bytes.
+- [x] Record planned 0.8.0 compatibility and existing release authorities/gates; no npm publishing.
+- [ ] Deliver the single final PR and hand exact-head checks to the coordinator.
 
-Final local acceptance:609 passed across32 whole files (31+one complete corrected-file rerun); type/boundary/production/packaged pass. Both lanes report no remainingP1/P2. Exact closed boundary/authority/D4-adoption matrix is retained in workspace closure-matrix.json and notes. Publication gate remains C1 merge then accepted-main alignment and one final PR.
+Final local acceptance: 609 passed across 32 whole files (31 + one complete corrected-file rerun); type/boundary/production/packaged pass. Both lanes report no remaining P1/P2. The exact boundary/authority/D4-adoption matrix is retained in workspace closure-matrix.json and notes. C1 merge and accepted-main alignment are complete; one final PR remains to be delivered.
+
+C1 gate cleared: be19d8ec tree equals 1fd88cf6; local merge a713228c has two parents and exactly the tested ea063698 tree. Nine squash-ancestry conflicts were resolved from that verified tree equality. Release-prep checklist is preparation-only and keeps actual versions 0.7.2.

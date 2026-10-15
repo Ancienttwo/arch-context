@@ -44,7 +44,8 @@
     "packages/local-runtime/runtime-daemon/test/git-visible-worktree-digest.test.ts",
     "packages/local-runtime/runtime-daemon/src/developer-review-run.ts",
     "packages/local-runtime/runtime-daemon/src/practice-checkpoint.ts",
-    "packages/local-runtime/runtime-daemon/test/developer-review-run.test.ts"
+    "packages/local-runtime/runtime-daemon/test/developer-review-run.test.ts",
+    "deploy/release-checklists/archctx-0.8.0.md"
   ],
   "soleWriter": "root",
   "review": {
@@ -80,5 +81,6 @@
     "computeDeveloperReviewDigestBundle",
     "runDeveloperReviewSession",
     "runSignedDeveloperReviewAttestation"
-  ]
+  ],
+  "releasePrepAuthorization": "Coordinator explicitly requests archctx/archctx-contracts 0.8.0 compatibility record and existing authorities/gates; no npm publish this turn"
 }
