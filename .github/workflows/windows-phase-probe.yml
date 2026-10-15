@@ -1,0 +1,73 @@
+name: Windows Phase Probe
+
+# Diagnostic only. Runs the two Windows-slow CLI tests under a timing preload on main and on
+# PR #360's head, then uploads the per-test phase breakdown. It does not gate anything.
+on:
+  push:
+    branches:
+      - claude/windows-phase-probe
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: "${{ matrix.subject.name }} / Node ${{ matrix.node-version }} / ${{ matrix.mode }}"
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        subject:
+          - { name: main, sha: d0a799282a61aaa0a95624307a0be12d7e8820fb }
+          - { name: pr360, sha: 86883337691480a2ce739d78ed369b348514e5ec }
+        node-version: [24.x]
+        mode: [isolated, file]
+    env:
+      PHASE_PROBE_OUT: ${{ runner.temp }}\phase-probe.out
+      PHASE_PROBE_SLOW_MS: "250"
+    steps:
+      - name: Checkout probe
+        uses: actions/checkout@v6
+        with:
+          path: probe-src
+
+      - name: Checkout subject
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.subject.sha }}
+          path: subject
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies
+        working-directory: subject
+        run: bun install --frozen-lockfile
+
+      - name: Probe the two slow tests 40 times each
+        if: matrix.mode == 'isolated'
+        continue-on-error: true
+        working-directory: subject
+        run: bun test --preload "${{ github.workspace }}/probe-src/probe/phase-probe.ts" packages/surfaces/cli/test/cli.test.ts -t "legacy local store migration status|keep the profile of the committed manifest" --rerun-each 40 --timeout 60000
+
+      - name: Probe the whole CLI test file in its normal order
+        if: matrix.mode == 'file'
+        continue-on-error: true
+        working-directory: subject
+        run: bun test --preload "${{ github.workspace }}/probe-src/probe/phase-probe.ts" packages/surfaces/cli/test/cli.test.ts --timeout 60000
+
+      - name: Upload phase breakdown
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: phase-probe-${{ matrix.subject.name }}-node-${{ matrix.node-version }}-${{ matrix.mode }}
+          path: ${{ runner.temp }}\phase-probe.out
+          if-no-files-found: error
