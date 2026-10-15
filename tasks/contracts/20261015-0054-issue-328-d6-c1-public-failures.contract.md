@@ -21,6 +21,13 @@ After hosted consumer failures, the coordinator also admitted narrow CLI deps/MC
 adapters, Explorer typed absence facts and complete CLI/MCP/RPC test files. This preserves the
 six existing classifications/remediation contexts; no new reason, operation, C2 or CI change.
 
+The coordinator admitted the two existing DE1/DE3 source-wiring audit files after run
+38688782994 exposed stale throw-message witnesses. Preserve declaration-scoped refusal and
+observed/unavailable/unclassified facts, no-empty-observed fallback rejection, bounded reads
+and explicit graph authority. Run one complete unfiltered bun test at the existing 60000 ms
+per-test budget, then affected audits/type/packaging. Wait for all current hosted failures and
+terminal status before one ordinary push. Do not restore provider-message inference.
+
 ## Allowed Paths
 
 ```yaml
@@ -87,6 +94,8 @@ allowed_paths:
   - packages/surfaces/cli/test/deps.test.ts
   - packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts
   - packages/surfaces/mcp-local/test/mcp-local.test.ts
+  - scripts/data-engine-source-invariants.ts
+  - scripts/data-engine-source-invariants.test.ts
   - scripts/production-mock-reachability-audit.mjs
   - plans/plan-20261015-0054-issue-328-d6-c1-public-failures.md
   - tasks/contracts/20261015-0054-issue-328-d6-c1-public-failures.contract.md
@@ -119,14 +128,14 @@ allowed_paths:
       }
     },
     {
-      "id": "c1-affected",
+      "id": "c1-full-bun",
       "kind": "command",
       "cwd": ".",
       "phase": "verification",
       "cost": "normal",
       "evidence_policy": "current_exact",
-      "necessity": "Complete 34 affected files including full deps, MCP, RPC argument codec, runtime/lifecycle and failure contracts; no name filtering, existing CI timeout unchanged.",
-      "command": "bun test --timeout 60000 packages/contracts/test/failure-envelope.test.ts packages/contracts/test/native-context.test.ts packages/contracts/test/public-operation-failures.test.ts packages/local-runtime/runtime-daemon/test/public-operation-failures.test.ts packages/local-runtime/runtime-daemon/test/ownership-read-surfaces.test.ts packages/local-runtime/runtime-daemon/test/undeclared-dependencies.test.ts packages/local-runtime/runtime-daemon/test/projection-freshness-scope.test.ts packages/local-runtime/runtime-daemon/test/landscape.test.ts packages/local-runtime/runtime-daemon/test/external-documentation.test.ts packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts packages/local-runtime/runtime-daemon/test/explorer-server.test.ts packages/local-runtime/runtime-daemon/test/explorer-session.test.ts packages/local-runtime/runtime-daemon/test/ledger-admin.test.ts packages/local-runtime/runtime-daemon/test/accepted-committed-change.test.ts packages/local-runtime/runtime-daemon/test/agent-jobs.test.ts packages/local-runtime/runtime-daemon/test/audit.test.ts packages/local-runtime/runtime-daemon/test/recommendations.test.ts packages/local-runtime/runtime-daemon/test/refactor-scan.test.ts packages/local-runtime/runtime-daemon/test/refactor-scan-import-limit.test.ts packages/local-runtime/runtime-daemon/test/refactor-recording.test.ts packages/local-runtime/runtime-daemon/test/refactor-verify.test.ts packages/local-runtime/runtime-daemon/test/refactor-decisions.test.ts packages/local-runtime/model-store-yaml/test/native-context.test.ts packages/local-runtime/git-adapter/test/blob-reader.test.ts packages/surfaces/cli/test/failure-envelope.test.ts packages/surfaces/cli/test/native-context.test.ts packages/surfaces/cli/test/public-operation-failures.test.ts packages/surfaces/cli/test/hook-helper-parity.test.ts packages/surfaces/cli/test/hook-state-paths.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/core/practice-catalog/test/practice-catalog.test.ts packages/surfaces/cli/test/deps.test.ts packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts packages/surfaces/mcp-local/test/mcp-local.test.ts",
+      "necessity": "Coordinator requires one complete repository bun test discovery, with no file selection, no name filtering, no skips and unchanged existing timeout. Report real environment or budget limits explicitly.",
+      "command": "bun test --timeout 60000",
       "inputs": {
         "env": [
           "DO_NOT_TRACK",
@@ -170,14 +179,14 @@ allowed_paths:
       }
     },
     {
-      "id": "c1-cli-full",
+      "id": "c1-wiring-audit",
       "kind": "command",
       "cwd": ".",
       "phase": "verification",
       "cost": "normal",
       "evidence_policy": "current_exact",
-      "necessity": "Complete CLI contract file, including every previously masked branch; no name filtering and no raised timeout. May run independently of the remaining full files.",
-      "command": "bun test --timeout 60000 packages/surfaces/cli/test/cli.test.ts",
+      "necessity": "Verify declaration-scoped current observed absence facts and independent removal negatives, preserving bounded reads, no-empty fallback and explicit graph authority.",
+      "command": "bun test --timeout 60000 scripts/data-engine-source-invariants.test.ts",
       "inputs": {
         "env": [
           "DO_NOT_TRACK",
@@ -202,3 +211,14 @@ No self-merge/release/#328 closure/repo-harness/#354 changes.
 ## Rollback
 
 Revert C1 code/policy/test changes only; no state migration or persisted data edits.
+
+## Approved diagnostic and delivery follow-up
+
+The coordinator explicitly authorized the original exec tool's normal require_escalated review
+for this worktree's git add/commit/push and, as needed, loopback/browser verification. No chmod,
+lock deletion, hook bypass or alternative execution-plane workaround is allowed. The original
+non-green full-root result is retained. Only the nine original unknown cases were rechecked
+with identical commands: all fail in default execution (loopback probe EPERM), all pass with
+approved loopback execution (probe OK), 96 assertions. A single approved browser recheck also
+passes, and approved packaged smoke passes. No second full suite is run or full green claimed.
+Cache EPERM and the independent hosted CodeGraph exit5 remain separately recorded.

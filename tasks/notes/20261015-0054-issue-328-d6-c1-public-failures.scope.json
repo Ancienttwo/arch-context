@@ -2278,7 +2278,9 @@
     "allOriginalReviewersConfirmedRepairs": true
   },
   "additionalConsumerAllowedPaths": [
-    "scripts/production-mock-reachability-audit.mjs"
+    "scripts/production-mock-reachability-audit.mjs",
+    "scripts/data-engine-source-invariants.ts",
+    "scripts/data-engine-source-invariants.test.ts"
   ],
   "additionalConsumerAuthorization": "Coordinator explicitly admitted the existing production audit as a necessary consumer of this error-contract migration after hosted CI exposed its legacy message.includes(key) assertion. No CI workflow, budget, new entrypoint, reason or C2 change.",
   "additionalConsumerVerification": {
@@ -2333,6 +2335,74 @@
       "productionAudit": "passed",
       "packagedSmoke": "passed",
       "inputHashesUnchanged": true
+    }
+  },
+  "sourceWiringConsumerCorrection": {
+    "authorized": true,
+    "run": 38688782994,
+    "baseHead": "1aad65d19614ca7a173d5083eeadd5472e05aab6",
+    "scope": "Existing declaration-scoped DE1/DE3 audit and tests only; no production behavior change.",
+    "requiredFacts": [
+      "inputDomain=observed",
+      "availability=unavailable",
+      "cause=unclassified"
+    ],
+    "preserved": [
+      "bounded indexed reads",
+      "no empty observed fallback",
+      "explicit graph authority"
+    ],
+    "verification": "one complete unfiltered bun test at existing 60000ms; affected audits/type/packaging; all hosted failures collected and old run terminal before one push",
+    "verificationResult": {
+      "command": "bun test --timeout 60000",
+      "fullRootAttemptCount": 1,
+      "fullRootFiles": 266,
+      "pass": 2861,
+      "fail": 75,
+      "skip": 3,
+      "assertions": 22339,
+      "seconds": 700.57,
+      "timedOut": false,
+      "fullGreen": false,
+      "portProbe": "EPERM",
+      "wiringAudit": {
+        "pass": 40,
+        "fail": 0,
+        "assertions": 86
+      },
+      "typecheck": "pass",
+      "packageBoundaries": "pass",
+      "productionAudit": "pass",
+      "packagedNative": "pass",
+      "packagedCli": "pass under approved execution; original default listener failure retained",
+      "recordedInputsUnchanged": true,
+      "separateHostedFailure": "Windows Node22 shard2 #261 fixture codegraph init exit5, stdout Done, empty stderr; root cause unresolved, no UV_HANDLE_CLOSING equivalence or C1 fix",
+      "hostedRunTerminal": false,
+      "fullRootDefaultExecutionOnly": true,
+      "approvedFollowup": {
+        "permissionPath": "Original exec require_escalated normal review",
+        "gitAdd": "pass",
+        "unknownOriginalCases": 9,
+        "defaultIsolatedPass": 0,
+        "defaultIsolatedFail": 9,
+        "approvedLoopbackPass": 9,
+        "approvedLoopbackFail": 0,
+        "approvedLoopbackAssertions": 96,
+        "commandsIdentical": true,
+        "defaultProbe": "EPERM",
+        "approvedProbe": "OK",
+        "approvedBrowserPass": 1,
+        "approvedBrowserAssertions": 2,
+        "approvedPackagedSmoke": "pass",
+        "secondFullRootRun": false,
+        "sourceTestAuditHashesUnchanged": true
+      },
+      "failureClassification": {
+        "serverListenDirectEvidence": 64,
+        "browserLaunchFailure": 1,
+        "npmCacheEPERM": 1,
+        "originallyNoDirectCause": 9
+      }
     }
   }
 }

@@ -76,7 +76,7 @@ assertion masked by the earlier projection failure. Restore the fixed remedy and
 assertion. Correct an overstrict newly added missing-value expectation while retaining the actual
 CLI preflight refusal and explicit --from guidance. Final verification repeats all complete files.
 
-## Final complete-file verification
+## Prior 35-file consumer verification
 
 835 pass / 0 fail / 10464 assertions across 35 complete files. CLI:112; deps:6; MCP:20;
 RPC argument codec:153; runtime:85. No name filtering or timeout/platform changes. Typecheck,
@@ -84,3 +84,39 @@ package boundaries, original production audit and packaged smoke all passed. Sou
 hashes were unchanged. The seven semantic repairs span the six original CI failed test cases;
 existing failure/no-write/recovery assertions remain. Parent incremental review and new-head
 hosted acceptance are separate pending gates, not inferred from local results.
+
+## Current declaration-scoped DE1/DE3 audit correction
+
+The coordinator independently identified a stale source witness, not a new production behavior
+regression, and specified the minimum correction. The two audit files now require the fixed
+throw message and all observed/unavailable/unclassified facts within buildExplorerProjectionV2.
+Each missing witness and a fact moved outside that declaration is rejected. Existing bounded
+read, no-empty-observed and graph authority checks remain. No product source or heuristic changes.
+The complete wiring file passes 40 / fails 0 / 86 assertions; type, boundaries and production audit
+also pass. This is a narrow consumer correction within the existing review cycle; no additional
+independent semantic sign-off is invented.
+
+The requested single complete root bun test was executed with its normal 60000ms budget and
+without filters or added skips. It completed in 700.57s: 266 files, 2861 pass, 75 fail, 3 existing
+skips, 22339 assertions. Current default execution denies loopback bind (EPERM), browser startup
+and npm cache writes. Full failure evidence remains available, including startup/assertion
+failures without a direct captured cause; no full green or blanket regression clearance is
+claimed. Packaged native smoke passes, while packaged CLI daemon startup is similarly blocked.
+Input hashes remain unchanged. Full hosted acceptance remains required.
+
+Current hosted collection also found a separate Windows codegraph-init exit5 after stdout Done
+and empty stderr in the #261 fixture. It is not addressed by weakening tests or changing C1.
+Wait for the remaining current full job and terminal inventory before delivery; no C1/B mixing,
+PR merge, issue closure, retry/cancel or #358 resolution is claimed.
+
+### Approved execution contrast
+
+Normal Git staging approval succeeded after the default index.lock denial. The nine original
+unknown failures reproduce in independent default-permission selected runs and all pass with
+approved loopback execution using identical commands (96 assertions), while the direct socket
+probe changes from EPERM to OK. All package source/test/audit hashes are unchanged. The single
+browser failure also passes under approved headless execution (2 assertions), and approved
+packaged native/CLI smoke passes. Preserve the original non-green full-root evidence and npm
+cache EPERM; do not certify the unrerun full suite as green. Windows CodeGraph init exit5 remains
+a separately evidenced hosted fixture failure, not an assumed UV_HANDLE_CLOSING recurrence.
+No product revision or new semantic review cycle accompanies this diagnostic contrast.

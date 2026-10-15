@@ -61,4 +61,50 @@ and policy changes only; no data migration, merge, release or issue closure is a
 - [x] Collect Governance/Linux/macOS failures and distinguish actual classification/information regressions.
 - [x] Repair six existing consumers without raw diagnostics, arbitrary ID echoes or guessed provider causes.
 - [x] Complete all 35 affected files without name filtering (835 pass), then type/boundary, production audit and packaged smoke.
-- [ ] Collect all remaining old-run failures and wait for terminal state before one ordinary follow-up push.
+- [x] Collect all 29 failed logs from run 38684264483, confirm terminal failure, then deliver frozen 1aad65d1.
+
+## Current DE1/DE3 consumer correction
+
+The coordinator admitted the stale source-wiring audit and its negative tests. The unchanged
+source reproduces 34 pass / 2 fail in its 36-case audit file; current hosted Linux Node22 full
+and macOS Node24 shard3 expose the same two failures. The current fixed message and complete
+observed/unavailable/unclassified facts replace the removed reasonCode interpolation witness.
+Keep function-scoped witnesses, no-empty-observed fallback, bounded reads and authority checks.
+
+- [x] Amend the exact audit/test scope and verification contract before edits.
+- [x] Update static witnesses and independent removal negatives without production edits.
+- [x] Run one complete unfiltered repository bun test with the existing budget; record the environment-limited failures.
+- [x] Run affected audit, type/boundary, production reachability and packaged smoke; record the daemon-start blocker.
+- [ ] Collect all current hosted failed jobs; wait for terminal, then one ordinary push.
+
+Current local outcome is not full green: the unfiltered root command completed normally in
+700.57 seconds over 266 files, with 2861 pass / 75 fail / 3 existing skips / 22339 assertions.
+No file/name filter, skip option, timeout increase or privileged execution was used. The default
+execution plane refuses a direct Node loopback bind with EPERM; Bun server fixtures report
+EADDRINUSE, headless Chromium cannot launch and npm pack cannot write its default cache.
+Most failed cases directly expose those restrictions; remaining fixture assertion/startup failures
+remain recorded rather than being claimed fixed.
+
+After that full attempt, wiring audit 40/40 (86 assertions), typecheck, five-workspace boundary
+audit and production reachability audit pass. Packaged native-context smoke passes, while
+packaged CLI fails starting its daemon under the same listener restriction. Recorded input
+hashes are unchanged. Current hosted collection additionally found an independent Windows Node22
+shard2 fixture failure: codegraph init prints Done but exits 5 with empty stderr. No production
+change, test relaxation or #358 fix is authorized or made for that separate failure.
+
+### Approved follow-up evidence
+
+The coordinator clarified that the default Git index.lock denial is an execution permission
+boundary, not withdrawn commit authorization. Normal require_escalated git add succeeded,
+without changing permissions or deleting a lock. Git commit/push use the same normal review
+process, and push still waits for terminal hosted status.
+
+The 75 full-root failures are classified individually: 64 contain direct server/listen refusal
+evidence; one captures Chromium sandbox-parameter startup FATAL Input/output error5; one captures
+npm cache EPERM; nine originally lack a direct cause. Identical independent selected commands
+reproduce all nine in default execution and pass all nine under approved loopback execution
+(96 assertions), with unchanged source/test/audit hashes. This controlled contrast supports their
+execution-permission dependency; the original full result remains non-green. The one browser
+case passes under normal approved browser execution (2 assertions). Approved packaged native/CLI
+smoke passes in 14.61s. npm cache EPERM is retained without ownership changes; hosted CodeGraph
+exit5 is separate from any UV_HANDLE_CLOSING theory.

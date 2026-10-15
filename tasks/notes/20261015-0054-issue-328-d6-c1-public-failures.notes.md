@@ -143,7 +143,7 @@ Final verification repeats all 35 complete files at the same existing CI timeout
 CLI file and the other 34 files in independent processes. Seven semantic corrections span the
 six original failed tests; no newly observed provider cause is guessed.
 
-## Final complete-file evidence
+## Prior 35-file consumer evidence
 
 All final checks passed on unchanged source/test/audit hashes:
 
@@ -162,3 +162,79 @@ The six original CI failed test cases span seven restored semantics (snapshot fi
 projection input remedy are separate branches in one case). Full old-run Windows collection and
 terminal readback remain prerequisites for the single ordinary follow-up push. No source or test
 will change after this evidence unless an additional real failure requires a bounded correction.
+
+## DE1/DE3 static wiring consumer correction
+
+The coordinator independently confirmed that the stale audit still required the old interpolated
+throw source string. Only scripts/data-engine-source-invariants.ts and its test change. The audit
+retains declaration-scoped refusal witnesses and now requires the current fixed observed absence
+message plus inputDomain=observed, availability=unavailable and cause=unclassified. Removing the
+throw or any fact independently fails; placing the missing observed fact in an unrelated function
+also fails. No-empty-observed fallback, bounded indexed reads and explicit graph authority checks
+are unchanged. No provider-message heuristic or production logic is restored. The unchanged audit
+reproduced 34 pass / 2 fail; the corrected complete file passes 40 / 0 with 86 assertions.
+
+The coordinator's full-root command was run exactly once after the final audit/test correction:
+bun test --timeout 60000, with no file list, name filter or skip option. It ended with exit1
+after 700.57 seconds, not a budget timeout: 2939 cases across 266 files, 2861 pass / 75 fail /
+3 existing platform/fixture skips / 22339 assertions. This is not a full green result. The default
+execution plane refuses a direct Node loopback bind with EPERM. Captured failures include Bun
+EADDRINUSE/listener refusal, daemon/peer startup, headless Chromium startup, and npm pack cache
+EPERM. The raw log and all 75 failed cases are retained. Ten fixture/assertion failures initially
+lack a direct error cause in their captured block and are not silently certified as repaired.
+No elevated execution, altered timeout or platform change was attempted.
+
+The following checks ran after the complete root command: wiring audit 40 pass / 86 assertions
+(0.05s), typecheck (0.67s), five-workspace boundary audit (0.14s), production reachability audit
+(0.25s), all exit0. Packaged smoke (3.45s) passes its native-context phase but exits1 at daemon
+start, reporting Failed to start server / port0, under the same execution restriction. All
+recorded source/test/audit input hashes remain unchanged. Verification plan validation passes
+with hash sha256:838b7c02a44ed6775fd642c858880c5d25863871b27693cb3aa6dee8c84b6b52.
+
+Evidence directory in the delegated workspace: c1-verification/wiring-followup/ contains
+verification-final.json, full-failure-inventory.json, full-bun.log and each post-check log.
+Current hosted run 38688782994 is still nonterminal at this note. All ten completed failed jobs
+have raw logs; nine expose the same two static audit cases, and Windows Node22 shard2 separately
+fails projection apply accepts the major change it observes (#261) during fixture codegraph init.
+That process exits 5 after stdout Done, empty stderr; no native assertion text was observed in
+that job. Its full context is windows-codegraph-init-failure.json. Do not infer a #358 fix or
+broaden C1 for it. Wait for the remaining Windows Node24 full job, all aggregate failures and
+terminal provider readback before one delivery. B is unchanged and clean at ca35871d.
+
+## Normal approval and bounded failure classification
+
+The coordinator explicitly reaffirmed C1 commit/push authorization and required the original
+exec tool's normal require_escalated approval path. The exact seven-file git add succeeded
+(exit0); no chmod, lock deletion, bypass or alternative writer was used. The initial default
+index.lock denial remains evidence of that execution boundary.
+
+The retained 75-case full-root inventory distinguishes direct evidence from inference:
+
+- 64 cases contain server/listen refusal evidence, including EADDRINUSE, Failed to listen,
+  listen EPERM, or daemon logTail Failed to start server. This category does not assert that
+  each original log independently identified the OS-level cause.
+- One Mermaid case captures Chromium sandbox_parameters_mac.mm:87 FATAL Input/output error5.
+  This is browser-start evidence, not an EPERM assertion. A normally approved single-case
+  headless-browser recheck passes with 2 assertions (0.94s).
+- One contracts packaging case reports npm cache EPERM. Its generic root-owned-cache hint is
+  not assumed correct, and no cache ownership/permission repair or repeat full suite was made.
+- Nine cases have only startup timeout or assertion failure in their original blocks. The
+  exact same selected commands were run in independent processes under default execution and
+  approved loopback execution. Default: 0 pass / 9 fail, probe EPERM. Approved: 9 pass / 0 fail /
+  96 assertions, probe OK. This removes whole-suite order as the sole explanation for the
+  failure and supports an execution-permission dependency, without rewriting the full result.
+
+The nine are: frozen-v1 RPC peer startup; CLI audit-list spawn, concurrent cold starts, deleted
+worktree idle-exit, deleted-worktree daemon list/stop; and all four existing #351 identity cases.
+Per-case names, identical commands, timings and both raw logs are in classification-and-recheck.json,
+default-unknown-results.json and approved-loopback-unknown-results.json. Default grouped timings:
+RPC 15.27s, CLI 16.99s, identity 46.12s. Approved timings:RPC 0.43s, CLI 10.34s, identity 2.31s.
+Approved packaged native-context and CLI smoke both pass in 14.61s. Package source/test/audit
+hashes remain unchanged in both phases. Type, boundaries, production audit and wiring results
+from the unchanged candidate remain valid; they were not repeated for status.
+
+The original full command remains 2861 pass/75 fail/3 existing skips over 266 files, with no
+second full execution or full green claim. Windows Node22 shard2 codegraph init exit5 is separately
+retained with its #261 test name, Done stdout and empty stderr; no common root with
+UV_HANDLE_CLOSING is presumed. At verification-commit time the old Win24 full is still active;
+terminal provider inventory and exact final delivery HEAD/CI are supplied separately after it ends.

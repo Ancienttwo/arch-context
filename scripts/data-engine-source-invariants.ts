@@ -54,7 +54,8 @@ export function inspectDataEngineRequiredDomains(compilerSource: string, daemonS
     && contains(compiler.get("projectionInputDomain"), 'digest === null', 'requirement === "required"',
       'throw new ExplorerProjectionCompileError("precondition-failed", `required-input-unavailable:${domain}:not-provided`)')
     && contains(functions(daemonSource).get("buildExplorerProjectionV2"),
-      'throw new ExplorerProjectionCompileError("precondition-failed", `required-input-unavailable:observed:${reasonCode}`)')
+      'throw new ExplorerProjectionCompileError("precondition-failed", "required-input-unavailable:observed", {',
+      'inputDomain: "observed"', 'availability: "unavailable"', 'cause: "unclassified"')
     && !daemonSource.includes("observed = { task, symbols: [], edges: [], evidence: []");
 }
 
