@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { docsAnchorsReportIssues, okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
+import { docsAnchorsReportIssues, FailureError, okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import {
   checkProseAnchors,
   loadArchitectureFilesForLayout,
@@ -17,7 +17,8 @@ import {
 } from "@archcontext/core/projection-engine";
 import { openCodeGraphSymbolReader, type CodeGraphSymbolDeclaration, type CodeGraphSymbolReader } from "@archcontext/local-runtime/codegraph-adapter";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { committedArchitectureDocsProfile, projectionFailureEnvelope } from "./projection-service";
+import { committedArchitectureDocsProfile } from "./projection-service";
+import { selectedProducerFailureEnvelope } from "./producer-failure";
 
 /** Caller-owned discovery from this invocation only; never retained between reads. */
 export interface DocsAnchorsReadInputs {
@@ -33,8 +34,11 @@ export interface DocsAnchorsReadInputs {
  */
 export function runDocsAnchorsCommand(cwd: string, options: { profile?: ArchitectureProjectionProfile } = {}, inputs?: DocsAnchorsReadInputs): JsonEnvelope {
   let opened: ReturnType<typeof openCodeGraphSymbolReader> | undefined;
+  let primaryFailure: JsonEnvelope | undefined;
   try {
-    const root = findRepositoryRoot(cwd);
+    let root: string;
+    try { root = findRepositoryRoot(cwd); }
+    catch { throw new FailureError("AC_REPO_NOT_FOUND", "git-worktree-required"); }
     const profile = options.profile ?? committedArchitectureDocsProfile(root);
     const model = inputs?.model ?? loadNativeModelFromArchContext(root);
     const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile });
@@ -71,9 +75,14 @@ export function runDocsAnchorsCommand(cwd: string, options: { profile?: Architec
     if (issues.length > 0) throw new Error(`docs-anchors-report-invalid: ${issues.join("; ")}`);
     return okEnvelope("docs.anchors", report as unknown as Json);
   } catch (error) {
-    return projectionFailureEnvelope("docs.anchors", error);
+    primaryFailure = selectedProducerFailureEnvelope("docs.anchors", error, "docs-anchors");
+    return primaryFailure;
   } finally {
-    if (opened?.availability === "ready") opened.reader.close();
+    try { if (opened?.availability === "ready") opened.reader.close(); }
+    catch {
+      // Cleanup must not erase a producer refusal or leak diagnostics after an otherwise valid read.
+      if (!primaryFailure) return selectedProducerFailureEnvelope("docs.anchors", undefined, "docs-anchors");
+    }
   }
 }
 
