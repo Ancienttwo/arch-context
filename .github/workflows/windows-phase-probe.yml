@@ -22,7 +22,7 @@ jobs:
           - { name: main, sha: d0a799282a61aaa0a95624307a0be12d7e8820fb }
           - { name: pr360, sha: 86883337691480a2ce739d78ed369b348514e5ec }
         node-version: [24.x]
-        mode: [isolated, file]
+        mode: [isolated-dtemp]
     env:
       PHASE_PROBE_SLOW_MS: "250"
     steps:
@@ -58,6 +58,18 @@ jobs:
         continue-on-error: true
         working-directory: subject
         run: bun test --preload "${{ github.workspace }}/probe-src/probe/phase-probe.ts" packages/surfaces/cli/test/cli.test.ts -t "legacy local store migration status|keep the profile of the committed manifest" --rerun-each 40 --timeout 60000
+
+      - name: Probe the two slow tests 40 times each with TEMP on the runner work disk
+        if: matrix.mode == 'isolated-dtemp'
+        continue-on-error: true
+        working-directory: subject
+        env:
+          PHASE_PROBE_OUT: ${{ runner.temp }}\\phase-probe.out
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: |
+          node -e "console.log('tmpdir=' + require('os').tmpdir())"
+          bun test --preload "${{ github.workspace }}/probe-src/probe/phase-probe.ts" packages/surfaces/cli/test/cli.test.ts -t "legacy local store migration status|keep the profile of the committed manifest" --rerun-each 40 --timeout 60000
 
       - name: Probe the whole CLI test file in its normal order
         env:
