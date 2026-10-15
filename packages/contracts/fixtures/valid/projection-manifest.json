@@ -3,7 +3,7 @@
   "rendererVersion": "archcontext.docs-renderer/v6",
   "profile": "repo-harness/v1",
   "layoutVersion": "archcontext.docs-layout/v1",
-  "generatedFrom": {"codeGraphPackage":"@colbymchenry/codegraph","codeGraphVersion":"1.6.1"},
+  "generatedFrom": {"codeGraphPackage":"@colbymchenry/codegraph","codeGraphVersion":"1.6.2"},
   "semanticBaseline": {
     "modelDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
     "capabilities": [

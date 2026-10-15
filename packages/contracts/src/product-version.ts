@@ -41,7 +41,7 @@ export interface ProductVersionManifest {
     sqliteMigrations: string;
     codeGraph: {
       packageName: "@colbymchenry/codegraph";
-      requiredVersion: "1.6.1";
+      requiredVersion: "1.6.2";
       adapter: "codegraph-cli";
     };
   };
@@ -100,7 +100,7 @@ export function productVersionManifest(): ProductVersionManifest {
       sqliteMigrations: "0001_runtime_state..0012_explorer_projection_index",
       codeGraph: {
         packageName: "@colbymchenry/codegraph",
-        requiredVersion: "1.6.1",
+        requiredVersion: "1.6.2",
         adapter: "codegraph-cli"
       }
     }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.flow-selector-check/v1",
   "ok": false,
-  "codeGraph": { "availability": "ready", "version": "1.6.1" },
+  "codeGraph": { "availability": "ready", "version": "1.6.2" },
   "summary": { "selectors": 2, "proven": 1, "unproven": 1, "usedUnproven": 1 },
   "selectors": [
     {

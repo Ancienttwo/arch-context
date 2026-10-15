@@ -386,7 +386,7 @@ export interface ProjectionSnapshotV1 extends ProjectionExpectedSnapshotV1 {
   layoutVersion: "archcontext.docs-layout/v1";
   generatedFrom: {
     codeGraphPackage: "@colbymchenry/codegraph";
-    codeGraphVersion: "1.6.1";
+    codeGraphVersion: "1.6.2";
     codeGraphStatus: "ready" | "unavailable";
   };
 }

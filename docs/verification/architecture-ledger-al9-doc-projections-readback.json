@@ -31,8 +31,8 @@
     ],
     "driftOk": true,
     "driftReasonCodes": [],
-    "projectionDigest": "sha256:c6f29e72f2bdcdbfc0721215930e86bad43caf39efac42e311d63b03379f6d3b",
-    "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+    "projectionDigest": "sha256:beef8b391c9cf59ae83b57346104ca8b110f2a114306786015de892b20b80c21",
+    "sourceDigest": "sha256:94ea3c394833becb099ebb26ee90752eee1d221397500ce93020a75b9583cacd",
     "projectionManifestTracksDigests": true,
     "docs": {
       "indexPresent": true,
@@ -62,11 +62,15 @@
         "ok": true
       },
       {
-        "command": "docs preview",
+        "command": "docs plan (repeat)",
         "ok": true
       },
       {
         "command": "docs apply",
+        "ok": true
+      },
+      {
+        "command": "docs apply (preserve human)",
         "ok": true
       },
       {

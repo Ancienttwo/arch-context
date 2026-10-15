@@ -15,7 +15,9 @@
     "acceptedProjectionManifestPresent": true,
     "blocksDriftBeforeProjectionApply": true,
     "driftReasonCodes": [
-      "projection-file-missing"
+      "projection-generated-region-manually-edited",
+      "projection-generated-region-stale",
+      "projection-manifest-stale"
     ],
     "projectionApplySucceeded": true,
     "postApplyDriftOk": true,
@@ -23,8 +25,8 @@
     "completeProjectionDriftClean": true
   },
   "agentDraft": {
-    "proposalId": "investigation_proposal.82b29c2ff102f106",
-    "proposalDigest": "sha256:05e23d0d907afc3f71ad4197e94e7233aa575b625ba91eb630472e63619a7234",
+    "proposalId": "investigation_proposal.9e927edaf045bc2a",
+    "proposalDigest": "sha256:1d583eb1428b14f10b950f506bdd6a9cbb6b9c73d34df0c81c36b2cf7309a0c6",
     "draftId": "agent_doc_draft.a88d868e85b9e73c",
     "draftDigest": "sha256:294c16f884a3309b2acc9d98d27397c98b2a1ac81aa8654808e79e202f18c9ef",
     "documentationDraftCount": 1,
