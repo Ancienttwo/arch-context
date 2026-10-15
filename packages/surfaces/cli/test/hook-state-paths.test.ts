@@ -1,5 +1,5 @@
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
-import { grantEveryoneRead } from "../../../local-runtime/control-file-security/test/windows-acl-fixtures";
+import { grantEveryoneRead, WINDOWS_ACL_FIXTURE_TIMEOUT_MS } from "../../../local-runtime/control-file-security/test/windows-acl-fixtures";
 import { expect, test } from "bun:test";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -61,4 +61,4 @@ test("fast hook finds daemon connections written with store state paths for repo
     else process.env.ARCHCONTEXT_STATE_DIR = previous;
     rmSync(workspace, { recursive: true, force: true });
   }
-}, 30_000);
+}, process.platform === "win32" ? 30_000 + WINDOWS_ACL_FIXTURE_TIMEOUT_MS : 30_000);
