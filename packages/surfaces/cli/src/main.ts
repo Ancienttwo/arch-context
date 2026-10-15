@@ -20,9 +20,9 @@ import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarke
 import { completeRuntimeStateRecovery, defaultArchContextStateRoot, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { listWorkspaceStateDirs } from "@archcontext/local-runtime/runtime-state-paths";
-import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, CapabilityDependenciesError, readCapabilityDependencies } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, CapabilityDependenciesError, readCapabilityDependencies } from "@archcontext/local-runtime/runtime-daemon";
 import { inspectRepositoryCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
-import { RuntimeRpcTransportError, type RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
+import { RuntimeRpcTransportError, RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { MCP_PLAN_OPERATIONS_SCHEMA, runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
@@ -3626,21 +3626,77 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
 }
 
 async function upgradeDaemon(args: string[], cwd: string) {
+  const connectionPath = defaultDaemonConnectionPath(cwd);
+  const lockPath = defaultDaemonLockPath(cwd);
+  const record = readRuntimeRpcConnectionFile(cwd);
+  const unchanged = () => JSON.stringify(readRuntimeRpcConnectionFile(cwd)) === JSON.stringify(record);
+  const refuse = (reason: string) => errorEnvelope("daemon.upgrade", "AC_RUNTIME_VERSION_UNSUPPORTED",
+    `Daemon ownership is unproven (${reason}); no process was signalled and no replacement was started. Run the previous archctx daemon stop, or verify and stop the original daemon in its owning terminal, then run archctx daemon upgrade.`,
+    "daemon-ownership-unproven");
+  if (existsSync(connectionPath) && (!record || typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0)) {
+    return refuse("connection record cannot prove a daemon identity");
+  }
+  let lockOwner: number | undefined;
+  try { lockOwner = liveDaemonLockOwnerPid(cwd); } catch { return refuse("daemon lock cannot be verified"); }
+  if (lockOwner !== undefined && lockOwner !== record?.pid) return refuse("a different live process owns the daemon lock");
+
   const persistedIssue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
-  const issue = persistedIssue ?? (await discoverRunningDaemonInfo(cwd)).compatibilityIssue;
+  let issue = persistedIssue;
+  let selfStopped = false;
+  if (record && typeof record.pid === "number" && isPidAlive(record.pid)) {
+    if (record.protocol !== "http-loopback" || record.version !== 1 || typeof record.token !== "string" || record.token.length === 0
+      || typeof record.root !== "string" || typeof record.url !== "string" || typeof record.startedAt !== "string"
+      || record.connectionPath !== connectionPath || record.lockPath !== lockPath
+      || defaultDaemonConnectionPath(record.root) !== connectionPath) return refuse("live record lacks trustworthy instance credentials");
+    try {
+      const url = new URL(record.url);
+      if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+        return refuse("connection endpoint is not the daemon loopback authority");
+      }
+    } catch { return refuse("connection endpoint is invalid"); }
+    // Probe the current transport contract, independently of a stale persisted schema label.
+    const client = new RuntimeRpcClient({ ...record, schemaVersion: RUNTIME_RPC_VERSION } as RuntimeRpcConnection);
+    let health: any;
+    try { health = await client.health(); } catch { return refuse("authenticated health proof is unavailable"); }
+    if (health?.ok !== true || health.schemaVersion !== RUNTIME_RPC_VERSION || health.pid !== record.pid) {
+      return refuse("authenticated peer identity or RPC version differs");
+    }
+    issue ??= runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
+    if (!unchanged()) return refuse("connection identity changed during verification");
+    if (!issue) {
+      return okEnvelope("daemon.upgrade", { running: true, alreadyRunning: true, ...client.connectionInfo(), upgraded: false, reason: "runtime-compatible" } as any);
+    }
+    let stopped: JsonEnvelope;
+    try { stopped = await client.shutdown(runtimeRpcDaemonIdentity({ pid: record.pid, root: record.root, token: record.token })); }
+    catch { return refuse("authenticated self-stop is unavailable"); }
+    if (!stopped.ok) return refuse("live instance refused the expected identity");
+
+    // These are daemon-owned release effects, not a PID-liveness guess. A reused PID is never signalled.
+    const deadline = Date.now() + daemonStartTimeoutMs(args);
+    while (existsSync(connectionPath) || existsSync(lockPath)) {
+      const current = readRuntimeRpcConnectionFile(cwd);
+      if (current ? JSON.stringify(current) !== JSON.stringify(record) : existsSync(connectionPath)) {
+        return refuse("connection changed or cannot be verified during self-stop");
+      }
+      const owner = liveDaemonLockOwnerPid(cwd);
+      if (owner !== undefined && owner !== record.pid) return refuse("another live instance acquired the daemon lock");
+      if (Date.now() >= deadline) return refuse("daemon-owned control files were not released");
+      await sleep(50);
+    }
+    selfStopped = true;
+  } else {
+    // Recheck just before recovery: a dead PID becoming live or a concurrent publication is a refusal.
+    if (!unchanged() || (record?.pid !== undefined && isPidAlive(record.pid)) || liveDaemonLockOwnerPid(cwd) !== undefined) {
+      return refuse("dead-record identity or lock ownership changed");
+    }
+  }
   if (!issue) {
     const started = await startBackgroundDaemon(args, cwd);
     return started.ok ? { ...started, requestId: "daemon.upgrade", data: { ...(started.data as any), upgraded: false, reason: "runtime-compatible" } } : started;
   }
-  if (issue.pidAlive && issue.pid === undefined) {
-    return errorEnvelope("daemon.upgrade", "AC_RUNTIME_VERSION_UNSUPPORTED", runtimeVersionUnsupportedMessage(issue));
-  }
-  if (issue.pidAlive && issue.pid !== undefined) {
-    process.kill(issue.pid, "SIGTERM");
-    const stopped = await waitForPidExit(issue.pid, daemonStartTimeoutMs(args));
-    if (!stopped) {
-      return errorEnvelope("daemon.upgrade", "AC_RUNTIME_VERSION_UNSUPPORTED", `Incompatible archctxd pid ${issue.pid} did not stop; stop it manually, then run archctx daemon upgrade.`);
-    }
+  if (selfStopped ? existsSync(connectionPath) || existsSync(lockPath)
+    : !unchanged() || (record?.pid !== undefined && isPidAlive(record.pid)) || liveDaemonLockOwnerPid(cwd) !== undefined) {
+    return refuse("ownership changed before replacement");
   }
   const recovery = recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
   const started = await startBackgroundDaemon(args, cwd);
