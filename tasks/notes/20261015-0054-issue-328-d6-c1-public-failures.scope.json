@@ -109,13 +109,19 @@
     "packages/local-runtime/runtime-daemon/src/audit-consent.ts",
     "packages/local-runtime/runtime-daemon/src/public-operation-failure.ts",
     "packages/surfaces/cli/src/native-context.ts",
-    "packages/surfaces/cli/src/hook-fast.ts"
+    "packages/surfaces/cli/src/hook-fast.ts",
+    "packages/local-runtime/runtime-daemon/src/explorer-projection.ts",
+    "packages/surfaces/cli/src/main.ts",
+    "packages/surfaces/mcp-local/src/index.ts"
   ],
-  "sourceAllowedCount": 24,
+  "sourceAllowedCount": 27,
   "reasonSchemas": {
     "deps-input-invalid": {
       "code": "AC_SCHEMA_INVALID",
-      "facts": {},
+      "facts": {
+        "field": "optional:depsField",
+        "issue": "optional:depsIssue"
+      },
       "required": [],
       "producerEvidence": "capability-dependencies.ts:42-51",
       "producerReferences": [
@@ -209,7 +215,9 @@
     },
     "projection-snapshot-mismatch": {
       "code": "AC_PRECONDITION_FAILED",
-      "facts": {},
+      "facts": {
+        "field": "optional:snapshotField"
+      },
       "required": [],
       "producerEvidence": "projection-service.ts:1286",
       "producerReferences": [
@@ -432,7 +440,11 @@
     },
     "explorer-precondition-failed": {
       "code": "AC_PRECONDITION_FAILED",
-      "facts": {},
+      "facts": {
+        "inputDomain": "optional:observedDomain",
+        "availability": "optional:inputAvailability",
+        "cause": "optional:unclassifiedCause"
+      },
       "required": [],
       "producerEvidence": "explorer-projection-service.ts:82-87",
       "producerReferences": [
@@ -1007,7 +1019,9 @@
     },
     "jobs-input-invalid": {
       "code": "AC_SCHEMA_INVALID",
-      "facts": {},
+      "facts": {
+        "field": "optional:jobsField"
+      },
       "required": [],
       "producerEvidence": "agent-jobs.ts:218,239,282",
       "producerReferences": [
@@ -2135,6 +2149,49 @@
       "enum": [
         "before-resolve-append"
       ]
+    },
+    "depsField": {
+      "enum": [
+        "from",
+        "into",
+        "importNodeLimit",
+        "edgeLimit"
+      ]
+    },
+    "depsIssue": {
+      "enum": [
+        "unknown-node",
+        "invalid-limit",
+        "missing-value"
+      ]
+    },
+    "snapshotField": {
+      "enum": [
+        "repositoryId",
+        "workspaceId",
+        "headSha",
+        "worktreeDigest"
+      ]
+    },
+    "jobsField": {
+      "enum": [
+        "workerId"
+      ]
+    },
+    "observedDomain": {
+      "enum": [
+        "observed"
+      ]
+    },
+    "inputAvailability": {
+      "enum": [
+        "unavailable"
+      ]
+    },
+    "unclassifiedCause": {
+      "enum": [
+        "unclassified"
+      ]
     }
   },
   "factsClosed": true,
@@ -2188,7 +2245,7 @@
     "global projectionFailureEnvelope",
     "withWriter and recovery classes",
     "Sqlite receipts/writer/migrate/recovery",
-    "global RPC/CLI/MCP gateways and Explorer HTTP wire",
+    "global RPC/CLI/MCP gateway rewrites and Explorer HTTP wire (except explicitly admitted existing CLI deps and MCP FailureError consumer branches)",
     "repo-harness",
     "#354",
     "B unmerged changes",
@@ -2200,7 +2257,8 @@
     "Originally 88 local schemas; add two observed request identity comparison branches (90), preserve original reason for pre-append drift, retain complete confirmation/command facts.",
     "Existing CLI exhaustive policy adapter test added to affected test-only scope; no CI or budget change.",
     "Outer raw throws remain throws; explicitly held C2 returned failures bypass result normalization.",
-    "Final class authority audit adds two source-owned RefactorScanError fallback reasons (92 local schemas); no algorithm or success change."
+    "Final class authority audit adds two source-owned RefactorScanError fallback reasons (92 local schemas); no algorithm or success change.",
+    "Coordinator admitted six hosted consumer corrections within C1: restore safe known facts/remediation, preserve FailureError through existing MCP adapter, and require full unfiltered CLI/MCP/RPC/runtime files. No new entrypoint/reason/C2/CI."
   ],
   "originalFreezeBase": "71d8b65b6efe0be2daee26608cc37c02baeba6d5",
   "integrationEvidence": {
@@ -2231,5 +2289,50 @@
     "injectionKeys": 6,
     "negativeWitnessesRejected": 4,
     "productTestHashesUnchanged": true
+  },
+  "hostedConsumerCorrection": {
+    "baseHead": "cf8ec9893dead7b4a8eec04dede834a5e01b75ae",
+    "run": 38684264483,
+    "independentFailureGroups": [
+      "snapshot-mismatch-field",
+      "docs-network-remediation",
+      "deps-invalid-input-distinction",
+      "jobs-required-worker-field",
+      "mcp-known-failure-classification",
+      "explorer-proven-absence-with-unknown-cause"
+    ],
+    "sourcePathsAdded": [
+      "packages/local-runtime/runtime-daemon/src/explorer-projection.ts",
+      "packages/surfaces/cli/src/main.ts",
+      "packages/surfaces/mcp-local/src/index.ts"
+    ],
+    "testPathsAdded": [
+      "packages/surfaces/cli/test/deps.test.ts",
+      "packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts",
+      "packages/surfaces/mcp-local/test/mcp-local.test.ts"
+    ],
+    "completeTestFiles": 35,
+    "testNameFiltering": false,
+    "timeoutChanged": false,
+    "knownReasonCountChanged": false,
+    "notes": "Existing source-owned field/issue enums and fixed remediation retain actionable context; do not echo arbitrary node IDs or infer CodeGraph causes from message text. Original MCP Git refusal assertion is preserved and strengthened.",
+    "maskedProjectionValidationRepair": "Full execution reached a later assertion in the same projection CLI test: restore the fixed sorting/uniqueness remediation and retain its original semantic assertion plus code/reason.",
+    "verificationGrouping": "35 complete files: entire CLI contract file plus 34 remaining affected files in independent processes; no name filtering.",
+    "semanticCorrectionCount": 7,
+    "finalVerification": {
+      "completeFiles": 35,
+      "pass": 835,
+      "fail": 0,
+      "assertions": 10464,
+      "wholeCliCases": 112,
+      "wholeDepsCases": 6,
+      "wholeMcpCases": 20,
+      "wholeRpcCodecCases": 153,
+      "wholeRuntimeCases": 85,
+      "typeAndBoundaries": "passed",
+      "productionAudit": "passed",
+      "packagedSmoke": "passed",
+      "inputHashesUnchanged": true
+    }
   }
 }

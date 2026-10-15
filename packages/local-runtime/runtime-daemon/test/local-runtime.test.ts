@@ -2695,7 +2695,10 @@ setInterval(() => undefined, 1 << 30);
       });
       expect(result.ok).toBe(false);
       expect(result.error?.code).toBe("AC_PRECONDITION_FAILED");
-      expect(result.error?.message).toContain("required-input-unavailable:observed:codegraph-index-missing");
+      expect(result.error).toMatchObject({reasonCode: "explorer-precondition-failed", details: {
+        inputDomain: "observed", availability: "unavailable", cause: "unclassified"
+      }});
+      expect(JSON.stringify(result)).not.toContain("codegraph-index-missing");
     } finally {
       removeTempRepo(root);
     }

@@ -307,7 +307,7 @@ describe("RPC method table: well-formed objects still reach the handler's own va
     const result = await client.jobsClaim(root, {} as never);
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
-    expect(result.error?.message).toContain("workerId");
+    expect(result.error).toMatchObject({reasonCode: "jobs-input-invalid", details: {field: "workerId"}});
   });
 
   test("projection with an object missing action still answers a structured error from the handler itself", async () => {

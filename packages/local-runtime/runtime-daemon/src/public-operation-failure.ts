@@ -30,7 +30,7 @@ export function publicOperationFailure(error: unknown): FailureError<FailureCode
     if (error instanceof FailureError) failure = toEnvelope("public.operation", error, "public-operation").error;
     else if (error instanceof ExplorerProjectionCompileError) {
       const reason = own(error, "reason");
-      if (reason === "precondition-failed") failure = knownFailure("AC_PRECONDITION_FAILED", "explorer-precondition-failed");
+      if (reason === "precondition-failed") failure = knownFailure("AC_PRECONDITION_FAILED", "explorer-precondition-failed", own(error, "failureFacts"));
       else if (reason === "invalid-query") failure = knownFailure("AC_SCHEMA_INVALID", "explorer-query-invalid");
       else if (reason === "incompatible-delta") failure = knownFailure("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");
       else failure = toEnvelope("public.operation", undefined, "public-operation").error;

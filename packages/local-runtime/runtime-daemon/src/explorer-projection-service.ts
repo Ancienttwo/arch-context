@@ -235,9 +235,10 @@ export class ExplorerProjectionService {
         includeSource: false
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const reasonCode = message.includes("CodeGraph index missing") ? "codegraph-index-missing" : "codegraph-unavailable";
-      throw new ExplorerProjectionCompileError("precondition-failed", `required-input-unavailable:observed:${reasonCode}`);
+      // The operation proves observed facts are unavailable; arbitrary provider text proves no cause.
+      throw new ExplorerProjectionCompileError("precondition-failed", "required-input-unavailable:observed", {
+        inputDomain: "observed", availability: "unavailable", cause: "unclassified"
+      });
     }
     await this.processArchitectureChangeFeed(root, scope);
     const pressureResult = observedAvailability.status === "ready" ? detectArchitecturePressure({

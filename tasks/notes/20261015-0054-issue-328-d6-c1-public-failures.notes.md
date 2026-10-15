@@ -99,3 +99,66 @@ audit-repair-input-manifest.json. Contract validation passed with plan hash
 sha256:0f1af51d6f83f0e5ce9720e5694af9e2baa2dd6a05a771eafc5ffdfd7a747cfd.
 One ordinary push follows the old run's terminal failure; final provider readback supplies the
 follow-up HEAD and new hosted CI state. No still-running hosted run is cancelled.
+
+## Hosted complete-consumer correction (current)
+
+The pre-consumer 484-test evidence above is historical. Run 38684264483 on cf8ec989 exposed six
+independent consumer failures; Governance and all three Linux full runs agree with the macOS
+shard union. These are not treated as cosmetic expectation changes:
+
+1. Snapshot mismatch lost its known compared field. The typed producer now carries a closed field enum.
+2. Docs network refusal lost the --allow-network remedy. The fixed registered message restores it.
+3. Deps lost unknown-node versus invalid-limit/missing-value context. Producer and CLI adapter now
+   retain closed field/issue enums, with no echo of arbitrary caller node IDs.
+4. Jobs claim lost its known missing workerId. Its branch now carries that closed field.
+5. C1 converts known Git errors to FailureError; the old MCP catch recognized only the original
+   class and falsely emitted retryable AC_RUNTIME_UNAVAILABLE. The existing MCP adapter now
+   validates/preserves FailureError; the real non-Git MCP code/reason assertion remains and adds
+   action/severity/retryability checks. No assertion accepts runtime unavailable.
+6. Explorer lost the proven observed-input absence. Source metadata now carries observed/unavailable
+   and explicitly unclassified cause. The old CodeGraph message heuristic is removed from this
+   catch; no provider string or guessed index cause becomes trusted metadata.
+
+The coordinator explicitly authorized these current C1 repairs. No new entrypoint or reason,
+C2/D7 change, CI workflow/budget/platform change or timeout increase is included. Three narrow
+consumer source paths and three test files were admitted, totaling 27 allowed source files and
+55 actual changed files (25 source, 24 tests, five task docs and one audit consumer).
+
+Typecheck, five-workspace boundary audit and diff check passed after the repairs. The final
+verification now runs 35 complete files, including full cli.test.ts, deps.test.ts, mcp-local.test.ts,
+rpc-argument-codec.test.ts and local-runtime.test.ts. The superseded name-pattern commands were
+removed from the contract because these full files subsume them. Final results and the remaining
+Windows failures/old-run terminal state will be recorded before a single ordinary push.
+
+The first complete consumer run finished 833 pass / 2 fail / 10459 assertions across 35 files
+(440.24 seconds); production audit and packaged smoke passed. All six initially exposed behaviors
+were repaired, and the run reached a later projection assertion that the earlier snapshot failure
+had masked. Its fixed registered message now retains sorting/uniqueness remediation, with the
+original remedy assertion plus explicit code/reason checks. The other failure was an overstrict
+new missing-value assertion: the existing global CLI preflight correctly retains its schema error
+and --from instruction. That original gate is preserved and explicitly asserted; it is not rewritten
+under C1. No false all-green result is claimed for this first complete run.
+
+Final verification repeats all 35 complete files at the same existing CI timeout, with the full
+CLI file and the other 34 files in independent processes. Seven semantic corrections span the
+six original failed tests; no newly observed provider cause is guessed.
+
+## Final complete-file evidence
+
+All final checks passed on unchanged source/test/audit hashes:
+
+- Whole CLI contract file: 112 pass / 0 fail / 2130 assertions (220.27 seconds).
+- Other 34 whole files: 723 pass / 0 fail / 8334 assertions (209.02 seconds).
+- Combined: 835 pass / 0 fail / 10464 assertions across all 35 files, with no name filtering.
+- Full deps file: 6 cases; full MCP file: 20; full RPC argument codec: 153; full runtime file: 85.
+- Typecheck and five-workspace package audit passed (0.68 seconds).
+- Original production reachability audit passed (0.22 seconds); graph/bundle/six injection gates remain.
+- Packaged native and CLI smoke passed (14.84 seconds).
+
+Evidence in the delegated workspace: consumer-final-results.json, consumer-final-input-manifest.json
+and consumer-final-file-summary.json under c1-verification/. Contract validation passed with
+plan hash sha256:25f1504b8696b8d285484f852a3f26bbde8743cc744203de332a418f10b5f809.
+The six original CI failed test cases span seven restored semantics (snapshot field and later
+projection input remedy are separate branches in one case). Full old-run Windows collection and
+terminal readback remain prerequisites for the single ordinary follow-up push. No source or test
+will change after this evidence unless an additional real failure requires a bounded correction.

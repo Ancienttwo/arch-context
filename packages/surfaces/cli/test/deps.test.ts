@@ -148,12 +148,15 @@ describe("archctx deps (#301)", () => {
     expect(unknown.ok).toBe(false);
     expect((unknown as { error: { code: string; message: string } }).error).toMatchObject({
       code: "AC_SCHEMA_INVALID",
-      message: expect.stringContaining("capability.missing")
+      reasonCode: "deps-input-invalid",
+      details: {field: "into", issue: "unknown-node"}
     });
     const badLimit = await runCli("deps", ["--import-node-limit", "0"], root);
-    expect((badLimit as { error: { code: string } }).error.code).toBe("AC_SCHEMA_INVALID");
+    expect((badLimit as any).error).toMatchObject({code: "AC_SCHEMA_INVALID", reasonCode: "deps-input-invalid", details: {field: "importNodeLimit", issue: "invalid-limit"}});
     const missingValue = await runCli("deps", ["--from"], root);
-    expect((missingValue as { error: { code: string } }).error.code).toBe("AC_SCHEMA_INVALID");
+    expect((missingValue as any).error.code).toBe("AC_SCHEMA_INVALID");
+    expect((missingValue as any).error.message).toContain("--from");
+    expect(JSON.stringify(unknown)).not.toContain("capability.missing");
     const help = await runCli("deps", ["--help"], root);
     expect(help.ok).toBe(true);
     expect(JSON.stringify(help.data)).toContain("--into <node-id>");

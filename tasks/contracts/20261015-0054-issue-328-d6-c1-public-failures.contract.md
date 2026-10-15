@@ -12,11 +12,14 @@
 
 The coordinator authorized C1 freeze, implementation, affected checks, independent review, normal
 push and Draft PR from current main 31bbc3bbd5714a84776ec1c419c44e2d5db79603, without unmerged B. Exact
-59-boundary/24-source inventory and per-reason facts: tasks/notes/20261015-0054-issue-328-d6-c1-public-failures.scope.json. Existing code/action authority
+59-boundary original freeze and per-reason facts (now 27 explicitly allowed source paths): tasks/notes/20261015-0054-issue-328-d6-c1-public-failures.scope.json. Existing code/action authority
 and success side effects are fixed. Ten explicit C2 recovery escape exceptions and six lifecycle
 symbols are held; do not implement their normalization.
 The coordinator additionally authorized the existing production mock reachability audit consumer
 script to migrate its legacy message assertion to the exact C1 typed contract.
+After hosted consumer failures, the coordinator also admitted narrow CLI deps/MCP FailureError
+adapters, Explorer typed absence facts and complete CLI/MCP/RPC test files. This preserves the
+six existing classifications/remediation contexts; no new reason, operation, C2 or CI change.
 
 ## Allowed Paths
 
@@ -78,6 +81,12 @@ allowed_paths:
   - packages/surfaces/cli/test/cli.test.ts
   - packages/local-runtime/runtime-daemon/test/local-runtime.test.ts
   - packages/core/practice-catalog/test/practice-catalog.test.ts
+  - packages/local-runtime/runtime-daemon/src/explorer-projection.ts
+  - packages/surfaces/cli/src/main.ts
+  - packages/surfaces/mcp-local/src/index.ts
+  - packages/surfaces/cli/test/deps.test.ts
+  - packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts
+  - packages/surfaces/mcp-local/test/mcp-local.test.ts
   - scripts/production-mock-reachability-audit.mjs
   - plans/plan-20261015-0054-issue-328-d6-c1-public-failures.md
   - tasks/contracts/20261015-0054-issue-328-d6-c1-public-failures.contract.md
@@ -116,8 +125,8 @@ allowed_paths:
       "phase": "verification",
       "cost": "normal",
       "evidence_policy": "current_exact",
-      "necessity": "Selected local operation, native, state, privacy, binding and lifecycle regressions.",
-      "command": "bun test --timeout 180000 packages/contracts/test/failure-envelope.test.ts packages/contracts/test/native-context.test.ts packages/contracts/test/public-operation-failures.test.ts packages/local-runtime/runtime-daemon/test/public-operation-failures.test.ts packages/local-runtime/runtime-daemon/test/ownership-read-surfaces.test.ts packages/local-runtime/runtime-daemon/test/undeclared-dependencies.test.ts packages/local-runtime/runtime-daemon/test/projection-freshness-scope.test.ts packages/local-runtime/runtime-daemon/test/landscape.test.ts packages/local-runtime/runtime-daemon/test/external-documentation.test.ts packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts packages/local-runtime/runtime-daemon/test/explorer-server.test.ts packages/local-runtime/runtime-daemon/test/explorer-session.test.ts packages/local-runtime/runtime-daemon/test/ledger-admin.test.ts packages/local-runtime/runtime-daemon/test/accepted-committed-change.test.ts packages/local-runtime/runtime-daemon/test/agent-jobs.test.ts packages/local-runtime/runtime-daemon/test/audit.test.ts packages/local-runtime/runtime-daemon/test/recommendations.test.ts packages/local-runtime/runtime-daemon/test/refactor-scan.test.ts packages/local-runtime/runtime-daemon/test/refactor-scan-import-limit.test.ts packages/local-runtime/runtime-daemon/test/refactor-recording.test.ts packages/local-runtime/runtime-daemon/test/refactor-verify.test.ts packages/local-runtime/runtime-daemon/test/refactor-decisions.test.ts packages/local-runtime/model-store-yaml/test/native-context.test.ts packages/local-runtime/git-adapter/test/blob-reader.test.ts packages/surfaces/cli/test/failure-envelope.test.ts packages/surfaces/cli/test/native-context.test.ts packages/surfaces/cli/test/public-operation-failures.test.ts packages/surfaces/cli/test/hook-helper-parity.test.ts packages/surfaces/cli/test/hook-state-paths.test.ts packages/core/practice-catalog/test/practice-catalog.test.ts",
+      "necessity": "Complete 34 affected files including full deps, MCP, RPC argument codec, runtime/lifecycle and failure contracts; no name filtering, existing CI timeout unchanged.",
+      "command": "bun test --timeout 60000 packages/contracts/test/failure-envelope.test.ts packages/contracts/test/native-context.test.ts packages/contracts/test/public-operation-failures.test.ts packages/local-runtime/runtime-daemon/test/public-operation-failures.test.ts packages/local-runtime/runtime-daemon/test/ownership-read-surfaces.test.ts packages/local-runtime/runtime-daemon/test/undeclared-dependencies.test.ts packages/local-runtime/runtime-daemon/test/projection-freshness-scope.test.ts packages/local-runtime/runtime-daemon/test/landscape.test.ts packages/local-runtime/runtime-daemon/test/external-documentation.test.ts packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts packages/local-runtime/runtime-daemon/test/explorer-server.test.ts packages/local-runtime/runtime-daemon/test/explorer-session.test.ts packages/local-runtime/runtime-daemon/test/ledger-admin.test.ts packages/local-runtime/runtime-daemon/test/accepted-committed-change.test.ts packages/local-runtime/runtime-daemon/test/agent-jobs.test.ts packages/local-runtime/runtime-daemon/test/audit.test.ts packages/local-runtime/runtime-daemon/test/recommendations.test.ts packages/local-runtime/runtime-daemon/test/refactor-scan.test.ts packages/local-runtime/runtime-daemon/test/refactor-scan-import-limit.test.ts packages/local-runtime/runtime-daemon/test/refactor-recording.test.ts packages/local-runtime/runtime-daemon/test/refactor-verify.test.ts packages/local-runtime/runtime-daemon/test/refactor-decisions.test.ts packages/local-runtime/model-store-yaml/test/native-context.test.ts packages/local-runtime/git-adapter/test/blob-reader.test.ts packages/surfaces/cli/test/failure-envelope.test.ts packages/surfaces/cli/test/native-context.test.ts packages/surfaces/cli/test/public-operation-failures.test.ts packages/surfaces/cli/test/hook-helper-parity.test.ts packages/surfaces/cli/test/hook-state-paths.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/core/practice-catalog/test/practice-catalog.test.ts packages/surfaces/cli/test/deps.test.ts packages/local-runtime/runtime-daemon/test/rpc-argument-codec.test.ts packages/surfaces/mcp-local/test/mcp-local.test.ts",
       "inputs": {
         "env": [
           "DO_NOT_TRACK",
@@ -144,40 +153,6 @@ allowed_paths:
       }
     },
     {
-      "id": "c1-cli-selected",
-      "kind": "command",
-      "cwd": ".",
-      "phase": "verification",
-      "cost": "normal",
-      "evidence_policy": "current_exact",
-      "necessity": "Existing selected CLI dispatch and native/local refusals preserve adapter behavior.",
-      "command": "bun test --timeout 180000 packages/surfaces/cli/test/cli.test.ts --test-name-pattern \"CLI (refactor|exposes repo|plans YAML|rebuilds ledger|Book|rollback|audit)|projection freshness|CLI deps\"",
-      "inputs": {
-        "env": [
-          "DO_NOT_TRACK",
-          "CODEGRAPH_NO_DOWNLOAD",
-          "ARCHCONTEXT_STATE_DIR"
-        ]
-      }
-    },
-    {
-      "id": "c1-runtime-selected",
-      "kind": "command",
-      "cwd": ".",
-      "phase": "verification",
-      "cost": "normal",
-      "evidence_policy": "current_exact",
-      "necessity": "Existing production constructor and held lifecycle/recovery regressions preserve ownership and success behavior.",
-      "command": "bun test --timeout 180000 packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --test-name-pattern \"prepare seeds|init, validate, sync, context|production composition root|runtime default clock|startup that leaves|startup leaves|ledger read mode|ledger-authoritative runtime read surfaces|ledger-authoritative validate\"",
-      "inputs": {
-        "env": [
-          "DO_NOT_TRACK",
-          "CODEGRAPH_NO_DOWNLOAD",
-          "ARCHCONTEXT_STATE_DIR"
-        ]
-      }
-    },
-    {
       "id": "c1-production-audit",
       "kind": "command",
       "cwd": ".",
@@ -186,6 +161,23 @@ allowed_paths:
       "evidence_policy": "current_exact",
       "necessity": "Verify the existing production graph/bundle and six forbidden injection consumers using exact C1 FailureError code/reason/issueCount.",
       "command": "node scripts/production-mock-reachability-audit.mjs",
+      "inputs": {
+        "env": [
+          "DO_NOT_TRACK",
+          "CODEGRAPH_NO_DOWNLOAD",
+          "ARCHCONTEXT_STATE_DIR"
+        ]
+      }
+    },
+    {
+      "id": "c1-cli-full",
+      "kind": "command",
+      "cwd": ".",
+      "phase": "verification",
+      "cost": "normal",
+      "evidence_policy": "current_exact",
+      "necessity": "Complete CLI contract file, including every previously masked branch; no name filtering and no raised timeout. May run independently of the remaining full files.",
+      "command": "bun test --timeout 60000 packages/surfaces/cli/test/cli.test.ts",
       "inputs": {
         "env": [
           "DO_NOT_TRACK",

@@ -174,7 +174,7 @@ export function selectProjectionGraphFromAuthority(
 }
 
 export class ExplorerProjectionCompileError extends Error {
-  constructor(readonly reason: "invalid-query" | "precondition-failed" | "incompatible-delta", message: string) {
+  constructor(readonly reason: "invalid-query" | "precondition-failed" | "incompatible-delta", message: string, readonly failureFacts: {inputDomain?: "observed"; availability?: "unavailable"; cause?: "unclassified"} = {}) {
     super(message);
     this.name = "ExplorerProjectionCompileError";
   }
@@ -446,7 +446,8 @@ export function compileProjectionInputManifest(input: CompileExplorerProjectionI
   if (input.observedAvailability?.status === "unavailable") {
     throw new ExplorerProjectionCompileError(
       "precondition-failed",
-      `required-input-unavailable:observed:${input.observedAvailability.reasonCode ?? "unavailable"}`
+      `required-input-unavailable:observed:${input.observedAvailability.reasonCode ?? "unavailable"}`,
+      {inputDomain: "observed", availability: "unavailable", cause: "unclassified"}
     );
   }
   const actualGraphDigest = architectureLedgerStateDigest(input.graph);

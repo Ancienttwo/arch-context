@@ -229,7 +229,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     })]);
     expect(stale.ok).toBe(false);
     expect((stale as any).error?.code).toBe("AC_PRECONDITION_FAILED");
-    expect((stale as any).error?.message).toContain("worktreeDigest");
+    expect((stale as any).error).toMatchObject({reasonCode: "projection-snapshot-mismatch", details: {field: "worktreeDigest"}});
 
     const partialAcceptance = await cli("projection", ["run", "--request-json", JSON.stringify({
       ...request,
@@ -248,6 +248,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
       }
     })]);
     expect(nonCanonicalAcceptance.ok).toBe(false);
+    expect((nonCanonicalAcceptance as any).error).toMatchObject({code: "AC_SCHEMA_INVALID", reasonCode: "projection-check-input-invalid"});
     expect((nonCanonicalAcceptance as any).error?.message).toContain("sorted and unique");
   } finally {
     await daemon.stop();
@@ -3384,6 +3385,7 @@ describe("archctx CLI", () => {
 
       const blockedResolve = await cli(["resolve", "--library", "React", "--query", "state hooks"]);
       expect(blockedResolve.ok).toBe(false);
+      expect((blockedResolve as any).error).toMatchObject({code: "AC_SCHEMA_INVALID", reasonCode: "docs-network-authorization-required"});
       expect((blockedResolve as any).error.message).toContain("--allow-network");
 
       const pinPreview = await cli(["pin", "--library-id", "/facebook/react", "--version", "18.2.0"]);
@@ -3403,6 +3405,7 @@ describe("archctx CLI", () => {
 
       const blockedFetch = await cli(["fetch", "--library-id", "/facebook/react", "--intent", "state hooks"]);
       expect(blockedFetch.ok).toBe(false);
+      expect((blockedFetch as any).error).toMatchObject({code: "AC_SCHEMA_INVALID", reasonCode: "docs-network-authorization-required"});
       expect((blockedFetch as any).error.message).toContain("--allow-network");
     } finally {
       await daemon.stop();

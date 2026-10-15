@@ -685,7 +685,7 @@ function runProjectionCheckCommandUnchecked(request: ProjectionRequestV1, root: 
       request.acceptedChange === undefined ? { isolateBlockedCapabilities: true } : {});
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
-    if (error instanceof ProjectionExpectedSnapshotMismatchError) return publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-snapshot-mismatch");
+    if (error instanceof ProjectionExpectedSnapshotMismatchError) return publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-snapshot-mismatch", {field: error.field});
     return publicOperationErrorEnvelope("projection.run", error);
   }
   const freshness = projectionCheckFreshness(root, projection);
@@ -1307,7 +1307,7 @@ function assertProjectionExpectedSnapshotAgainstModel(
 
 /** The current snapshot was read and differs from the expected one; any other failure is not a mismatch. */
 class ProjectionExpectedSnapshotMismatchError extends Error {
-  constructor(field: "repositoryId" | "workspaceId" | "headSha" | "worktreeDigest") {
+  constructor(readonly field: "repositoryId" | "workspaceId" | "headSha" | "worktreeDigest") {
     super(`projection request expected snapshot mismatch: ${field}`);
     this.name = "ProjectionExpectedSnapshotMismatchError";
   }

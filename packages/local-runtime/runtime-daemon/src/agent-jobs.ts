@@ -236,7 +236,7 @@ export class AgentJobService {
 
   private async jobsClaimUnchecked(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> {
     this.context.assertRunning();
-    if (!input.workerId) return publicFailureEnvelope("jobs.claim", "AC_SCHEMA_INVALID", "jobs-input-invalid", {});
+    if (!input.workerId) return publicFailureEnvelope("jobs.claim", "AC_SCHEMA_INVALID", "jobs-input-invalid", {field: "workerId"});
     const scope = await this.context.architectureLedgerScope(findRepositoryRoot(root));
     const job = await this.context.localStore.claimRuntimeAgentJob({
       ...scope,

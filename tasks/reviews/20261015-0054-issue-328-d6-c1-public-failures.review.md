@@ -1,6 +1,6 @@
 # C1 bounded review
 
-Status: reviewed; all five confirmed P2 groups closed. Review subject: the complete tracked and
+Status: confirmed hosted consumer fixes verified; coordinator incremental review and hosted acceptance pending. Review subject: the complete tracked and
 untracked C1 product/test delta against accepted main
 `31bbc3bbd5714a84776ec1c419c44e2d5db79603`, followed by bounded repair confirmation.
 
@@ -59,3 +59,28 @@ Applied original-script verification passed: 5 workspaces / 54 exports / 145 gra
 production bundle / six injection refusals. All four temporary negative witnesses failed as
 required. Product/test hashes match the completed 484-test review run. Contract validation and
 git diff --check passed. No new semantic review cycle was opened for this consumer assertion fix.
+
+## Confirmed hosted consumer regressions
+
+Parent-side static reviews of the pre-consumer product delta found no additional P1/P2, but hosted
+execution identified six independent consumer groups: snapshot field, docs remedy, deps distinction,
+workerId field, MCP known-error classification and Explorer observed absence. The parent confirmed
+MCP as a real P2 contract regression, retained its semantic assertion and authorized these narrow
+C1 corrections. The other five retain actionable safe facts/remediation rather than merely accepting
+generic messages. Explorer cause remains explicitly unknown; no message heuristic is trusted.
+The canonical verification now includes 35 complete files with no name filtering. Its final results
+and full CI failure inventory accompany the next handoff; prior 484-test evidence is historical.
+
+The first full 35-file run (833 pass / 2 fail) also reached a sorting/uniqueness remediation
+assertion masked by the earlier projection failure. Restore the fixed remedy and retain that
+assertion. Correct an overstrict newly added missing-value expectation while retaining the actual
+CLI preflight refusal and explicit --from guidance. Final verification repeats all complete files.
+
+## Final complete-file verification
+
+835 pass / 0 fail / 10464 assertions across 35 complete files. CLI:112; deps:6; MCP:20;
+RPC argument codec:153; runtime:85. No name filtering or timeout/platform changes. Typecheck,
+package boundaries, original production audit and packaged smoke all passed. Source/test/audit
+hashes were unchanged. The seven semantic repairs span the six original CI failed test cases;
+existing failure/no-write/recovery assertions remain. Parent incremental review and new-head
+hosted acceptance are separate pending gates, not inferred from local results.

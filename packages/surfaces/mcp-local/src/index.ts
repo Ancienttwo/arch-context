@@ -1,6 +1,6 @@
 import { MCP_PLAN_OPERATIONS_SCHEMA, MCP_TOOL_INPUT_SCHEMAS } from "./tool-schemas";
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
-import { assertNoCallerProvidedAttestationFields, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, productVersionManifest, validateJsonSchema, type Json } from "@archcontext/contracts";
+import { FailureError, toEnvelope, assertNoCallerProvidedAttestationFields, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, productVersionManifest, validateJsonSchema, type Json } from "@archcontext/contracts";
 import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
 import { runArchitectureDebtCommand, selectedProducerFailureEnvelope } from "@archcontext/local-runtime/architecture-debt";
 import { RuntimeRpcTransportError, createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-rpc-client";
@@ -436,6 +436,10 @@ function selectedMcpFailure(requestId: string, error: unknown): ToolCallResult {
 }
 
 function runtimeUnavailable(requestId: string, error: unknown): ToolCallResult {
+  // C1 operation adapters retain classified producer failures as FailureError.
+  if (error instanceof FailureError) {
+    return { content: toEnvelope(requestId, error, "mcp") as unknown as Json, dataClassification: "local-metadata" };
+  }
   // archctx requires a Git worktree: that refusal keeps its own typed code instead of "runtime unavailable".
   if (error instanceof GitVisibleFilesUnavailableError) {
     return { content: errorEnvelope(requestId, error.code, error.message, error.reasonCode) as unknown as Json, dataClassification: "local-metadata" };

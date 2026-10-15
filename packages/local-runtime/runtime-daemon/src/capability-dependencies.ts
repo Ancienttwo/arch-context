@@ -24,9 +24,9 @@ export interface CapabilityDependenciesResultV1 extends CapabilityDependenciesV1
 }
 
 export class CapabilityDependenciesError extends FailureError {
-  constructor(code: ArchContextErrorCode, _message: string, reasonCode?: string) {
+  constructor(code: ArchContextErrorCode, _message: string, reasonCode?: string, details: unknown = {}) {
     const sourceReason = reasonCode ?? (code === "AC_SCHEMA_INVALID" ? "deps-input-invalid" : code === "AC_MODEL_ADOPTION_REQUIRED" ? "deps-model-unreadable" : code === "AC_CODE_FACTS_UNAVAILABLE" ? "code-facts-unavailable" : undefined);
-    const failure = sourceReason === undefined ? unclassifiedFailure("public-operation") : knownFailure(code, sourceReason);
+    const failure = sourceReason === undefined ? unclassifiedFailure("public-operation") : knownFailure(code, sourceReason, details);
     super(failure.code, failure.reasonCode, failure.details, failure);
     this.name = "CapabilityDependenciesError";
   }
@@ -55,14 +55,14 @@ function readCapabilityDependenciesUnchecked(root: string, request: CapabilityDe
   const importNodeLimit = request.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
   for (const [name, value] of [["importNodeLimit", request.importNodeLimit], ["edgeLimit", request.edgeLimit]] as const) {
     if (value !== undefined && (!Number.isInteger(value) || value < (name === "edgeLimit" ? 0 : 1))) {
-      throw new CapabilityDependenciesError("AC_SCHEMA_INVALID", `${name} must be a ${name === "edgeLimit" ? "non-negative" : "positive"} integer, got ${value}`, "deps-input-invalid");
+      throw new CapabilityDependenciesError("AC_SCHEMA_INVALID", "Dependency limit is invalid.", "deps-input-invalid", {field: name, issue: "invalid-limit"});
     }
   }
   const model = loadModel(root);
   const nodeIds = new Set(model.nodes.map((node) => node.id));
   for (const [flag, nodeId] of [["--from", request.from], ["--into", request.into]] as const) {
     if (nodeId !== undefined && !nodeIds.has(nodeId)) {
-      throw new CapabilityDependenciesError("AC_SCHEMA_INVALID", `deps ${flag} names no node in the model: ${nodeId}`, "deps-input-invalid");
+      throw new CapabilityDependenciesError("AC_SCHEMA_INVALID", "Dependency filter names no model node.", "deps-input-invalid", {field: flag === "--from" ? "from" : "into", issue: "unknown-node"});
     }
   }
   const headSha = readHeadSha(root);

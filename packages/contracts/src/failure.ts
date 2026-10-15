@@ -43,13 +43,13 @@ const policies: Record<string, Policy> = {
 };
 // C1 policies are selected at explicit producer branches, never from diagnostic text.
 Object.assign(policies, {
-  "deps-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Deps input invalid.","facts": {}},
+  "deps-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Deps input invalid.","facts": {"field":"optional:depsField","issue":"optional:depsIssue"}},
   "deps-workspace-invalid": {"code": "AC_SCHEMA_INVALID","message": "Deps workspace invalid.","facts": {}},
   "deps-model-unreadable": {"code": "AC_MODEL_ADOPTION_REQUIRED","message": "Deps model unreadable.","facts": {}},
   "code-facts-unavailable": {"code": "AC_CODE_FACTS_UNAVAILABLE","message": "Code facts unavailable.","facts": {}},
   "projection-check-mode-invalid": {"code": "AC_SCHEMA_INVALID","message": "Projection check mode invalid.","facts": {}},
-  "projection-check-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Projection check input invalid.","facts": {}},
-  "projection-snapshot-mismatch": {"code": "AC_PRECONDITION_FAILED","message": "Projection snapshot mismatch.","facts": {}},
+  "projection-check-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Projection check input invalid. Supply valid fields and keep lists sorted and unique.","facts": {}},
+  "projection-snapshot-mismatch": {"code": "AC_PRECONDITION_FAILED","message": "Projection snapshot mismatch.","facts": {"field":"optional:snapshotField"}},
   "changed-path-outside-worktree": {"code": "AC_SCHEMA_INVALID","message": "Changed path outside worktree.","facts": {}},
   "changed-path-not-normalized": {"code": "AC_SCHEMA_INVALID","message": "Changed path not normalized.","facts": {}},
   "projection-result-invalid": {"code": "AC_SCHEMA_INVALID","message": "Projection result invalid.","facts": {}},
@@ -58,13 +58,13 @@ Object.assign(policies, {
   "landscape-repositories-required": {"code": "AC_PRECONDITION_FAILED","message": "Landscape repositories required.","facts": {},"action": "archctx repo add"},
   "docs-provider-invalid": {"code": "AC_SCHEMA_INVALID","message": "Docs provider invalid.","facts": {}},
   "docs-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Docs input invalid.","facts": {}},
-  "docs-network-authorization-required": {"code": "AC_SCHEMA_INVALID","message": "Docs network authorization required.","facts": {}},
+  "docs-network-authorization-required": {"code": "AC_SCHEMA_INVALID","message": "Docs network authorization required. Pass --allow-network to opt in.","facts": {}},
   "docs-pin-required": {"code": "AC_SCHEMA_INVALID","message": "Docs pin required.","facts": {}},
   "docs-command-invalid": {"code": "AC_SCHEMA_INVALID","message": "Docs command invalid.","facts": {}},
   "resource-uri-invalid": {"code": "AC_SCHEMA_INVALID","message": "Resource uri invalid.","facts": {}},
   "resource-cache-miss": {"code": "AC_SCHEMA_INVALID","message": "Resource cache miss.","facts": {}},
   "explorer-query-invalid": {"code": "AC_SCHEMA_INVALID","message": "Explorer query invalid.","facts": {}},
-  "explorer-precondition-failed": {"code": "AC_PRECONDITION_FAILED","message": "Explorer precondition failed.","facts": {}},
+  "explorer-precondition-failed": {"code": "AC_PRECONDITION_FAILED","message": "Explorer precondition failed.","facts": {"inputDomain":"optional:observedDomain","availability":"optional:inputAvailability","cause":"optional:unclassifiedCause"}},
   "invalid-delta-query": {"code": "AC_SCHEMA_INVALID","message": "Invalid delta query.","facts": {}},
   "projection-cache-miss": {"code": "AC_PRECONDITION_FAILED","message": "Projection cache miss.","facts": {}},
   "authority-event-missing": {"code": "AC_PRECONDITION_FAILED","message": "Authority event missing.","facts": {}},
@@ -95,7 +95,7 @@ Object.assign(policies, {
   "refactor-recommendation-missing": {"code": "AC_SCHEMA_INVALID","message": "Refactor recommendation missing.","facts": {"recommendationId": "id"}},
   "refactor-verify-snapshot-changed": {"code": "AC_REFACTOR_STALE","message": "Refactor verify snapshot changed.","facts": {"recommendationId": "id","changedFields": "changedFields"}},
   "refactor-decision-approval-required": {"code": "AC_USER_CONFIRMATION_REQUIRED","message": "Refactor decision approval required.","facts": {"recommendationId": "id"}},
-  "jobs-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Jobs input invalid.","facts": {}},
+  "jobs-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Jobs input invalid.","facts": {"field":"optional:jobsField"}},
   "job-running-required": {"code": "AC_PRECONDITION_FAILED","message": "Job running required.","facts": {"jobId": "id"}},
   "job-context-stale": {"code": "AC_CONTEXT_STALE","message": "Job context stale.","facts": {"jobId": "id","expectedHeadSha": "head","actualHeadSha": "head","expectedWorktreeDigest": "sha256","actualWorktreeDigest": "sha256"}},
   "audit-disabled": {"code": "AC_CAPABILITY_UNSUPPORTED","message": "Audit disabled.","facts": {}},
@@ -236,6 +236,13 @@ function dataRecord(value: unknown): Record<string, PropertyDescriptor> {
   return fields;
 }
 const localEnums: Readonly<Record<string, readonly string[]>> = {
+  depsField: ["from", "into", "importNodeLimit", "edgeLimit"],
+  depsIssue: ["unknown-node", "invalid-limit", "missing-value"],
+  snapshotField: ["repositoryId", "workspaceId", "headSha", "worktreeDigest"],
+  jobsField: ["workerId"],
+  observedDomain: ["observed"],
+  inputAvailability: ["unavailable"],
+  unclassifiedCause: ["unclassified"],
   evidenceObservation: ["before-resolve-append"],
   "searched": [
     "recorded",

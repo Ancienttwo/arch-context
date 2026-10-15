@@ -84,3 +84,19 @@ test("C1 Context7 preserves source retryability and never invokes a metadata get
   Object.defineProperty(hostile,"retryable",{get(){calls++;return true;}});
   expect(publicOperationFailure(hostile).code).toBe("AC_UNCLASSIFIED_FAILURE");expect(calls).toBe(0);
 });
+
+
+test("C1 observed-facts refusal keeps proven absence and makes the cause explicitly unknown", async () => {
+  const {ExplorerProjectionCompileError} = await import("../src/explorer-projection");
+  const {publicOperationFailure} = await import("../src/public-operation-failure");
+  const facts = {inputDomain: "observed", availability: "unavailable", cause: "unclassified"} as const;
+  const failure = publicOperationFailure(new ExplorerProjectionCompileError("precondition-failed", sentinel, facts)).failure;
+  expect(failure).toMatchObject({code: "AC_PRECONDITION_FAILED", reasonCode: "explorer-precondition-failed", details: facts});
+  expect(failureIssues(failure)).toEqual([]);
+  expect(JSON.stringify(failure)).not.toContain(sentinel);
+  let calls = 0;
+  const hostile = new ExplorerProjectionCompileError("precondition-failed", sentinel, facts);
+  Object.defineProperty(hostile, "failureFacts", {get(){calls++;return facts;}});
+  expect(publicOperationFailure(hostile).code).toBe("AC_UNCLASSIFIED_FAILURE");
+  expect(calls).toBe(0);
+});

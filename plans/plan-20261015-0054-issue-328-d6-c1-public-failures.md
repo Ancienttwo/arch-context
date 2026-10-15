@@ -1,6 +1,6 @@
 # Plan: #328 D6-C1 local public failures
 
-> **Status**: Draft PR handed off; hosted acceptance pending
+> **Status**: Consumer fixes verified; waiting old hosted run terminal
 > **Owner**: delegated Codex sole C1 writer
 > **Base**: 31bbc3bbd5714a84776ec1c419c44e2d5db79603
 > **Task Contract**: tasks/contracts/20261015-0054-issue-328-d6-c1-public-failures.contract.md
@@ -14,6 +14,10 @@ Execute the coordinator-approved C1/C2 split. Freeze 59 canonical operation boun
 evidence live in tasks/notes/20261015-0054-issue-328-d6-c1-public-failures.scope.json. This is more than eight files. No new public command/config/service.
 Use the single FailureError/policy authority and own-data validation; no English-message cause
 inference, raw diagnostics, truncated critical bindings or C2 gateway normalization.
+
+The coordinator also admitted three existing consumer source paths (27 allowed source files in total),
+three full test files, and safe fact repairs after CI exposed six independent groups. Original
+59 boundaries / 92 local reasons / 21 native reasons remain fixed.
 
 ## Data flow
 
@@ -51,3 +55,10 @@ and policy changes only; no data migration, merge, release or issue closure is a
 - [x] Identify the exact old message assertion and prepare a typed-contract candidate.
 - [x] Confirm run 38683388347 reached completed/failure before any follow-up push.
 - [x] Apply and verify the real production audit; terminal old run permits one ordinary follow-up push, with exact HEAD/CI supplied by provider readback.
+
+## Complete consumer acceptance
+
+- [x] Collect Governance/Linux/macOS failures and distinguish actual classification/information regressions.
+- [x] Repair six existing consumers without raw diagnostics, arbitrary ID echoes or guessed provider causes.
+- [x] Complete all 35 affected files without name filtering (835 pass), then type/boundary, production audit and packaged smoke.
+- [ ] Collect all remaining old-run failures and wait for terminal state before one ordinary follow-up push.
