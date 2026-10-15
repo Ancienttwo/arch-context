@@ -363,3 +363,29 @@ fail closed on an unavailable or version-mismatched artifact.
 - Public 免费版是否包含 GitHub Check，还是仅本地 Runtime。
 - 个人 Pro 是否提供年付（约 $50）。
 - 完整待确认清单见 PRD §29。
+
+
+### Public failure boundaries
+
+Runtime operation failures carry registered code, action, reasonCode and bounded own-data details.
+Explicit refusals select their policy at the producer; diagnostic messages never select a reason.
+Unknown exceptions use safe unclassified metadata. Existing value APIs still throw typed errors and
+envelope APIs retain their return-versus-throw conventions; successful values retain their shapes
+and identity. Lifecycle adapters preserve acquisition, recovery and cleanup order.
+
+Unresolved ChangeSet recovery keeps the same sentinel identity and original journal authority.
+Its dedicated details budget is256KiB compact UTF-8 JSON: a fitting authority contains every
+journalId, changeSetId, root and reason whole. If it cannot fit, an explicit manual-only reference
+contains the complete authority digest/count and directs the operator to the existing authenticated
+status/health read. No journal ID or recovery token is truncated. General summaries retain8KiB.
+RPC v2 arguments, success responses and version negotiation remain unchanged; ordinary HTTP500
+operation failures use the existing envelope/v1 typed error slot. Old v2 peers without classified
+metadata yield a safe unknown failure. All four value-returning review methods still throw, and
+retain the complete existing version-upgrade authority when negotiation is refused.
+
+The stateless read adoption covers resolve, docs anchors, flows check, deps, checkpoint and
+freshness. Flows check may sync CodeGraph, and read-only SQLite access for anchors/checkpoint may
+create WAL/cache files. Freshness uses its accepted non-rendering stamp path. Checkpoint measures
+ownership and anchors; deps, flows and practices remain deferred to complete. Existing status,
+context, prepare and management paths may still use the runtime, with prepare/practices checkpoint
+as explicit writers. This scope does not claim that apply is the daemon's sole operation.

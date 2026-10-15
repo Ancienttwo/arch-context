@@ -1041,7 +1041,7 @@ describe("daemon audit service", () => {
         expect(rejected).toHaveLength(1);
         expect(fulfilled[0]!.value.ok).toBe(true);
         expect(fulfilled[0]!.value.data).toMatchObject({ status: "issued", issuedCount: 2, totalCount: 2 });
-        expect(rejected[0]!.reason).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
+        expect(rejected[0]!.reason).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "runtime-writer-locked" });
       });
 
       // The concurrency bug this test guards against would have created every draft twice (once

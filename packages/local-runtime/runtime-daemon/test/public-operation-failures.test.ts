@@ -45,13 +45,13 @@ test("C1 preserves raw throw shape and typed attributes when a public operation 
   expect(failureIssues(failure)).toEqual([]);
 });
 
-test("C1 leaves the C2 recovery sentinel and its complete journal bindings untouched", async () => {
+test("C2 recovery sentinel is typed and keeps complete original journal bindings", async () => {
   const { ChangeSetRecoveryUnresolvedError } = await import("../src/changeset-recovery-error");
   const { publicOperationFailure } = await import("../src/public-operation-failure");
   const journals = [{journalId:"journal."+"a".repeat(240), changeSetId:"changeset."+"b".repeat(240), root:"/fixture", reason:"fixture-recovery"}];
   const sentinel = new ChangeSetRecoveryUnresolvedError(journals as any);
   let caught: unknown;
-  try {publicOperationFailure(sentinel);} catch (error) {caught=error;}
+  caught=publicOperationFailure(sentinel);
   expect(caught).toBe(sentinel);
   expect((caught as InstanceType<typeof ChangeSetRecoveryUnresolvedError>).unresolvedJournals).toBe(journals as any);
   expect((caught as InstanceType<typeof ChangeSetRecoveryUnresolvedError>).unresolvedJournals[0]!.journalId).toBe(journals[0]!.journalId);

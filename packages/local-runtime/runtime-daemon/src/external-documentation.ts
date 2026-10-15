@@ -218,7 +218,7 @@ export class ExternalDocumentationService {
       return publicFailureEnvelope("docs", "AC_SCHEMA_INVALID", "docs-command-invalid", {});
     } catch (error) {
       if (error instanceof LocalEgressPolicyError) return publicOperationErrorEnvelope(`docs.${input.command}`, error);
-      if (error instanceof ChangeSetRecoveryUnresolvedError) return errorEnvelope(`docs.${input.command}`, "AC_PRECONDITION_FAILED", error.message);
+      if (error instanceof ChangeSetRecoveryUnresolvedError) return publicOperationErrorEnvelope(`docs.${input.command}`, error);
       return publicOperationErrorEnvelope(`docs.${input.command}`, error);
     }
   }

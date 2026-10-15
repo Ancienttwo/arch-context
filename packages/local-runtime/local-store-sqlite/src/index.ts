@@ -1,3 +1,4 @@
+import { FailureError } from "@archcontext/contracts";
 import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { isProcessAlive } from "../../process-liveness/src/index";
@@ -7360,7 +7361,7 @@ function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWrite
       } catch (error) {
         if (!isSqliteBusyError(error)) throw error;
         if (attempt >= LOCAL_STORE_OWNER_LOCK_ATTEMPTS) {
-          throw new Error(`${LOCAL_STORE_WRITER_OWNED_ERROR}: ${databasePath} is owned by another live process (${describeOwnerRecord(recordPath)}); lock=${lockPath}`);
+          throw new FailureError("AC_PRECONDITION_FAILED","runtime-writer-owned");
         }
         sleepSync(LOCAL_STORE_OWNER_LOCK_RETRY_MS + Math.floor(Math.random() * LOCAL_STORE_OWNER_LOCK_RETRY_MS));
       }
@@ -7368,7 +7369,7 @@ function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWrite
     const legacyPath = localStoreLegacyOwnerLockPath(databasePath);
     const legacyOwnerPid = readLegacyOwnerLockPid(legacyPath);
     if (legacyOwnerPid !== undefined && legacyOwnerPid !== process.pid && isProcessAlive(legacyOwnerPid)) {
-      throw new Error(`${LOCAL_STORE_WRITER_OWNED_ERROR}: ${databasePath} is owned by live process ${legacyOwnerPid} of an older archctx build; lock=${legacyPath}`);
+      throw new FailureError("AC_PRECONDITION_FAILED","runtime-writer-owned");
     }
     // Dead, unreadable, or ours: crash residue of an older build. Best effort; it never blocks a start.
     try {
@@ -7965,6 +7966,22 @@ function isJsonRecord(value: unknown): value is Record<string, Json> {
 }
 
 function recoverJournalFiles(root: string, files: ChangeSetJournalFile[]): void {
+  // The pending journal also survives an in-process rollback conflict. Check before any
+  // recovery mutation, so restart cannot replace a concurrently raised manifest floor.
+  for (const file of files) {
+    if (resolve(root, file.path).toLowerCase() !== resolve(root, "docs/architecture/.projection-manifest.json").toLowerCase()) continue;
+    if (file.existed && (!file.backupPath || !existsSync(file.backupPath))) continue;
+    const absolute = resolve(root, file.path);
+    let current="unreadable";
+    try {
+      const stat=lstatSync(absolute);
+      if(stat.isFile() && !stat.isSymbolicLink()) {
+        const bytes=readFileSync(absolute),body=bytes.toString("utf8");
+        if(Buffer.from(body,"utf8").equals(bytes)) current=digestJson({body});
+      }
+    } catch(error) {if((error as NodeJS.ErrnoException).code === "ENOENT") current="missing";}
+    if (current !== "missing" && current !== file.bodyHash) throw new Error("changeset-recovery-manifest-conflict: external manifest differs from journal postimage; manual recovery required");
+  }
   // A single ChangeSet can touch the same path twice — e.g. an explicit op creates a file that
   // `planGeneratedProjection` then deletes in the same apply(). The second entry's `existed: true`
   // only reflects that the first entry created it earlier in this same ChangeSet; the path's real

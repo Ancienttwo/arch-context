@@ -337,7 +337,7 @@ export class ChangeSetEngine {
       for (const proposed of proposedManifests) assertProjectionWriteCompatibility(root, proposed);
     } : undefined;
     checkProjectionCompatibility?.();
-    const backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[] = [];
+    const backups: { path: string; backupPath: string; tempPath?: string; existed: boolean; manifestBodyHash?: string }[] = [];
     const journalId = await deps.journal?.beginChangeSet(root, draft);
     let journalCommitted = false;
     let applied = 0;
@@ -419,7 +419,10 @@ export class ChangeSetEngine {
       return appliedDraft;
     } catch (error) {
       if (!journalCommitted) {
-        rollback(backups);
+        if (!rollback(backups)) {
+          // Keep the pending journal and original backup for an operator; do not claim a rollback.
+          throw new FailureError("AC_PRECONDITION_FAILED", "changeset-rollback-conflict", { ...(journalId ? { journalId } : {}), changeSetId: draft.id, manualRecoveryRequired: true });
+        }
         if (journalId) await deps.journal?.abortChangeSet(journalId, error instanceof Error ? error.message : String(error));
       }
       const rolledBack = { ...draft, status: "rolled-back" as const };
@@ -478,7 +481,7 @@ export class ChangeSetEngine {
     expectedHash: string,
     body: string,
     operation: ChangeOperationKind,
-    backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[],
+    backups: { path: string; backupPath: string; tempPath?: string; existed: boolean; manifestBodyHash?: string }[],
     journalId: string | undefined,
     sequence: number,
     agentContextPaths: ReadonlySet<string> = EMPTY_PATH_SET,
@@ -494,7 +497,7 @@ export class ChangeSetEngine {
     if (existsSync(backupPath)) throw new Error(`Backup path already exists: ${path}`);
     if (existed) assertExpectedHash(absolute, expectedHash);
     else if (expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${path}`);
-    const backup = { path: absolute, backupPath, tempPath, existed };
+    const backup = { path: absolute, backupPath, tempPath, existed, ...(isProjectionManifestDestination(root, path) ? { manifestBodyHash: operation === "delete_entity" ? "missing" : digestJson({ body }) } : {}) };
     if (journalId) {
       await deps.journal?.recordChangeSetFile(journalId, {
         path,
@@ -1139,8 +1142,22 @@ function isIgnorableDirectoryFsyncError(error: unknown): boolean {
   return code === "EINVAL" || code === "EISDIR" || (process.platform === "win32" && code === "EPERM");
 }
 
-function rollback(backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[]): void {
-  for (const backup of backups.reverse()) {
+function rollback(backups: { path: string; backupPath: string; tempPath?: string; existed: boolean; manifestBodyHash?: string }[]): boolean {
+  let complete = true;
+  for (const backup of [...backups].reverse()) {
+    // An await after the manifest write may let another writer raise its floor. Never erase
+    // external bytes or unreadable replacements. A missing target can be restored from its backup.
+    if (backup.manifestBodyHash !== undefined) {
+      let current = "unreadable";
+      try {
+        const stat=lstatSync(backup.path);
+        if(stat.isFile() && !stat.isSymbolicLink()) {
+          const bytes=readFileSync(backup.path),body=bytes.toString("utf8");
+          if(Buffer.from(body,"utf8").equals(bytes)) current=digestJson({body});
+        }
+      } catch(error) { if((error as NodeJS.ErrnoException).code === "ENOENT") current="missing"; }
+      if (current !== "missing" && current !== backup.manifestBodyHash) { complete = false; continue; }
+    }
     if (backup.tempPath) rmSync(backup.tempPath, { recursive: true, force: true });
     if (backup.existed) {
       if (existsSync(backup.backupPath)) {
@@ -1152,6 +1169,7 @@ function rollback(backups: { path: string; backupPath: string; tempPath?: string
     }
     fsyncDirectory(dirname(backup.path));
   }
+  return complete;
 }
 
 function cleanupBackups(backups: { backupPath: string; tempPath?: string }[]): void {

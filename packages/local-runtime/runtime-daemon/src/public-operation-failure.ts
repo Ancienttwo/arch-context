@@ -20,11 +20,15 @@ export function publicFailureEnvelope(requestId: string, code: FailureCode, reas
   catch { return toEnvelope(surfaceId(requestId), undefined, "failure-metadata") as JsonEnvelope; }
 }
 export function publicOperationFailure(error: unknown): FailureError<FailureCode> {
-  // Explicit C2 stop: keep original identity and complete journal bindings, without interpretation.
+  // Recovery remains the same typed sentinel with its original complete journal authority.
   let recovery: ChangeSetRecoveryUnresolvedError | undefined;
   try { if (error instanceof ChangeSetRecoveryUnresolvedError) recovery = error; }
   catch { return new FailureError("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", {stage: "failure-metadata"}); }
-  if (recovery) throw recovery;
+  if (recovery) {
+    const validated = toEnvelope("public.operation", recovery, "public-operation").error;
+    if (validated.code === "AC_PRECONDITION_FAILED" && validated.reasonCode === "changeset-recovery-unresolved") return recovery;
+    return new FailureError(validated.code, validated.reasonCode, validated.details, validated);
+  }
   let failure;
   try {
     if (error instanceof FailureError) failure = toEnvelope("public.operation", error, "public-operation").error;
@@ -47,7 +51,7 @@ export function publicOperationFailure(error: unknown): FailureError<FailureCode
 }
 export function publicOperationErrorEnvelope(requestId: string, error: unknown): JsonEnvelope {
   const failure = publicOperationFailure(error);
-  return failureEnvelope(surfaceId(requestId), failure.failure) as JsonEnvelope;
+  return toEnvelope(surfaceId(requestId), failure, "public-operation") as JsonEnvelope;
 }
 export function publicOperationResult<T>(requestId: string, result: T): T | JsonEnvelope {
   return normalizeFailureResult(result, "public-operation", surfaceId(requestId)) as T | JsonEnvelope;

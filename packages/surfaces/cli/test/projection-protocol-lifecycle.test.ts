@@ -389,7 +389,7 @@ async function expectApplyRefusedBeforeWrite(
   expect(lookup.state.lookupKey).toBeString();
   expect(refused.ok, JSON.stringify(refused)).toBe(false);
   expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
-  expect((refused as any).error.message).toContain("Expected hash mismatch");
+  expect((refused as any).error).toMatchObject({reasonCode:"apply-preimage-changed",details:{issueCount:expect.any(Number)}});
   expect(await lookup.inspect(root, lookup.state.lookupKey)).toMatchObject({ ok: true, data: { found: false } });
   const prior = await daemon.listProjectionPriorCommittedApplies(root, requestId) as any;
   expect(prior.ok, JSON.stringify(prior)).toBe(true);
@@ -451,7 +451,7 @@ test("an observed-change apply renders the accepted change over the observation 
     expect(lookup.state.lookupKey).toBeString();
     expect(refused.ok, JSON.stringify(refused)).toBe(false);
     expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
-    expect((refused as any).error.message).toBe("architecture-docs-projection-inputs-changed-during-run: worktreeDigest");
+    expect((refused as any).error).toMatchObject({reasonCode:"projection-inputs-changed-during-run",details:{field:"worktreeDigest"}});
     expect(await lookup.inspect(root, lookup.state.lookupKey)).toMatchObject({ ok: true, data: { found: false } });
     expect(docsSnapshot(root)).toEqual(docsBefore);
   });
@@ -476,7 +476,7 @@ test("an observed-change apply stops when only the Git index moves after classif
     expect(lookup.state.lookupKey).toBeString();
     expect(refused.ok, JSON.stringify(refused)).toBe(false);
     expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
-    expect((refused as any).error.message).toBe("architecture-docs-projection-inputs-changed-during-run: sourceFiles");
+    expect((refused as any).error).toMatchObject({reasonCode:"projection-inputs-changed-during-run",details:{field:"sourceFiles"}});
     expect(await lookup.inspect(root, lookup.state.lookupKey)).toMatchObject({ ok: true, data: { found: false } });
     expect(docsSnapshot(root)).toEqual(docsBefore);
   });
@@ -582,7 +582,7 @@ test("a replay proves the committed outputs and writes reverted ones again under
     const refused = await projectionRun(original);
     expect(refused.ok).toBe(false);
     expect((refused as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
-    expect((refused as any).error.message).toContain("cannot be restored");
+    expect((refused as any).error).toMatchObject({reasonCode:"projection-apply-restore-unproven",details:{lookupKey:expect.any(String),applyId:expect.any(String)}});
     expect(docsSnapshot(root)).toEqual(docsWithNote);
 
     // A moved snapshot keeps today's answer: the committed result, proven by nothing, written by nothing.
@@ -615,8 +615,8 @@ test("a replay surfaces a failed snapshot read instead of reporting a moved snap
     try {
       const failed = await projectionRun(original);
       expect(failed.ok, JSON.stringify(failed)).toBe(false);
-      expect((failed as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
-      expect((failed as any).error.message).toContain("EACCES");
+      expect((failed as any).error).toMatchObject({code:"AC_UNCLASSIFIED_FAILURE",reasonCode:"failure-unclassified"});
+      expect((failed as any).error.message).not.toContain("EACCES");
       expect(docsSnapshot(root)).toEqual(docsAfterFirst);
     } finally {
       chmodSync(unreadable, 0o644);
@@ -862,7 +862,7 @@ test("docs apply refuses a manually edited whole-file orphan and keeps its manif
       const refused = await cli("docs", [action, "--profile", "repo-harness/v1", ...(action === "apply" ? ["--approved"] : [])]);
       expect(refused.ok, JSON.stringify(refused)).toBe(false);
       expect((refused as any).error.code).toBe("AC_PRECONDITION_FAILED");
-      expect((refused as any).error.message).toContain(`${LEGACY_PATH} (projection-orphaned)`);
+      expect((refused as any).error).toMatchObject({reasonCode:"projection-orphan-review-required",details:{issueCount:1}});
     }
     // Nothing was written: the edited file and the row that keeps it visible both remain.
     expect(docsSnapshot(root)).toEqual(docsBefore);

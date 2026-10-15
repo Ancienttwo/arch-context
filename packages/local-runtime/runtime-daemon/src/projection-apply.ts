@@ -1,4 +1,5 @@
-import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, errorEnvelope, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1 } from "@archcontext/contracts";
+import { publicFailureEnvelope, publicOperationFailure, publicOperationErrorEnvelope } from "./public-operation-failure";
+import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, digestCapabilitySourceFootprints, loadArchitectureDocumentationInputs, measureCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
@@ -19,6 +20,7 @@ export class ProjectionApplyService {
   constructor(private readonly context: ProjectionApplyContext) {}
 
   async inspectProjectionApplyReceipt(root: string, lookupKey: string): Promise<JsonEnvelope> {
+    try {
     this.context.assertRunning();
     await this.context.openSession(root);
     const inspection = await this.context.localStore.inspectProjectionApplyReceipt(lookupKey);
@@ -26,6 +28,7 @@ export class ProjectionApplyService {
       found: inspection !== undefined,
       ...(inspection ?? {})
     } as unknown as Json);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   /**
@@ -34,6 +37,7 @@ export class ProjectionApplyService {
    * learn that projection-owned files were written under its own request.
    */
   async listProjectionPriorCommittedApplies(root: string, requestId: string): Promise<JsonEnvelope> {
+    try {
     this.context.assertRunning();
     // The journal owns historical commits; opening a current source session
     // would hash unrelated workspace/runtime bytes before this read.
@@ -41,11 +45,7 @@ export class ProjectionApplyService {
     try {
       committed = await this.context.localStore.listCommittedChangeSetsForTaskSession(root, requestId);
     } catch (error) {
-      return errorEnvelope(
-        "projection.prior-committed-applies",
-        "AC_PRECONDITION_FAILED",
-        error instanceof Error ? error.message : String(error)
-      );
+      return publicOperationErrorEnvelope("projection.prior-committed-applies", error);
     }
     // changeset_journal is keyed by journal_id, not changeset_id, and the projection protocol derives
     // its changeSetId from the projection-owned output bytes it writes. Two killed-then-retried
@@ -72,24 +72,22 @@ export class ProjectionApplyService {
       .sort((left, right) => left.changeSetId < right.changeSetId ? -1 : left.changeSetId > right.changeSetId ? 1 : 0);
     const issues = applies.length === 0 ? [] : projectionPriorCommittedAppliesIssues(applies, requestId);
     if (issues.length > 0) {
-      return errorEnvelope(
-        "projection.prior-committed-applies",
-        "AC_SCHEMA_INVALID",
-        `projection prior committed applies invariant failed: ${issues.join("; ")}`
-      );
+      return publicFailureEnvelope("projection.prior-committed-applies", "AC_SCHEMA_INVALID", "projection-prior-applies-invalid", {issueCount:issues.length});
     }
     return okEnvelope("projection.prior-committed-applies", { applies } as unknown as Json);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async readbackProjectionApply(root: string, request: ProjectionRequestV1): Promise<JsonEnvelope> {
+    try {
     this.context.assertRunning();
     try {
       const issues = projectionApplyReadbackRequestInvariantIssues(request);
-      if (issues.length > 0) return errorEnvelope("projection.readback", "AC_SCHEMA_INVALID", issues.join("; "));
+      if (issues.length > 0) return publicFailureEnvelope("projection.readback", "AC_SCHEMA_INVALID", "projection-readback-input-invalid", {});
     } catch (error) {
-      return errorEnvelope("projection.readback", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      return publicOperationErrorEnvelope("projection.readback", error);
     }
-    return this.context.withWriter(async () => {
+    return await this.context.withWriter(async () => {
       try {
         const session = await this.context.openSession(root);
         const inspection = await this.context.localStore.inspectProjectionApplyReceipt(projectionApplyLookupKey({
@@ -114,12 +112,12 @@ export class ProjectionApplyService {
           const issues = projectionApplyAbsenceInvariantIssues(absence, request);
           return issues.length === 0
             ? okEnvelope("projection.readback", absence as unknown as Json)
-            : errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", issues.join("; "));
+            : publicFailureEnvelope("projection.readback", "AC_PRECONDITION_FAILED", "projection-readback-absence-invalid", {issueCount:issues.length});
         }
         const receipt = inspection.receipt;
         const fixedPoint = buildRuntimeProjectionRecoveryFixedPoint(root);
         const issues = runtimeProjectionRecoveryFixedPointIssues(receipt, fixedPoint);
-        if (issues.length > 0) return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", `projection readback proof failed: ${issues.join("; ")}`);
+        if (issues.length > 0) return publicFailureEnvelope("projection.readback", "AC_PRECONDITION_FAILED", "projection-readback-proof-failed", {lookupKey:receipt.identity.lookupKey,applyId:receipt.identity.applyId,issueCount:issues.length});
         const body = {
           schemaVersion: PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION,
           requestId: request.requestId,
@@ -134,30 +132,32 @@ export class ProjectionApplyService {
           || this.context.worktreeDigest(root, "architecture-documentation-projection") !== result.current.snapshot.worktreeDigest) {
           resultIssues.push("projection readback authority changed before response");
         }
-        if (resultIssues.length > 0) return errorEnvelope("projection.readback", "AC_PRECONDITION_FAILED", resultIssues.join("; "));
+        if (resultIssues.length > 0) return publicFailureEnvelope("projection.readback", "AC_PRECONDITION_FAILED", "projection-readback-authority-changed", {lookupKey:receipt.identity.lookupKey,applyId:receipt.identity.applyId,issueCount:resultIssues.length});
         // Reading original evidence never consumes or rewrites its delivery checkpoint.
         return okEnvelope("projection.readback", result as unknown as Json);
       } catch (error) {
         return projectionFailureEnvelope("projection.readback", error);
       }
     });
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1): Promise<JsonEnvelope> {
+    try {
     this.context.assertRunning();
     const intentIssues = projectionApplyRecoveryIntentInvariantIssues(intent);
     if (intentIssues.length > 0) {
-      return errorEnvelope("projection.recover", "AC_SCHEMA_INVALID", `projection recovery intent invariant failed: ${intentIssues.join("; ")}`);
+      return publicFailureEnvelope("projection.recover", "AC_SCHEMA_INVALID", "projection-recovery-input-invalid", {});
     }
-    return this.context.withWriter(async () => {
+    return await this.context.withWriter(async () => {
       const session = await this.context.openSession(root);
       const inspection = await this.context.localStore.inspectProjectionApplyReceipt(intent.receipt.lookupKey);
       if (!inspection || inspection.receipt.identity.applyId !== intent.receipt.applyId) {
-        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "committed projection apply receipt was not found");
+        return publicFailureEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "projection-recovery-receipt-missing", {lookupKey:intent.receipt.lookupKey,applyId:intent.receipt.applyId});
       }
       if (inspection.deliveryStatus === "delivered") {
         if (!inspection.recoveryProof) {
-          return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "committed projection receipt was delivered without a recovery proof");
+          return publicFailureEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "projection-recovery-proof-missing", {lookupKey:intent.receipt.lookupKey,applyId:intent.receipt.applyId});
         }
         return okEnvelope("projection.recover", {
           found: true,
@@ -174,14 +174,14 @@ export class ProjectionApplyService {
       }
       const issues = runtimeProjectionRecoveryFixedPointIssues(inspection.receipt, fixedPoint);
       if (issues.length > 0) {
-        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", `projection recovery proof failed: ${issues.join("; ")}`);
+        return publicFailureEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "projection-recovery-proof-failed", {lookupKey:intent.receipt.lookupKey,applyId:intent.receipt.applyId,issueCount:issues.length});
       }
       const proof = createRuntimeProjectionRecoveryProof(intent, inspection.receipt, fixedPoint);
       const currentWorktreeDigest = this.context.worktreeDigest(root, "architecture-documentation-projection");
       if (session.workspace.repositoryId !== proof.current.snapshot.repositoryId
         || session.workspace.headSha !== proof.current.snapshot.headSha
         || currentWorktreeDigest !== proof.current.snapshot.worktreeDigest) {
-        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "projection recovery authority changed before delivery");
+        return publicFailureEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "projection-recovery-authority-changed", {lookupKey:intent.receipt.lookupKey,applyId:intent.receipt.applyId});
       }
       const consumption = await this.context.localStore.consumeProjectionApplyReceiptRecovery(proof);
       return okEnvelope("projection.recover", {
@@ -189,6 +189,7 @@ export class ProjectionApplyService {
         ...(consumption ?? {})
       } as unknown as Json);
     });
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
 }

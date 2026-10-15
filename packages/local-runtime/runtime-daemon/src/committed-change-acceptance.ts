@@ -1,3 +1,4 @@
+import { FailureError } from "@archcontext/contracts";
 import { execFileSync } from "node:child_process";
 import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -94,10 +95,10 @@ function readSemanticModelSnapshot(root: string, readEntry: SemanticModelEntryRe
   const bodies = new Map<string, string>();
   for (const directory of SEMANTIC_MODEL_DIRECTORIES) {
     const relativeDirectory = `.archcontext/model/${directory}`;
-    const absolute = assertPathHasNoSymlinkSegments(root, relativeDirectory);
+    const absolute = assertAcceptancePath(root, relativeDirectory);
     let entries: string[];
     try {
-      if (!lstatSync(absolute).isDirectory()) throw new Error(`semantic-model-directory-invalid: ${relativeDirectory}`);
+      if (!lstatSync(absolute).isDirectory()) throw new FailureError("AC_PRECONDITION_FAILED", "semantic-model-directory-invalid");
       entries = readdirSync(absolute);
     } catch (error) {
       if ((error as { code?: string }).code === "ENOENT") continue;
@@ -113,11 +114,11 @@ function readSemanticModelSnapshot(root: string, readEntry: SemanticModelEntryRe
 }
 
 function readRegularFileBytes(absolute: string, path: string): Uint8Array {
-  if (!lstatSync(absolute).isFile()) throw new Error(`semantic-model-entry-not-regular: ${path}`);
+  if (!lstatSync(absolute).isFile()) throw new FailureError("AC_PRECONDITION_FAILED", "semantic-model-entry-not-regular");
   // O_NOFOLLOW/O_NONBLOCK close the lstat->open window: a swapped-in symlink fails, a FIFO never blocks.
   const fd = openSync(absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
   try {
-    if (!fstatSync(fd).isFile()) throw new Error(`semantic-model-entry-not-regular: ${path}`);
+    if (!fstatSync(fd).isFile()) throw new FailureError("AC_PRECONDITION_FAILED", "semantic-model-entry-not-regular");
     return readFileSync(fd);
   } finally {
     closeSync(fd);
@@ -129,7 +130,7 @@ function strictUtf8(bytes: Uint8Array, path: string): string {
   try {
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
-    throw new Error(`accepted-committed-change-not-utf8: ${path}`);
+    throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-not-utf8");
   }
 }
 
@@ -203,20 +204,20 @@ export function acceptedJournalLinks(
   requested: readonly AcceptedCommittedJournalRef[],
   journals: readonly (CommittedChangeSetForTaskSession | undefined)[]
 ): AcceptedJournalLink[] {
-  if (requested.length !== journals.length) throw new Error("accepted-committed-change-journal-lookup-mismatch");
+  if (requested.length !== journals.length) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-journal-lookup-mismatch");
   return requested.map((ref, index) => {
     const journal = journals[index];
-    if (!journal) throw new Error(`accepted-committed-change-journal-not-committed: ${ref.journalId} is missing, pending, aborted or from another root`);
+    if (!journal) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-journal-not-committed");
     if (journal.journalId !== ref.journalId || journal.changeSetId !== ref.changeSetId) {
-      throw new Error(`accepted-committed-change-journal-id-mismatch: ${ref.journalId}`);
+      throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-journal-id-mismatch");
     }
     if (!journal.files.some((file) => isSemanticModelPath(file.path))) {
-      throw new Error(`accepted-committed-change-journal-without-semantic-write: ${ref.journalId}`);
+      throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-journal-without-semantic-write");
     }
-    if (!journal.modelTransition) throw new Error(`accepted-committed-change-journal-without-transition: ${ref.journalId}`);
+    if (!journal.modelTransition) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-journal-without-transition");
     const previous = journals[index - 1];
     if (previous && journal.committedAt < previous.committedAt) {
-      throw new Error(`accepted-committed-change-journal-out-of-order: ${ref.journalId} committed before ${previous.journalId}`);
+      throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-journal-out-of-order");
     }
     return { ...ref, committedAt: journal.committedAt, before: journal.modelTransition.before, after: journal.modelTransition.after, files: journal.files };
   });
@@ -224,17 +225,17 @@ export function acceptedJournalLinks(
 
 /** b1 = baseline, a_i = b_(i+1), a_n = current: any unjournaled semantic edit breaks exactly one link. */
 export function assertModelTransitionChain(baselineModelDigest: string, modelDigest: string, links: readonly Pick<AcceptedJournalLink, "journalId" | "before" | "after">[]): void {
-  if (links.length === 0) throw new Error("accepted-committed-change-chain-empty");
+  if (links.length === 0) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-chain-empty");
   if (links[0]!.before !== baselineModelDigest) {
-    throw new Error(`accepted-committed-change-chain-baseline-mismatch: ${links[0]!.journalId} does not start at the projection baseline model`);
+    throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-chain-baseline-mismatch");
   }
   for (let index = 1; index < links.length; index += 1) {
     if (links[index - 1]!.after !== links[index]!.before) {
-      throw new Error(`accepted-committed-change-chain-gap: ${links[index - 1]!.journalId} -> ${links[index]!.journalId}`);
+      throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-chain-gap", {previousJournalId:links[index - 1]!.journalId,journalId:links[index]!.journalId});
     }
   }
   if (links[links.length - 1]!.after !== modelDigest) {
-    throw new Error(`accepted-committed-change-chain-current-mismatch: ${links[links.length - 1]!.journalId} does not end at the current model`);
+    throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-chain-current-mismatch");
   }
 }
 
@@ -280,15 +281,15 @@ export function labelAcceptedNodeSets(input: {
     if (!writer.path.startsWith(".archcontext/model/nodes/")) continue;
     if (writer.operation === "delete") {
       const match = /^\.archcontext\/model\/nodes\/([^/]+)\.ya?ml$/.exec(writer.path);
-      if (!match) throw new Error(`accepted-committed-change-node-path-nonstandard: ${writer.path}`);
+      if (!match) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-node-path-nonstandard");
       if (!baselineNodeIds.has(match[1]!) || input.currentNodeIds.has(match[1]!)) {
-        throw new Error(`accepted-committed-change-deleted-node-unbound: ${match[1]}`);
+        throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-deleted-node-unbound");
       }
       direct.add(match[1]!);
       continue;
     }
     const id = declaredId(input.writtenBodies.get(writer.path), writer.path);
-    if (writer.path !== `.archcontext/model/nodes/${id}.yaml` && writer.path !== `.archcontext/model/nodes/${id}.yml`) throw new Error(`accepted-committed-change-node-path-nonstandard: ${writer.path}`);
+    if (writer.path !== `.archcontext/model/nodes/${id}.yaml` && writer.path !== `.archcontext/model/nodes/${id}.yml`) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-node-path-nonstandard");
     direct.add(id);
   }
   const capabilityIds = new Set([...input.base.capabilities, ...input.resulting.capabilities].map((capability) => capability.capabilityId));
@@ -328,7 +329,7 @@ export function assertProofChangesExplained(input: {
       && baselineSelector === input.currentEvidence.selectorEvidenceDigests[id]
       && before.memberNodeIds.every((nodeId) => input.baselineEvidence.sourceStamps[nodeId] === input.currentEvidence.sourceStamps[nodeId]);
     if (!evidenceUnchanged) {
-      throw new Error(`accepted-committed-change-proof-change-unexplained: ${id} proof moved while its member sources, its selector evidence or the renderer version changed since the baseline`);
+      throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-proof-change-unexplained", {capabilityId:id});
     }
   }
 }
@@ -411,25 +412,25 @@ export function planCommittedChangeAcceptance(root: string, input: {
   // (permissive) model the projection used must be exactly the model of these bytes.
   const snapshot = readSemanticModelSnapshot(root, readRegularFileBytes);
   const modelDigest = digestJson(input.model as unknown as Json);
-  if (snapshot.modelDigest !== modelDigest) throw new Error("accepted-committed-change-model-snapshot-mismatch: the model changed during acceptance");
-  if (input.projection.architectureDigests.modelDigest !== modelDigest) throw new Error("accepted-committed-change-projection-model-mismatch");
+  if (snapshot.modelDigest !== modelDigest) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-model-snapshot-mismatch");
+  if (input.projection.architectureDigests.modelDigest !== modelDigest) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-projection-model-mismatch");
   assertModelTransitionChain(baseline.modelDigest, modelDigest, links);
 
   const lastWriters = semanticLastWriters(links);
   const writtenBodies = lastWriterBodies(lastWriters, snapshot);
 
   const { majorChange, semanticState } = input.projection;
-  if (input.projection.rejected.length > 0) throw new Error("accepted-committed-change-projection-rejected: resolve adoption or ownership conflicts first");
+  if (input.projection.rejected.length > 0) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-projection-rejected");
   const unprovable = semanticState.capabilities
     .filter((capability) => capability.proofStatus.p1 === "unprovable" || capability.proofStatus.p2 === "unprovable")
     .map((capability) => capability.capabilityId);
-  if (unprovable.length > 0) throw new Error(`accepted-committed-change-proof-unprovable: ${unprovable.join(",")}`);
+  if (unprovable.length > 0) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-proof-unprovable");
   if (majorChange.mode !== "human-action-required" || majorChange.reasonCodes.length === 0) {
-    throw new Error(`accepted-committed-change-no-unresolved-major-change: ${majorChange.mode}`);
+    throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-no-unresolved-major-change");
   }
   const observed = classifyArchitectureMajorChange({ base: baseline.semanticState, resulting: semanticState });
   if (!sameStrings(observed.reasonCodes, majorChange.reasonCodes) || !sameStrings(observed.affectedNodeIds, majorChange.affectedNodeIds)) {
-    throw new Error("accepted-committed-change-observed-delta-mismatch");
+    throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-observed-delta-mismatch");
   }
 
   assertProofChangesExplained({ base: baseline.semanticState, resulting: semanticState, baselineEvidence: baseline.evidence, currentEvidence: input.currentEvidence });
@@ -466,7 +467,7 @@ export function planCommittedChangeAcceptance(root: string, input: {
   const accepted = classifyArchitectureMajorChange({ base: baseline.semanticState, resulting: semanticState, acceptedChange });
   if (accepted.mode !== "refresh-required" || !sameStrings(accepted.reasonCodes, acceptedChange.reasonCodes)
     || !sameStrings(accepted.affectedNodeIds, acceptedChange.affectedNodeIds)) {
-    throw new Error("accepted-committed-change-reference-not-resolvable");
+    throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-reference-not-resolvable");
   }
   return { plan, acceptancePlanId: committedChangeAcceptancePlanId(plan), acceptedChange };
 }
@@ -529,7 +530,7 @@ function gitWithoutReplaceObjects(root: string, args: string[]): Buffer {
 /** Resolved once per acceptance: the same sha anchors the manifest and becomes the ledger scope HEAD. */
 export function resolveAcceptanceHeadSha(root: string): string {
   const sha = gitWithoutReplaceObjects(root, ["rev-parse", "--verify", "HEAD^{commit}"]).toString("utf8").trim();
-  if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error("accepted-committed-change-head-unreadable");
+  if (!/^[a-f0-9]{40}$/.test(sha)) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-head-unreadable");
   return sha;
 }
 
@@ -549,10 +550,10 @@ function authenticateProjectionManifest(
   latestJournaled: { journalId: string; hash: string; projectionOwned: boolean } | undefined,
   headSha: string
 ): { kind: "head" | "journal"; ref: string } {
-  if (body === undefined) throw new Error("accepted-committed-change-baseline-missing: no projection manifest");
-  const bytes = readRegularFileBytes(assertPathHasNoSymlinkSegments(root, PROJECTION_MANIFEST_PATH), PROJECTION_MANIFEST_PATH);
+  if (body === undefined) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-baseline-missing");
+  const bytes = readRegularFileBytes(assertAcceptancePath(root, PROJECTION_MANIFEST_PATH), PROJECTION_MANIFEST_PATH);
   // The projection classified the text it read; the anchor must vouch for those same bytes.
-  if (strictUtf8(bytes, PROJECTION_MANIFEST_PATH) !== body) throw new Error("accepted-committed-change-baseline-changed: projection manifest moved during acceptance");
+  if (strictUtf8(bytes, PROJECTION_MANIFEST_PATH) !== body) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-baseline-changed");
   if (latestJournaled?.projectionOwned && digestJson({ body } as unknown as Json) === latestJournaled.hash) return { kind: "journal", ref: latestJournaled.journalId };
   let headBytes: Buffer | undefined;
   try {
@@ -561,7 +562,7 @@ function authenticateProjectionManifest(
     headBytes = undefined;
   }
   if (headBytes && Buffer.from(bytes).equals(headBytes)) return { kind: "head", ref: headSha };
-  throw new Error(`accepted-committed-change-baseline-unanchored: ${PROJECTION_MANIFEST_PATH} matches neither HEAD nor the latest projection-owned journaled write; commit it, or re-baseline with archctx docs apply --approved`);
+  throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-baseline-unanchored");
 }
 
 /**
@@ -570,7 +571,7 @@ function authenticateProjectionManifest(
  * read; a superseded one is refused with `projection-manifest-upgrade-required`.
  */
 export function projectionManifestBaseline(body: string | undefined): { modelDigest: string; semanticState: ArchitectureSemanticStateV1; evidence: ProofEvidenceDigests } {
-  if (body === undefined) throw new Error("accepted-committed-change-baseline-missing: no projection manifest");
+  if (body === undefined) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-baseline-missing");
   const manifest = parseArchitectureDocsProjectionManifest(body);
   return {
     modelDigest: manifest.semanticBaseline.modelDigest,
@@ -584,7 +585,7 @@ function lastWriterBodies(lastWriters: readonly SemanticLastWriter[], snapshot: 
   const bodies = new Map<string, string>();
   for (const writer of lastWriters) {
     const current = snapshot.hashes.get(writer.path) ?? "missing";
-    if (current !== writer.hash) throw new Error(`accepted-committed-change-file-mismatch: ${writer.path}`);
+    if (current !== writer.hash) throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-file-mismatch");
     if (writer.operation === "write") bodies.set(writer.path, snapshot.bodies.get(writer.path)!);
   }
   return bodies;
@@ -593,10 +594,18 @@ function lastWriterBodies(lastWriters: readonly SemanticLastWriter[], snapshot: 
 function declaredId(body: string | undefined, path: string): string {
   const parsed = body === undefined ? undefined : parseJsonOrStableYaml(body, path);
   const id = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, Json>).id : undefined;
-  if (typeof id !== "string" || id === "") throw new Error(`accepted-committed-change-node-id-missing: ${path}`);
+  if (typeof id !== "string" || id === "") throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-node-id-missing");
   return id;
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function assertAcceptancePath(root:string,path:string):string {
+  try {return assertPathHasNoSymlinkSegments(root,path);}
+  catch(error) {
+    if(error instanceof FailureError) throw error;
+    throw new FailureError("AC_PRECONDITION_FAILED","accepted-committed-change-path-unprovable");
+  }
 }

@@ -17,3 +17,5 @@ export * from "./refactor";
 export * from "./schema";
 export * from "./failure";
 export * from "./validator";
+
+export * from "./changeset-recovery";

@@ -154,3 +154,102 @@ test("manifest deferral retains actual journal sequence and fault operation coun
     } finally { f.cleanup(); }
   }
 });
+
+
+test("post-manifest awaits preserve external floors and report incomplete rollback", async () => {
+  for (const stage of ["validation-invalid", "validation-throw", "callback-throw", "journal-throw"]) {
+    const f = fixture();
+    let validations = 0, raised = "", aborted = 0, committed = 0;
+    const raise = () => {
+      raised = JSON.stringify({ ...JSON.parse(readFileSync(join(f.root, MANIFEST), "utf8")), minimumRendererVersion: "archcontext.docs-renderer/v7" });
+      writeFileSync(join(f.root, MANIFEST), raised);
+    };
+    const model = new YamlModelStore();
+    const journal: ChangeSetJournalPort = {
+      async beginChangeSet() { return "journal.floor"; }, async recordChangeSetFile() {},
+      async commitChangeSet() { if (stage === "journal-throw") { raise(); throw new Error("commit failed"); } committed++; },
+      async completeChangeSetCleanup() {}, async abortChangeSet() { aborted++; }, recoverPendingChangeSets() { return 0; }
+    };
+    try {
+      f.writeManifest({ minimumRendererVersion: "archcontext.docs-renderer/v6" });
+      const before = readFileSync(join(f.root, MANIFEST), "utf8");
+      const engine = new ChangeSetEngine({ modelStore: { ...model, validateModel: async (input: Parameters<YamlModelStore["validateModel"]>[0]) => {
+        validations++;
+        if (validations === 2 && stage.startsWith("validation")) {
+          raise();
+          if (stage === "validation-throw") throw new Error("validation failed");
+          return { valid: false, errors: ["invalid after apply"], warnings: [] };
+        }
+        return model.validateModel(input);
+      } } as any, projection: { planGeneratedProjection }, journal });
+      const file = "docs/architecture/later.md";
+      const planned = draft(engine, [{ op: "render_projection", expectedHash: "missing", projectionFiles: [
+        { path: MANIFEST, expectedHash: digestJson({ body: before }), body: JSON.stringify({ ...JSON.parse(before), rendererVersion: "archcontext.docs-renderer/v6" }) },
+        { path: file, expectedHash: "missing", body: "new doc\n" }
+      ] }]);
+      const failure = await engine.apply(f.root, planned, { approved: true, afterModelValidatedBeforeCommit: async () => {
+        if (stage === "callback-throw") { raise(); throw new Error("callback failed"); }
+      } }).then(() => undefined, error => error);
+      expect(readFileSync(join(f.root, MANIFEST), "utf8")).toBe(raised);
+      expect(failure?.reasonCode).toBe("changeset-rollback-conflict");
+      expect(failure?.details).toMatchObject({ journalId: "journal.floor", changeSetId: planned.id, manualRecoveryRequired: true });
+      expect(readFileSync(join(f.root, MANIFEST), "utf8")).toBe(raised);
+      expect(readFileSync(join(f.root, MANIFEST) + ".archctx-backup", "utf8")).toBe(before);
+      expect(existsSync(join(f.root, file))).toBe(false);
+      expect(aborted).toBe(0);
+      expect(committed).toBe(0);
+    } finally { f.cleanup(); }
+  }
+});
+
+test("post-manifest ordinary validation and commit failures still roll back completely", async () => {
+  for (const stage of ["validation-invalid", "validation-throw", "callback-throw", "journal-throw"]) {
+    const f = fixture();
+    let validations = 0, aborted = 0;
+    const model = new YamlModelStore();
+    try {
+      f.writeManifest({ minimumRendererVersion: "archcontext.docs-renderer/v6" });
+      const before = readFileSync(join(f.root, MANIFEST), "utf8");
+      const engine = new ChangeSetEngine({ modelStore: { validateModel: async (input: Parameters<YamlModelStore["validateModel"]>[0]) => {
+        validations++;
+        if (validations === 2 && stage.startsWith("validation")) {
+          if (stage === "validation-throw") throw new Error("validation failed");
+          return { valid: false, errors: ["invalid after apply"], warnings: [] };
+        }
+        return model.validateModel(input);
+      } } as any, projection: { planGeneratedProjection }, journal: {
+        async beginChangeSet() { return "journal.floor"; }, async recordChangeSetFile() {},
+        async commitChangeSet() { if (stage === "journal-throw") throw new Error("commit failed"); },
+        async completeChangeSetCleanup() {}, async abortChangeSet() { aborted++; }, recoverPendingChangeSets() { return 0; }
+      } });
+      const planned = draft(engine, [{ op: "render_projection", expectedHash: "missing", projectionFiles: [
+        { path: MANIFEST, expectedHash: digestJson({ body: before }), body: JSON.stringify({ ...JSON.parse(before), rendererVersion: "archcontext.docs-renderer/v6" }) },
+        { path: "docs/architecture/later.md", expectedHash: "missing", body: "new doc\n" }
+      ] }]);
+      await expect(engine.apply(f.root, planned, { approved: true, afterModelValidatedBeforeCommit: async () => {
+        if (stage === "callback-throw") throw new Error("callback failed");
+      } })).rejects.toThrow();
+      expect(readFileSync(join(f.root, MANIFEST), "utf8")).toBe(before);
+      expect(existsSync(join(f.root, MANIFEST) + ".archctx-backup")).toBe(false);
+      expect(existsSync(join(f.root, "docs/architecture/later.md"))).toBe(false);
+      expect(aborted).toBe(1);
+    } finally { f.cleanup(); }
+  }
+});
+
+
+test("a failed manifest publication still restores its complete original backup", async()=>{
+ const f=fixture();let aborted=0;
+ try {
+  f.writeManifest({minimumRendererVersion:"archcontext.docs-renderer/v6"});
+  const before=readFileSync(join(f.root,MANIFEST),"utf8");
+  const engine=new ChangeSetEngine({modelStore:new YamlModelStore(),projection:{planGeneratedProjection},journal:{
+   async beginChangeSet(){return "journal.floor";},async recordChangeSetFile(_id,file){if(file.path===MANIFEST)mkdirSync(file.tempPath!);},
+   async commitChangeSet(){},async completeChangeSetCleanup(){},async abortChangeSet(){aborted++;},recoverPendingChangeSets(){return 0;}
+  }});
+  await expect(engine.apply(f.root,draft(engine,[{op:"render_projection",expectedHash:"missing",projectionFiles:[{path:MANIFEST,expectedHash:digestJson({body:before}),body:JSON.stringify({...JSON.parse(before),rendererVersion:"archcontext.docs-renderer/v6"})}]}]),{approved:true})).rejects.toThrow();
+  expect(readFileSync(join(f.root,MANIFEST),"utf8")).toBe(before);
+  expect(existsSync(join(f.root,MANIFEST)+".archctx-backup")).toBe(false);
+  expect(aborted).toBe(1);
+ } finally {f.cleanup();}
+});

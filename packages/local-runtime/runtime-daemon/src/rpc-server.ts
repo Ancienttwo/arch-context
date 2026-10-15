@@ -1,3 +1,4 @@
+import { publicFailureEnvelope, publicOperationErrorEnvelope } from "./public-operation-failure";
 import { LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
 import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
 import { createPrivateControlFile, removePrivateControlFile } from "@archcontext/local-runtime/control-file-security";
@@ -136,7 +137,7 @@ export class ArchctxRuntimeRpcServer {
     const token = this.options.token ?? randomBytes(18).toString("base64url");
     const server = createServer((request, response) => {
       void this.handleRequest(request, response).catch((error) => {
-        writeJson(response, 500, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: error instanceof Error ? error.message : String(error) });
+        writeJson(response, 500, publicOperationErrorEnvelope("runtime-rpc", error));
       });
     });
     await new Promise<void>((resolveListen, rejectListen) => {
@@ -338,14 +339,14 @@ export class ArchctxRuntimeRpcServer {
       }
       const result = await this.dispatch(body.method ?? "", body.params ?? []).catch((error: unknown) => {
         // A write refused by the #172 recovery gate is a typed precondition failure, not a 500.
-        if (error instanceof LocalEgressPolicyError) return errorEnvelope(body.method ?? "rpc", "AC_POLICY_VIOLATION", error.message);
-        if (error instanceof ChangeSetRecoveryUnresolvedError) return errorEnvelope(body.method ?? "rpc", "AC_PRECONDITION_FAILED", error.message);
+        if (error instanceof LocalEgressPolicyError) return publicOperationErrorEnvelope("runtime-rpc", error);
+        if (error instanceof ChangeSetRecoveryUnresolvedError) return publicOperationErrorEnvelope("runtime-rpc", error);
         // A root that is not a Git worktree has no Git-visible files to bind: typed, not a 500.
-        if (error instanceof GitVisibleFilesUnavailableError) return errorEnvelope(body.method ?? "rpc", error.code, error.message, error.reasonCode);
+        if (error instanceof GitVisibleFilesUnavailableError) return publicOperationErrorEnvelope("runtime-rpc", error);
         // A malformed positional argument (rpc-argument-codec.ts's decoders, reused by the
         // developer-review decoders) is a typed schema failure, not a 500: same structured shape
         // every handler's own input validation already answers with.
-        if (error instanceof RuntimeRpcInputInvalidError) return errorEnvelope(body.method ?? "rpc", "AC_SCHEMA_INVALID", error.message);
+        if (error instanceof RuntimeRpcInputInvalidError) return publicFailureEnvelope("runtime-rpc", "AC_SCHEMA_INVALID", "rpc-input-invalid");
         throw error;
       });
       writeJson(response, 200, result);
@@ -369,7 +370,7 @@ export class ArchctxRuntimeRpcServer {
   private async dispatch(method: string, params: unknown[]): Promise<JsonEnvelope> {
     if (method === "shutdown") {
       if (!Array.isArray(params) || params.length > 1) {
-        return errorEnvelope("daemon.stop", "AC_SCHEMA_INVALID", "shutdown accepts only an optional expected daemon identity");
+        return publicFailureEnvelope("daemon.stop", "AC_SCHEMA_INVALID", "rpc-input-invalid");
       }
       if (params.length === 1) {
         const expected = params[0] as Record<string, unknown> | null;
@@ -378,26 +379,13 @@ export class ArchctxRuntimeRpcServer {
           || Object.keys(expected).sort().join(",") !== "instanceId,pid,root,schemaVersion"
           || expected.schemaVersion !== current.schemaVersion || expected.pid !== current.pid
           || expected.root !== current.root || !matchesSecret(expected.instanceId, current.instanceId)) {
-          return errorEnvelope("daemon.stop", "AC_RUNTIME_VERSION_UNSUPPORTED", "Expected daemon identity does not match this live instance; no shutdown performed.", "daemon-stop-identity-mismatch");
+          return publicFailureEnvelope("daemon.stop", "AC_RUNTIME_VERSION_UNSUPPORTED", "daemon-stop-identity-mismatch");
         }
       }
       return okEnvelope("daemon.stop", { stopping: true } as Json);
     }
     const definition = runtimeRpcMethod(method);
-    if (!definition) {
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: false,
-        requestId: "runtime-rpc",
-        error: {
-          code: "AC_SCHEMA_INVALID",
-          message: `Unknown runtime RPC method: ${method}`,
-          severity: "error",
-          retryable: false,
-          action: "upgrade-client"
-        }
-      };
-    }
+    if (!definition) return publicFailureEnvelope("runtime-rpc", "AC_SCHEMA_INVALID", "rpc-method-invalid");
     const handler = this.daemon[method as RuntimeRpcMethodName];
     const result = await Reflect.apply(handler, this.daemon, definition.decodeArgs(params));
     return definition.encodeResponse(result);

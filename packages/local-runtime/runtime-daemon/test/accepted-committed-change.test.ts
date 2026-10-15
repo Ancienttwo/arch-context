@@ -58,7 +58,7 @@ describe("committed change acceptance helpers", () => {
     const links = [{ journalId: "j1", before: digest("1"), after: digest("2") }, { journalId: "j2", before: digest("2"), after: digest("3") }];
     expect(() => assertModelTransitionChain(digest("1"), digest("3"), links)).not.toThrow();
     expect(() => assertModelTransitionChain(digest("0"), digest("3"), links)).toThrow(/chain-baseline-mismatch/);
-    expect(() => assertModelTransitionChain(digest("1"), digest("3"), [links[0]!, { ...links[1]!, before: digest("9") }])).toThrow(/chain-gap: j1 -> j2/);
+    expect(() => assertModelTransitionChain(digest("1"), digest("3"), [links[0]!, { ...links[1]!, before: digest("9") }])).toThrow(/chain-gap/);
     expect(() => assertModelTransitionChain(digest("1"), digest("4"), links)).toThrow(/chain-current-mismatch/);
     expect(() => assertModelTransitionChain(digest("1"), digest("1"), [])).toThrow(/chain-empty/);
   });
@@ -147,7 +147,7 @@ describe("committed change acceptance helpers", () => {
       { ...evidence, rendererVersion: "renderer-v2" }
     ]) {
       expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence }))
-        .toThrow(/proof-change-unexplained: capability.a/);
+        .toThrow(/proof-change-unexplained/);
     }
     // A baseline that records no selector evidence for the capability explains nothing.
     expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: { ...evidence, selectorEvidenceDigests: {} }, currentEvidence: { ...evidence, selectorEvidenceDigests: {} } }))
@@ -172,7 +172,7 @@ describe("committed change acceptance helpers", () => {
     expect(() => assertProofChangesExplained({ base, resulting: aProofOnly, baselineEvidence: evidence, currentEvidence: bMoved })).not.toThrow();
     const aMoved = { ...evidence, sourceStamps: { ...evidence.sourceStamps, "capability.a": digest("c") } };
     expect(() => assertProofChangesExplained({ base, resulting: aProofOnly, baselineEvidence: evidence, currentEvidence: aMoved }))
-      .toThrow(/proof-change-unexplained: capability.a/);
+      .toThrow(/proof-change-unexplained/);
   });
 
   test("the proof gate reads baseline evidence from a current-format manifest only, never a superseded one (#327)", () => {
@@ -201,7 +201,7 @@ describe("committed change acceptance helpers", () => {
     expect(rebaselinedOnE1.semanticState.flowProofFingerprint).toBe(digestJson([{ capabilityId: "capability.a", flowProofFingerprint: digest("6") }] as unknown as Json));
     const proofOnly = state(cap(digest("9")));
     expect(() => assertProofChangesExplained({ base: rebaselinedOnE1.semanticState, resulting: proofOnly, baselineEvidence: rebaselinedOnE1.evidence, currentEvidence: e0 }))
-      .toThrow(/proof-change-unexplained: capability.a/);
+      .toThrow(/proof-change-unexplained/);
     expect(() => assertProofChangesExplained({ base: projectionManifestBaseline(manifest(digest("0"))).semanticState, resulting: proofOnly, baselineEvidence: projectionManifestBaseline(manifest(digest("0"))).evidence, currentEvidence: e0 }))
       .not.toThrow();
     // A v2 manifest that still carries a whole baseline and evidence is refused, never read.
@@ -261,7 +261,7 @@ describe("committed change acceptance helpers", () => {
     const recorded = { rendererVersion: "renderer-v1", selectorEvidenceDigests: { "capability.a": digest("b"), "capability.b": digest("b") }, sourceStamps: {} };
     expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: structuredClone(recorded) })).not.toThrow();
     expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded, selectorEvidenceDigests: { ...recorded.selectorEvidenceDigests, "capability.a": digest("c") } } }))
-      .toThrow(/proof-change-unexplained: capability.a/);
+      .toThrow(/proof-change-unexplained/);
   });
 
   test("a deleted node is named by its standard path, must exist in the baseline and be gone now", () => {
@@ -489,11 +489,12 @@ async function accept(fixture: Fixture, journals: { journalId: string; changeSet
   return { preview: data, approved: await approve(fixture, journals, data) };
 }
 
-async function expectRefused(fixture: Fixture, journals: { journalId: string; changeSetId: string }[], message: RegExp) {
+async function expectRefused(fixture: Fixture, journals: { journalId: string; changeSetId: string }[], message: RegExp, details?: Record<string, unknown>) {
   const previewed = await preview(fixture, journals);
   expect(previewed.ok, JSON.stringify(previewed)).toBe(false);
   expect((previewed as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
   expect((previewed as any).error.message).toMatch(message);
+  if(details) expect((previewed as any).error.details).toMatchObject(details);
 }
 
 function acceptedEvents(fixture: Fixture) {
@@ -1010,11 +1011,11 @@ describe("committed change acceptance v2", () => {
     await withFixture(async (fixture) => {
       const kind = await change(fixture, "changeset.kind", [toModule(fixture.root)]);
       writeFileSync(join(fixture.root, "README.md"), "# acceptance fixture, source changed\n", "utf8");
-      await expectRefused(fixture, [kind], new RegExp(`proof-change-unexplained: ${CAPABILITY_A}`));
+      await expectRefused(fixture, [kind], /proof-change-unexplained/, {capabilityId:CAPABILITY_A});
       // A journaled rewrite of the capability's flow no longer explains an evidence change.
       const flowPath = ".archcontext/model/flows/flow.hook-adapters.yaml";
       const flowRewrite = await change(fixture, "changeset.flow-noop", [noopRewrite(fixture.root, flowPath)]);
-      await expectRefused(fixture, [kind, flowRewrite], new RegExp(`proof-change-unexplained: ${CAPABILITY_A}`));
+      await expectRefused(fixture, [kind, flowRewrite], /proof-change-unexplained/, {capabilityId:CAPABILITY_A});
     }, { capabilityASource: true });
   }, TIMEOUT * 2);
 
@@ -1249,4 +1250,10 @@ describe("model transition evidence reads one snapshot", () => {
       rmSync(outside, { recursive: true, force: true });
     }
   });
+});
+
+
+test("acceptance chain refusal preserves complete adjacent journal authority",()=>{
+ try {assertModelTransitionChain(digest("1"),digest("3"),[{journalId:"j1",before:digest("1"),after:digest("2")},{journalId:"j2",before:digest("9"),after:digest("3")}]);throw new Error("unexpected success");}
+ catch(error) {expect(error).toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"accepted-committed-change-chain-gap",details:{previousJournalId:"j1",journalId:"j2"}});}
 });

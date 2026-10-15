@@ -199,7 +199,7 @@ export class PracticeCheckpointService {
         }))
       } as unknown as Json);
     } catch (error) {
-      return errorEnvelope("practices.waivers", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      return publicFailureEnvelope("practices.waivers", "AC_SCHEMA_INVALID", "waiver-list-unreadable");
     }
   }
 

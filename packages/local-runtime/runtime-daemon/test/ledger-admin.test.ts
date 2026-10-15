@@ -175,7 +175,7 @@ describe("daemon ledger admin", () => {
       await expect(daemon.ledgerProject(root, {
         dryRun: false,
         expectedWorktreeDigest: (status.data as any).worktreeDigest
-      })).rejects.toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
+      })).rejects.toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "ledger-worktree-claim-changed" });
 
       expect(readText(join(root, staleNodePath))).toContain("Edited after the projection was planned");
       expect(existsSync(join(root, staleRelationPath))).toBe(true);

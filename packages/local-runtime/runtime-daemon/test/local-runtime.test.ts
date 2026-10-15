@@ -1098,7 +1098,7 @@ setInterval(() => undefined, 1 << 30);
       writer = spawn(process.execPath, [writerScript, dbPath, root, relativePath, absolutePath, backupPath, tempPath], { stdio: ["ignore", "pipe", "inherit"] });
       await waitForStdoutLine(writer, "READY");
 
-      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toThrow(`local-store-writer-owned: ${dbPath} is owned by another live process (owner record: pid ${writer.pid}`);
+      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"runtime-writer-owned"});
       expect(existsSync(absolutePath)).toBe(false);
       expect(readText(backupPath)).toBe(original);
       expect(readText(tempPath)).toBe("partial write");
@@ -1356,7 +1356,7 @@ setInterval(() => undefined, 1 << 30);
       const again = await daemon.init(root, "Second App");
       expect(again.ok).toBe(false);
       expect(again.error?.code).toBe("AC_PRECONDITION_FAILED");
-      expect(again.error?.message).toContain("archcontext-init-refused");
+      expect(again.error?.reasonCode).toBe("init-would-overwrite-existing-model");
       expect(readText(manifestPath)).toBe(manifestBefore);
       expect(readText(productPath)).toBe(productBefore);
     } finally {
@@ -1504,7 +1504,7 @@ setInterval(() => undefined, 1 << 30);
         id: "changeset.agent-context-mis-kinded",
         approved: true,
         expectedWorktreeDigest: (misKinded.data as any).draft.base.worktreeDigest
-      })).rejects.toThrow("Path is outside ArchContext write allowlist");
+      })).rejects.toMatchObject({code:"AC_UNCLASSIFIED_FAILURE",reasonCode:"failure-unclassified"});
       expect(readText(claudePath)).toBe(before.claude);
     } finally {
       await daemon?.stop();
@@ -1866,7 +1866,7 @@ setInterval(() => undefined, 1 << 30);
         id: (plan.data as any).draft.id,
         approved: true,
         expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      })).rejects.toThrow("ChangeSet worktree digest changed before apply");
+      })).rejects.toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"apply-worktree-changed"});
       expect(existsSync(join(root, ".archcontext/model/nodes/module.stale-worktree.yaml"))).toBe(false);
     } finally {
       removeTempRepo(root);
@@ -2112,7 +2112,7 @@ setInterval(() => undefined, 1 << 30);
         id: "changeset.dual-ledger-rollback",
         approved: true,
         expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      })).rejects.toThrow("ledger-append-down");
+      })).rejects.toMatchObject({code:"AC_UNCLASSIFIED_FAILURE",reasonCode:"failure-unclassified"});
 
       expect(existsSync(join(root, path))).toBe(false);
       expect([...store.changeSetJournals.values()].some((journal) => journal.status === "aborted" && journal.reason === "ledger-append-down")).toBe(true);
@@ -2480,7 +2480,7 @@ setInterval(() => undefined, 1 << 30);
         });
         if (profile === "repository") {
           expect((sameProfileApply as any).ok).toBe(false);
-          expect(String((sameProfileApply as any).error)).toContain(`Unknown ChangeSet: ${id}`);
+          expect(sameProfileApply.error).toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"apply-draft-missing",details:{changeSetId:id}});
         } else {
           expect(sameProfileApply).toMatchObject({
             schemaVersion: "archcontext.envelope/v1",
@@ -2496,7 +2496,7 @@ setInterval(() => undefined, 1 << 30);
           expectedWorktreeDigest: repositoryDigest
         });
         expect(missingDraft.ok).toBe(false);
-        expect(String((missingDraft as any).error)).toContain(`Unknown ChangeSet: ${id}`);
+        expect(missingDraft.error).toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"apply-draft-missing",details:{changeSetId:id}});
       }
 
       const validPlan = await client.planUpdate(root, {

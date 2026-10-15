@@ -1,3 +1,4 @@
+import { changeSetRecoveryDetailsSnapshot } from "./changeset-recovery";
 import { PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionRecoveryDetailsSnapshot } from "./projection-recovery";
 import { ERROR_CATALOG, canonicalize, type ArchContextErrorCode, type Json, type Severity } from "./schema";
 
@@ -21,7 +22,7 @@ export interface FailureEnvelope<C extends FailureCode = FailureCode> {
   data?: never;
   error: StrictFailure<C>;
 }
-type Policy = { code: FailureCode; message: string; fields?: readonly string[]; action?: string; facts?: Readonly<Record<string, string>>; native?: boolean; recovery?: boolean; retryable?: boolean };
+type Policy = { code: FailureCode; message: string; fields?: readonly string[]; action?: string; facts?: Readonly<Record<string, string>>; native?: boolean; recovery?: boolean; journalRecovery?: boolean; retryable?: boolean };
 /** Each reason has a closed fact vocabulary. No source text or recovery binding is a summary fact. */
 const policies: Record<string, Policy> = {
   "git-worktree-required": { code: "AC_REPO_NOT_FOUND", message: "This operation requires a Git worktree.", fields: ["checks"] },
@@ -44,6 +45,110 @@ const policies: Record<string, Policy> = {
 };
 // C1 policies are selected at explicit producer branches, never from diagnostic text.
 Object.assign(policies, {
+  "developer-review-run-not-owned": {code:"AC_PRECONDITION_FAILED",message:"developer-review-run-not-owned",facts:{refusal:"reviewOwnershipRefusal"}},
+  "developer-review-attestation-input-invalid": {code:"AC_SCHEMA_INVALID",message:"Caller-provided attestation fields are forbidden.",facts:{issueCount:"uint"}},
+  "init-would-overwrite-existing-model": {"code": "AC_PRECONDITION_FAILED", "message": "init-would-overwrite-existing-model: an existing architecture model must not be overwritten.", "facts": {}},
+  "waiver-list-unreadable": {"code": "AC_SCHEMA_INVALID", "message": "Practice waiver list or owner registry could not be read.", "facts": {}},
+  "developer-review-run-already-active": {"code": "AC_PRECONDITION_FAILED", "message": "developer-review-run-already-active", "facts": {"challengeId": "id"}},
+  "developer-review-run-prepare-failed": {"code": "AC_PRECONDITION_FAILED", "message": "developer-review-run-prepare-failed", "facts": {}},
+  "developer-review-worktree-invalid": {"code": "AC_PRECONDITION_FAILED", "message": "developer-review-worktree-invalid", "facts": {"refusal":"reviewWorktreeRefusal"}},
+  "device-private-key-signer-unavailable": {"code": "AC_PRECONDITION_FAILED", "message": "device-private-key-signer-unavailable", "facts": {}},
+
+  "ledger-worktree-claim-required": {code:"AC_PRECONDITION_FAILED", message:"Ledger write requires expectedWorktreeDigest.", facts:{}},
+  "ledger-worktree-claim-changed": {code:"AC_PRECONDITION_FAILED", message:"Worktree digest changed before ledger write.", facts:{expectedWorktreeDigest:"sha256",actualWorktreeDigest:"sha256"}},
+  "rpc-version-mismatch": {code:"AC_RUNTIME_VERSION_UNSUPPORTED", message:"Runtime RPC version mismatch; run archctx daemon upgrade.",action:"upgrade-archctx-runtime",facts:{expected:"rpcVersion",received:"rpcVersion",action:"upgradeAction",upgradeCommand:"upgradeCommand"}},
+  "semantic-model-directory-invalid": {"code": "AC_PRECONDITION_FAILED", "message": "semantic-model-directory-invalid.", "facts": {}},
+  "semantic-model-entry-not-regular": {"code": "AC_PRECONDITION_FAILED", "message": "semantic-model-entry-not-regular.", "facts": {}},
+  "accepted-committed-change-not-utf8": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-not-utf8.", "facts": {}},
+  "accepted-committed-change-journal-lookup-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-journal-lookup-mismatch", "facts": {}},
+  "accepted-committed-change-journal-not-committed": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-journal-not-committed.", "facts": {}},
+  "accepted-committed-change-journal-id-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-journal-id-mismatch.", "facts": {}},
+  "accepted-committed-change-journal-without-semantic-write": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-journal-without-semantic-write.", "facts": {}},
+  "accepted-committed-change-journal-without-transition": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-journal-without-transition.", "facts": {}},
+  "accepted-committed-change-journal-out-of-order": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-journal-out-of-order.", "facts": {}},
+  "accepted-committed-change-chain-empty": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-chain-empty", "facts": {}},
+  "accepted-committed-change-chain-baseline-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-chain-baseline-mismatch.", "facts": {}},
+  "accepted-committed-change-chain-gap": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-chain-gap.", "facts": {"previousJournalId":"id","journalId":"id"}},
+  "accepted-committed-change-chain-current-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-chain-current-mismatch.", "facts": {}},
+  "accepted-committed-change-node-path-nonstandard": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-node-path-nonstandard.", "facts": {}},
+  "accepted-committed-change-deleted-node-unbound": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-deleted-node-unbound.", "facts": {}},
+  "accepted-committed-change-proof-change-unexplained": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-proof-change-unexplained.", "facts": {"capabilityId":"id"}},
+  "accepted-committed-change-model-snapshot-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-model-snapshot-mismatch: the model changed during acceptance", "facts": {}},
+  "accepted-committed-change-projection-model-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-projection-model-mismatch", "facts": {}},
+  "accepted-committed-change-projection-rejected": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-projection-rejected: resolve adoption or ownership conflicts first", "facts": {}},
+  "accepted-committed-change-proof-unprovable": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-proof-unprovable.", "facts": {}},
+  "accepted-committed-change-no-unresolved-major-change": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-no-unresolved-major-change.", "facts": {}},
+  "accepted-committed-change-observed-delta-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-observed-delta-mismatch", "facts": {}},
+  "accepted-committed-change-reference-not-resolvable": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-reference-not-resolvable", "facts": {}},
+  "accepted-committed-change-head-unreadable": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-head-unreadable", "facts": {}},
+  "accepted-committed-change-baseline-missing": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-baseline-missing: no projection manifest", "facts": {}},
+  "accepted-committed-change-baseline-changed": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-baseline-changed: projection manifest moved during acceptance", "facts": {}},
+  "accepted-committed-change-baseline-unanchored": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-baseline-unanchored.", "facts": {}},
+  "accepted-committed-change-file-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-file-mismatch.", "facts": {}},
+  "accepted-committed-change-node-id-missing": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-node-id-missing.", "facts": {}},
+  "accepted-committed-change-path-unprovable": {"code": "AC_PRECONDITION_FAILED", "message": "accepted-committed-change-path-unprovable: symlink or semantic path authority cannot be proven.", "facts": {}},
+  "projection-inputs-changed-during-run": {"code": "AC_PRECONDITION_FAILED", "message": "architecture-docs-projection-inputs-changed-during-run", "facts": {"field": "projectionInputField"}},
+
+  "daemon-stop-identity-mismatch": {code:"AC_RUNTIME_VERSION_UNSUPPORTED",message:"Expected daemon identity does not match this live instance; no shutdown performed.",facts:{}},
+  "projection-apply-first-delivery-unavailable": {"code": "AC_PRECONDITION_FAILED", "message": "Projection apply first delivery unavailable.", "facts": {"lookupKey": "sha256", "applyId": "sha256"}},
+  "projection-apply-readback-proof-unavailable": {"code": "AC_PRECONDITION_FAILED", "message": "Projection apply readback proof unavailable.", "facts": {"lookupKey": "sha256", "applyId": "sha256"}},
+  "projection-apply-restored-proof-unavailable": {"code": "AC_PRECONDITION_FAILED", "message": "Projection apply restored proof unavailable.", "facts": {"lookupKey": "sha256", "applyId": "sha256"}},
+  "projection-recovery-delivery-unavailable": {"code": "AC_PRECONDITION_FAILED", "message": "Projection recovery delivery unavailable.", "facts": {"lookupKey": "sha256", "applyId": "sha256"}},
+  "projection-recovery-receipt-missing": {"code": "AC_PRECONDITION_FAILED", "message": "Projection recovery receipt missing.", "facts": {"lookupKey": "sha256", "applyId": "sha256"}},
+  "projection-recovery-proof-missing": {"code": "AC_PRECONDITION_FAILED", "message": "Projection recovery proof missing.", "facts": {"lookupKey": "sha256", "applyId": "sha256"}},
+  "projection-recovery-authority-changed": {"code": "AC_PRECONDITION_FAILED", "message": "Projection recovery authority changed.", "facts": {"lookupKey": "sha256", "applyId": "sha256"}},
+  "projection-apply-restore-unproven": {"code": "AC_PRECONDITION_FAILED", "message": "Projection apply restore unproven.", "facts": {"lookupKey": "sha256", "applyId": "sha256", "issueCount": "uint"}},
+  "projection-readback-proof-failed": {"code": "AC_PRECONDITION_FAILED", "message": "Projection readback proof failed.", "facts": {"lookupKey": "sha256", "applyId": "sha256", "issueCount": "uint"}},
+  "projection-readback-authority-changed": {"code": "AC_PRECONDITION_FAILED", "message": "Projection readback authority changed.", "facts": {"lookupKey": "sha256", "applyId": "sha256", "issueCount": "uint"}},
+  "projection-recovery-proof-failed": {"code": "AC_PRECONDITION_FAILED", "message": "Projection recovery proof failed.", "facts": {"lookupKey": "sha256", "applyId": "sha256", "issueCount": "uint"}},
+  "projection-ownership-repair-required": {"code": "AC_PRECONDITION_FAILED", "message": "Projection ownership repair required.", "facts": {"issueCount": "uint"}},
+  "projection-orphan-review-required": {"code": "AC_PRECONDITION_FAILED", "message": "Projection orphan review required.", "facts": {"issueCount": "uint"}},
+  "projection-adoption-refused": {"code": "AC_PRECONDITION_FAILED", "message": "Projection adoption refused.", "facts": {"issueCount": "uint"}},
+  "projection-readback-absence-invalid": {"code": "AC_PRECONDITION_FAILED", "message": "Projection readback absence invalid.", "facts": {"issueCount": "uint"}},
+  "projection-adoption-preimage-missing": {"code": "AC_PRECONDITION_FAILED", "message": "Projection adoption preimage missing.", "facts": {}},
+  "projection-adoption-preview-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "Projection adoption preview mismatch.", "facts": {}},
+  "projection-accepted-fixed-point-unproven": {"code": "AC_PRECONDITION_FAILED", "message": "Projection accepted fixed point unproven.", "facts": {}},
+  "projection-adoption-fixed-point-unproven": {"code": "AC_PRECONDITION_FAILED", "message": "Projection adoption fixed point unproven.", "facts": {"driftCount": "uint", "rejectedCount": "uint", "digestStable": "boolean"}},
+  "projection-adoption-profile-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection adoption profile invalid.", "facts": {}},
+  "projection-adoption-approval-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection adoption approval input invalid.", "facts": {}},
+  "agent-context-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Agent context input invalid.", "facts": {}},
+  "projection-readback-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection readback input invalid.", "facts": {}},
+  "projection-recovery-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection recovery input invalid.", "facts": {}},
+  "projection-readback-result-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection readback result invalid.", "facts": {"issueCount": "uint"}},
+  "projection-recovery-result-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection recovery result invalid.", "facts": {"issueCount": "uint"}},
+  "projection-prior-applies-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection prior applies invalid.", "facts": {"issueCount": "uint"}},
+  "projection-ambiguous-ownership": {"code": "AC_PRECONDITION_FAILED", "message": "Projection ownership is ambiguous. Review the listed paths; remove unvouched whole-file outputs from Git and reapply explicitly. Use docs drift to inspect the complete output list when diagnostics are omitted.", "facts": {"pathCount": "uint", "paths": "optional:diagnosticPaths", "action": "ownershipAction", "commands": "optional:diagnosticCommands", "omittedPathCount": "uint", "omittedCommandCount": "uint"}},
+
+  "changeset-recovery-unresolved": {"code": "AC_PRECONDITION_FAILED", "message": "changeset-recovery-unresolved: startup journals require repair; inspect the complete recovery authority and restart archctxd to retry recovery.", "journalRecovery": true},
+  "apply-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Apply input invalid.", "facts": {}},
+  "apply-approval-required": {"code": "AC_USER_CONFIRMATION_REQUIRED", "message": "Review the ChangeSet preview, then apply explicitly with approved: true (CLI: --approved).", "facts": {}},
+  "apply-repository-mismatch": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet was planned for a different repository.", "facts": {}},
+  "apply-draft-missing": {"code": "AC_PRECONDITION_FAILED", "message": "Unknown ChangeSet; create a new plan before applying.", "facts": {"changeSetId": "id"}},
+  "apply-profile-missing": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet worktree digest profile missing before apply.", "facts": {}},
+  "apply-profile-changed": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet worktree digest profile changed before apply.", "facts": {}},
+  "apply-worktree-changed": {"code": "AC_PRECONDITION_FAILED", "message": "Worktree digest changed before apply.", "facts": {"expectedWorktreeDigest": "sha256", "actualWorktreeDigest": "sha256"}},
+  "apply-head-changed": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet HEAD changed before apply.", "facts": {"expectedHeadSha": "head", "actualHeadSha": "head"}},
+  "apply-model-invalid": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet base model is invalid.", "facts": {"issueCount": "uint"}},
+  "apply-model-changed": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet model digest changed before apply.", "facts": {"expectedModelDigest": "sha256", "actualModelDigest": "sha256"}},
+  "apply-preimage-changed": {"code": "AC_PRECONDITION_FAILED", "message": "Projection preimage changed before apply.", "facts": {"issueCount": "uint"}},
+  "projection-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection input invalid.", "facts": {}},
+  "projection-approval-required": {"code": "AC_USER_CONFIRMATION_REQUIRED", "message": "Review the projection request, then call again with approved: true.", "facts": {}},
+  "waiver-owner-registry-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Practice waiver owner registry invalid.", "facts": {}},
+  "waiver-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Practice waiver input invalid.", "facts": {}},
+  "worktree-claim-required": {"code": "AC_REFACTOR_STALE", "message": "This operation requires expectedWorktreeDigest.", "facts": {}},
+  "worktree-claim-changed": {"code": "AC_REFACTOR_STALE", "message": "Worktree digest changed before this operation.", "facts": {"expectedWorktreeDigest": "sha256", "actualWorktreeDigest": "sha256"}},
+  "accept-committed-worktree-changed": {"code": "AC_PRECONDITION_FAILED", "message": "Accepted ChangeSet expected worktree digest mismatch.", "facts": {"expectedWorktreeDigest": "sha256", "actualWorktreeDigest": "sha256"}},
+  "accept-committed-plan-changed": {"code": "AC_PRECONDITION_FAILED", "message": "Accepted ChangeSet acceptance plan changed since preview.", "facts": {"expectedPlanDigest": "sha256", "actualPlanDigest": "sha256"}},
+  "accept-committed-readback-failed": {"code": "AC_PRECONDITION_FAILED", "message": "Committed ChangeSet acceptance readback failed.", "facts": {}},
+  "accept-committed-event-conflict": {"code": "AC_PRECONDITION_FAILED", "message": "Committed ChangeSet already has a different acceptance event at this snapshot.", "facts": {}},
+  "accept-committed-append-failed": {"code": "AC_PRECONDITION_FAILED", "message": "Committed ChangeSet acceptance event was not appended.", "facts": {}},
+  "runtime-not-running": {"code": "AC_PRECONDITION_FAILED", "message": "archctxd is not running.", "facts": {}},
+  "runtime-writer-locked": {"code": "AC_PRECONDITION_FAILED", "message": "Runtime writer is locked.", "facts": {}},
+  "runtime-ledger-mode-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Runtime architecture ledger mode invalid.", "facts": {"field": "ledgerModeField"}},
+  "runtime-writer-owned": {"code": "AC_PRECONDITION_FAILED", "message": "local-store-writer-owned: another live process owns this store.", "facts": {}},
+  "rpc-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Runtime RPC input invalid.", "facts": {}},
+  "rpc-method-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Unknown runtime RPC method. Upgrade the client.", "facts": {}, "action":"upgrade-client"},
+  "changeset-rollback-conflict": {code: "AC_PRECONDITION_FAILED", message: "ChangeSet rollback is incomplete because the projection manifest changed externally. Preserve the pending journal and backup for manual recovery.", facts: {journalId: "optional:id", changeSetId: "id", manualRecoveryRequired: "boolean"}},
   "deps-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Deps input invalid.","facts": {"field":"optional:depsField","issue":"optional:depsIssue"}},
   "deps-workspace-invalid": {"code": "AC_SCHEMA_INVALID","message": "Deps workspace invalid.","facts": {}},
   "deps-model-unreadable": {"code": "AC_MODEL_ADOPTION_REQUIRED","message": "Deps model unreadable.","facts": {}},
@@ -244,6 +349,13 @@ function dataRecord(value: unknown): Record<string, PropertyDescriptor> {
   return fields;
 }
 const localEnums: Readonly<Record<string, readonly string[]>> = {
+  reviewWorktreeRefusal: ["UNKNOWN","HEAD_UNAVAILABLE","HEAD_SHA_MISMATCH","TREE_OID_MISMATCH","WORKTREE_NOT_DETACHED","WORKTREE_NOT_CLEAN"],
+  reviewOwnershipRefusal: ["persisted-manifest-missing","persisted-manifest-identity-mismatch","run-id","manifest-path","lock-path","persisted-manifest-mismatch","persisted-lock-mismatch","run-root-name","worktree-temp-root","codegraph-temporary-state-root","run-root-not-a-directory","run-root-owner-marker-missing","run-root-owner-marker-mismatch","worktree-temporary-root","worktree-root","worktree-source-root"],
+  projectionInputField: ["headSha","worktreeDigest","sourceFiles"],
+  upgradeAction: ["upgrade-archctx-runtime"],
+  upgradeCommand: ["archctx daemon upgrade"],
+  ownershipAction: ["remove-whole-file-outputs-and-reapply"],
+  ledgerModeField: ["rolloutMode","readMode","writeMode"],
   depsField: ["from", "into", "importNodeLimit", "edgeLimit"],
   depsIssue: ["unknown-node", "invalid-limit", "missing-value"],
   snapshotField: ["repositoryId", "workspaceId", "headSha", "worktreeDigest"],
@@ -290,6 +402,12 @@ const localEnums: Readonly<Record<string, readonly string[]>> = {
 function localFactValue(rule: string, value: unknown): Json {
   if (rule === "commandSuggestion" && (value === null || (typeof value === "string" && bytes(value) <= 1024 && /^archctx (recommendations |refactor verify )[^\r\n]*$/.test(value)))) return value;
   if (rule === "publicConfirmationToken" && typeof value === "string" && bytes(value) <= 1024 && /^public:github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+:[a-f0-9]{40}:[A-Za-z0-9_.:-]+$/.test(value)) return value;
+  if (rule === "diagnosticPaths" || rule === "diagnosticCommands") {
+    if (!Array.isArray(value)) throw new Error("Diagnostics must be an own list");
+    const length=Object.getOwnPropertyDescriptor(value,"length")?.value;
+    if (!Number.isSafeInteger(length) || length > (rule === "diagnosticPaths" ? 8 : 2) || Reflect.ownKeys(value).length!==length+1) throw new Error("Diagnostics exceed their closed budget");
+    return Array.from({length},(_,index)=>{const field=Object.getOwnPropertyDescriptor(value,String(index));if(!field || !("value" in field) || typeof field.value!=="string" || bytes(field.value)>(rule === "diagnosticPaths" ? 256 : 1024)) throw new Error("Invalid diagnostic");return field.value;});
+  }
   if (rule === "boolean" && typeof value === "boolean") return value;
   if (rule === "uint" && finiteNonnegative(value) && Number.isSafeInteger(value)) return value;
   if (rule === "changedFields") {
@@ -302,6 +420,7 @@ function localFactValue(rule: string, value: unknown): Json {
       return field.value;
     });
   }
+  if (rule === "rpcVersion" && typeof value === "string" && bytes(value) <= 256 && (value === "unknown" || /^archcontext\.runtime-rpc\/v[0-9]+$/.test(value))) return value;
   if (typeof value === "string" && bytes(value) <= 256) {
     if (rule === "id" && value.length > 0) return value;
     if (rule === "sha256" && /^sha256:[a-f0-9]{64}$/.test(value)) return value;
@@ -548,12 +667,16 @@ export function knownFailure<C extends FailureCode>(code: C, reasonCode: string,
   if (!actions.has(action) || !["notice", "warning", "error", "critical"].includes(severity) || typeof retryable !== "boolean") throw new Error("Invalid failure attributes");
   if ((code === "RPC_TIMEOUT" || code === "RPC_ABORTED") && retryable) throw new Error("Transport failures cannot request automatic retry");
   if (code === "AC_UNCLASSIFIED_FAILURE" && (action !== "inspect-diagnostics" || severity !== "error" || retryable)) throw new Error("Unclassified failure attributes are fixed");
+  if (policy.journalRecovery) {
+    if (action !== catalog.action || severity !== catalog.severity || retryable !== catalog.retryable) throw new Error("Recovery attributes are fixed");
+    return {code, message:policy.message, severity, retryable, action, reasonCode, details:changeSetRecoveryDetailsSnapshot(details)};
+  }
   if (policy.recovery) {
     if (action !== catalog.action || severity !== catalog.severity || retryable !== catalog.retryable) throw new Error("Committed recovery attributes are fixed");
     return { code, message: policy.message, severity, retryable, action, reasonCode, details: projectionRecoveryDetailsSnapshot(reasonCode, details) };
   }
   const safeDetails = detailsFor(policy, details);
-  const extendedFacts = Object.values(policy.facts ?? {}).some(rule => rule === "publicConfirmationToken" || rule === "commandSuggestion");
+  const extendedFacts = Object.values(policy.facts ?? {}).some(rule => rule === "publicConfirmationToken" || rule === "commandSuggestion" || rule === "diagnosticCommands");
   if (budgetIssues(safeDetails, 0, extendedFacts ? 1024 : 256).length || bytes(JSON.stringify(safeDetails)) > 8192 || bytes(policy.message) > 1024) throw new Error("Failure metadata exceeds its UTF-8 budget");
   return { code, message: policy.message, severity, retryable, action, reasonCode, details: safeDetails };
 }
@@ -576,7 +699,7 @@ export function failureEnvelope<C extends FailureCode>(requestId: string, failur
   // Revalidate/copy even typed metadata so caller mutation cannot bypass the closed contract.
   if (typeof requestId !== "string" || bytes(requestId) > 256) throw new Error("Failure surface identity exceeds budget");
   const result: FailureEnvelope<C> = { schemaVersion: "archcontext.envelope/v1", ok: false, requestId, error: failureFromData<C>(failure) };
-  if (!FAILURE_POLICIES[result.error.reasonCode]?.recovery && (bytes(JSON.stringify(result)) > 8192 || bytes(JSON.stringify(result, null, 2) + "\n") > 8192)) throw new Error("Failure envelope exceeds budget");
+  if (!FAILURE_POLICIES[result.error.reasonCode]?.recovery && !FAILURE_POLICIES[result.error.reasonCode]?.journalRecovery && (bytes(JSON.stringify(result)) > 8192 || bytes(JSON.stringify(result, null, 2) + "\n") > 8192)) throw new Error("Failure envelope exceeds budget");
   return result;
 }
 /** Public value readers retain their success signature and throw this typed failure. */
@@ -644,9 +767,9 @@ export function failureIssues(value: unknown): string[] {
     if ((prototype !== Object.prototype && prototype !== null) || keys.length !== fields.length || Object.keys(value).length !== fields.length || keys.some(key => typeof key !== "string" || !fields.includes(key))) return ["failure must match its closed registered contract"];
     const data = Object.fromEntries(fields.map(key => [key, ownData(value, key)]));
     const policy = typeof data.reasonCode === "string" ? policies[data.reasonCode] : undefined;
-    const extendedFacts = policy !== undefined && policy.code === data.code && Object.values(policy.facts ?? {}).some(rule => rule === "publicConfirmationToken" || rule === "commandSuggestion");
-    data.details = policy?.recovery && policy.code === data.code ? projectionRecoveryDetailsSnapshot(data.reasonCode as string, data.details) : jsonDataSnapshot(data.details, 0, extendedFacts ? 1024 : 256);
-    if (typeof data.message !== "string" || bytes(data.message) > 1024 || bytes(JSON.stringify(data.details)) > (policy?.recovery ? PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES : 8192)) return ["failure exceeds byte/shape budget"];
+    const extendedFacts = policy !== undefined && policy.code === data.code && Object.values(policy.facts ?? {}).some(rule => rule === "publicConfirmationToken" || rule === "commandSuggestion" || rule === "diagnosticCommands");
+    data.details = policy?.journalRecovery && policy.code === data.code ? changeSetRecoveryDetailsSnapshot(data.details) : policy?.recovery && policy.code === data.code ? projectionRecoveryDetailsSnapshot(data.reasonCode as string, data.details) : jsonDataSnapshot(data.details, 0, extendedFacts ? 1024 : 256);
+    if (typeof data.message !== "string" || bytes(data.message) > 1024 || bytes(JSON.stringify(data.details)) > (policy?.recovery || policy?.journalRecovery ? PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES : 8192)) return ["failure exceeds byte/shape budget"];
     const expected = failureFromData(data);
     return canonicalize(data as Json) === canonicalize(expected as unknown as Json) ? [] : ["failure must match its closed registered contract"];
   } catch { return ["failure violates its registered contract or budget"]; }

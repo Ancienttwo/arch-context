@@ -123,7 +123,7 @@ describe("developer review run lifecycle", () => {
       expect(JSON.stringify(bundle)).not.toContain("Digest App");
 
       writeFileSync(join(worktree!.worktreeRoot, "README.md"), "# dirty detached worktree\n", "utf8");
-      await expect(daemon.computeDeveloperReviewDigestBundle({ challenge, worktree: worktree! })).rejects.toThrow("WORKTREE_NOT_CLEAN");
+      await expect(daemon.computeDeveloperReviewDigestBundle({ challenge, worktree: worktree! })).rejects.toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"developer-review-worktree-invalid",details:{refusal:"WORKTREE_NOT_CLEAN"}});
     } finally {
       if (worktree) removeDetachedReviewWorktree(worktree);
       await daemon?.stop().catch(() => undefined);
@@ -253,7 +253,7 @@ describe("developer review run lifecycle", () => {
           worktree: run.worktree,
           taskSessionId: "task_developer_review_failure_cleanup"
         });
-      })).rejects.toThrow("WORKTREE_NOT_CLEAN");
+      })).rejects.toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"developer-review-worktree-invalid",details:{refusal:"WORKTREE_NOT_CLEAN"}});
 
       for (const path of Object.values(failurePaths)) expect(existsSync(path)).toBe(false);
     } finally {
@@ -489,7 +489,7 @@ describe("developer review run lifecycle", () => {
       expect(recovered.status).toBe(200);
       expect(recovered.body.ok).toBe(false);
       expect(recovered.body.error.code).toBe("AC_SCHEMA_INVALID");
-      expect(String(recovered.body.error.message)).toContain("runtime-rpc-input-invalid");
+      expect(recovered.body.error.reasonCode).toBe("rpc-input-invalid");
       expect(existsSync(join(outside, "stale.json"))).toBe(true);
       expect(existsSync(join(outside, "stale.lock"))).toBe(true);
 
@@ -497,7 +497,7 @@ describe("developer review run lifecycle", () => {
       expect(started.status).toBe(200);
       expect(started.body.ok).toBe(false);
       expect(started.body.error.code).toBe("AC_SCHEMA_INVALID");
-      expect(String(started.body.error.message)).toContain("runtime-rpc-input-invalid");
+      expect(started.body.error.reasonCode).toBe("rpc-input-invalid");
 
       const malformed = await rpcCall("cleanupDeveloperReviewRun", [{
         schemaVersion: "archcontext.developer-review-run/v1",
@@ -507,7 +507,7 @@ describe("developer review run lifecycle", () => {
       expect(malformed.status).toBe(200);
       expect(malformed.body.ok).toBe(false);
       expect(malformed.body.error.code).toBe("AC_SCHEMA_INVALID");
-      expect(String(malformed.body.error.message)).toContain("runtime-rpc-input-invalid");
+      expect(malformed.body.error.reasonCode).toBe("rpc-input-invalid");
 
       const wrongChallengeShape = await rpcCall("startDeveloperReviewRun", [{
         repositoryRoot: root,
@@ -516,7 +516,7 @@ describe("developer review run lifecycle", () => {
       expect(wrongChallengeShape.status).toBe(200);
       expect(wrongChallengeShape.body.ok).toBe(false);
       expect(wrongChallengeShape.body.error.code).toBe("AC_SCHEMA_INVALID");
-      expect(String(wrongChallengeShape.body.error.message)).toContain("runtime-rpc-input-invalid");
+      expect(wrongChallengeShape.body.error.reasonCode).toBe("rpc-input-invalid");
     } finally {
       await rpc.stop().catch(() => undefined);
       rmSync(outside, { recursive: true, force: true });
@@ -617,7 +617,7 @@ describe("developer review run lifecycle", () => {
         principalId: "device_1",
         publicKeyId: "key_device_1",
         signature: { algorithm: "ed25519", value: "forged" }
-      } as any)).rejects.toThrow("developer-review-attestation-caller-provided-attestation-field-forbidden: signature");
+      } as any)).rejects.toMatchObject({code:"AC_SCHEMA_INVALID",reasonCode:"developer-review-attestation-input-invalid",details:{issueCount:1}});
     } finally {
       if (worktree) removeDetachedReviewWorktree(worktree);
       await daemon?.stop().catch(() => undefined);

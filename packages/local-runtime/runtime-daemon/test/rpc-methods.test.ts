@@ -108,7 +108,7 @@ describe("RPC method table wire contract", () => {
       const body = await response.json() as any;
       expect(body.ok).toBe(false);
       expect(body.error.code).toBe("AC_SCHEMA_INVALID");
-      expect(body.error.message).toBe(`Unknown runtime RPC method: ${method}`);
+      expect(body.error).toMatchObject({reasonCode:"rpc-method-invalid",action:"upgrade-client"});
     }
     expect(calls.length).toBe(count);
   });
@@ -118,7 +118,7 @@ describe("RPC method table wire contract", () => {
     target.startDeveloperReviewRun = () => { throw new Error("fixture.raw-failure"); };
     try {
       const sample = baseline.cases.find(entry => entry.method === "startDeveloperReviewRun")!;
-      await expect(Reflect.apply(client.startDeveloperReviewRun, client, sample.args)).rejects.toThrow("runtime-rpc-call-failed");
+      await expect(Reflect.apply(client.startDeveloperReviewRun, client, sample.args)).rejects.toMatchObject({code:"AC_UNCLASSIFIED_FAILURE",reasonCode:"failure-unclassified"});
     } finally {
       target.startDeveloperReviewRun = previous;
     }

@@ -9,7 +9,7 @@ import { projectionPreimageFindings, type ChangeOperation, type ChangeSetDraft, 
 import { architectureLedgerStateDigest, planChangeSetApplyToArchitectureLedgerEvent, type ArchitectureLedgerAppendInput, type ArchitectureLedgerAppendResult, type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { loadPracticeWaiverOwnerRegistry, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { ProjectionPreconditionError, architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
-import { baseModelBlockingErrors, digestJson, errorEnvelope, okEnvelope, type ArchitectureEventV1, type Json, type JsonEnvelope, type ModelStorePort, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
+import { baseModelBlockingErrors, digestJson, okEnvelope, type ArchitectureEventV1, type Json, type JsonEnvelope, type ModelStorePort, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
 import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import { AcceptCommittedChangeInputError, acceptedChangeFromEventV2, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, resolveAcceptanceHeadSha, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
@@ -155,6 +155,7 @@ export class ChangeSetAuthorityService {
   }
 
   async planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> {
+    try {
     this.assertRunning();
     const session = await this.openSession(root);
     const model = await this.readModelStore.validateModel(session.workspace);
@@ -162,7 +163,7 @@ export class ChangeSetAuthorityService {
     try {
       ownerRegistry = loadPracticeWaiverOwnerRegistry(session.workspace.root);
     } catch (error) {
-      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      return publicFailureEnvelope("practices.waive", "AC_SCHEMA_INVALID", "waiver-owner-registry-invalid");
     }
     const waiver: PracticeWaiverV1 = {
       schemaVersion: "archcontext.practice-waiver/v1",
@@ -184,7 +185,7 @@ export class ChangeSetAuthorityService {
       validatePracticeWaiver(waiver, "practice waiver input", { allowedOwners: ownerRegistry.owners });
       waiverId = safePracticeWaiverId(input.waiverId, waiver);
     } catch (error) {
-      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      return publicFailureEnvelope("practices.waive", "AC_SCHEMA_INVALID", "waiver-input-invalid");
     }
     const path = `.archcontext/waivers/${waiverId}.json`;
     const absolute = resolve(session.workspace.root, path);
@@ -212,6 +213,7 @@ export class ChangeSetAuthorityService {
       draft,
       preview: this.changeSetEngine.preview(session.workspace.root, draft)
     } as unknown as Json);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async planUpdate(root: string, rawInput: RuntimePlanUpdateInput): Promise<JsonEnvelope> {
@@ -269,17 +271,19 @@ export class ChangeSetAuthorityService {
    * snapshot: it takes a receipt-bound recovery intent and re-proves the current fixed point.
    */
   async mcpProjection(root: string, input: RuntimeProjectionInvocation, approved: boolean): Promise<JsonEnvelope> {
+    try {
     this.assertRunning();
     try { validateProjectionInvocation(input); }
-    catch (error) { return errorEnvelope("projection", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)); }
+    catch (error) { return publicFailureEnvelope("projection", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
     if (projectionInvocationWrites(input)) {
       if (approved !== true) {
-        return errorEnvelope("projection", "AC_USER_CONFIRMATION_REQUIRED", "Review the projection request, then call again with approved: true");
+        return publicFailureEnvelope("projection", "AC_USER_CONFIRMATION_REQUIRED", "projection-approval-required");
       }
       try { assertProjectionInvocationSnapshot(root, input); }
-      catch (error) { return errorEnvelope("projection", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error)); }
+      catch (error) { return publicOperationErrorEnvelope("projection", error); }
     }
-    return this.projection(root, input);
+    return await this.projection(root, input);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   /**
@@ -288,24 +292,26 @@ export class ChangeSetAuthorityService {
    * operation's expected hash checked by the engine immediately before it writes.
    */
   async applyUpdate(root: string, rawInput: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
+    try {
     this.assertRunning();
     let input: RuntimeApplyUpdateInput;
     try {
       input = decodeRuntimeApplyUpdateInput(rawInput);
     } catch (error) {
       if (error instanceof RuntimeUpdateInputError) {
-        return errorEnvelope("apply_update", "AC_SCHEMA_INVALID", error.message);
+        return publicFailureEnvelope("apply_update", "AC_SCHEMA_INVALID", "apply-input-invalid");
       }
       throw error;
     }
     if (!input.approved) {
-      return errorEnvelope("apply_update", "AC_USER_CONFIRMATION_REQUIRED", "Review the ChangeSet preview, then apply explicitly with approved: true (CLI: --approved)");
+      return publicFailureEnvelope("apply_update", "AC_USER_CONFIRMATION_REQUIRED", "apply-approval-required");
     }
     const plannedRoot = this.changeSetRoots.get(input.id);
     if (plannedRoot !== undefined && plannedRoot !== canonicalRepositoryRoot(root)) {
-      return errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", "ChangeSet was planned for a different repository");
+      return publicFailureEnvelope("apply_update", "AC_PRECONDITION_FAILED", "apply-repository-mismatch");
     }
-    return this.applyAuthorizedUpdate(root, input);
+    return await this.applyAuthorizedUpdate(root, input);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   private async applyAuthorizedUpdate(root: string, rawInput: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
@@ -315,28 +321,28 @@ export class ChangeSetAuthorityService {
       input = decodeRuntimeApplyUpdateInput(rawInput);
     } catch (error) {
       if (error instanceof RuntimeUpdateInputError) {
-        return errorEnvelope("apply_update", "AC_SCHEMA_INVALID", error.message);
+        return publicFailureEnvelope("apply_update", "AC_SCHEMA_INVALID", "apply-input-invalid");
       }
       throw error;
     }
     return this.withWriter(async () => {
       const draft = this.changesets.get(input.id);
-      if (!draft) throw new Error(`Unknown ChangeSet: ${input.id}`);
+      if (!draft) throw new FailureError("AC_PRECONDITION_FAILED", "apply-draft-missing", {changeSetId: input.id});
       const plannedProfile = this.changeSetWorktreeDigestProfiles.get(input.id);
-      if (!plannedProfile) throw new Error("ChangeSet worktree digest profile missing before apply");
+      if (!plannedProfile) throw new FailureError("AC_PRECONDITION_FAILED", "apply-profile-missing");
       const requestedProfile = input.worktreeDigestProfile ?? "repository";
-      if (requestedProfile !== plannedProfile) throw new Error("ChangeSet worktree digest profile changed before apply");
+      if (requestedProfile !== plannedProfile) throw new FailureError("AC_PRECONDITION_FAILED", "apply-profile-changed");
       const current = runtimeWorktreeDigest(root, plannedProfile);
-      if (current !== input.expectedWorktreeDigest) throw new Error("Worktree digest changed before apply");
+      if (current !== input.expectedWorktreeDigest) throw new FailureError("AC_PRECONDITION_FAILED", "apply-worktree-changed", {expectedWorktreeDigest: input.expectedWorktreeDigest, actualWorktreeDigest: current});
       const session = await this.openSession(root);
-      if (draft.base.headSha !== session.workspace.headSha) throw new Error("ChangeSet HEAD changed before apply");
-      if (draft.base.worktreeDigest !== current) throw new Error("ChangeSet worktree digest changed before apply");
+      if (draft.base.headSha !== session.workspace.headSha) throw new FailureError("AC_PRECONDITION_FAILED", "apply-head-changed", {expectedHeadSha: draft.base.headSha, actualHeadSha: session.workspace.headSha});
+      if (draft.base.worktreeDigest !== current) throw new FailureError("AC_PRECONDITION_FAILED", "apply-worktree-changed", {expectedWorktreeDigest: draft.base.worktreeDigest, actualWorktreeDigest: current});
       const currentModel = await this.readModelStore.validateModel(session.workspace);
       const baseErrors = baseModelBlockingErrors(currentModel);
       if (baseErrors.length > 0) {
-        throw new Error(`ChangeSet base model is invalid: ${baseErrors.join("; ")}`);
+        throw new FailureError("AC_PRECONDITION_FAILED", "apply-model-invalid", {issueCount: baseErrors.length});
       }
-      if (draft.base.modelDigest !== currentModel.modelDigest) throw new Error("ChangeSet model digest changed before apply");
+      if (draft.base.modelDigest !== currentModel.modelDigest) throw new FailureError("AC_PRECONDITION_FAILED", "apply-model-changed", {expectedModelDigest: draft.base.modelDigest, actualModelDigest: currentModel.modelDigest});
       const committedReceipt = input.projectionApplyReceipt
         ? await this.localStore.inspectProjectionApplyReceipt(input.projectionApplyReceipt.identity.lookupKey)
         : undefined;
@@ -353,7 +359,7 @@ export class ChangeSetAuthorityService {
       // A projection body edited after the render read it fails here, under the writer lock and
       // before any file is written, rather than being overwritten by a body rendered without it.
       const stalePreimages = projectionPreimageFindings(root, draft);
-      if (stalePreimages.length > 0) return errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", stalePreimages.join("; "));
+      if (stalePreimages.length > 0) return publicFailureEnvelope("apply_update", "AC_PRECONDITION_FAILED", "apply-preimage-changed", {issueCount: stalePreimages.length});
       const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
       const transitionBase = captureModelTransitionBase(root, approved);
       let ledgerAppend: Json | undefined;
@@ -518,11 +524,11 @@ export class ChangeSetAuthorityService {
         if (!input.approved) {
           return okEnvelope("ledger.accept-committed", { status: "preview", plan: acceptance.plan, acceptancePlanId: acceptance.acceptancePlanId, expectedWorktreeDigest: worktreeDigest } as unknown as Json);
         }
-        if (input.expectedWorktreeDigest !== worktreeDigest) throw new Error("accepted ChangeSet expected worktree digest mismatch");
-        if (input.acceptancePlanId !== acceptance.acceptancePlanId) throw new Error("accepted ChangeSet acceptance plan changed since preview");
+        if (input.expectedWorktreeDigest !== worktreeDigest) throw new FailureError("AC_PRECONDITION_FAILED", "accept-committed-worktree-changed", {expectedWorktreeDigest: input.expectedWorktreeDigest, actualWorktreeDigest: worktreeDigest});
+        if (input.acceptancePlanId !== acceptance.acceptancePlanId) throw new FailureError("AC_PRECONDITION_FAILED", "accept-committed-plan-changed", {expectedPlanDigest: input.acceptancePlanId, actualPlanDigest: acceptance.acceptancePlanId});
         const accepted = (event: ArchitectureEventV1, replayed: boolean) => {
           const recorded = acceptedChangeFromEventV2(event);
-          if (!recorded || !event.eventHash) throw new Error("committed ChangeSet acceptance readback failed");
+          if (!recorded || !event.eventHash) throw new FailureError("AC_PRECONDITION_FAILED", "accept-committed-readback-failed");
           return okEnvelope("ledger.accept-committed", {
             status: "accepted", replayed, acceptedChange: recorded.acceptedChange, acceptancePlanId: recorded.acceptancePlanId,
             journalIds: input.journals.map((journal) => journal.journalId), eventHash: event.eventHash, fileSetDigest: acceptance.plan.fileSetDigest
@@ -532,20 +538,19 @@ export class ChangeSetAuthorityService {
         if (existing) {
           // A retry of the same approved plan (for example after a crash past the append) gets the recorded tuple back.
           if (acceptedChangeFromEventV2(existing)?.acceptancePlanId === acceptance.acceptancePlanId) return accepted(existing, true);
-          throw new Error(`committed ChangeSet already has a different acceptance event at this snapshot: ${existing.eventId}`);
+          throw new FailureError("AC_PRECONDITION_FAILED", "accept-committed-event-conflict");
         }
         const ledgerGraphDigest = architectureLedgerStateDigest(await this.localStore.readArchitectureLedgerState(scope));
         const event = acceptedCommittedChangeEventV2({ acceptance, scope, ledgerGraphDigest, timestamp: this.clock() });
         const appended = await this.appendArchitectureEventsWithFeed(canonicalRoot, { writer: "runtime-daemon", events: [event] });
-        if (appended.appendedEvents.length !== 1) throw new Error("committed ChangeSet acceptance event was not appended");
+        if (appended.appendedEvents.length !== 1) throw new FailureError("AC_PRECONDITION_FAILED", "accept-committed-append-failed");
         const readback = await this.localStore.readArchitectureEvent({ ...scope, eventId: event.eventId });
         if (!readback || readback.eventType !== event.eventType || readback.payloadVersion !== event.payloadVersion) {
-          throw new Error("committed ChangeSet acceptance readback failed");
+          throw new FailureError("AC_PRECONDITION_FAILED", "accept-committed-readback-failed");
         }
         return accepted(readback, false);
       } catch (error) {
-        const reasonCode = error instanceof ProjectionPreconditionError ? error.reasonCode : undefined;
-        return errorEnvelope("ledger.accept-committed", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error), reasonCode);
+        return publicOperationErrorEnvelope("ledger.accept-committed", error);
       }
     });
   }

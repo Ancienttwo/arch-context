@@ -181,7 +181,7 @@ export class RecommendationsService {
         try {
           this.context.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, `recommendations ${command}`);
         } catch (error) {
-          return errorEnvelope(`recommendations.${command}`, "AC_REFACTOR_STALE", error instanceof Error ? error.message : String(error));
+          return publicOperationErrorEnvelope(`recommendations.${command}`, error);
         }
       }
       const now = input.now ?? this.context.clock();
@@ -900,7 +900,7 @@ export class RecommendationsService {
       try {
         this.context.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, "refactor record");
       } catch (error) {
-        return errorEnvelope("refactor.record", "AC_REFACTOR_STALE", error instanceof Error ? error.message : String(error));
+        return publicOperationErrorEnvelope("refactor.record", error);
       }
       // Same authority as `assertFreshWorktree` above: the measurement must belong to the tree
       // that is here now, not to whatever identity the last stored event happens to carry.
@@ -1030,7 +1030,7 @@ export class RecommendationsService {
         try {
           this.context.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, "refactor verify");
         } catch (error) {
-          return errorEnvelope("refactor.verify", "AC_REFACTOR_STALE", error instanceof Error ? error.message : String(error));
+          return publicOperationErrorEnvelope("refactor.verify", error);
         }
       }
       const gitScope = await this.context.architectureLedgerGitScope(repositoryRoot);

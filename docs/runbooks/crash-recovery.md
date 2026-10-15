@@ -62,3 +62,25 @@ existing recovery contract. A failed proof requires operator investigation of th
 snapshot/outputs; the manual-only error does not authorize reconstruction or automatic replay.
 The existing RPC request-body limit remains 16 MiB. A legacy request beyond that transport limit
 cannot be proved by this wire flow; never truncate a request, identity or approval binding to fit.
+
+
+## Unresolved journals and a manifest rollback conflict
+
+`changeset-recovery-unresolved` keeps each original journalId, changeSetId, root and reason.
+If `authorityReadbackRequired` is true, read the complete list through the existing authenticated
+`runtimeStatus` RPC or `/health` and compare its count and `digestJson(unresolvedJournals)` with
+`journalCount` and `authorityDigest`. The failure is not a partial list or an authorization to
+reconstruct/truncate recovery bindings. Repair the original cause before restarting to retry.
+
+`changeset-rollback-conflict` means another writer replaced a projection manifest after this
+ChangeSet published it, and rollback could not safely restore all files. Existing conflicting bytes,
+including raised engine floors, are preserved; the original backup and pending journal are kept.
+Other safely reversible files are restored. Do not report this outcome as a complete rollback or
+retry the write as if it were uncommitted and harmless. Inspect the original journal and backup.
+Startup recovery refuses the same conflicting existing bytes, including a first-created manifest.
+
+A missing destination has no external bytes to protect, so existing recovery may restore its
+complete backup. The current journal cannot distinguish a crash before publication from an
+external deletion after publication; absence follows that existing recovery rule. No new persistent
+publication state or automatic reconstruction is introduced. A non-regular/unreadable replacement
+or non-UTF8 bytes cannot be mistaken for a missing or matching manifest.
