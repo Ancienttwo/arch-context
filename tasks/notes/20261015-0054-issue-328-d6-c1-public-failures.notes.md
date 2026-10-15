@@ -66,3 +66,13 @@ the allowed inventory. The held lifecycle/writer methods and legacy shared proje
 were checked byte-for-byte against accepted main. Final delivery is an ordinary commit and push
 plus Draft PR; provider readback supplies the final HEAD and hosted CI state. No merge/release or
 #328 closure is authorized.
+
+## Draft delivery
+
+Draft PR: https://github.com/Ancienttwo/arch-context/pull/359
+Branch: `codex/issue-328-d6-c1-public-failures`.
+Product/test commit: `de2ec7b74651be867eb3bbea7b06d2a0e177fc14`.
+Base: `31bbc3bbd5714a84776ec1c419c44e2d5db79603`.
+A documentation-only follow-up records this delivery; the final provider readback is authoritative
+for the branch HEAD and hosted check state. Source/test hashes remain those of the reviewed run.
+The Draft PR is attached to this delegated task. Coordinator owns hosted acceptance and merging.

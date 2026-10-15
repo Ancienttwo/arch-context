@@ -1,6 +1,6 @@
 # Plan: #328 D6-C1 local public failures
 
-> **Status**: Reviewed; preparing Draft PR
+> **Status**: Draft PR handed off; hosted acceptance pending
 > **Owner**: delegated Codex sole C1 writer
 > **Base**: 31bbc3bbd5714a84776ec1c419c44e2d5db79603
 > **Task Contract**: tasks/contracts/20261015-0054-issue-328-d6-c1-public-failures.contract.md
@@ -42,4 +42,4 @@ and policy changes only; no data migration, merge, release or issue closure is a
 - [x] Reproduce meaningful regression witnesses on unchanged product code.
 - [x] Implement C1 local producer/public-boundary failures; record C2 stopped paths.
 - [x] Run affected checks and independent review; fix confirmed in-scope findings.
-- [ ] Commit, ordinary push, Draft PR and full HEAD/base/CI handoff.
+- [x] Commit, ordinary push and Draft PR #359; final provider HEAD/base/CI readback accompanies the coordinator handoff.
