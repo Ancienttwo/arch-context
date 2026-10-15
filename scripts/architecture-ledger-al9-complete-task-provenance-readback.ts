@@ -20,23 +20,23 @@ import {
   renderArchitectureDocumentationProjection,
   type ArchitectureDocumentationProjectionPlan
 } from "@archcontext/core/projection-engine";
-import { CodeGraphAdapter, loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
+import { CodeGraphAdapter, loadCapabilityCodeGraphProjectionInputs, packagedCodeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
-import { digestJson, type AgentJobV1, type InvestigationReportV1, type Json } from "@archcontext/contracts";
+import { digestJson, stableYaml, type AgentJobV1, type InvestigationReportV1, type Json } from "@archcontext/contracts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const DEFAULT_OUT = "docs/verification/architecture-ledger-al9-complete-task-provenance-readback.json";
 const DEFAULT_REPORT = "docs/verification/architecture-ledger-al9-complete-task-provenance.md";
 
-function projectionReadbackProvenance(sourceDigest: string) {
+function projectionReadbackProvenance(sourceDigest: string, modelDigest: string) {
   return architectureDocumentationProjectionProvenance({
     sourceTreeDigest: sourceDigest,
-    modelDigest: sourceDigest,
+    modelDigest,
     rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
+    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
   });
 }
 
@@ -125,12 +125,42 @@ async function runCompleteTaskProjectionGateReadback() {
       clock: () => "2026-06-26T10:50:00.000Z"
     });
     const init = await daemon.init(root, "Complete Task Projection Gate");
-    execFileSync("mkdir", ["-p", resolve(root, "docs/architecture")]);
-    writeFileSync(resolve(root, "docs/architecture/.projection-manifest.json"), "{}\n", "utf8");
+    // Give every fixture file a real owner through the daemon's normal ChangeSet boundary.
+    const nodePath = ".archcontext/model/nodes/capability.architecture.context.yaml";
+    const node = loadArchitectureDocumentationInputs(root).model.nodes.find((entry) => entry.id === "capability.architecture.context")!;
+    const ownershipId = "changeset.al9-fixture-ownership";
+    const ownershipPlan = await daemon.planUpdate(root, {
+      id: ownershipId,
+      operations: [{
+        op: "update_entity_fields", path: nodePath,
+        expectedHash: digestJson({ body: readFileSync(resolve(root, nodePath), "utf8") }),
+        body: stableYaml({ ...node, source: { include: [".archcontext/**", "docs/**", ".codegraph/**", "README.md"] } } as unknown as Json)
+      }]
+    });
+    if (!ownershipPlan.ok) throw new Error(`AL9 fixture ownership plan refused: ${JSON.stringify(ownershipPlan.error)}`);
+    const ownershipApplied = await daemon.applyUpdate(root, {
+      id: ownershipId, approved: true,
+      expectedWorktreeDigest: (ownershipPlan.data as any).draft.base.worktreeDigest
+    });
+    if (!ownershipApplied.ok) throw new Error(`AL9 fixture ownership apply refused: ${JSON.stringify(ownershipApplied.error)}`);
+    const codeGraph = packagedCodeGraphCliInvocation();
+    execFileSync(codeGraph.command, [...codeGraph.argsPrefix, "init", root], {
+      cwd: root, stdio: ["ignore", "pipe", "pipe"]
+    });
+    // Complete-task now refuses missing code facts and invalid manifests before drift review.
+    // Exercise actual generated-region drift with a valid current manifest instead.
+    writeArchitectureDocsProjection(root);
+    // Keep the complete-task probe about projection drift, with no unrelated unowned additions.
+    execFileSync("git", ["add", "-A"], { cwd: root });
+    execFileSync("git", ["commit", "-m", "accepted projection baseline"], { cwd: root, stdio: "ignore" });
+    const indexPath = resolve(root, "docs/architecture/index.md");
+    const acceptedIndex = readFileSync(indexPath, "utf8");
+    writeFileSync(indexPath, acceptedIndex.replace("Architecture Context", "Manual Generated Region Edit"), "utf8");
     const driftedComplete = await daemon.completeTask(root, {
       taskSessionId: "task_al9_projection",
       task: "complete with stale docs projection"
     });
+    writeFileSync(indexPath, acceptedIndex, "utf8");
     writeArchitectureDocsProjection(root);
     const postApplyDriftOk = docsProjectionDriftOk(root);
     const cleanComplete = await daemon.completeTask(root, {
@@ -171,7 +201,7 @@ function writeArchitectureDocsProjection(root: string): void {
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest,
-    provenance: projectionReadbackProvenance(sourceDigest)
+    provenance: projectionReadbackProvenance(sourceDigest, digestJson(loaded.model as unknown as Json))
   });
   // The manifest is the renderer's own output, not a shape re-derived here: a local copy silently
   // falls behind whenever the manifest gains a field (it did — per-target stamps), and
@@ -199,7 +229,10 @@ function docsProjectionDriftOk(root: string): boolean {
       model: loaded.model,
       decisions: loaded.decisions
     }),
-    provenance: projectionReadbackProvenance(architectureDocumentationSourceDigest({ model: loaded.model, decisions: loaded.decisions }))
+    provenance: projectionReadbackProvenance(
+      architectureDocumentationSourceDigest({ model: loaded.model, decisions: loaded.decisions }),
+      digestJson(loaded.model as unknown as Json)
+    )
   });
   return plan.drift.ok && plan.rejected.length === 0;
 }

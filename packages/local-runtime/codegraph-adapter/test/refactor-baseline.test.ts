@@ -239,13 +239,13 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const argv = process.argv.slice(2);
 const marker = join(process.cwd(), ".rf0-synced");
-if (argv[0] === "--version") { process.stdout.write("1.6.1\\n"); process.exit(0); }
+if (argv[0] === "--version") { process.stdout.write("1.6.2\\n"); process.exit(0); }
 if (argv[0] === "sync") { writeFileSync(marker, "ok"); process.exit(0); }
 if (argv[0] === "status") {
   const clean = existsSync(marker);
   process.stdout.write(JSON.stringify({
     initialized: true,
-    version: "1.6.1",
+    version: "1.6.2",
     projectPath: process.cwd(),
     lastIndexed: clean ? "2026-08-08T09:00:00.000Z" : "2026-08-08T08:00:00.000Z",
     fileCount: 2,
@@ -255,7 +255,7 @@ if (argv[0] === "status") {
     languages: ["typescript"],
     pendingChanges: { added: 0, modified: clean ? 0 : 1, removed: 0 },
     worktreeMismatch: null,
-    index: { builtWithVersion: "1.6.1", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
+    index: { builtWithVersion: "1.6.2", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
   }));
   process.exit(0);
 }

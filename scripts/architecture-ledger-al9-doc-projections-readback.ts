@@ -18,7 +18,7 @@ import {
   loadCapabilitySourceScaleSignals,
   renderArchitectureDocumentationProjection
 } from "@archcontext/surfaces/renderer";
-import { loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
+import { disableCodeGraphTelemetryByDefault, loadCapabilityCodeGraphProjectionInputs, packagedCodeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -26,12 +26,12 @@ const DEFAULT_OUT = "docs/verification/architecture-ledger-al9-doc-projections-r
 const DEFAULT_REPORT = "docs/verification/architecture-ledger-al9-doc-projections.md";
 const CLI = resolve(REPO_ROOT, "packages/surfaces/cli/src/main.ts");
 
-function projectionReadbackProvenance(sourceDigest: string) {
+function projectionReadbackProvenance(sourceDigest: string, modelDigest: string) {
   return architectureDocumentationProjectionProvenance({
     sourceTreeDigest: sourceDigest,
-    modelDigest: sourceDigest,
+    modelDigest,
     rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.1" }
+    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
   });
 }
 
@@ -106,8 +106,10 @@ export function inspectArchitectureLedgerAl9DocProjectionsReadback(packet: any) 
 
 function currentRepoProjectionReadback() {
   const loaded = loadArchitectureDocumentationInputs(REPO_ROOT);
+  const projectionManifest = JSON.parse(readFileSync(resolve(REPO_ROOT, "docs/architecture/.projection-manifest.json"), "utf8"));
   const sourceDigest = projectionSourceDigest(loaded);
   const plan = renderArchitectureDocumentationProjection({
+    profile: projectionManifest.profile,
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
@@ -115,9 +117,8 @@ function currentRepoProjectionReadback() {
     sourceScaleSignals: loadCapabilitySourceScaleSignals(REPO_ROOT, loaded.model, listGitVisibleFiles(REPO_ROOT)),
     ...loadCapabilityCodeGraphProjectionInputs(REPO_ROOT, loaded.model),
     sourceDigest,
-    provenance: projectionReadbackProvenance(sourceDigest)
+    provenance: projectionReadbackProvenance(sourceDigest, digestJson(loaded.model as unknown as Json))
   });
-  const projectionManifest = JSON.parse(readFileSync(resolve(REPO_ROOT, "docs/architecture/.projection-manifest.json"), "utf8"));
   const targetManifest = JSON.parse(readFileSync(resolve(REPO_ROOT, ".archcontext/projections/targets.json"), "utf8"));
   const placementRuleScopes = (targetManifest.placementRules as any[]).map((rule) => {
     if (rule.scope?.kind === "entity") return `entity:${rule.scope.entityKind ?? "*"}`;
@@ -160,13 +161,22 @@ function runTempRepoProjectionReadback() {
     execFileSync("git", ["commit", "-m", "init"], { cwd: root, stdio: "ignore" });
 
     const env = { ...process.env, ARCHCONTEXT_STATE_DIR: state };
+    disableCodeGraphTelemetryByDefault(env);
     const init = runCli(root, env, ["init", "--name", "Docs Projection Test"]);
+    // A fresh fixture must satisfy the current code-facts precondition before docs plan/apply.
+    const codeGraph = packagedCodeGraphCliInvocation();
+    execFileSync(codeGraph.command, [...codeGraph.argsPrefix, "init", root], {
+      cwd: root, env, stdio: ["ignore", "pipe", "pipe"]
+    });
     execFileSync("mkdir", ["-p", resolve(root, "docs/architecture")]);
-    writeFileSync(resolve(root, "docs/architecture/index.md"), "# Architecture Index\n\nHuman note before generated region.\n", "utf8");
     const firstPlan = runCli(root, env, ["docs", "plan", "--id", "changeset.docs-projection-al9"]);
     const secondPlan = runCli(root, env, ["docs", "plan", "--id", "changeset.docs-projection-al9-replan"]);
     const beforeApplyDrift = runCli(root, env, ["docs", "drift"]);
     const apply = runCli(root, env, ["docs", "apply", "--approved", "--id", "changeset.docs-projection-al9"]);
+    // Add human prose only after the public apply establishes generated-region ownership.
+    const indexPath = resolve(root, "docs/architecture/index.md");
+    writeFileSync(indexPath, `Human note before generated region.\n\n${readFileSync(indexPath, "utf8")}`, "utf8");
+    const preserveHuman = runCli(root, env, ["docs", "apply", "--approved", "--id", "changeset.docs-projection-al9-preserve-human"]);
     const afterApplyDrift = runCli(root, env, ["docs", "drift"]);
     const index = readFileSync(resolve(root, "docs/architecture/index.md"), "utf8");
     const editedIndex = index.replace("Architecture Context", "Manual Generated Region Edit");
@@ -197,6 +207,7 @@ function runTempRepoProjectionReadback() {
         { command: "docs plan", ok: firstPlan.ok === true },
         { command: "docs plan (repeat)", ok: secondPlan.ok === true },
         { command: "docs apply", ok: apply.ok === true },
+        { command: "docs apply (preserve human)", ok: preserveHuman.ok === true },
         { command: "docs drift", ok: afterApplyDrift.ok === true },
         { command: "docs clean", ok: clean.ok === true }
       ],
@@ -225,7 +236,7 @@ function ambiguousOwnershipIsRejected(root: string): boolean {
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest: projectionSourceDigest(loaded),
-    provenance: projectionReadbackProvenance(projectionSourceDigest(loaded))
+    provenance: projectionReadbackProvenance(projectionSourceDigest(loaded), digestJson(loaded.model as unknown as Json))
   });
   return plan.rejected.some((diff) => diff.path === generatedDiagramPath && diff.reasonCode === "projection-ambiguous-ownership");
 }
