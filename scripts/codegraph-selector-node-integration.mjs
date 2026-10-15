@@ -102,13 +102,22 @@ try {
   const imported = await import(pathToFileURL(bundlePath).href);
   const adapter = imported.default ?? imported;
   const invocation = adapter.codeGraphCliInvocation("codegraph", fixtureRoot);
+  const cliEnv = {
+    ...process.env,
+    [adapter.CODEGRAPH_TELEMETRY_ENV]: adapter.CODEGRAPH_TELEMETRY_DISABLED_VALUE
+  };
+  const version = spawnSync(invocation.command, [...invocation.argsPrefix, "--version"], {
+    cwd: fixtureRoot, encoding: "utf8", env: cliEnv, stdio: ["ignore", "pipe", "pipe"]
+  });
+  assert.deepEqual(
+    { status: version.status, stdout: version.stdout?.trim(), stderr: version.stderr },
+    { status: 0, stdout: adapter.REQUIRED_CODEGRAPH_VERSION, stderr: "" },
+    "selector fixture must index with the exact installed CodeGraph version"
+  );
   const indexed = spawnSync(invocation.command, [...invocation.argsPrefix, "init", fixtureRoot], {
     cwd: fixtureRoot,
     encoding: "utf8",
-    env: {
-      ...process.env,
-      [adapter.CODEGRAPH_TELEMETRY_ENV]: adapter.CODEGRAPH_TELEMETRY_DISABLED_VALUE
-    },
+    env: cliEnv,
     stdio: ["ignore", "pipe", "pipe"]
   });
   assert.deepEqual(
@@ -177,12 +186,12 @@ try {
   };
   const proof = Object.fromEntries(adapter.loadCapabilityCodeGraphProjectionInputs(fixtureRoot, proofModel).selectorEvidence
     .map((entry) => [entry.sinkId.slice("sink.proof.".length), entry]));
-  // CodeGraph 1.6.1 resolves both built-in calls to the same-named repository functions. The
-  // source file imports only node:path and node:fs, so neither call proves the selector.
+  // CodeGraph 1.6.2 no longer reports the two built-in calls as calls to repository functions.
+  // The source imports only node:path and node:fs; neither call may prove the selector.
   for (const name of ["false-resolve", "false-exists"]) {
     assert.equal(proof[name].matched, false, name);
     assert.deepEqual(proof[name].callSites, [], name);
-    assert.equal(proof[name].rejectedBuiltinCallSites.length, 1, name);
+    assert.equal(proof[name].rejectedBuiltinCallSites, undefined, name);
   }
   assert.equal(proof["imported-exists"].matched, true);
   assert.deepEqual(proof["imported-exists"].callSites, [{ path: "src/imported.ts", line: 4 }]);

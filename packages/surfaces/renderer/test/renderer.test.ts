@@ -43,7 +43,7 @@ const projectionProvenance = architectureDocumentationProjectionProvenance({
   layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
   generatedFrom: {
     [graphField + "Package"]: "@colbymchenry/" + "code" + "graph",
-    [graphField + "Version"]: "1.6.1"
+    [graphField + "Version"]: "1.6.2"
   }
 } as Parameters<typeof architectureDocumentationProjectionProvenance>[0]);
 

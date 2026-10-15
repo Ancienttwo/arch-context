@@ -44,7 +44,7 @@
     "sqliteMigrations": "0001_runtime_state..0012_explorer_projection_index",
     "codeGraph": {
       "packageName": "@colbymchenry/codegraph",
-      "requiredVersion": "1.6.1",
+      "requiredVersion": "1.6.2",
       "adapter": "codegraph-cli"
     }
   }

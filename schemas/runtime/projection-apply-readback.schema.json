@@ -94,7 +94,7 @@
               "const": "@colbymchenry/codegraph"
             },
             "codeGraphVersion": {
-              "const": "1.6.1"
+              "const": "1.6.2"
             },
             "codeGraphStatus": {
               "enum": [
@@ -1625,7 +1625,7 @@
               "const": "@colbymchenry/codegraph"
             },
             "codeGraphVersion": {
-              "const": "1.6.1"
+              "const": "1.6.2"
             },
             "codeGraphStatus": {
               "enum": [
