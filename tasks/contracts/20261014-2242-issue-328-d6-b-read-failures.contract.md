@@ -1,6 +1,6 @@
 # Task Contract: issue-328-d6-b-read-failures
 
-> **Status**: Active
+> **Status**: Local integration verified; hosted CI pending
 > **Plan**: plans/plan-20261014-2242-issue-328-d6-b-read-failures.md
 > **Task Profile**: code-change
 > **Owner**: D6-B sole implementation writer, delegated Codex thread
@@ -11,7 +11,9 @@
 ## Goal and Scope
 
 Implement only docs anchors and flows check direct/CLI failure exits, prepared from 550ae58b
-and delivered incrementally on accepted main 71d8b65b6efe0be2daee26608cc37c02baeba6d5.
+and first delivered incrementally on main 71d8b65b6efe0be2daee26608cc37c02baeba6d5.
+The coordinator now authorizes merging the already accepted 31bbc3bbd5714a84776ec1c419c44e2d5db79603
+into this same B branch: identity fix and accepted CI configuration only, without unmerged C1.
 The plan's frozen failure/compatibility table and delivery boundary are authoritative. This is
 incremental B delivery after #356 merged, with no duplicated A commits. Preserve all
 success/value APIs, D5 discovery and existing CodeGraph behavior; do not edit A's checkout.
@@ -63,7 +65,7 @@ allowed_paths:
           "ARCHCONTEXT_STATE_DIR"
         ]
       },
-      "command": "bun run typecheck && node scripts/package-boundary-audit.mjs && bun test --timeout 180000 packages/contracts/test/failure-envelope.test.ts packages/local-runtime/runtime-daemon/test/read-failure-boundaries.test.ts packages/local-runtime/runtime-daemon/test/architecture-debt-read-inputs.test.ts packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts packages/surfaces/cli/test/docs-anchors.test.ts packages/surfaces/cli/test/architecture-debt.test.ts packages/surfaces/cli/test/failure-envelope.test.ts"
+      "command": "bun run typecheck && node scripts/package-boundary-audit.mjs && bun test --timeout 60000 packages/contracts/test/failure-envelope.test.ts packages/local-runtime/runtime-daemon/test/read-failure-boundaries.test.ts packages/local-runtime/runtime-daemon/test/architecture-debt-read-inputs.test.ts packages/local-runtime/runtime-daemon/test/complete-architecture-debt.test.ts packages/surfaces/cli/test/docs-anchors.test.ts packages/surfaces/cli/test/architecture-debt.test.ts packages/surfaces/cli/test/failure-envelope.test.ts"
     },
     {
       "id": "d6-b-flow-success",
@@ -72,7 +74,7 @@ allowed_paths:
       "phase": "verification",
       "cost": "normal",
       "evidence_policy": "current_exact",
-      "necessity": "Preserve real CodeGraph flow report/proof, process parity and no runtime state, alongside existing CLI integration/preflight.",
+      "necessity": "Complete CLI contract and accepted-main daemon upgrade identity/RPC version test files, including real CodeGraph flow success; no name filtering, no timeout increase.",
       "inputs": {
         "env": [
           "DO_NOT_TRACK",
@@ -80,7 +82,7 @@ allowed_paths:
           "ARCHCONTEXT_STATE_DIR"
         ]
       },
-      "command": "bun test --timeout 180000 packages/surfaces/cli/test/cli.test.ts --test-name-pattern 'CLI flows check reports each selector proof status|CLI delegates init and context to the runtime|one argument check runs before every handler'"
+      "command": "bun test --timeout 60000 packages/surfaces/cli/test/cli.test.ts packages/surfaces/cli/test/daemon-upgrade-identity.test.ts packages/surfaces/cli/test/rpc-version-upgrade.test.ts"
     },
     {
       "id": "d6-b-packaged",
@@ -114,3 +116,11 @@ push and Draft PR. No self-merge, issue closure or C/D implementation. B does no
 ## Rollback
 
 Revert only the B stages/adapter extraction/two reader/CLI/test slice. No state or model migration.
+
+## Accepted-main integration evidence
+
+On 0b56e067ee84b4c4db3fc6b52ce79a3712bfb646, all three checks above passed: 62 affected
+tests / 1732 assertions, 119 complete CLI/identity/version tests / 2188 assertions, typecheck,
+five-workspace boundary audit and packaged native-context/CLI smoke. Source/test hashes stayed
+unchanged through verification. Full hosted CI for the final pushed B HEAD remains mandatory;
+#358 diagnostic non-reproduction does not satisfy that gate.

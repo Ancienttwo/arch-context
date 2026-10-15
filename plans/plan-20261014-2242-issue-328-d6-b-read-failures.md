@@ -1,9 +1,10 @@
 # Plan: #328 D6-B standalone reader failure exits
 
-> **Status**: Review
+> **Status**: Accepted-main 31bbc3bb locally verified; hosted CI pending
 > **Owner**: delegated Codex D6-B sole implementation writer
 > **Preparation baseline**: 550ae58b2376b35548e332066932dfe782f517b7
-> **Accepted main integration base**: 71d8b65b6efe0be2daee26608cc37c02baeba6d5 (#356 squash merged)
+> **First accepted integration base**: 71d8b65b6efe0be2daee26608cc37c02baeba6d5 (#356 squash merged)
+> **Current accepted integration base**: 31bbc3bbd5714a84776ec1c419c44e2d5db79603
 > **Worktree**: /private/tmp/worktrees/arch-context-328-d6-b-read-failures
 > **Branch**: codex/issue-328-d6-b-read-failures
 > **Task Contract**: tasks/contracts/20261014-2242-issue-328-d6-b-read-failures.contract.md
@@ -113,3 +114,28 @@ Accepted-main verification passed with the same 62 affected tests / 1732 asserti
 flow/CLI tests / 134 assertions, typecheck, boundary audit and packaged smoke. Three fresh read-only
 integration lanes (security/abuse, architecture/composition, assumptions/cascade/adversarial)
 returned no concrete new finding at confidence >=0.60. Hosted CI remains the final integration gate.
+
+## Accepted-main 31bbc3bb integration
+
+The coordinator authorized one integration owner in the original B worktree. Merge only accepted
+31bbc3bbd5714a84776ec1c419c44e2d5db79603 into the existing B branch; do not include unmerged C1.
+This is a branch integration merge, not authorization to merge the GitHub PR or close #328.
+
+- [x] Confirm original B is clean at 63f6a26369b774d8192f42b00defcfb7040394ca.
+- [x] Normal merge accepted main; shared CLI file merges automatically without conflicts.
+- [x] Prove original B product patch unchanged; eight unshared source/test blobs identical; C1 absent.
+- [x] Run affected/type/boundary, whole CLI plus identity/version files, and packaged smoke.
+- [ ] Normal push and exact HEAD/CI handoff; hosted B CI remains required.
+
+Merge candidate: 0b56e067ee84b4c4db3fc6b52ce79a3712bfb646. The previous 62-test/3-filtered-case
+results are historical for the earlier base. The current integration uses complete CLI/identity
+files and does not infer Windows native-runtime safety from the separate #358 investigation.
+
+Final local evidence on merge candidate 0b56e067ee84b4c4db3fc6b52ce79a3712bfb646:
+typecheck and five-workspace boundary audit passed; seven affected files passed 62 tests /
+1732 assertions; complete CLI plus identity/version files passed 119 tests / 2188 assertions.
+All 181 tests passed without filtering. Packaged native-context/CLI smoke passed. All recorded
+source/test/accepted-main input hashes remained unchanged. Verification plan validates with hash
+sha256:c8a688a7da446ae67bb8b31fd3d1b81d2072594a0e9bb80f787a8a338afc1548.
+The four task artifacts are the only post-verification edits. Ordinary push and exact final HEAD/CI
+provider readback follow this docs-only commit; no hosted success or PR merge is claimed here.

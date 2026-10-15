@@ -131,3 +131,40 @@ Their scopes and exact focused evidence are recorded in the review file. No sour
 changed after independent review. The follow-up evidence commit changes only the same four
 workflow artifacts and does not require repeating unchanged product checks. Normal push and
 Draft PR are authorized; hosted Verify is still pending, self-merge/#328 closure remain excluded.
+
+## Coordinator-authorized accepted-main 31bbc3bb integration
+
+Original B: 63f6a26369b774d8192f42b00defcfb7040394ca, clean. Normal merge commit
+0b56e067ee84b4c4db3fc6b52ce79a3712bfb646 has exactly two parents: original B and accepted
+31bbc3bbd5714a84776ec1c419c44e2d5db79603. No conflict or manual product edit was needed.
+The accepted commit supplies the already reviewed identity fix and CI configuration. Relative
+to that accepted base, B still has exactly its original 13 changed paths.
+
+Preservation proof: all added/deleted product/test patch lines are identical to the original B
+patch after omitting Git blob/hunk-position metadata; SHA-256
+e7abd7486263468c8af62fa0e66cda4c4c83a3b135f989b82ccf7c16153cf31d. Eight nonshared product/test
+blobs are byte-identical to original B; the shared CLI file contains only the accepted-main
+changes plus the unchanged B patch. C1 frozen commit 1aad65d19614ca7a173d5083eeadd5472e05aab6
+is not an ancestor, and no C1 product delta is included. Evidence is retained in the delegated
+workspace b-integration-verification/merge-preservation-proof.json and original-b-manifest.json.
+
+Current verification covers the seven original affected files, full CLI test file, both accepted
+identity/version test files, type/boundaries and packaged smoke. No name filter, raised timeout,
+platform skip, new writer, new product change or CI edit is introduced. #358 did not reproduce
+the native assertion but has collection limitations and remains under investigation; it is not
+a fix or substitute for this new B candidate's complete hosted CI.
+
+### Final local integration results
+
+All checks exited zero. Affected/type/boundary command: 47.30 s, including 62 tests across seven
+files / 1732 assertions / zero failures. Whole CLI/identity/version files: 210.53 s, 119 tests
+across three files / 2188 assertions / zero failures. Packaged native-context/CLI smoke: 15.25 s.
+The runner confirmed INPUTS_UNCHANGED true for every recorded product/test/accepted-main input.
+Total test evidence is 181 passed / zero failed / 3920 assertions across ten complete files.
+No timeout increase, test-name filtering or product edit followed verification.
+
+Raw results and per-command logs are in the delegated workspace b-integration-verification/.
+Contract validation is valid, plan hash sha256:c8a688a7da446ae67bb8b31fd3d1b81d2072594a0e9bb80f787a8a338afc1548.
+The final evidence commit changes only the four original B task artifacts. Final ordinary-push
+HEAD and new hosted run are read back from GitHub after this commit; full hosted CI is pending.
+C1 remains frozen at 1aad65d19614ca7a173d5083eeadd5472e05aab6 in its separate worktree.

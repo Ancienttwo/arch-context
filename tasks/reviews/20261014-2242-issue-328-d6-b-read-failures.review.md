@@ -1,6 +1,6 @@
 # D6-B scoped review
 
-Status: accepted-main focused checks and three independent integration review lanes complete; hosted CI pending.
+Status: accepted-main 31bbc3bb integration checks complete; prior three independent semantic review lanes retained; new hosted CI pending.
 Preparation scope: B-only delta from frozen 550ae58b, including the new adapter and direct-reader tests.
 One semantic review cycle; initial bounded compatibility repair followed by the coordinator's
 explicit design amendment/refinement. No extra implementation writer or broad D6 acceptance.
@@ -44,3 +44,22 @@ All lanes reviewed the accepted-main source/test candidate 99a980a547ebaefba4237
 No lane edited files or Git; no uncovered delegated scope remains. The final follow-up commit
 changes only the four allowed workflow artifacts; product/test bytes and verification-plan hash
 remain unchanged. No broad D6, hosted-CI, release or issue-closure acceptance is implied.
+
+## New accepted-main 31bbc3bb merge boundary
+
+The coordinator authorized integrating accepted main in the original B worktree. Merge candidate
+0b56e067ee84b4c4db3fc6b52ce79a3712bfb646 retains the unchanged B added/deleted product patch
+and eight byte-identical nonshared product/test blobs. Shared CLI merges automatically. Relative
+to accepted main, the original 13 B paths remain; unmerged C1 is absent. No new product revision
+or new independent semantic review is claimed. Complete CLI plus identity/version and affected
+checks are the current integration evidence; original filtered results remain historical.
+Hosted CI for the new B HEAD is mandatory. #358's diagnostic non-reproduction, with collection
+limits, is not accepted as a fix or a green integration result.
+
+Current merge-candidate verification is complete with 181 passing tests / zero failures /
+3920 assertions across ten whole files (62 affected plus 119 CLI/identity/version). Typecheck,
+five-workspace boundary audit and packaged native-context/CLI smoke pass. Recorded input hashes
+are unchanged. Only the original four task artifacts change after verification.
+The B product patch remains identical after accepted-main integration; no new broad semantic
+review cycle or #358 fix is claimed. Exact final pushed HEAD and hosted run are provider readback
+evidence delivered separately. Full hosted CI remains the integration gate.
