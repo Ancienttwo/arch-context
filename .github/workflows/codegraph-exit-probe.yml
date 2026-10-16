@@ -1,0 +1,51 @@
+name: CodeGraph Exit Abort Probe
+
+# Diagnostic only (#358). Compares CodeGraph 1.6.2 child exits under its bundled Node and under
+# Node 24.21.0 on the same runner. It does not gate anything.
+on:
+  push:
+    branches:
+      - claude/issue-358-exit-abort-probe
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: "exit probe / runner ${{ matrix.runner }}"
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [1, 2]
+    steps:
+      - name: Checkout probe
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+
+      - name: Install CodeGraph 1.6.2
+        env:
+          CODEGRAPH_NO_DOWNLOAD: "1"
+          DO_NOT_TRACK: "1"
+        run: npm install --no-audit --no-fund --prefix "$env:RUNNER_TEMP\cg" @colbymchenry/codegraph@1.6.2
+
+      - name: Probe CodeGraph child exits
+        env:
+          CG_DIR: ${{ runner.temp }}\cg
+          PROBE_OUT: ${{ runner.temp }}\probe-out
+          PROBE_DURATION_MS: "1200000"
+          PROBE_WORKERS: "4"
+        run: node probe/codegraph-exit-probe.mjs
+
+      - name: Upload probe events
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: codegraph-exit-probe-${{ matrix.runner }}
+          path: ${{ runner.temp }}\probe-out
+          if-no-files-found: error
