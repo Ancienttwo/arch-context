@@ -10,9 +10,15 @@ const WINDOWS_READ_TIMEOUT_MS = 10_000;
 const REMOVE_HANDLE_RELEASE_MARGIN_MS = 2_000;
 const REMOVE_RETRY_DELAY_MS = 25;
 
+// Progress markers the native child writes to stderr as it passes each step. A failed or timed-out
+// child reports the last marker it reached; "none" means the script never started running.
+const WINDOWS_CONTROL_FILE_PHASES = ["script", "input", "parsed", "opened", "verified", "done"];
+const WINDOWS_CONTROL_FILE_PHASE_MARKER = /^archctx-acl-phase:([a-z]+)\r?$/;
+
 // Windows PowerShell 5.1 supplies the .NET Framework FileStream(FileSecurity) constructor.
 // Paths and file contents travel over stdin, never in executable command text or arguments.
 const WINDOWS_CONTROL_FILE_SCRIPT = String.raw`
+[Console]::Error.WriteLine('archctx-acl-phase:script')
 $ErrorActionPreference = 'Stop'
 # A pwsh -> Node/Bun -> powershell.exe launch inherits incompatible PS7 module paths.
 $env:PSModulePath = "$PSHOME\Modules"
@@ -34,7 +40,10 @@ function Test-PrivateAcl($stream, $sid) {
     $rule.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None)
 }
 try {
-  $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+  $text = [Console]::In.ReadToEnd()
+  [Console]::Error.WriteLine('archctx-acl-phase:input')
+  $request = $text | ConvertFrom-Json
+  [Console]::Error.WriteLine('archctx-acl-phase:parsed')
   $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
   if ($request.operation -eq 'create') {
     $acl = New-Object System.Security.AccessControl.FileSecurity
@@ -44,18 +53,24 @@ try {
     $acl.AddAccessRule($rule)
     $stream = New-Object System.IO.FileStream($request.path, [System.IO.FileMode]::CreateNew, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.IO.FileShare]::None, 4096, [System.IO.FileOptions]::None, $acl)
     $created = $true
+    [Console]::Error.WriteLine('archctx-acl-phase:opened')
     if (-not (Test-PrivateAcl $stream $sid)) { throw 'private ACL readback failed' }
+    [Console]::Error.WriteLine('archctx-acl-phase:verified')
     $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$request.body)
     $stream.Write($bytes, 0, $bytes.Length)
     $stream.Flush($true)
+    [Console]::Error.WriteLine('archctx-acl-phase:done')
     $result = @{ ok = $true }
   } elseif ($request.operation -eq 'read') {
     # Deny concurrent write/delete, validate the opened file, then read that same handle.
     $stream = New-Object System.IO.FileStream($request.path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    [Console]::Error.WriteLine('archctx-acl-phase:opened')
     if (-not (Test-PrivateAcl $stream $sid)) { throw 'private ACL readback failed' }
+    [Console]::Error.WriteLine('archctx-acl-phase:verified')
     if ($stream.Length -gt 1048576) { throw 'control file exceeds read budget' }
     $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8, $true, 4096, $true)
     try { $body = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    [Console]::Error.WriteLine('archctx-acl-phase:done')
     $result = @{ ok = $true; body = $body }
   } else { throw 'unsupported operation' }
   [Console]::Out.Write(($result | ConvertTo-Json -Compress))
@@ -89,15 +104,17 @@ function windowsControlFile(operation: "create" | "read", path: string, body?: s
       stdio: ["pipe", "pipe", "pipe"], timeout: operation === "create" ? WINDOWS_CREATE_TIMEOUT_MS : WINDOWS_READ_TIMEOUT_MS, maxBuffer: 1024 * 1024
     });
   } catch (error) {
-    // Select scalar metadata only. Never retain cause, command, path, input, stdout or stderr.
-    const failure = error as { code?: unknown; status?: unknown; signal?: unknown } | null;
+    // Select scalar metadata only. Never retain cause, command, path, input, stdout or stderr text:
+    // the phase is one allow-listed marker name, never a copied stderr line.
+    const failure = error as { code?: unknown; status?: unknown; signal?: unknown; stderr?: unknown } | null;
     const code = ["ETIMEDOUT", "ENOENT", "EACCES", "EPERM", "ENOBUFS"].includes(String(failure?.code))
       ? String(failure?.code) : "UNKNOWN";
     const signal = ["SIGTERM", "SIGKILL", "SIGABRT", "SIGINT"].includes(String(failure?.signal))
       ? String(failure?.signal) : null;
     const status = typeof failure?.status === "number" && Number.isInteger(failure.status) ? failure.status : null;
+    const phase = lastWindowsControlFilePhase(failure?.stderr);
     const elapsedMs = Math.round(performance.now() - startedAt);
-    throw new Error(`Windows native ACL operation failed: ${JSON.stringify({ operation, code, status, signal, elapsedMs })}`);
+    throw new Error(`Windows native ACL operation failed: ${JSON.stringify({ operation, code, status, signal, phase, elapsedMs })}`);
   }
   const result: unknown = JSON.parse(output);
   if (!result || typeof result !== "object" || !("ok" in result)) throw new Error("Invalid native ACL result");
@@ -109,6 +126,16 @@ function windowsControlFile(operation: "create" | "read", path: string, body?: s
     if (!("body" in result) || typeof result.body !== "string") throw new Error("Invalid native ACL read result");
     return result.body;
   }
+}
+
+function lastWindowsControlFilePhase(stderr: unknown): string {
+  let phase = "none";
+  if (typeof stderr !== "string") return phase;
+  for (const line of stderr.split("\n")) {
+    const name = WINDOWS_CONTROL_FILE_PHASE_MARKER.exec(line)?.[1];
+    if (name && WINDOWS_CONTROL_FILE_PHASES.includes(name)) phase = name;
+  }
+  return phase;
 }
 
 /** Exclusive creation: Windows DACL is private from the first observable instant. */
