@@ -1,0 +1,50 @@
+name: Node Exit Abort Reproducer
+
+# Diagnostic only (#358). Runs Node's regression reproducer for nodejs/node#56645 under the
+# node.exe bundled with CodeGraph 1.6.2 and under Node 24.21.0. It does not gate anything.
+on:
+  push:
+    branches:
+      - claude/issue-358-exit-abort-probe
+    paths:
+      - probe/node-exit-abort-repro.mjs
+      - .github/workflows/node-exit-abort-repro.yml
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    name: "node exit-abort repro"
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout probe
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+
+      - name: Install CodeGraph 1.6.2
+        env:
+          CODEGRAPH_NO_DOWNLOAD: "1"
+          DO_NOT_TRACK: "1"
+        run: npm install --no-audit --no-fund --prefix "$env:RUNNER_TEMP\cg" @colbymchenry/codegraph@1.6.2
+
+      - name: Run reproducer
+        env:
+          CG_DIR: ${{ runner.temp }}\cg
+          PROBE_OUT: ${{ runner.temp }}\repro-out
+          PROBE_RUNS: "300"
+          PROBE_CONCURRENCY: "4"
+        run: node probe/node-exit-abort-repro.mjs
+
+      - name: Upload reproducer results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: node-exit-abort-repro
+          path: ${{ runner.temp }}\repro-out
+          if-no-files-found: error

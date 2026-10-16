@@ -2,10 +2,9 @@ name: CodeGraph Exit Abort Probe
 
 # Diagnostic only (#358). Compares CodeGraph 1.6.2 child exits under its bundled Node and under
 # Node 24.21.0 on the same runner. It does not gate anything.
+# Round 1 ran on push (run 38832904913); later pushes to this branch must not rerun it.
 on:
-  push:
-    branches:
-      - claude/issue-358-exit-abort-probe
+  workflow_dispatch:
 
 permissions:
   contents: read
