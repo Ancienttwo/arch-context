@@ -8,6 +8,7 @@ test("every registered failure reason has the strict four fields and bounded UTF
   for (const [reason, policy] of Object.entries(FAILURE_POLICIES)) {
     const facts: Record<string, any> = {
       stage: "debt", checks: ["ownership", "anchors"], issueCount: 2, method: "completeTask", timeoutMs: 5, elapsedMs: 6, mutationOutcome: "unknown",
+      issues: [{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }],
       jobId: "job.fixture", runId: "audit_run.fixture", draftId: "draft.fixture", recommendationId: "recommendation."+"a".repeat(16), currentRecommendationId: "recommendation."+"b".repeat(16), currentRecorded: true,
       consentReason: "not-granted", searched: "recorded", decisionStatus: "accepted", disposition: "resolved", changedFields: ["headSha", "worktreeDigest"],
       evidenceDigest: "sha256:"+"a".repeat(64), assessmentDigest: "sha256:"+"b".repeat(64), expectedHeadSha: "a".repeat(40), actualHeadSha: "b".repeat(40),
@@ -26,6 +27,28 @@ test("every registered failure reason has the strict four fields and bounded UTF
     expect(new TextEncoder().encode(failure.message).byteLength).toBeLessThanOrEqual(1024);
     expect(failureEnvelope("checkpoint", failure)).toMatchObject({ ok: false, error: failure });
   }
+});
+
+test("unclassified failure names the local inspection command without changing its shape", () => {
+  const failure = knownFailure("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", { stage: "complete" });
+  expect(failure.message).toContain("archctx doctor --json");
+  expect(failure).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", action: "inspect-diagnostics", retryable: false, details: { stage: "complete" } });
+});
+
+test("code facts not-ready is a registered failure with bounded issue facts", () => {
+  const issues = [{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }];
+  const failure = knownFailure("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues });
+  expect(failure).toMatchObject({ code: "AC_CODE_FACTS_NOT_READY", action: "codegraph-index", retryable: false, details: { issues } });
+  expect(failureIssues(failure)).toEqual([]);
+  expect(size(failure.details)).toBeLessThanOrEqual(8192);
+  for (const invalid of [Array(33).fill(issues[0]), [{ ...issues[0], message: privateText }], [{ ...issues[0], path: privateText }]]) {
+    expect(() => knownFailure("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: invalid })).toThrow();
+  }
+  expect(size(knownFailure("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: Array(32).fill(issues[0]) }).details)).toBeLessThanOrEqual(8192);
+  let reads = 0;
+  const hostile = Object.defineProperty({ code: "version-mismatch" }, "message", { enumerable: true, get() { reads++; return privateText; } });
+  expect(() => knownFailure("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: [hostile] })).toThrow();
+  expect(reads).toBe(0);
 });
 
 test("known metadata survives typed errors and returned envelopes without copying raw messages", () => {

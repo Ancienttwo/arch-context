@@ -23,6 +23,16 @@ export interface FailureEnvelope<C extends FailureCode = FailureCode> {
   error: StrictFailure<C>;
 }
 type Policy = { code: FailureCode; message: string; fields?: readonly string[]; action?: string; facts?: Readonly<Record<string, string>>; native?: boolean; recovery?: boolean; journalRecovery?: boolean; retryable?: boolean };
+/** Closed repository diagnostics. Messages contain no process output or filesystem paths. */
+export const CODE_FACTS_ISSUE_MESSAGES = Object.freeze({
+  "not-initialized": "CodeGraph repository status is not initialized",
+  "version-mismatch": "CodeGraph repository status version mismatch",
+  "project-path-mismatch": "CodeGraph repository project path mismatch",
+  "index-incomplete": "CodeGraph repository index is not complete and compatible",
+  "extraction-version-mismatch": "CodeGraph repository extraction version mismatch",
+  "worktree-mismatch": "CodeGraph repository worktree mismatch",
+  "pending-source-changes": "CodeGraph repository index has pending or unreported source changes"
+});
 /** Each reason has a closed fact vocabulary. No source text or recovery binding is a summary fact. */
 const policies: Record<string, Policy> = {
   "git-worktree-required": { code: "AC_REPO_NOT_FOUND", message: "This operation requires a Git worktree.", fields: ["checks"] },
@@ -33,6 +43,7 @@ const policies: Record<string, Policy> = {
   "projection-manifest-invalid": { code: "AC_PRECONDITION_FAILED", message: "The committed projection manifest violates its contract." },
   "projection-footprint-uncovered": { code: "AC_PRECONDITION_FAILED", message: "Declared source footprints lack a projection target." },
   "index-missing": { code: "AC_CODE_FACTS_UNAVAILABLE", message: "Required code facts have no available index. Run codegraph init." },
+  "code-facts-not-ready": { code: "AC_CODE_FACTS_NOT_READY", message: "Repository code facts are not ready. Run archctx doctor --json and follow the reported action.", facts: { issues: "codeFactsIssues" } },
   "checkpoint-input-invalid": { code: "AC_SCHEMA_INVALID", message: "Checkpoint arguments violate the declared input schema.", fields: ["issueCount"], action: "correct-command-arguments" },
   "cli-input-invalid": { code: "AC_SCHEMA_INVALID", message: "Command arguments violate the declared input contract.", action: "correct-command-arguments" },
   "complete-input-invalid": { code: "AC_SCHEMA_INVALID", message: "Completion input violates the caller authority contract.", action: "correct-command-arguments" },
@@ -41,7 +52,7 @@ const policies: Record<string, Policy> = {
   "runtime-version-unsupported": { code: "AC_RUNTIME_VERSION_UNSUPPORTED", message: "The connected runtime version is unsupported." },
   "rpc-timeout": { code: "RPC_TIMEOUT", message: "The runtime RPC deadline elapsed without a response; a mutation outcome is unknown.", fields: ["method", "timeoutMs", "elapsedMs", "mutationOutcome"], action: "reconcile-before-retry" },
   "rpc-aborted": { code: "RPC_ABORTED", message: "The runtime RPC caller aborted without a response; a mutation outcome is unknown.", fields: ["method", "timeoutMs", "elapsedMs", "mutationOutcome"], action: "reconcile-before-retry" },
-  "failure-unclassified": { code: "AC_UNCLASSIFIED_FAILURE", message: "The operation failed without a classified cause. Inspect local diagnostics before retrying.", action: "inspect-diagnostics" },
+  "failure-unclassified": { code: "AC_UNCLASSIFIED_FAILURE", message: "The operation failed without a classified cause. Run archctx doctor --json before retrying.", action: "inspect-diagnostics" },
 };
 // C1 policies are selected at explicit producer branches, never from diagnostic text.
 Object.assign(policies, {
@@ -278,7 +289,7 @@ for (const policy of Object.values(policies)) {
 }
 export const FAILURE_POLICIES: Readonly<Record<string, Readonly<Policy>>> = Object.freeze(policies);
 const catalogDefaults = Object.fromEntries(Object.entries(ERROR_CATALOG).map(([code, value]) => [code, Object.freeze({ severity: value.severity, retryable: value.retryable, action: value.action })])) as Readonly<Record<ArchContextErrorCode, Readonly<Pick<StrictFailure, "severity" | "retryable" | "action">>>>;
-const actions = new Set([...Object.values(catalogDefaults).map(value => value.action), "correct-command-arguments", "inspect-diagnostics", "reconcile-before-retry", ...Object.values(policies).flatMap(policy => policy.action ? [policy.action] : [])]);
+const actions = new Set([...Object.values(catalogDefaults).map(value => value.action), "correct-command-arguments", "inspect-diagnostics", "reconcile-before-retry", "install-compatible-codegraph", ...Object.values(policies).flatMap(policy => policy.action ? [policy.action] : [])]);
 const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const finiteNonnegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -400,6 +411,20 @@ const localEnums: Readonly<Record<string, readonly string[]>> = {
   ]
 };
 function localFactValue(rule: string, value: unknown): Json {
+  if (rule === "codeFactsIssues") {
+    if (!Array.isArray(value)) throw new Error("Code facts issues must be a list");
+    const length = Object.getOwnPropertyDescriptor(value, "length")?.value;
+    if (!Number.isSafeInteger(length) || length < 1 || length > 32 || Reflect.ownKeys(value).length !== length + 1) throw new Error("Code facts issues exceed their closed budget");
+    return Array.from({ length }, (_, index) => {
+      const entry = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!entry || !("value" in entry)) throw new Error("Code facts issues must use own data");
+      const fields = dataRecord(entry.value);
+      const code = fields.code?.value, message = fields.message?.value;
+      if (Object.keys(fields).length !== 2 || typeof code !== "string" || !Object.hasOwn(CODE_FACTS_ISSUE_MESSAGES, code)
+        || message !== CODE_FACTS_ISSUE_MESSAGES[code as keyof typeof CODE_FACTS_ISSUE_MESSAGES]) throw new Error("Unknown code facts diagnostic");
+      return { code, message };
+    });
+  }
   if (rule === "commandSuggestion" && (value === null || (typeof value === "string" && bytes(value) <= 1024 && /^archctx (recommendations |refactor verify )[^\r\n]*$/.test(value)))) return value;
   if (rule === "publicConfirmationToken" && typeof value === "string" && bytes(value) <= 1024 && /^public:github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+:[a-f0-9]{40}:[A-Za-z0-9_.:-]+$/.test(value)) return value;
   if (rule === "diagnosticPaths" || rule === "diagnosticCommands") {

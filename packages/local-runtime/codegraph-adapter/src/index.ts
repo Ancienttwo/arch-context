@@ -1,4 +1,5 @@
 import { assertLocalEgressAllowed, localEgressMode } from "@archcontext/local-runtime/egress-admission";
+import { CODE_FACTS_ISSUE_MESSAGES, FailureError } from "@archcontext/contracts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
@@ -54,6 +55,8 @@ export function disableCodeGraphTelemetryByDefault(env: MutableEnv = process.env
 export interface CodeGraphProvider {
   version: string;
   capabilities: string[];
+  assertReady?(workspaceRoot: string): void;
+  assertCanSync?(workspaceRoot: string): void;
   indexAll(workspaceRoot: string): Promise<void>;
   buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
   findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]>;
@@ -71,10 +74,17 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
 
   async indexAll(workspaceRoot: string): Promise<void> {
     this.workspaceRoot = workspaceRoot;
-    if (!existsSync(join(workspaceRoot, ".codegraph"))) {
-      throw new Error(`CodeGraph index missing at ${workspaceRoot}; run codegraph init before using archctxd`);
-    }
+    this.assertCanSync(workspaceRoot);
     this.run(["sync", workspaceRoot]);
+    this.assertReady(workspaceRoot);
+  }
+
+  assertReady(workspaceRoot: string): void {
+    assertRepositoryCodeFactsReady(workspaceRoot, this.binary === DEFAULT_CODEGRAPH_BINARY ? {} : { binary: this.binary });
+  }
+
+  assertCanSync(workspaceRoot: string): void {
+    this.assertReady(workspaceRoot);
   }
 
   async buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
@@ -141,7 +151,7 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
 
   private run(args: string[]): string {
     disableCodeGraphTelemetryByDefault();
-    const invocation = codeGraphCliInvocation(this.binary, this.workspaceRoot);
+    const invocation = this.binary === DEFAULT_CODEGRAPH_BINARY ? packagedCodeGraphCliInvocation() : codeGraphCliInvocation(this.binary, this.workspaceRoot);
     try {
       return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
         cwd: this.workspaceRoot,
@@ -294,8 +304,14 @@ export class CodeGraphAdapter implements CodeFactsPort {
     disableCodeGraphTelemetryByDefault();
   }
 
+  assertCanSync(workspaceRoot: string): void {
+    this.assertCompatible();
+    this.provider.assertCanSync?.(workspaceRoot);
+  }
+
   async ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot> {
     this.assertCompatible();
+    if (this.#snapshot) this.provider.assertReady?.(workspace.root);
     this.#snapshot ??= await this.sync({ workspace });
     return this.#snapshot;
   }
@@ -1005,7 +1021,7 @@ export function projectionCodeGraphStatusIssues(
 ): ProjectionCodeGraphStatusIssueV1[] {
   const issue = (code: ProjectionCodeGraphStatusIssueCode, text: string): ProjectionCodeGraphStatusIssueV1 => ({
     code,
-    message: `CodeGraph ${phase} ${text}`
+    message: phase === "repository" ? CODE_FACTS_ISSUE_MESSAGES[code] : `CodeGraph ${phase} ${text}`
   });
   if (!status.initialized) return [issue("not-initialized", "status is not initialized")];
   const issues: ProjectionCodeGraphStatusIssueV1[] = [];
@@ -1184,7 +1200,7 @@ export function inspectRepositoryCodeFacts(root: string, options: RepositoryCode
   }
   const versionIssues: ProjectionCodeGraphStatusIssueV1[] = codeGraphVersion === REQUIRED_CODEGRAPH_VERSION
     ? []
-    : [{ code: "version-mismatch", message: `CodeGraph ${REQUIRED_CODEGRAPH_VERSION} required, got actual binary ${codeGraphVersion || "unknown"}` }];
+    : [{ code: "version-mismatch", message: CODE_FACTS_ISSUE_MESSAGES["version-mismatch"] }];
   if (!indexPresent) {
     return { schemaVersion, state: "index-missing", indexPresent: false, requiredVersion: REQUIRED_CODEGRAPH_VERSION, codeGraphVersion, issues: versionIssues };
   }
@@ -1216,11 +1232,24 @@ export function inspectRepositoryCodeFacts(root: string, options: RepositoryCode
       current: status.index?.currentExtractionVersion ?? null
     },
     indexState: status.index?.state ?? null,
-    reindexRecommended: status.index?.reindexRecommended ?? null,
+    reindexRecommended: issues.some(issue => issue.code !== "pending-source-changes"),
     pendingRefs: status.index?.pendingRefs ?? null,
     pendingChanges: pending ? { added: pending.added, modified: pending.modified, removed: pending.removed } : null,
     issues
   };
+}
+
+/** Read-only usability check. Pending edits affect freshness, not index compatibility. */
+export function assertRepositoryCodeFactsReady(root: string, options: RepositoryCodeFactsInspectionOptions = {}): void {
+  const facts = inspectRepositoryCodeFacts(root, options);
+  if (facts.state === "index-missing") throw new ProjectionCodeFactsUnavailableError("index-missing");
+  if (facts.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", {}, { action: "inspect-diagnostics", retryable: false });
+  if (facts.state === "not-ready") {
+    if (facts.issues.every(issue => issue.code === "pending-source-changes")) return;
+    const action = facts.codeGraphVersion !== REQUIRED_CODEGRAPH_VERSION ? "install-compatible-codegraph"
+      : "codegraph-index";
+    throw new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: facts.issues }, { action });
+  }
 }
 
 /** True when this workspace carries a CodeGraph index the CLI can be pointed at. */

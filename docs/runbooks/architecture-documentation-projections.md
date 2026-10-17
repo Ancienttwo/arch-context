@@ -68,6 +68,10 @@ A repository that cannot build an index declares `codeFacts.required: false`; pr
 
 Consumers detect the typed error through the `code-facts-unavailable-error-v1` capability. A build without it renders a projection with a missing index and reports a flow-proof major change for every capability instead.
 
+A present but incompatible index has a separate task-command failure:
+`AC_CODE_FACTS_NOT_READY`. See [Code facts readiness](code-facts-readiness.md)
+for its issue details, doctor recommendation, and operator actions.
+
 ### Checking flow selectors before a projection
 
 Run `archctx flows check --json` before an apply when you add or change an entrypoint selector or a flow. It takes seconds; an apply can take more than a minute. It runs the same P2 flow proof as a projection and renders nothing. It runs in-process, starts no daemon, opens no local store and writes no runtime state. Like `projection run` in `check` mode, it runs `codegraph sync` first.

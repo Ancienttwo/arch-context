@@ -7,6 +7,7 @@ import { resolveOwnership } from "@archcontext/core/module-statistics";
 import { ancestorChain, loadNativeModelFromArchContext, nativeNodeSource, type NativeModel } from "@archcontext/core/projection-engine";
 import { evaluateArchitectureDebt, type ArchitectureDebtEvidence } from "@archcontext/core/review-engine";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
+import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, type RepositoryCodeFactsInspectionOptions } from "@archcontext/local-runtime/codegraph-adapter";
 import { selectedProducerFailure, selectedProducerFailureEnvelope } from "./producer-failure";
 export { selectedProducerFailure, selectedProducerFailureEnvelope } from "./producer-failure";
 import { readArchitectureDebtCodeFacts } from "./architecture-debt-code-facts";
@@ -100,11 +101,16 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
   } };
 }
 
-export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtReadInput = {}): JsonEnvelope {
+export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtReadInput = {}, codeFactsOptions: RepositoryCodeFactsInspectionOptions = {}): JsonEnvelope {
   let root: string;
   try { root = findRepositoryRoot(cwd); }
   catch { return failureEnvelope("debt", knownFailure("AC_REPO_NOT_FOUND", "git-worktree-required", { checks: ["ownership", "anchors"] })); }
-  try { return okEnvelope("debt", readArchitectureDebt(root, input) as unknown as Json); }
+  try {
+    // Checkpoint can report partial ownership/anchor debt without an index. A present but
+    // incompatible index must be repaired, rather than treated as usable code facts.
+    if (codeGraphIndexAvailable(root)) assertRepositoryCodeFactsReady(root, codeFactsOptions);
+    return okEnvelope("debt", readArchitectureDebt(root, input) as unknown as Json);
+  }
   catch (error) { return selectedProducerFailureEnvelope("debt", error, "debt"); }
 }
 

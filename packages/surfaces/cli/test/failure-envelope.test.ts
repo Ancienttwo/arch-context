@@ -63,6 +63,7 @@ test("all registered producer reasons survive selected CLI and MCP adapters", as
       expectedWorktreeDigest: "sha256:"+"c".repeat(64), actualWorktreeDigest: "sha256:"+"d".repeat(64), expectedNamespace: "product.fixture", actualNamespace: "product.next", measuredBytes: 10, limitBytes: 9, kind: "timeout", confirmationToken: "public:github.com/acme/widgets:"+"a".repeat(40)+":audit_run.fixture", recordCommand: null, verifyCommand: null, observation: "before-resolve-append", field: reason === "projection-snapshot-mismatch" ? "worktreeDigest" : reason === "jobs-input-invalid" ? "workerId" : "into", issue: "unknown-node", inputDomain: "observed", availability: "unavailable", cause: "unclassified"
     };
     const ruleFacts: Record<string, any> = {
+      codeFactsIssues: [{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }],
       id: "fixture.authority", uint: 2, sha256: "sha256:" + "a".repeat(64), head: "a".repeat(40), boolean: true,
       reviewOwnershipRefusal: "persisted-manifest-missing", reviewWorktreeRefusal: "WORKTREE_NOT_CLEAN",
       rpcVersion: "archcontext.runtime-rpc/v2", upgradeAction: "upgrade-archctx-runtime", upgradeCommand: "archctx daemon upgrade",

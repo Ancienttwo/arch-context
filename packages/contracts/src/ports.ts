@@ -121,6 +121,8 @@ export interface SourceSelector {
 }
 
 export interface CodeFactsPort {
+  /** Read-only compatibility check before the existing incremental sync. No retry or rebuild. */
+  assertCanSync?(workspaceRoot: string): void;
   ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot>;
   sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot>;
   buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
