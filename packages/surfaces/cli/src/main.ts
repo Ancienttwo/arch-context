@@ -9,7 +9,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FailureError, toEnvelope, ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
+import { FailureError, NativeContextError, toEnvelope, ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
 import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
@@ -27,6 +27,7 @@ import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfac
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { MCP_PLAN_OPERATIONS_SCHEMA, runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
 import { REPO_HARNESS_PROJECTION_PROFILE, exportMermaidModel, loadNativeModelFromArchContext, resolveArchitectureOwnerForPath, resolveArchitectureOwnersForPaths, type ArchitectureProjectionProfile, type ResolveArchitectureOwnerResult } from "@archcontext/surfaces/renderer";
+import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
@@ -805,7 +806,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       if (args.includes("--paths-from")) {
         const read = await readResolvePathsFrom(args, cwd, deps);
         if ("problem" in read) return errorEnvelope("resolve", "AC_SCHEMA_INVALID", read.problem);
-        const model = loadNativeModelFromArchContext(cwd);
+        const model = loadResolveModel(cwd);
         const outcomes = resolveArchitectureOwnersForPaths(model.nodes, read.paths);
         return okEnvelope("resolve", { results: outcomes.map((outcome, index) => resolveResultData(read.paths[index], outcome)) } as unknown as Json);
       }
@@ -814,7 +815,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       if (!isRepoRelativePosixPath(path)) {
         return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve --path must be a repository-relative POSIX path");
       }
-      const model = loadNativeModelFromArchContext(cwd);
+      const model = loadResolveModel(cwd);
       return okEnvelope("resolve", resolveResultData(path, resolveArchitectureOwnerForPath(model.nodes, path)) as unknown as Json);
     }
     case "help":
@@ -4040,6 +4041,39 @@ const CLI_RESOLVE_HELP = {
   exitCodes: "--path: 0 matched, 1 no match or error, 2 ambiguous. --paths-from: 0 when no path is ambiguous (unowned paths included), 2 when any path is ambiguous, 1 on error."
 };
 
+/** Validate the same core node schema as native export, without its profile or document reads. */
+function loadResolveModel(cwd: string) {
+  if (!existsSync(join(cwd, ".archcontext/manifest.yaml"))) {
+    throw new NativeContextError("native-context-model-missing", { path: ".archcontext/manifest.yaml" });
+  }
+  let model: ReturnType<typeof loadNativeModelFromArchContext>;
+  try {
+    model = loadNativeModelFromArchContext(cwd);
+  } catch (error) {
+    const cause = error as NodeJS.ErrnoException;
+    if (typeof cause?.code === "string") {
+      throw new NativeContextError("native-context-input-unreadable", {
+        category: "open-or-read",
+        ...(typeof cause.path === "string" ? { path: cause.path } : {})
+      });
+    }
+    throw new NativeContextError("native-context-model-invalid", { invariant: "model-parse" });
+  }
+  if (model.nodes.length === 0) {
+    throw new NativeContextError("native-context-model-missing", { category: "no-native-nodes" });
+  }
+  for (const node of model.nodes) {
+    const { issues } = validateJsonSchema(nodeSchema, node as unknown as Json);
+    if (issues.length > 0) {
+      throw new NativeContextError("native-context-model-invalid", {
+        issues: issues.slice(0, 32).map(issue => ({ entityId: typeof node.id === "string" ? node.id : "(undeclared)", field: issue.path, invariant: issue.message })),
+        omittedDiagnosticCount: Math.max(0, issues.length - 32)
+      });
+    }
+  }
+  return model;
+}
+
 function resolveResultData(path: string, outcome: ResolveArchitectureOwnerResult): Record<string, Json> {
   if (outcome.status === "matched") {
     const node = outcome.node;
@@ -4392,6 +4426,7 @@ if (import.meta.main) {
     const result = await runCli(command, args, process.cwd()).catch(cliFailureEnvelope);
     process.stdout.write(`${renderResult(result, command === "export" && args[0] === "native" ? "json" : readFlag(args, "--format") ?? "json")}\n`);
     if (result.ok === false) process.exitCode = 1;
+    if (command === "validate" && result.ok && (result.data as { valid?: boolean } | undefined)?.valid === false) process.exitCode = 1;
     if (command === "resolve") process.exitCode = resolveCommandExitCode(result);
   }
 }

@@ -148,6 +148,8 @@ export interface ModelValidationResult {
    * `appliesTo` id with no node. Omitted when empty.
    */
   referenceErrors?: string[];
+  /** Node schema errors with their file paths. Only a write to that node can repair them. */
+  nodeSchemaErrors?: { path: string; error: string }[];
   /** Problems that do not invalidate the model, such as an ignored legacy setting. Omitted when empty. */
   warnings?: string[];
   modelDigest: string;

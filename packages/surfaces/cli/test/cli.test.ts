@@ -6785,6 +6785,100 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("archctx resolve rejects missing and empty models without runtime access (#370)", async () => {
+    const root = gitTempRoot("archctx-cli-resolve-missing-");
+    const deps = new Proxy({}, { get: () => { throw new Error("resolve accessed a runtime dependency"); } });
+    try {
+      writeFileSync(join(root, "paths.txt"), "src/app.ts\n", "utf8");
+      for (const empty of [false, true]) {
+        if (empty) {
+          initializeArchContextModel(root, "Empty Model");
+          rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"));
+        }
+        for (const args of [["--path", "src/app.ts"], ["--paths-from", "paths.txt"]]) {
+          const result = await runCli("resolve", args, root, deps);
+          expect(result).toMatchObject({ ok: false, error: { code: "AC_MODEL_ADOPTION_REQUIRED", retryable: false } });
+          expect(resolveCommandExitCode(result)).toBe(1);
+        }
+      }
+      expect(existsSync(testStateRoot(root))).toBe(false);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("archctx resolve rejects invalid nodes even when another node owns the path (#370)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-invalid-"));
+    try {
+      writeResolveFixtureModel(root);
+      writeFileSync(join(root, "paths.txt"), "packages/app/index.ts\n", "utf8");
+      const path = join(root, ".archcontext/model/nodes/capability.shared-a.yaml");
+      const body = readFileSync(path, "utf8");
+      const node = { schemaVersion: "archcontext.node/v2", id: "module.invalid", kind: "module", name: "Invalid", status: "active", summary: "Fixture." };
+      for (const invalid of [
+        body.replace(/^summary:.*\n/m, ""),
+        `${body}summary: duplicate\n`,
+        `${body}invalid line\n`,
+        JSON.stringify({ ...node, status: "unknown" }),
+        JSON.stringify({ ...node, id: 42 }),
+        "null"
+      ]) {
+        writeFileSync(path, invalid, "utf8");
+        for (const args of [["--path", "packages/app/index.ts"], ["--paths-from", "paths.txt"]]) {
+          const result = await runCliProcessRaw(root, "resolve", ...args, "--json");
+          expect(result.code).toBe(1);
+          expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", retryable: false } });
+        }
+      }
+      expect(existsSync(testStateRoot(root))).toBe(false);
+      expect(existsSync(join(root, ".codegraph"))).toBe(false);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, CLI_PROCESS_TIMEOUT_MS);
+
+  test("archctx resolve reports a node directory as unreadable (#370)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-unreadable-"));
+    try {
+      writeResolveFixtureModel(root);
+      writeFileSync(join(root, "paths.txt"), "packages/app/index.ts\n", "utf8");
+      mkdirSync(join(root, ".archcontext/model/nodes/x.yaml"));
+      for (const args of [["--path", "packages/app/index.ts"], ["--paths-from", "paths.txt"]]) {
+        const result = await runCliProcessRaw(root, "resolve", ...args, "--json");
+        expect(result.code).toBe(1);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          ok: false,
+          error: { code: "AC_PRECONDITION_FAILED", reasonCode: "native-context-input-unreadable", retryable: false, details: { category: "open-or-read" } }
+        });
+      }
+      expect(existsSync(testStateRoot(root))).toBe(false);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, CLI_PROCESS_TIMEOUT_MS);
+
+  test("archctx validate exits nonzero for schema and YAML errors (#370)", async () => {
+    const root = createInitializedGitRepo();
+    const path = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
+    const body = readFileSync(path, "utf8");
+    try {
+      const valid = await runCliProcessRaw(root, "validate", "--json");
+      expect(valid.code).toBe(0);
+      expect(JSON.parse(valid.stdout)).toMatchObject({ ok: true, data: { valid: true, errors: [] } });
+      for (const invalid of [body.replace(/^summary:.*\n/m, ""), `${body}summary: duplicate\n`, `${body}invalid line\n`]) {
+        writeFileSync(path, invalid, "utf8");
+        const result = await runCliProcessRaw(root, "validate", "--json");
+        expect(result.code).toBe(1);
+        const envelope = JSON.parse(result.stdout);
+        expect(envelope.data.valid).toBe(false);
+        expect(envelope.data.errors.length).toBeGreaterThan(0);
+      }
+    } finally {
+      await runCliProcessRaw(root, "daemon", "stop", "--json");
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("archctx resolve --path matches the most specific declared capability (ADR-0043)", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-"));
     try {

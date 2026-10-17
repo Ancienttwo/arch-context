@@ -42,6 +42,40 @@ function validate(root: string) {
   return new YamlModelStore().validateModel({ root, repositoryId: "repo.test", headSha: "abc" });
 }
 
+describe("YamlModelStore core node validation (#370)", () => {
+  test.each([
+    ["missing summary", NODE_BODY.replace("summary: Serves API requests.\n", ""), "$.summary: required"],
+    ["invalid status", NODE_BODY.replace("status: active", "status: unknown"), "$.status"],
+    ["duplicate YAML key", `${NODE_BODY}summary: duplicate\n`, "duplicate object key"],
+    ["malformed YAML", `${NODE_BODY}invalid line\n`, "expected key/value entry"],
+    ["non-object node", "[]", "expected type object"]
+  ])("rejects %s", async (_label, body, diagnostic) => {
+    const root = modelRoot();
+    try {
+      writeFileSync(join(root, NODE_PATH), body, "utf8");
+      const result = await validate(root);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(error => error.includes(NODE_PATH) && error.includes(diagnostic))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects duplicate keys in a relation file", async () => {
+    const root = modelRoot();
+    const path = ".archcontext/model/relations/relation.api.yaml";
+    try {
+      mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+      writeFileSync(join(root, path), "schemaVersion: archcontext.relation/v1\nid: relation.api\nid: relation.other\n", "utf8");
+      const result = await validate(root);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(error => error.includes(path) && error.includes("duplicate object key"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("YamlModelStore ADR appliesTo integrity (#163)", () => {
   test("ADR appliesTo ids that resolve to model nodes validate", async () => {
     const root = modelRoot();

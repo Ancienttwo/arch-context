@@ -775,9 +775,43 @@ describe("@archcontext/core/changeset-engine", () => {
         })
       );
 
-      await expect(engine.apply(modelRoot, draft)).rejects.toThrow("ChangeSet model validation failed after apply");
+      const applied = engine.apply(modelRoot, draft);
+      await expect(applied).rejects.toThrow("ChangeSet model validation failed after apply");
+      await expect(applied).rejects.toMatchObject({ failure: { code: "AC_SCHEMA_INVALID", reasonCode: "native-context-model-invalid", action: "repair-native-input", retryable: false, details: { path } } });
       expect(readFileSync(join(modelRoot, path), "utf8")).toBe(original);
       expect(journal.records[0]).toMatchObject({ status: "aborted" });
+    } finally {
+      rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("repairs node schema errors only on paths the ChangeSet writes (#370)", async () => {
+    const modelRoot = tempModelRoot();
+    const path = ".archcontext/model/nodes/capability.architecture.context.yaml";
+    const original = readFileSync(join(modelRoot, path), "utf8");
+    const invalid = original.replace(/^summary:.*\n/m, "");
+    writeFileSync(join(modelRoot, path), invalid, "utf8");
+    try {
+      const journal = new RecordingChangeSetJournal();
+      const engine = yamlChangeSetEngine(journal);
+      const draft = (id: string, target: string, body: string) => engine.approve(engine.plan({
+        id,
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.test" },
+        operations: [{ op: "update_entity_fields", path: target, expectedHash: digestJson({ body: readFileSync(join(modelRoot, target), "utf8") }), body }]
+      }));
+      const policy = ".archcontext/policies/review.yaml";
+      await expect(engine.apply(modelRoot, draft("changeset.unrelated", policy, readFileSync(join(modelRoot, policy), "utf8"))))
+        .rejects.toThrow("ChangeSet model validation failed before apply");
+      expect(journal.records).toHaveLength(0);
+      await expect(engine.apply(modelRoot, draft("changeset.incomplete-repair", path, invalid)))
+        .rejects.toThrow("ChangeSet model validation failed after apply");
+      expect(readFileSync(join(modelRoot, path), "utf8")).toBe(invalid);
+      expect(journal.records[0]).toMatchObject({ status: "aborted" });
+      await expect(engine.apply(modelRoot, draft("changeset.repair-node", path, original)))
+        .resolves.toMatchObject({ status: "applied" });
+      expect(readFileSync(join(modelRoot, path), "utf8")).toBe(original);
+      expect(await new YamlModelStore().validateModel({ root: modelRoot, repositoryId: "test", headSha: "abc" })).toMatchObject({ valid: true, errors: [] });
     } finally {
       rmSync(modelRoot, { recursive: true, force: true });
     }

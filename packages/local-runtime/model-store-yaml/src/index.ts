@@ -1,8 +1,9 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { REVIEW_FAIL_ON_CATEGORIES, digestJson, stableYaml, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
-import { readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
+import { REVIEW_FAIL_ON_CATEGORIES, digestJson, stableYaml, validateJsonSchema, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
+import { parseJsonOrStableYaml, readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
+import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 export * from "./native-context";
 
 export interface ModelFile {
@@ -277,6 +278,7 @@ export class YamlModelStore implements ModelStorePort {
 
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     const errors: string[] = [];
+    const nodeSchemaErrors: NonNullable<ModelValidationResult["nodeSchemaErrors"]> = [];
     for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
       try {
         readFileSync(resolve(workspace.root, required), "utf8");
@@ -286,10 +288,24 @@ export class YamlModelStore implements ModelStorePort {
     }
     const files = listModelFiles(workspace.root);
     for (const file of files) {
-      if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
-      if (file.path.startsWith(".archcontext/model/nodes/") && file.schemaVersion !== "archcontext.node/v2") {
-        errors.push(`${file.path}: expected archcontext.node/v2, got ${file.schemaVersion || "missing"}`);
+      if (file.path.startsWith(".archcontext/model/") && /\.ya?ml$/.test(file.path)) {
+        try {
+          const value = parseJsonOrStableYaml(file.body, file.path);
+          if (file.path.startsWith(".archcontext/model/nodes/")) {
+            const { issues } = validateJsonSchema(nodeSchema, value);
+            for (const issue of issues) {
+              const error = `${file.path}: ${issue.path}: ${issue.message}`;
+              errors.push(error);
+              nodeSchemaErrors.push({ path: file.path, error });
+            }
+            continue;
+          }
+        } catch (error) {
+          errors.push(`${file.path}: invalid model YAML: ${error instanceof Error ? error.message : String(error)}`);
+          continue;
+        }
       }
+      if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
       if (file.path.startsWith(".archcontext/model/flows/") && file.schemaVersion !== "archcontext.flow/v1") {
         errors.push(`${file.path}: expected archcontext.flow/v1, got ${file.schemaVersion || "missing"}`);
       }
@@ -305,6 +321,7 @@ export class YamlModelStore implements ModelStorePort {
       valid: errors.length === 0,
       errors,
       ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
+      ...(nodeSchemaErrors.length > 0 ? { nodeSchemaErrors } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
       modelDigest
     };

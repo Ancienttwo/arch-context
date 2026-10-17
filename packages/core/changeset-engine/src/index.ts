@@ -18,6 +18,7 @@ import {
   type ArchitectureEventSource,
   type ArchitectureEventV1,
   type Json,
+  type ModelValidationResult,
   type ModelStorePort
 } from "@archcontext/contracts";
 import { assertAllowedArchContextPath, evaluateChangeSetPaths, type ArchContextPathScope } from "@archcontext/core/policy-engine";
@@ -124,6 +125,17 @@ export interface ChangeSetDraft {
   postconditions: string[];
   requiresConfirmation: boolean;
   idempotencyKey: string;
+}
+
+/** Shared by the daemon preflight and the engine. Post-apply validation has no exemptions. */
+export function changeSetBaseModelBlockingErrors(result: ModelValidationResult, draft: ChangeSetDraft): string[] {
+  const repairedPaths = new Set(draft.operations
+    .filter(operation => operation.op === "update_entity_fields" || operation.op === "delete_entity")
+    .map(operation => operation.path));
+  const repairedErrors = new Set((result.nodeSchemaErrors ?? [])
+    .filter(issue => repairedPaths.has(issue.path))
+    .map(issue => issue.error));
+  return baseModelBlockingErrors(result).filter(error => !repairedErrors.has(error));
 }
 
 export interface ApplyOptions {
@@ -461,12 +473,19 @@ export class ChangeSetEngine {
 
   private async validateModel(root: string, draft: ChangeSetDraft, deps: ChangeSetEngineDeps, phase: "before" | "after"): Promise<void> {
     const result = await deps.modelStore.validateModel({ root, repositoryId: draft.reason.taskSessionId, headSha: draft.base.headSha });
-    // The before-apply model may carry dangling references that this ChangeSet repairs; the
-    // after-apply model must be fully valid.
-    const blocked = phase === "before" ? baseModelBlockingErrors(result).length > 0 : !result.valid;
+    // The base may have dangling references or schema errors on nodes this draft repairs.
+    // The after-apply model must be fully valid.
+    const errors = phase === "before" ? changeSetBaseModelBlockingErrors(result, draft) : result.errors;
+    const blocked = phase === "before" ? errors.length > 0 : !result.valid;
     if (blocked) {
-      const errors = phase === "before" ? baseModelBlockingErrors(result) : result.errors;
-      throw new Error(`ChangeSet model validation failed ${phase} apply: ${errors.join("; ") || "unknown validation error"}`);
+      const path = errors[0]?.match(/^(\.archcontext\/.+?): /)?.[1];
+      const error = new FailureError("AC_SCHEMA_INVALID", "native-context-model-invalid", {
+        invariant: `model-validation-${phase}-apply`,
+        ...(path ? { path } : {})
+      });
+      // Keep the local diagnostic. Public adapters publish only the classified failure.
+      error.message = `ChangeSet model validation failed ${phase} apply: ${errors.join("; ") || "unknown validation error"}`;
+      throw error;
     }
   }
 
