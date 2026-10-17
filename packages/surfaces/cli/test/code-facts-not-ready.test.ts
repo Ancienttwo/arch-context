@@ -86,6 +86,30 @@ test("CLI checkpoint refuses a present uninitialized index without a runtime", a
   } finally { input.cleanup(); }
 });
 
+test("checkpoint accepts pending edits without sync but still refuses an incompatible index", () => {
+  const input = fixture();
+  try {
+    const pending = { ...input.status, pendingChanges: { added: 1, modified: 1, removed: 0 },
+      index: { ...input.status.index, builtWithVersion: REQUIRED_CODEGRAPH_VERSION } };
+    writeFileSync(input.statusPath, JSON.stringify(pending));
+    const doctor = inspectRepositoryCodeFacts(input.root, { binary: input.binary });
+    expect(doctor).toMatchObject({ state: "not-ready", reindexRecommended: false });
+    writeFileSync(input.calls, "");
+    expect(runArchitectureDebtCommand(input.root, {}, { binary: input.binary })).toMatchObject({ ok: true });
+    expect(readFileSync(input.calls, "utf8")).toBe("--version\nstatus\n");
+
+    writeFileSync(input.statusPath, JSON.stringify({ ...pending, index: input.status.index }));
+    const mixedDoctor = inspectRepositoryCodeFacts(input.root, { binary: input.binary });
+    expect("issues" in mixedDoctor && mixedDoctor.issues.map(issue => issue.code)).toEqual(["version-mismatch", "pending-source-changes"]);
+    writeFileSync(input.calls, "");
+    expect(runArchitectureDebtCommand(input.root, {}, { binary: input.binary })).toMatchObject({ ok: false, error: {
+      code: "AC_CODE_FACTS_NOT_READY", action: "codegraph-index",
+      details: { issues: "issues" in mixedDoctor ? mixedDoctor.issues : [] }
+    } });
+    expect(readFileSync(input.calls, "utf8")).toBe("--version\nstatus\n");
+  } finally { input.cleanup(); }
+});
+
 test("a cached code-facts snapshot cannot hide a later index version mismatch", async () => {
   const input = fixture(true);
   try {
@@ -102,7 +126,7 @@ test("a cached code-facts snapshot cannot hide a later index version mismatch", 
 });
 
 for (const cached of [false, true]) {
-  test.each([false, true])(`pending source changes use one sync and require ready afterwards (cached=${cached}, clears=%s)`, async clearPending => {
+  test.each([false, true])(`pending edits preserve cold sync and cached reads (cached=${cached}, clears=%s)`, async clearPending => {
     const input = fixture(true, clearPending);
     try {
       const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary));
@@ -112,14 +136,14 @@ for (const cached of [false, true]) {
       if (cached) await adapter.ensureReady(workspace);
       writeFileSync(input.statusPath, JSON.stringify({ ...ready, pendingChanges: { added: 1, modified: 0, removed: 0 } }));
       writeFileSync(input.calls, "");
-      if (clearPending) {
-        await expect(adapter.ensureReady(workspace)).resolves.toMatchObject({ provider: "codegraph" });
-      } else {
-        await expect(adapter.ensureReady(workspace)).rejects.toMatchObject({ code: "AC_CODE_FACTS_NOT_READY", action: "codegraph-sync" });
+      await expect(adapter.ensureReady(workspace)).resolves.toMatchObject({ provider: "codegraph" });
+      expect(readFileSync(input.calls, "utf8").trim().split("\n")).toEqual(cached
+        ? ["--version", "status"] : ["--version", "status", "sync", "--version", "status"]);
+      if (cached) {
+        writeFileSync(input.calls, "");
+        await expect(adapter.sync({ workspace })).resolves.toMatchObject({ provider: "codegraph" });
+        expect(readFileSync(input.calls, "utf8").trim().split("\n")).toEqual(["--version", "status", "sync", "--version", "status"]);
       }
-      expect(readFileSync(input.calls, "utf8").trim().split("\n")).toEqual([
-        ...(cached ? ["--version", "status"] : []), "--version", "status", "sync", "--version", "status"
-      ]);
     } finally { input.cleanup(); }
   });
 }

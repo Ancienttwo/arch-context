@@ -84,7 +84,7 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
   }
 
   assertCanSync(workspaceRoot: string): void {
-    assertRepositoryCodeFactsReady(workspaceRoot, { ...(this.binary === DEFAULT_CODEGRAPH_BINARY ? {} : { binary: this.binary }), allowPendingSourceChanges: true });
+    this.assertReady(workspaceRoot);
   }
 
   async buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
@@ -311,13 +311,7 @@ export class CodeGraphAdapter implements CodeFactsPort {
 
   async ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot> {
     this.assertCompatible();
-    if (this.#snapshot) {
-      try { this.provider.assertReady?.(workspace.root); }
-      catch (error) {
-        if (error instanceof FailureError && error.code === "AC_CODE_FACTS_NOT_READY" && error.action === "codegraph-sync") return this.sync({ workspace });
-        throw error;
-      }
-    }
+    if (this.#snapshot) this.provider.assertReady?.(workspace.root);
     this.#snapshot ??= await this.sync({ workspace });
     return this.#snapshot;
   }
@@ -1245,15 +1239,15 @@ export function inspectRepositoryCodeFacts(root: string, options: RepositoryCode
   };
 }
 
-/** Read-only precondition shared by runtime consumers and the stateless checkpoint. */
-export function assertRepositoryCodeFactsReady(root: string, options: RepositoryCodeFactsInspectionOptions & { allowPendingSourceChanges?: boolean } = {}): void {
+/** Read-only usability check. Pending edits affect freshness, not index compatibility. */
+export function assertRepositoryCodeFactsReady(root: string, options: RepositoryCodeFactsInspectionOptions = {}): void {
   const facts = inspectRepositoryCodeFacts(root, options);
   if (facts.state === "index-missing") throw new ProjectionCodeFactsUnavailableError("index-missing");
   if (facts.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", {}, { action: "inspect-diagnostics", retryable: false });
   if (facts.state === "not-ready") {
-    if (options.allowPendingSourceChanges && facts.issues.every(issue => issue.code === "pending-source-changes")) return;
+    if (facts.issues.every(issue => issue.code === "pending-source-changes")) return;
     const action = facts.codeGraphVersion !== REQUIRED_CODEGRAPH_VERSION ? "install-compatible-codegraph"
-      : facts.reindexRecommended ? "codegraph-index" : "codegraph-sync";
+      : "codegraph-index";
     throw new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: facts.issues }, { action });
   }
 }

@@ -183,7 +183,7 @@ describe("inspectRepositoryCodeFacts", () => {
   test.each([
     ["not-initialized", true], ["index-incomplete", true], ["extraction-version-mismatch", true],
     ["worktree-mismatch", true], ["project-path-mismatch", true], ["pending-source-changes", false]
-  ] as const)("doctor and the refusal agree on recovery for %s", (code, reindexRecommended) => {
+  ] as const)("doctor reports freshness while task guards reject unusable indexes: %s", (code, reindexRecommended) => {
     withRoot(root => {
       mkdirSync(join(root, ".codegraph"));
       const status = freshStatus(root);
@@ -196,9 +196,13 @@ describe("inspectRepositoryCodeFacts", () => {
       const options = { binary: fakeCodeGraph(root, { status }) };
       const facts = inspectRepositoryCodeFacts(root, options);
       expect(facts).toMatchObject({ state: "not-ready", reindexRecommended });
+      if (code === "pending-source-changes") {
+        expect(() => assertRepositoryCodeFactsReady(root, options)).not.toThrow();
+        return;
+      }
       expect(() => assertRepositoryCodeFactsReady(root, options)).toThrow();
       try { assertRepositoryCodeFactsReady(root, options); }
-      catch (error) { expect(error).toMatchObject({ code: "AC_CODE_FACTS_NOT_READY", action: reindexRecommended ? "codegraph-index" : "codegraph-sync", details: { issues: "issues" in facts ? facts.issues : [] } }); }
+      catch (error) { expect(error).toMatchObject({ code: "AC_CODE_FACTS_NOT_READY", action: "codegraph-index", details: { issues: "issues" in facts ? facts.issues : [] } }); }
     });
   });
 
