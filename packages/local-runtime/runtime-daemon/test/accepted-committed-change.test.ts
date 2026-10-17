@@ -232,11 +232,11 @@ describe("committed change acceptance helpers", () => {
     const semanticState = (journalName: string) => {
       const model = {
         nodes: [
-          { schemaVersion: "archcontext.node/v2", id: "capability.a", kind: "capability", name: "A", status: "active",
+          { schemaVersion: "archcontext.node/v2", id: "capability.a", kind: "capability", name: "A", status: "active", summary: "Owns the hook.",
             source: { entrypoints: [{ id: "entrypoint.a", path: "src/a.ts", symbols: [{ name: "run", sinks: [{ id: "sink.a", path: "src/b.ts", symbol: "write" }] }] }] } },
-          { schemaVersion: "archcontext.node/v2", id: "component.a-hook", kind: "component", name: "Hook", status: "active", parent: "capability.a" },
-          { schemaVersion: "archcontext.node/v2", id: "capability.b", kind: "capability", name: "B", status: "active" },
-          { schemaVersion: "archcontext.node/v2", id: "datastore.b-journal", kind: "datastore", name: journalName, status: "active", parent: "capability.b" }
+          { schemaVersion: "archcontext.node/v2", id: "component.a-hook", kind: "component", name: "Hook", status: "active", summary: "Writes journal entries.", parent: "capability.a" },
+          { schemaVersion: "archcontext.node/v2", id: "capability.b", kind: "capability", name: "B", status: "active", summary: "Owns the journal." },
+          { schemaVersion: "archcontext.node/v2", id: "datastore.b-journal", kind: "datastore", name: journalName, status: "active", summary: "Stores journal entries.", parent: "capability.b" }
         ],
         relations: [
           { id: "relation.hook-journal", kind: "writes", source: "component.a-hook", target: "datastore.b-journal", intent: "persists" },
@@ -369,7 +369,7 @@ function nodePath(id: string): string {
 }
 
 function nodeBody(id: string, fields: Record<string, Json> = {}): string {
-  return stableYaml({ schemaVersion: "archcontext.node/v2", id, kind: "component", name: id, status: "active", ...fields });
+  return stableYaml({ schemaVersion: "archcontext.node/v2", id, kind: "component", name: id, status: "active", summary: `Describes ${id}.`, ...fields });
 }
 
 function createAcceptanceRepo(options: FixtureOptions = {}): string {
@@ -513,7 +513,7 @@ test("planCommittedChangeAcceptance refuses a stale model that no longer matches
     // Captured before the disk changes again, so it is stale by the time acceptance runs.
     const staleModel = loadNativeModelFromArchContext(root);
     writeYaml(root, nodePath("component.added-after-capture"), {
-      schemaVersion: "archcontext.node/v2", id: "component.added-after-capture", kind: "component", name: "Added After Capture", status: "active", parent: CAPABILITY_B
+      schemaVersion: "archcontext.node/v2", id: "component.added-after-capture", kind: "component", name: "Added After Capture", status: "active", summary: "Added after the model read.", parent: CAPABILITY_B
     });
 
     const capabilityA = {

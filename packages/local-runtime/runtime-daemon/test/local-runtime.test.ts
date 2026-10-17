@@ -1800,6 +1800,36 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
+  test("apply_update repairs a schema-invalid node and classifies an incomplete repair (#370)", async () => {
+    const root = createInitializedGitRepo();
+    const path = ".archcontext/model/nodes/capability.architecture.context.yaml";
+    const original = readFileSync(join(root, path), "utf8");
+    const invalid = original.replace(/^summary:.*\n/m, "");
+    writeFileSync(join(root, path), invalid, "utf8");
+    const daemon = await createStartedTestDaemon();
+    try {
+      for (const [id, body] of [["changeset.incomplete-repair", invalid], ["changeset.repair-node", original]] as const) {
+        const plan = await daemon.planUpdate(root, {
+          id,
+          operations: [{ op: "update_entity_fields", path, expectedHash: digestJson({ body: invalid }), body }]
+        });
+        expect(plan.ok, JSON.stringify(plan)).toBe(true);
+        const applied = daemon.applyUpdate(root, { id, approved: true, expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest });
+        if (body === invalid) {
+          await expect(applied).rejects.toMatchObject({ failure: { code: "AC_SCHEMA_INVALID", reasonCode: "native-context-model-invalid", details: { path } } });
+          expect(readFileSync(join(root, path), "utf8")).toBe(invalid);
+        } else {
+          expect((await applied).ok).toBe(true);
+          expect(readFileSync(join(root, path), "utf8")).toBe(original);
+          expect((await daemon.validate(root)).data).toMatchObject({ valid: true, errors: [] });
+        }
+      }
+    } finally {
+      await daemon.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("a semantic file written by anything but the draft mid-apply leaves no transition and does not fail the apply", async () => {
     const root = createInitializedGitRepo();
     const store = new TestLocalStore();
@@ -1809,7 +1839,7 @@ setInterval(() => undefined, 1 << 30);
           ...options,
           afterModelValidatedBeforeCommit: async (input) => {
             writeFileSync(join(applyRoot, ".archcontext/model/nodes/component.hand-edit.yaml"),
-              "schemaVersion: archcontext.node/v2\nid: component.hand-edit\nkind: component\nname: Hand Edit\nparent: capability.architecture.context\nstatus: active\n", "utf8");
+              "schemaVersion: archcontext.node/v2\nid: component.hand-edit\nkind: component\nname: Hand Edit\nparent: capability.architecture.context\nstatus: active\nsummary: Added during apply.\n", "utf8");
             return options.afterModelValidatedBeforeCommit?.(input);
           }
         });
@@ -1826,7 +1856,7 @@ setInterval(() => undefined, 1 << 30);
           op: "create_entity",
           path: ".archcontext/model/nodes/component.raced.yaml",
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: component.raced\nkind: component\nname: Raced\nparent: capability.architecture.context\nstatus: active\n"
+          body: "schemaVersion: archcontext.node/v2\nid: component.raced\nkind: component\nname: Raced\nparent: capability.architecture.context\nstatus: active\nsummary: Created by the draft.\n"
         }]
       });
       expect(plan.ok).toBe(true);

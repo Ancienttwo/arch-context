@@ -4049,7 +4049,14 @@ function loadResolveModel(cwd: string) {
   let model: ReturnType<typeof loadNativeModelFromArchContext>;
   try {
     model = loadNativeModelFromArchContext(cwd);
-  } catch {
+  } catch (error) {
+    const cause = error as NodeJS.ErrnoException;
+    if (typeof cause?.code === "string") {
+      throw new NativeContextError("native-context-input-unreadable", {
+        category: "open-or-read",
+        ...(typeof cause.path === "string" ? { path: cause.path } : {})
+      });
+    }
     throw new NativeContextError("native-context-model-invalid", { invariant: "model-parse" });
   }
   if (model.nodes.length === 0) {

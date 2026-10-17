@@ -317,7 +317,7 @@ describe("local MCP server", () => {
             op: "create_entity",
             path: ".archcontext/model/nodes/module.mcp.yaml",
             expectedHash: "missing",
-            body: "schemaVersion: archcontext.node/v2\nid: module.mcp\nkind: module\nname: MCP\nstatus: active\nsummary: MCP\nresponsibilities:\n- mcp\n"
+            body: "schemaVersion: archcontext.node/v2\nid: module.mcp\nkind: module\nname: MCP\nstatus: active\nsummary: MCP\nresponsibilities:\n  - mcp\n"
           }
         ]
       });
@@ -345,7 +345,7 @@ describe("local MCP server", () => {
     const daemon = await createStartedDaemon({ localStore: new TestLocalStore(), codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()) });
     const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "mcp-approval-test" });
     const path = ".archcontext/model/nodes/module.approval.yaml";
-    const node = (summary: string) => `schemaVersion: archcontext.node/v2\nid: module.approval\nkind: module\nname: Approval\nstatus: active\nsummary: ${summary}\nresponsibilities:\n- approval\n`;
+    const node = (summary: string) => `schemaVersion: archcontext.node/v2\nid: module.approval\nkind: module\nname: Approval\nstatus: active\nsummary: ${summary}\nresponsibilities:\n  - approval\n`;
     const currentHash = () => digestJson({ body: readFileSync(join(root, path), "utf8") });
     try {
       const client = new RuntimeRpcClient(await rpc.start());

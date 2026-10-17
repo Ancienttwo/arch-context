@@ -278,6 +278,7 @@ export class YamlModelStore implements ModelStorePort {
 
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     const errors: string[] = [];
+    const nodeSchemaErrors: NonNullable<ModelValidationResult["nodeSchemaErrors"]> = [];
     for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
       try {
         readFileSync(resolve(workspace.root, required), "utf8");
@@ -292,7 +293,11 @@ export class YamlModelStore implements ModelStorePort {
           const value = parseJsonOrStableYaml(file.body, file.path);
           if (file.path.startsWith(".archcontext/model/nodes/")) {
             const { issues } = validateJsonSchema(nodeSchema, value);
-            errors.push(...issues.map(issue => `${file.path}: ${issue.path}: ${issue.message}`));
+            for (const issue of issues) {
+              const error = `${file.path}: ${issue.path}: ${issue.message}`;
+              errors.push(error);
+              nodeSchemaErrors.push({ path: file.path, error });
+            }
             continue;
           }
         } catch (error) {
@@ -316,6 +321,7 @@ export class YamlModelStore implements ModelStorePort {
       valid: errors.length === 0,
       errors,
       ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
+      ...(nodeSchemaErrors.length > 0 ? { nodeSchemaErrors } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
       modelDigest
     };

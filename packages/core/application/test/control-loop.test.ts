@@ -536,7 +536,7 @@ describe("M2 architecture control loop", () => {
               op: "create_entity",
               path: ".archcontext/model/nodes/module.success.yaml",
               expectedHash: "missing",
-              body: "schemaVersion: archcontext.node/v2\nid: module.success\nkind: module\nname: Success\nstatus: active\nsummary: Success module\nresponsibilities:\n- own-success\n"
+              body: "schemaVersion: archcontext.node/v2\nid: module.success\nkind: module\nname: Success\nstatus: active\nsummary: Success module\nresponsibilities:\n  - own-success\n"
             }
           ]
         })

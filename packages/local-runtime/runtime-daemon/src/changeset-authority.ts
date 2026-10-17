@@ -5,11 +5,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { projectionPreimageFindings, type ChangeOperation, type ChangeSetDraft, type ChangeSetEngine } from "@archcontext/core/changeset-engine";
+import { changeSetBaseModelBlockingErrors, projectionPreimageFindings, type ChangeOperation, type ChangeSetDraft, type ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { architectureLedgerStateDigest, planChangeSetApplyToArchitectureLedgerEvent, type ArchitectureLedgerAppendInput, type ArchitectureLedgerAppendResult, type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { loadPracticeWaiverOwnerRegistry, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { ProjectionPreconditionError, architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
-import { baseModelBlockingErrors, digestJson, okEnvelope, type ArchitectureEventV1, type Json, type JsonEnvelope, type ModelStorePort, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, okEnvelope, type ArchitectureEventV1, type Json, type JsonEnvelope, type ModelStorePort, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
 import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import { AcceptCommittedChangeInputError, acceptedChangeFromEventV2, acceptedCommittedChangeEventV2, captureModelTransitionBase, decodeAcceptCommittedChangeInput, planCommittedChangeAcceptance, recordModelTransitionEvidence, resolveAcceptanceHeadSha, type AcceptCommittedChangeRequest } from "./committed-change-acceptance";
@@ -338,7 +338,7 @@ export class ChangeSetAuthorityService {
       if (draft.base.headSha !== session.workspace.headSha) throw new FailureError("AC_PRECONDITION_FAILED", "apply-head-changed", {expectedHeadSha: draft.base.headSha, actualHeadSha: session.workspace.headSha});
       if (draft.base.worktreeDigest !== current) throw new FailureError("AC_PRECONDITION_FAILED", "apply-worktree-changed", {expectedWorktreeDigest: draft.base.worktreeDigest, actualWorktreeDigest: current});
       const currentModel = await this.readModelStore.validateModel(session.workspace);
-      const baseErrors = baseModelBlockingErrors(currentModel);
+      const baseErrors = changeSetBaseModelBlockingErrors(currentModel, draft);
       if (baseErrors.length > 0) {
         throw new FailureError("AC_PRECONDITION_FAILED", "apply-model-invalid", {issueCount: baseErrors.length});
       }

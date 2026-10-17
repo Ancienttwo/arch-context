@@ -6837,6 +6837,26 @@ describe("archctx CLI", () => {
     }
   }, CLI_PROCESS_TIMEOUT_MS);
 
+  test("archctx resolve reports a node directory as unreadable (#370)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-unreadable-"));
+    try {
+      writeResolveFixtureModel(root);
+      writeFileSync(join(root, "paths.txt"), "packages/app/index.ts\n", "utf8");
+      mkdirSync(join(root, ".archcontext/model/nodes/x.yaml"));
+      for (const args of [["--path", "packages/app/index.ts"], ["--paths-from", "paths.txt"]]) {
+        const result = await runCliProcessRaw(root, "resolve", ...args, "--json");
+        expect(result.code).toBe(1);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          ok: false,
+          error: { code: "AC_PRECONDITION_FAILED", reasonCode: "native-context-input-unreadable", retryable: false, details: { category: "open-or-read" } }
+        });
+      }
+      expect(existsSync(testStateRoot(root))).toBe(false);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, CLI_PROCESS_TIMEOUT_MS);
+
   test("archctx validate exits nonzero for schema and YAML errors (#370)", async () => {
     const root = createInitializedGitRepo();
     const path = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
