@@ -60,6 +60,57 @@ describe("stateless native context sources", () => {
     } finally { fixture.cleanup(); }
   });
 
+  test.each(["ref", "worktree"] as const)("%s schema issues retain the parsed path when the ID differs", source => {
+    const fixture = createNativeFixture();
+    try {
+      const path = ".archcontext/model/flows/flow.demo.primary.yaml";
+      writeFixtureFile(fixture.root, path, JSON.stringify({ ...fixtureModel().flows[0]!, id: "flow.Module.primary" }));
+      const ref = commitFixture(fixture.root);
+      const error = reason(() => exportNativeContext(fixture.root, { source, ref }));
+      expect(error.reasonCode).toBe("native-context-model-invalid");
+      expect(error.details.path).toBe(path);
+      expect(error.details.issues).toEqual([{
+        entityId: "flow.Module.primary", field: "$.id",
+        invariant: "does not match ^flow\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$", path
+      }]);
+    } finally { fixture.cleanup(); }
+  });
+  test.each(["ref", "worktree"] as const)("%s duplicate ID issues retain each record's own path", source => {
+    const fixture = createNativeFixture();
+    try {
+      const paths = [".archcontext/model/flows/flow.demo.primary.yaml", ".archcontext/model/flows/second.yaml"];
+      for (const path of paths) writeFixtureFile(fixture.root, path, JSON.stringify({ ...fixtureModel().flows[0]!, id: "flow.Module.primary" }));
+      const ref = commitFixture(fixture.root);
+      const error = reason(() => exportNativeContext(fixture.root, { source, ref }));
+      expect(error.reasonCode).toBe("native-context-model-invalid");
+      const issues = error.details.issues as Array<{ field: string; invariant: string; path: string }>;
+      expect(issues.filter(issue => issue.field === "$.id").map(issue => issue.path)).toEqual(paths);
+      expect(issues.find(issue => issue.invariant === "duplicate-entity-id")!.path).toBe(paths[1]!);
+      expect(error.details).not.toHaveProperty("path");
+    } finally { fixture.cleanup(); }
+  });
+  test.each([undefined, 7])("schema issues retain paths for ID %j", id => {
+    const fixture = createNativeFixture();
+    try {
+      const path = ".archcontext/model/flows/flow.demo.primary.yaml";
+      writeFixtureFile(fixture.root, path, JSON.stringify({ ...fixtureModel().flows[0]!, id }));
+      const error = reason(() => exportNativeContext(fixture.root, { source: "worktree" }));
+      expect(error.reasonCode).toBe("native-context-model-invalid");
+      expect(error.details.path).toBe(path);
+      const issues = error.details.issues as Array<{ entityId: string; path: string }>;
+      expect(issues.length).toBeGreaterThan(0);
+      expect(issues.every(issue => issue.entityId === "(undeclared)" && issue.path === path)).toBe(true);
+    } finally { fixture.cleanup(); }
+  });
+  test("reference issues retain their declaring file path", () => {
+    const fixture = createNativeFixture();
+    try {
+      const path = ".archcontext/model/relations/relation.demo.call.yaml";
+      writeFixtureFile(fixture.root, path, JSON.stringify({ ...fixtureModel().relations[0]!, target: "component.demo.absent" }));
+      const error = reason(() => exportNativeContext(fixture.root, { source: "worktree" }));
+      expect(error.details).toMatchObject({ path, issues: [{ entityId: "relation.demo.call", field: "target", invariant: "relation-node-missing", path }] });
+    } finally { fixture.cleanup(); }
+  });
   test.each(["commit", "tree", "blob"])("fixed objects ignore local %s replacement refs", kind => {
     const fixture = createNativeFixture();
     try {

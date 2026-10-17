@@ -1,6 +1,59 @@
 import { expect, test } from "bun:test";
 import { NativeContextError, nativeContextErrorEnvelope, failureIssues } from "../src";
 
+test("native schema failures preserve optional source paths through public validation", () => {
+  const issue = { entityId: "flow.Module.primary", field: "$.id", invariant: "invalid-id" };
+  const path = ".archcontext/model/flows/input.yaml";
+  for (const item of [issue, { ...issue, path }]) {
+    const result = nativeContextErrorEnvelope(new NativeContextError("native-context-model-invalid", { path, issues: [item] }));
+    expect(result.error?.reasonCode).toBe("native-context-model-invalid");
+    expect(result.error?.details).toEqual({ path, issues: [item] });
+    expect(failureIssues(result.error)).toEqual([]);
+  }
+});
+
+test("native issue path metadata retains own-data and whole-item limits", () => {
+  const issue = { entityId: "flow.demo.primary", field: "$.id", invariant: "invalid-id" };
+  let reads = 0;
+  const accessor = Object.defineProperty({ ...issue }, "path", { enumerable: true, get() { reads++; return "private-body"; } });
+  for (const item of [accessor, { ...issue, path: 7 }, { ...issue, path: "input.yaml", unknown: "field" }]) {
+    const result = nativeContextErrorEnvelope(new NativeContextError("native-context-model-invalid", { issues: [item] }));
+    expect(result.error?.code).toBe("AC_UNCLASSIFIED_FAILURE");
+    expect(failureIssues(result.error)).toEqual([]);
+  }
+  expect(reads).toBe(0);
+  const result = nativeContextErrorEnvelope(new NativeContextError("native-context-model-invalid", { issues: [{ ...issue, path: "x".repeat(257) }] }));
+  expect(result.error?.reasonCode).toBe("native-context-model-invalid");
+  expect(result.error?.details).toMatchObject({ issues: [], omittedDiagnosticCount: 1 });
+  expect(failureIssues(result.error)).toEqual([]);
+});
+
+test("native shared source paths reflect the issues left after budget omission", () => {
+  const path = ".archcontext/model/flows/first.yaml";
+  const issues = Array.from({ length: 31 }, () => ({ entityId: "flow.demo.primary", field: "f".repeat(200), invariant: "i".repeat(200), path }));
+  issues.push({ ...issues[0]!, path: ".archcontext/model/flows/second.yaml" });
+  const result = nativeContextErrorEnvelope(new NativeContextError("native-context-model-invalid", { issues }));
+  const reported = result.error?.details?.issues as typeof issues;
+  expect(reported.length).toBeGreaterThan(0);
+  expect(reported.length).toBeLessThan(issues.length);
+  expect(reported.every(issue => issue.path === path)).toBe(true);
+  expect(result.error?.details?.path).toBe(path);
+  expect(result.error?.details?.omittedDiagnosticCount).toBe(issues.length - reported.length);
+  expect(Buffer.byteLength(JSON.stringify(result, null, 2) + "\n")).toBeLessThanOrEqual(8192);
+  expect(failureIssues(result.error)).toEqual([]);
+});
+
+test("source-aware issues determine the summary even when a caller supplies a conflicting path", () => {
+  const issue = { entityId: "flow.demo.primary", field: "$.id", invariant: "invalid-id", path: "first.yaml" };
+  for (const issues of [[issue], [issue, { ...issue, path: "second.yaml" }]]) {
+    const result = nativeContextErrorEnvelope(new NativeContextError("native-context-model-invalid", { path: "unrelated.yaml", issues }));
+    expect(result.error?.details?.issues).toEqual(issues);
+    if (issues.length === 1) expect(result.error?.details?.path).toBe("first.yaml");
+    else expect(result.error?.details).not.toHaveProperty("path");
+    expect(failureIssues(result.error)).toEqual([]);
+  }
+});
+
 test("C1 native diagnostic metadata is own-data only and never invokes a getter", () => {
   let hooks = 0;
   const details = Object.defineProperty({}, "path", { enumerable: true, get() { hooks++; return "private-native-body"; } });

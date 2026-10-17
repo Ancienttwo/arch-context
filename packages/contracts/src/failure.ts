@@ -568,7 +568,7 @@ function nativeFactsFor(policy: Policy, input: unknown): {[key: string]: Json} {
     if (type === "diagnostic") { const s = text(value); if (bytes(s) > 256) { omit(s); return undefined; } return s; }
     const item = dataRecord(value);
     if (type === "issues") {
-      if (Object.keys(item).length !== 3 || !["entityId", "field", "invariant"].every(key => Object.hasOwn(item, key))) throw new Error("Native issue schema is invalid");
+      if (!["entityId", "field", "invariant"].every(key => Object.hasOwn(item, key)) || Object.keys(item).some(key => !["entityId", "field", "invariant", "path"].includes(key))) throw new Error("Native issue schema is invalid");
       const clean = Object.fromEntries(Object.entries(item).map(([key, data]) => [key, text(data.value)]));
       if (Object.values(clean).some(v => bytes(v) > 256)) { omit(clean); return undefined; }
       return clean;
@@ -616,12 +616,21 @@ function nativeFactsFor(policy: Policy, input: unknown): {[key: string]: Json} {
     }
     result[key] = values;
   }
+  const sourceIssues = Array.isArray(result.issues) ? result.issues as Array<Record<string, Json>> : [];
+  // Legacy issues without source paths keep any explicit path supplied by the caller.
+  const summarizePath = sourceIssues.some(issue => typeof issue.path === "string");
   const counts = () => {
     if (!Number.isSafeInteger(omitted) || !Number.isSafeInteger(characters)) throw new Error("Native diagnostic counts exceed schema");
     if (omitted) result.omittedDiagnosticCount = omitted;
     if (characters) result.omittedDiagnosticCharacters = characters;
   };
   const fits = () => {
+    // Derive the summary from surviving whole issues, including after budget omission.
+    if (summarizePath) {
+      const path = sourceIssues[0]?.path;
+      if (typeof path === "string" && sourceIssues.every(issue => issue.path === path)) result.path = path;
+      else delete result.path;
+    }
     counts();
     const base = catalogDefaults[policy.code as ArchContextErrorCode];
     const error = {code: policy.code, message: policy.message, severity: base.severity, retryable: policy.retryable ?? base.retryable, action: policy.action ?? base.action, reasonCode: Object.entries(policies).find(([, p]) => p === policy)?.[0], details: result};

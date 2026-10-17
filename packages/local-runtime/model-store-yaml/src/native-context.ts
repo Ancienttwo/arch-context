@@ -325,14 +325,16 @@ function capture(source: CapturedSource, snapshot: NativeContextSnapshot): Nativ
   const budget = record(manifest.runtime ?? null)?.contextBudgetBytes;
   if (typeof budget !== "number" || !Number.isSafeInteger(budget) || budget <= 0) throw new NativeContextError("native-context-budget-invalid", { path: MANIFEST, field: "runtime.contextBudgetBytes" });
   const model: NativeContextModel = { nodes: [], relations: [], flows: [], sourcePaths: { nodes: {}, relations: {}, flows: {} } };
+  const recordPaths = new Map<NativeModelRecord, string>();
   for (const spec of specs) if (spec.role !== "manifest") {
     const value = record(parseInput(source, spec.path));
     if (!value) throw new NativeContextError("native-context-model-invalid", { path: spec.path, invariant: "entity-object-required" });
     const kind: ModelKind = spec.role === "node" ? "nodes" : spec.role === "relation" ? "relations" : "flows";
     model[kind].push(value);
+    recordPaths.set(value, spec.path);
     if (typeof value.id === "string") model.sourcePaths[kind][value.id] = spec.path;
   }
-  const issues = nativeContextModelIssues(model, SCHEMAS);
+  const issues = nativeContextModelIssues(model, SCHEMAS, recordPaths);
   if (issues.length > 0) throw new NativeContextError(issues.some(issue => issue.invariant === "path-unsafe") ? "native-context-path-unsafe" : "native-context-model-invalid", { issues: issues.slice(0, 32) as unknown as Json, omittedDiagnosticCount: Math.max(0, issues.length - 32) });
   for (const kind of MODEL_KINDS) model[kind].sort((a, b) => nativeByteCompare(a.id as string, b.id as string));
   const capabilityProfiles = profiles(model);

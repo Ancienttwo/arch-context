@@ -149,7 +149,7 @@ export function nativeByteCompare(left: string, right: string): number {
 
 type SchemaDocument = Parameters<typeof validateJsonSchema>[0];
 export interface NativeContextSchemas { node: SchemaDocument; relation: SchemaDocument; flow: SchemaDocument }
-export interface NativeModelIssue { entityId: string; field: string; invariant: string }
+export interface NativeModelIssue { entityId: string; field: string; invariant: string; path?: string }
 
 /** Fixed canonical documents are supplied by the bundled reader, never by repository input. */
 export function nativeContextSchemaResolver(schemas: NativeContextSchemas): JsonSchemaResolver {
@@ -162,10 +162,14 @@ export function nativeAllowedNodeKinds(schemas: NativeContextSchemas): string[] 
   return [...kinds] as string[];
 }
 
-/** Complete native shape/reference validation; no filesystem, symbols, runtime or mutation. */
-export function nativeContextModelIssues(model: NativeContextModel, schemas: NativeContextSchemas): NativeModelIssue[] {
+/** Complete native shape/reference validation; optional paths bind parsed records, never IDs. */
+export function nativeContextModelIssues(model: NativeContextModel, schemas: NativeContextSchemas, recordPaths?: ReadonlyMap<NativeModelRecord, string>): NativeModelIssue[] {
   const issues: NativeModelIssue[] = [];
-  const add = (entityId: string, field: string, invariant: string) => issues.push({ entityId, field, invariant });
+  const add = (record: NativeModelRecord | string, field: string, invariant: string) => {
+    const entityId = typeof record === "string" ? record : typeof record.id === "string" ? record.id : "(undeclared)";
+    const path = typeof record === "string" ? undefined : recordPaths?.get(record);
+    issues.push({ entityId, field, invariant, ...(path === undefined ? {} : { path }) });
+  };
   const resolveSchema = nativeContextSchemaResolver(schemas);
   const ids = new Set<string>();
   for (const [kind, records] of [["node", model.nodes], ["relation", model.relations], ["flow", model.flows]] as const) {
@@ -182,46 +186,45 @@ export function nativeContextModelIssues(model: NativeContextModel, schemas: Nat
         const item = pending.pop()!;
         const value = item.value;
         if (item.exit) { active.delete(value as object); done.add(value as object); continue; }
-        if (typeof value === "number" && !Number.isFinite(value)) { add(id, item.field, "non-json-number"); jsonInvalid = true; break; }
+        if (typeof value === "number" && !Number.isFinite(value)) { add(record, item.field, "non-json-number"); jsonInvalid = true; break; }
         if (value === null || typeof value !== "object") continue;
-        if (active.has(value)) { add(id, item.field, "non-json-cycle"); jsonInvalid = true; break; }
+        if (active.has(value)) { add(record, item.field, "non-json-cycle"); jsonInvalid = true; break; }
         if (done.has(value)) continue;
         const prototype = Object.getPrototypeOf(value);
-        if (Array.isArray(value) ? prototype !== Array.prototype : prototype !== Object.prototype) { add(id, item.field, "non-json-prototype"); jsonInvalid = true; break; }
+        if (Array.isArray(value) ? prototype !== Array.prototype : prototype !== Object.prototype) { add(record, item.field, "non-json-prototype"); jsonInvalid = true; break; }
         active.add(value); pending.push({ value, field: item.field, exit: true });
         for (const [key, child] of Object.entries(value)) pending.push({ value: child, field: `${item.field}.${key}` });
       }
       if (jsonInvalid) continue;
       const schema = kind === "node" ? schemas.node : kind === "relation" ? schemas.relation : schemas.flow;
-      for (const issue of validateJsonSchema(schema, record, { resolveSchema }).issues) add(id, issue.path, issue.message);
-      if (ids.has(id)) add(id, "id", "duplicate-entity-id");
+      for (const issue of validateJsonSchema(schema, record, { resolveSchema }).issues) add(record, issue.path, issue.message);
+      if (ids.has(id)) add(record, "id", "duplicate-entity-id");
       ids.add(id);
     }
   }
   // Invalid shapes cannot safely participate in reference validation.
   if (issues.length > 0) return issues;
   for (const kind of ["nodes", "relations", "flows"] as const) {
-    const expected = new Set(model[kind].map(entity => entity.id as string));
-    for (const id of expected) if (!Object.hasOwn(model.sourcePaths[kind], id)) add(id, `sourcePaths.${kind}`, "source-path-index-incomplete");
+    const expected = new Map(model[kind].map(entity => [entity.id as string, entity]));
+    for (const [id, entity] of expected) if (!Object.hasOwn(model.sourcePaths[kind], id)) add(entity, `sourcePaths.${kind}`, "source-path-index-incomplete");
     for (const [id, path] of Object.entries(model.sourcePaths[kind])) {
       if (!expected.has(id)) add(id, `sourcePaths.${kind}`, "source-path-index-unknown-entity");
-      if (!isNativeContextPath(path)) add(id, `sourcePaths.${kind}`, "path-unsafe");
+      if (!isNativeContextPath(path)) add(expected.get(id) ?? id, `sourcePaths.${kind}`, "path-unsafe");
     }
   }
   const nodes = new Map(model.nodes.map(node => [node.id as string, node]));
   const checked = new Set<string>();
   for (const node of model.nodes) {
-    const id = node.id as string;
     const chain = new Set<string>();
     let cursor: NativeModelRecord | undefined = node;
     while (cursor) {
       const current = cursor.id as string;
-      if (chain.has(current)) { add(id, "parent", "parent-cycle"); break; }
+      if (chain.has(current)) { add(node, "parent", "parent-cycle"); break; }
       if (checked.has(current)) break;
       chain.add(current);
       if (cursor.parent === undefined) break;
       const parent = nodes.get(cursor.parent as string);
-      if (!parent) { add(current, "parent", "parent-node-missing"); break; }
+      if (!parent) { add(cursor, "parent", "parent-node-missing"); break; }
       cursor = parent;
     }
     for (const current of chain) checked.add(current);
@@ -229,48 +232,47 @@ export function nativeContextModelIssues(model: NativeContextModel, schemas: Nat
   const selectors = new Set<string>();
   for (const node of model.nodes) {
     const source = node.source as { include?: string[]; exclude?: string[]; entrypoints?: Array<{ id: string; path: string; symbols: Array<{ name: string; sinks: Array<{ id: string; path: string; symbol: string }> }> }> } | undefined;
-    for (const path of [...source?.include ?? [], ...source?.exclude ?? []]) if (!isNativeContextPath(path)) add(node.id as string, "source", "path-unsafe");
+    for (const path of [...source?.include ?? [], ...source?.exclude ?? []]) if (!isNativeContextPath(path)) add(node, "source", "path-unsafe");
     for (const entry of source?.entrypoints ?? []) {
-      if (!isNativeContextPath(entry.path)) add(node.id as string, "source.entrypoints.path", "path-unsafe");
+      if (!isNativeContextPath(entry.path)) add(node, "source.entrypoints.path", "path-unsafe");
       for (const symbol of entry.symbols) {
         for (const sink of symbol.sinks) {
-          if (!isNativeContextPath(sink.path)) add(node.id as string, "source.entrypoints.symbols.sinks.path", "path-unsafe");
+          if (!isNativeContextPath(sink.path)) add(node, "source.entrypoints.symbols.sinks.path", "path-unsafe");
           const selector = JSON.stringify([entry.id, symbol.name, sink.id]);
-          if (selectors.has(selector)) add(node.id as string, "source.entrypoints.symbols.sinks.id", "selector-ambiguous");
+          if (selectors.has(selector)) add(node, "source.entrypoints.symbols.sinks.id", "selector-ambiguous");
           selectors.add(selector);
         }
       }
     }
   }
   for (const relation of model.relations) {
-    for (const field of ["source", "target", "via"] as const) if (relation[field] !== undefined && !nodes.has(relation[field] as string)) add(relation.id as string, field, "relation-node-missing");
+    for (const field of ["source", "target", "via"] as const) if (relation[field] !== undefined && !nodes.has(relation[field] as string)) add(relation, field, "relation-node-missing");
   }
   for (const flow of model.flows) {
-    const id = flow.id as string;
-    if (nodes.get(flow.capabilityId as string)?.kind !== "capability") add(id, "capabilityId", "flow-capability-missing");
+    if (nodes.get(flow.capabilityId as string)?.kind !== "capability") add(flow, "capabilityId", "flow-capability-missing");
     if (flow.applicability !== "required") continue;
     const participants = flow.participants as Array<{ id: string; nodeId: string }>;
     const participantIds = new Set<string>();
     for (const participant of participants) {
-      if (participantIds.has(participant.id)) add(id, "participants.id", "participant-id-ambiguous");
+      if (participantIds.has(participant.id)) add(flow, "participants.id", "participant-id-ambiguous");
       participantIds.add(participant.id);
-      if (!nodes.has(participant.nodeId)) add(id, "participants.nodeId", "participant-node-missing");
+      if (!nodes.has(participant.nodeId)) add(flow, "participants.nodeId", "participant-node-missing");
     }
     const definitions = new Map<string, string>();
     const outcomes = flow.outcomes as Array<{ id: string; steps: NativeModelRecord[]; terminal: { participant: string } }>;
     const outcomeIds = new Set<string>();
     for (const outcome of outcomes) {
-      if (outcomeIds.has(outcome.id)) add(id, "outcomes.id", "outcome-id-ambiguous");
+      if (outcomeIds.has(outcome.id)) add(flow, "outcomes.id", "outcome-id-ambiguous");
       outcomeIds.add(outcome.id);
-      if (!participantIds.has(outcome.terminal.participant)) add(id, "outcomes.terminal", "terminal-participant-missing");
+      if (!participantIds.has(outcome.terminal.participant)) add(flow, "outcomes.terminal", "terminal-participant-missing");
     }
     for (const step of [...flow.steps as NativeModelRecord[], ...outcomes.flatMap(outcome => outcome.steps)]) {
-      if (!participantIds.has(step.from as string) || !participantIds.has(step.to as string)) add(id, "steps", "step-participant-missing");
+      if (!participantIds.has(step.from as string) || !participantIds.has(step.to as string)) add(flow, "steps", "step-participant-missing");
       const definition = canonicalize(step);
-      if (definitions.has(step.id as string) && definitions.get(step.id as string) !== definition) add(id, "steps.id", "step-definition-ambiguous");
+      if (definitions.has(step.id as string) && definitions.get(step.id as string) !== definition) add(flow, "steps.id", "step-definition-ambiguous");
       definitions.set(step.id as string, definition);
       const selector = step.evidence as { entrypointId: string; sourceSymbol: string; sinkId: string };
-      if (!selectors.has(JSON.stringify([selector.entrypointId, selector.sourceSymbol, selector.sinkId]))) add(id, "steps.evidence", "selector-missing");
+      if (!selectors.has(JSON.stringify([selector.entrypointId, selector.sourceSymbol, selector.sinkId]))) add(flow, "steps.evidence", "selector-missing");
     }
   }
   return issues;

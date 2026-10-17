@@ -9,7 +9,7 @@ import relation from "../../../schemas/repo/architecture-relation.schema.json";
 import flow from "../../../schemas/repo/architecture-flow.schema.json";
 import exportSchema from "../../../schemas/runtime/native-context-export.schema.json";
 import { validateJsonSchema } from "../src/validator";
-import { publishedSchemaResolver } from "./published-schemas";
+import { publishedSchemaIssues, publishedSchemaResolver } from "./published-schemas";
 
 const schemas = { node, relation, flow } as unknown as NativeContextSchemas;
 function model(): NativeContextModel {
@@ -49,6 +49,54 @@ describe("native context contract", () => {
   test.each(cases)("rejects %s", (_name, mutate, invariant) => {
     const value = model(); mutate(value);
     expect(nativeContextModelIssues(value, schemas).some(issue => issue.invariant.includes(invariant))).toBe(true);
+  });
+  test.each(cases)("preserves issue fields and adds owner paths for %s", (_name, mutate) => {
+    const value = model(); mutate(value);
+    const records = [...value.nodes, ...value.relations, ...value.flows];
+    const paths = new Map(records.map((record, index) => [record, `.archcontext/model/input-${index}.yaml`]));
+    const legacy = nativeContextModelIssues(value, schemas);
+    const issues = nativeContextModelIssues(value, schemas, paths);
+    expect(legacy.length).toBeGreaterThan(0);
+    expect(legacy.every(issue => !Object.hasOwn(issue, "path"))).toBe(true);
+    expect(issues.map(({ path, ...issue }) => issue)).toEqual(legacy);
+    for (const issue of issues) {
+      const owners = records.filter(record => record.id === issue.entityId);
+      const owner = owners[owners.length - 1]!;
+      expect(issue.path).toBe(paths.get(owner)!);
+    }
+  });
+  test("parent traversal reports the source of the missing parent declaration", () => {
+    const value = model();
+    value.nodes[0]!.parent = value.nodes[1]!.id!;
+    value.nodes[1]!.parent = "module.demo.absent";
+    const path = ".archcontext/model/nodes/declaration.yaml";
+    const issues = nativeContextModelIssues(value, schemas, new Map([[value.nodes[1]!, path]]));
+    expect(issues).toEqual([{ entityId: "module.demo.system", field: "parent", invariant: "parent-node-missing", path }]);
+  });
+  test("schema issue paths use record identity for duplicate and undeclared IDs", () => {
+    const value = model();
+    const first = value.flows[0]!;
+    first.id = "flow.Module.primary";
+    const duplicate = { ...first };
+    const missing = { ...first }; delete missing.id;
+    const numeric = { ...first, id: 7 };
+    value.flows = [first, duplicate, missing, numeric];
+    const paths = new Map(value.flows.map((record, index) => [record, `.archcontext/model/flows/input-${index}.yaml`]));
+    const issues = nativeContextModelIssues(value, schemas, paths);
+    for (const record of value.flows) expect(issues.some(issue => issue.path === paths.get(record))).toBe(true);
+    expect(issues.find(issue => issue.invariant === "duplicate-entity-id")).toMatchObject({ path: paths.get(duplicate) });
+    expect(issues.filter(issue => issue.entityId === "(undeclared)" && issue.field === "$.id")).toEqual([
+      { entityId: "(undeclared)", field: "$.id", invariant: "required", path: paths.get(missing)! },
+      { entityId: "(undeclared)", field: "$.id", invariant: "expected type string", path: paths.get(numeric)! }
+    ]);
+  });
+  test("published native issue schema accepts legacy and source-aware diagnostics", () => {
+    const issue = { entityId: "flow.Module.primary", field: "$.id", invariant: "invalid-id" };
+    const schema = "runtime/native-model-issue.schema.json";
+    expect(publishedSchemaIssues(schema, issue)).toEqual([]);
+    expect(publishedSchemaIssues(schema, { ...issue, path: ".archcontext/model/flows/input.yaml" })).toEqual([]);
+    expect(publishedSchemaIssues(schema, { ...issue, path: 7 }).length).toBeGreaterThan(0);
+    expect(publishedSchemaIssues(schema, { ...issue, unknown: "field" }).length).toBeGreaterThan(0);
   });
   test("same symbol with distinct complete selector tuples remains valid", () => {
     const value = model();
