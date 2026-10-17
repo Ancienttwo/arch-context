@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { isMap, isScalar, isSeq, parseDocument } from "yaml";
 import {
   REVIEW_FAIL_ON_CATEGORIES,
   canonicalize,
@@ -476,7 +477,7 @@ function dedupeStrings(values: string[]): string[] {
 export function parseJsonOrStableYaml(body: string, path: string): Json {
   const trimmed = body.trim();
   if (!trimmed) throw new Error(`${path}: empty model file`);
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return checkedJsonDecode(trimmed, path, "json-document");
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return checkedJsonOrFlowYaml(trimmed, path, "json-document");
   return new StableYamlParser(body, path).parse();
 }
 
@@ -914,16 +915,54 @@ function parseScalar(value: string, path: string): Json {
   if (value === "{}") return {};
   if (value === "true" || value === "false" || value === "null") return JSON.parse(value) as Json;
   if (/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)) return Number(value);
-  if (/^["[{]/.test(value)) return checkedJsonDecode(value, path, "json-scalar");
+  if (/^["[{]/.test(value)) return checkedJsonOrFlowYaml(value, path, "json-scalar");
   return value;
 }
 
-/** The original text is inspected before JSON.parse can discard duplicate object members. */
+/** Duplicate keys are rejected before a decoder can discard object members. */
 export class DuplicateModelKeyError extends Error {
-  constructor(readonly path: string, readonly branch: "yaml-mapping" | "json-document" | "json-scalar", readonly key: string, readonly offset: number) {
+  constructor(readonly path: string, readonly branch: "yaml-mapping" | "yaml-flow" | "json-document" | "json-scalar", readonly key: string, readonly offset: number) {
     super(`${path}: duplicate object key (${branch})`);
     this.name = "DuplicateModelKeyError";
   }
+}
+
+function checkedJsonOrFlowYaml(source: string, path: string, branch: "json-document" | "json-scalar"): Json {
+  try { return checkedJsonDecode(source, path, branch); }
+  catch (error) {
+    if (!(error instanceof SyntaxError) || !(source.startsWith("{") || source.startsWith("["))) throw error;
+  }
+  return checkedFlowYamlDecode(source, path);
+}
+
+function checkedFlowYamlDecode(source: string, path: string): Json {
+  // Keep duplicate members in the AST so JSON key coercion cannot hide a collision.
+  const document = parseDocument(source, { version: "1.2", schema: "core", uniqueKeys: false, prettyErrors: false });
+  const invalid = (reason: string): never => { throw new SyntaxError(`${path}: invalid YAML flow collection (${reason})`); };
+  if (document.errors.length || document.warnings.length) invalid("parse error or warning");
+  if ((!isMap(document.contents) && !isSeq(document.contents)) || !document.contents.flow) invalid("expected flow collection");
+
+  const decode = (node: unknown): Json => {
+    if (node === null) return null;
+    if (!isScalar(node) && !isMap(node) && !isSeq(node)) return invalid("unsupported node or alias");
+    if (node.anchor || node.tag) return invalid("anchor or explicit tag");
+    if (isScalar(node)) {
+      const value: unknown = node.value;
+      if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      return invalid("non-JSON scalar");
+    }
+    if (isSeq(node)) return node.items.map(decode);
+    const keys = new Set<string>();
+    return Object.fromEntries(node.items.map(pair => {
+      if (!isScalar(pair.key)) return invalid("non-scalar key");
+      const key = String(decode(pair.key));
+      if (keys.has(key)) throw new DuplicateModelKeyError(path, "yaml-flow", key, pair.key.range![0]);
+      keys.add(key);
+      return [key, decode(pair.value)];
+    }));
+  };
+  return decode(document.contents);
 }
 
 function checkedJsonDecode(source: string, path: string, branch: "json-document" | "json-scalar"): Json {

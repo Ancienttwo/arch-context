@@ -29,6 +29,37 @@ function files(root: string, prefix = ""): Record<string, string> {
   return values;
 }
 describe("stateless native context sources", () => {
+  test.each(["worktree", "ref"] as const)("YAML flow files match JSON exports through the %s selector", source => {
+    const fixture = createNativeFixture();
+    try {
+      const flow = fixtureModel().flows.find(value => value.id === "flow.demo.optional")!;
+      const path = `.archcontext/model/flows/${flow.id}.yaml`;
+      const selector = source === "ref" ? { source, ref: "HEAD" } as const : { source };
+      writeFixtureFile(fixture.root, path, JSON.stringify(flow));
+      commitFixture(fixture.root, "JSON flow");
+      const expected = exportNativeContext(fixture.root, selector).model.flows;
+      expect(expected).toContainEqual(flow);
+      for (const separator of [",", ", "]) {
+        const text = `{${["schemaVersion: archcontext.flow/v1", "id: flow.demo.optional", `capabilityId: ${CAPABILITY_ID}`, "name: Not applicable", "applicability: not-applicable", "rationale: No corresponding flow."].join(separator)}}`;
+        writeFixtureFile(fixture.root, path, text);
+        commitFixture(fixture.root, "YAML flow");
+        expect(exportNativeContext(fixture.root, selector).model.flows).toEqual(expected);
+      }
+      writeFixtureFile(fixture.root, path, "{schemaVersion: archcontext.flow/v1,id: flow.demo.optional}");
+      commitFixture(fixture.root, "Invalid flow schema");
+      const schemaError = reason(() => exportNativeContext(fixture.root, selector));
+      expect(schemaError.reasonCode).toBe("native-context-model-invalid");
+      expect(schemaError.details).toMatchObject({ issues: expect.any(Array) });
+
+      const duplicate = "{schemaVersion: archcontext.flow/v1,id: flow.demo.optional,id: flow.demo.other}";
+      writeFixtureFile(fixture.root, path, duplicate);
+      commitFixture(fixture.root, "Duplicate flow key");
+      const error = reason(() => exportNativeContext(fixture.root, selector));
+      expect(error.reasonCode).toBe("native-context-input-ambiguous");
+      expect(error.details).toMatchObject({ path, branch: "yaml-flow", key: "id", offset: duplicate.lastIndexOf("id:") });
+    } finally { fixture.cleanup(); }
+  });
+
   test.each(["commit", "tree", "blob"])("fixed objects ignore local %s replacement refs", kind => {
     const fixture = createNativeFixture();
     try {
