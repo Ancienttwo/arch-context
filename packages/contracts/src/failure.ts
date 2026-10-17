@@ -289,7 +289,7 @@ for (const policy of Object.values(policies)) {
 }
 export const FAILURE_POLICIES: Readonly<Record<string, Readonly<Policy>>> = Object.freeze(policies);
 const catalogDefaults = Object.fromEntries(Object.entries(ERROR_CATALOG).map(([code, value]) => [code, Object.freeze({ severity: value.severity, retryable: value.retryable, action: value.action })])) as Readonly<Record<ArchContextErrorCode, Readonly<Pick<StrictFailure, "severity" | "retryable" | "action">>>>;
-const actions = new Set([...Object.values(catalogDefaults).map(value => value.action), "correct-command-arguments", "inspect-diagnostics", "reconcile-before-retry", "codegraph-sync", "install-compatible-codegraph", ...Object.values(policies).flatMap(policy => policy.action ? [policy.action] : [])]);
+const actions = new Set([...Object.values(catalogDefaults).map(value => value.action), "correct-command-arguments", "inspect-diagnostics", "reconcile-before-retry", "install-compatible-codegraph", ...Object.values(policies).flatMap(policy => policy.action ? [policy.action] : [])]);
 const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const finiteNonnegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
