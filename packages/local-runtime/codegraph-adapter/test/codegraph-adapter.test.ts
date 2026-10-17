@@ -12,6 +12,18 @@ function expectedSyntheticId(name: string, path: string): string {
   return `codegraph.${digestJson({ name, path } as unknown as Json).slice(7, 19)}`;
 }
 
+function readyStatusCommands(root: string): string {
+  const status = {
+    initialized: true, version: REQUIRED_CODEGRAPH_VERSION, projectPath: realpathSync.native(root),
+    pendingChanges: { added: 0, modified: 0, removed: 0 }, worktreeMismatch: null,
+    index: { builtWithVersion: REQUIRED_CODEGRAPH_VERSION, builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
+  };
+  return `
+if (process.argv[2] === "--version") { console.log(${JSON.stringify(REQUIRED_CODEGRAPH_VERSION)}); process.exit(0); }
+if (process.argv[2] === "status") { console.log(JSON.stringify(${JSON.stringify(status)})); process.exit(0); }
+`;
+}
+
 describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
   test("resolves the projection binary from the exact package instead of PATH", () => {
     const invocation = packagedCodeGraphCliInvocation();
@@ -210,6 +222,7 @@ else process.exit(2);
       mkdirSync(join(root, ".codegraph"));
       writeFileSync(shimPath, `
 import { writeFileSync } from "node:fs";
+${readyStatusCommands(root)}
 writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
   argv: process.argv.slice(2),
   cwd: process.cwd(),
@@ -286,6 +299,7 @@ writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
       writeFileSync(shimPath, `
 import { writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
+${readyStatusCommands(root)}
 if (args[0] === "sync") process.exit(0);
 if (args[0] === "explore") {
   console.log("## Exploration: fake\\n\\n#### src/web/page.ts — page.ts(file)\\n");

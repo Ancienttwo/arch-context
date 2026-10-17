@@ -4,7 +4,7 @@ import type { ArchitectureContextLedgerPort } from "@archcontext/core/context-co
 import { practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { loadPracticeWaiverOwnerRegistry, loadPracticeWaivers } from "@archcontext/core/practice-engine";
 import { digestJson, errorEnvelope, okEnvelope, type ArchitectureDebtReportV1, type CodeFactsPort, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
-import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import type { ExternalDocumentationService } from "./external-documentation";
 import type { RuntimePracticeCheckpointInput } from "./rpc-types";
@@ -76,7 +76,12 @@ export class PracticeCheckpointService {
 
   private async prepareUnchecked(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId = "task_runtime"): Promise<JsonEnvelope> {
     this.assertRunning();
+    if (this.codeFacts.assertCanSync) {
+      root = findRepositoryRoot(root);
+      this.codeFacts.assertCanSync(root);
+    }
     const session = await this.openSession(root);
+    if (this.codeFacts.assertCanSync) await this.codeFacts.ensureReady(session.workspace);
     const result = await prepareTask({
       workspace: session.workspace,
       task,

@@ -18,6 +18,7 @@ export type ArchContextErrorCode =
   | "AC_NODE_VERSION_UNSUPPORTED"
   | "AC_CODEGRAPH_UNAVAILABLE"
   | "AC_CODE_FACTS_UNAVAILABLE"
+  | "AC_CODE_FACTS_NOT_READY"
   | "AC_INDEX_STALE"
   | "AC_CONTEXT_STALE"
   | "AC_SCHEMA_INVALID"
@@ -68,6 +69,7 @@ export const ERROR_CATALOG: Record<ArchContextErrorCode, Omit<ArchContextError, 
   AC_NODE_VERSION_UNSUPPORTED: { code: "AC_NODE_VERSION_UNSUPPORTED", severity: "error", retryable: false, action: "use-supported-node-version" },
   AC_CODEGRAPH_UNAVAILABLE: { code: "AC_CODEGRAPH_UNAVAILABLE", severity: "error", retryable: true, action: "run-diagnostics" },
   AC_CODE_FACTS_UNAVAILABLE: { code: "AC_CODE_FACTS_UNAVAILABLE", severity: "error", retryable: true, action: "codegraph-init" },
+  AC_CODE_FACTS_NOT_READY: { code: "AC_CODE_FACTS_NOT_READY", severity: "error", retryable: false, action: "codegraph-index" },
   AC_INDEX_STALE: { code: "AC_INDEX_STALE", severity: "warning", retryable: true, action: "sync-codefacts" },
   AC_CONTEXT_STALE: { code: "AC_CONTEXT_STALE", severity: "warning", retryable: true, action: "prepare-task-again" },
   AC_SCHEMA_INVALID: { code: "AC_SCHEMA_INVALID", severity: "error", retryable: false, action: "repair-model" },

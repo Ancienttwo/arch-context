@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   REQUIRED_CODEGRAPH_VERSION,
+  assertRepositoryCodeFactsReady,
   inspectRepositoryCodeFacts,
   projectionCodeGraphStatusIssues,
   type CodeGraphProjectionStatusV1
@@ -163,6 +164,53 @@ describe("inspectRepositoryCodeFacts", () => {
         issues: []
       });
       expect(require("node:fs").readFileSync(log, "utf8")).toBe("--version\nstatus\n");
+    });
+  });
+
+  test("doctor recommends reindexing an index built with another CodeGraph version", () => {
+    withRoot(root => {
+      mkdirSync(join(root, ".codegraph"));
+      const status = freshStatus(root);
+      status.index = { ...status.index, builtWithVersion: "1.6.1", reindexRecommended: false };
+      const facts = inspectRepositoryCodeFacts(root, { binary: fakeCodeGraph(root, { status }) });
+      expect(facts).toMatchObject({
+        state: "not-ready", reindexRecommended: true,
+        issues: [{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }]
+      });
+    });
+  });
+
+  test.each([
+    ["not-initialized", true], ["index-incomplete", true], ["extraction-version-mismatch", true],
+    ["worktree-mismatch", true], ["project-path-mismatch", true], ["pending-source-changes", false]
+  ] as const)("doctor and the refusal agree on recovery for %s", (code, reindexRecommended) => {
+    withRoot(root => {
+      mkdirSync(join(root, ".codegraph"));
+      const status = freshStatus(root);
+      if (code === "not-initialized") status.initialized = false;
+      if (code === "index-incomplete") status.index = { ...status.index, state: "building" };
+      if (code === "extraction-version-mismatch") status.index = { ...status.index, builtWithExtractionVersion: 6 };
+      if (code === "worktree-mismatch") status.worktreeMismatch = { expected: "other" };
+      if (code === "project-path-mismatch") status.projectPath = join(root, "absent");
+      if (code === "pending-source-changes") status.pendingChanges = { added: 1, modified: 0, removed: 0 };
+      const options = { binary: fakeCodeGraph(root, { status }) };
+      const facts = inspectRepositoryCodeFacts(root, options);
+      expect(facts).toMatchObject({ state: "not-ready", reindexRecommended });
+      expect(() => assertRepositoryCodeFactsReady(root, options)).toThrow();
+      try { assertRepositoryCodeFactsReady(root, options); }
+      catch (error) { expect(error).toMatchObject({ code: "AC_CODE_FACTS_NOT_READY", action: reindexRecommended ? "codegraph-index" : "codegraph-sync", details: { issues: "issues" in facts ? facts.issues : [] } }); }
+    });
+  });
+
+  test("binary version diagnostics do not copy raw process output into issue messages", () => {
+    withRoot(root => {
+      mkdirSync(join(root, ".codegraph"));
+      const options = { binary: fakeCodeGraph(root, { version: "/private/version-output token=secret", status: freshStatus(root) }) };
+      const facts = inspectRepositoryCodeFacts(root, options);
+      expect("issues" in facts && facts.issues).toEqual([{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }]);
+      expect(() => assertRepositoryCodeFactsReady(root, options)).toThrow();
+      try { assertRepositoryCodeFactsReady(root, options); }
+      catch (error) { expect(error).toMatchObject({ action: "install-compatible-codegraph" }); }
     });
   });
 
