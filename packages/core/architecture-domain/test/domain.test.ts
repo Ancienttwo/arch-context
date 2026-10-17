@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Json } from "@archcontext/contracts";
 import {
+  DuplicateModelKeyError,
   assertRepoRelativePath,
   activeRepositoriesForTask,
   addCrossRepoRelation,
@@ -450,6 +452,72 @@ describe("@archcontext/core/architecture-domain", () => {
       expect(validateAdrAppliesTo([])).toEqual(clean);
     });
   });
+});
+
+describe("shared parser YAML flow collections", () => {
+  for (const inline of [false, true]) {
+    const parse = (source: string) => parseJsonOrStableYaml(inline ? `value: ${source}\n` : source, "fixture.yaml");
+    const wrap = (value: Json): Json => inline ? { value } : value;
+
+    describe(inline ? "block inline value" : "document", () => {
+      test.each([",", ", "])("flow mapping with separator %j matches JSON", separator => {
+        const source = `{${["schemaVersion: archcontext.flow/v1", "id: flow.module.primary", "name: Optional flow"].join(separator)}}`;
+        const json = '{"schemaVersion":"archcontext.flow/v1","id":"flow.module.primary","name":"Optional flow"}';
+        expect(parse(source)).toEqual(parse(json));
+      });
+
+      test("nested flow sequences use YAML 1.2 core scalars", () => {
+        const value = [{ names: ["first", "second"], flags: [true, false, null], count: 16 }, ["yes", "2026-10-17", 100]];
+        expect(parse("[{names: [first, 'second'],flags: [true, FALSE, ~],count: 0x10},[yes, 2026-10-17, 1e2]]")).toEqual(wrap(value));
+      });
+
+      test.each([
+        ["{a: 1,a: 2}", "a", 6],
+        ['[{nested: {a: 1,"\\u0061": 2}}]', "a", 16],
+        ['{1: first,"1": second}', "1", 10],
+        ['{null: first,"null": second}', "null", 13]
+      ] as const)("flow duplicate %s has typed source metadata", (source, key, offset) => {
+        expect(() => parse(source)).toThrow(DuplicateModelKeyError);
+        try { parse(source); }
+        catch (error) { expect(error).toMatchObject({ path: "fixture.yaml", branch: "yaml-flow", key, offset }); }
+      });
+
+      test.each([
+        '{"a":1,"a":2}',
+        '{"a":1,"\\u0061":2}',
+        '{"a":1,"a":2,broken}'
+      ])("JSON duplicates keep their branch: %s", source => {
+        expect(() => parse(source)).toThrow(DuplicateModelKeyError);
+        try { parse(source); }
+        catch (error) { expect(error).toMatchObject({ branch: inline ? "json-scalar" : "json-document", key: "a", offset: 7 }); }
+      });
+
+      test.each([
+        "{a: &value text}", "{a: &value [text],b: *value}", "{a: *missing}",
+        "{&key a: text}", "{a: !!str text}", "{a: ! text}", "{!!str a: text}",
+        "{a: !!set {b: null}}", "{a: !unknown text}",
+        "{? [a,b]: text}", "{? {a: b}: text}",
+        "{a: .nan}", "{a: .inf}", "{a: -.inf}", "{a: 1e400}", "{.inf: text}",
+        "{a: [text}", "{a: text} trailing", "{a: text}: value", "[a]\n---\n[b]"
+      ])("rejects unsupported flow input %s", source => {
+        expect(() => parse(source)).toThrow();
+      });
+
+      test("flow objects keep prototype keys as own JSON fields", () => {
+        const json = '{"__proto__":{"polluted":true},"constructor":"plain","items":[{"a":1},{"a":2}]}';
+        const actual = parse("{__proto__: {polluted: true},constructor: plain,items: [{a: 1},{a: 2}]}");
+        expect(actual).toEqual(parse(json));
+        const object = inline ? (actual as Record<string, unknown>).value : actual;
+        expect(Object.getPrototypeOf(object)).toBe(Object.prototype);
+        expect(Object.hasOwn(object as object, "__proto__")).toBe(true);
+      });
+
+      test("strict JSON keeps the original overflow, negative zero and string values", () => {
+        const source = '[1e400,-0,{"escaped":"a\\nb","__proto__":null}]';
+        expect(parse(source)).toEqual(wrap(JSON.parse(source)));
+      });
+    });
+  }
 });
 
 describe("shared parser duplicate-key ambiguity", () => {
