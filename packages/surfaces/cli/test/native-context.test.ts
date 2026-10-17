@@ -4,9 +4,25 @@ import { join } from "node:path";
 import { NATIVE_CONTEXT_LIMITS, NativeContextError } from "@archcontext/contracts";
 import { runCli } from "../src/main";
 import { runNativeContextCommand } from "../src/native-context";
-import { createNativeFixture } from "../../../local-runtime/model-store-yaml/test/fixtures/native-context/fixture";
+import { commitFixture, createNativeFixture, fixtureModel, writeFixtureFile } from "../../../local-runtime/model-store-yaml/test/fixtures/native-context/fixture";
 const forbiddenReader = () => { throw new Error("argument preflight performed a read"); };
 describe("native export CLI", () => {
+  test.each(["ref", "worktree"])("%s schema failures print the parsed source path through the real CLI", source => {
+    const fixture = createNativeFixture();
+    try {
+      const path = ".archcontext/model/flows/flow.demo.primary.yaml";
+      writeFixtureFile(fixture.root, path, JSON.stringify({ ...fixtureModel().flows[0]!, id: "flow.Module.primary" }));
+      const ref = commitFixture(fixture.root);
+      const selector = source === "ref" ? ["--ref", ref] : ["--worktree"];
+      let caught: any;
+      try { execFileSync(process.execPath, [join(import.meta.dir, "../src/main.ts"), "export", "native", ...selector, "--json"], { cwd: fixture.root, encoding: "utf8", stdio: "pipe" }); }
+      catch (error) { caught = error; }
+      expect(caught?.status).toBe(1);
+      const result = JSON.parse(String(caught.stdout));
+      expect(result.error).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "native-context-model-invalid", details: { path, issues: [{ entityId: "flow.Module.primary", field: "$.id", path }] } });
+      expect(String(caught.stdout)).not.toContain(fixture.root);
+    } finally { fixture.cleanup(); }
+  });
   test("failure diagnostics cannot amplify a long identifier past the rendered response limit", () => {
     const entityId = `module.demo.${"a".repeat(2_100_000)}`;
     const result = runNativeContextCommand(["--worktree"], "/missing/repo", () => { throw new NativeContextError("native-context-model-invalid", { issues: Array.from({ length: 32 }, (_, index) => ({ entityId, field: `unknown${index}`, invariant: "unknown-property" })) }); });

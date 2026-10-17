@@ -96,3 +96,28 @@ Failures use existing error codes with closed native reason codes and bounded di
 Only observed drift is retryable, with action `rerun-native-export`. Repair other inputs or
 reduce their size before rerunning. Do not silently drop records, switch selectors, adopt a model,
 regenerate documents or fall back to raw YAML parsing when this contract fails.
+
+Model schema and reference failures report `details.issues`. Each reported issue keeps
+`entityId`, `field`, and `invariant`. It also includes `path`, the repository-relative path
+of the parsed file that holds the record. The reader binds paths to records. It does not
+derive a filename from an ID. Duplicate, missing, and non-string IDs keep their source paths.
+When all reported issues share one path, the failure boundary also sets `details.path`.
+It computes this summary after it applies the diagnostic limits.
+This applies to both `--ref` and `--worktree`.
+For `native-context-path-unsafe` with model issues, the path identifies the file
+that declares the unsafe value. It does not identify the unsafe value itself.
+Path refusals without model issues keep their existing `details.path` meaning.
+
+The `archctx-contracts` package adds optional `NativeModelIssue.path` and an optional third
+argument to `nativeContextModelIssues`: a `ReadonlyMap<NativeModelRecord, string>`.
+Callers must use the parsed record objects as keys. Old calls without this map retain their
+three-field issues. The public issue schema is `schemas/runtime/native-model-issue.schema.json`.
+Issues with source paths determine the summary even if a caller supplies a conflicting path.
+Legacy issues without source paths keep an explicit path supplied by the caller.
+Unknown source-index entries have no owner record, so those contract-only issues have no path.
+
+Existing diagnostic limits still apply. At most 32 issues are reported. A diagnostic string
+can use at most 256 UTF-8 bytes. The rendered failure envelope can use at most 8 KiB.
+The failure boundary omits complete oversized issues or fields and reports omission counts.
+It does not truncate paths or IDs.
+Source paths count toward this budget, so fewer issues can fit in one response.

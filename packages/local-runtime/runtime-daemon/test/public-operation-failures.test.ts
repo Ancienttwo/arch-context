@@ -6,6 +6,18 @@ import { auditConsentRequiredEnvelope } from "../src/audit-consent";
 import { readCapabilityDependencies, CapabilityDependenciesError } from "../src/capability-dependencies";
 const sentinel = "/private/customer Authorization=private-body";
 
+test("native source paths survive the public operation failure boundary", async () => {
+  const { NativeContextError } = await import("@archcontext/contracts");
+  const { publicOperationFailure } = await import("../src/public-operation-failure");
+  const path = ".archcontext/model/flows/input.yaml";
+  const details = { path, issues: [{ entityId: "flow.Module.primary", field: "$.id", invariant: "invalid-id", path }] };
+  const error = new NativeContextError("native-context-model-invalid", details);
+  const result = publicOperationFailure(error);
+  expect(result.failure).toEqual(error.failure);
+  expect(result.failure).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "native-context-model-invalid", details });
+  expect(failureIssues(result.failure)).toEqual([]);
+});
+
 test("C1 public resource refusal has its explicit producer reason without extra state writes", async () => {
   let opens=0, reads=0;
   const context={ assertRunning() {}, async openSession() { opens++; return {workspace:{root:"/unused"}}; }, localStore:{async readExternalDocumentationByContentDigest() {reads++;return undefined;} } };

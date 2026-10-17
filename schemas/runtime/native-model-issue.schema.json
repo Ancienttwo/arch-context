@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/native-model-issue.schema.json",
+  "title": "NativeModelIssue",
+  "description": "A native model schema or reference issue. Source paths are optional for callers that do not supply parsed record paths.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entityId", "field", "invariant"],
+  "properties": {
+    "entityId": { "type": "string" },
+    "field": { "type": "string" },
+    "invariant": { "type": "string" },
+    "path": {
+      "type": "string",
+      "description": "The repository-relative path of the parsed source file that holds this record. It is not derived from the entity ID."
+    }
+  }
+}
