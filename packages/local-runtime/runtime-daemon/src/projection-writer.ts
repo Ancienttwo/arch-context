@@ -1,6 +1,6 @@
 import { execFile, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { assertLocalEgressAllowed, LocalEgressPolicyError, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
@@ -204,7 +204,7 @@ export async function runProjectionPublishCommand(options: ProjectionPublishOpti
     iterations: 0
   });
 
-  let lock: { kind: "acquired" } | { kind: "busy"; pid: number };
+  let lock: { kind: "acquired"; record: string } | { kind: "busy"; pid: number };
   try {
     mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
     lock = acquireProjectionWriterLock(paths.lock, startedAt);
@@ -238,7 +238,7 @@ export async function runProjectionPublishCommand(options: ProjectionPublishOpti
     }
     return projectionPublishEnvelope(outcome.run);
   } finally {
-    rmSync(paths.lock, { force: true });
+    releaseProjectionWriterLock(paths.lock, lock.record);
   }
 }
 
@@ -865,11 +865,18 @@ function remoteNameIssue(remote: string): string | undefined {
   return undefined;
 }
 
-function acquireProjectionWriterLock(lockPath: string, startedAt: string): { kind: "acquired" } | { kind: "busy"; pid: number } {
+/**
+ * Takes the writer lock: an O_EXCL private file holding `{pid, startedAt, token}`. A live holder is
+ * `busy`. A dead holder's lock is taken over atomically: it is renamed aside, and discarded only
+ * when the renamed file is still that same stale record; anything else is put back and the run
+ * backs off as busy.
+ */
+function acquireProjectionWriterLock(lockPath: string, startedAt: string): { kind: "acquired"; record: string } | { kind: "busy"; pid: number } {
+  const record = JSON.stringify({ pid: process.pid, startedAt, token: randomUUID() }, null, 2);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      createPrivateControlFile(lockPath, JSON.stringify({ pid: process.pid, startedAt }, null, 2));
-      return { kind: "acquired" };
+      createPrivateControlFile(lockPath, record);
+      return { kind: "acquired", record };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
@@ -880,12 +887,51 @@ function acquireProjectionWriterLock(lockPath: string, startedAt: string): { kin
     }
     const holder = parseProjectionWriterLock(body);
     if (holder && isProcessAlive(holder.pid)) return { kind: "busy", pid: holder.pid };
-    // A dead owner (or an unreadable record) left the lock behind: remove it and retry once.
-    rmSync(lockPath, { force: true });
+    // A dead owner (or an unreadable record) left the lock behind: take it over and retry once.
+    const displaced = takeOverLockIfUnchanged(lockPath, body);
+    if (displaced !== undefined) {
+      const current = readProjectionWriterLock(lockPath);
+      const pid = current && isProcessAlive(current.pid) ? current.pid : displaced?.pid;
+      if (pid !== undefined) return { kind: "busy", pid };
+      throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-lock-unavailable", `the projection writer lock changed during takeover: ${lockPath}`);
+    }
   }
   const holder = readProjectionWriterLock(lockPath);
   if (holder && isProcessAlive(holder.pid)) return { kind: "busy", pid: holder.pid };
   throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-lock-unavailable", `could not take the projection writer lock: ${lockPath}`);
+}
+
+/**
+ * Renames the lock aside and discards it only when it still holds `expected`. Returns undefined when
+ * the lock is gone (discarded or already removed); otherwise the record that was found instead,
+ * which is restored unless a newer lock already took its place.
+ */
+function takeOverLockIfUnchanged(lockPath: string, expected: string): { pid: number; startedAt: string } | null | undefined {
+  const aside = `${lockPath}.${process.pid}.${randomUUID()}.aside`;
+  try {
+    renameSync(lockPath, aside);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    return readProjectionWriterLock(lockPath) ?? null;
+  }
+  const moved = readPrivateControlFile(aside);
+  if (moved === expected) {
+    rmSync(aside, { force: true });
+    return undefined;
+  }
+  try {
+    linkSync(aside, lockPath);
+  } catch {
+    // A newer lock already took the path; it is the holder now.
+  }
+  rmSync(aside, { force: true });
+  return moved === undefined ? null : parseProjectionWriterLock(moved) ?? null;
+}
+
+/** Removes the lock only while it still holds this run's record; a lock another holder wrote is left alone. */
+function releaseProjectionWriterLock(lockPath: string, record: string): void {
+  if (readPrivateControlFile(lockPath) !== record) return;
+  takeOverLockIfUnchanged(lockPath, record);
 }
 
 function readProjectionWriterLock(lockPath: string): { pid: number; startedAt: string } | undefined {

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { jsonSchemaResolver, okEnvelope, validateJsonSchema, type Json, type JsonEnvelope, type ProjectionPublishRunV1, type ProjectionPublishStatusV1, type ProjectionRequestV1 } from "@archcontext/contracts";
@@ -299,6 +299,25 @@ test("a live lock is busy, a dead owner's lock is recovered", async () => {
   const recovered = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env }));
   expect(recovered.result).toBe("published");
   expect(existsSync(paths.lock)).toBe(false);
+  expect(readdirSync(paths.dir).filter((name) => name.endsWith(".aside"))).toEqual([]);
+});
+
+test("a lock another holder wrote during the run is not released by this run", async () => {
+  const fixture = writerFixture();
+  const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
+  const foreign = JSON.stringify({ pid: process.pid, startedAt: "2026-10-20T01:02:03.000Z", token: "another-holder" });
+  const { apply } = fakeApply(() => {
+    // Another writer took the lock over (for example after judging this run stale).
+    expect(readFileSync(paths.lock, "utf8")).toContain(`"pid": ${process.pid}`);
+    rmSync(paths.lock);
+    createPrivateControlFile(paths.lock, foreign);
+    return { files: { "docs/architecture/overview.md": "# overview\n" } };
+  });
+  const { publisher } = recordingPublisher();
+  expect(runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env })).result).toBe("published");
+  expect(readFileSync(paths.lock, "utf8")).toBe(foreign);
+  expect(readdirSync(paths.dir).filter((name) => name.endsWith(".aside"))).toEqual([]);
+  rmSync(paths.lock);
 });
 
 test("a branch outside archctx/, equal to the base, or an unknown remote is rejected before any fetch, lock or state", async () => {
