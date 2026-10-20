@@ -288,7 +288,11 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
 
   try {
     const pushRemote = projectionWriterPushUrl(repositoryRoot, remote);
-    const baseRef = `refs/archctx/projection-base/${createHash("sha256").update(`${remote}\0${base}`).digest("hex")}`;
+    // Preserve the usual remote-tracking refresh without attributing a separate push repo to it.
+    const fetchRemote = git(repositoryRoot, ["remote", "get-url", "--", remote]).trim();
+    const baseRef = fetchRemote === pushRemote
+      ? `refs/remotes/${remote}/${base}`
+      : `refs/archctx/projection-base/${createHash("sha256").update(`${remote}\0${base}`).digest("hex")}`;
     while (iterations < PROJECTION_WRITER_MAX_ITERATIONS) {
       iterations += 1;
       // 1. Fetch the publication destination base into a writer-owned ref.
