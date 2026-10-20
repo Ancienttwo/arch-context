@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/projection-publish-run.schema.json",
+  "title": "ProjectionPublishRunV1",
+  "description": "One run of `archctx projection publish` (the envelope data, and the writer state's lastRun). The writer keeps one rolling archctx/* branch equal to the base tip plus exactly one commit that touches generated projection outputs only. Every result except failed is an ok envelope. Consumers detect it through the projection-publish-v1 capability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "result", "remote", "base", "branch", "baseSha", "publishedCommit", "pushed", "pullRequest", "publisher", "files", "projectionStatus", "humanActions", "error", "startedAt", "finishedAt", "iterations"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.projection-publish-run/v1" },
+    "result": { "enum": ["already-processed", "busy", "failed", "human-action-required", "published", "up-to-date"] },
+    "remote": { "type": "string", "minLength": 1 },
+    "base": { "type": "string", "minLength": 1 },
+    "branch": { "type": "string", "pattern": "^archctx/.+", "description": "The rolling branch. The writer never pushes to any ref outside archctx/." },
+    "baseSha": { "oneOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }], "description": "The base tip this run evaluated; null when the run stopped before resolving one." },
+    "publishedCommit": { "oneOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }], "description": "The rolling branch tip that carries this base's projection, pushed by this run or an earlier one." },
+    "pushed": { "type": "boolean", "description": "True only when this run moved the remote rolling branch." },
+    "pullRequest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": { "type": "string", "minLength": 1 },
+            "number": { "type": "integer", "minimum": 1 }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "publisher": { "enum": ["command", "gh", "none"] },
+    "files": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "Repository-relative generated paths the published commit changes, sorted. Paths only, never contents." },
+    "projectionStatus": { "type": ["string", "null"], "description": "ProjectionResultV2.status of the apply this run made, or null without one." },
+    "humanActions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reasonCode"],
+        "properties": {
+          "reasonCode": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "path": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "pattern": "^AC_[A-Z0-9_]+$" },
+            "reasonCode": { "type": "string", "minLength": 1 },
+            "message": { "type": "string" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "startedAt": { "type": "string", "minLength": 1 },
+    "finishedAt": { "type": "string", "minLength": 1 },
+    "iterations": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Base tips evaluated in this run; above 1 when the base moved while the run worked." },
+    "holderPid": { "type": "integer", "minimum": 1, "description": "Present on busy: the pid of the live writer that holds the lock." }
+  },
+  "allOf": [
+    { "if": { "properties": { "result": { "const": "failed" } } }, "then": { "properties": { "error": { "type": "object" } } }, "else": { "properties": { "error": { "type": "null" } } } },
+    { "if": { "properties": { "result": { "const": "busy" } } }, "then": { "required": ["holderPid"] }, "else": { "not": { "required": ["holderPid"] } } },
+    { "if": { "properties": { "result": { "const": "published" } } }, "then": { "properties": { "publishedCommit": { "$ref": "#/$defs/sha" }, "baseSha": { "$ref": "#/$defs/sha" } } } }
+  ],
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+  }
+}

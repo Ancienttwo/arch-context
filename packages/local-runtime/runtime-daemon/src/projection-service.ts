@@ -1671,6 +1671,25 @@ export async function runAgentContextProjectionCommand(input: RuntimeAgentContex
   } catch (error) { throw publicOperationFailure(error); }
 }
 
+/**
+ * Among `paths`, the agent-context target files whose bytes differ from what `agent-context apply`
+ * would write at `root` now, or that the model no longer renders. Read-only: the same render and
+ * write-body binding as the apply, with no ChangeSet. `projection run` does not render agent
+ * context, so a reader that must prove a contract file is rendered output asks here.
+ */
+export function agentContextProjectionDifferingPaths(root: string, paths: readonly string[]): string[] {
+  const wanted = new Set(paths);
+  if (wanted.size === 0) return [];
+  const projection = buildAgentContextProjection(root);
+  const onDisk = new Map(projection.existingFiles.map((file) => [file.path, file.onDisk]));
+  const written = projectionFilesBoundToRenderInput(projection.existingFiles, projection.plan.files);
+  const rendered = new Set(written.map((file) => file.path));
+  return [...new Set([
+    ...written.filter((file) => wanted.has(file.path) && onDisk.get(file.path) !== file.body).map((file) => file.path),
+    ...[...wanted].filter((path) => !rendered.has(path))
+  ])].sort();
+}
+
 function buildAgentContextProjection(root: string) {
   const model = loadNativeModelFromArchContext(root);
   // Model-only digest: an ADR edit changes the architecture documentation projection, but it does

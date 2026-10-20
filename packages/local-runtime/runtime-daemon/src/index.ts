@@ -25,6 +25,7 @@ import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand,
 import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand } from "./projection-service";
+export { PROJECTION_PR_BODY_MARKER, PROJECTION_WRITER_DEFAULT_BASE, PROJECTION_WRITER_DEFAULT_REMOTE, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, projectionPublishBody, projectionPublishTitle, projectionWriterPaths, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublishOptions, type ProjectionPublisherExec, type ProjectionPublisherInput, type ProjectionPublisherPort, type ProjectionVerifyPrCheckPort, type ProjectionWriterApplyPort } from "./projection-writer";
 import { measureProjectionFreshness } from "./projection-freshness";
 export { runDocsAnchorsCommand } from "./docs-anchors";
 export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "archcontext.projection-pr-verification/v1",
+  "base": "origin/main",
+  "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "mergeBase": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "changedPaths": ["docs/architecture/.projection-manifest.json", "docs/architecture/modules/capability-app.md"],
+  "nonGeneratedPaths": [],
+  "humanEditedPaths": [],
+  "generatedOnly": true,
+  "renderEquivalent": true,
+  "differingPaths": [],
+  "projectionStatus": "noop",
+  "verdict": "generated-only-render-equivalent"
+}

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "archcontext.projection-publish-status/v1",
+  "remote": "origin",
+  "base": "main",
+  "branch": "archctx/projection",
+  "worktreePath": "/Users/example/Library/Application Support/ArchContext/repositories/repo.0123456789abcdef/projection-writer/0123456789abcdef/worktree",
+  "running": null,
+  "lastProcessedSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "lastSuccessfulSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "lastRun": {
+    "schemaVersion": "archcontext.projection-publish-run/v1",
+    "result": "failed",
+    "remote": "origin",
+    "base": "main",
+    "branch": "archctx/projection",
+    "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "publishedCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "pushed": true,
+    "pullRequest": null,
+    "publisher": "gh",
+    "files": ["docs/architecture/modules/capability-app.md"],
+    "projectionStatus": "applied",
+    "humanActions": [],
+    "error": { "code": "AC_PRECONDITION_FAILED", "reasonCode": "projection-publisher-failed", "message": "gh publisher failed: gh pr list failed: not logged in" },
+    "startedAt": "2026-10-20T08:00:00.000Z",
+    "finishedAt": "2026-10-20T08:00:09.000Z",
+    "iterations": 1
+  }
+}

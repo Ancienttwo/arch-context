@@ -2778,6 +2778,23 @@ function mergeAgentContextRegion(target: AgentContextProjectionTarget, wrapped: 
   return `${existing.slice(0, region.start)}${wrapped}${existing.slice(region.end)}`;
 }
 
+/**
+ * The comparison form of an agent-context target file's human text: the file with each marker-owned
+ * region of `nodeIds` replaced by a fixed placeholder naming its node, through the same region parser
+ * the projection writes with. Keeping the placeholder means moving a human line from one side of a
+ * region to the other changes the result. A missing, duplicate, overlapping or malformed region
+ * throws, so a caller can never compare text it could not delimit.
+ */
+export function agentContextTextOutsideRegions(body: string, nodeIds: readonly string[]): string {
+  let text = body;
+  for (const nodeId of [...new Set(nodeIds)].sort()) {
+    const region = findAgentContextRegion(text, nodeId);
+    if (!region) throw new Error(`agent-context-marker-missing: ${nodeId}`);
+    text = `${text.slice(0, region.start)}\u0000archcontext-agent-context-region:${nodeId}\u0000${text.slice(region.end)}`;
+  }
+  return text;
+}
+
 function findAgentContextRegion(body: string, nodeId: string): {
   start: number;
   end: number;
