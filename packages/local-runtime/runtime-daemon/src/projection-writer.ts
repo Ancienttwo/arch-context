@@ -389,7 +389,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
         publishedCommit = lease;
       } else {
         input.assertOwner();
-        remoteGit(paths.worktree, ["push", "--no-verify", `--force-with-lease=refs/heads/${branch}:${lease ?? ""}`, pushRemote, `${commitSha}:refs/heads/${branch}`], env);
+        remoteGit(paths.worktree, ["push", "--no-verify", `--force-with-lease=refs/heads/${branch}:${lease ?? ""}`, "--", pushRemote, `${commitSha}:refs/heads/${branch}`], env);
         pushed = true;
       }
 
