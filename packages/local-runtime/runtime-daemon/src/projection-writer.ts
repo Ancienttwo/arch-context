@@ -1165,7 +1165,7 @@ function isRegisteredWorktree(repositoryRoot: string, worktree: string): boolean
 
 function canonical(path: string): string {
   try {
-    return realpathSync(path);
+    return realpathSync.native(path);
   } catch {
     return resolve(path);
   }

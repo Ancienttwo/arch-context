@@ -70,6 +70,10 @@ The writer still requires human approval for observed major changes by default.
 3. The new branch-switch test contains two full Git fixtures. Its timeout is 30
    seconds. No assertion was removed to handle its first 5-second timeout.
 4. Capability and product-version fixture changes update only the release identity.
+5. The multi-process holder now waits on a reachable release barrier. A timer retains
+   its resolver. An unreachable Promise let GC collect the suspended writer and its
+   SQLite connection. The fixture now forces GC. Its exclusion and crash-recovery
+   assertions are unchanged. Failure messages include the returned run record.
 
 ## Verification evidence
 
@@ -121,3 +125,25 @@ Then create `v0.9.0` and its Release. Verify uploaded assets against SHA256SUMS.
 
 The current public packages remain 0.8.1. Revert the preparation and fix commits to
 roll back before publication. No runtime data migration is required for this release.
+
+## Windows follow-through
+
+The first hosted run on `f710117d` failed only the new multi-process lock test.
+An explicit GC probe reproduced its holder-lifetime error on macOS. A reachable
+release barrier fixed the fixture without changing production ownership logic.
+
+A focused Windows run then reached crash recovery and exposed a path identity bug.
+`realpathSync` retained the `RUNNER~1` short name. Git recorded `runneradmin`.
+The writer now uses `realpathSync.native`, as the existing runtime-state path module
+already does. This prevents a registered owned worktree from being removed as debris.
+
+[Windows run 39484592665](https://github.com/Ancienttwo/arch-context/actions/runs/39484592665)
+passed the forced-GC exclusion, crash recovery, and short-path worktree case on
+Node 22.22, 24, and 25. The diagnostic workflow exists only on a temporary probe
+branch. It is not part of this PR. Final full CI must pass on the updated PR head.
+
+After these Windows corrections, typecheck and all 790 affected tests passed
+(35 files, 5497 assertions). Both 0.9.0 tarballs were rebuilt. The fresh-install
+writer check passed again with the real background daemon. The earlier full local
+verification remains 3419 pass, 4 skip, 0 fail; the final hosted matrix checks the
+complete updated source.

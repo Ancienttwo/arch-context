@@ -298,7 +298,7 @@ test("a live lock is busy, a dead owner's lock is recovered", async () => {
   const dead = spawnSync(process.execPath, ["-e", ""]).pid;
   createPrivateControlFile(paths.lock, JSON.stringify({ pid: dead, startedAt: "2026-10-20T00:00:00.000Z" }));
   const recovered = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env }));
-  expect(recovered.result).toBe("published");
+  expect(recovered.result, JSON.stringify(recovered)).toBe("published");
   expect(existsSync(paths.lock)).toBe(false);
   expect(readdirSync(paths.dir).filter((name) => name.endsWith(".aside"))).toEqual([]);
 });
@@ -642,14 +642,22 @@ test("an OS lock excludes two processes even when the owner record disappears, a
   const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
   const ready = join(fixture.root, "ready");
   const attempted = join(fixture.root, "contender-applied");
+  const release = join(fixture.root, "release-owner");
   const script = join(fixture.root, "lock-worker.ts");
   const writerModule = join(import.meta.dir, "../src/projection-writer.ts");
   writeFileSync(script, `import { runProjectionPublishCommand, createNoneProjectionPublisher } from ${JSON.stringify(writerModule)};
-import {writeFileSync} from "node:fs";
+import {writeFileSync,existsSync} from "node:fs";
 const holding = process.argv[2] === "hold";
 const result = await runProjectionPublishCommand({cwd:${JSON.stringify(fixture.clone)},env:${JSON.stringify(fixture.env)},publisher:createNoneProjectionPublisher(),apply:async()=>{
 writeFileSync(holding ? ${JSON.stringify(ready)} : ${JSON.stringify(attempted)}, "entered");
-if(holding) await new Promise(()=>{setInterval(()=>{},1000)});
+// The timer must retain the resolver. An unresolvable Promise can be garbage-collected
+// with its suspended writer and SQLite connection, even while an empty timer stays alive.
+if(holding) await new Promise<void>((resolve)=>{
+const timer=setInterval(()=>{
+Bun.gc(true);
+if(existsSync(${JSON.stringify(release)})){clearInterval(timer);resolve();}
+},20);
+});
 return {schemaVersion:"archcontext.envelope/v1",ok:true,requestId:"projection.run",data:{status:"noop",files:[],humanActions:[]}};
 }});
 console.log(JSON.stringify(result));`);
@@ -670,7 +678,7 @@ console.log(JSON.stringify(result));`);
   } finally { owner.kill("SIGKILL"); await ownerExit; }
   const { apply } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# recovered\n" } }));
   const recovered = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: createNoneProjectionPublisher(), apply, env: fixture.env }));
-  expect(recovered.result).toBe("published");
+  expect(recovered.result, JSON.stringify(recovered)).toBe("published");
 }, 30000);
 
 test("publisher recovery and lease use the push URL when fetch points elsewhere", async () => {
