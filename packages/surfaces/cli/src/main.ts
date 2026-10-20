@@ -20,7 +20,7 @@ import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarke
 import { completeRuntimeStateRecovery, defaultArchContextStateRoot, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { listWorkspaceStateDirs } from "@archcontext/local-runtime/runtime-state-paths";
-import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, CapabilityDependenciesError, readCapabilityDependencies } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
 import { inspectRepositoryCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
 import { RuntimeRpcTransportError, RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
@@ -84,6 +84,14 @@ const AUDIT_RUN_VALUE_FLAGS = ["--task-session-id", "--reason", "--risk", "--unc
 const AUDIT_RUN_BOOLEAN_FLAGS = ["--no-wait", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
 const AUDIT_APPROVE_VALUE_FLAGS = ["--run-id", "--confirm-public-repo", ...AUDIT_GLOBAL_VALUE_FLAGS];
 const AUDIT_APPROVE_BOOLEAN_FLAGS = ["--resume", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
+
+/** `projection publish|publish-status|verify-pr` flags (#379); the writer CLI handlers scan against these. */
+const PROJECTION_PUBLISH_VALUE_FLAGS = ["--base", "--branch", "--interval", "--publisher", "--publisher-command", "--remote"] as const;
+const PROJECTION_PUBLISH_BOOLEAN_FLAGS = ["--accept-observed-major-change", "--follow"] as const;
+const PROJECTION_PUBLISH_STATUS_VALUE_FLAGS = ["--base", "--remote"] as const;
+const PROJECTION_VERIFY_PR_VALUE_FLAGS = ["--base"] as const;
+const PROJECTION_PUBLISH_DEFAULT_INTERVAL_SECONDS = 300;
+const PROJECTION_PUBLISH_MIN_INTERVAL_SECONDS = 30;
 
 interface CliFlagSpec {
   value: readonly string[];
@@ -210,7 +218,10 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
       recover: { value: ["--request-json"], boolean: [] },
       readback: { value: ["--request-json"], boolean: [] },
       snapshot: { value: [], boolean: [] },
-      freshness: { value: ["--changed-path"], boolean: [] }
+      freshness: { value: ["--changed-path"], boolean: [] },
+      publish: { value: PROJECTION_PUBLISH_VALUE_FLAGS, boolean: PROJECTION_PUBLISH_BOOLEAN_FLAGS },
+      "publish-status": { value: PROJECTION_PUBLISH_STATUS_VALUE_FLAGS, boolean: [] },
+      "verify-pr": { value: PROJECTION_VERIFY_PR_VALUE_FLAGS, boolean: [] }
     }
   },
   "recommendations": {
@@ -360,6 +371,54 @@ const CLI_PROJECTION_FRESHNESS_HELP = {
   },
   writes: "none; no daemon, no local store, no CodeGraph sync. Outside a Git worktree it fails with AC_REPO_NOT_FOUND (git-worktree-required).",
   capability: "projection-freshness-v1"
+};
+
+/** `projection publish --help` (#379); above the entry block for the same TDZ reason as the audit constants. */
+const CLI_PROJECTION_PUBLISH_HELP = {
+  usage: "archctx projection publish [--base <branch>] [--remote <name>] [--branch <archctx/...>] [--publisher gh|command|none] [--publisher-command <executable>] [--accept-observed-major-change] [--follow [--interval <seconds>]] [--json]",
+  description: "Projection writer mode. Fetches the remote base tip, resets a writer-owned worktree to it, applies the projection through that worktree's archctxd, and pushes the result as exactly one commit on top of the base tip to a rolling archctx/* branch, then opens or updates its pull request. Only paths the apply wrote that are projection-owned outputs may change; anything else fails before a commit. One run per remote and base at a time (busy otherwise); the same base SHA is a no-op once published or up to date; a base that moves during the run is re-evaluated and the stale commit is never pushed.",
+  options: {
+    "--base <branch>": "The branch the projection is computed for (default: main).",
+    "--remote <name>": "The remote to fetch the base from and push the rolling branch to (default: origin).",
+    "--branch <archctx/...>": "The rolling branch (default: archctx/projection). It must start with archctx/ and differ from --base; the writer never pushes to any other ref.",
+    "--publisher gh|command|none": "gh (default): the operator's own gh lists, then edits or creates the pull request. command: run --publisher-command. none: push only.",
+    "--publisher-command <executable>": "With --publisher command: an executable run with no shell or arguments in the owned worktree, with PATH, HOME and ARCHCTX_PUBLISH_REMOTE/BASE/BRANCH/BASE_SHA/COMMIT/TITLE/BODY_FILE only. Optional stdout: a JSON object {url?, number?}.",
+    "--accept-observed-major-change": "Accept the major change the run observes (ProjectionRequestV1.acceptObservedMajorChange). Without it a major change stops at human-action-required and nothing is pushed.",
+    "--follow": "Run as a foreground loop: one publish per --interval, one JSON envelope line per run on stdout, until SIGINT or SIGTERM. For launchd/systemd KeepAlive on an always-on host.",
+    "--interval <seconds>": `With --follow: seconds between runs (default ${PROJECTION_PUBLISH_DEFAULT_INTERVAL_SECONDS}, minimum ${PROJECTION_PUBLISH_MIN_INTERVAL_SECONDS}).`,
+    "--json": "Accepted for symmetry; output is always JSON.",
+    "--help, -h": "Show help without fetching, pushing or starting a daemon."
+  },
+  results: "published, up-to-date, already-processed, human-action-required, busy (ok) or failed (ok: false with the run as data).",
+  writes: "the writer state, lock and owned worktree under the repository runtime state directory; one commit on the owned worktree; a push to refs/heads/<--branch> only. Outbound: the projection-publishing egress channel (git fetch/ls-remote/push, gh, the publisher command); ARCHCONTEXT_EGRESS_MODE=local-only refuses it with AC_POLICY_VIOLATION. archctx stores no credentials. It never runs codegraph init; when code facts are required, run codegraph init <worktreePath> once (see projection publish-status).",
+  capability: "projection-publish-v1"
+};
+
+/** `projection publish-status --help` (#379). */
+const CLI_PROJECTION_PUBLISH_STATUS_HELP = {
+  usage: "archctx projection publish-status [--base <branch>] [--remote <name>] [--json]",
+  description: "Read-only state of the projection writer for one remote and base: the owned worktree path, a running writer's pid, the last processed and last successful base SHAs and the last run.",
+  options: {
+    "--base <branch>": "Default: main.",
+    "--remote <name>": "Default: origin.",
+    "--json": "Accepted for symmetry; output is always JSON.",
+    "--help, -h": "Show help without reading anything."
+  },
+  writes: "none; no fetch, no daemon.",
+  capability: "projection-publish-v1"
+};
+
+/** `projection verify-pr --help` (#379). */
+const CLI_PROJECTION_VERIFY_PR_HELP = {
+  usage: "archctx projection verify-pr --base <ref> [--json]",
+  description: "Checks the checked-out pull request head (HEAD, clean tracked worktree) against --base: the paths changed since the merge base, whether all of them are projection-owned outputs, and only then whether they equal a fresh render (projection check). verdict is no-changes, touches-non-generated (answered from the diff alone, nothing rendered), generated-only-render-equivalent or generated-only-not-render-equivalent. The envelope is ok for every valid evaluation; the verdict carries the decision.",
+  options: {
+    "--base <ref>": "Required. The pull request base, for example origin/main.",
+    "--json": "Accepted for symmetry; output is always JSON.",
+    "--help, -h": "Show help without reading the repository."
+  },
+  writes: "none; no daemon, no local store. A dirty tracked worktree fails with AC_PRECONDITION_FAILED. A generated-only diff renders in-process like projection check, so it needs code facts when the manifest requires them.",
+  capability: "projection-verify-pr-v1"
 };
 
 /**
@@ -555,7 +614,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "status":
       return (await runtime()).runtimeStatus(cwd);
     case "projection":
-      return await runProjectionProtocolCommand(args, cwd, runtime);
+      return await runProjectionProtocolCommand(args, cwd, runtime, deps);
     case "flows":
       return runFlowsCommand(args, cwd);
     case "repo": {
@@ -907,6 +966,9 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     break;
   case "projection":
     if (subcommand === "freshness") return okEnvelope("help", CLI_PROJECTION_FRESHNESS_HELP as unknown as Json);
+    if (subcommand === "publish") return okEnvelope("help", CLI_PROJECTION_PUBLISH_HELP as unknown as Json);
+    if (subcommand === "publish-status") return okEnvelope("help", CLI_PROJECTION_PUBLISH_STATUS_HELP as unknown as Json);
+    if (subcommand === "verify-pr") return okEnvelope("help", CLI_PROJECTION_VERIFY_PR_HELP as unknown as Json);
     break;
   case "daemon":
     return okEnvelope("daemon", {
@@ -1649,8 +1711,10 @@ async function runAgentContextProjectionCommand(args: string[], cwd: string, dae
   });
 }
 
-async function runProjectionProtocolCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>): Promise<JsonEnvelope> {
+async function runProjectionProtocolCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>, deps: CliRuntimeDeps): Promise<JsonEnvelope> {
   const action = args[0] ?? "run";
+  // Projection writer mode (#379): a client of the protocol that drives its own worktree's daemon.
+  if (action === "publish" || action === "publish-status" || action === "verify-pr") return runProjectionWriterCliCommand(action, args.slice(1), cwd, deps);
   // `snapshot` is read-only and answered in-process: the `expected` snapshot a request would be
   // checked against now, so consumers never compute the worktree digest themselves.
   if (action === "snapshot") {
@@ -1660,7 +1724,7 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, runtime
   }
   // `freshness` is read-only and answered in-process: no code facts, no render, no daemon (#327).
   if (action === "freshness") return runProjectionFreshnessCliCommand(args.slice(1), cwd);
-  if (!["run", "recover", "readback"].includes(action)) return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>, or snapshot|freshness [--json]");
+  if (!["run", "recover", "readback"].includes(action)) return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>, snapshot|freshness [--json], or publish|publish-status|verify-pr");
   const raw = readFlag(args, "--request-json");
   if (!raw) return errorEnvelope(`projection.${action}`, "AC_SCHEMA_INVALID", `projection ${action} requires --request-json`);
   let request: RuntimeProjectionInvocation["request"];
@@ -1691,6 +1755,161 @@ function runProjectionFreshnessCliCommand(args: string[], cwd: string): JsonEnve
     return errorEnvelope("projection.freshness", "AC_SCHEMA_INVALID", `projection freshness does not accept ${arg}; use --help`);
   }
   return runProjectionFreshnessCommand(cwd, changedPaths.length > 0 ? { changedPaths } : {});
+}
+
+type ProjectionWriterCliAction = "publish" | "publish-status" | "verify-pr";
+
+interface ProjectionPublishCliInput {
+  remote?: string;
+  base?: string;
+  branch?: string;
+  publisher: ProjectionPublisherPort;
+  acceptObservedMajorChange: boolean;
+  follow: boolean;
+  intervalSeconds: number;
+}
+
+/**
+ * `projection publish|publish-status|verify-pr` (#379). Positional tokens are refused, and every
+ * flag the preflight let through is read here, so a stray token never changes what runs.
+ */
+async function runProjectionWriterCliCommand(action: ProjectionWriterCliAction, args: string[], cwd: string, deps: CliRuntimeDeps): Promise<JsonEnvelope> {
+  const requestId = `projection.${action}`;
+  const valueFlags: readonly string[] = action === "publish" ? PROJECTION_PUBLISH_VALUE_FLAGS : action === "publish-status" ? PROJECTION_PUBLISH_STATUS_VALUE_FLAGS : PROJECTION_VERIFY_PR_VALUE_FLAGS;
+  const stray = projectionWriterStrayToken(args, valueFlags);
+  if (stray !== undefined) return errorEnvelope(requestId, "AC_SCHEMA_INVALID", `projection ${action} does not accept ${stray}; use --help`, "cli-input-invalid");
+  if (action === "verify-pr") {
+    const base = readFlag(args, "--base");
+    if (!base) return errorEnvelope(requestId, "AC_SCHEMA_INVALID", "projection verify-pr requires --base <ref>", "cli-input-invalid");
+    return runProjectionVerifyPrCommand({ cwd, base });
+  }
+  if (action === "publish-status") {
+    return runProjectionPublishStatusCommand({ cwd, base: readFlag(args, "--base"), remote: readFlag(args, "--remote") });
+  }
+  const parsed = parseProjectionPublishCliInput(args, cwd);
+  if (!parsed.ok) return parsed.envelope;
+  if (parsed.input.follow) {
+    return errorEnvelope(requestId, "AC_SCHEMA_INVALID", "projection publish --follow is a foreground process loop of the archctx executable; without --follow this command runs once", "cli-input-invalid");
+  }
+  return runProjectionPublishOnce(parsed.input, cwd, deps);
+}
+
+/** The first token that is neither a known flag nor the value of one; `--json` and `--format <v>` are global. */
+function projectionWriterStrayToken(args: string[], valueFlags: readonly string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index]!;
+    if (valueFlags.includes(token) || token === "--format") { index += 1; continue; }
+    if (isCliFlagToken(token)) continue;
+    return token;
+  }
+  return undefined;
+}
+
+function parseProjectionPublishCliInput(args: string[], cwd: string): { ok: true; input: ProjectionPublishCliInput } | { ok: false; envelope: JsonEnvelope } {
+  const invalid = (message: string) => ({ ok: false as const, envelope: errorEnvelope("projection.publish", "AC_SCHEMA_INVALID", message, "cli-input-invalid") });
+  const publisherKind = readFlag(args, "--publisher") ?? "gh";
+  const publisherCommand = readFlag(args, "--publisher-command");
+  const follow = args.includes("--follow");
+  const intervalFlag = readFlag(args, "--interval");
+  if (intervalFlag !== undefined && !follow) return invalid("projection publish --interval requires --follow");
+  const intervalSeconds = intervalFlag === undefined ? PROJECTION_PUBLISH_DEFAULT_INTERVAL_SECONDS : Number(intervalFlag);
+  if (!/^\d+$/.test(intervalFlag ?? "0") || !Number.isSafeInteger(intervalSeconds) || intervalSeconds < PROJECTION_PUBLISH_MIN_INTERVAL_SECONDS) {
+    return invalid(`projection publish --interval must be an integer number of seconds, at least ${PROJECTION_PUBLISH_MIN_INTERVAL_SECONDS}`);
+  }
+  let publisher: ProjectionPublisherPort;
+  if (publisherKind === "gh" || publisherKind === "none") {
+    if (publisherCommand !== undefined) return invalid("projection publish --publisher-command requires --publisher command");
+    publisher = publisherKind === "gh" ? createGhProjectionPublisher() : createNoneProjectionPublisher();
+  } else if (publisherKind === "command") {
+    if (!publisherCommand) return invalid("projection publish --publisher command requires --publisher-command <executable>");
+    const command = resolve(cwd, publisherCommand);
+    if (!existsSync(command) || !statSync(command).isFile()) return invalid(`projection publish --publisher-command is not a file: ${command}`);
+    publisher = createCommandProjectionPublisher({ command });
+  } else {
+    return invalid("projection publish --publisher must be gh, command or none");
+  }
+  return {
+    ok: true,
+    input: {
+      remote: readFlag(args, "--remote"),
+      base: readFlag(args, "--base"),
+      branch: readFlag(args, "--branch"),
+      publisher,
+      acceptObservedMajorChange: args.includes("--accept-observed-major-change"),
+      follow,
+      intervalSeconds
+    }
+  };
+}
+
+/**
+ * One publish. The apply goes to the writer-owned worktree's own archctxd (ADR-0005: one writer per
+ * worktree), started on demand like any other command's daemon; tests inject `deps.runtimeClient`.
+ */
+function runProjectionPublishOnce(input: ProjectionPublishCliInput, cwd: string, deps: CliRuntimeDeps): Promise<JsonEnvelope> {
+  const clients = new Map<string, RuntimeDaemonClient>();
+  return runProjectionPublishCommand({
+    cwd,
+    remote: input.remote,
+    base: input.base,
+    branch: input.branch,
+    publisher: input.publisher,
+    acceptObservedMajorChange: input.acceptObservedMajorChange,
+    apply: async (worktree, request) => {
+      let client = deps.runtimeClient ?? clients.get(worktree);
+      if (!client) {
+        client = await createOrStartRuntimeRpcClient(worktree);
+        clients.set(worktree, client);
+      }
+      return client.projection(worktree, { action: "run", request });
+    }
+  });
+}
+
+/**
+ * `projection publish --follow`, run by the process entry: one publish per interval, one compact
+ * JSON envelope line per run, until SIGINT or SIGTERM. A signal during a run lets it finish (and
+ * release its lock) before the loop stops. Returns the process exit code.
+ */
+async function runProjectionPublishFollowEntry(args: string[], cwd: string): Promise<number> {
+  const stray = projectionWriterStrayToken(args, PROJECTION_PUBLISH_VALUE_FLAGS);
+  const parsed = stray === undefined
+    ? parseProjectionPublishCliInput(args, cwd)
+    : { ok: false as const, envelope: errorEnvelope("projection.publish", "AC_SCHEMA_INVALID", `projection publish does not accept ${stray}; use --help`, "cli-input-invalid") };
+  if (!parsed.ok) {
+    process.stdout.write(`${JSON.stringify(parsed.envelope)}\n`);
+    return 1;
+  }
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  try {
+    await runProjectionPublishFollow({
+      runOnce: () => runProjectionPublishOnce(parsed.input, cwd, {}),
+      intervalMs: parsed.input.intervalSeconds * 1000,
+      sleep: (ms) => sleepUnlessAborted(ms, controller.signal),
+      shouldStop: () => controller.signal.aborted,
+      onResult: (envelope) => { process.stdout.write(`${JSON.stringify(envelope)}\n`); }
+    });
+  } finally {
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+  }
+  return 0;
+}
+
+function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolvePromise) => {
+    if (signal.aborted) { resolvePromise(); return; }
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolvePromise();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 /** `flows check` is read-only and answered in-process, like `projection run` in `check` mode. */
@@ -4031,7 +4250,7 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
   return 1;
 }
 
-const CLI_HELP_EXAMPLES = ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection freshness --changed-path src/app.ts --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
+const CLI_HELP_EXAMPLES = ["archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection freshness --changed-path src/app.ts --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
 
 const CLI_RESOLVE_HELP = {
   command: "archctx resolve (--path <repo-relative path> | --paths-from <file> | --paths-from -)",
@@ -4416,6 +4635,8 @@ if (import.meta.main) {
       (line) => process.stderr.write(`${line}\n`),
       { runtimeResolver: (root, options) => createOrStartRuntimeRpcClient(root, options?.preserveHealthFailure) }
     );
+  } else if (command === "projection" && args[0] === "publish" && args.includes("--follow") && preflightCliArguments(command, args) === undefined) {
+    process.exitCode = await runProjectionPublishFollowEntry(args.slice(1), process.cwd());
   } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground") && preflightCliArguments(command, args) === undefined) {
     await runForegroundDaemon(process.cwd(), args).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
