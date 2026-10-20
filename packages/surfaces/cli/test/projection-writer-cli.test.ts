@@ -17,6 +17,7 @@ const RUN_SCHEMA = schema("projection-publish-run.schema.json");
 const STATUS_SCHEMA = schema("projection-publish-status.schema.json");
 const VERIFY_SCHEMA = schema("projection-pr-verification.schema.json");
 const resolveSchema = jsonSchemaResolver([RUN_SCHEMA, STATUS_SCHEMA, VERIFY_SCHEMA]);
+const CONTRACT_PREFACE = "# App agents\n\nHuman preface line.\n\n";
 const TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 120_000;
 
 const ENV = {
@@ -119,6 +120,8 @@ async function projectedOrigin(daemon: Awaited<ReturnType<typeof startDaemon>>) 
   git(dev, "commit", "-q", "-m", "fixture");
   const contracts = await runCli("agent-context", ["apply", "--approved"], dev, { runtimeClient: daemon });
   expect(contracts.ok, JSON.stringify(contracts)).toBe(true);
+  // A human preface above the generated region, so a PR can move human text across the region.
+  writeFileSync(join(dev, "app/AGENTS.md"), `${CONTRACT_PREFACE}${readFileSync(join(dev, "app/AGENTS.md"), "utf8")}`, "utf8");
   const baseline = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], dev, { runtimeClient: daemon });
   expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
   git(dev, "add", "-A");
@@ -228,6 +231,27 @@ test("projection publish pushes a generated-only commit for a stamp-only source 
     expect(contractOutside.verification).toMatchObject({ verdict: "touches-non-generated", humanEditedPaths: [contractPath], renderEquivalent: null, generatedOnly: false });
     expect(contractOutside.verification.nonGeneratedPaths).toContain(contractPath);
     expect(contractOutside.checks).toBe(0);
+
+    // Moving a human line from above the region to below it is a human edit, not a no-op.
+    expect(contractBody.startsWith(CONTRACT_PREFACE)).toBe(true);
+    const contractMoved = await verifyCase(() => writeFileSync(join(fixture.clone, contractPath), `${contractBody.slice(CONTRACT_PREFACE.length)}${CONTRACT_PREFACE}`, "utf8"));
+    expect(contractMoved.verification).toMatchObject({ verdict: "touches-non-generated", humanEditedPaths: [contractPath] });
+    expect(contractMoved.checks).toBe(0);
+
+    // A whole-file target whose manifest row HEAD drops is generated only if HEAD deletes it; a
+    // rewrite is never rendered at HEAD, so it is non-generated.
+    const manifestPath = "docs/architecture/.projection-manifest.json";
+    const manifest = JSON.parse(readFileSync(join(fixture.clone, manifestPath), "utf8"));
+    const wholeRow = Object.entries(manifest.targets as Record<string, { path: string; ownership: string }>).find(([, row]) => row.ownership === "generated");
+    if (!wholeRow) throw new Error("the fixture manifest has no whole-file generated target");
+    const [wholeId, { path: wholePath }] = wholeRow;
+    const orphanRewrite = await verifyCase(() => {
+      delete manifest.targets[wholeId];
+      writeFileSync(join(fixture.clone, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+      writeFileSync(join(fixture.clone, wholePath), `${readFileSync(join(fixture.clone, wholePath), "utf8")}\n%% rewritten by hand\n`, "utf8");
+    });
+    expect(orphanRewrite.verification).toMatchObject({ verdict: "touches-non-generated", nonGeneratedPaths: [wholePath], humanEditedPaths: [], renderEquivalent: null });
+    expect(orphanRewrite.checks).toBe(0);
 
     // A change inside the agent-context region is compared with the agent-context render.
     const regionStart = contractBody.indexOf("\n", contractBody.indexOf("<!-- BEGIN ARCHCONTEXT AGENT CONTEXT")) + 1;

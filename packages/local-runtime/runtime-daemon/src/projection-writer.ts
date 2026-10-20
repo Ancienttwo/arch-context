@@ -648,28 +648,32 @@ type PullRequestTargetOwnership = { whole: boolean; mixedDocument: boolean; agen
  * generated only when their text outside the generated regions is byte-identical between the merge
  * base and HEAD, parsed with the projection's own region readers; an added or deleted mixed target,
  * or one whose regions cannot be delimited, counts as a human edit (conservative by design).
+ *
+ * A path that is a target only at the merge base (no HEAD manifest row, no HEAD agent-context
+ * target) is generated only when HEAD deletes it: HEAD's render never looks at a file it no longer
+ * targets, so a rewrite of such a file would otherwise pass as render-equivalent.
  */
 function classifyPullRequestPaths(root: string, mergeBase: string, headSha: string, changedPaths: readonly string[]): { nonGeneratedPaths: string[]; humanEditedPaths: string[]; agentContextPaths: string[] } {
-  const targets = new Map<string, PullRequestTargetOwnership>();
-  for (const revision of [mergeBase, headSha]) {
-    for (const [path, ownership] of projectionTargetsAtRevision(root, revision)) {
-      const known = targets.get(path) ?? { whole: false, mixedDocument: false, agentNodeIds: [] };
-      targets.set(path, {
-        whole: known.whole || ownership.whole,
-        mixedDocument: known.mixedDocument || ownership.mixedDocument,
-        agentNodeIds: [...new Set([...known.agentNodeIds, ...ownership.agentNodeIds])].sort()
-      });
-    }
-  }
+  const baseTargets = projectionTargetsAtRevision(root, mergeBase);
+  const headTargets = projectionTargetsAtRevision(root, headSha);
   const nonGenerated: string[] = [];
   const humanEdited: string[] = [];
   const agentContext: string[] = [];
   for (const path of changedPaths) {
     if (path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH) continue;
-    const target = targets.get(path);
-    if (!target) { nonGenerated.push(path); continue; }
+    const atBase = baseTargets.get(path);
+    const atHead = headTargets.get(path);
+    if (!atBase && !atHead) { nonGenerated.push(path); continue; }
+    const before = readFileAtRevision(root, mergeBase, path);
+    const after = readFileAtRevision(root, headSha, path);
+    if (!atHead && after !== null) { nonGenerated.push(path); continue; }
+    const target: PullRequestTargetOwnership = {
+      whole: (atBase?.whole ?? false) || (atHead?.whole ?? false),
+      mixedDocument: (atBase?.mixedDocument ?? false) || (atHead?.mixedDocument ?? false),
+      agentNodeIds: [...new Set([...(atBase?.agentNodeIds ?? []), ...(atHead?.agentNodeIds ?? [])])].sort()
+    };
     if (!target.mixedDocument && target.agentNodeIds.length === 0) continue;
-    if (!mixedTargetTextUnchanged(readFileAtRevision(root, mergeBase, path), readFileAtRevision(root, headSha, path), target)) {
+    if (!mixedTargetTextUnchanged(before, after, target)) {
       humanEdited.push(path);
       nonGenerated.push(path);
     } else if (target.agentNodeIds.length > 0) {
