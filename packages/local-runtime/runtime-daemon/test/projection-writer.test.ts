@@ -242,8 +242,8 @@ test("a new base commit force-updates the rolling branch to that base plus exact
   const second = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env }));
   expect(second).toMatchObject({ result: "published", baseSha: nextBase, pushed: true });
   const tip = originRef(fixture, "refs/heads/archctx/projection")!;
-  expect(tip).toBe(second.publishedCommit);
-  expect(tip).not.toBe(first.publishedCommit);
+  expect(second.publishedCommit).toBe(tip);
+  expect(tip).not.toBe(first.publishedCommit!);
   expect(git(fixture.origin, "rev-list", "--parents", "-n", "1", tip).split(" ")).toEqual([tip, nextBase]);
   expect(git(fixture.origin, "rev-list", "--count", `${nextBase}..${tip}`)).toBe("1");
   expect(changedFiles(fixture, tip)).toEqual(["docs/architecture/overview.md"]);
