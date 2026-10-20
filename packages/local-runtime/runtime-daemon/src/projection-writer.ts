@@ -791,8 +791,8 @@ export function createGhProjectionPublisher(options: { exec?: ProjectionPublishe
       const env: Record<string, string> = { ...stringEnv(process.env), GH_PROMPT_DISABLED: "1" };
       delete env.GH_REPO;
       const gh = (args: string[]) => withLocalEgress("projection-publishing", () => exec("gh", [...args, "--repo", repository], { cwd: input.worktree, env, timeoutMs }), admissionEnv);
-      const listed = await gh(["pr", "list", "--head", input.branch, "--base", input.base, "--state", "open", "--json", "number,url", "--limit", "1"]);
-      const open = parseGhPullRequestList(listed.stdout);
+      const listed = await gh(["pr", "list", "--head", input.branch, "--base", input.base, "--state", "open", "--json", "number,url,isCrossRepository,headRefName,baseRefName", "--limit", "100"]);
+      const open = parseGhPullRequestList(listed.stdout, input.branch, input.base);
       if (open) {
         await gh(["pr", "edit", String(open.number), "--title", input.title, "--body-file", input.bodyFile]);
         return { number: open.number, ...(open.url ? { url: open.url } : {}) };
@@ -968,13 +968,24 @@ function readCommandFirstLine(command: string): string {
   }
 }
 
-function parseGhPullRequestList(stdout: string): { number: number; url?: string } | undefined {
-  const parsed = JSON.parse(stdout.trim() === "" ? "[]" : stdout) as unknown;
+function parseGhPullRequestList(stdout: string, branch: string, base: string): { number: number; url?: string } | undefined {
+  const parsed = JSON.parse(stdout) as unknown;
   if (!Array.isArray(parsed)) throw new Error("gh pr list returned an unexpected shape");
-  const first = parsed[0] as { number?: unknown; url?: unknown } | undefined;
-  if (!first) return undefined;
-  if (typeof first.number !== "number" || !Number.isInteger(first.number) || first.number <= 0) throw new Error("gh pr list returned a pull request without a number");
-  return { number: first.number, ...(typeof first.url === "string" && first.url !== "" ? { url: first.url } : {}) };
+  // A capped response cannot prove absence or uniqueness; never mutate from incomplete evidence.
+  if (parsed.length >= 100) throw new Error("gh pr list reached the 100-result limit; resolve rolling PR ambiguity manually");
+  const matches: { number: number; url?: string }[] = [];
+  for (const row of parsed) {
+    if (!row || typeof row !== "object" || Array.isArray(row)
+      || typeof row.isCrossRepository !== "boolean" || row.headRefName !== branch || row.baseRefName !== base
+      || typeof row.number !== "number" || !Number.isInteger(row.number) || row.number <= 0) {
+      throw new Error("gh pr list returned a pull request without verified identity");
+    }
+    if (!row.isCrossRepository) {
+      matches.push({ number: row.number, ...(typeof row.url === "string" && row.url !== "" ? { url: row.url } : {}) });
+    }
+  }
+  if (matches.length > 1) throw new Error("gh pr list returned multiple same-repository rolling pull requests");
+  return matches[0];
 }
 
 function parsePublisherCommandOutput(stdout: string): ProjectionPublishPullRequestV1 {
