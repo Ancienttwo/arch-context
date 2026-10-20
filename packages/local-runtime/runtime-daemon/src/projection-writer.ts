@@ -1,8 +1,8 @@
 import { execFile, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { extname, join, resolve } from "node:path";
 import { assertLocalEgressAllowed, LocalEgressPolicyError, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
 import { createPrivateControlFile, readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
@@ -777,20 +777,40 @@ export function createGhProjectionPublisher(options: { exec?: ProjectionPublishe
 }
 
 /**
- * An operator-supplied executable: run with no shell and no arguments in the owned worktree, with
- * an environment of PATH, HOME and the `ARCHCTX_PUBLISH_*` inputs only. Its optional stdout is a
- * JSON object `{url?, number?}`; any other output is ignored. A non-zero exit is a failure.
+ * An operator-supplied executable: run with no shell and no arguments in the owned worktree. Its
+ * optional stdout is a JSON object `{url?, number?}`; any other output is ignored. A non-zero exit
+ * is a failure.
+ *
+ * The child environment is PATH, HOME and the `ARCHCTX_PUBLISH_*` inputs only. On Windows it also
+ * carries, when present, the variables a Windows process needs to start (SystemRoot, windir,
+ * ComSpec, PATHEXT, TEMP, TMP, USERPROFILE), matched case-insensitively with the first spelling
+ * forwarded.
+ *
+ * Windows cannot execute a `#!` script directly, so on win32 a command whose first line is a
+ * shebang runs as `<interpreter> [interpreter args] <command>`: the interpreter is the basename of
+ * the shebang's first token (without `.exe`), or the following token for `/usr/bin/env`, and it is
+ * resolved on PATH; an interpreter that cannot be found is a clear failure, never a search of
+ * other locations. A command without a shebang runs directly. `.cmd`/`.bat` commands are rejected
+ * on Windows because they only run through cmd.exe, which would reintroduce a shell.
  */
-export function createCommandProjectionPublisher(options: { command: string; exec?: ProjectionPublisherExec; env?: Env; timeoutMs?: number }): ProjectionPublisherPort {
+export function createCommandProjectionPublisher(options: {
+  command: string;
+  exec?: ProjectionPublisherExec;
+  env?: Env;
+  sourceEnv?: Env;
+  platform?: NodeJS.Platform;
+  timeoutMs?: number;
+}): ProjectionPublisherPort {
   const exec = options.exec ?? nodeProjectionPublisherExec;
   const admissionEnv = options.env ?? process.env;
+  const sourceEnv = options.sourceEnv ?? process.env;
+  const platform = options.platform ?? process.platform;
   const timeoutMs = options.timeoutMs ?? PUBLISHER_TIMEOUT_MS;
   return {
     kind: "command",
     async ensurePullRequest(input) {
       const env: Record<string, string> = {
-        ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
-        ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
+        ...commandPublisherBaseEnv(sourceEnv, platform),
         ARCHCTX_PUBLISH_REMOTE: input.remote,
         ARCHCTX_PUBLISH_BASE: input.base,
         ARCHCTX_PUBLISH_BRANCH: input.branch,
@@ -799,10 +819,91 @@ export function createCommandProjectionPublisher(options: { command: string; exe
         ARCHCTX_PUBLISH_TITLE: input.title,
         ARCHCTX_PUBLISH_BODY_FILE: input.bodyFile
       };
-      const { stdout } = await withLocalEgress("projection-publishing", () => exec(options.command, [], { cwd: input.worktree, env, timeoutMs }), admissionEnv);
+      const { stdout } = await withLocalEgress("projection-publishing", async () => {
+        const invocation = commandPublisherInvocation(options.command, platform);
+        try {
+          return await exec(invocation.file, invocation.args, { cwd: input.worktree, env, timeoutMs });
+        } catch (error) {
+          if (invocation.interpreter !== undefined && (error as { code?: unknown }).code === "ENOENT") {
+            throw new Error(`publisher command ${options.command} needs the interpreter "${invocation.interpreter}" from its #! line, which was not found on PATH`);
+          }
+          throw error;
+        }
+      }, admissionEnv);
       return parsePublisherCommandOutput(stdout);
     }
   };
+}
+
+const COMMAND_PUBLISHER_POSIX_ENV = ["PATH", "HOME"] as const;
+const COMMAND_PUBLISHER_WINDOWS_ENV = ["PATH", "HOME", "SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP", "USERPROFILE"] as const;
+
+function commandPublisherBaseEnv(source: Env, platform: NodeJS.Platform): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (platform !== "win32") {
+    for (const name of COMMAND_PUBLISHER_POSIX_ENV) {
+      const value = source[name];
+      if (value) env[name] = value;
+    }
+    return env;
+  }
+  // Windows names are case-insensitive (`Path`, `SYSTEMROOT`, ...): match upper-cased, keep the
+  // original spelling, and forward only the first spelling so the child never sees duplicates.
+  const allowed = new Set<string>(COMMAND_PUBLISHER_WINDOWS_ENV.map((name) => name.toUpperCase()));
+  const forwarded = new Set<string>();
+  for (const [name, value] of Object.entries(source)) {
+    const key = name.toUpperCase();
+    if (!value || !allowed.has(key) || forwarded.has(key)) continue;
+    forwarded.add(key);
+    env[name] = value;
+  }
+  return env;
+}
+
+function commandPublisherInvocation(command: string, platform: NodeJS.Platform): { file: string; args: string[]; interpreter?: string } {
+  if (platform !== "win32") return { file: command, args: [] };
+  const extension = extname(command).toLowerCase();
+  if (extension === ".cmd" || extension === ".bat") {
+    throw new Error(`publisher command ${command} is a ${extension} script, which only runs through cmd.exe; the command publisher runs without a shell, so use an executable or a #! script`);
+  }
+  const firstLine = readCommandFirstLine(command);
+  if (!firstLine.startsWith("#!")) return { file: command, args: [] };
+  const tokens = firstLine.slice(2).trim().split(/\s+/).filter((token) => token !== "");
+  if (tokens.length === 0) throw new Error(`publisher command ${command} has an empty #! line`);
+  let interpreter = commandBasename(tokens[0]!);
+  let interpreterArgs = tokens.slice(1);
+  if (interpreter === "env") {
+    const next = interpreterArgs[0];
+    if (next === undefined || next.startsWith("-")) {
+      throw new Error(`publisher command ${command} has an unsupported #! line "${firstLine}": /usr/bin/env must be followed by an interpreter name`);
+    }
+    interpreter = commandBasename(next);
+    interpreterArgs = interpreterArgs.slice(1);
+  }
+  return { file: interpreter, args: [...interpreterArgs, command], interpreter };
+}
+
+function commandBasename(token: string): string {
+  const name = token.split(/[\\/]/).pop() ?? token;
+  return name.toLowerCase().endsWith(".exe") ? name.slice(0, -4) : name;
+}
+
+function readCommandFirstLine(command: string): string {
+  let fd: number;
+  try {
+    fd = openSync(command, "r");
+  } catch (error) {
+    throw new Error(`publisher command ${command} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  try {
+    const buffer = Buffer.alloc(1024);
+    const length = readSync(fd, buffer, 0, buffer.length, 0);
+    const head = buffer.subarray(0, length).toString("utf8");
+    const newline = head.indexOf("\n");
+    return (newline === -1 ? head : head.slice(0, newline)).replace(/\r$/, "");
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function parseGhPullRequestList(stdout: string): { number: number; url?: string } | undefined {
@@ -832,7 +933,8 @@ function parsePublisherCommandOutput(stdout: string): ProjectionPublishPullReque
 const nodeProjectionPublisherExec: ProjectionPublisherExec = (file, args, options) => new Promise((resolvePromise, rejectPromise) => {
   execFile(file, args, { cwd: options.cwd, env: options.env, timeout: options.timeoutMs, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
     if (error) {
-      rejectPromise(new Error(`${[file, ...args.slice(0, 2)].join(" ")} failed: ${(stderr ?? "").trim() || error.message}`));
+      // Keep the spawn error code (ENOENT etc.) so callers can name a missing executable.
+      rejectPromise(Object.assign(new Error(`${[file, ...args.slice(0, 2)].join(" ")} failed: ${(stderr ?? "").trim() || error.message}`), { code: error.code }));
       return;
     }
     resolvePromise({ stdout });

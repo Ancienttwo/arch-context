@@ -76,6 +76,16 @@ no arguments in the owned worktree. Its environment is only `PATH`, `HOME` and:
 output is ignored. A non-zero exit is a publisher failure: the pushed commit is recorded and the
 next run retries only the publisher.
 
+On Windows the environment also carries, when they are set, the variables a Windows process needs
+to start: `SystemRoot`, `windir`, `ComSpec`, `PATHEXT`, `TEMP`, `TMP` and `USERPROFILE` (matched
+case-insensitively; only the first spelling is forwarded). Windows cannot run a `#!` script
+directly, so a command whose first line is a shebang runs as `<interpreter> [args] <command>`: the
+interpreter is the basename of the shebang's first token without `.exe` (`#!/bin/sh` runs `sh`), or
+the next token after `env` (`#!/usr/bin/env node` runs `node`). The interpreter must be on `PATH`;
+if it is not, the publisher fails and names it, with no search of other locations. A command
+without a shebang runs directly. `.cmd` and `.bat` commands are rejected on Windows because they
+only run through `cmd.exe`, which is a shell.
+
 ### Major changes
 
 By default a major architecture change stops at `human-action-required` and nothing is pushed.

@@ -466,6 +466,79 @@ test("the command publisher runs with only PATH, HOME and the ARCHCTX_PUBLISH_* 
   }
 });
 
+test("on Windows the command publisher runs #! scripts through their interpreter, rejects .cmd/.bat and forwards only the OS-required environment", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-projection-win32-publisher-"));
+  roots.push(root);
+  const script = (name: string, body: string): string => {
+    const path = join(root, name);
+    writeFileSync(path, body, "utf8");
+    return path;
+  };
+  const shScript = script("publish.sh", "#!/bin/sh\r\necho '{}'\r\n");
+  const envScript = script("publish.mjs", "#!/usr/bin/env node\nconsole.log('{}');\n");
+  const binary = script("publish.exe", "MZ not a script");
+  const cmdScript = script("publish.cmd", "@echo off\r\n");
+  const batScript = script("publish.BAT", "@echo off\r\n");
+  const sourceEnv = {
+    Path: "C:\\Windows\\system32",
+    PATH: "C:\\shadowed",
+    SystemRoot: "C:\\Windows",
+    windir: "C:\\Windows",
+    ComSpec: "C:\\Windows\\system32\\cmd.exe",
+    PATHEXT: ".COM;.EXE;.BAT;.CMD",
+    TEMP: "C:\\Temp",
+    TMP: "C:\\Temp",
+    USERPROFILE: "C:\\Users\\writer",
+    ARCHCTX_WRITER_TEST_SENTINEL: "must-not-leak",
+    GH_TOKEN: "must-not-leak"
+  };
+  const calls: { file: string; args: string[]; env: Record<string, string> }[] = [];
+  const exec: ProjectionPublisherExec = async (file, args, options) => {
+    calls.push({ file, args, env: options.env });
+    return { stdout: "{}" };
+  };
+  const input: ProjectionPublisherInput = { worktree: root, remote: "origin", base: "main", branch: "archctx/projection", baseSha: "a".repeat(40), commitSha: "b".repeat(40), title: "t", bodyFile: join(root, "body.md") };
+  const publisher = (command: string) => createCommandProjectionPublisher({ command, exec, env: {}, sourceEnv, platform: "win32" });
+
+  expect(await publisher(shScript).ensurePullRequest(input)).toEqual({});
+  expect(await publisher(envScript).ensurePullRequest(input)).toEqual({});
+  expect(await publisher(binary).ensurePullRequest(input)).toEqual({});
+  expect(calls.map(({ file, args }) => ({ file, args }))).toEqual([
+    { file: "sh", args: [shScript] },
+    { file: "node", args: [envScript] },
+    { file: binary, args: [] }
+  ]);
+  await expect(publisher(cmdScript).ensurePullRequest(input)).rejects.toThrow(".cmd script");
+  await expect(publisher(batScript).ensurePullRequest(input)).rejects.toThrow(".bat script");
+  expect(calls).toHaveLength(3);
+
+  const env = calls[0]!.env;
+  expect(env).toMatchObject({
+    Path: "C:\\Windows\\system32",
+    SystemRoot: "C:\\Windows",
+    windir: "C:\\Windows",
+    ComSpec: "C:\\Windows\\system32\\cmd.exe",
+    PATHEXT: ".COM;.EXE;.BAT;.CMD",
+    TEMP: "C:\\Temp",
+    TMP: "C:\\Temp",
+    USERPROFILE: "C:\\Users\\writer",
+    ARCHCTX_PUBLISH_BRANCH: "archctx/projection"
+  });
+  expect(env.PATH).toBeUndefined();
+  expect(env.ARCHCTX_WRITER_TEST_SENTINEL).toBeUndefined();
+  expect(env.GH_TOKEN).toBeUndefined();
+
+  // A missing interpreter fails closed, naming it.
+  const missing = createCommandProjectionPublisher({
+    command: shScript,
+    env: {},
+    sourceEnv,
+    platform: "win32",
+    exec: async () => { throw Object.assign(new Error("spawn sh ENOENT"), { code: "ENOENT" }); }
+  });
+  await expect(missing.ensurePullRequest(input)).rejects.toThrow('interpreter "sh"');
+});
+
 test("the gh publisher lists, then creates or edits, with no shell and prompts disabled", async () => {
   const input: ProjectionPublisherInput = { worktree: "/owned/worktree", remote: "origin", base: "main", branch: "archctx/projection", baseSha: "a".repeat(40), commitSha: "b".repeat(40), title: "chore(projection): refresh", bodyFile: "/tmp/body.md" };
   const fakeGh = (listed: string) => {

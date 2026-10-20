@@ -70,7 +70,10 @@ daemon gains no scheduler.
 - `gh` (default) runs the operator's own `gh` (ambient `gh auth`) in the owned worktree with no
   shell and `GH_PROMPT_DISABLED=1`: `gh pr list`, then `gh pr edit` or `gh pr create`.
 - `command` runs an operator-supplied executable with no shell or arguments and an environment of
-  `PATH`, `HOME` and the `ARCHCTX_PUBLISH_*` inputs only.
+  `PATH`, `HOME` and the `ARCHCTX_PUBLISH_*` inputs only, plus, on Windows, the process-start
+  variables `SystemRoot`, `windir`, `ComSpec`, `PATHEXT`, `TEMP`, `TMP` and `USERPROFILE` when set.
+  On Windows a `#!` command runs through its shebang interpreter resolved on `PATH` (a missing
+  interpreter fails closed), and `.cmd`/`.bat` commands are rejected because they need `cmd.exe`.
 - `none` pushes only.
 
 The pull request body lists paths only, never file contents, and is written to a private temp
