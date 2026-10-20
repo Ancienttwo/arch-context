@@ -11,8 +11,8 @@ renders; see "Downstream CI" for what that does and does not prove. Design: `doc
 1. Validates `--base`, `--remote` and `--branch` (`archctx/...`, different from the base) before any
    Git operation that leaves the machine.
 2. Takes the writer lock for this remote and base. A live holder gives `result: "busy"`.
-3. Fetches `refs/heads/<base>` and resolves the base tip. If that tip was already published or found
-   up to date, the result is `already-processed` and nothing else happens.
+3. Fetches `refs/heads/<base>` and resolves the base tip. The same successful branch and
+   publisher can return `already-processed`. Pending publication is retried first.
 4. Resets the writer-owned worktree to the tip and asks that worktree's own `archctxd` to apply the
    projection (`projection run`, mode `apply`).
 5. Checks that every changed path is a file the apply wrote and a projection-owned output, commits
@@ -149,15 +149,15 @@ with `AC_POLICY_VIOLATION` before the first fetch. `publish-status` and `verify-
 
 ## Recovery
 
-- Known residual race: when a dead writer's lock is taken over, three runs starting within the same
-  few milliseconds can leave two of them believing they hold the lock. A racing push then fails its
-  `--force-with-lease` instead of overwriting, and no run can commit anything but projection-owned
-  outputs; rerun to converge. A single `--follow` loop or a cron job with a sane interval does not
-  hit it. ADR-0048 records it; an advisory `flock` is the planned fix.
-- `busy` with no writer running: the lock names a live pid. If that process is not an archctx
-  writer, stop it or remove the lock in the writer directory. A dead pid's lock is recovered
-  automatically.
-- `projection-writer-state-invalid` or a worktree you no longer trust: stop the owned worktree's
+- The writer holds an OS-backed SQLite lock for the complete run. The JSON owner record
+  is diagnostic. If it disappears, competing writers still cannot enter the worktree.
+  This run stops before publication. Process exit releases OS ownership automatically.
+- A missing owner record while the OS lock is held returns a failure rather than an
+  invented holder PID. Check the running writer before retrying.
+- Never remove `lock.coordination.writer.lock` while any writer runs. Stop all writer
+  loops and schedules before resetting the writer directory.
+- `projection-writer-state-invalid` or a worktree you no longer trust: stop all writer
+  processes first. Then stop the owned worktree's
   daemon (`archctx daemon stop` run inside `worktreePath`, or `archctx daemon list` then
   `archctx daemon stop --workspace-id <id>`), delete the writer directory (the parent of
   `worktreePath` in `publish-status`), then run `git worktree prune` in the repository. The next
@@ -168,3 +168,17 @@ with `AC_POLICY_VIOLATION` before the first fetch. `publish-status` and `verify-
 - `projection-writer-non-owned-change`: the apply changed a path outside the projection-owned
   outputs. Nothing was pushed; investigate the listed paths (for example an untracked, unignored
   index or cache in the worktree).
+
+## Publisher repository and retries
+
+The `gh` publisher derives its repository from the selected remote's single push URL.
+Every call passes `--repo`. An inherited `GH_REPO` cannot change that destination.
+SSH and HTTPS repository URLs are supported. Multiple push URLs are refused by the
+publisher. A fork remote creates the PR inside that fork. Use a command publisher
+when the PR must target a different repository.
+
+A failed branch switch does not change the identity of the last successful run.
+The next run retries the selected branch. A pending publisher runs before the
+success-cache check. Changing from `none` to `gh` or `command` publishes the existing
+commit if the remote still has it. Changing the command executable also changes
+publisher identity.

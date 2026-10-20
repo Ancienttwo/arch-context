@@ -7348,7 +7348,7 @@ export function localStoreWriterOwnerRecordPath(databasePath: string): string {
 const LOCAL_STORE_OWNER_LOCK_ATTEMPTS = 6;
 const LOCAL_STORE_OWNER_LOCK_RETRY_MS = 20;
 
-function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWriterOwnership {
+export function acquireLocalStoreWriterOwnership(databasePath: string): LocalStoreWriterOwnership {
   const lockPath = localStoreWriterOwnershipPath(databasePath);
   const recordPath = localStoreWriterOwnerRecordPath(databasePath);
   const lock = openSqliteDatabaseSync(lockPath);

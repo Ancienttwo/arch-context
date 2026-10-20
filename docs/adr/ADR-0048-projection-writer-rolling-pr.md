@@ -57,11 +57,14 @@ daemon gains no scheduler.
   `--force-with-lease=refs/heads/<branch>:<observed tip>`.
 - Latest wins: after committing, the remote base tip is re-read; if it moved, the stale commit is
   dropped and the run re-evaluates the new tip (at most three times).
-- Same SHA is a no-op once the run for that base ended `published` or `up-to-date`. A run whose
+- Same SHA is a no-op only for the same successful branch and publisher identity. A run whose
   push succeeded but whose publisher failed records the pushed commit, so the rerun retries only
   the publisher while the remote branch still carries that commit.
-- One run per (remote, base) at a time: an `O_EXCL` private lock file holding `{pid, startedAt}`.
-  A live owner gives `busy`; a dead owner's lock is removed and retried once.
+- One run per (remote, base) at a time. A separate SQLite sidecar holds an OS-backed
+  exclusive lock for the complete run. It reuses the runtime store ownership primitive.
+  The lock file is never removed. Process exit releases the lock. The private JSON
+  owner record is diagnostic; a missing or replaced record stops publication.
+- Push names the validated commit SHA. It never resolves mutable HEAD at push time.
 
 ### 3. Publishers hold no credentials
 
@@ -69,6 +72,9 @@ daemon gains no scheduler.
 
 - `gh` (default) runs the operator's own `gh` (ambient `gh auth`) in the owned worktree with no
   shell and `GH_PROMPT_DISABLED=1`: `gh pr list`, then `gh pr edit` or `gh pr create`.
+  Every call sets `--repo` from the selected remote's single push URL. `GH_REPO` is
+  removed from the child environment. Fork remotes publish a PR within that fork.
+  Cross-repository PRs require the command publisher.
 - `command` runs an operator-supplied executable with no shell or arguments and an environment of
   `PATH`, `HOME` and the `ARCHCTX_PUBLISH_*` inputs only, plus, on Windows, the process-start
   variables `SystemRoot`, `windir`, `ComSpec`, `PATHEXT`, `TEMP`, `TMP` and `USERPROFILE` when set.
@@ -146,11 +152,11 @@ published under `schemas/runtime/`, advertised by the `projection-publish-v1` an
   `<repositoryStateDir>/projection-writer/<key>` resets the writer completely.
 - Reusing the protocol means the writer inherits its preconditions: a manifest that needs an
   upgrade, an adoption or a human decision stops the writer the same way it stops an agent.
-- Residual risk, accepted: the lock is a private `O_EXCL` file, and a stale lock is taken over by
-  renaming it aside and re-reading it. If three runs race within milliseconds during that takeover,
-  two of them can each believe they hold the lock. The impact is bounded: every push uses
-  `--force-with-lease` against the tip the run observed, so a racing push fails instead of
-  overwriting, and every commit is limited to projection-owned outputs the apply wrote. An advisory
-  `flock` on the lock file is the future fix.
+- The coordination lock is separate from the ledger database. No source, model, or prompt
+  data enters it. A crash releases OS ownership. Never delete its file while a writer runs.
+- Success state records the successful branch and publisher identity. A failed branch switch
+  cannot inherit another branch's success. Pending publisher recovery runs before cache reuse.
+- Enabling a publisher after a push-only run publishes the existing remote commit without
+  another apply, if the remote still carries that commit.
 
 See `docs/runbooks/projection-writer.md` for operation.

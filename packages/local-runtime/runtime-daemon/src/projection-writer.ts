@@ -1,11 +1,12 @@
 import { execFile, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { assertLocalEgressAllowed, LocalEgressPolicyError, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
 import { createPrivateControlFile, readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
+import { acquireLocalStoreWriterOwnership } from "@archcontext/local-runtime/local-store-sqlite";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { findRepositoryRoot, isGitRevisionArgument, isTrackedWorktreeClean } from "@archcontext/local-runtime/git-adapter";
 import { agentContextProjectionTargetPaths, agentContextTextOutsideRegions, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, projectionOwnedPaths, scanDocumentRegions } from "@archcontext/core/projection-engine";
@@ -17,6 +18,7 @@ import {
   PROJECTION_REQUEST_SCHEMA_VERSION,
   PROJECTION_WRITER_BRANCH_PREFIX,
   PROJECTION_WRITER_DEFAULT_BRANCH,
+  FailureError,
   errorEnvelope,
   okEnvelope,
   type ArchContextErrorCode,
@@ -48,7 +50,7 @@ import { agentContextProjectionDifferingPaths, runProjectionCheckInvocation, run
  * - The writer pushes to `refs/heads/archctx/*` only, never to the base or any other ref.
  * - The pushed branch is always the base tip plus one commit, and that commit touches only paths
  *   the apply reported writing that are also projection-owned outputs (`projectionOwnedPaths`).
- * - One run per (remote, base) at a time, across every checkout of the repository (O_EXCL lock).
+ * - One run per (remote, base) at a time, across every checkout of the repository (OS-backed SQLite lock).
  * - archctx stores no credentials: git uses the operator's ambient configuration, `gh` its own auth.
  */
 
@@ -81,6 +83,8 @@ export interface ProjectionPublisherInput {
 /** Opens or updates the rolling pull request. archctx holds no credentials for it. */
 export interface ProjectionPublisherPort {
   readonly kind: ProjectionPublisherKind;
+  /** Stable publisher configuration identity, used only for successful-run reuse. */
+  readonly identity?: string;
   ensurePullRequest(input: ProjectionPublisherInput): Promise<ProjectionPublishPullRequestV1>;
 }
 
@@ -131,6 +135,9 @@ interface ProjectionWriterStateV1 {
   lastProcessedSha: string | null;
   lastSuccessfulSha: string | null;
   lastSuccessfulCommit: string | null;
+  lastSuccessfulBranch: string | null;
+  lastSuccessfulPublisher: string | null;
+  lastSuccessfulFiles: string[];
   publisherPending: ProjectionWriterPublisherPending | null;
   lastRun: ProjectionPublishRunV1 | null;
 }
@@ -204,7 +211,7 @@ export async function runProjectionPublishCommand(options: ProjectionPublishOpti
     iterations: 0
   });
 
-  let lock: { kind: "acquired"; record: string } | { kind: "busy"; pid: number };
+  let lock: { kind: "acquired"; record: string; release(): void } | { kind: "busy"; pid: number };
   try {
     mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
     lock = acquireProjectionWriterLock(paths.lock, startedAt);
@@ -225,7 +232,7 @@ export async function runProjectionPublishCommand(options: ProjectionPublishOpti
       // A state file archctx cannot read is left in place for the operator (runbook: delete the writer directory).
       return projectionPublishEnvelope({ ...blank(), finishedAt: now().toISOString(), error: writerError(asWriterFailure(error)) });
     }
-    const outcome = await runLockedProjectionPublish({ options, env, now, repositoryRoot, paths, remote, base, branch, state, blank: blank() });
+    const outcome = await runLockedProjectionPublish({ options, env, now, repositoryRoot, paths, remote, base, branch, state, assertOwner: () => assertProjectionWriterOwner(paths.lock, lock.record), blank: blank() });
     const next = nextProjectionWriterState(state, outcome);
     try {
       writeProjectionWriterState(paths.state, next);
@@ -238,7 +245,7 @@ export async function runProjectionPublishCommand(options: ProjectionPublishOpti
     }
     return projectionPublishEnvelope(outcome.run);
   } finally {
-    releaseProjectionWriterLock(paths.lock, lock.record);
+    lock.release();
   }
 }
 
@@ -253,9 +260,11 @@ interface LockedRunInput {
   branch: string;
   state: ProjectionWriterStateV1;
   blank: ProjectionPublishRunV1;
+  assertOwner(): void;
 }
 
 interface LockedRunOutcome {
+  publisherIdentity: string;
   run: ProjectionPublishRunV1;
   runSequence: number;
   /** The publish is pushed but its publisher failed: a rerun at the same base retries the publisher only. */
@@ -265,33 +274,43 @@ interface LockedRunOutcome {
 async function runLockedProjectionPublish(input: LockedRunInput): Promise<LockedRunOutcome> {
   const { options, env, now, repositoryRoot, paths, remote, base, branch, state } = input;
   const runSequence = state.runSequence + 1;
+  const publisherIdentity = options.publisher.identity ?? options.publisher.kind;
   let iterations = 0;
   let baseSha: string | null = null;
   const finish = (result: ProjectionPublishResult, fields: Partial<ProjectionPublishRunV1> = {}, extra: Partial<LockedRunOutcome> = {}): LockedRunOutcome => ({
     run: { ...input.blank, ...fields, result, baseSha, iterations, finishedAt: now().toISOString() },
     runSequence,
+    publisherIdentity,
     ...extra
   });
   const failed = (failure: ProjectionWriterFailure, fields: Partial<ProjectionPublishRunV1> = {}, extra: Partial<LockedRunOutcome> = {}) =>
     finish("failed", { ...fields, error: writerError(failure) }, extra);
 
   try {
+    const pushRemote = projectionWriterPushUrl(repositoryRoot, remote);
     while (iterations < PROJECTION_WRITER_MAX_ITERATIONS) {
       iterations += 1;
       // 1. Fetch the base tip.
       remoteGit(repositoryRoot, ["fetch", "--no-tags", remote, `+refs/heads/${base}:refs/remotes/${remote}/${base}`], env);
       baseSha = git(repositoryRoot, ["rev-parse", "--verify", `refs/remotes/${remote}/${base}^{commit}`]).trim();
 
-      // 2. Same SHA, already published or up to date: nothing to do.
-      if (state.branch === branch && state.lastProcessedSha === baseSha && state.lastSuccessfulSha === baseSha) {
+      const successMatches = state.lastSuccessfulBranch === branch && state.lastSuccessfulSha === baseSha;
+      const pending = state.publisherPending?.branch === branch && state.publisherPending.baseSha === baseSha
+        ? state.publisherPending
+        : successMatches && state.lastSuccessfulCommit && state.lastSuccessfulPublisher !== publisherIdentity
+          ? { branch, baseSha, commitSha: state.lastSuccessfulCommit, files: state.lastSuccessfulFiles }
+          : null;
+      // A pending publisher is recovered before any success-cache decision. A failed branch switch
+      // never changes the identity attached to the last successful result.
+      if (!pending && successMatches && state.lastSuccessfulPublisher === publisherIdentity
+        && (state.lastSuccessfulCommit === null || lsRemoteBranch(repositoryRoot, pushRemote, branch, env) === state.lastSuccessfulCommit)) {
         return finish("already-processed", { publishedCommit: state.lastSuccessfulCommit });
       }
 
+      input.assertOwner();
       prepareProjectionWriterWorktree(repositoryRoot, paths.worktree, baseSha);
-
-      // A pushed commit whose publisher failed: retry the publisher only, while the remote branch still carries it.
-      const pending = state.publisherPending;
-      if (pending && pending.baseSha === baseSha && pending.branch === branch && lsRemoteBranch(repositoryRoot, remote, branch, env) === pending.commitSha) {
+      if (pending && lsRemoteBranch(repositoryRoot, pushRemote, branch, env) === pending.commitSha) {
+        input.assertOwner();
         const published = await publishPullRequest(options.publisher, { worktree: paths.worktree, remote, base, branch, baseSha, commitSha: pending.commitSha, files: pending.files });
         if (!published.ok) {
           return failed(published.failure, { publishedCommit: pending.commitSha, files: pending.files }, { publisherPending: pending });
@@ -315,6 +334,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
         ...(options.acceptObservedMajorChange ? { acceptObservedMajorChange: true as const } : {})
       };
       const applied = await options.apply(paths.worktree, request);
+      input.assertOwner();
       if (!applied.ok) {
         const failure = envelopeFailure(applied, "projection-apply-failed");
         if (failure.code === "AC_CODE_FACTS_UNAVAILABLE") {
@@ -343,6 +363,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
       }
 
       // 5. One commit on top of the base tip.
+      input.assertOwner();
       git(paths.worktree, ["add", "-A", "--", ...changed]);
       const title = projectionPublishTitle(base, baseSha);
       try {
@@ -361,17 +382,19 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
       if (tip !== baseSha) continue;
 
       // 7. Push the rolling branch, unless it already carries this exact tree on this base.
-      const lease = lsRemoteBranch(repositoryRoot, remote, branch, env);
+      const lease = lsRemoteBranch(repositoryRoot, pushRemote, branch, env);
       let publishedCommit = commitSha;
       let pushed = false;
       if (lease !== null && carriesSameProjection(paths.worktree, lease, commitSha, baseSha)) {
         publishedCommit = lease;
       } else {
-        remoteGit(paths.worktree, ["push", "--no-verify", `--force-with-lease=refs/heads/${branch}:${lease ?? ""}`, remote, `HEAD:refs/heads/${branch}`], env);
+        input.assertOwner();
+        remoteGit(paths.worktree, ["push", "--no-verify", `--force-with-lease=refs/heads/${branch}:${lease ?? ""}`, pushRemote, `${commitSha}:refs/heads/${branch}`], env);
         pushed = true;
       }
 
       // 8. Pull request.
+      input.assertOwner();
       const published = await publishPullRequest(options.publisher, { worktree: paths.worktree, remote, base, branch, baseSha, commitSha: publishedCommit, files: changed });
       if (!published.ok) {
         const pendingPublish = { baseSha, branch, commitSha: publishedCommit, files: changed };
@@ -393,6 +416,9 @@ function nextProjectionWriterState(state: ProjectionWriterStateV1, outcome: Lock
   if (run.baseSha !== null) next.lastProcessedSha = run.baseSha;
   if (run.result === "published" || run.result === "up-to-date") {
     next.lastSuccessfulSha = run.baseSha;
+    next.lastSuccessfulBranch = run.branch;
+    next.lastSuccessfulPublisher = outcome.publisherIdentity;
+    next.lastSuccessfulFiles = run.files;
     next.lastSuccessfulCommit = run.result === "published" ? run.publishedCommit : null;
     next.publisherPending = null;
   } else if (outcome.publisherPending) {
@@ -760,8 +786,11 @@ export function createGhProjectionPublisher(options: { exec?: ProjectionPublishe
   return {
     kind: "gh",
     async ensurePullRequest(input) {
-      const env = { ...stringEnv(process.env), GH_PROMPT_DISABLED: "1" };
-      const gh = (args: string[]) => withLocalEgress("projection-publishing", () => exec("gh", args, { cwd: input.worktree, env, timeoutMs }), admissionEnv);
+      assertLocalEgressAllowed("projection-publishing", admissionEnv);
+      const repository = projectionPublisherRepository(input.worktree, input.remote);
+      const env: Record<string, string> = { ...stringEnv(process.env), GH_PROMPT_DISABLED: "1" };
+      delete env.GH_REPO;
+      const gh = (args: string[]) => withLocalEgress("projection-publishing", () => exec("gh", [...args, "--repo", repository], { cwd: input.worktree, env, timeoutMs }), admissionEnv);
       const listed = await gh(["pr", "list", "--head", input.branch, "--base", input.base, "--state", "open", "--json", "number,url", "--limit", "1"]);
       const open = parseGhPullRequestList(listed.stdout);
       if (open) {
@@ -774,6 +803,38 @@ export function createGhProjectionPublisher(options: { exec?: ProjectionPublishe
       return { ...(url ? { url } : {}), ...(number ? { number: Number(number) } : {}) };
     }
   };
+}
+
+/** One publication has one destination. Use this same URL for the lease and the push. */
+function projectionWriterPushUrl(worktree: string, remote: string): string {
+  const urls = git(worktree, ["remote", "get-url", "--push", "--all", "--", remote]).trim().split("\n").filter(Boolean);
+  if (urls.length !== 1) {
+    throw new ProjectionWriterFailure("AC_SCHEMA_INVALID", "projection-writer-push-target-ambiguous", "projection publish requires exactly one push URL for the selected remote");
+  }
+  return urls[0]!;
+}
+
+/** Bind the PR to the one selected push repository, including fork remotes. Never infer upstream. */
+function projectionPublisherRepository(worktree: string, remote: string): string {
+  const source = projectionWriterPushUrl(worktree, remote);
+  const scp = /^[^/@:]+@([A-Za-z0-9.-]+):([^?#]+)$/.exec(source);
+  let host: string;
+  let path: string;
+  if (scp) { host = scp[1]!; path = scp[2]!; }
+  else {
+    const url = new URL(source);
+    if (!["https:", "ssh:"].includes(url.protocol) || url.search || url.hash || url.password || (url.protocol === "https:" && url.username)) {
+      throw new Error("the selected remote must be an SSH or HTTPS GitHub repository URL");
+    }
+    host = url.protocol === "ssh:" ? url.hostname : url.host;
+    path = url.pathname.replace(/^\//, "");
+  }
+  path = path.replace(/\.git$/, "");
+  if (!/^[A-Za-z0-9.-]+(?::[0-9]+)?$/.test(host) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(path)
+    || path.split("/").some((part) => part === "." || part === "..")) {
+    throw new Error("the selected remote must identify one GitHub host, owner, and repository");
+  }
+  return `${host.toLowerCase()}/${path}`;
 }
 
 /**
@@ -808,6 +869,7 @@ export function createCommandProjectionPublisher(options: {
   const timeoutMs = options.timeoutMs ?? PUBLISHER_TIMEOUT_MS;
   return {
     kind: "command",
+    identity: `command:${resolve(options.command)}`,
     async ensurePullRequest(input) {
       const env: Record<string, string> = {
         ...commandPublisherBaseEnv(sourceEnv, platform),
@@ -972,72 +1034,51 @@ function remoteNameIssue(remote: string): string | undefined {
 }
 
 /**
- * Takes the writer lock: an O_EXCL private file holding `{pid, startedAt, token}`. A live holder is
- * `busy`. A dead holder's lock is taken over atomically: it is renamed aside, and discarded only
- * when the renamed file is still that same stale record; anything else is put back and the run
- * backs off as busy.
+ * SQLite owns the exclusion, using the same OS-backed lock as the runtime store. The sidecar is
+ * separate from every ledger DB and is never renamed or removed. The JSON record is diagnostic.
+ * A lost record stops this run but cannot admit another writer while the OS lock is held.
  */
-function acquireProjectionWriterLock(lockPath: string, startedAt: string): { kind: "acquired"; record: string } | { kind: "busy"; pid: number } {
-  const record = JSON.stringify({ pid: process.pid, startedAt, token: randomUUID() }, null, 2);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      createPrivateControlFile(lockPath, record);
-      return { kind: "acquired", record };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-    const body = readPrivateControlFile(lockPath);
-    if (body === undefined) {
-      if (!existsSync(lockPath)) continue;
-      throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-lock-unverified", `refusing a projection writer lock with unverified permissions: ${lockPath}`);
-    }
-    const holder = parseProjectionWriterLock(body);
-    if (holder && isProcessAlive(holder.pid)) return { kind: "busy", pid: holder.pid };
-    // A dead owner (or an unreadable record) left the lock behind: take it over and retry once.
-    const displaced = takeOverLockIfUnchanged(lockPath, body);
-    if (displaced !== undefined) {
-      const current = readProjectionWriterLock(lockPath);
-      const pid = current && isProcessAlive(current.pid) ? current.pid : displaced?.pid;
-      if (pid !== undefined) return { kind: "busy", pid };
-      throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-lock-unavailable", `the projection writer lock changed during takeover: ${lockPath}`);
-    }
-  }
-  const holder = readProjectionWriterLock(lockPath);
-  if (holder && isProcessAlive(holder.pid)) return { kind: "busy", pid: holder.pid };
-  throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-lock-unavailable", `could not take the projection writer lock: ${lockPath}`);
-}
-
-/**
- * Renames the lock aside and discards it only when it still holds `expected`. Returns undefined when
- * the lock is gone (discarded or already removed); otherwise the record that was found instead,
- * which is restored unless a newer lock already took its place.
- */
-function takeOverLockIfUnchanged(lockPath: string, expected: string): { pid: number; startedAt: string } | null | undefined {
-  const aside = `${lockPath}.${process.pid}.${randomUUID()}.aside`;
+function acquireProjectionWriterLock(lockPath: string, startedAt: string): { kind: "acquired"; record: string; release(): void } | { kind: "busy"; pid: number } {
+  let ownership: { release(): void };
   try {
-    renameSync(lockPath, aside);
+    ownership = acquireLocalStoreWriterOwnership(`${lockPath}.coordination`);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    return readProjectionWriterLock(lockPath) ?? null;
-  }
-  const moved = readPrivateControlFile(aside);
-  if (moved === expected) {
-    rmSync(aside, { force: true });
-    return undefined;
+    if (error instanceof FailureError && error.reasonCode === "runtime-writer-owned") {
+      const holder = readProjectionWriterLock(lockPath);
+      if (holder && isProcessAlive(holder.pid)) return { kind: "busy", pid: holder.pid };
+      throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-lock-unavailable", "another writer holds the OS lock; its diagnostic owner record is unavailable");
+    }
+    throw error;
   }
   try {
-    linkSync(aside, lockPath);
-  } catch {
-    // A newer lock already took the path; it is the holder now.
+    // Refuse a live record from an earlier build, which did not take the OS lock.
+    const body = readPrivateControlFile(lockPath);
+    if (body === undefined && existsSync(lockPath)) {
+      throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-lock-unverified", "the writer owner record has unverified permissions");
+    }
+    const holder = body === undefined ? undefined : parseProjectionWriterLock(body);
+    if (holder && isProcessAlive(holder.pid)) {
+      ownership.release();
+      return { kind: "busy", pid: holder.pid };
+    }
+    // All current writers hold the OS lock before changing this record. No stale-record rename.
+    rmSync(lockPath, { force: true });
+    const record = JSON.stringify({ pid: process.pid, startedAt, token: randomUUID() }, null, 2);
+    createPrivateControlFile(lockPath, record);
+    return { kind: "acquired", record, release() {
+      try { if (readPrivateControlFile(lockPath) === record) rmSync(lockPath, { force: true }); }
+      finally { ownership.release(); }
+    } };
+  } catch (error) {
+    ownership.release();
+    throw error;
   }
-  rmSync(aside, { force: true });
-  return moved === undefined ? null : parseProjectionWriterLock(moved) ?? null;
 }
 
-/** Removes the lock only while it still holds this run's record; a lock another holder wrote is left alone. */
-function releaseProjectionWriterLock(lockPath: string, record: string): void {
-  if (readPrivateControlFile(lockPath) !== record) return;
-  takeOverLockIfUnchanged(lockPath, record);
+function assertProjectionWriterOwner(lockPath: string, record: string): void {
+  if (readPrivateControlFile(lockPath) !== record) {
+    throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-lock-lost", "the writer owner record changed; publication stopped");
+  }
 }
 
 function readProjectionWriterLock(lockPath: string): { pid: number; startedAt: string } | undefined {
@@ -1065,6 +1106,9 @@ function emptyProjectionWriterState(remote: string, base: string): ProjectionWri
     lastProcessedSha: null,
     lastSuccessfulSha: null,
     lastSuccessfulCommit: null,
+    lastSuccessfulBranch: null,
+    lastSuccessfulPublisher: null,
+    lastSuccessfulFiles: [],
     publisherPending: null,
     lastRun: null
   };

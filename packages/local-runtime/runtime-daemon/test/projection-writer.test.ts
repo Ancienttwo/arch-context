@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -303,7 +303,7 @@ test("a live lock is busy, a dead owner's lock is recovered", async () => {
   expect(readdirSync(paths.dir).filter((name) => name.endsWith(".aside"))).toEqual([]);
 });
 
-test("a lock another holder wrote during the run is not released by this run", async () => {
+test("loss of the owner record stops publication and preserves the foreign record", async () => {
   const fixture = writerFixture();
   const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
   const foreign = JSON.stringify({ pid: process.pid, startedAt: "2026-10-20T01:02:03.000Z", token: "another-holder" });
@@ -315,7 +315,8 @@ test("a lock another holder wrote during the run is not released by this run", a
     return { files: { "docs/architecture/overview.md": "# overview\n" } };
   });
   const { publisher } = recordingPublisher();
-  expect(runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env })).result).toBe("published");
+  expect(runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env })).result).toBe("failed");
+  expect(originRef(fixture, "refs/heads/archctx/projection")).toBeNull();
   expect(readFileSync(paths.lock, "utf8")).toBe(foreign);
   expect(readdirSync(paths.dir).filter((name) => name.endsWith(".aside"))).toEqual([]);
   rmSync(paths.lock);
@@ -540,7 +541,10 @@ test("on Windows the command publisher runs #! scripts through their interpreter
 });
 
 test("the gh publisher lists, then creates or edits, with no shell and prompts disabled", async () => {
-  const input: ProjectionPublisherInput = { worktree: "/owned/worktree", remote: "origin", base: "main", branch: "archctx/projection", baseSha: "a".repeat(40), commitSha: "b".repeat(40), title: "chore(projection): refresh", bodyFile: "/tmp/body.md" };
+  const fixture = writerFixture();
+  git(fixture.clone, "remote", "set-url", "origin", "https://github.com/other/default.git");
+  git(fixture.clone, "remote", "add", "selected", "git@github.com:example/repo.git");
+  const input: ProjectionPublisherInput = { worktree: fixture.clone, remote: "selected", base: "main", branch: "archctx/projection", baseSha: "a".repeat(40), commitSha: "b".repeat(40), title: "chore(projection): refresh", bodyFile: "/tmp/body.md" };
   const fakeGh = (listed: string) => {
     const calls: { file: string; args: string[]; cwd: string; env: Record<string, string> }[] = [];
     const exec: ProjectionPublisherExec = async (file, args, options) => {
@@ -552,22 +556,25 @@ test("the gh publisher lists, then creates or edits, with no shell and prompts d
     return { exec, calls };
   };
 
+  const priorGhRepo = process.env.GH_REPO;
+  process.env.GH_REPO = "wrong/repository";
+  afterAll(() => { if (priorGhRepo === undefined) delete process.env.GH_REPO; else process.env.GH_REPO = priorGhRepo; });
   const created = fakeGh("[]");
   expect(await createGhProjectionPublisher({ exec: created.exec, env: {} }).ensurePullRequest(input)).toEqual({ url: "https://github.com/example/repo/pull/12", number: 12 });
   expect(created.calls.map((call) => [call.file, ...call.args])).toEqual([
-    ["gh", "pr", "list", "--head", "archctx/projection", "--base", "main", "--state", "open", "--json", "number,url", "--limit", "1"],
-    ["gh", "pr", "create", "--base", "main", "--head", "archctx/projection", "--title", "chore(projection): refresh", "--body-file", "/tmp/body.md"]
+    ["gh", "pr", "list", "--head", "archctx/projection", "--base", "main", "--state", "open", "--json", "number,url", "--limit", "1", "--repo", "github.com/example/repo"],
+    ["gh", "pr", "create", "--base", "main", "--head", "archctx/projection", "--title", "chore(projection): refresh", "--body-file", "/tmp/body.md", "--repo", "github.com/example/repo"]
   ]);
   for (const call of created.calls) {
-    expect(call.cwd).toBe("/owned/worktree");
+    expect(call.cwd).toBe(fixture.clone);
     expect(call.env.GH_PROMPT_DISABLED).toBe("1");
   }
 
   const edited = fakeGh('[{"number":5,"url":"https://github.com/example/repo/pull/5"}]');
   expect(await createGhProjectionPublisher({ exec: edited.exec, env: {} }).ensurePullRequest(input)).toEqual({ url: "https://github.com/example/repo/pull/5", number: 5 });
   expect(edited.calls.map((call) => call.args)).toEqual([
-    ["pr", "list", "--head", "archctx/projection", "--base", "main", "--state", "open", "--json", "number,url", "--limit", "1"],
-    ["pr", "edit", "5", "--title", "chore(projection): refresh", "--body-file", "/tmp/body.md"]
+    ["pr", "list", "--head", "archctx/projection", "--base", "main", "--state", "open", "--json", "number,url", "--limit", "1", "--repo", "github.com/example/repo"],
+    ["pr", "edit", "5", "--title", "chore(projection): refresh", "--body-file", "/tmp/body.md", "--repo", "github.com/example/repo"]
   ]);
 
   const denied = fakeGh("[]");
@@ -596,3 +603,96 @@ test("the follow loop runs one publish per interval until stopped", async () => 
   expect(results.map((envelope) => envelope.ok)).toEqual([true, false, true]);
   expect(results[1]!.requestId).toBe("projection.publish");
 });
+
+
+test("a failed branch switch cannot reuse the prior branch success", async () => {
+  for (const failurePoint of ["apply", "publisher"] as const) {
+    const fixture = writerFixture();
+    const { apply, calls } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# overview\n" } }));
+    const firstPublisher = recordingPublisher();
+    const first = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: firstPublisher.publisher, apply, env: fixture.env }));
+    expect(first.result).toBe("published");
+    const failedPublisher = recordingPublisher("gh", () => true);
+    const failedApply: ProjectionWriterApplyPort = async () => { throw new Error("apply unavailable"); };
+    const failed = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, branch: "archctx/other", publisher: failedPublisher.publisher, apply: failurePoint === "apply" ? failedApply : apply, env: fixture.env }));
+    expect(failed.result).toBe("failed");
+    const beforeRetry = calls.length;
+    const retryPublisher = recordingPublisher();
+    const retry = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, branch: "archctx/other", publisher: retryPublisher.publisher, apply, env: fixture.env }));
+    expect(retry.result).toBe("published");
+    expect(retryPublisher.calls).toHaveLength(1);
+    expect(retry.publishedCommit).toBe(originRef(fixture, "refs/heads/archctx/other"));
+    expect(calls.length).toBe(beforeRetry + (failurePoint === "apply" ? 1 : 0));
+  }
+}, 30000);
+
+test("enabling a publisher after push-only publishes the existing commit", async () => {
+  const fixture = writerFixture();
+  const { apply, calls } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# overview\n" } }));
+  const first = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: createNoneProjectionPublisher(), apply, env: fixture.env }));
+  const recorder = recordingPublisher();
+  const next = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: recorder.publisher, apply, env: fixture.env }));
+  expect(next).toMatchObject({ result: "published", pushed: false, publishedCommit: first.publishedCommit });
+  expect(recorder.calls).toHaveLength(1);
+  expect(calls).toHaveLength(1);
+});
+
+test("an OS lock excludes two processes even when the owner record disappears, and crash releases it", async () => {
+  const fixture = writerFixture();
+  const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
+  const ready = join(fixture.root, "ready");
+  const attempted = join(fixture.root, "contender-applied");
+  const script = join(fixture.root, "lock-worker.ts");
+  const writerModule = join(import.meta.dir, "../src/projection-writer.ts");
+  writeFileSync(script, `import { runProjectionPublishCommand, createNoneProjectionPublisher } from ${JSON.stringify(writerModule)};
+import {writeFileSync} from "node:fs";
+const holding = process.argv[2] === "hold";
+const result = await runProjectionPublishCommand({cwd:${JSON.stringify(fixture.clone)},env:${JSON.stringify(fixture.env)},publisher:createNoneProjectionPublisher(),apply:async()=>{
+writeFileSync(holding ? ${JSON.stringify(ready)} : ${JSON.stringify(attempted)}, "entered");
+if(holding) await new Promise(()=>{setInterval(()=>{},1000)});
+return {schemaVersion:"archcontext.envelope/v1",ok:true,requestId:"projection.run",data:{status:"noop",files:[],humanActions:[]}};
+}});
+console.log(JSON.stringify(result));`);
+  const owner = spawn(process.execPath, [script, "hold"], { stdio: "ignore", env: process.env });
+  const ownerExit = new Promise<void>((resolve) => owner.once("exit", () => resolve()));
+  try {
+    const deadline = Date.now() + 15000;
+    while (!existsSync(ready) && Date.now() < deadline && owner.exitCode === null) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(existsSync(ready)).toBe(true);
+    // Reproduces the absent-record window of stale-lock takeover. It must not remove authority.
+    rmSync(paths.lock);
+    const contender = () => new Promise<number | null>((resolve, reject) => {
+      const child = spawn(process.execPath, [script, "contend"], { stdio: "ignore", env: process.env });
+      child.once("error", reject); child.once("exit", resolve);
+    });
+    expect(await Promise.all([contender(), contender()])).toEqual([0, 0]);
+    expect(existsSync(attempted)).toBe(false);
+  } finally { owner.kill("SIGKILL"); await ownerExit; }
+  const { apply } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# recovered\n" } }));
+  const recovered = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: createNoneProjectionPublisher(), apply, env: fixture.env }));
+  expect(recovered.result).toBe("published");
+}, 30000);
+
+test("publisher recovery and lease use the push URL when fetch points elsewhere", async () => {
+  const fixture = writerFixture();
+  const pushOrigin = join(fixture.root, "push.git");
+  git(fixture.root, "clone", "--bare", "-q", fixture.origin, pushOrigin);
+  git(fixture.clone, "config", "remote.origin.pushurl", pushOrigin);
+  const { apply, calls } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# push destination\n" } }));
+  const failedPublisher = recordingPublisher("gh", () => true);
+  const first = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: failedPublisher.publisher, apply, env: fixture.env }));
+  expect(first).toMatchObject({ result: "failed", pushed: true });
+  expect(originRef(fixture, "refs/heads/archctx/projection")).toBeNull();
+  const pushed = git(pushOrigin, "rev-parse", "refs/heads/archctx/projection");
+  const publisher = recordingPublisher();
+  const retry = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: publisher.publisher, apply, env: fixture.env }));
+  expect(retry).toMatchObject({ result: "published", pushed: false, publishedCommit: pushed });
+  expect(calls).toHaveLength(1);
+  expect(publisher.calls).toHaveLength(1);
+  expect(runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: publisher.publisher, apply, env: fixture.env })).result).toBe("already-processed");
+  git(fixture.clone, "config", "--add", "remote.origin.pushurl", fixture.origin);
+  const refused = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, branch: "archctx/multiple", publisher: publisher.publisher, apply, env: fixture.env }));
+  expect(refused.result).toBe("failed");
+  expect(originRef(fixture, "refs/heads/archctx/multiple")).toBeNull();
+  expect(spawnSync("git", ["rev-parse", "--verify", "refs/heads/archctx/multiple"], { cwd: pushOrigin }).status).not.toBe(0);
+}, 30000);
