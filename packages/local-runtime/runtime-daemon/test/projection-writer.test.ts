@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { jsonSchemaResolver, okEnvelope, validateJsonSchema, type Json, type JsonEnvelope, type ProjectionPublishRunV1, type ProjectionPublishStatusV1, type ProjectionRequestV1 } from "@archcontext/contracts";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
@@ -449,7 +449,7 @@ test("the command publisher runs with only PATH, HOME and the ARCHCTX_PUBLISH_* 
     expect(recorded).toContain("ARCHCTX_PUBLISH_BODY_FILE=");
     expect(recorded).not.toContain("ARCHCTX_WRITER_TEST_SENTINEL");
     expect(recorded).not.toContain("GIT_AUTHOR_NAME");
-    expect(recorded).toContain(projectionWriterPaths(fixture.clone, "origin", "main", fixture.env).worktree.split("/").pop()!);
+    expect(recorded).toContain(basename(projectionWriterPaths(fixture.clone, "origin", "main", fixture.env).worktree));
 
     // Output that is not a JSON object is ignored; a non-zero exit is a failure.
     const failing = join(fixture.root, "fail.sh");
