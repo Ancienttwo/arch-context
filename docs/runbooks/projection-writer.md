@@ -122,9 +122,11 @@ with `AC_POLICY_VIOLATION` before the first fetch. `publish-status` and `verify-
 - `busy` with no writer running: the lock names a live pid. If that process is not an archctx
   writer, stop it or remove the lock in the writer directory. A dead pid's lock is recovered
   automatically.
-- `projection-writer-state-invalid` or a worktree you no longer trust: delete the writer directory.
-  Its path is the parent of `worktreePath` in `publish-status`. Then run `git worktree prune` in
-  the repository. The next run recreates both; the remote branch and pull request are untouched.
+- `projection-writer-state-invalid` or a worktree you no longer trust: stop the owned worktree's
+  daemon (`archctx daemon stop` run inside `worktreePath`, or `archctx daemon list` then
+  `archctx daemon stop --workspace-id <id>`), delete the writer directory (the parent of
+  `worktreePath` in `publish-status`), then run `git worktree prune` in the repository. The next
+  run recreates both; the remote branch and pull request are untouched.
 - `projection-publisher-failed`: fix `gh` or the publisher command and run again; only the
   publisher is retried.
 - `projection-writer-commit-failed`: configure a Git identity for the repository.
