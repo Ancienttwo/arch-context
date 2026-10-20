@@ -294,6 +294,10 @@ To ignore stamp-only drift during a task, run `check` and treat `unchanged` and 
 
 Every refresh signal a run produces carries `capabilities[]`, sorted by `capabilityId`: `{ capabilityId, reasonCodes, changedFacets, proofStatusBefore, proofStatusAfter }`. It breaks the signal's change down per capability: the reason codes and semantic facets (`constraints`, `entrypoints`, `interfaces`, `lifecycle`, `names`, `ownership`, `placement`, `relations`, `responsibilities`, `riskBoundaries`) that moved, and the P1/P2 proof status on each side. `proofStatusBefore` is null without a baseline entry (an added capability or a first projection), and `proofStatusAfter` is null for a removed capability; a one-sided capability lists no facets. A capability listed only because its proof is unprovable, while another capability carries the observed change, has no reason codes. For an accepted change the breakdown is the observed one, which can name more reasons than `acceptedChange.reasonCodes`. The breakdown is part of the signal identity. Signals committed before it existed lack the field. After upgrading, a pending refresh signal is re-emitted once with a new `signalId` and `idempotencyKey`, because its identity now includes `capabilities[]`; consumers that deduplicate on `idempotencyKey` see it as one new signal. `archctx docs drift|plan` report the same breakdown as `majorChange.capabilities`. Consumers detect it through the `architecture-change-capabilities-v1` capability.
 
+### Publishing the projection as a rolling pull request
+
+`archctx projection publish` refreshes the projection on an always-on host and pushes it as one generated-only commit on top of the base tip to a rolling `archctx/*` branch, then opens or updates its pull request. `archctx projection verify-pr --base <ref>` lets CI accept such a pull request on `verdict: "generated-only-render-equivalent"`. Consumers detect them through the `projection-publish-v1` and `projection-verify-pr-v1` capabilities. See `docs/runbooks/projection-writer.md` and ADR-0048.
+
 ## Bad Projection Recovery
 
 If generated content is wrong but human text is intact:
