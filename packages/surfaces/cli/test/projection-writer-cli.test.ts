@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { jsonSchemaResolver, stableYaml, validateJsonSchema, type Json, type JsonEnvelope, type ProjectionPrVerificationV1, type ProjectionPublishRunV1, type ProjectionPublishStatusV1 } from "@archcontext/contracts";
+import { jsonSchemaResolver, stableYaml, validateJsonSchema, type Json, type ProjectionPrVerificationV1, type ProjectionPublishRunV1, type ProjectionPublishStatusV1 } from "@archcontext/contracts";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -53,7 +53,7 @@ function expectSchema(value: unknown, documentSchema: unknown): void {
   expect(validateJsonSchema(documentSchema as any, value as Json, { resolveSchema }).issues).toEqual([]);
 }
 
-function dataOf<T>(envelope: JsonEnvelope, requestId: string, documentSchema: unknown): T {
+function dataOf<T>(envelope: { ok: boolean; requestId: string; data?: unknown }, requestId: string, documentSchema: unknown): T {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
   expect(envelope.requestId).toBe(requestId);
   expectSchema(envelope.data, documentSchema);
