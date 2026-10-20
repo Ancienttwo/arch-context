@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { okEnvelope, type Json, type JsonEnvelope, type ProjectionPublishRunV1, type ProjectionPublishStatusV1, type ProjectionRequestV1 } from "@archcontext/contracts";
+import { jsonSchemaResolver, okEnvelope, validateJsonSchema, type Json, type JsonEnvelope, type ProjectionPublishRunV1, type ProjectionPublishStatusV1, type ProjectionRequestV1 } from "@archcontext/contracts";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -21,6 +21,15 @@ import {
   type ProjectionPublisherPort,
   type ProjectionWriterApplyPort
 } from "../src/projection-writer";
+
+const SCHEMAS = join(import.meta.dir, "../../../../schemas/runtime");
+const RUN_SCHEMA = JSON.parse(readFileSync(join(SCHEMAS, "projection-publish-run.schema.json"), "utf8"));
+const STATUS_SCHEMA = JSON.parse(readFileSync(join(SCHEMAS, "projection-publish-status.schema.json"), "utf8"));
+const resolveSchema = jsonSchemaResolver([RUN_SCHEMA, STATUS_SCHEMA]);
+
+function expectSchema(schema: unknown, value: unknown): void {
+  expect(validateJsonSchema(schema as any, value as Json, { resolveSchema }).issues).toEqual([]);
+}
 
 const IDENTITY = {
   GIT_AUTHOR_NAME: "ArchContext Writer Test",
@@ -141,7 +150,19 @@ function recordingPublisher(kind: "gh" | "command" = "gh", fail: () => boolean =
 
 function runOf(envelope: JsonEnvelope): ProjectionPublishRunV1 {
   expect(envelope.requestId).toBe("projection.publish");
-  return envelope.data as unknown as ProjectionPublishRunV1;
+  expectSchema(RUN_SCHEMA, envelope.data);
+  const run = envelope.data as unknown as ProjectionPublishRunV1;
+  // Every result except failed is an ok envelope; failed carries the run's own error code.
+  expect(envelope.ok).toBe(run.result !== "failed");
+  if (run.result === "failed") expect(envelope.error?.code).toBe(run.error!.code as any);
+  return run;
+}
+
+function statusOf(envelope: JsonEnvelope): ProjectionPublishStatusV1 {
+  expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
+  expect(envelope.requestId).toBe("projection.publish-status");
+  expectSchema(STATUS_SCHEMA, envelope.data);
+  return envelope.data as unknown as ProjectionPublishStatusV1;
 }
 
 function changedFiles(fixture: WriterFixture, commit: string): string[] {
@@ -194,9 +215,7 @@ test("first run publishes one generated-only commit on the base tip; the same SH
   expect(runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env })).result).toBe("already-processed");
   expect(calls).toHaveLength(1);
 
-  const status = runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env });
-  expect(status.ok, JSON.stringify(status)).toBe(true);
-  expect(status.data as unknown as ProjectionPublishStatusV1).toMatchObject({
+  expect(statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env }))).toMatchObject({
     schemaVersion: "archcontext.projection-publish-status/v1",
     remote: "origin",
     base: "main",
@@ -272,7 +291,7 @@ test("a live lock is busy, a dead owner's lock is recovered", async () => {
   expect(calls).toHaveLength(0);
   expect(existsSync(paths.lock)).toBe(true);
   expect(existsSync(paths.state)).toBe(false);
-  expect((runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env }).data as any).running).toEqual({ pid: process.pid, startedAt: "2026-10-20T00:00:00.000Z" });
+  expect(statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env })).running).toEqual({ pid: process.pid, startedAt: "2026-10-20T00:00:00.000Z" });
 
   rmSync(paths.lock);
   const dead = spawnSync(process.execPath, ["-e", ""]).pid;
@@ -383,7 +402,7 @@ test("an apply failure is recorded as failed with its code, and code facts name 
   const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
   expect(failed.error!.message).toContain(`codegraph init ${paths.worktree}`);
   expect(runOf(failed)).toMatchObject({ result: "failed", pushed: false });
-  const status = runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env }).data as unknown as ProjectionPublishStatusV1;
+  const status = statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env }));
   expect(status.lastRun?.result).toBe("failed");
   expect(status.lastSuccessfulSha).toBeNull();
 });

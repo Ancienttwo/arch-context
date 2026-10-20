@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "archcontext.projection-pr-verification/v1",
+  "base": "origin/main",
+  "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "mergeBase": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "changedPaths": ["docs/architecture/modules/capability-app.md", "src/app.ts"],
+  "nonGeneratedPaths": ["src/app.ts"],
+  "generatedOnly": false,
+  "renderEquivalent": true,
+  "differingPaths": [],
+  "projectionStatus": "noop",
+  "verdict": "touches-non-generated"
+}

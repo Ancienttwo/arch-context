@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/projection-publish-status.schema.json",
+  "title": "ProjectionPublishStatusV1",
+  "description": "Read-only result of `archctx projection publish-status`: the projection writer state for one (remote, base), shared by every checkout of the repository. Consumers detect it through the projection-publish-v1 capability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "remote", "base", "branch", "worktreePath", "running", "lastProcessedSha", "lastSuccessfulSha", "lastRun"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.projection-publish-status/v1" },
+    "remote": { "type": "string", "minLength": 1 },
+    "base": { "type": "string", "minLength": 1 },
+    "branch": { "oneOf": [{ "type": "string", "pattern": "^archctx/.+" }, { "type": "null" }], "description": "The rolling branch of the last locked run, or null before the first." },
+    "worktreePath": { "type": "string", "minLength": 1, "description": "The writer-owned worktree; run `codegraph init <worktreePath>` once when code facts are required." },
+    "running": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pid", "startedAt"],
+          "properties": {
+            "pid": { "type": "integer", "minimum": 1 },
+            "startedAt": { "type": "string" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "lastProcessedSha": { "oneOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }], "description": "The last base tip a run evaluated." },
+    "lastSuccessfulSha": { "oneOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }], "description": "The last base tip a run published or found up to date." },
+    "lastRun": { "oneOf": [{ "$ref": "projection-publish-run.schema.json" }, { "type": "null" }] }
+  },
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+  }
+}

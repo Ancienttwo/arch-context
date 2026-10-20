@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "archcontext.projection-publish-run/v1",
+  "result": "published",
+  "remote": "origin",
+  "base": "main",
+  "branch": "main",
+  "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "publishedCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "pushed": true,
+  "pullRequest": null,
+  "publisher": "none",
+  "files": ["docs/architecture/modules/capability-app.md"],
+  "projectionStatus": "applied",
+  "humanActions": [],
+  "error": null,
+  "startedAt": "2026-10-20T08:00:00.000Z",
+  "finishedAt": "2026-10-20T08:00:09.000Z",
+  "iterations": 1
+}

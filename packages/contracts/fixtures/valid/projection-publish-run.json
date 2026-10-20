@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "archcontext.projection-publish-run/v1",
+  "result": "published",
+  "remote": "origin",
+  "base": "main",
+  "branch": "archctx/projection",
+  "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "publishedCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "pushed": true,
+  "pullRequest": { "url": "https://github.com/example/repo/pull/12", "number": 12 },
+  "publisher": "gh",
+  "files": ["docs/architecture/.projection-manifest.json", "docs/architecture/modules/capability-app.md"],
+  "projectionStatus": "applied",
+  "humanActions": [],
+  "error": null,
+  "startedAt": "2026-10-20T08:00:00.000Z",
+  "finishedAt": "2026-10-20T08:00:09.000Z",
+  "iterations": 1
+}
