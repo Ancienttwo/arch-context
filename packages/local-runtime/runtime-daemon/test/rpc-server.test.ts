@@ -84,6 +84,30 @@ function rpcRequestHeaderLines(connection: { url: string; token: string }, extra
 }
 
 describe("runtime RPC server", () => {
+test("RPC stop releases control files and permits restart when daemon cleanup rejects", async () => {
+  const root = tempRepo();
+  const daemon = await createStartedTestDaemon();
+  const failure = new Error("explorer cleanup failed");
+  const originalStop = daemon.stop.bind(daemon);
+  daemon.stop = async () => { await originalStop(); throw failure; };
+  let stopped = 0;
+  const rpc = new ArchctxRuntimeRpcServer(daemon, { root, idleTimeoutMs: 0, onStop: () => { stopped += 1; } });
+  try {
+    const connection = await rpc.start();
+    expect(await rpc.stop().catch((error) => error)).toBe(failure);
+    expect(existsSync(connection.connectionPath)).toBe(false);
+    expect(existsSync(connection.lockPath)).toBe(false);
+    expect(stopped).toBe(1);
+    daemon.stop = originalStop;
+    const restarted = await rpc.start();
+    expect((await new RuntimeRpcClient(restarted).health()) as object).toMatchObject({ ok: true });
+  } finally {
+    daemon.stop = originalStop;
+    await rpc.stop().catch(() => undefined);
+    removeTempRepo(root);
+  }
+}, 15_000);
+
 test("an RPC server whose start fails after starting the daemon releases store ownership for the retry (#160)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "archctx-rpc-start-cleanup-"));
     const dbPath = join(dir, "state", "runtime.sqlite");
