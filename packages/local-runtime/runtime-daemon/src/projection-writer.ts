@@ -288,11 +288,12 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
 
   try {
     const pushRemote = projectionWriterPushUrl(repositoryRoot, remote);
+    const baseRef = `refs/archctx/projection-base/${createHash("sha256").update(`${remote}\0${base}`).digest("hex")}`;
     while (iterations < PROJECTION_WRITER_MAX_ITERATIONS) {
       iterations += 1;
-      // 1. Fetch the base tip.
-      remoteGit(repositoryRoot, ["fetch", "--no-tags", remote, `+refs/heads/${base}:refs/remotes/${remote}/${base}`], env);
-      baseSha = git(repositoryRoot, ["rev-parse", "--verify", `refs/remotes/${remote}/${base}^{commit}`]).trim();
+      // 1. Fetch the publication destination base into a writer-owned ref.
+      remoteGit(repositoryRoot, ["fetch", "--no-tags", pushRemote, `+refs/heads/${base}:${baseRef}`], env);
+      baseSha = git(repositoryRoot, ["rev-parse", "--verify", `${baseRef}^{commit}`]).trim();
 
       const successMatches = state.lastSuccessfulBranch === branch && state.lastSuccessfulSha === baseSha;
       const pending = state.publisherPending?.branch === branch && state.publisherPending.baseSha === baseSha
@@ -357,7 +358,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
       if (changed.length === 0) {
         // A no-op proves freshness only for the tip we rendered. The base can advance
         // during apply even when there is no commit to send through the pre-push fence.
-        const tip = lsRemoteBranch(repositoryRoot, remote, base, env);
+        const tip = lsRemoteBranch(repositoryRoot, pushRemote, base, env);
         if (tip === null) {
           return failed(new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-base-missing", `${remote} has no branch ${base}`), { projectionStatus });
         }
@@ -384,7 +385,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
       const commitSha = git(paths.worktree, ["rev-parse", "HEAD"]).trim();
 
       // 6. Latest wins: never push a projection of a base tip that has already moved.
-      const tip = lsRemoteBranch(repositoryRoot, remote, base, env);
+      const tip = lsRemoteBranch(repositoryRoot, pushRemote, base, env);
       if (tip === null) {
         return failed(new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-base-missing", `${remote} has no branch ${base}`), { projectionStatus, files: changed });
       }

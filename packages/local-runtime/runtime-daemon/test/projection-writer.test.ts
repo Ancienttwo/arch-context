@@ -739,3 +739,36 @@ test("publisher recovery and lease use the push URL when fetch points elsewhere"
   expect(originRef(fixture, "refs/heads/archctx/multiple")).toBeNull();
   expect(spawnSync("git", ["rev-parse", "--verify", "refs/heads/archctx/multiple"], { cwd: pushOrigin }).status).not.toBe(0);
 }, 30000);
+
+
+test("publication uses the push repository base when fetch and push histories diverge", async () => {
+  const fixture = writerFixture();
+  const pushOrigin = join(fixture.root, "push.git");
+  git(fixture.root, "clone", "--bare", "-q", fixture.origin, pushOrigin);
+  const pushBase = git(pushOrigin, "rev-parse", "main");
+  const fetchBase = pushBaseCommit(fixture, "export const fetchOnly = true;\n");
+  expect(fetchBase).not.toBe(pushBase);
+  git(fixture.clone, "config", "remote.origin.pushurl", pushOrigin);
+  const { apply } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# push base\n" } }));
+  const { publisher } = recordingPublisher();
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env }));
+  expect(run.result).toBe("published");
+  expect(run.baseSha).toBe(pushBase);
+  expect(git(pushOrigin, "rev-parse", "archctx/projection^")).toBe(pushBase);
+  expect(git(pushOrigin, "rev-list", "--count", "main..archctx/projection")).toBe("1");
+  expect(git(pushOrigin, "show", "archctx/projection:app/src/index.ts")).toBe("export const app = 1;");
+}, 30000);
+
+
+test("no-op publication checks the push base when fetch has advanced", async () => {
+  const fixture = writerFixture();
+  const pushOrigin = join(fixture.root, "push.git");
+  git(fixture.root, "clone", "--bare", "-q", fixture.origin, pushOrigin);
+  const pushBase = git(pushOrigin, "rev-parse", "main");
+  pushBaseCommit(fixture, "export const fetchOnly = true;\n");
+  git(fixture.clone, "config", "remote.origin.pushurl", pushOrigin);
+  const { apply, calls } = fakeApply(() => ({ files: {} }));
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: createNoneProjectionPublisher(), apply, env: fixture.env }));
+  expect(run).toMatchObject({ result: "up-to-date", baseSha: pushBase, iterations: 1 });
+  expect(calls).toHaveLength(1);
+}, 30000);
