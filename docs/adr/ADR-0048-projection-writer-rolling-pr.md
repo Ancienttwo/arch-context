@@ -21,8 +21,8 @@ The committed architecture projection (`docs/architecture/**` and the agent-cont
 files the model designates) goes stale whenever a declared source footprint moves. Today the only
 writer is whoever runs `projection run` in `apply` mode in their own checkout, so the refresh
 lands inside unrelated feature branches, or not at all. Teams want the refresh to arrive on its
-own: one pull request that carries only generated output, that a reviewer or CI can accept
-without reading prose, and that never races a human branch.
+own: one pull request that carries only generated output, that CI can check mechanically for
+being exactly the projection's render, and that never races a human branch.
 
 `archctxd` is a per-worktree, request-driven RPC server. ADR-0005 makes it the single writer of
 *its own* worktree. It has no periodic loop and no outbound push authority, and adding either
@@ -87,11 +87,26 @@ first fetch.
 ### 5. Downstream verification without trusting the author
 
 `archctx projection verify-pr --base <ref>` diffs the merge base against the checked-out `HEAD`
-(clean tracked worktree, no rename detection). A diff that touches any non-owned path is answered
-`touches-non-generated` from the diff alone, without rendering. A generated-only diff runs the
-in-process `check`; `generated-only-render-equivalent` means the outputs at HEAD are exactly what
-the projection renders there. The verdict carries the decision; the envelope has no new exit-code
-semantics.
+(clean tracked worktree, no rename detection). It is deliberately narrower than
+`projectionOwnedPaths`, the writer's commit filter, which globs all of `docs/architecture/**`
+where hand-written documents the renderer never touches also live:
+
+- A changed path is generated only when it is the projection manifest, a manifest
+  `targets[*].path`, or an agent-context target path, at HEAD or at the merge base. Anything else
+  is non-generated.
+- A mixed-ownership target (manifest `ownership: "mixed"`, and every agent-context target) must
+  keep its text outside the generated regions byte-identical, delimited with the projection's own
+  region parsers. A difference, unparseable or unbalanced markers, or a mixed target that is added
+  or deleted makes it a human edit (`humanEditedPaths`, also in `nonGeneratedPaths`).
+- Any non-generated path gives `touches-non-generated` from the diff alone, without rendering.
+- Otherwise the in-process `check` runs, and each changed agent-context file is compared with the
+  agent-context render (which `check` does not cover). `generated-only-render-equivalent` means the
+  generated files and generated regions at HEAD equal a fresh render there and no text outside the
+  regions changed. It proves provenance, not desirability, of the rendered content.
+
+This is conservative: a writer pull request that creates or deletes a mixed document is reported
+`touches-non-generated` and gets full CI. The verdict carries the decision; the envelope has no new
+exit-code semantics.
 
 ### 6. Contracts
 
@@ -122,8 +137,8 @@ published under `schemas/runtime/`, advertised by the `projection-publish-v1` an
 ## Consequences
 
 - A single always-on host can keep the projection current for a repository with one rolling pull
-  request, and a downstream CI job can accept that pull request on
-  `generated-only-render-equivalent` without reading it.
+  request, and a downstream CI job can establish mechanically (`generated-only-render-equivalent`)
+  that the pull request carries only the projection's render and no human text change.
 - The writer's worktree and its daemon live under the operator's runtime state directory; deleting
   `<repositoryStateDir>/projection-writer/<key>` resets the writer completely.
 - Reusing the protocol means the writer inherits its preconditions: a manifest that needs an

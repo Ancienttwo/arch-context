@@ -94,8 +94,19 @@ export interface ProjectionPrVerificationV1 {
   headSha: string;
   mergeBase: string;
   changedPaths: string[];
+  /**
+   * Changed paths that are not generated: not the projection manifest, not a manifest target path
+   * and not an agent-context target path (at HEAD or at the merge base), plus every
+   * `humanEditedPaths` entry.
+   */
   nonGeneratedPaths: string[];
-  /** True when the diff is non-empty and every changed path is a projection-owned output. */
+  /**
+   * Mixed-ownership targets (manifest `ownership: "mixed"` and every agent-context target) whose
+   * text outside the generated regions differs between the merge base and HEAD, whose regions
+   * cannot be delimited, or which are added or deleted. Never rendered.
+   */
+  humanEditedPaths: string[];
+  /** True when the diff is non-empty and every changed path is a generated output. */
   generatedOnly: boolean;
   /** Null when no render ran (an empty diff, or a diff that touches a non-generated path). */
   renderEquivalent: boolean | null;

@@ -6,6 +6,7 @@
   "mergeBase": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "changedPaths": ["docs/architecture/modules/capability-app.md", "src/app.ts"],
   "nonGeneratedPaths": ["src/app.ts"],
+  "humanEditedPaths": [],
   "generatedOnly": false,
   "renderEquivalent": true,
   "differingPaths": [],

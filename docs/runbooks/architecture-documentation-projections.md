@@ -296,7 +296,7 @@ Every refresh signal a run produces carries `capabilities[]`, sorted by `capabil
 
 ### Publishing the projection as a rolling pull request
 
-`archctx projection publish` refreshes the projection on an always-on host and pushes it as one generated-only commit on top of the base tip to a rolling `archctx/*` branch, then opens or updates its pull request. `archctx projection verify-pr --base <ref>` lets CI accept such a pull request on `verdict: "generated-only-render-equivalent"`. Consumers detect them through the `projection-publish-v1` and `projection-verify-pr-v1` capabilities. See `docs/runbooks/projection-writer.md` and ADR-0048.
+`archctx projection publish` refreshes the projection on an always-on host and pushes it as one generated-only commit on top of the base tip to a rolling `archctx/*` branch, then opens or updates its pull request. `archctx projection verify-pr --base <ref>` tells CI whether a pull request changes generated output only (the manifest, manifest target paths and agent-context targets, with text outside generated regions unchanged) and whether that output equals a fresh render (`verdict: "generated-only-render-equivalent"`); it proves the pull request carries the projection's own render, not that the rendered content is desirable. Consumers detect them through the `projection-publish-v1` and `projection-verify-pr-v1` capabilities. See `docs/runbooks/projection-writer.md` and ADR-0048.
 
 ## Bad Projection Recovery
 

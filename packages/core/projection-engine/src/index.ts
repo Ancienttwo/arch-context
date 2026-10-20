@@ -2778,6 +2778,21 @@ function mergeAgentContextRegion(target: AgentContextProjectionTarget, wrapped: 
   return `${existing.slice(0, region.start)}${wrapped}${existing.slice(region.end)}`;
 }
 
+/**
+ * The text of an agent-context target file outside the marker-owned regions of `nodeIds`, through
+ * the same region parser the projection writes with. A missing, duplicate, overlapping or
+ * malformed region throws, so a caller can never compare text it could not delimit.
+ */
+export function agentContextTextOutsideRegions(body: string, nodeIds: readonly string[]): string {
+  let text = body;
+  for (const nodeId of [...new Set(nodeIds)].sort()) {
+    const region = findAgentContextRegion(text, nodeId);
+    if (!region) throw new Error(`agent-context-marker-missing: ${nodeId}`);
+    text = `${text.slice(0, region.start)}${text.slice(region.end)}`;
+  }
+  return text;
+}
+
 function findAgentContextRegion(body: string, nodeId: string): {
   start: number;
   end: number;

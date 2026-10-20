@@ -8,7 +8,7 @@ import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { createStartedDaemon, projectionWriterPaths, runProjectionVerifyPrCommand } from "@archcontext/local-runtime/runtime-daemon";
+import { createStartedDaemon, projectionWriterPaths, runProjectionCheckInvocation, runProjectionVerifyPrCommand } from "@archcontext/local-runtime/runtime-daemon";
 import { runCli } from "../src/main";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
@@ -117,6 +117,8 @@ async function projectedOrigin(daemon: Awaited<ReturnType<typeof startDaemon>>) 
   git(dev, "config", "core.autocrlf", "false");
   git(dev, "add", "-A");
   git(dev, "commit", "-q", "-m", "fixture");
+  const contracts = await runCli("agent-context", ["apply", "--approved"], dev, { runtimeClient: daemon });
+  expect(contracts.ok, JSON.stringify(contracts)).toBe(true);
   const baseline = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], dev, { runtimeClient: daemon });
   expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
   git(dev, "add", "-A");
@@ -197,8 +199,60 @@ test("projection publish pushes a generated-only commit for a stamp-only source 
       generatedOnly: true,
       renderEquivalent: true,
       differingPaths: [],
+      humanEditedPaths: [],
       projectionStatus: "noop"
     });
+
+    // Each case below is one commit on top of the writer branch, verified, then dropped.
+    const verifyCase = async (edit: () => void): Promise<{ verification: ProjectionPrVerificationV1; checks: number }> => {
+      git(fixture.clone, "checkout", "-q", "--detach", "origin/archctx/projection");
+      edit();
+      git(fixture.clone, "add", "-A");
+      git(fixture.clone, "commit", "-q", "-m", "pull request edit");
+      const verification = dataOf<ProjectionPrVerificationV1>(
+        await runCli("projection", ["verify-pr", "--base", "origin/main"], fixture.clone),
+        "projection.verify-pr",
+        VERIFY_SCHEMA
+      );
+      let checks = 0;
+      const injected = runProjectionVerifyPrCommand({ cwd: fixture.clone, base: "origin/main", check: (request, root) => { checks += 1; return runProjectionCheckInvocation(request, root); } });
+      expect(injected.data, JSON.stringify(injected)).toEqual(verification as unknown as Json);
+      return { verification, checks };
+    };
+    const contractPath = "app/AGENTS.md";
+    const contractBody = readFileSync(join(fixture.clone, contractPath), "utf8");
+    expect(contractBody).toContain("<!-- BEGIN ARCHCONTEXT AGENT CONTEXT");
+
+    // Text outside an agent-context region is human text: never rendered, never generated-only.
+    const contractOutside = await verifyCase(() => writeFileSync(join(fixture.clone, contractPath), `${contractBody}\nHuman note for agents.\n`, "utf8"));
+    expect(contractOutside.verification).toMatchObject({ verdict: "touches-non-generated", humanEditedPaths: [contractPath], renderEquivalent: null, generatedOnly: false });
+    expect(contractOutside.verification.nonGeneratedPaths).toContain(contractPath);
+    expect(contractOutside.checks).toBe(0);
+
+    // A change inside the agent-context region is compared with the agent-context render.
+    const regionStart = contractBody.indexOf("\n", contractBody.indexOf("<!-- BEGIN ARCHCONTEXT AGENT CONTEXT")) + 1;
+    const contractInside = await verifyCase(() => writeFileSync(join(fixture.clone, contractPath), `${contractBody.slice(0, regionStart)}Injected claim.\n${contractBody.slice(regionStart)}`, "utf8"));
+    expect(contractInside.verification).toMatchObject({ verdict: "generated-only-not-render-equivalent", humanEditedPaths: [], nonGeneratedPaths: [], renderEquivalent: false });
+    expect(contractInside.verification.differingPaths).toContain(contractPath);
+
+    // A hand-written document under docs/architecture/ that no target renders is not generated.
+    const policy = await verifyCase(() => writeFileSync(join(fixture.clone, "docs/architecture/script-surface-policy.md"), "# Script surface policy\n\nHand-written.\n", "utf8"));
+    expect(policy.verification).toMatchObject({ verdict: "touches-non-generated", nonGeneratedPaths: ["docs/architecture/script-surface-policy.md"], humanEditedPaths: [], renderEquivalent: null });
+    expect(policy.checks).toBe(0);
+
+    // Human text outside the generated regions of a mixed document is a human edit.
+    const mixedPath = git(fixture.clone, "ls-files", "docs/architecture").split("\n")
+      .find((path) => path.endsWith(".md") && readFileSync(join(fixture.clone, path), "utf8").includes("<!-- BEGIN ARCHCONTEXT:generated"));
+    if (!mixedPath) throw new Error("the fixture projection has no document with a generated region");
+    const mixedHuman = await verifyCase(() => writeFileSync(join(fixture.clone, mixedPath), `${readFileSync(join(fixture.clone, mixedPath), "utf8")}\nHuman appendix.\n`, "utf8"));
+    expect(mixedHuman.verification).toMatchObject({ verdict: "touches-non-generated", humanEditedPaths: [mixedPath], renderEquivalent: null });
+    expect(mixedHuman.checks).toBe(0);
+
+    // Deleting a mixed document is conservative: a human edit, never rendered.
+    const mixedDeleted = await verifyCase(() => rmSync(join(fixture.clone, mixedPath)));
+    expect(mixedDeleted.verification).toMatchObject({ verdict: "touches-non-generated", humanEditedPaths: [mixedPath] });
+    expect(mixedDeleted.checks).toBe(0);
+    git(fixture.clone, "checkout", "-q", "--detach", "origin/archctx/projection");
 
     // A hand edit inside a generated region is generated-only but not what the projection renders.
     const edited = git(fixture.clone, "ls-files", "docs/architecture").split("\n")
@@ -213,7 +267,7 @@ test("projection publish pushes a generated-only commit for a stamp-only source 
       "projection.verify-pr",
       VERIFY_SCHEMA
     );
-    expect(handEdited).toMatchObject({ verdict: "generated-only-not-render-equivalent", generatedOnly: true, renderEquivalent: false, nonGeneratedPaths: [] });
+    expect(handEdited).toMatchObject({ verdict: "generated-only-not-render-equivalent", generatedOnly: true, renderEquivalent: false, nonGeneratedPaths: [], humanEditedPaths: [] });
     expect(handEdited.differingPaths).toContain(edited);
 
     // A source path in the diff is answered from the diff alone; the check is never invoked.

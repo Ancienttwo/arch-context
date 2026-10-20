@@ -2,8 +2,9 @@
 
 `archctx projection publish` keeps one rolling branch (default `archctx/projection`) equal to the
 remote base tip plus exactly one commit that refreshes the generated architecture outputs, and
-opens or updates its pull request. `archctx projection verify-pr` lets downstream CI accept that
-pull request without reading it. Design: `docs/adr/ADR-0048-projection-writer-rolling-pr.md`.
+opens or updates its pull request. `archctx projection verify-pr` tells downstream CI whether a pull
+request changes generated output only and whether that output is exactly what the projection
+renders; see "Downstream CI" for what that does and does not prove. Design: `docs/adr/ADR-0048-projection-writer-rolling-pr.md`.
 
 ## What one run does
 
@@ -91,7 +92,7 @@ It reports `worktreePath`, a `running` writer's pid, `lastProcessedSha` (the las
 evaluated), `lastSuccessfulSha` (the last base tip published or found up to date) and `lastRun`.
 It is read-only and starts nothing.
 
-## Downstream CI: accept the PR without reading it
+## Downstream CI: what `verify-pr` proves
 
 On the pull request's head commit, with the base fetched:
 
@@ -99,17 +100,36 @@ On the pull request's head commit, with the base fetched:
 archctx projection verify-pr --base origin/main --json
 ```
 
+A changed path counts as generated only when it is the projection manifest
+(`docs/architecture/.projection-manifest.json`), a `targets[*].path` of that manifest, or an
+agent-context target path of the model, at HEAD or at the merge base. Everything else is
+non-generated, including hand-written documents under `docs/architecture/` that no target renders.
+For a mixed-ownership target (manifest `ownership: "mixed"`, and every agent-context contract file)
+the text outside the generated regions must also be byte-identical between the merge base and
+HEAD; otherwise the path is a human edit (`humanEditedPaths`, also listed in `nonGeneratedPaths`).
+
 | `verdict` | Meaning |
 |---|---|
-| `touches-non-generated` | Some changed path is not a projection-owned output (`nonGeneratedPaths`). Answered from the diff alone; nothing is rendered. |
-| `generated-only-render-equivalent` | Every changed path is generated, and the outputs at HEAD are exactly what the projection renders there. Safe to accept. |
-| `generated-only-not-render-equivalent` | Generated paths only, but they differ from a fresh render (`differingPaths`), for example a hand edit. |
+| `touches-non-generated` | Some changed path is not generated output, or a mixed target's text outside its generated regions changed (`nonGeneratedPaths`, `humanEditedPaths`). Answered from the diff alone; nothing is rendered. |
+| `generated-only-render-equivalent` | Every changed path is generated output, the generated files and generated regions at HEAD equal a fresh render there (`projection check` is `noop`, and each changed agent-context file equals the agent-context render), and no text outside the generated regions changed. |
+| `generated-only-not-render-equivalent` | Generated output only, but it differs from a fresh render (`differingPaths`), for example a hand edit inside a generated region. |
 | `no-changes` | The diff against the merge base is empty. |
 
-The envelope is ok for every valid evaluation, so gate on `data.verdict`. A dirty tracked worktree
-fails with `AC_PRECONDITION_FAILED`. The fast path (`touches-non-generated`) needs no code facts; a
-generated-only diff renders like `projection check` and needs code facts when the manifest
-requires them.
+`generated-only-render-equivalent` proves that the pull request carries the projection's own render
+of HEAD and nothing else. It does not judge the rendered content: a change to the model or the
+source that the projection faithfully renders is still a change someone may want to review on the
+base branch. Gate automation on `data.verdict`; the envelope is ok for every valid evaluation.
+
+Conservative cases, by design, report `touches-non-generated` and fall back to full review or CI:
+
+- a mixed target (module document, index, changelog, agent-context file) that the pull request
+  adds or deletes, including a writer pull request that creates or removes a module document;
+- a mixed target whose generated-region markers are unbalanced or cannot be parsed on either side;
+- any hand-written file under `docs/architecture/`.
+
+A dirty tracked worktree fails with `AC_PRECONDITION_FAILED`. The fast path
+(`touches-non-generated`) needs no code facts; a generated-only diff renders like
+`projection check` and needs code facts when the manifest requires them.
 
 ## Egress
 

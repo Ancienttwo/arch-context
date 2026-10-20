@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/projection-pr-verification.schema.json",
   "title": "ProjectionPrVerificationV1",
-  "description": "Result of `archctx projection verify-pr --base <ref>` for the checked-out pull request head. A diff that touches any non-generated path is answered from the diff alone, with no render. The verdict carries the decision; the envelope is ok for every valid evaluation. Consumers detect it through the projection-verify-pr-v1 capability.",
+  "description": "Result of `archctx projection verify-pr --base <ref>` for the checked-out pull request head. A path is generated only when it is the projection manifest, a manifest target path or an agent-context target path at HEAD or at the merge base; for mixed-ownership targets the text outside the generated regions must also be unchanged. A diff with any other change is answered from the diff alone, with no render. generated-only-render-equivalent proves that the generated files and generated regions at HEAD equal a fresh render there and that no text outside those regions changed; it says nothing about whether the rendered content is desirable. The envelope is ok for every valid evaluation. Consumers detect it through the projection-verify-pr-v1 capability.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "base", "baseSha", "headSha", "mergeBase", "changedPaths", "nonGeneratedPaths", "generatedOnly", "renderEquivalent", "differingPaths", "projectionStatus", "verdict"],
+  "required": ["schemaVersion", "base", "baseSha", "headSha", "mergeBase", "changedPaths", "nonGeneratedPaths", "humanEditedPaths", "generatedOnly", "renderEquivalent", "differingPaths", "projectionStatus", "verdict"],
   "properties": {
     "schemaVersion": { "const": "archcontext.projection-pr-verification/v1" },
     "base": { "type": "string", "minLength": 1 },
@@ -13,18 +13,19 @@
     "headSha": { "$ref": "#/$defs/sha" },
     "mergeBase": { "$ref": "#/$defs/sha" },
     "changedPaths": { "$ref": "#/$defs/paths", "description": "Paths changed between the merge base and HEAD, without rename detection, sorted." },
-    "nonGeneratedPaths": { "$ref": "#/$defs/paths", "description": "Changed paths that are not projection-owned outputs." },
-    "generatedOnly": { "type": "boolean", "description": "True when the diff is non-empty and every changed path is a projection-owned output." },
-    "renderEquivalent": { "type": ["boolean", "null"], "description": "Whether the generated outputs at HEAD equal a fresh render (a check status of noop). Null when no render ran." },
+    "nonGeneratedPaths": { "$ref": "#/$defs/paths", "description": "Changed paths that are not generated outputs: not the projection manifest, not a manifest target path and not an agent-context target path at HEAD or at the merge base, plus every humanEditedPaths entry." },
+    "humanEditedPaths": { "$ref": "#/$defs/paths", "description": "Mixed-ownership targets (manifest ownership mixed, and every agent-context target) whose text outside the generated regions differs between the merge base and HEAD, whose regions cannot be delimited, or which were added or deleted. They are also in nonGeneratedPaths and are never rendered." },
+    "generatedOnly": { "type": "boolean", "description": "True when the diff is non-empty and every changed path is a generated output with no change outside its generated regions." },
+    "renderEquivalent": { "type": ["boolean", "null"], "description": "Whether the generated files and regions at HEAD equal a fresh render (a check status of noop). Null when no render ran." },
     "differingPaths": { "$ref": "#/$defs/paths", "description": "Paths the check would change at HEAD." },
     "projectionStatus": { "type": ["string", "null"] },
     "verdict": { "enum": ["generated-only-not-render-equivalent", "generated-only-render-equivalent", "no-changes", "touches-non-generated"] }
   },
   "allOf": [
-    { "if": { "properties": { "verdict": { "const": "generated-only-render-equivalent" } } }, "then": { "properties": { "generatedOnly": { "const": true }, "renderEquivalent": { "const": true }, "nonGeneratedPaths": { "maxItems": 0 } } } },
-    { "if": { "properties": { "verdict": { "const": "generated-only-not-render-equivalent" } } }, "then": { "properties": { "generatedOnly": { "const": true }, "renderEquivalent": { "const": false }, "nonGeneratedPaths": { "maxItems": 0 } } } },
+    { "if": { "properties": { "verdict": { "const": "generated-only-render-equivalent" } } }, "then": { "properties": { "generatedOnly": { "const": true }, "renderEquivalent": { "const": true }, "nonGeneratedPaths": { "maxItems": 0 }, "humanEditedPaths": { "maxItems": 0 } } } },
+    { "if": { "properties": { "verdict": { "const": "generated-only-not-render-equivalent" } } }, "then": { "properties": { "generatedOnly": { "const": true }, "renderEquivalent": { "const": false }, "nonGeneratedPaths": { "maxItems": 0 }, "humanEditedPaths": { "maxItems": 0 } } } },
     { "if": { "properties": { "verdict": { "const": "touches-non-generated" } } }, "then": { "properties": { "generatedOnly": { "const": false }, "renderEquivalent": { "type": "null" }, "nonGeneratedPaths": { "minItems": 1 } } } },
-    { "if": { "properties": { "verdict": { "const": "no-changes" } } }, "then": { "properties": { "generatedOnly": { "const": false }, "renderEquivalent": { "type": "null" }, "changedPaths": { "maxItems": 0 } } } }
+    { "if": { "properties": { "verdict": { "const": "no-changes" } } }, "then": { "properties": { "generatedOnly": { "const": false }, "renderEquivalent": { "type": "null" }, "changedPaths": { "maxItems": 0 }, "humanEditedPaths": { "maxItems": 0 } } } }
   ],
   "$defs": {
     "sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },

@@ -6,6 +6,7 @@
   "mergeBase": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "changedPaths": ["docs/architecture/.projection-manifest.json", "docs/architecture/modules/capability-app.md"],
   "nonGeneratedPaths": [],
+  "humanEditedPaths": [],
   "generatedOnly": true,
   "renderEquivalent": true,
   "differingPaths": [],
