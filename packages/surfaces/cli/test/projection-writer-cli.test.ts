@@ -128,8 +128,8 @@ async function projectedOrigin(daemon: Awaited<ReturnType<typeof startDaemon>>) 
   git(dev, "commit", "-q", "-m", "project architecture documentation");
   git(dev, "remote", "add", "origin", origin);
   git(dev, "push", "-q", "origin", "main");
-  git(root, "clone", "-q", origin, clone);
-  git(clone, "config", "core.autocrlf", "false");
+  // Byte-exact checkout regardless of a global core.autocrlf (Windows runners default to true).
+  git(root, "clone", "-q", "-c", "core.autocrlf=false", origin, clone);
   return { root, origin, dev, clone };
 }
 

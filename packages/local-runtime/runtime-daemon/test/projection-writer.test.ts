@@ -91,7 +91,8 @@ function writerFixture(): WriterFixture {
   git(dev, "commit", "-q", "-m", "fixture");
   git(dev, "remote", "add", "origin", origin);
   git(dev, "push", "-q", "origin", "main");
-  git(root, "clone", "-q", origin, clone);
+  // Byte-exact checkout regardless of a global core.autocrlf (Windows runners default to true).
+  git(root, "clone", "-q", "-c", "core.autocrlf=false", origin, clone);
   return { root, origin, dev, clone, env: { ARCHCONTEXT_STATE_DIR: join(root, "state") } };
 }
 
