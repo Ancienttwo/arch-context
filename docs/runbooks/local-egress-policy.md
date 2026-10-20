@@ -1,7 +1,8 @@
 # Local outbound admission
 
 `ARCHCONTEXT_EGRESS_MODE=local-only` denies the local product's Context7 requests,
-audit investigator launch, GitHub issue operations and npm update lookup. Set it
+audit investigator launch, GitHub issue operations, npm update lookup and projection
+publishing. Set it
 on each CLI/daemon process that must enforce the policy. An already-running daemon
 retains its own environment; changing a CLI environment does not change that daemon.
 `doctor` reports daemon policy separately from the CLI update operation.
@@ -15,6 +16,15 @@ rejected before CodeGraph execution under `local-only` rather than silently chan
 Manual `docs --allow-network` and enabled audit configuration cannot override denial.
 Optional prepare documentation keeps its existing cache/advisory behavior without
 calling the provider when denied.
+
+`archctx projection publish` uses the `projection-publishing` channel for every
+outbound step it takes: `git fetch`, `git ls-remote` and `git push` against the
+configured remote, the `gh` publisher and an operator-supplied `--publisher-command`.
+Like the npm update lookup it is an explicit operator action, not configured state,
+so `doctor` does not list it. Under `local-only` the command fails with
+`AC_POLICY_VIOLATION` before the first fetch. `projection publish-status` and
+`projection verify-pr` are local operations and need no outbound admission. See
+`docs/runbooks/projection-writer.md`.
 
 The authority is `packages/local-runtime/egress-admission/src/index.ts`.
 Real HTTP/process boundaries and service admission use the same decision; CLI/RPC

@@ -815,7 +815,7 @@ export interface ReviewCheckoutGitPort {
 }
 
 export interface NonLocalEgressChannel {
-  channel: "context7" | "agent-audit" | "github-issue-publishing" | "npm-update-check" | "codegraph-telemetry";
+  channel: "context7" | "agent-audit" | "github-issue-publishing" | "npm-update-check" | "projection-publishing" | "codegraph-telemetry";
   destination: string;
   trigger: string;
   data: string;

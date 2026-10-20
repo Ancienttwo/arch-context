@@ -66,7 +66,7 @@ test("CLI npm lookup denies explicit requests under local-only and invalid polic
 
 test("report shows policy denial for enabled features, CLI npm intent and telemetry", () => {
   const env = { ARCHCONTEXT_EGRESS_MODE: "local-only", ARCHCONTEXT_CONTEXT7_ENABLED: "1", DO_NOT_TRACK: "0", PUBLISH_AUTH: "fixture" };
-  const live = { auditEnabled: true, auditUserConsent: true, githubIssuesTokenEnv: "PUBLISH_AUTH", updateCheckRequested: true };
+  const live = { auditEnabled: true, auditUserConsent: true, githubIssuesTokenEnv: "PUBLISH_AUTH", updateCheckRequested: true, projectionPublishRequested: true };
   const blocked = localEgressStatus(env, live);
   expect(blocked).toMatchObject({ policyMode: "local-only", enforcement: "application-admission", effectiveOutbound: "local-only" });
   expect(blocked.nonLocalEgress.map(c => c.channel).sort()).toEqual([...LOCAL_EGRESS_CHANNELS].sort());

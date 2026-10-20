@@ -16,6 +16,11 @@ export interface LiveEgressConfig {
   githubIssuesTokenEnv?: string;
   /** Transient CLI request; daemon health never infers a CLI action from its own environment. */
   updateCheckRequested?: boolean;
+  /**
+   * Transient CLI request (`archctx projection publish`), like `updateCheckRequested`: an explicit
+   * operator action, never configured state, so daemon health never reports it on its own.
+   */
+  projectionPublishRequested?: boolean;
 }
 
 
@@ -55,6 +60,7 @@ export function effectiveEgressChannels(env: Record<string, string | undefined>,
     }
   }
   if (live.updateCheckRequested) channels.push({ channel: "npm-update-check", destination: "configured npm registry", trigger: "explicit update --check or doctor --check-updates", data: "archctx package version lookup", status: "enabled" });
+  if (live.projectionPublishRequested) channels.push({ channel: "projection-publishing", destination: "configured git remote, plus GitHub via gh or the operator's publisher command", trigger: "explicit archctx projection publish", data: "one commit of generated projection outputs and a pull request title/body listing their paths", status: "enabled" });
   if (env[CODEGRAPH_TELEMETRY_ENV] !== undefined && env[CODEGRAPH_TELEMETRY_ENV] !== CODEGRAPH_TELEMETRY_DISABLED_VALUE) channels.push({ channel: "codegraph-telemetry", destination: "CodeGraph configured telemetry endpoint", trigger: "CodeGraph execution with telemetry enabled", data: "third-party telemetry", status: "enabled" });
   return channels.map(channel => localEgressAdmission(channel.channel, env).allowed ? channel : { ...channel, status: "blocked-by-policy" });
 }

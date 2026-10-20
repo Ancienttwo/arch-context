@@ -1,7 +1,7 @@
 /** A process-wide deny control; it never grants feature consent or publish authority. */
 export const LOCAL_EGRESS_MODE_ENV = "ARCHCONTEXT_EGRESS_MODE";
 export type LocalEgressMode = "configured" | "local-only";
-export const LOCAL_EGRESS_CHANNELS = ["context7", "agent-audit", "github-issue-publishing", "npm-update-check", "codegraph-telemetry"] as const;
+export const LOCAL_EGRESS_CHANNELS = ["context7", "agent-audit", "github-issue-publishing", "npm-update-check", "projection-publishing", "codegraph-telemetry"] as const;
 export type LocalEgressChannel = typeof LOCAL_EGRESS_CHANNELS[number];
 type EgressEnvironment = Record<string, string | undefined>;
 
