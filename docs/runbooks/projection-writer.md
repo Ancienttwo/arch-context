@@ -139,6 +139,11 @@ with `AC_POLICY_VIOLATION` before the first fetch. `publish-status` and `verify-
 
 ## Recovery
 
+- Known residual race: when a dead writer's lock is taken over, three runs starting within the same
+  few milliseconds can leave two of them believing they hold the lock. A racing push then fails its
+  `--force-with-lease` instead of overwriting, and no run can commit anything but projection-owned
+  outputs; rerun to converge. A single `--follow` loop or a cron job with a sane interval does not
+  hit it. ADR-0048 records it; an advisory `flock` is the planned fix.
 - `busy` with no writer running: the lock names a live pid. If that process is not an archctx
   writer, stop it or remove the lock in the writer directory. A dead pid's lock is recovered
   automatically.

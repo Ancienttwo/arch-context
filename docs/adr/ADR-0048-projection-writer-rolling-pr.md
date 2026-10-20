@@ -143,5 +143,11 @@ published under `schemas/runtime/`, advertised by the `projection-publish-v1` an
   `<repositoryStateDir>/projection-writer/<key>` resets the writer completely.
 - Reusing the protocol means the writer inherits its preconditions: a manifest that needs an
   upgrade, an adoption or a human decision stops the writer the same way it stops an agent.
+- Residual risk, accepted: the lock is a private `O_EXCL` file, and a stale lock is taken over by
+  renaming it aside and re-reading it. If three runs race within milliseconds during that takeover,
+  two of them can each believe they hold the lock. The impact is bounded: every push uses
+  `--force-with-lease` against the tip the run observed, so a racing push fails instead of
+  overwriting, and every commit is limited to projection-owned outputs the apply wrote. An advisory
+  `flock` on the lock file is the future fix.
 
 See `docs/runbooks/projection-writer.md` for operation.
