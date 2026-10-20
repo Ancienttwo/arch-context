@@ -772,3 +772,14 @@ test("no-op publication checks the push base when fetch has advanced", async () 
   expect(run).toMatchObject({ result: "up-to-date", baseSha: pushBase, iterations: 1 });
   expect(calls).toHaveLength(1);
 }, 30000);
+
+
+test("matching fetch and push URLs preserve named-remote uploadpack configuration", async () => {
+  const fixture = writerFixture();
+  git(fixture.clone, "config", "remote.origin.uploadpack", "archctx-missing-upload-pack-for-test");
+  const { apply, calls } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# must not publish\n" } }));
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: createNoneProjectionPublisher(), apply, env: fixture.env }));
+  expect(run.result).toBe("failed");
+  expect(calls).toHaveLength(0);
+  expect(originRef(fixture, "refs/heads/archctx/projection")).toBeNull();
+}, 30000);
