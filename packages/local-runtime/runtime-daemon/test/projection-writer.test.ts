@@ -278,6 +278,41 @@ test("render-equal is up to date and pushes nothing; an apply that touches a non
   expect(published).toHaveLength(0);
 });
 
+test("a no-op apply retries when the remote base advances before accepting up-to-date", async () => {
+  const fixture = writerFixture();
+  let nextBase = "";
+  const { apply, calls } = fakeApply((_worktree, request, call) => {
+    if (call === 1) {
+      nextBase = pushBaseCommit(fixture, "export const app = 2;\n");
+      return { status: "noop" };
+    }
+    return { files: { "docs/architecture/overview.md": `# overview for ${request.expected.headSha}\n` } };
+  });
+  const { publisher, calls: published } = recordingPublisher();
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env }));
+  expect(run).toMatchObject({ result: "published", baseSha: nextBase, iterations: 2, pushed: true });
+  expect(calls).toHaveLength(2);
+  expect(calls[1]!.request.expected.headSha).toBe(nextBase);
+  expect(published).toHaveLength(1);
+  const tip = originRef(fixture, "refs/heads/archctx/projection")!;
+  expect(git(fixture.origin, "rev-list", "--parents", "-n", "1", tip).split(" ")).toEqual([tip, nextBase]);
+});
+
+test("no-op applies on a continuously advancing base exhaust the latest-wins budget", async () => {
+  const fixture = writerFixture();
+  const { apply, calls } = fakeApply((_worktree, _request, call) => {
+    pushBaseCommit(fixture, `export const app = ${call + 1};\n`);
+    return { status: "noop" };
+  });
+  const { publisher, calls: published } = recordingPublisher();
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env }));
+  expect(run).toMatchObject({ result: "failed", iterations: 3, pushed: false, error: { reasonCode: "projection-writer-base-unstable" } });
+  expect(calls).toHaveLength(3);
+  expect(published).toHaveLength(0);
+  expect(originRef(fixture, "refs/heads/archctx/projection")).toBeNull();
+  expect(statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env })).lastSuccessfulSha).toBeNull();
+});
+
 test("a live lock is busy, a dead owner's lock is recovered", async () => {
   const fixture = writerFixture();
   const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
