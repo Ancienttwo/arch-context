@@ -354,7 +354,16 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
 
       // 4. Every changed path must be a file the apply wrote and a projection-owned output.
       const changed = worktreeChangedPaths(paths.worktree);
-      if (changed.length === 0) return finish("up-to-date", { projectionStatus });
+      if (changed.length === 0) {
+        // A no-op proves freshness only for the tip we rendered. The base can advance
+        // during apply even when there is no commit to send through the pre-push fence.
+        const tip = lsRemoteBranch(repositoryRoot, remote, base, env);
+        if (tip === null) {
+          return failed(new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-base-missing", `${remote} has no branch ${base}`), { projectionStatus });
+        }
+        if (tip !== baseSha) continue;
+        return finish("up-to-date", { projectionStatus });
+      }
       const written = new Set(result.files.filter((file) => file.action !== "unchanged").map((file) => file.path));
       const offending = changed.filter((path) => !written.has(path) || !isProjectionOwnedPath(path, ownedPatterns));
       if (offending.length > 0) {
