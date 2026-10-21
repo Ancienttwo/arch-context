@@ -406,6 +406,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       localStore: this.localStore
     });
     this.agentJobs = new AgentJobService({
+      abortOwnedAudit: (jobId) => this.auditRunAbortControllers.get(jobId)?.abort(),
       assertRunning: () => this.assertRunning(),
       openSession: (root) => this.openSession(root),
       architectureLedgerScope: (root) => this.architectureLedgerScope(root),
