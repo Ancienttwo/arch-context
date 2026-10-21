@@ -349,7 +349,7 @@ export function listModelFiles(root: string): ModelFile[] {
     return {
       path,
       body,
-      schemaVersion: extractSchemaVersion(body),
+      schemaVersion: extractSchemaVersion(body, path),
       digest: digestJson({ path, body })
     };
   });
@@ -395,7 +395,16 @@ function readdirOrFile(path: string): "directory" | "file" {
   }
 }
 
-function extractSchemaVersion(body: string): string {
+function extractSchemaVersion(body: string, path: string): string {
+  if (path.startsWith(".archcontext/model/") && /\.ya?ml$/.test(path)) {
+    try {
+      const parsed = parseJsonOrStableYaml(body, path) as { schemaVersion?: unknown } | null;
+      return typeof parsed?.schemaVersion === "string" ? parsed.schemaVersion : "";
+    } catch {
+      // Keep loading malformed files so validateModel can return their path-specific diagnostics.
+      return "";
+    }
+  }
   const match = body.match(/schemaVersion:\s*"?([^"\n]+)"?/);
   if (match) return match[1].trim();
   try {

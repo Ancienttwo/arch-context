@@ -42,6 +42,26 @@ function validate(root: string) {
   return new YamlModelStore().validateModel({ root, repositoryId: "repo.test", headSha: "abc" });
 }
 
+describe("YamlModelStore flow mapping schema versions", () => {
+  test.each([",", ", ", ",\n"])("accepts supported flow mappings separated by %j", async separator => {
+    const root = modelRoot();
+    const path = ".archcontext/model/flows/flow.demo.optional.yaml";
+    try {
+      mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
+      const fields = ["schemaVersion: archcontext.flow/v1", "id: flow.demo.optional", "capabilityId: capability.architecture.context", "name: Optional flow", "applicability: not-applicable", "rationale: No corresponding flow."];
+      writeFileSync(join(root, path), `{${fields.join(separator)}}`, "utf8");
+      expect(await validate(root)).toMatchObject({ valid: true, errors: [] });
+      expect(listModelFiles(root).find(file => file.path === path)?.schemaVersion).toBe("archcontext.flow/v1");
+      writeFileSync(join(root, path), `{${fields.join(separator).replace("archcontext.flow/v1", "archcontext.flow/v9")}}`, "utf8");
+      const invalid = await validate(root);
+      expect(invalid.valid).toBe(false);
+      expect(invalid.errors).toContain(`${path}: expected archcontext.flow/v1, got archcontext.flow/v9`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("YamlModelStore core node validation (#370)", () => {
   test.each([
     ["missing summary", NODE_BODY.replace("summary: Serves API requests.\n", ""), "$.summary: required"],
