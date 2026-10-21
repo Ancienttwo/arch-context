@@ -173,20 +173,25 @@ export class ArchctxRuntimeRpcServer {
     this.server = undefined;
     const connection = this.connection;
     this.connection = undefined;
+    // A failed shutdown step must not strand a live-PID lock or the CLI's stop waiter.
+    // Attempt every cleanup, preserving the first failure instead of masking it with a later one.
+    const errors: unknown[] = [];
+    const cleanup = async (action: () => void | Promise<void>): Promise<void> => {
+      try { await action(); } catch (error) { errors.push(error); }
+    };
     if (server) {
-      await new Promise<void>((resolveClose, rejectClose) => {
+      await cleanup(() => new Promise<void>((resolveClose, rejectClose) => {
         server.close((error) => error ? rejectClose(error) : resolveClose());
-      });
+      }));
     }
-    await this.daemon.stop();
-    try {
-      if (connection) await removePrivateControlFile(connection.connectionPath);
-    } finally {
-      if (this.lockFd !== undefined) closeSync(this.lockFd);
-      this.lockFd = undefined;
-    }
-    if (connection) await removePrivateControlFile(connection.lockPath);
-    this.options.onStop?.();
+    await cleanup(() => this.daemon.stop());
+    if (connection) await cleanup(() => removePrivateControlFile(connection.connectionPath));
+    const lockFd = this.lockFd;
+    this.lockFd = undefined;
+    if (lockFd !== undefined) await cleanup(() => closeSync(lockFd));
+    if (connection) await cleanup(() => removePrivateControlFile(connection.lockPath));
+    await cleanup(() => this.options.onStop?.());
+    if (errors.length > 0) throw errors[0];
   }
 
   private armIdleTimer(): void {
