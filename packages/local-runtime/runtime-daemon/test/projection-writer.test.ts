@@ -597,7 +597,7 @@ test("the gh publisher lists, then creates or edits, with no shell and prompts d
   const created = fakeGh("[]");
   expect(await createGhProjectionPublisher({ exec: created.exec, env: {} }).ensurePullRequest(input)).toEqual({ url: "https://github.com/example/repo/pull/12", number: 12 });
   expect(created.calls.map((call) => [call.file, ...call.args])).toEqual([
-    ["gh", "pr", "list", "--head", "archctx/projection", "--base", "main", "--state", "open", "--json", "number,url", "--limit", "1", "--repo", "github.com/example/repo"],
+    ["gh", "pr", "list", "--head", "archctx/projection", "--base", "main", "--state", "open", "--json", "number,url,isCrossRepository,headRefName,baseRefName", "--limit", "100", "--repo", "github.com/example/repo"],
     ["gh", "pr", "create", "--base", "main", "--head", "archctx/projection", "--title", "chore(projection): refresh", "--body-file", "/tmp/body.md", "--repo", "github.com/example/repo"]
   ]);
   for (const call of created.calls) {
@@ -605,10 +605,10 @@ test("the gh publisher lists, then creates or edits, with no shell and prompts d
     expect(call.env.GH_PROMPT_DISABLED).toBe("1");
   }
 
-  const edited = fakeGh('[{"number":5,"url":"https://github.com/example/repo/pull/5"}]');
+  const edited = fakeGh('[{"number":5,"url":"https://github.com/example/repo/pull/5","isCrossRepository":false,"headRefName":"archctx/projection","baseRefName":"main"}]');
   expect(await createGhProjectionPublisher({ exec: edited.exec, env: {} }).ensurePullRequest(input)).toEqual({ url: "https://github.com/example/repo/pull/5", number: 5 });
   expect(edited.calls.map((call) => call.args)).toEqual([
-    ["pr", "list", "--head", "archctx/projection", "--base", "main", "--state", "open", "--json", "number,url", "--limit", "1", "--repo", "github.com/example/repo"],
+    ["pr", "list", "--head", "archctx/projection", "--base", "main", "--state", "open", "--json", "number,url,isCrossRepository,headRefName,baseRefName", "--limit", "100", "--repo", "github.com/example/repo"],
     ["pr", "edit", "5", "--title", "chore(projection): refresh", "--body-file", "/tmp/body.md", "--repo", "github.com/example/repo"]
   ]);
 
@@ -739,3 +739,53 @@ test("publisher recovery and lease use the push URL when fetch points elsewhere"
   expect(originRef(fixture, "refs/heads/archctx/multiple")).toBeNull();
   expect(spawnSync("git", ["rev-parse", "--verify", "refs/heads/archctx/multiple"], { cwd: pushOrigin }).status).not.toBe(0);
 }, 30000);
+
+
+test("gh publisher selects the same-repository PR behind a newer fork PR", async () => {
+  const fixture = writerFixture();
+  git(fixture.clone, "remote", "set-url", "origin", "https://github.com/example/repo.git");
+  const calls: string[][] = [];
+  const exec: ProjectionPublisherExec = async (_file, args) => {
+    calls.push(args);
+    return { stdout: args[1] === "list" ? JSON.stringify([
+      { number: 9, isCrossRepository: true, headRefName: "archctx/projection", baseRefName: "main" },
+      { number: 5, isCrossRepository: false, headRefName: "archctx/projection", baseRefName: "main" }
+    ]) : "" };
+  };
+  const result = await createGhProjectionPublisher({ exec, env: {} }).ensurePullRequest({ worktree: fixture.clone, remote: "origin", base: "main", branch: "archctx/projection", baseSha: "a".repeat(40), commitSha: "b".repeat(40), title: "t", bodyFile: "/tmp/body.md" });
+  expect(result.number).toBe(5);
+  expect(calls[1]?.slice(0, 3)).toEqual(["pr", "edit", "5"]);
+});
+
+
+test("gh publisher creates for foreign-only results and refuses incomplete or ambiguous identity", async () => {
+  const fixture = writerFixture();
+  git(fixture.clone, "remote", "set-url", "origin", "https://github.com/example/repo.git");
+  const input: ProjectionPublisherInput = { worktree: fixture.clone, remote: "origin", base: "main", branch: "archctx/projection", baseSha: "a".repeat(40), commitSha: "b".repeat(40), title: "t", bodyFile: "/tmp/body.md" };
+  const foreign = { number: 9, isCrossRepository: true, headRefName: input.branch, baseRefName: input.base };
+  const own = { ...foreign, number: 5, isCrossRepository: false };
+  const cases = [
+    [foreign],
+    [{ ...own, isCrossRepository: undefined }],
+    [{ ...own, isCrossRepository: null }],
+    [{ ...own, isCrossRepository: "false" }],
+    [{ ...own, headRefName: "other" }],
+    [own, { ...own, number: 6 }],
+    Array.from({ length: 100 }, (_, index) => ({ ...foreign, number: index + 1 }))
+  ];
+  for (const [index, rows] of cases.entries()) {
+    const calls: string[][] = [];
+    const exec: ProjectionPublisherExec = async (_file, args) => {
+      calls.push(args);
+      return { stdout: args[1] === "list" ? JSON.stringify(rows) : "https://github.com/example/repo/pull/12" };
+    };
+    const result = createGhProjectionPublisher({ exec, env: {} }).ensurePullRequest(input);
+    if (index === 0) {
+      expect((await result).number).toBe(12);
+      expect(calls[1]?.slice(0, 2)).toEqual(["pr", "create"]);
+    } else {
+      await expect(result).rejects.toThrow();
+      expect(calls).toHaveLength(1);
+    }
+  }
+});
