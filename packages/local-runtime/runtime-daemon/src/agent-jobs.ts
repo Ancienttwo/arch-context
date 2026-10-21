@@ -17,6 +17,7 @@ const RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS = 32;
 const RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY = 0;
 const RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS = 1;
 interface AgentJobContext {
+  abortOwnedAudit(jobId: string): void;
   assertRunning(): void;
   openSession(root: string): Promise<{ codeFactsDigest?: string }>;
   architectureLedgerScope(root: string): Promise<ArchitectureLedgerScope>;
@@ -357,6 +358,8 @@ export class AgentJobService {
       supersededByJobId: input.supersededByJobId,
       now: input.now ?? this.context.clock()
     });
+    // Abort only after scoped persistence succeeds; rejected callers must not affect live work.
+    this.context.abortOwnedAudit(job.job.jobId);
     return okEnvelope("jobs.cancel", { job } as unknown as Json);
   }
 

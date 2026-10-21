@@ -400,6 +400,47 @@ describe("daemon audit service", () => {
     }
   });
 
+  test("scoped job cancellation aborts an in-flight audit without allowing cross-repository cancellation", async () => {
+    const root = createGitRepo();
+    const otherRoot = createGitRepo();
+    enableAuditWithConsent(root);
+    let capturedSignal: AbortSignal | undefined;
+    let notifyTransportStarted!: () => void;
+    const transportStarted = new Promise<void>((resolve) => { notifyTransportStarted = resolve; });
+    const daemon = await createStartedTestDaemon({
+      localStore: new TestLocalStore(),
+      investigationTransport: (input: CommandInvestigationRunnerTransportInput) => {
+        capturedSignal = input.signal;
+        notifyTransportStarted();
+        return new Promise<CommandInvestigationRunnerTransportResult>((_resolve, reject) => {
+          input.signal?.addEventListener("abort", () => reject(new Error("investigation-runner-aborted")), { once: true });
+        });
+      }
+    });
+    try {
+      const started = await daemon.auditRun(root, { timeoutMs: 60_000 });
+      expect(started.ok).toBe(true);
+      const jobId = (started.data as any).jobId as string;
+      expect(jobId).toBeDefined();
+      await transportStarted;
+      expect(capturedSignal).toBeDefined();
+      expect(capturedSignal!.aborted).toBe(false);
+
+      const foreignCancel = await daemon.jobsCancel(otherRoot, { jobId });
+      expect(foreignCancel.ok).toBe(false);
+      expect(capturedSignal!.aborted).toBe(false);
+
+      const cancelled = await daemon.jobsCancel(root, { jobId });
+      expect(cancelled.ok).toBe(true);
+      expect((cancelled.data as any).job.job.status).toBe("cancelled");
+      expect(capturedSignal!.aborted).toBe(true);
+    } finally {
+      await daemon.stop();
+      removeTempRepo(root);
+      removeTempRepo(otherRoot);
+    }
+  });
+
   test("daemon stop aborts an in-flight audit run's investigation transport signal", async () => {
     const root = createGitRepo();
     enableAuditWithConsent(root);
