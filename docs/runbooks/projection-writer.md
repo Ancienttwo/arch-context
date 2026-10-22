@@ -11,12 +11,16 @@ renders; see "Downstream CI" for what that does and does not prove. Design: `doc
 1. Validates `--base`, `--remote` and `--branch` (`archctx/...`, different from the base) before any
    Git operation that leaves the machine.
 2. Takes the writer lock for this remote and base. A live holder gives `result: "busy"`.
-3. Fetches `refs/heads/<base>` and resolves the base tip. The same successful branch and
+3. Fetches `refs/heads/<base>` from the selected remote's single push URL into a writer-private ref
+   and resolves that publication base tip, preserving `FETCH_HEAD`. When that URL exactly matches
+   the remote's single fetch URL, the same fetch also refreshes `refs/remotes/<remote>/<base>`;
+   otherwise fetch-side tracking refs stay unchanged.
+   The push URL must be readable; an unavailable base fails the run. The same successful branch and
    publisher can return `already-processed`. Pending publication is retried first.
 4. Resets the writer-owned worktree to the tip and asks that worktree's own `archctxd` to apply the
    projection (`projection run`, mode `apply`).
 5. Checks that every changed path is a file the apply wrote and a projection-owned output, commits
-   them, re-reads the remote base tip (a moved tip is re-evaluated, the stale commit is dropped),
+   them, re-reads the base tip at that push URL (a moved tip is re-evaluated, the stale commit is dropped),
    pushes with `--force-with-lease`, and calls the publisher.
 
 | `result` | Meaning | Envelope |
