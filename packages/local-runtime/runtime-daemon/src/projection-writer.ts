@@ -114,6 +114,7 @@ export interface ProjectionPublishOptions {
 
 interface ProjectionWriterPaths {
   dir: string;
+  baseRef: string;
   worktree: string;
   state: string;
   lock: string;
@@ -157,7 +158,7 @@ class ProjectionWriterFailure extends Error {
 export function projectionWriterPaths(repositoryRoot: string, remote: string, base: string, env: Env = process.env): ProjectionWriterPaths {
   const key = createHash("sha256").update(`${remote}\0${base}`, "utf8").digest("hex").slice(0, 16);
   const dir = join(runtimeStatePaths(repositoryRoot, env).repositoryStateDir, "projection-writer", key);
-  return { dir, worktree: join(dir, "worktree"), state: join(dir, "state.json"), lock: join(dir, "lock") };
+  return { dir, baseRef: `refs/archctx/projection-writer/${key}/base`, worktree: join(dir, "worktree"), state: join(dir, "state.json"), lock: join(dir, "lock") };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -288,11 +289,15 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
 
   try {
     const pushRemote = projectionWriterPushUrl(repositoryRoot, remote);
+    const fetchUrls = git(repositoryRoot, ["remote", "get-url", "--all", "--", remote]).trim().split("\n").filter(Boolean);
+    const tracksPublication = fetchUrls.length === 1 && fetchUrls[0] === pushRemote;
     while (iterations < PROJECTION_WRITER_MAX_ITERATIONS) {
       iterations += 1;
-      // 1. Fetch the base tip.
-      remoteGit(repositoryRoot, ["fetch", "--no-tags", remote, `+refs/heads/${base}:refs/remotes/${remote}/${base}`], env);
-      baseSha = git(repositoryRoot, ["rev-parse", "--verify", `refs/remotes/${remote}/${base}^{commit}`]).trim();
+      // 1. The publication base has one source. Refresh the fetch-side cache only for that same URL.
+      remoteGit(repositoryRoot, ["fetch", "--no-tags", "--no-write-fetch-head", "--", pushRemote,
+        `+refs/heads/${base}:${paths.baseRef}`,
+        ...(tracksPublication ? [`+refs/heads/${base}:refs/remotes/${remote}/${base}`] : [])], env);
+      baseSha = git(repositoryRoot, ["rev-parse", "--verify", `${paths.baseRef}^{commit}`]).trim();
 
       const successMatches = state.lastSuccessfulBranch === branch && state.lastSuccessfulSha === baseSha;
       const pending = state.publisherPending?.branch === branch && state.publisherPending.baseSha === baseSha
@@ -357,7 +362,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
       if (changed.length === 0) {
         // A no-op proves freshness only for the tip we rendered. The base can advance
         // during apply even when there is no commit to send through the pre-push fence.
-        const tip = lsRemoteBranch(repositoryRoot, remote, base, env);
+        const tip = lsRemoteBranch(repositoryRoot, pushRemote, base, env);
         if (tip === null) {
           return failed(new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-base-missing", `${remote} has no branch ${base}`), { projectionStatus });
         }
@@ -384,7 +389,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
       const commitSha = git(paths.worktree, ["rev-parse", "HEAD"]).trim();
 
       // 6. Latest wins: never push a projection of a base tip that has already moved.
-      const tip = lsRemoteBranch(repositoryRoot, remote, base, env);
+      const tip = lsRemoteBranch(repositoryRoot, pushRemote, base, env);
       if (tip === null) {
         return failed(new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-base-missing", `${remote} has no branch ${base}`), { projectionStatus, files: changed });
       }
@@ -814,7 +819,7 @@ export function createGhProjectionPublisher(options: { exec?: ProjectionPublishe
   };
 }
 
-/** One publication has one destination. Use this same URL for the lease and the push. */
+/** One publication has one destination. Use this URL for the base, lease and push. */
 function projectionWriterPushUrl(worktree: string, remote: string): string {
   const urls = git(worktree, ["remote", "get-url", "--push", "--all", "--", remote]).trim().split("\n").filter(Boolean);
   if (urls.length !== 1) {

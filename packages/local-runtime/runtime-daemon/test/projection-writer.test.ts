@@ -716,6 +716,107 @@ console.log(JSON.stringify(result));`);
   expect(recovered.result, JSON.stringify(recovered)).toBe("published");
 }, 30000);
 
+test("the base is the push repository's tip when the fetch remote has advanced", async () => {
+  const fixture = writerFixture();
+  const pushOrigin = join(fixture.root, "push.git");
+  git(fixture.root, "clone", "--bare", "-q", fixture.origin, pushOrigin);
+  git(fixture.clone, "config", "remote.origin.pushurl", pushOrigin);
+  const pushBase = git(pushOrigin, "rev-parse", "main");
+  pushBaseCommit(fixture, "export const app = 2;\n");
+  git(fixture.clone, "fetch", "origin");
+  const fetchBase = git(fixture.clone, "rev-parse", "refs/remotes/origin/main");
+  const fetchHead = readFileSync(join(fixture.clone, ".git/FETCH_HEAD"), "utf8");
+  expect(fetchBase).not.toBe(pushBase);
+  const { apply, calls } = fakeApply((_worktree, _request, call) => {
+    if (call === 1) pushBaseCommit(fixture, "export const app = 3;\n");
+    return { files: { "docs/architecture/overview.md": "# publication base\n" } };
+  });
+  const publisher = recordingPublisher();
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: publisher.publisher, apply, env: fixture.env }));
+  expect(run).toMatchObject({ result: "published", baseSha: pushBase, iterations: 1, pushed: true });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!.request.expected.headSha).toBe(pushBase);
+  expect(publisher.calls).toHaveLength(1);
+  expect(publisher.calls[0]!.baseSha).toBe(pushBase);
+  const tip = git(pushOrigin, "rev-parse", "refs/heads/archctx/projection");
+  expect(run.publishedCommit).toBe(tip);
+  expect(git(pushOrigin, "rev-list", "--parents", "-n", "1", tip).split(" ")).toEqual([tip, pushBase]);
+  expect(git(pushOrigin, "rev-list", "--count", `${pushBase}..${tip}`)).toBe("1");
+  expect(git(pushOrigin, "diff", "--name-only", pushBase, tip)).toBe("docs/architecture/overview.md");
+  expect(git(pushOrigin, "show", `${tip}:app/src/index.ts`)).toBe("export const app = 1;");
+  expect(originRef(fixture, "refs/heads/archctx/projection")).toBeNull();
+  expect(git(fixture.clone, "rev-parse", "refs/remotes/origin/main")).toBe(fetchBase);
+  expect(readFileSync(join(fixture.clone, ".git/FETCH_HEAD"), "utf8")).toBe(fetchHead);
+});
+
+test("a no-op on the push base ignores fetch-only base movement", async () => {
+  const fixture = writerFixture();
+  const pushOrigin = join(fixture.root, "push.git");
+  git(fixture.root, "clone", "--bare", "-q", fixture.origin, pushOrigin);
+  git(fixture.clone, "config", "remote.origin.pushurl", pushOrigin);
+  const pushBase = git(pushOrigin, "rev-parse", "main");
+  pushBaseCommit(fixture, "export const app = 2;\n");
+  const { apply, calls } = fakeApply((_worktree, _request, call) => {
+    if (call === 1) pushBaseCommit(fixture, "export const app = 3;\n");
+    return { status: "noop" };
+  });
+  const publisher = recordingPublisher();
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: publisher.publisher, apply, env: fixture.env }));
+  expect(run).toMatchObject({ result: "up-to-date", baseSha: pushBase, iterations: 1, pushed: false });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!.request.expected.headSha).toBe(pushBase);
+  expect(publisher.calls).toHaveLength(0);
+  expect(git(pushOrigin, "for-each-ref", "--format=%(refname)", "refs/heads/archctx/")).toBe("");
+});
+
+for (const firstStatus of ["applied", "noop"] as const) {
+  test(`${firstStatus} apply retries when only the push repository's base advances`, async () => {
+    const fixture = writerFixture();
+    const pushOrigin = join(fixture.root, "push.git");
+    git(fixture.root, "clone", "--bare", "-q", fixture.origin, pushOrigin);
+    git(fixture.clone, "config", "remote.origin.pushurl", pushOrigin);
+    git(fixture.dev, "config", "remote.origin.pushurl", pushOrigin);
+    const fetchBase = git(fixture.origin, "rev-parse", "main");
+    let nextBase = "";
+    const { apply, calls } = fakeApply((_worktree, request, call) => {
+      if (call === 1) {
+        nextBase = pushBaseCommit(fixture, "export const app = 2;\n");
+        if (firstStatus === "noop") return { status: "noop" };
+      }
+      return { files: { "docs/architecture/overview.md": `# overview for ${request.expected.headSha}\n` } };
+    });
+    const publisher = recordingPublisher();
+    const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: publisher.publisher, apply, env: fixture.env }));
+    expect(run).toMatchObject({ result: "published", baseSha: nextBase, iterations: 2, pushed: true });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.request.expected.headSha).toBe(fetchBase);
+    expect(calls[1]!.request.expected.headSha).toBe(nextBase);
+    expect(publisher.calls).toHaveLength(1);
+    expect(publisher.calls[0]!.baseSha).toBe(nextBase);
+    const tip = git(pushOrigin, "rev-parse", "refs/heads/archctx/projection");
+    expect(git(pushOrigin, "rev-list", "--parents", "-n", "1", tip).split(" ")).toEqual([tip, nextBase]);
+    expect(git(pushOrigin, "diff", "--name-only", nextBase, tip)).toBe("docs/architecture/overview.md");
+    expect(git(fixture.origin, "rev-parse", "main")).toBe(fetchBase);
+    expect(originRef(fixture, "refs/heads/archctx/projection")).toBeNull();
+  });
+}
+
+test("a missing publication base fails instead of reusing the fetch base or cached private ref", async () => {
+  const fixture = writerFixture();
+  const pushOrigin = join(fixture.root, "push.git");
+  git(fixture.root, "clone", "--bare", "-q", fixture.origin, pushOrigin);
+  git(fixture.clone, "config", "remote.origin.pushurl", pushOrigin);
+  const { apply, calls } = fakeApply(() => ({ status: "noop" }));
+  const publisher = recordingPublisher();
+  expect(runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: publisher.publisher, apply, env: fixture.env })).result).toBe("up-to-date");
+  git(pushOrigin, "update-ref", "-d", "refs/heads/main");
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: publisher.publisher, apply, env: fixture.env }));
+  expect(run).toMatchObject({ result: "failed", pushed: false, error: { reasonCode: "projection-writer-git-failed" } });
+  expect(calls).toHaveLength(1);
+  expect(publisher.calls).toHaveLength(0);
+  expect(originRef(fixture, "refs/heads/main")).not.toBeNull();
+});
+
 test("publisher recovery and lease use the push URL when fetch points elsewhere", async () => {
   const fixture = writerFixture();
   const pushOrigin = join(fixture.root, "push.git");
