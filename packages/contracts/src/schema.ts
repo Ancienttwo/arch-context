@@ -146,6 +146,8 @@ export function stableYaml(value: Json, indent = 0): string {
     if (value.length === 0) return "[]\n";
     return value
       .map((item) => {
+        // The stable reader accepts flow sequences, but not compact nested block sequences.
+        if (Array.isArray(item)) return `${pad}- ${canonicalize(item)}\n`;
         if (item !== null && typeof item === "object") {
           return `${pad}- ${stableYaml(item, indent + 2).trimStart()}`;
         }

@@ -206,6 +206,17 @@ describe("@archcontext/core/architecture-domain", () => {
     expect(parseJsonOrStableYaml(yaml, ".archcontext/model/nodes/module.checkout.yaml")).toEqual(canonicalArchitectureJson(value as any));
   });
 
+  test.each([
+    [[1, 2], [3, 4]],
+    [[[]], [[], ["value: with punctuation", null, true]]],
+    [[{ b: 2, a: [1, 2] }], [{ nested: [[false]] }]]
+  ].map((matrix) => [matrix]))("canonical YAML round-trips nested arrays %j", (matrix) => {
+    const value = { extensions: { matrix } } as Json;
+    const yaml = canonicalArchitectureYaml(value);
+    expect(parseJsonOrStableYaml(yaml, "fixture.yaml")).toEqual(canonicalArchitectureJson(value));
+    expect(canonicalArchitectureYaml(parseJsonOrStableYaml(yaml, "fixture.yaml"))).toBe(yaml);
+  });
+
   test("stable YAML parser accepts plain YAML scalars from hand-written model files", () => {
     expect(parseJsonOrStableYaml([
       "schemaVersion: archcontext.node/v2",
