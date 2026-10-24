@@ -83,6 +83,44 @@ export function listGitVisibleFiles(root: string, pathspec?: string): string[] {
     .sort((left, right) => left.localeCompare(right));
 }
 
+/** A repo-relative path that the repository's ignore rules exclude, and the rule that excludes it. */
+export interface IgnoredRepositoryPath {
+  path: string;
+  source: string;
+  line: number;
+  pattern: string;
+}
+
+/**
+ * The `paths` that Git's own ignore evaluation excludes (`git check-ignore --no-index`), each with
+ * its deciding rule. A path ending in `/` asks about the directory, so a parent rule such as a
+ * blanket `/.archcontext/` that cancels later negations is reported. `--no-index` judges the rules
+ * alone: a force-added file under an ignored directory still leaves new siblings invisible to Git.
+ * A path whose last matching rule is a negation is not ignored and is not returned.
+ */
+export function ignoredRepositoryPaths(root: string, paths: readonly string[]): IgnoredRepositoryPath[] {
+  if (paths.length === 0) return [];
+  const result = spawnSync("git", ["check-ignore", "--verbose", "--no-index", "-z", "--stdin"], {
+    cwd: root,
+    encoding: "utf8",
+    input: paths.map((path) => `${path}\0`).join(""),
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  // Exit 1 means no path is ignored; anything other than 0 or 1 is a Git failure.
+  if (result.status !== 0 && result.status !== 1) {
+    const detail = result.error?.message ?? (result.stderr.trim() || `git check-ignore exited ${result.status}`);
+    throw new GitVisibleFilesUnavailableError(root, detail);
+  }
+  const fields = result.stdout.split("\0");
+  const ignored: IgnoredRepositoryPath[] = [];
+  for (let index = 0; index + 3 < fields.length; index += 4) {
+    const [source, line, pattern, path] = fields.slice(index, index + 4) as [string, string, string, string];
+    if (pattern.startsWith("!")) continue;
+    ignored.push({ path, source, line: Number(line), pattern });
+  }
+  return ignored;
+}
+
 export function readHeadSha(root: string): string {
   try {
     return execFileSync("git", ["rev-parse", "HEAD"], {

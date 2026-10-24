@@ -256,3 +256,13 @@ test("D6-B standalone reader stages are fixed and valid under the same failure c
     expect(failureIssues(value)).toEqual([]);
   }
 });
+
+test("legacy manifest diagnostic explains conditional recovery without claiming model restoration", () => {
+  const failure = knownFailure("AC_PRECONDITION_FAILED", "projection-manifest-upgrade-required");
+  expect(failure.message).toContain("archctx docs apply --approved --profile");
+  expect(failure.message).toContain("restore the original model");
+  expect(failure.message).toContain("cannot recover");
+  expect(failure.message).toContain("architecture-documentation-projections.md");
+  expect(failure.action).toBe("rebuild-plan");
+  expect(failure.details).toEqual({});
+});

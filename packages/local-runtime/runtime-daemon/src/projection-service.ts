@@ -3,7 +3,8 @@ import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFai
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
+import { GitVisibleFilesUnavailableError, findRepositoryRoot, ignoredRepositoryPaths, readHeadSha, listGitVisibleFiles, type IgnoredRepositoryPath } from "@archcontext/local-runtime/git-adapter";
+import { architectureModelIgnoreProbePaths } from "@archcontext/local-runtime/model-store-yaml";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import { ProjectionFreshnessChangedPathError, evaluateProjectionFreshness, measureProjectionFreshness, projectionFreshnessContract } from "./projection-freshness";
@@ -22,6 +23,10 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
   try {
   const subcommand = input.action ?? "plan";
   const root = findRepositoryRoot(cwd);
+  if (subcommand === "adopt") {
+    const ignored = architectureModelIgnoredEnvelope("docs.adopt", root);
+    if (ignored) return ignored;
+  }
   let profile: ArchitectureProjectionProfile;
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   let acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined;
@@ -140,6 +145,33 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     preview: (plan.data as any).preview
   } as unknown as Json);
   } catch (error) { throw publicOperationFailure(error); }
+}
+
+/**
+ * Model paths that Git ignore rules exclude, each with its deciding rule. A file under an ignored
+ * directory is not repeated, so a blanket `/.archcontext/` rule reports the committed paths only.
+ */
+export function ignoredArchitectureModelPaths(root: string): IgnoredRepositoryPath[] {
+  const ignored = ignoredRepositoryPaths(root, architectureModelIgnoreProbePaths(root));
+  const directories = ignored.filter((entry) => entry.path.endsWith("/")).map((entry) => entry.path);
+  return ignored.filter((entry) => entry.path.endsWith("/") || !directories.some((directory) => entry.path.startsWith(directory)));
+}
+
+/**
+ * Adoption commits documents and a manifest that name the model only by digest. When Git ignore
+ * rules exclude the model, it lives in this checkout alone and is lost with it (#399), so adoption
+ * refuses before it renders. The diagnostic command lets Git print each deciding rule.
+ */
+function architectureModelIgnoredEnvelope(requestId: string, root: string): JsonEnvelope | undefined {
+  const ignored = ignoredArchitectureModelPaths(root);
+  if (ignored.length === 0) return undefined;
+  const paths = ignored.map((entry) => entry.path).slice(0, 8);
+  return publicFailureEnvelope(requestId, "AC_PRECONDITION_FAILED", "architecture-model-ignored", {
+    pathCount: ignored.length,
+    paths,
+    commands: [`git check-ignore --verbose --no-index -- ${paths.join(" ")}`],
+    omittedPathCount: ignored.length - paths.length
+  });
 }
 
 /**
@@ -565,6 +597,10 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
       return projectionFailureEnvelope("projection.run", error);
     }
     if (replay) return replay;
+  }
+  if (request.mode === "adopt") {
+    const ignored = architectureModelIgnoredEnvelope("projection.run", root);
+    if (ignored) return ignored;
   }
   // With acceptObservedMajorChange the accepted change is the one this run observes at `expected`.
   // It is derived once, then authorizes exactly what a caller-supplied acceptedChange would: the

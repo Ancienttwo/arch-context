@@ -332,6 +332,33 @@ export class YamlModelStore implements ModelStorePort {
   }
 }
 
+/**
+ * The architecture model authority that must be committed. A manifest digest and generated
+ * documents cannot rebuild it, so an ignore rule over any of these paths leaves the model in one
+ * checkout only. `generated` is a rebuildable projection and is not listed.
+ */
+export const ARCHITECTURE_MODEL_COMMITTED_PATHS = Object.freeze([
+  ".archcontext/manifest.yaml",
+  ".archcontext/product.yaml",
+  ".archcontext/model/nodes/",
+  ".archcontext/model/relations/",
+  ".archcontext/model/flows/",
+  ".archcontext/decisions/",
+  ".archcontext/policies/",
+  ".archcontext/practices/",
+  ".archcontext/projections/"
+] as const);
+
+/**
+ * The paths whose ignore status decides whether the model can be committed: the committed paths
+ * plus every model file present under their directories. A directory probe alone misses a file
+ * rule such as `.archcontext/model/nodes/*.yaml` that leaves the directory itself visible.
+ */
+export function architectureModelIgnoreProbePaths(root: string): string[] {
+  const directories = ARCHITECTURE_MODEL_COMMITTED_PATHS.filter((path) => path.endsWith("/")).map((path) => path.slice(0, -1));
+  return [...new Set([...ARCHITECTURE_MODEL_COMMITTED_PATHS, ...collectArchContextFiles(root, directories)])];
+}
+
 export function listModelFiles(root: string): ModelFile[] {
   const paths = collectArchContextFiles(root, [
     ".archcontext/manifest.yaml",

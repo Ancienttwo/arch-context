@@ -19,6 +19,7 @@ import {
   readWorktreeChangeMetadata,
   findRepositoryRoot,
   listGitVisibleFiles,
+  ignoredRepositoryPaths,
   GitVisibleFilesUnavailableError,
   removeDetachedReviewWorktree,
   verifyDetachedReviewWorktree
@@ -457,6 +458,58 @@ describe("projection source files (#257)", () => {
       }
       expect(caught).toBeInstanceOf(GitVisibleFilesUnavailableError);
       expect(caught).toMatchObject({ code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required" });
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+});
+
+describe("ignored repository paths (#399)", () => {
+  const modelPaths = [".archcontext/manifest.yaml", ".archcontext/model/nodes/", ".archcontext/decisions/"];
+  const negations = ".archcontext/*\n!.archcontext/manifest.yaml\n!.archcontext/model/\n.archcontext/model/*\n!.archcontext/model/nodes/\n!.archcontext/decisions/\n";
+
+  function createIgnoreFixture(gitignore: string): string {
+    const root = mkdtempSync(join(tmpdir(), "archctx-ignored-paths-"));
+    writeFileSync(join(root, ".gitignore"), gitignore);
+    git(root, "init");
+    return root;
+  }
+
+  test("negations that re-include the model leave no path ignored", () => {
+    const root = createIgnoreFixture(negations);
+    try {
+      expect(ignoredRepositoryPaths(root, modelPaths)).toEqual([]);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("a later blanket directory rule cancels the negations and is reported with its rule", () => {
+    const root = createIgnoreFixture(`${negations}/.archcontext/\n`);
+    try {
+      expect(ignoredRepositoryPaths(root, modelPaths)).toEqual(modelPaths.map((path) => ({ path, source: ".gitignore", line: 7, pattern: "/.archcontext/" })));
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("rules alone decide: a force-added model file does not hide its ignored directory", () => {
+    const root = createIgnoreFixture("/.archcontext/\n");
+    try {
+      mkdirSync(join(root, ".archcontext/model/nodes"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/model/nodes/app.yaml"), "id: capability.app\n");
+      git(root, "add", "--force", ".archcontext/model/nodes/app.yaml");
+      expect(ignoredRepositoryPaths(root, [".archcontext/model/nodes/", ".archcontext/model/nodes/app.yaml"]).map((entry) => entry.path))
+        .toEqual([".archcontext/model/nodes/", ".archcontext/model/nodes/app.yaml"]);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("outside a Git worktree it fails closed with the typed Git error", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-ignored-paths-no-git-"));
+    try {
+      expect(() => ignoredRepositoryPaths(root, modelPaths)).toThrow(GitVisibleFilesUnavailableError);
     } finally {
       removeTempRoot(root);
     }

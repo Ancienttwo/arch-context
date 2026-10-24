@@ -6157,6 +6157,76 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("status reports and adoption refuses a model excluded by Git ignore rules (#399)", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const clean = await runTestCli("status", [], root);
+      expect(clean.ok, JSON.stringify(clean)).toBe(true);
+      expect(clean.data as Record<string, unknown>).not.toHaveProperty("architectureModelIgnoredPaths");
+
+      // A blanket rule after negations cancels them: Git cannot re-include below an excluded directory.
+      writeFileSync(join(root, ".gitignore"), "!.archcontext/model/\n/.archcontext/\n", "utf8");
+      const ignoredPaths = [
+        ".archcontext/manifest.yaml",
+        ".archcontext/product.yaml",
+        ".archcontext/model/nodes/",
+        ".archcontext/model/relations/",
+        ".archcontext/model/flows/",
+        ".archcontext/decisions/",
+        ".archcontext/policies/",
+        ".archcontext/practices/",
+        ".archcontext/projections/"
+      ];
+      const status = await runTestCli("status", [], root);
+      expect(status.ok, JSON.stringify(status)).toBe(true);
+      expect((status.data as any).architectureModelIgnoredPaths).toEqual(ignoredPaths.map((path) => ({ path, source: ".gitignore", line: 2, pattern: "/.archcontext/" })));
+
+      const expectRefused = (result: Awaited<ReturnType<typeof runTestCli>>, requestId: string) => {
+        const envelope = result as JsonEnvelope;
+        expect(envelope.ok, JSON.stringify(envelope)).toBe(false);
+        expect(envelope.requestId).toBe(requestId);
+        expect(envelope.error).toMatchObject({
+          code: "AC_PRECONDITION_FAILED",
+          reasonCode: "architecture-model-ignored",
+          action: "commit-architecture-model",
+          details: {
+            pathCount: 9,
+            paths: ignoredPaths.slice(0, 8),
+            commands: [`git check-ignore --verbose --no-index -- ${ignoredPaths.slice(0, 8).join(" ")}`],
+            omittedPathCount: 1
+          }
+        });
+      };
+      expectRefused(await runTestCli("docs", ["adopt", "--profile", "repo-harness/v1"], root), "docs.adopt");
+      expectRefused(await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+        schemaVersion: "archcontext.projection-request/v1",
+        requestId: "projection_request.model_ignored_adopt",
+        profile: "repo-harness/v1",
+        mode: "adopt",
+        targets: ["architecture-docs"],
+        changedPaths: [],
+        expected: {
+          repositoryId: repositoryFingerprint(root),
+          workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+          headSha: gitOut(root, "rev-parse", "HEAD"),
+          worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)) as `sha256:${string}`
+        },
+        adoptionPlanId: "adoption_plan.model_ignored"
+      } satisfies ProjectionRequestV1)], root), "projection.run");
+      expect(existsSync(join(root, "docs/architecture"))).toBe(false);
+
+      // A file rule leaves the directory visible, so the present model files are probed too.
+      writeFileSync(join(root, ".gitignore"), ".archcontext/model/nodes/*.yaml\n", "utf8");
+      const nodeFile = ".archcontext/model/nodes/capability.architecture.context.yaml";
+      const fileRule = await runTestCli("status", [], root);
+      expect((fileRule.data as any).architectureModelIgnoredPaths).toEqual([{ path: nodeFile, source: ".gitignore", line: 1, pattern: ".archcontext/model/nodes/*.yaml" }]);
+      const fileRuleAdopt = await runTestCli("docs", ["adopt", "--profile", "repo-harness/v1"], root) as JsonEnvelope;
+      expect(fileRuleAdopt.error).toMatchObject({ reasonCode: "architecture-model-ignored", details: { pathCount: 1, paths: [nodeFile], omittedPathCount: 0 } });
+    } finally {
+      removeTempRoot(root);
+    }
+  }, CLI_DOCS_TEST_TIMEOUT_MS);
+
   test("first docs adoption settles its manifest while preserving unresolved flow proof", async () => {
     const root = createInitializedGitRepo({ codeFacts: "optional" });
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";

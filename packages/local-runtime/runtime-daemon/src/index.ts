@@ -21,7 +21,7 @@ export type { RuntimeBookInput } from "./architecture-book";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
-import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
+import { ignoredArchitectureModelPaths, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
 import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand } from "./projection-service";
@@ -1323,11 +1323,14 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     if (!root) return okEnvelope("status", status as unknown as Json);
     const repositoryId = repositoryFingerprint(root);
     const session = this.sessions.get(repositoryId);
+    // Ignored model paths are reported with their deciding rules before the model is lost (#399).
+    const ignoredModelPaths = ignoredArchitectureModelPaths(root);
     return okEnvelope("status", {
       ...status,
       repositoryId,
       headSha: session?.workspace.headSha ?? readHeadSha(root),
-      worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
+      worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)),
+      ...(ignoredModelPaths.length === 0 ? {} : { architectureModelIgnoredPaths: ignoredModelPaths })
     } as unknown as Json);
     } catch (error) { throw publicOperationFailure(error); }
   }
