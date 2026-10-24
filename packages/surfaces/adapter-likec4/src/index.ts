@@ -1,6 +1,6 @@
 import { digestJson, stableId, type Json, type ModelExportResult } from "@archcontext/contracts";
 import { stripAdapterProtectedNativeFields } from "@archcontext/core/architecture-domain";
-import { normalizeNativeModel, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/surfaces/renderer";
+import { architectureLayerGroups, likeC4IndexViewLines, normalizeNativeModel, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/surfaces/renderer";
 
 export function exportLikeC4Model(model: NativeModel): ModelExportResult {
   const normalized = normalizeNativeModel(model);
@@ -25,7 +25,7 @@ export function exportLikeC4Model(model: NativeModel): ModelExportResult {
     lines.push(`  // archctx-relation ${JSON.stringify(relation)}`);
     lines.push(`  ${likec4Id(relation.source)} -> ${likec4Id(relation.target)} "${escapeDsl(relation.kind)}"`);
   }
-  lines.push("}", "", "views {", "  view index {", "    include *", "    autoLayout TopBottom", "  }", "}");
+  lines.push("}", "", ...likeC4IndexViewLines(architectureLayerGroups(normalized), likec4Id));
   const content = `${lines.join("\n")}\n`;
   return {
     format: "likec4",

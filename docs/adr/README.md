@@ -74,3 +74,4 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0046 | Refactor Decisions in Git |
 | ADR-0047 | Projection Manifest v3 and Per-Target Identity |
 | ADR-0048 | Projection Writer Mode and the Rolling Generated-Only Pull Request |
+| ADR-0049 | Architecture Layers and the Runtime Topology View |

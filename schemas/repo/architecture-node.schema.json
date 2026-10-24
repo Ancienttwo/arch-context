@@ -15,6 +15,7 @@
     "name": { "type": "string" },
     "status": { "type": "string", "enum": ["active", "planned", "deprecated", "removed"] },
     "parent": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "layer": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
     "summary": { "type": "string" },
     "responsibilities": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "source": {

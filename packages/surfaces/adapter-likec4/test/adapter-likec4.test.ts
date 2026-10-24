@@ -21,6 +21,35 @@ describe("@archcontext/surfaces/adapter-likec4", () => {
     expect(first.files[0].content).toContain("archctx-node");
   });
 
+  test("renders node layers as view groups and keeps the flat view without layers", () => {
+    const layered: NativeModel = {
+      nodes: [
+        { id: "module.subscription", kind: "module", name: "Subscription", layer: "domain" },
+        { id: "module.payment", kind: "module", name: "Payment", layer: "domain" },
+        { id: "module.gateway", kind: "module", name: "Gateway" }
+      ],
+      relations: model.relations
+    };
+    const content = exportLikeC4Model(layered).files[0].content;
+    expect(content.slice(content.indexOf("views {"))).toBe([
+      "views {",
+      "  view index {",
+      "    group \"domain\" {",
+      "      include module_payment",
+      "      include module_subscription",
+      "    }",
+      "    include *",
+      "    autoLayout TopBottom",
+      "  }",
+      "}",
+      ""
+    ].join("\n"));
+    expect(exportLikeC4Model({ nodes: [...layered.nodes].reverse(), relations: layered.relations }).files[0].content).toBe(content);
+    expect(importLikeC4InitialModel(content).nodes.find((node) => node.id === "module.payment")?.layer).toBe("domain");
+    const flat = exportLikeC4Model(model).files[0].content;
+    expect(flat.slice(flat.indexOf("views {"))).toBe("views {\n  view index {\n    include *\n    autoLayout TopBottom\n  }\n}\n");
+  });
+
   test("imports only initialization data and strips Native protected fields", () => {
     const exported = exportLikeC4Model(model);
     const imported = importLikeC4InitialModel(exported.files[0].content);
