@@ -13,8 +13,9 @@ manifest then made `docs adopt` fail with `projection-manifest-upgrade-required`
 
 - `projection-manifest-upgrade-required` now names `archctx docs apply --approved --profile <default|repo-harness/v1>`
   and the projection runbook. It states that the model must be restored first and that the manifest digest cannot recover it.
-- `ignoredRepositoryPaths` asks `git check-ignore --verbose --no-index` which model paths the ignore rules exclude.
-  `--no-index` judges the rules alone, so a force-added file does not hide an ignored directory.
+- `ignoredRepositoryPaths` asks `git check-ignore --verbose --no-index` which model paths, and which model files present
+  under them, the ignore rules exclude. `--no-index` judges the rules alone, so a force-added file does not hide an
+  ignored directory. File rules such as `.archcontext/model/nodes/*.yaml` are caught too.
 - `archctx status` adds `architectureModelIgnoredPaths` (`path`, `source`, `line`, `pattern`) when a model path is excluded.
 - `archctx docs adopt` and `projection run` in `adopt` mode refuse before they render with `AC_PRECONDITION_FAILED`,
   `reasonCode: "architecture-model-ignored"` and `action: "commit-architecture-model"`. `details.commands` holds the
@@ -40,8 +41,9 @@ version authorities and stay unchanged.
 
 ## Verification and release gates
 
-- [x] #400 local checks at `d1871ff8`: `bun run typecheck` passed; git-adapter and failure-envelope tests passed
-  (41 tests, 1195 assertions); the new CLI regression covers `status`, `docs adopt` and protocol adopt.
+- [x] #400 local checks: affected CLI, contracts, local-runtime and model-store tests at `d1871ff8` passed (807 tests,
+  7952 assertions). At `1792e7d8`, typecheck passed and the #399 CLI regression covers blanket and file rules in
+  `status`, `docs adopt` and protocol adopt. One fresh-context acceptance review: PASS, no blocking findings.
 - [x] Release sweep on `main@b4d62fa7`: `bun install` changed only the five workspace lines in `bun.lock`. Two catalog
   generations were byte-identical. Both readbacks passed with no failures. Contracts, practice-catalog and readback
   tests: 269 passed, 0 failed, 1161 assertions. No 0.9.1 pin remains in a live authority.
