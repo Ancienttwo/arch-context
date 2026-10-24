@@ -15,6 +15,7 @@ export * from "./projection-writer";
 export * from "./projection-manifest";
 export * from "./product-version";
 export * from "./refactor";
+export * from "./runtime-topology";
 export * from "./schema";
 export * from "./failure";
 export * from "./validator";

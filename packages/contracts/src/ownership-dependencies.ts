@@ -75,8 +75,10 @@ export const CAPABILITY_DEPENDENCIES_EDGE_LIMIT = 200;
 export const CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON = "call-edges-not-exposed" as const;
 /**
  * The relation kinds that declare an import dependency: every `archcontext.relation/v1` kind in
- * which the source uses the target. `deployed-on` places a node on infrastructure and declares no
- * code dependency. A kind added to the relation schema later declares nothing until it is listed.
+ * which the source uses the target. `deployed-on` places a node on infrastructure, and the runtime
+ * topology kinds `spawns`, `runs-in` and `mounts` (ADR-0049) describe processes, namespaces and
+ * mounts; none of them declares a code dependency. A kind added to the relation schema later
+ * declares nothing until it is listed.
  *
  * The rule: an import from a file owned by capability A into a file owned by capability B, A != B,
  * is declared when the model has a relation of one of these kinds whose `source` rolls up to A and

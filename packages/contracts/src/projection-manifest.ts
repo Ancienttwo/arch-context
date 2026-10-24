@@ -177,6 +177,8 @@ const TARGET_TYPES: Record<ProjectionTargetType, true> = {
   "diagram-mermaid": true,
   "diagram-structurizr": true,
   "diagram-likec4": true,
+  "diagram-runtime-topology": true,
+  "runtime-topology-summary": true,
   "agent-context": true
 };
 const SCOPE_KINDS: Record<ProjectionTargetScopeKind, true> = { repository: true, entity: true, relation: true, decision: true, diagram: true, changelog: true };

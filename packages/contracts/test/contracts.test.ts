@@ -142,6 +142,7 @@ test("Explorer V2 schemas expose exactly the canonical five-view catalog", () =>
 const schemaByFixture: Record<string, string> = {
   "architecture-node": "schemas/repo/architecture-node.schema.json",
   "architecture-node-layered": "schemas/repo/architecture-node.schema.json",
+  "architecture-node-mount": "schemas/repo/architecture-node.schema.json",
   "architecture-flow": "schemas/repo/architecture-flow.schema.json",
   "architecture-relation": "schemas/repo/architecture-relation.schema.json",
   "cross-repo-relation": "schemas/repo/cross-repo-relation.schema.json",

@@ -181,7 +181,10 @@
     "event",
     "datastore",
     "external-system",
-    "deployment"
+    "deployment",
+    "process",
+    "namespace",
+    "mount"
   ],
   "contextBudgetBytes": 64,
   "model": {

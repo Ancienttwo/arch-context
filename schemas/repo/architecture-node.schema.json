@@ -5,18 +5,49 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "id", "kind", "name", "status", "summary"],
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "namespace" } }, "required": ["kind"] },
+      "then": { "required": ["namespace"] },
+      "else": { "not": { "required": ["namespace"] } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "mount" } }, "required": ["kind"] },
+      "then": { "required": ["mount"] },
+      "else": { "not": { "required": ["mount"] } }
+    }
+  ],
   "properties": {
     "schemaVersion": { "const": "archcontext.node/v2" },
     "id": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
     "kind": {
       "type": "string",
-      "enum": ["capability", "module", "component", "interface", "event", "datastore", "external-system", "deployment"]
+      "enum": ["capability", "module", "component", "interface", "event", "datastore", "external-system", "deployment", "process", "namespace", "mount"]
     },
     "name": { "type": "string" },
     "status": { "type": "string", "enum": ["active", "planned", "deprecated", "removed"] },
     "parent": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
     "layer": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
     "summary": { "type": "string" },
+    "namespace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "enum": ["host", "container", "pod", "kubernetes", "pid", "mount", "net", "user"] }
+      }
+    },
+    "mount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "mode", "order"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "pattern": "^/([^/\\u0000]+(/[^/\\u0000]+)*)?$" },
+        "mode": { "type": "string", "enum": ["ro", "rw"] },
+        "order": { "type": "integer", "minimum": 0 }
+      }
+    },
     "responsibilities": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "source": {
       "type": "object",

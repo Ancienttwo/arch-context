@@ -1,6 +1,6 @@
 import { digestJson, type Json, type ModelExportResult } from "@archcontext/contracts";
 import { stripAdapterProtectedNativeFields } from "@archcontext/core/architecture-domain";
-import { architectureLayerGroups, normalizeNativeModel, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/surfaces/renderer";
+import { architectureLayerGroups, architectureStructurizrElementType, normalizeNativeModel, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/surfaces/renderer";
 
 export function exportStructurizrWorkspace(model: NativeModel, name = "ArchContext Export"): ModelExportResult {
   const normalized = normalizeNativeModel(model);
@@ -14,7 +14,7 @@ export function exportStructurizrWorkspace(model: NativeModel, name = "ArchConte
         return {
           id: node.id,
           name: node.name,
-          type: structurizrElementType(node.kind),
+          type: architectureStructurizrElementType(node.kind),
           tags: [node.kind],
           ...(layer === undefined ? {} : { group: layer }),
           archcontextNative: node
@@ -62,12 +62,4 @@ export function importStructurizrInitialModel(content: string): { nodes: NativeN
     relations,
     warnings: ["Structurizr import is initialization-only; Native ArchContext remains source of truth."]
   };
-}
-
-function structurizrElementType(kind: string): "Software System" | "Container" | "Component" | "Database" | "External System" {
-  if (kind === "capability") return "Software System";
-  if (kind === "module") return "Container";
-  if (kind === "datastore") return "Database";
-  if (kind === "external-system") return "External System";
-  return "Component";
 }

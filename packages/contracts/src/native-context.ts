@@ -1,5 +1,6 @@
 import { FailureError, knownFailure, toEnvelope, unclassifiedFailure } from "./failure";
 import { canonicalize, errorEnvelope, type ArchContextErrorCode, type Json, type JsonEnvelope } from "./schema";
+import { runtimeTopologyModelIssues } from "./runtime-topology";
 import { jsonSchemaResolver, validateJsonSchema, type JsonSchemaResolver } from "./validator";
 
 export const NATIVE_CONTEXT_SCHEMA_VERSION = "archcontext.native-context-export/v1" as const;
@@ -247,6 +248,10 @@ export function nativeContextModelIssues(model: NativeContextModel, schemas: Nat
   }
   for (const relation of model.relations) {
     for (const field of ["source", "target", "via"] as const) if (relation[field] !== undefined && !nodes.has(relation[field] as string)) add(relation, field, "relation-node-missing");
+  }
+  const relations = new Map(model.relations.map(relation => [relation.id as string, relation]));
+  for (const issue of runtimeTopologyModelIssues(model)) {
+    add(relations.get(issue.entityId) ?? nodes.get(issue.entityId) ?? issue.entityId, issue.field, issue.invariant);
   }
   for (const flow of model.flows) {
     if (nodes.get(flow.capabilityId as string)?.kind !== "capability") add(flow, "capabilityId", "flow-capability-missing");
