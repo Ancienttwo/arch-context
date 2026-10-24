@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import {
   changedPaths, classifyPaths, discoverTestFiles, executeShard, expectedWorkers, globToRegExp, jobVerdicts, laneTargets,
-  NODE_TARGETS, OS_TARGETS, partitionFiles, readConfig, readScope, runnerMinutes, targetName, validateCoverage,
+  NODE_TARGETS, OS_TARGETS, partitionFiles, readConfig, readScope, runnerMinutes, targetName, validateConfig, validateCoverage,
   GOVERNANCE_WORKER, governanceSourceHead, hostedJobs, validateGovernancePrerequisite
 } from "./verify-ci.mjs";
 
@@ -149,7 +149,7 @@ test("the actual plan/shard/coverage commands transfer only run-bound metadata b
   const root = mkdtempSync(join(tmpdir(), "archctx-ci-command-test-"));
   const entry = fileURLToPath(new URL("./verify-ci.mjs", import.meta.url));
   const runner = join(root, "runner");
-  const baseEnv = { ...process.env, RUNNER_TEMP: runner, GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha, VERIFY_TARGET: "macos-15 / Node 24.x" };
+  const baseEnv = { ...process.env, RUNNER_TEMP: runner, GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha, VERIFY_TARGET: "macos-15 / Node 22.22.x" };
   const command = (name: string, env: NodeJS.ProcessEnv = baseEnv) => {
     const result = spawnSync("node", [entry, name], { cwd: root, env, encoding: "utf8" });
     if (result.status !== 0) throw new Error(result.stderr || result.stdout);
@@ -339,8 +339,8 @@ test("the topology command selects the lane from the event and the merge commit'
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("six-target topology shares one Linux full worker, emits eighteen shards, thirty-three executions and thirty-five installs in forty-seven jobs", () => {
-  const root = mkdtempSync(join(tmpdir(), "archctx-six-target-topology-test-"));
+test("topology runs full verify at Node 22.22.x on each OS and node compat on the six Node 24/25 targets in thirty-one jobs", () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-node-compat-topology-test-"));
   try {
     const outputPath = join(root, "github-output");
     const cli = fileURLToPath(new URL("./verify-ci.mjs", import.meta.url));
@@ -351,37 +351,81 @@ test("six-target topology shares one Linux full worker, emits eighteen shards, t
     const outputs = readOutputs(outputPath);
     expect(outputs.lane).toBe("matrix");
     expect(outputs.targets.include).toHaveLength(9);
+    expect(outputs.excluded).toBeUndefined();
     const config = readConfig();
     expect(outputs.split.include).toEqual(config.splitTargets);
-    expect(outputs.split.include).toHaveLength(6);
-    expect(outputs.shards.include).toHaveLength(18);
-    expect(outputs.excluded).toEqual([
-      ...config.splitTargets.map(({ os, "node-version": node }: { os: string; "node-version": string }) => ({ os, "node-version": node })),
-      { os: "ubuntu-latest", "node-version": "22.22.x" }
-    ]);
+    expect(outputs.split.include).toHaveLength(2);
+    expect(outputs.shards.include).toHaveLength(6);
     for (const row of config.splitTargets) {
+      expect(row["node-version"]).toBe("22.22.x");
       expect(outputs.shards.include.filter((shard: any) => shard.os === row.os && shard["node-version"] === row["node-version"]))
         .toEqual(Array.from({ length: 3 }, (_, index) => ({ ...row, index, shard: index + 1 })));
     }
-    const fullTargets = OS_TARGETS.flatMap(os => NODE_TARGETS.map(node => ({ os, "node-version": node })))
-      .filter(row => !outputs.excluded.some((excluded: any) => excluded.os === row.os && excluded["node-version"] === row["node-version"]));
-    expect(fullTargets).toHaveLength(2);
-    expect(fullTargets.every(row => expectedWorkers(config, row.os, row["node-version"]).length === 1)).toBe(true);
-    expect(OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node)))).toHaveLength(33);
+    const nodeCompat = OS_TARGETS.flatMap(os => ["24.x", "25.x"].map(node => ({ os, "node-version": node })));
+    expect(outputs.compat.include).toEqual(nodeCompat);
+    expect(outputs.compat.include).toHaveLength(6);
+    const governance = { os: "ubuntu-latest", "node-version": "22.22.x" };
+    const same = (a: any, b: any) => a.os === b.os && a["node-version"] === b["node-version"];
+    for (const row of outputs.compat.include) {
+      expect([...outputs.split.include, governance].some((other: any) => same(row, other))).toBe(false);
+      expect(expectedWorkers(config, row.os, row["node-version"])).toEqual([`Verify execution: ${row.os} / Node ${row["node-version"]} / node compat`]);
+    }
+    expect(expectedWorkers(config, governance.os, governance["node-version"])).toEqual([GOVERNANCE_WORKER]);
+    expect(OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node)))).toHaveLength(17);
     const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
+    expect(workflow.jobs["verify-topology"].outputs.compat).toBe("${{ steps.topology.outputs.compat }}");
+    expect(workflow.jobs["verify-topology"].outputs.excluded).toBeUndefined();
     const counts: Record<string, number> = {
-      verify: fullTargets.length,
+      verify: outputs.compat.include.length,
       "verify-split-pre": outputs.split.include.length,
       "verify-split-tests": outputs.shards.include.length,
       "verify-split-post": outputs.split.include.length,
       "verify-summary": outputs.targets.include.length
     };
     const jobs = Object.entries(workflow.jobs).flatMap(([id, job]) => Array.from({ length: counts[id] ?? 1 }, () => job as any));
-    expect(jobs).toHaveLength(47);
-    expect(jobs.filter(job => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(35);
+    expect(jobs).toHaveLength(31);
+    expect(jobs.filter(job => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(19);
     expect(workflow.jobs["verify-collect"].needs).toContain("verify-linux-full");
     expect(workflow.jobs["verify-linux-full"].name).toBe("Verify execution: ubuntu-latest / Node 22.22.x / full");
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a split target outside the engines-minimum Node, or the Governance target, is refused", () => {
+  const split = (os: string, node: string) => {
+    const config = structuredClone(readConfig());
+    config.splitTargets[0] = { os, "node-version": node, shards: 3 };
+    return config;
+  };
+  const withoutWindows = structuredClone(readConfig());
+  withoutWindows.splitTargets = withoutWindows.splitTargets.filter((row: any) => row.os !== "windows-latest");
+  expect(() => validateConfig(withoutWindows)).toThrow("every OS");
+  expect(() => validateConfig(split("macos-15", "22.22.x"))).not.toThrow();
+  expect(() => validateConfig(split("macos-15", "24.x"))).toThrow("node compat");
+  expect(() => validateConfig(split("windows-latest", "25.x"))).toThrow("node compat");
+  expect(() => validateConfig(split("ubuntu-latest", "22.22.x"))).toThrow("Governance");
+});
+
+test("the compat job installs, uploads the IPC artifact and runs only the Node-runtime checks", () => {
+  const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const job = workflow.jobs.verify;
+  expect(job.name).toBe("Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / node compat");
+  expect(job.strategy.matrix).toBe("${{ fromJSON(needs.verify-topology.outputs.compat) }}");
+  expect(job.steps.map((step: any) => step.run).filter(Boolean)).not.toContain("bun run verify");
+  expect(job.steps.some((step: any) => step.name === "Windows control-file ACL regression")).toBe(false);
+  expect(job.steps.at(-1)).toEqual({ name: "Node compatibility", run: "bun run verify:node-compat" });
+  expect(job.steps.find((step: any) => step.name === "Setup Node").with["node-version"]).toBe("${{ matrix.node-version }}");
+  expect(job.steps.find((step: any) => step.name === "Upload platform IPC permission readback").with.name)
+    .toBe("platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}");
+  const compat: string = pkg.scripts["verify:node-compat"];
+  expect(compat.startsWith("bun run test:codegraph-selector-node && node scripts/packaged-cli-smoke.mjs && bun test --timeout 60000 ")).toBe(true);
+  const files = compat.split(" ").filter(part => part.endsWith(".test.ts"));
+  expect(files.length).toBeGreaterThan(0);
+  for (const file of files) {
+    expect(existsSync(file)).toBe(true);
+    // Each file runs the Node toolchain from PATH: node itself, or the npm bundled with that Node.
+    expect(readFileSync(file, "utf8")).toMatch(/(?:spawn|spawnSync|execFile|execFileSync)\(\s*"(?:node|npm)"/);
+  }
 });
 
 test("workflow targets only measured slow legs, keeps gate order, original nine names, timeouts and permissions", () => {
@@ -390,11 +434,7 @@ test("workflow targets only measured slow legs, keeps gate order, original nine 
   const config = readConfig();
   expect(config.splitTargets).toEqual([
     { os: "macos-15", "node-version": "22.22.x", shards: 3 },
-    { os: "macos-15", "node-version": "24.x", shards: 3 },
-    { os: "macos-15", "node-version": "25.x", shards: 3 },
-    { os: "windows-latest", "node-version": "22.22.x", shards: 3 },
-    { os: "windows-latest", "node-version": "24.x", shards: 3 },
-    { os: "windows-latest", "node-version": "25.x", shards: 3 }
+    { os: "windows-latest", "node-version": "22.22.x", shards: 3 }
   ]);
   expect(pkg.scripts.verify).toBe(`${pkg.scripts["verify:pre"]} && bun test --timeout 60000 && ${pkg.scripts["verify:post"]}`);
   expect(workflow.jobs["verify-split-tests"].needs).toContain("verify-split-pre");

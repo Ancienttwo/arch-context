@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { inspectFg4GithubHostedRunnerReadback } from "./fg4-github-hosted-runner-readback";
+import { laneTargets } from "./verify-ci.mjs";
 
 const DEFAULT_WORKFLOW = ".github/workflows/verify.yml";
 const DEFAULT_PLATFORM_READBACK_SCRIPT = "scripts/platform-ipc-permission-readback.mjs";
@@ -172,8 +173,10 @@ export function inspectFg6PlatformWorkflowMatrix(recording: unknown): { ok: bool
 }
 
 function inspectWorkflowText(text: string) {
-  const os = REQUIRED_OS.filter((value) => text.includes(value));
-  const nodeVersions = REQUIRED_NODE.filter((value) => text.includes(value));
+  // verify-ci.mjs owns the target list; the workflow expands it through the topology outputs.
+  const targets = text.includes("matrix: ${{ fromJSON(needs.verify-topology.outputs.targets) }}") ? laneTargets("matrix") : [];
+  const os = REQUIRED_OS.filter((value) => targets.some((target) => target.os === value));
+  const nodeVersions = REQUIRED_NODE.filter((value) => targets.some((target) => target["node-version"] === value));
   return {
     os,
     nodeVersions,

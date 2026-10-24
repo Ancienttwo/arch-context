@@ -46,8 +46,7 @@ describe("governance verify workflow", () => {
     }
     expect(workflow.permissions).toEqual({ contents: "read" });
     expect(workflow.concurrency.group).toBe("verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}");
-    expect(workflow.jobs.verify.strategy.matrix.os).toEqual(["ubuntu-latest", "macos-15", "windows-latest"]);
-    expect(workflow.jobs.verify.strategy.matrix["node-version"]).toEqual(["22.22.x", "24.x", "25.x"]);
+    expect(workflow.jobs.verify.strategy.matrix).toBe("${{ fromJSON(needs.verify-topology.outputs.compat) }}");
   });
 
   test("keeps governance verify local and evidence-inspection only after full verify", () => {

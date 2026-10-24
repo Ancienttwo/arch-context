@@ -14,16 +14,21 @@ export const GOVERNANCE_WORKER = workerName(GOVERNANCE_TARGET.os, GOVERNANCE_TAR
 const CONFIG_PATH = new URL("../.github/verify-sharding.json", import.meta.url);
 const SCOPE_PATH = new URL("../.github/verify-scope.json", import.meta.url);
 
-export function readConfig() {
-  const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+export function validateConfig(config) {
   assert.equal(config.version, 1);
   for (const row of config.splitTargets) {
     assert(OS_TARGETS.includes(row.os) && NODE_TARGETS.includes(row["node-version"]));
+    assert.equal(row["node-version"], GOVERNANCE_TARGET["node-version"], "full verification runs only at the engines-minimum Node; newer Node targets run node compat");
     assert(Number.isInteger(row.shards) && row.shards > 1);
   }
   assert.equal(new Set(config.splitTargets.map(row => targetName(row.os, row["node-version"]))).size, config.splitTargets.length);
   assert(!config.splitTargets.some(row => row.os === GOVERNANCE_TARGET.os && row["node-version"] === GOVERNANCE_TARGET["node-version"]), "shared Governance prerequisite must remain a full worker");
+  assert.deepEqual([GOVERNANCE_TARGET.os, ...config.splitTargets.map(row => row.os)].sort(), [...OS_TARGETS].sort(), "every OS needs exactly one full verification");
   return config;
+}
+
+export function readConfig() {
+  return validateConfig(JSON.parse(readFileSync(CONFIG_PATH, "utf8")));
 }
 
 /** `**` spans zero or more whole segments, `*` stays inside one segment, everything else is literal. */
@@ -184,9 +189,9 @@ export async function executeShard(root, plan, index, evidenceDir, bun = "bun") 
 
 export function expectedWorkers(config, os, node) {
   const row = config.splitTargets.find(row => row.os === os && row["node-version"] === node);
-  return row
-    ? [workerName(os, node, "pre"), ...Array.from({ length: row.shards }, (_, i) => workerName(os, node, `shard ${i + 1}`)), workerName(os, node, "post")]
-    : [workerName(os, node, "full")];
+  if (row) return [workerName(os, node, "pre"), ...Array.from({ length: row.shards }, (_, i) => workerName(os, node, `shard ${i + 1}`)), workerName(os, node, "post")];
+  if (os === GOVERNANCE_TARGET.os && node === GOVERNANCE_TARGET["node-version"]) return [GOVERNANCE_WORKER];
+  return [workerName(os, node, "node compat")];
 }
 
 export function jobVerdicts(config, run, jobs, targets) {
@@ -318,7 +323,9 @@ export async function main(command, env = process.env) {
     const { lane } = classification;
     const split = config.splitTargets;
     const shards = split.flatMap(row => Array.from({ length: row.shards }, (_, index) => ({ ...row, index, shard: index + 1 })));
-    for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shards }, excluded: [...split.map(({ os, "node-version": node }) => ({ os, "node-version": node })), GOVERNANCE_TARGET],
+    const full = [...split, GOVERNANCE_TARGET];
+    const compat = laneTargets("matrix").filter(target => !full.some(row => row.os === target.os && row["node-version"] === target["node-version"]));
+    for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shards }, compat: { include: compat },
       targets: { include: laneTargets(lane) } })) {
       appendFileSync(env.GITHUB_OUTPUT, `${key}=${JSON.stringify(value)}\n`);
     }
