@@ -6214,6 +6214,14 @@ describe("archctx CLI", () => {
         adoptionPlanId: "adoption_plan.model_ignored"
       } satisfies ProjectionRequestV1)], root), "projection.run");
       expect(existsSync(join(root, "docs/architecture"))).toBe(false);
+
+      // A file rule leaves the directory visible, so the present model files are probed too.
+      writeFileSync(join(root, ".gitignore"), ".archcontext/model/nodes/*.yaml\n", "utf8");
+      const nodeFile = ".archcontext/model/nodes/capability.architecture.context.yaml";
+      const fileRule = await runTestCli("status", [], root);
+      expect((fileRule.data as any).architectureModelIgnoredPaths).toEqual([{ path: nodeFile, source: ".gitignore", line: 1, pattern: ".archcontext/model/nodes/*.yaml" }]);
+      const fileRuleAdopt = await runTestCli("docs", ["adopt", "--profile", "repo-harness/v1"], root) as JsonEnvelope;
+      expect(fileRuleAdopt.error).toMatchObject({ reasonCode: "architecture-model-ignored", details: { pathCount: 1, paths: [nodeFile], omittedPathCount: 0 } });
     } finally {
       removeTempRoot(root);
     }

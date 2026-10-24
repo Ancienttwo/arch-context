@@ -3,8 +3,8 @@ import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFai
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { GitVisibleFilesUnavailableError, findRepositoryRoot, ignoredRepositoryPaths, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { ARCHITECTURE_MODEL_COMMITTED_PATHS } from "@archcontext/local-runtime/model-store-yaml";
+import { GitVisibleFilesUnavailableError, findRepositoryRoot, ignoredRepositoryPaths, readHeadSha, listGitVisibleFiles, type IgnoredRepositoryPath } from "@archcontext/local-runtime/git-adapter";
+import { architectureModelIgnoreProbePaths } from "@archcontext/local-runtime/model-store-yaml";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import { ProjectionFreshnessChangedPathError, evaluateProjectionFreshness, measureProjectionFreshness, projectionFreshnessContract } from "./projection-freshness";
@@ -148,12 +148,22 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
 }
 
 /**
+ * Model paths that Git ignore rules exclude, each with its deciding rule. A file under an ignored
+ * directory is not repeated, so a blanket `/.archcontext/` rule reports the committed paths only.
+ */
+export function ignoredArchitectureModelPaths(root: string): IgnoredRepositoryPath[] {
+  const ignored = ignoredRepositoryPaths(root, architectureModelIgnoreProbePaths(root));
+  const directories = ignored.filter((entry) => entry.path.endsWith("/")).map((entry) => entry.path);
+  return ignored.filter((entry) => entry.path.endsWith("/") || !directories.some((directory) => entry.path.startsWith(directory)));
+}
+
+/**
  * Adoption commits documents and a manifest that name the model only by digest. When Git ignore
  * rules exclude the model, it lives in this checkout alone and is lost with it (#399), so adoption
  * refuses before it renders. The diagnostic command lets Git print each deciding rule.
  */
 function architectureModelIgnoredEnvelope(requestId: string, root: string): JsonEnvelope | undefined {
-  const ignored = ignoredRepositoryPaths(root, ARCHITECTURE_MODEL_COMMITTED_PATHS);
+  const ignored = ignoredArchitectureModelPaths(root);
   if (ignored.length === 0) return undefined;
   const paths = ignored.map((entry) => entry.path).slice(0, 8);
   return publicFailureEnvelope(requestId, "AC_PRECONDITION_FAILED", "architecture-model-ignored", {

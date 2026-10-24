@@ -21,7 +21,7 @@ export type { RuntimeBookInput } from "./architecture-book";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
-import { runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
+import { ignoredArchitectureModelPaths, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
 import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand } from "./projection-service";
@@ -81,9 +81,9 @@ import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationA
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
-import { findRepositoryRoot, ignoredRepositoryPaths, listGitVisibleFiles, readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, listGitVisibleFiles, readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobQueueScope, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
-import { ARCHITECTURE_MODEL_COMMITTED_PATHS, ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
+import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
 import { localEgressStatus } from "./egress";
@@ -1324,7 +1324,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const repositoryId = repositoryFingerprint(root);
     const session = this.sessions.get(repositoryId);
     // Ignored model paths are reported with their deciding rules before the model is lost (#399).
-    const ignoredModelPaths = ignoredRepositoryPaths(root, ARCHITECTURE_MODEL_COMMITTED_PATHS);
+    const ignoredModelPaths = ignoredArchitectureModelPaths(root);
     return okEnvelope("status", {
       ...status,
       repositoryId,
