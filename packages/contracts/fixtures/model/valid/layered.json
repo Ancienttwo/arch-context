@@ -1,0 +1,59 @@
+{
+  "nodes": [
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "capability.billing",
+      "kind": "capability",
+      "name": "Billing",
+      "status": "active",
+      "summary": "Bills customers."
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "module.billing.api",
+      "kind": "module",
+      "name": "Billing API",
+      "status": "active",
+      "parent": "capability.billing",
+      "layer": "interface-adapters",
+      "summary": "Accepts billing requests."
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "module.billing.ledger",
+      "kind": "module",
+      "name": "Ledger",
+      "status": "active",
+      "parent": "capability.billing",
+      "layer": "domain",
+      "summary": "Keeps the billing ledger."
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "datastore.billing.invoices",
+      "kind": "datastore",
+      "name": "Invoices",
+      "status": "active",
+      "parent": "capability.billing",
+      "summary": "Stores invoices."
+    }
+  ],
+  "relations": [
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.billing.api-ledger",
+      "kind": "calls",
+      "source": "module.billing.api",
+      "target": "module.billing.ledger",
+      "intent": "Posts ledger entries."
+    },
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.billing.ledger-invoices",
+      "kind": "writes",
+      "source": "module.billing.ledger",
+      "target": "datastore.billing.invoices",
+      "intent": "Persists invoices."
+    }
+  ]
+}

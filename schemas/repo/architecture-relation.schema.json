@@ -10,7 +10,7 @@
     "id": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
     "kind": {
       "type": "string",
-      "enum": ["depends-on", "calls", "publishes", "subscribes", "reads", "writes", "implements", "deployed-on"]
+      "enum": ["depends-on", "calls", "publishes", "subscribes", "reads", "writes", "implements", "deployed-on", "spawns", "runs-in", "mounts"]
     },
     "source": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
     "target": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },

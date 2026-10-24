@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, isRepoRelativePosixPath, stableId, type ArchitectureDocsProjectionManifestV3, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, isRepoRelativePosixPath, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV3, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
 export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "./source-globs";
 
 export const REPO_HARNESS_PROJECTION_PROFILE = "repo-harness/v1" as const;
@@ -55,6 +55,23 @@ const FIXED_TARGETS: ProjectionLayoutTargetDraft[] = [
   layoutTarget("projection_target.diagram.likec4", "diagram-likec4", { kind: "diagram", id: "architecture" }, "docs/architecture/diagrams/architecture.likec4", "generated", "likec4")
 ];
 
+/**
+ * The runtime topology view (ADR-0049). Whole-model, generated targets that the layout includes only
+ * when the model has a `process`, `namespace` or `mount` node, so every other model keeps its
+ * target set, manifest and index byte-identical.
+ */
+export const RUNTIME_TOPOLOGY_DIAGRAM_PATH = "docs/architecture/diagrams/runtime-topology.mmd";
+export const RUNTIME_TOPOLOGY_SUMMARY_PATH = "docs/architecture/runtime-topology.md";
+const RUNTIME_TOPOLOGY_TARGETS: ProjectionLayoutTargetDraft[] = [
+  layoutTarget("projection_target.diagram.runtime-topology", "diagram-runtime-topology", { kind: "diagram", id: "runtime-topology" }, RUNTIME_TOPOLOGY_DIAGRAM_PATH, "generated", "mermaid"),
+  layoutTarget("projection_target.runtime-topology.summary", "runtime-topology-summary", { kind: "diagram", id: "runtime-topology" }, RUNTIME_TOPOLOGY_SUMMARY_PATH, "generated", "markdown")
+];
+
+/** Whether the model has runtime topology data, which is what adds the topology targets to a layout. */
+export function hasRuntimeTopologyNodes(nodes: readonly { kind: string }[]): boolean {
+  return nodes.some((node) => isRuntimeTopologyNodeKind(node.kind));
+}
+
 export function parseRepoHarnessNodeProfile(node: ProjectionLayoutNode): RepoHarnessNodeProfileV1 {
   const match = /^capability\.([a-z0-9]+(?:-[a-z0-9]+)*)\.([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(node.id);
   if (!match || node.kind !== "capability") {
@@ -91,9 +108,12 @@ export function entitySummaryTargetNodes<T extends { kind: string }>(nodes: read
   // nodes and relations are inputs to the capability's P1/P2 compiler, not additional
   // documentation targets; attempting to parse them as capability identities both
   // rejects valid semantic models and creates an unintended second document set.
+  //
+  // Runtime topology nodes (process, namespace, mount) get no document of their own: the runtime
+  // topology summary covers them (ADR-0049).
   return profile === REPO_HARNESS_PROJECTION_PROFILE
     ? nodes.filter((node) => node.kind === "capability")
-    : [...nodes];
+    : nodes.filter((node) => !isRuntimeTopologyNodeKind(node.kind));
 }
 
 export function resolveArchitectureDocumentationLayout(input: {
@@ -124,7 +144,8 @@ export function resolveArchitectureDocumentationLayout(input: {
     "mixed",
     "markdown"
   ));
-  const targets = [FIXED_TARGETS[0]!, ...entityTargets, ...relationTargets, ...FIXED_TARGETS.slice(1)]
+  const topologyTargets = hasRuntimeTopologyNodes(input.nodes) ? RUNTIME_TOPOLOGY_TARGETS : [];
+  const targets = [FIXED_TARGETS[0]!, ...entityTargets, ...relationTargets, ...FIXED_TARGETS.slice(1), ...topologyTargets]
     .map((target) => ({ ...target, path: requiredPath(target.path, target.targetId) }));
   assertUniqueTargets(targets);
   return {

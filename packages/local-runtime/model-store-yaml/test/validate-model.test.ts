@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { REVIEW_FAIL_ON_CATEGORIES, digestJson } from "@archcontext/contracts";
+import { REVIEW_FAIL_ON_CATEGORIES, digestJson, stableYaml, type Json } from "@archcontext/contracts";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { CONSTRAINT_RULE_TYPES, readDependencyConstraints, readReviewPolicy } from "@archcontext/core/architecture-domain";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "../src/index";
@@ -90,6 +90,55 @@ describe("YamlModelStore core node validation (#370)", () => {
       const result = await validate(root);
       expect(result.valid).toBe(false);
       expect(result.errors.some(error => error.includes(path) && error.includes("duplicate object key"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("YamlModelStore runtime topology integrity (ADR-0049)", () => {
+  const topology = JSON.parse(readFileSync(join(import.meta.dir, "../../../contracts/fixtures/model/valid/runtime-topology.json"), "utf8")) as { nodes: Json[]; relations: Json[] };
+  function writeTopology(root: string): void {
+    mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+    for (const [directory, records] of [["nodes", topology.nodes], ["relations", topology.relations]] as const) {
+      for (const record of records) writeFileSync(join(root, `.archcontext/model/${directory}/${(record as { id: string }).id}.yaml`), stableYaml(record), "utf8");
+    }
+  }
+
+  test("a valid topology model validates", async () => {
+    const root = modelRoot();
+    try {
+      writeTopology(root);
+      expect(await validate(root)).toMatchObject({ valid: true, errors: [] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a runs-in relation whose target is not a namespace fails with its file path", async () => {
+    const root = modelRoot();
+    const path = ".archcontext/model/relations/relation.shop.api-runs-in-container.yaml";
+    try {
+      writeTopology(root);
+      const relation = topology.relations.find((entry) => (entry as { id: string }).id === "relation.shop.api-runs-in-container") as Record<string, Json>;
+      writeFileSync(join(root, path), stableYaml({ ...relation, target: "component.shop.api" }), "utf8");
+      const result = await validate(root);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain(`${path}: target: topology-relation-target-kind-invalid`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a mount without a target path fails node schema validation", async () => {
+    const root = modelRoot();
+    const path = ".archcontext/model/nodes/mount.shop.tmp.yaml";
+    try {
+      writeTopology(root);
+      writeFileSync(join(root, path), stableYaml({ schemaVersion: "archcontext.node/v2", id: "mount.shop.tmp", kind: "mount", name: "Scratch", status: "active", summary: "Scratch.", mount: { mode: "rw", order: 0 } }), "utf8");
+      const result = await validate(root);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain(`${path}: $.mount.target: required`);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
