@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS, runtimeTopologyModelIssues, validateJsonSchema, type Json } from "../src";
+import { CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS, runtimeTopologyModelIssues, validateJsonSchema, type Json, type RuntimeTopologyInvariant } from "../src";
 import nodeSchema from "../../../schemas/repo/architecture-node.schema.json";
 import relationSchema from "../../../schemas/repo/architecture-relation.schema.json";
 
@@ -105,7 +105,7 @@ describe("runtimeTopologyModelIssues", () => {
     return { ...model, relations: [...model.relations, { schemaVersion: "archcontext.relation/v1", intent: "test", ...relation }] };
   };
 
-  const cases: Array<[string, Record<string, Json>, string, string]> = [
+  const cases: Array<[string, Record<string, Json>, string, RuntimeTopologyInvariant]> = [
     ["spawns from a namespace", { id: "relation.bad", kind: "spawns", source: "namespace.shop.pod", target: "process.shop.worker" }, "source", "topology-relation-source-kind-invalid"],
     ["spawns a mount", { id: "relation.bad", kind: "spawns", source: "process.shop.cron", target: "mount.shop.tmp" }, "target", "topology-relation-target-kind-invalid"],
     ["runs-in from a namespace", { id: "relation.bad", kind: "runs-in", source: "namespace.shop.pod", target: "namespace.shop.host" }, "source", "topology-relation-source-kind-invalid"],
