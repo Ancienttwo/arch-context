@@ -256,5 +256,14 @@ describe("runtime topology view (ADR-0049)", () => {
     });
     expect([...architectureProjectionFootprintOwners(declare("capability.shop")).entries()]).toEqual([["process.shop.cron", "capability.shop"]]);
     expect(() => architectureProjectionFootprintOwners(declare(undefined))).toThrow();
+
+    // A namespace's parent chain holds only namespaces, so no ancestor has an entity summary and
+    // the footprint is always refused until phase 2 gives topology targets their own stamps.
+    const declareNamespace = (id: string): NativeModel => ({
+      ...model,
+      nodes: model.nodes.map((node) => node.id === id ? { ...node, source: { include: ["k8s/*.yaml"] } } : node)
+    });
+    expect(() => architectureProjectionFootprintOwners(declareNamespace("namespace.shop.host"))).toThrow("projection-footprint-uncovered");
+    expect(() => architectureProjectionFootprintOwners(declareNamespace("namespace.shop.pod"))).toThrow("projection-footprint-uncovered");
   });
 });

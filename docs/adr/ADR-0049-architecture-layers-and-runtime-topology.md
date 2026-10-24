@@ -135,10 +135,10 @@ configuration and updates the model through a ChangeSet. archctx never infers to
 configuration. A topology node with no `source.include` stays model-authored, with no source
 anchor.
 
-Until phase 2, a topology node that declares `source.include` is handled like any other node: its
-footprint is stamped on the entity summary of its nearest ancestor that has one, and a footprint
-with no such ancestor is refused (`projection-footprint-uncovered`). Phase 2 owns changing that
-attribution.
+Until phase 2, a topology node's `source.include` is attributed to its nearest ancestor with an
+entity-summary target. A namespace's parent chain contains only namespaces, so a namespace with
+`source.include` always fails the docs projection with `projection-footprint-uncovered` until
+phase 2 gives topology targets their own source stamps.
 
 ## Invariants
 
