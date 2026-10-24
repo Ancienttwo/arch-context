@@ -92,6 +92,14 @@ The result (`archcontext.flow-selector-check/v1`, `schemas/runtime/flow-selector
 
 A built-in-named call is accepted only when the source file imports the sink file through a relative specifier. A call through a package alias or a re-exporting barrel is not proven this way. A call inside the sink file needs no import.
 
+## Missing models and legacy adoption
+
+`docs adopt` does not upgrade a superseded projection manifest. The supported re-baseline is `archctx docs apply --approved --profile <default|repo-harness/v1>`, subject to the version-specific migration and ownership checks below. Do not run it until the original model is available and reviewed. A renderer version alone does not identify the manifest schema; inspect `schemaVersion` and follow the applicable upgrade path. A 0.6.3 repository follows the intermediate 0.7.x migration described below.
+
+A projection manifest and its `modelDigest` are not a backup of the architecture model. If `.archcontext/` is absent, recover the original model from a trusted backup or a checkout that still has it; Git can restore only content that was actually committed. If no original copy exists, the original model cannot be recovered from its digest or generated documentation. Any replacement model is new authoring requiring review, not data recovery. Deleting the committed manifest or applying an empty/reconstructed model is not a supported lossless recovery procedure.
+
+Preserve the manifest and generated documents while investigating. The Git-visible `.archcontext/` model is architecture authority, not disposable agent state. Track its model and required configuration through the repository's review workflow; do not blanket-ignore `/.archcontext/`. Keep operational caches and private runtime state separate. This guidance does not imply that `adopt` or `status` currently detects an ignored model automatically.
+
 ## Upgrading from archctx 0.7.x
 
 The next release after 0.7.x changes the committed projection manifest to `archcontext.architecture-docs-projection-manifest/v3` (ADR-0047). A v1 or v2 manifest is read only for its `schemaVersion`. Nothing else in it is read or translated, so its profile, semantic baseline and stamps carry nothing into the new release. Every command that reads the committed manifest (`archctx docs drift`, `docs plan`, `projection run`, `complete`, `ledger accept-committed`) refuses it with `AC_PRECONDITION_FAILED` and `reasonCode: "projection-manifest-upgrade-required"`. Only `archctx docs apply --approved` re-baselines it.
