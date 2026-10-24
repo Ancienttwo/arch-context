@@ -39,7 +39,7 @@ const policies: Record<string, Policy> = {
   "model-missing": { code: "AC_MODEL_ADOPTION_REQUIRED", message: "Architecture debt requires an adopted model.", fields: ["checks"] },
   "changed-path-invalid": { code: "AC_SCHEMA_INVALID", message: "Changed paths must be an array of repository-relative POSIX paths.", fields: ["checks"] },
   "debt-report-invalid": { code: "AC_SCHEMA_INVALID", message: "Architecture debt evidence violates its contract.", fields: ["checks"] },
-  "projection-manifest-upgrade-required": { code: "AC_PRECONDITION_FAILED", message: "The committed projection manifest requires supported re-baselining." },
+  "projection-manifest-upgrade-required": { code: "AC_PRECONDITION_FAILED", message: "The committed projection manifest requires supported re-baselining. First restore the original model if missing; the manifest digest cannot recover it. With the reviewed model available, follow docs/runbooks/architecture-documentation-projections.md before running archctx docs apply --approved --profile <default|repo-harness/v1>." },
   "projection-manifest-invalid": { code: "AC_PRECONDITION_FAILED", message: "The committed projection manifest violates its contract." },
   "projection-footprint-uncovered": { code: "AC_PRECONDITION_FAILED", message: "Declared source footprints lack a projection target." },
   "index-missing": { code: "AC_CODE_FACTS_UNAVAILABLE", message: "Required code facts have no available index. Run codegraph init." },
