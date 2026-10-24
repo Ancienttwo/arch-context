@@ -1,0 +1,223 @@
+{
+  "nodes": [
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "capability.shop",
+      "kind": "capability",
+      "name": "Shop",
+      "status": "active",
+      "summary": "Sells products."
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "component.shop.api",
+      "kind": "component",
+      "name": "API",
+      "status": "active",
+      "parent": "capability.shop",
+      "summary": "Serves the storefront API."
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "namespace.shop.host",
+      "kind": "namespace",
+      "name": "Host",
+      "status": "active",
+      "summary": "The host machine.",
+      "namespace": {
+        "type": "host"
+      }
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "namespace.shop.pod",
+      "kind": "namespace",
+      "name": "Shop pod",
+      "status": "active",
+      "parent": "namespace.shop.host",
+      "summary": "The pod that runs the shop.",
+      "namespace": {
+        "type": "pod"
+      }
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "namespace.shop.api-container",
+      "kind": "namespace",
+      "name": "API container",
+      "status": "active",
+      "parent": "namespace.shop.pod",
+      "summary": "The container of the API server.",
+      "namespace": {
+        "type": "container"
+      }
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "process.shop.api-server",
+      "kind": "process",
+      "name": "API server",
+      "status": "active",
+      "summary": "Serves HTTP requests."
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "process.shop.worker",
+      "kind": "process",
+      "name": "Worker",
+      "status": "active",
+      "summary": "Runs background jobs."
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "process.shop.cron",
+      "kind": "process",
+      "name": "Cron",
+      "status": "active",
+      "summary": "Schedules maintenance on the host."
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "mount.shop.app-code",
+      "kind": "mount",
+      "name": "App code",
+      "status": "active",
+      "summary": "The built application, read-only.",
+      "mount": {
+        "source": "./dist",
+        "target": "/app",
+        "mode": "ro",
+        "order": 0
+      }
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "mount.shop.app-data",
+      "kind": "mount",
+      "name": "App data",
+      "status": "active",
+      "summary": "Persistent shop data.",
+      "mount": {
+        "source": "volume:shop-data",
+        "target": "/app/data",
+        "mode": "rw",
+        "order": 1
+      }
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "mount.shop.app-cache",
+      "kind": "mount",
+      "name": "App cache",
+      "status": "active",
+      "summary": "In-memory cache files.",
+      "mount": {
+        "source": "tmpfs",
+        "target": "/app/cache",
+        "mode": "rw",
+        "order": 1
+      }
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "mount.shop.config",
+      "kind": "mount",
+      "name": "Shop config",
+      "status": "active",
+      "summary": "Configuration shared by the pod.",
+      "mount": {
+        "source": "configmap:shop",
+        "target": "/etc/shop",
+        "mode": "ro",
+        "order": 0
+      }
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "mount.shop.tmp",
+      "kind": "mount",
+      "name": "Scratch",
+      "status": "active",
+      "summary": "Anonymous scratch space.",
+      "mount": {
+        "target": "/tmp",
+        "mode": "rw",
+        "order": 0
+      }
+    }
+  ],
+  "relations": [
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.api-deployed-on-server",
+      "kind": "deployed-on",
+      "source": "component.shop.api",
+      "target": "process.shop.api-server",
+      "intent": "The API component runs as the API server process."
+    },
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.api-runs-in-container",
+      "kind": "runs-in",
+      "source": "process.shop.api-server",
+      "target": "namespace.shop.api-container",
+      "intent": "The API server runs in its container."
+    },
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.worker-runs-in-container",
+      "kind": "runs-in",
+      "source": "process.shop.worker",
+      "target": "namespace.shop.api-container",
+      "intent": "The worker shares the API container."
+    },
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.api-spawns-worker",
+      "kind": "spawns",
+      "source": "process.shop.api-server",
+      "target": "process.shop.worker",
+      "intent": "The API server starts the worker."
+    },
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.api-mounts-code",
+      "kind": "mounts",
+      "source": "process.shop.api-server",
+      "target": "mount.shop.app-code",
+      "intent": "Reads the built application."
+    },
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.api-mounts-data",
+      "kind": "mounts",
+      "source": "process.shop.api-server",
+      "target": "mount.shop.app-data",
+      "intent": "Stores shop data."
+    },
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.api-mounts-cache",
+      "kind": "mounts",
+      "source": "process.shop.api-server",
+      "target": "mount.shop.app-cache",
+      "intent": "Caches rendered pages."
+    },
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.pod-mounts-config",
+      "kind": "mounts",
+      "source": "namespace.shop.pod",
+      "target": "mount.shop.config",
+      "intent": "Shares configuration with every container."
+    },
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.worker-mounts-tmp",
+      "kind": "mounts",
+      "source": "process.shop.worker",
+      "target": "mount.shop.tmp",
+      "intent": "Writes job scratch files."
+    }
+  ]
+}

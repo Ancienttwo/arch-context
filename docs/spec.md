@@ -273,7 +273,7 @@ These queries use the parent-chain owner rule of `refactor scan` (module-statist
 - Each `deps` cell carries `declared` and `relationIds` (capability
   `capability-dependencies-declared-v1`). An import from capability A into capability B (A != B)
   is declared when a relation of kind `calls`, `depends-on`, `implements`, `publishes`, `reads`,
-  `subscribes` or `writes` (every kind but `deployed-on`) has a `source` that rolls up to A and a
+  `subscribes` or `writes` (`deployed-on`, `spawns`, `runs-in` and `mounts` declare none) has a `source` that rolls up to A and a
   `target` that rolls up to B. A node rolls up to itself when it is a capability, else to the
   nearest capability on its parent chain. Direction matters: a relation B -> A does not declare an
   import A -> B. A cell inside one capability is always declared and lists no relation ids. The

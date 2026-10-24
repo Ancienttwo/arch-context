@@ -10,6 +10,36 @@ import {
 } from "../src/index";
 
 describe("@archcontext/local-runtime/context7-adapter", () => {
+  test.each(["search", "context"])("%s deadline remains active while reading the response body", async (operation) => {
+    const originalFetch = globalThis.fetch;
+    let observedSignal: AbortSignal | undefined;
+    let finishBody: (() => void) | undefined;
+    globalThis.fetch = (async (_input, init) => {
+      const signal = init?.signal as AbortSignal;
+      observedSignal = signal;
+      return new Response(new ReadableStream({
+        start(controller) {
+          finishBody = () => { try { controller.enqueue(new TextEncoder().encode('{"results":[]}')); controller.close(); } catch {} };
+          signal.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")), { once: true });
+        }
+      }));
+    }) as typeof fetch;
+    const transport = new HttpContext7Transport();
+    const request = operation === "search"
+      ? transport.search({ libraryName: "React", query: "hooks", fast: true, timeoutMs: 10 })
+      : transport.getContext({ libraryId: "/facebook/react", query: "hooks", maxResults: 1, timeoutMs: 10 });
+    const outcome = request.then(() => "resolved", (error) => error);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(observedSignal?.aborted).toBe(true);
+      expect(await outcome).toMatchObject({ kind: "timeout", retryable: true });
+    } finally {
+      finishBody?.();
+      await outcome;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("is disabled by default and reports zero egress", async () => {
     let calls = 0;
     const adapter = new Context7ExternalDocumentationAdapter({

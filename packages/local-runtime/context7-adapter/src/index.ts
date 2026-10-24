@@ -405,12 +405,10 @@ export class HttpContext7Transport implements Context7Transport {
     url.searchParams.set("libraryName", input.libraryName);
     url.searchParams.set("query", input.query);
     url.searchParams.set("fast", input.fast ? "true" : "false");
-    const response = await fetchWithTimeout(url, {
+    const { payload } = await fetchJsonWithTimeout(url, {
       method: "GET",
       headers: authHeaders(input.apiKey)
-    }, input.timeoutMs);
-    if (!response.ok) throw httpStatusError("Context7 search failed", response);
-    const { payload } = await parseJsonResponse(response, "Context7 search");
+    }, input.timeoutMs, "Context7 search");
     return parseSearchResponse(payload);
   }
 
@@ -420,12 +418,10 @@ export class HttpContext7Transport implements Context7Transport {
     url.searchParams.set("query", input.query);
     url.searchParams.set("type", "json");
     url.searchParams.set("fast", "true");
-    const response = await fetchWithTimeout(url, {
+    const { payload } = await fetchJsonWithTimeout(url, {
       method: "GET",
       headers: authHeaders(input.apiKey)
-    }, input.timeoutMs);
-    if (!response.ok) throw httpStatusError("Context7 context fetch failed", response);
-    const { payload } = await parseJsonResponse(response, "Context7 context fetch");
+    }, input.timeoutMs, "Context7 context fetch");
     return parseDocumentationResponse(payload).slice(0, input.maxResults);
   }
 }
@@ -531,11 +527,14 @@ function normalizeSourceUri(value: string): string | undefined {
   }
 }
 
-async function fetchWithTimeout(input: string | URL, init: RequestInit, timeoutMs: number): Promise<Response> {
+async function fetchJsonWithTimeout(input: string | URL, init: RequestInit, timeoutMs: number, label: string): Promise<{ payload: unknown; byteCount: number }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await withLocalEgress("context7", () => fetch(input, { ...init, redirect: "error", signal: controller.signal }));
+    const response = await withLocalEgress("context7", () => fetch(input, { ...init, redirect: "error", signal: controller.signal }));
+    if (!response.ok) throw httpStatusError(`${label} failed`, response);
+    // Keep the deadline active until the response body has been consumed.
+    return await parseJsonResponse(response, label);
   } catch (error) {
     if (isAbortError(error)) {
       throw new Context7ProviderError("timeout", "Context7 provider request timed out", { retryable: true, cause: error });

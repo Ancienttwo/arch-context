@@ -30,7 +30,7 @@
           "to": { "type": "string", "minLength": 1 },
           "imports": { "type": "integer", "minimum": 1 },
           "calls": { "type": "null" },
-          "declared": { "type": "boolean", "description": "A relation of a declaring kind (every kind but deployed-on) runs from a node that rolls up to `from` into a node that rolls up to `to`. A cell with from equal to to is always declared and lists no relation ids." },
+          "declared": { "type": "boolean", "description": "A relation of a declaring kind (every kind but deployed-on, spawns, runs-in and mounts) runs from a node that rolls up to `from` into a node that rolls up to `to`. A cell with from equal to to is always declared and lists no relation ids." },
           "relationIds": { "type": "array", "uniqueItems": true, "description": "The declaring relation ids, sorted. Non-empty exactly when a cross-capability cell is declared.", "items": { "type": "string", "minLength": 1 } }
         },
         "if": { "properties": { "relationIds": { "minItems": 1 } } },

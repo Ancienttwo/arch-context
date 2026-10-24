@@ -141,6 +141,8 @@ test("Explorer V2 schemas expose exactly the canonical five-view catalog", () =>
 });
 const schemaByFixture: Record<string, string> = {
   "architecture-node": "schemas/repo/architecture-node.schema.json",
+  "architecture-node-layered": "schemas/repo/architecture-node.schema.json",
+  "architecture-node-mount": "schemas/repo/architecture-node.schema.json",
   "architecture-flow": "schemas/repo/architecture-flow.schema.json",
   "architecture-relation": "schemas/repo/architecture-relation.schema.json",
   "cross-repo-relation": "schemas/repo/cross-repo-relation.schema.json",
@@ -1280,6 +1282,18 @@ describe("JSON schema contracts", () => {
     expect(validateJsonSchema(schema as any, { ...fixture, schemaVersion: "archcontext.node/v1" } as Json).valid).toBe(false);
     const source = fixture.source as Record<string, Json>;
     expect(validateJsonSchema(schema as any, { ...fixture, source: { ...source, entrypoints: ["src/index.ts"] } } as Json).valid).toBe(false);
+  });
+
+  test("node layer is an optional lowercase kebab slug", () => {
+    const schema = readJson("schemas/repo/architecture-node.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/architecture-node-layered.json") as Record<string, Json>;
+    expect(validateJsonSchema(schema as any, fixture).valid).toBe(true);
+    const { layer: _layer, ...unlayered } = fixture;
+    expect(validateJsonSchema(schema as any, unlayered as Json).valid).toBe(true);
+    for (const layer of ["Domain", "domain services", "domain_services", "-domain", "domain-", "domain--services", "1domain", "", 3]) {
+      const result = validateJsonSchema(schema as any, { ...fixture, layer } as Json);
+      expect(result.valid, String(layer)).toBe(false);
+    }
   });
 
   test("required flows need success and error outcomes while not-applicable flows cannot carry a hidden sequence", () => {

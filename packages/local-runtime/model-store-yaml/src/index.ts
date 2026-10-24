@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { REVIEW_FAIL_ON_CATEGORIES, digestJson, stableYaml, validateJsonSchema, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
+import { REVIEW_FAIL_ON_CATEGORIES, digestJson, runtimeTopologyModelIssues, stableYaml, validateJsonSchema, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
 import { parseJsonOrStableYaml, readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
@@ -126,6 +126,23 @@ export function createDefaultProjectionTargetManifest(): Json {
         pathTemplate: "docs/architecture/diagrams/architecture.likec4",
         ownership: "generated",
         format: "likec4"
+      },
+      // The runtime topology targets exist only while the model has process, namespace or mount nodes (ADR-0049).
+      {
+        id: "projection_rule.diagram.runtime-topology",
+        targetType: "diagram-runtime-topology",
+        scope: { kind: "diagram", id: "runtime-topology" },
+        pathTemplate: "docs/architecture/diagrams/runtime-topology.mmd",
+        ownership: "generated",
+        format: "mermaid"
+      },
+      {
+        id: "projection_rule.runtime-topology.summary",
+        targetType: "runtime-topology-summary",
+        scope: { kind: "diagram", id: "runtime-topology" },
+        pathTemplate: "docs/architecture/runtime-topology.md",
+        ownership: "generated",
+        format: "markdown"
       },
       {
         id: "projection_rule.agent-context.claude",
@@ -287,10 +304,18 @@ export class YamlModelStore implements ModelStorePort {
       }
     }
     const files = listModelFiles(workspace.root);
+    // Parsed node and relation records with their paths, for the cross-entity topology rules.
+    const topologyRecords: { nodes: Record<string, Json>[]; relations: Record<string, Json>[] } = { nodes: [], relations: [] };
+    const topologyRecordPaths = new Map<string, string>();
     for (const file of files) {
       if (file.path.startsWith(".archcontext/model/") && /\.ya?ml$/.test(file.path)) {
         try {
           const value = parseJsonOrStableYaml(file.body, file.path);
+          for (const [directory, records] of [["nodes", topologyRecords.nodes], ["relations", topologyRecords.relations]] as const) {
+            if (!file.path.startsWith(`.archcontext/model/${directory}/`) || !isJsonRecord(value)) continue;
+            records.push(value);
+            if (typeof value.id === "string") topologyRecordPaths.set(value.id, file.path);
+          }
           if (file.path.startsWith(".archcontext/model/nodes/")) {
             const { issues } = validateJsonSchema(nodeSchema, value);
             for (const issue of issues) {
@@ -309,6 +334,9 @@ export class YamlModelStore implements ModelStorePort {
       if (file.path.startsWith(".archcontext/model/flows/") && file.schemaVersion !== "archcontext.flow/v1") {
         errors.push(`${file.path}: expected archcontext.flow/v1, got ${file.schemaVersion || "missing"}`);
       }
+    }
+    for (const issue of runtimeTopologyModelIssues(topologyRecords)) {
+      errors.push(`${topologyRecordPaths.get(issue.entityId) ?? issue.entityId}: ${issue.field}: ${issue.invariant}`);
     }
     const adr = validateAdrAppliesTo(files);
     const constraints = readDependencyConstraints(files);
@@ -330,6 +358,33 @@ export class YamlModelStore implements ModelStorePort {
   async writeChangeSetPreview(changeSet: unknown): Promise<{ digest: string; summary: string }> {
     return { digest: digestJson(changeSet as Json), summary: "ChangeSet preview generated" };
   }
+}
+
+/**
+ * The architecture model authority that must be committed. A manifest digest and generated
+ * documents cannot rebuild it, so an ignore rule over any of these paths leaves the model in one
+ * checkout only. `generated` is a rebuildable projection and is not listed.
+ */
+export const ARCHITECTURE_MODEL_COMMITTED_PATHS = Object.freeze([
+  ".archcontext/manifest.yaml",
+  ".archcontext/product.yaml",
+  ".archcontext/model/nodes/",
+  ".archcontext/model/relations/",
+  ".archcontext/model/flows/",
+  ".archcontext/decisions/",
+  ".archcontext/policies/",
+  ".archcontext/practices/",
+  ".archcontext/projections/"
+] as const);
+
+/**
+ * The paths whose ignore status decides whether the model can be committed: the committed paths
+ * plus every model file present under their directories. A directory probe alone misses a file
+ * rule such as `.archcontext/model/nodes/*.yaml` that leaves the directory itself visible.
+ */
+export function architectureModelIgnoreProbePaths(root: string): string[] {
+  const directories = ARCHITECTURE_MODEL_COMMITTED_PATHS.filter((path) => path.endsWith("/")).map((path) => path.slice(0, -1));
+  return [...new Set([...ARCHITECTURE_MODEL_COMMITTED_PATHS, ...collectArchContextFiles(root, directories)])];
 }
 
 export function listModelFiles(root: string): ModelFile[] {
@@ -415,6 +470,10 @@ function extractSchemaVersion(body: string, path: string): string {
   }
   if (body.includes("Generated by ArchContext")) return "archcontext.generated/v1";
   return "";
+}
+
+function isJsonRecord(value: unknown): value is Record<string, Json> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function withTrailingNewline(body: string): string {

@@ -1,0 +1,30 @@
+{
+  "nodes": [
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "component.shop.api",
+      "kind": "component",
+      "name": "API",
+      "status": "active",
+      "summary": "Serves the storefront API."
+    },
+    {
+      "schemaVersion": "archcontext.node/v2",
+      "id": "process.shop.api-server",
+      "kind": "process",
+      "name": "API server",
+      "status": "active",
+      "summary": "Serves HTTP requests."
+    }
+  ],
+  "relations": [
+    {
+      "schemaVersion": "archcontext.relation/v1",
+      "id": "relation.shop.api-runs-in-component",
+      "kind": "runs-in",
+      "source": "process.shop.api-server",
+      "target": "component.shop.api",
+      "intent": "A process cannot run in a component."
+    }
+  ]
+}

@@ -1,20 +1,25 @@
 import { digestJson, type Json, type ModelExportResult } from "@archcontext/contracts";
 import { stripAdapterProtectedNativeFields } from "@archcontext/core/architecture-domain";
-import { normalizeNativeModel, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/surfaces/renderer";
+import { architectureLayerGroups, architectureStructurizrElementType, normalizeNativeModel, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/surfaces/renderer";
 
 export function exportStructurizrWorkspace(model: NativeModel, name = "ArchContext Export"): ModelExportResult {
   const normalized = normalizeNativeModel(model);
+  const { layerByNodeId } = architectureLayerGroups(normalized);
   const workspace = {
     schemaVersion: "archcontext.structurizr-export/v1",
     name,
     model: {
-      elements: normalized.nodes.map((node) => ({
-        id: node.id,
-        name: node.name,
-        type: structurizrElementType(node.kind),
-        tags: [node.kind],
-        archcontextNative: node
-      })),
+      elements: normalized.nodes.map((node) => {
+        const layer = layerByNodeId.get(node.id);
+        return {
+          id: node.id,
+          name: node.name,
+          type: architectureStructurizrElementType(node.kind),
+          tags: [node.kind],
+          ...(layer === undefined ? {} : { group: layer }),
+          archcontextNative: node
+        };
+      }),
       relationships: normalized.relations.map((relation) => ({
         id: relation.id,
         sourceId: relation.source,
@@ -57,12 +62,4 @@ export function importStructurizrInitialModel(content: string): { nodes: NativeN
     relations,
     warnings: ["Structurizr import is initialization-only; Native ArchContext remains source of truth."]
   };
-}
-
-function structurizrElementType(kind: string): "Software System" | "Container" | "Component" | "Database" | "External System" {
-  if (kind === "capability") return "Software System";
-  if (kind === "module") return "Container";
-  if (kind === "datastore") return "Database";
-  if (kind === "external-system") return "External System";
-  return "Component";
 }

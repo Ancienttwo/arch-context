@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "archcontext.node/v2",
+  "id": "mount.shop.app-code",
+  "kind": "mount",
+  "name": "App code",
+  "status": "active",
+  "summary": "The built application, read-only.",
+  "mount": {
+    "source": "./dist",
+    "target": "/app",
+    "mode": "ro",
+    "order": 0
+  }
+}

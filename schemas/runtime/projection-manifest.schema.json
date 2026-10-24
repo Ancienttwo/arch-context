@@ -266,6 +266,8 @@
             "diagram-mermaid",
             "diagram-structurizr",
             "diagram-likec4",
+            "diagram-runtime-topology",
+            "runtime-topology-summary",
             "agent-context"
           ]
         },
