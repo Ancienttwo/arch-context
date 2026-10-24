@@ -81,9 +81,9 @@ import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationA
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
-import { findRepositoryRoot, listGitVisibleFiles, readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, ignoredRepositoryPaths, listGitVisibleFiles, readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobQueueScope, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
-import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
+import { ARCHITECTURE_MODEL_COMMITTED_PATHS, ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
 import { localEgressStatus } from "./egress";
@@ -1323,11 +1323,14 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     if (!root) return okEnvelope("status", status as unknown as Json);
     const repositoryId = repositoryFingerprint(root);
     const session = this.sessions.get(repositoryId);
+    // Ignored model paths are reported with their deciding rules before the model is lost (#399).
+    const ignoredModelPaths = ignoredRepositoryPaths(root, ARCHITECTURE_MODEL_COMMITTED_PATHS);
     return okEnvelope("status", {
       ...status,
       repositoryId,
       headSha: session?.workspace.headSha ?? readHeadSha(root),
-      worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
+      worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)),
+      ...(ignoredModelPaths.length === 0 ? {} : { architectureModelIgnoredPaths: ignoredModelPaths })
     } as unknown as Json);
     } catch (error) { throw publicOperationFailure(error); }
   }

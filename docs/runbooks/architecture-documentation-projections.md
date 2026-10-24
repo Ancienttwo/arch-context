@@ -98,7 +98,15 @@ A built-in-named call is accepted only when the source file imports the sink fil
 
 A projection manifest and its `modelDigest` are not a backup of the architecture model. If `.archcontext/` is absent, recover the original model from a trusted backup or a checkout that still has it; Git can restore only content that was actually committed. If no original copy exists, the original model cannot be recovered from its digest or generated documentation. Any replacement model is new authoring requiring review, not data recovery. Deleting the committed manifest or applying an empty/reconstructed model is not a supported lossless recovery procedure.
 
-Preserve the manifest and generated documents while investigating. The Git-visible `.archcontext/` model is architecture authority, not disposable agent state. Track its model and required configuration through the repository's review workflow; do not blanket-ignore `/.archcontext/`. Keep operational caches and private runtime state separate. This guidance does not imply that `adopt` or `status` currently detects an ignored model automatically.
+Preserve the manifest and generated documents while investigating. The Git-visible `.archcontext/` model is architecture authority, not disposable agent state. Commit these paths through the repository's review workflow:
+
+- `.archcontext/manifest.yaml` and `.archcontext/product.yaml`
+- `.archcontext/model/nodes/`, `.archcontext/model/relations/` and `.archcontext/model/flows/`
+- `.archcontext/decisions/`, `.archcontext/policies/`, `.archcontext/practices/` and `.archcontext/projections/`
+
+`.archcontext/generated/` is a rebuildable projection. Keep operational caches and private runtime state, such as `.archcontext/.local/`, ignored. Do not blanket-ignore `/.archcontext/`. A directory rule excludes every path below it, and Git cannot re-include a file whose parent directory is excluded. A later `/.archcontext/` line therefore cancels negations such as `!.archcontext/model/`.
+
+archctx asks Git which of these paths the ignore rules exclude (`git check-ignore --no-index`). `archctx status` adds `architectureModelIgnoredPaths` when any path is excluded; each entry names the path and the deciding rule's `source`, `line` and `pattern`. `archctx docs adopt` and `projection run` in `adopt` mode refuse with `AC_PRECONDITION_FAILED`, `reasonCode: "architecture-model-ignored"` and `action: "commit-architecture-model"` before they render. `details.paths` lists the excluded paths, and `details.commands` holds a `git check-ignore --verbose --no-index` command that prints each rule. Remove or narrow the rule, commit the model, then adopt again.
 
 ## Upgrading from archctx 0.7.x
 
