@@ -34,7 +34,7 @@ describe("governance verify workflow", () => {
     const workflow: any = Bun.YAML.parse(WORKFLOW);
     expect(Object.keys(workflow.on).sort()).toEqual(["pull_request", "push", "workflow_dispatch"]);
     expect(workflow.on.push.branches).toEqual(["main"]);
-    expect(workflow.jobs.verify.if).toBe("github.event_name != 'workflow_dispatch'");
+    expect(workflow.jobs.verify.if).toBe("github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'");
     expect(workflow.jobs["governance-verify"].if).toBe("${{ always() }}");
     expect(workflow.jobs["governance-verify"].needs).toEqual(["verify-linux-full"]);
     expect(workflow.jobs["governance-verify"].steps.at(-1).run).toBe("bun run verify:governance --ci-inspect");

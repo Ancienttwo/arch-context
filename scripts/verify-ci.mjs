@@ -12,6 +12,7 @@ export const workerName = (os, node, part) => `Verify execution: ${targetName(os
 export const GOVERNANCE_TARGET = { os: "ubuntu-latest", "node-version": "22.22.x" };
 export const GOVERNANCE_WORKER = workerName(GOVERNANCE_TARGET.os, GOVERNANCE_TARGET["node-version"], "full");
 const CONFIG_PATH = new URL("../.github/verify-sharding.json", import.meta.url);
+const SCOPE_PATH = new URL("../.github/verify-scope.json", import.meta.url);
 
 export function readConfig() {
   const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
@@ -23,6 +24,55 @@ export function readConfig() {
   assert.equal(new Set(config.splitTargets.map(row => targetName(row.os, row["node-version"]))).size, config.splitTargets.length);
   assert(!config.splitTargets.some(row => row.os === GOVERNANCE_TARGET.os && row["node-version"] === GOVERNANCE_TARGET["node-version"]), "shared Governance prerequisite must remain a full worker");
   return config;
+}
+
+/** `**` spans zero or more whole segments, `*` stays inside one segment, everything else is literal. */
+export function globToRegExp(pattern) {
+  assert(typeof pattern === "string" && pattern.length > 0);
+  const escape = text => text.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+  const segments = pattern.split("/");
+  let source = "";
+  segments.forEach((segment, index) => {
+    const last = index === segments.length - 1;
+    if (segment === "**") source += last ? ".*" : "(?:[^/]+/)*";
+    else source += segment.split("*").map(escape).join("[^/]*") + (last ? "" : "/");
+  });
+  return new RegExp(`^${source}$`);
+}
+
+export function readScope() {
+  const scope = JSON.parse(readFileSync(SCOPE_PATH, "utf8"));
+  assert.equal(scope.version, 1);
+  for (const key of ["matrixPaths", "linuxPaths"]) {
+    assert(Array.isArray(scope[key]) && scope[key].length > 0, `${key} must be a non-empty array`);
+    assert(scope[key].every(pattern => typeof pattern === "string" && pattern.length > 0), `${key} must contain non-empty strings`);
+  }
+  return { matrix: scope.matrixPaths.map(globToRegExp), linux: scope.linuxPaths.map(globToRegExp) };
+}
+
+/** Matrix globs win over linux globs; a path matching no linux glob is unclassified and forces the matrix. */
+export function classifyPaths(scope, paths) {
+  const matrixPaths = paths.filter(path => scope.matrix.some(re => re.test(path)) || !scope.linux.some(re => re.test(path)));
+  return { lane: paths.length > 0 && matrixPaths.length === 0 ? "linux" : "matrix", matrixPaths };
+}
+
+/** pull_request checks out the synthetic merge commit; its first parent is the base. */
+export function changedPaths(cwd) {
+  const git = args => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024 });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed (${result.status}): ${result.stderr}`);
+    return result.stdout;
+  };
+  const parents = git(["rev-list", "--parents", "-n", "1", "HEAD"]).trim().split(/\s+/).length - 1;
+  if (parents !== 2) throw new Error(`pull_request checkout must be a merge commit with two parents, found ${parents}`);
+  return git(["diff", "--name-only", "--no-renames", "-z", "HEAD^1", "HEAD"]).split("\0").filter(Boolean);
+}
+
+export function laneTargets(lane) {
+  if (lane === "linux") return [GOVERNANCE_TARGET];
+  if (lane === "matrix") return OS_TARGETS.flatMap(os => NODE_TARGETS.map(node => ({ os, "node-version": node })));
+  throw new Error(`Unknown verify lane: ${lane}`);
 }
 
 export function subject(env = process.env) {
@@ -139,9 +189,9 @@ export function expectedWorkers(config, os, node) {
     : [workerName(os, node, "full")];
 }
 
-export function jobVerdicts(config, run, jobs) {
+export function jobVerdicts(config, run, jobs, targets) {
   const verdicts = {};
-  for (const os of OS_TARGETS) for (const node of NODE_TARGETS) {
+  for (const { os, "node-version": node } of targets) {
     verdicts[targetName(os, node)] = expectedWorkers(config, os, node).every(name => {
       const matches = jobs.filter(job => job.name === name);
       return matches.length === 1 && matches[0].status === "completed" && matches[0].conclusion === "success"
@@ -263,10 +313,19 @@ export async function main(command, env = process.env) {
     return join(env.RUNNER_TEMP, ...parts);
   };
   if (command === "topology") {
+    assert(["pull_request", "push"].includes(env.GITHUB_EVENT_NAME), "topology requires a pull_request or push event");
+    const classification = env.GITHUB_EVENT_NAME === "pull_request" ? classifyPaths(readScope(), changedPaths(process.cwd())) : { lane: "matrix", matrixPaths: [] };
+    const { lane } = classification;
     const split = config.splitTargets;
     const shards = split.flatMap(row => Array.from({ length: row.shards }, (_, index) => ({ ...row, index, shard: index + 1 })));
-    for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shards }, excluded: [...split.map(({ os, "node-version": node }) => ({ os, "node-version": node })), GOVERNANCE_TARGET] })) {
+    for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shards }, excluded: [...split.map(({ os, "node-version": node }) => ({ os, "node-version": node })), GOVERNANCE_TARGET],
+      targets: { include: laneTargets(lane) } })) {
       appendFileSync(env.GITHUB_OUTPUT, `${key}=${JSON.stringify(value)}\n`);
+    }
+    appendFileSync(env.GITHUB_OUTPUT, `lane=${lane}\n`);
+    if (env.GITHUB_STEP_SUMMARY) {
+      const forced = classification.matrixPaths.slice(0, 20).map(path => `- \`${path}\``).join("\n");
+      appendFileSync(env.GITHUB_STEP_SUMMARY, `### Verify lane\n\nLane: \`${lane}\` (${env.GITHUB_EVENT_NAME})\n${forced ? `\nPaths that forced the matrix lane${classification.matrixPaths.length > 20 ? " (first 20)" : ""}:\n\n${forced}\n` : ""}`);
     }
   } else if (command === "plan") {
     const files = discoverTestFiles(process.cwd());
@@ -293,7 +352,7 @@ export async function main(command, env = process.env) {
     jsonWrite(join(evidence, "runner-minutes.json"), { runId: run.id, attempt: run.run_attempt, headSha: run.head_sha, ...metrics });
     if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `### Measured runner time (current attempt)\n\nCompleted jobs: ${metrics.completedMinutes.toFixed(2)} raw runner minutes; per-job rounded model ${metrics.roundedCompletedMinutes}. Completed installs: ${metrics.installJobs}, ${metrics.installMinutes.toFixed(2)} runner minutes. ${metrics.note}\n`);
     if (command === "collect") {
-      const verdicts = jobVerdicts(config, run, jobs);
+      const verdicts = jobVerdicts(config, run, jobs, laneTargets(env.VERIFY_LANE));
       appendFileSync(env.GITHUB_OUTPUT, `verdicts=${JSON.stringify(verdicts)}\n`);
       jsonWrite(join(evidence, "job-verdicts.json"), { runId: run.id, attempt: run.run_attempt, headSha: run.head_sha, verdicts });
     }

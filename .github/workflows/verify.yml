@@ -100,7 +100,8 @@ jobs:
         run: bun run verify:governance --ci-inspect
 
   linux-arm64-descriptor-write:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
+    needs: verify-topology
     name: Linux arm64 descriptor writes
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
@@ -130,8 +131,8 @@ jobs:
           bun test packages/core/changeset-engine/test/changeset-engine.test.ts
 
   verify:
-    # Manual revalidation reruns Governance; PR/main events always retain the matrix.
-    if: github.event_name != 'workflow_dispatch'
+    # Manual revalidation reruns Governance; main pushes and PRs touching non-linux-safe paths run the matrix (.github/verify-scope.json).
+    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
     needs: verify-topology
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / full"
     runs-on: ${{ matrix.os }}
@@ -204,13 +205,17 @@ jobs:
       split: ${{ steps.topology.outputs.split }}
       shards: ${{ steps.topology.outputs.shards }}
       excluded: ${{ steps.topology.outputs.excluded }}
+      lane: ${{ steps.topology.outputs.lane }}
+      targets: ${{ steps.topology.outputs.targets }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
       - id: topology
         run: node scripts/verify-ci.mjs topology
 
   verify-split-pre:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
     needs: verify-topology
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / pre"
     runs-on: ${{ matrix.os }}
@@ -264,7 +269,7 @@ jobs:
           if-no-files-found: error
 
   verify-split-tests:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
     needs: [verify-topology, verify-split-pre]
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / shard ${{ matrix.shard }}"
     runs-on: ${{ matrix.os }}
@@ -313,7 +318,7 @@ jobs:
           if-no-files-found: error
 
   verify-split-post:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
     needs: [verify-topology, verify-split-pre, verify-split-tests]
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / post"
     runs-on: ${{ matrix.os }}
@@ -366,6 +371,7 @@ jobs:
     timeout-minutes: 5
     env:
       GITHUB_TOKEN: ${{ github.token }}
+      VERIFY_LANE: ${{ needs.verify-topology.outputs.lane }}
     outputs:
       verdicts: ${{ steps.collect.outputs.verdicts }}
     steps:
@@ -382,15 +388,13 @@ jobs:
 
   verify-summary:
     if: ${{ always() && github.event_name != 'workflow_dispatch' }}
-    needs: verify-collect
+    needs: [verify-topology, verify-collect]
     name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-15, windows-latest]
-        node-version: [22.22.x, 24.x, 25.x]
+      matrix: ${{ fromJSON(needs.verify-topology.outputs.targets) }}
     env:
       VERIFY_TARGET: ${{ matrix.os }} / Node ${{ matrix.node-version }}
       VERIFY_COLLECT_RESULT: ${{ needs.verify-collect.result }}
