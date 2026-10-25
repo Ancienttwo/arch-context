@@ -29,6 +29,7 @@ import {
   architectureSourceStampsDigest,
   digestJson,
   isRuntimeTopologyNodeKind,
+  isRuntimeTopologyTargetType,
   isSupersededArchitectureDocsProjectionManifestSchemaVersion,
   RUNTIME_TOPOLOGY_NODE_KINDS,
   runtimeTopologyModelIssues,
@@ -72,6 +73,7 @@ import {
   type ProjectionOwnedFile,
   resolveArchitectureDocumentationLayout,
   RUNTIME_TOPOLOGY_DIAGRAM_PATH,
+  RUNTIME_TOPOLOGY_SCOPE_ID,
   type ArchitectureDocumentationLayout,
   type ArchitectureProjectionProfile,
   type ProjectionLayoutTargetDraft
@@ -460,7 +462,8 @@ export function renderArchitectureDocumentationProjection(input: {
   const docsLanguage = input.docsLanguage === undefined ? undefined : assertArchitectureDocsLanguage(input.docsLanguage);
   const targetDrafts = architectureDocumentationTargetDrafts(model, layout, docsLanguage);
   // Every declared footprint is stamped on the entity-summary target of its nearest
-  // ancestor-or-self that has one; a footprint no target documents is refused, never dropped.
+  // ancestor-or-self that has one, or on both topology targets for a topology node; a footprint no
+  // target documents is refused, never dropped.
   const footprintOwners = architectureProjectionFootprintOwners(model, layout.profile);
   const footprintDigestByNodeId = new Map(input.sourceFootprints.map((entry) => [entry.nodeId, entry.digest]));
   const sourceStamps: Record<string, string> = {};
@@ -474,6 +477,7 @@ export function renderArchitectureDocumentationProjection(input: {
   const rendered = targetDrafts.map((draft) => {
     const existing = existingByPath.get(draft.path);
     const nodeId = draft.type === "entity-summary" ? draft.scope.id : undefined;
+    const topology = isRuntimeTopologyTargetType(draft.type);
     // Rendering the body up front also keeps the fail-closed error paths in front of the stamp
     // — a node that declares `source.include` with no measured scale signal throws
     // `architecture-docs-projection-scale-signal-missing` here.
@@ -502,6 +506,11 @@ export function renderArchitectureDocumentationProjection(input: {
         scale = scaleByNodeId.get(nodeId);
         if (scale === undefined) throw new Error(`architecture-docs-projection-scale-signal-missing: ${nodeId}`);
       }
+    } else if (topology) {
+      // The topology is model-authored: these stamps record only which configuration files it was
+      // last checked against, so a change to one of them reports both topology targets stale.
+      const owned = Object.keys(sourceStamps).filter((stamped) => footprintOwners.get(stamped) === RUNTIME_TOPOLOGY_SCOPE_ID);
+      if (owned.length > 0) targetStamps = Object.fromEntries(owned.map((stamped) => [stamped, sourceStamps[stamped]!]));
     }
     const generatedBodyDigest = digestJson({ targetId: draft.targetId, body: generatedBody } as unknown as Json);
     const target = projectionTarget({
@@ -887,7 +896,7 @@ export class ProjectionManifestUpgradeRequiredError extends ProjectionPreconditi
   }
 }
 
-/** Declared source footprints that no entity-summary target documents, so no stamp can record them. */
+/** Declared source footprints that no stamping target documents, so no stamp can record them. */
 export class ProjectionFootprintUncoveredError extends ProjectionPreconditionError {
   readonly reasonCode = PROJECTION_FOOTPRINT_UNCOVERED;
   constructor(readonly nodeIds: string[], profile: ArchitectureProjectionProfile) {
@@ -958,10 +967,13 @@ export function assertArchitectureDocsProjectionManifestAccepted(body: string): 
 }
 
 /**
- * The entity-summary target node that documents each declared source footprint under `profile`:
- * the nearest ancestor-or-self of the declaring node that has an entity-summary target. Keys are
- * every node that declares `source.include`. A declared footprint with no such node throws
- * `ProjectionFootprintUncoveredError`, naming every uncovered node.
+ * The scope id of the targets that document each declared source footprint under `profile`. Keys
+ * are every node that declares `source.include`. A runtime topology node's footprint (its
+ * configuration files, ADR-0049) belongs to both topology targets, `RUNTIME_TOPOLOGY_SCOPE_ID`,
+ * which the layout adds whenever such a node exists. Any other footprint belongs to the nearest
+ * ancestor-or-self of the declaring node that has an entity-summary target, by node id. A declared
+ * footprint with no such node throws `ProjectionFootprintUncoveredError`, naming every uncovered
+ * node.
  */
 export function architectureProjectionFootprintOwners(model: NativeModel, profile: ArchitectureProjectionProfile = "default"): Map<string, string> {
   const targetNodeIds = new Set(entitySummaryTargetNodes(model.nodes, profile).map((node) => node.id));
@@ -970,6 +982,10 @@ export function architectureProjectionFootprintOwners(model: NativeModel, profil
   const uncovered: string[] = [];
   for (const node of [...model.nodes].sort((left, right) => compareStrings(left.id, right.id))) {
     if ((nativeNodeSource(node)?.include ?? []).length === 0) continue;
+    if (isRuntimeTopologyNodeKind(node.kind)) {
+      owners.set(node.id, RUNTIME_TOPOLOGY_SCOPE_ID);
+      continue;
+    }
     const seen = new Set<string>();
     let current: NativeNode | undefined = node;
     while (current && !targetNodeIds.has(current.id) && !seen.has(current.id)) {
@@ -1405,7 +1421,8 @@ export function digestCapabilitySourceFootprints(root: string, model: NativeMode
 /**
  * The nodes the projection stamps with a source footprint under `profile`: every node that declares
  * `source.include`. Each stamp sits on the manifest row of the node's nearest ancestor-or-self
- * with an entity-summary target (`architectureProjectionFootprintOwners`); a declared footprint no
+ * with an entity-summary target, or on both topology rows for a runtime topology node
+ * (`architectureProjectionFootprintOwners`); a declared footprint no
  * target documents throws `projection-footprint-uncovered`. The renderer writes a stamp for exactly
  * these nodes, and the freshness check probes exactly these nodes.
  */
@@ -2024,8 +2041,9 @@ export function exportRuntimeTopologyMermaid(model: NativeModel): ModelExportRes
 
 /**
  * The runtime topology summary page (ADR-0049): namespaces with their type, the processes in each,
- * every mount stack in order, and the `spawns` and `deployed-on` links. It links the diagram the
- * way the architecture index links the other diagrams.
+ * every mount stack in order, the `spawns` and `deployed-on` links, and each topology node's source
+ * anchors (the `source.include` patterns whose files mark the topology targets stale). It links the
+ * diagram the way the architecture index links the other diagrams.
  */
 export function renderRuntimeTopologySummary(model: NativeModel, summaryPath: string): string {
   const view = runtimeTopologyView(model);
@@ -2038,7 +2056,7 @@ export function renderRuntimeTopologySummary(model: NativeModel, summaryPath: st
   const lines = [
     "# Runtime Topology",
     "",
-    "The architecture model declares this topology. No code facts verify it.",
+    "The architecture model declares this topology. No code facts verify it: archctx never reads the configuration it describes. A change to a file a node lists in `source.include` marks this page and its diagram stale.",
     "",
     `- Diagram: [Mermaid](${posix.relative(posix.dirname(summaryPath), RUNTIME_TOPOLOGY_DIAGRAM_PATH)})`,
     "",
@@ -2082,6 +2100,11 @@ export function renderRuntimeTopologySummary(model: NativeModel, summaryPath: st
   if (otherDeployments.length > 0) {
     lines.push("", "## Other Deployments", "");
     for (const relation of otherDeployments) lines.push(`- \`${relation.source}\` -> \`${relation.target}\` — ${relation.intent}`);
+  }
+  lines.push("", "## Source Anchors", "", "| Node | Source |", "| --- | --- |");
+  for (const node of [...view.nodesById.values()].filter((entry) => isRuntimeTopologyNodeKind(entry.kind)).sort((left, right) => compareStrings(left.id, right.id))) {
+    const include = nativeNodeSource(node)?.include ?? [];
+    lines.push(`| ${named(node.id)} | ${include.length === 0 ? "model-authored, no source anchor" : include.map((pattern) => `\`${cell(pattern)}\``).join(", ")} |`);
   }
   return `${lines.join("\n")}\n`;
 }

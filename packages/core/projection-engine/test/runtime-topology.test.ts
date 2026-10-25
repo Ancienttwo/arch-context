@@ -7,6 +7,7 @@ import {
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   architectureDocumentationProjectionProvenance,
   architectureProjectionFootprintOwners,
+  architectureProjectionStampedNodeIds,
   exportDocumentationLikeC4Model,
   exportDocumentationStructurizrWorkspace,
   exportRuntimeTopologyMermaid,
@@ -92,7 +93,7 @@ const MOUNT_HEADER = ["| Order | Mount | Source | Target | Mode |", "| --- | ---
 const EXPECTED_SUMMARY = [
   "# Runtime Topology",
   "",
-  "The architecture model declares this topology. No code facts verify it.",
+  "The architecture model declares this topology. No code facts verify it: archctx never reads the configuration it describes. A change to a file a node lists in `source.include` marks this page and its diagram stale.",
   "",
   "- Diagram: [Mermaid](diagrams/runtime-topology.mmd)",
   "",
@@ -130,6 +131,24 @@ const EXPECTED_SUMMARY = [
   "",
   ...MOUNT_HEADER,
   "| 0 | `mount.shop.tmp` Scratch | none | `/tmp` | rw |",
+  "",
+  "## Source Anchors",
+  "",
+  "| Node | Source |",
+  "| --- | --- |",
+  ...[
+    "`mount.shop.app-cache` App cache",
+    "`mount.shop.app-code` App code",
+    "`mount.shop.app-data` App data",
+    "`mount.shop.config` Shop config",
+    "`mount.shop.tmp` Scratch",
+    "`namespace.shop.api-container` API container",
+    "`namespace.shop.host` Host",
+    "`namespace.shop.pod` Shop pod",
+    "`process.shop.api-server` API server",
+    "`process.shop.cron` Cron",
+    "`process.shop.worker` Worker"
+  ].map((node) => `| ${node} | model-authored, no source anchor |`),
   ""
 ].join("\n");
 
@@ -164,7 +183,7 @@ describe("runtime topology view (ADR-0049)", () => {
     expect(second.manifest.body).toBe(first.manifest.body);
   });
 
-  test("the projection adds both whole-model topology targets with no source stamps", () => {
+  test("a topology model without source.include adds both whole-model targets with no source stamps", () => {
     const plan = render(topology());
     const diagram = plan.files.find((file) => file.target.type === "diagram-runtime-topology")!;
     const summary = plan.files.find((file) => file.target.type === "runtime-topology-summary")!;
@@ -176,8 +195,8 @@ describe("runtime topology view (ADR-0049)", () => {
       expect(file.target.ownership).toBe("generated");
       expect(file.target.scope).toEqual({ kind: "diagram", id: "runtime-topology" });
       expect(file.sourceStamps).toBeUndefined();
-      // Phase 1 topology is model-authored: a whole-model row carries no stamp, so freshness never
-      // reports these targets as verified by code facts.
+      // With no source.include the topology is model-authored with no source anchor: the rows carry
+      // no stamp, so freshness never reports these targets as verified by anything.
       const row = plan.renderedTargets[file.target.targetId]!;
       expect(row.sourceStamps).toBeUndefined();
       expect(row.scale).toBeUndefined();
@@ -243,27 +262,63 @@ describe("runtime topology view (ADR-0049)", () => {
     expect(exportDocumentationLikeC4Model(withoutTopology).files[0]!.content).toContain("  element external_system\n}");
   });
 
-  test("phase 1: a topology node's source.include is stamped on its nearest documented ancestor", () => {
-    // Recorded so phase 2 (config freshness through `source.include`) owns the change: topology
-    // nodes have no entity summary, so the parent-chain walk attributes their footprint to the
-    // nearest ancestor that has one, and refuses a footprint with no such ancestor.
+  test("a topology node's source.include is stamped on both topology rows, never on an ancestor", () => {
     const model = topology();
-    const declare = (parent: string | undefined): NativeModel => ({
+    const anchored = (nodes: Record<string, { parent?: string; include: string[] }>): NativeModel => ({
       ...model,
-      nodes: model.nodes.map((node) => node.id === "process.shop.cron"
-        ? { ...node, ...(parent === undefined ? {} : { parent }), source: { include: ["compose.yaml"] } }
-        : node)
+      nodes: model.nodes.map((node) => {
+        const declared = nodes[node.id];
+        return declared === undefined ? node : { ...node, ...(declared.parent === undefined ? {} : { parent: declared.parent }), source: { include: declared.include } };
+      })
     });
-    expect([...architectureProjectionFootprintOwners(declare("capability.shop")).entries()]).toEqual([["process.shop.cron", "capability.shop"]]);
-    expect(() => architectureProjectionFootprintOwners(declare(undefined))).toThrow();
+    // A namespace's parent chain holds only namespaces and a process may have no parent at all:
+    // both used to fail with projection-footprint-uncovered. A process under a capability is not
+    // attributed to the capability either.
+    const declared = anchored({
+      "namespace.shop.pod": { include: ["k8s/*.yaml"] },
+      "process.shop.cron": { include: ["compose.yaml"] },
+      "process.shop.worker": { parent: "capability.shop", include: ["compose.yaml"] }
+    });
+    expect([...architectureProjectionFootprintOwners(declared).entries()]).toEqual([
+      ["namespace.shop.pod", "runtime-topology"],
+      ["process.shop.cron", "runtime-topology"],
+      ["process.shop.worker", "runtime-topology"]
+    ]);
+    expect(architectureProjectionStampedNodeIds(declared)).toEqual(["namespace.shop.pod", "process.shop.cron", "process.shop.worker"]);
 
-    // A namespace's parent chain holds only namespaces, so no ancestor has an entity summary and
-    // the footprint is always refused until phase 2 gives topology targets their own stamps.
-    const declareNamespace = (id: string): NativeModel => ({
-      ...model,
-      nodes: model.nodes.map((node) => node.id === id ? { ...node, source: { include: ["k8s/*.yaml"] } } : node)
+    const footprint = (digit: string) => `sha256:${digit.repeat(64)}`;
+    const renderStamped = (cronDigest: string) => renderArchitectureDocumentationProjection({
+      model: declared,
+      provenance,
+      sourceDigest,
+      sourceFootprints: [
+        { nodeId: "namespace.shop.pod", fileCount: 2, digest: footprint("a") },
+        { nodeId: "process.shop.cron", fileCount: 1, digest: cronDigest },
+        { nodeId: "process.shop.worker", fileCount: 1, digest: cronDigest }
+      ],
+      sourceScaleSignals: [],
+      importGraphs: [],
+      selectorEvidence: []
     });
-    expect(() => architectureProjectionFootprintOwners(declareNamespace("namespace.shop.host"))).toThrow("projection-footprint-uncovered");
-    expect(() => architectureProjectionFootprintOwners(declareNamespace("namespace.shop.pod"))).toThrow("projection-footprint-uncovered");
+    const plan = renderStamped(footprint("b"));
+    const stamps = { "namespace.shop.pod": footprint("a"), "process.shop.cron": footprint("b"), "process.shop.worker": footprint("b") };
+    for (const type of ["diagram-runtime-topology", "runtime-topology-summary"]) {
+      const file = plan.files.find((entry) => entry.target.type === type)!;
+      expect(file.sourceStamps).toEqual(stamps);
+      expect(plan.renderedTargets[file.target.targetId]!.sourceStamps).toEqual(stamps);
+      expect(plan.renderedTargets[file.target.targetId]!.scale).toBeUndefined();
+    }
+    for (const target of plan.targets.filter((entry) => entry.type === "entity-summary")) {
+      expect(plan.renderedTargets[target.targetId]!.sourceStamps).toBeUndefined();
+    }
+    const summary = plan.files.find((file) => file.target.type === "runtime-topology-summary")!.body;
+    expect(summary).toContain("| `namespace.shop.pod` Shop pod | `k8s/*.yaml` |");
+    expect(summary).toContain("| `process.shop.cron` Cron | `compose.yaml` |");
+    expect(summary).toContain("| `process.shop.api-server` API server | model-authored, no source anchor |");
+
+    // A moved configuration file changes the stamp only: the rendered bytes stay the same.
+    const moved = renderStamped(footprint("c"));
+    expect(moved.files.map(({ path, body }) => ({ path, body }))).toEqual(plan.files.map(({ path, body }) => ({ path, body })));
+    expect(moved.manifest.body).not.toBe(plan.manifest.body);
   });
 });

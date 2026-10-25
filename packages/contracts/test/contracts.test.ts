@@ -64,6 +64,7 @@ import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, typ
 import {
   architectureDocsProjectionManifestDigests,
   architectureDocsProjectionManifestIssues,
+  architectureDocsProjectionManifestSourceStamps,
   architectureDocsProjectionManifestProofEvidence,
   architectureDocsProjectionManifestSchemaVersion,
   architectureDocsProjectionManifestSemanticState,
@@ -472,6 +473,42 @@ test("refresh signals carry a per-capability change breakdown (#264)", () => {
   const neither = [{ ...capabilities[1]!, proofStatusAfter: null }];
   expect(architectureRefreshSignalInvariantIssues({ ...signal, capabilities: neither })).toContain("signal.capabilities[0] must exist before or after the change");
   expect(validateJsonSchema(schema as any, { ...signal, capabilities: [{ ...capabilities[0]!, proofStatusAfter: { p1: "maybe", p2: "proven" } }] } as any).valid).toBe(false);
+});
+
+test("runtime topology rows carry one identical stamp set, never a scale (ADR-0049)", () => {
+  const schema = readJson("schemas/runtime/projection-manifest.schema.json");
+  const manifest = JSON.parse(readFileSync(join(root, "packages/contracts/fixtures/valid/projection-manifest.json"), "utf8")) as any;
+  const entityId = "projection_target.entity.capability-example-billing";
+  const stamp = `sha256:${"6".repeat(64)}`;
+  const topologyRow = (type: string, path: string, format: string, sourceStamps?: Record<string, string>) => ({
+    type, scope: { kind: "diagram", id: "runtime-topology" }, path, ownership: "generated", format, outputDigest: `sha256:${"5".repeat(64)}`,
+    ...(sourceStamps === undefined ? {} : { sourceStamps })
+  });
+  const withTopology = (diagram?: Record<string, string>, summary?: Record<string, string>, extra: Record<string, unknown> = {}) => ({
+    ...manifest,
+    targets: {
+      ...manifest.targets,
+      "projection_target.diagram.runtime-topology": { ...topologyRow("diagram-runtime-topology", "docs/architecture/diagrams/runtime-topology.mmd", "mermaid", diagram), ...extra },
+      "projection_target.runtime-topology.summary": topologyRow("runtime-topology-summary", "docs/architecture/runtime-topology.md", "markdown", summary)
+    }
+  });
+  const both = withTopology({ "process.shop.cron": stamp }, { "process.shop.cron": stamp });
+  expect(architectureDocsProjectionManifestIssues(both)).toEqual([]);
+  expect(validateJsonSchema(schema as any, both).issues).toEqual([]);
+  expect(architectureDocsProjectionManifestSourceStamps(both)["process.shop.cron"]).toBe(stamp);
+  expect(architectureDocsProjectionManifestIssues(withTopology())).toEqual([]);
+
+  expect(architectureDocsProjectionManifestIssues(withTopology({ "process.shop.cron": stamp }, undefined)))
+    .toContain("manifest.targets[\"projection_target.runtime-topology.summary\"].sourceStamps must equal the sourceStamps of projection_target.diagram.runtime-topology");
+  expect(architectureDocsProjectionManifestIssues(withTopology({ "process.shop.cron": stamp }, { "process.shop.cron": `sha256:${"7".repeat(64)}` })))
+    .toContain("manifest.targets[\"projection_target.runtime-topology.summary\"].sourceStamps must equal the sourceStamps of projection_target.diagram.runtime-topology");
+  // A node is stamped on entity-summary rows or on topology rows, never on both.
+  const billing = manifest.targets[entityId].sourceStamps["capability.example.billing"];
+  expect(architectureDocsProjectionManifestIssues(withTopology({ "capability.example.billing": billing }, { "capability.example.billing": billing })))
+    .toContain(`manifest.targets["projection_target.diagram.runtime-topology"].sourceStamps.capability.example.billing is already stamped on ${entityId}`);
+  const scaled = withTopology({ "process.shop.cron": stamp }, { "process.shop.cron": stamp }, { scale: manifest.targets[entityId].scale });
+  expect(architectureDocsProjectionManifestIssues(scaled)).toContain("manifest.targets[\"projection_target.diagram.runtime-topology\"].scale is only allowed on entity-summary targets");
+  expect(validateJsonSchema(schema as any, JSON.parse(JSON.stringify(scaled))).valid).toBe(false);
 });
 
 test("the projection manifest contract matches the schema and the writer's current format (#264, #327)", () => {

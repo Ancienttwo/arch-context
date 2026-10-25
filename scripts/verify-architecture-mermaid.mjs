@@ -70,30 +70,51 @@ function githubActionsPuppeteerConfig(temporaryRoot) {
 }
 
 export function collectMermaidSources(directory) {
+  return collectMermaidBlocks(directory, root).map(({ file, block, body }) => ({ path: file, block, body }));
+}
+
+/**
+ * Every Mermaid block under `directory`, with `file` relative to `base`: a whole `.mmd` file (line
+ * 1, no heading), or each Mermaid fence of a `.md` file with the line of its first source line and
+ * the nearest heading above it.
+ */
+export function collectMermaidBlocks(directory, base) {
   const result = [];
   for (const path of walk(directory)) {
-    const relativePath = relative(root, path).replaceAll("\\", "/");
+    const file = relative(base, path).replaceAll("\\", "/");
     if (path.endsWith(".mmd")) {
-      result.push({ path: relativePath, block: 1, body: readFileSync(path, "utf8") });
+      result.push({ file, block: 1, line: 1, heading: null, body: readFileSync(path, "utf8") });
       continue;
     }
     if (!path.endsWith(".md")) continue;
-    for (const [index, body] of extractMermaidFences(readFileSync(path, "utf8")).entries()) {
-      result.push({ path: relativePath, block: index + 1, body });
+    for (const [index, block] of extractMermaidBlocks(readFileSync(path, "utf8")).entries()) {
+      result.push({ file, block: index + 1, ...block });
     }
   }
-  return result.sort((left, right) => left.path.localeCompare(right.path) || left.block - right.block);
+  return result.sort((left, right) => left.file.localeCompare(right.file) || left.block - right.block);
+}
+
+export function extractMermaidFences(markdown) {
+  return extractMermaidBlocks(markdown).map((block) => block.body);
 }
 
 /**
  * Reads Markdown fences without treating a nested mermaid-looking block inside another
  * code fence as architecture source. Both backtick and tilde fences, arbitrary fence
  * lengths, and list indentation are supported. The info token must be exactly mermaid.
+ * Each block carries the 1-based line of its first source line and the text of the nearest
+ * ATX heading above it outside any fence (null when there is none).
  */
-export function extractMermaidFences(markdown) {
+export function extractMermaidBlocks(markdown) {
   const lines = markdown.split(/\r?\n/);
-  const bodies = [];
+  const blocks = [];
+  let heading = null;
   for (let index = 0; index < lines.length; index += 1) {
+    const atx = lines[index].match(/^ {0,3}#{1,6}(?:\s+(.*?))?(?:\s+#+)?\s*$/);
+    if (atx) {
+      heading = atx[1] ?? "";
+      continue;
+    }
     const opening = lines[index].match(/^\s*(`{3,}|~{3,})(.*)$/);
     if (!opening) continue;
     const marker = opening[1];
@@ -101,6 +122,7 @@ export function extractMermaidFences(markdown) {
     const infoToken = info.split(/\s+/, 1)[0] ?? "";
     const isMermaid = infoToken === "mermaid";
     const closing = new RegExp(`^\\s*${escapeRegExp(marker[0])}{${marker.length},}\\s*$`);
+    const line = index + 2;
     const body = [];
     let closed = false;
     for (index += 1; index < lines.length; index += 1) {
@@ -111,9 +133,9 @@ export function extractMermaidFences(markdown) {
       if (isMermaid) body.push(lines[index]);
     }
     if (isMermaid && !closed) throw new Error("unclosed Mermaid fence in architecture Markdown");
-    if (isMermaid) bodies.push(body.join("\n"));
+    if (isMermaid) blocks.push({ body: body.join("\n"), line, heading });
   }
-  return bodies;
+  return blocks;
 }
 
 function resolveMmdcInvocation(installed) {

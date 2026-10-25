@@ -89,6 +89,7 @@
     "readback:fg6:rollback-compat": "bun scripts/fg6-rollback-compat-readback.ts run --out docs/verification/fg6-rollback-compat-readback.json --json",
     "readback:fg6:npm-release-dry-run": "bun scripts/fg6-npm-release-dry-run.ts run --out docs/verification/fg6-npm-release-dry-run.json --json",
     "verify:architecture-mermaid": "node scripts/verify-architecture-mermaid.mjs",
+    "check:architecture-mermaid": "node scripts/check-architecture-mermaid.mjs",
     "verify:axr3-semantic-pilot": "bun scripts/architecture-projection-axr3-semantic-pilot-readback.ts",
     "readback:fg6:local-product-tarball": "node scripts/local-product-tarball-smoke.mjs --out docs/verification/fg6-local-product-tarball-smoke.json",
     "readback:fg6:release-distribution": "bun scripts/fg6-release-distribution-readback.ts run --out docs/verification/fg6-release-distribution-readback.json --json",
@@ -156,7 +157,7 @@
     "readback:de4:data-engine": "bun scripts/data-engine-de4-readback.ts inspect --out docs/verification/data-engine-de4-readback.json",
     "record:de5:data-engine": "bun scripts/data-engine-de5-readback.ts run --out docs/verification/data-engine-de5-readback.json --report docs/verification/data-engine-de5-readback.md",
     "readback:de5:data-engine": "bun scripts/data-engine-de5-readback.ts inspect --out docs/verification/data-engine-de5-readback.json",
-    "verify": "bun scripts/check-bun-version.mjs && bun run typecheck && node scripts/package-boundary-audit.mjs && node scripts/production-mock-reachability-audit.mjs && bun run verify:architecture-mermaid && bun run verify:practices && bun run test:codegraph-selector-node && bun test --timeout 60000 && bun run verify:explorer && node scripts/packaged-cli-smoke.mjs && node scripts/privacy-route-audit.mjs && bun run verify:github-api-contract && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && bun run readback:s3:hook-egress && bun run readback:s5:context7 && node scripts/security-scan-manifest.mjs readback && node scripts/verify-acceptance-ledger.mjs && node scripts/verify-practice-assets-acceptance-ledger.mjs && node scripts/sprint-status-check.mjs && bun evals/run.ts --check",
+    "verify": "bun scripts/check-bun-version.mjs && bun run typecheck && node scripts/package-boundary-audit.mjs && node scripts/production-mock-reachability-audit.mjs && bun run verify:architecture-mermaid && bun run check:architecture-mermaid && bun run verify:practices && bun run test:codegraph-selector-node && bun test --timeout 60000 && bun run verify:explorer && node scripts/packaged-cli-smoke.mjs && node scripts/privacy-route-audit.mjs && bun run verify:github-api-contract && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && bun run readback:s3:hook-egress && bun run readback:s5:context7 && node scripts/security-scan-manifest.mjs readback && node scripts/verify-acceptance-ledger.mjs && node scripts/verify-practice-assets-acceptance-ledger.mjs && node scripts/sprint-status-check.mjs && bun evals/run.ts --check",
     "verify:governance": "node scripts/verify-governance.mjs",
     "verify:acceptance-ledger": "node scripts/verify-acceptance-ledger.mjs",
     "verify:github-api-contract": "bun run verify:privacy-contract",
@@ -171,7 +172,7 @@
     "check:task-sync": "repo-harness run check-task-sync",
     "check:task-workflow": "repo-harness run check-task-workflow --strict",
     "sync:brain-docs": "repo-harness run sync-brain-docs --all",
-    "verify:pre": "bun scripts/check-bun-version.mjs && bun run typecheck && node scripts/package-boundary-audit.mjs && node scripts/production-mock-reachability-audit.mjs && bun run verify:architecture-mermaid && bun run verify:practices && bun run test:codegraph-selector-node",
+    "verify:pre": "bun scripts/check-bun-version.mjs && bun run typecheck && node scripts/package-boundary-audit.mjs && node scripts/production-mock-reachability-audit.mjs && bun run verify:architecture-mermaid && bun run check:architecture-mermaid && bun run verify:practices && bun run test:codegraph-selector-node",
     "verify:post": "bun run verify:explorer && node scripts/packaged-cli-smoke.mjs && node scripts/privacy-route-audit.mjs && bun run verify:github-api-contract && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && bun run readback:s3:hook-egress && bun run readback:s5:context7 && node scripts/security-scan-manifest.mjs readback && node scripts/verify-acceptance-ledger.mjs && node scripts/verify-practice-assets-acceptance-ledger.mjs && node scripts/sprint-status-check.mjs && bun evals/run.ts --check",
     "verify:node-compat": "bun run test:codegraph-selector-node && node scripts/packaged-cli-smoke.mjs && bun test --timeout 60000 packages/surfaces/cli/test/bundle-entry.test.ts packages/surfaces/mcp-local/test/mcp-wire.test.ts tests/ownership-change-acceptance-recovery.test.ts deploy/scripts/fg2-staging-secrets.test.ts packages/contracts/test/publishability.test.ts",
     "verify:ci": "node scripts/verify-ci.mjs"
@@ -181,6 +182,8 @@
     "@modelcontextprotocol/sdk": "1.30.1",
     "@types/node": "^26.0.0",
     "bun-types": "1.4.3",
+    "linkedom": "0.18.13",
+    "mermaid": "11.16.1",
     "typescript": "^7.0.2"
   }
 }

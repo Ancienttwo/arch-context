@@ -70,7 +70,7 @@ New kinds, not a `deployment` subkind. New kinds allow per-kind schema rules (fo
   depends on a default: a stack renders by `order`, then by id. Nothing is inferred for an
   absent mode or order; the schema rejects the node.
 
-Topology nodes may declare `source.include`. Phase 1 does not read it for topology (see 6).
+Topology nodes may declare `source.include`: the configuration files they describe (see 6).
 
 ### 3. Topology relations `spawns`, `runs-in` and `mounts`
 
@@ -121,24 +121,50 @@ every committed output.
 
 The topology summary page covers them.
 
-### 6. Topology targets are whole-model and carry no source stamps
+### 6. Topology freshness comes from the nodes' `source.include` (phase 2)
 
-Phase 1 topology is model-authored. Freshness must not report these targets as verified by code
-facts. The manifest contract already allows `sourceStamps` only on entity-summary rows, so a
-topology row never carries one, and the freshness check probes stamped nodes, never whole-model
-targets.
+The topology is model-authored. An agent reads compose, Kubernetes or other configuration and
+writes the topology into the model through a normal ChangeSet; archctx validates and renders it.
+archctx never parses that configuration and never infers topology from it.
 
-Phase 2 keeps topology fresh through the existing `source.include` field. Topology nodes list the
-configuration files they describe (for example `compose.yaml` or `k8s/*.yaml`); a change to one of
-them marks the topology targets stale (`source-stamp-changed`), and an agent re-reads the
-configuration and updates the model through a ChangeSet. archctx never infers topology from
-configuration. A topology node with no `source.include` stays model-authored, with no source
-anchor.
+Topology nodes list the configuration files they describe in `source.include` (for example
+`compose.yaml` or `k8s/*.yaml`). Source footprints already cover such files: a footprint selects
+from the Git-visible file list (`git ls-files`), not from what CodeGraph indexes, and digests the
+bytes of every selected file.
 
-Until phase 2, a topology node's `source.include` is attributed to its nearest ancestor with an
-entity-summary target. A namespace's parent chain contains only namespaces, so a namespace with
-`source.include` always fails the docs projection with `projection-footprint-uncovered` until
-phase 2 gives topology targets their own source stamps.
+- A topology node's footprint is stamped on both topology rows (`diagram-runtime-topology` and
+  `runtime-topology-summary`), never on an ancestor's entity-summary row. A namespace's parent
+  chain holds only namespaces and a process may have no documented ancestor, so the ancestor walk
+  could not place these footprints (`projection-footprint-uncovered` in phase 1).
+- The manifest contract allows `sourceStamps` on the topology rows, never `scale`. Both topology
+  rows carry one identical stamp set, and a node is stamped on topology rows or on one
+  entity-summary row, never both.
+- A change to one of those files changes the stamp, so `projection check` classifies both topology
+  targets with `source-stamp-changed`, and `projection freshness` reports the node stale. The
+  rendered bytes do not change; re-projecting re-stamps the rows after the agent has updated the
+  model.
+- The summary page lists every topology node's source anchors. A topology node with no
+  `source.include` is shown as model-authored with no source anchor; nothing is stamped for it.
+
+### 7. Mermaid check tool
+
+`scripts/check-architecture-mermaid.mjs` (`bun run check:architecture-mermaid`, part of `verify`
+and `verify:pre`) checks every Mermaid block under `docs/architecture/`: generated `.mmd` files and
+the Mermaid fences of every Markdown file, generated regions and human-authored text alike.
+
+- Syntax check (CI): it runs `mermaid.parse` in Node on each block and prints JSON with `file`,
+  `line`, `heading`, `ok` and `error` per block. Any parse error makes it exit non-zero. Mermaid
+  needs a `window` only for its DOMPurify hooks, so a linkedom window is the DOM shim; no browser
+  starts.
+- Render check (agent): `--render-page [<dir>]` also writes `index.html` with every block embedded
+  and a copy of `mermaid.min.js` beside it, so the page works offline. Opened in an agent's own
+  browser, it runs `mermaid.parse` and `mermaid.render` per block and publishes one result per
+  block (ok or error, SVG width and height) in `window.__results`. The page is temporary output and
+  is never committed.
+
+`mermaid` is a devDependency pinned to one exact version, which the script checks. The release
+package still declares no Mermaid or browser runtime, and the tool adds no Chromium, Playwright or
+mermaid-cli.
 
 ## Invariants
 
@@ -152,7 +178,8 @@ phase 2 gives topology targets their own source stamps.
 
 - No explicit layer stack order. Layers sort by name.
 - No live process discovery (`ps`, `/proc`, container runtime APIs).
-- No configuration parser. archctx does not read compose or Kubernetes manifests in any phase.
+- No configuration parser. archctx does not read compose or Kubernetes manifests in any phase. A
+  configuration file is only a source anchor whose bytes are digested.
 - No cross-repository landscape views.
 
 ## Consequences

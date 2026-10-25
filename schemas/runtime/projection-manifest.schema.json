@@ -332,7 +332,7 @@
         },
         "sourceStamps": {
           "type": "object",
-          "description": "entity-summary targets only: the content digest of every declared source footprint this target documents, by node id. Each footprint belongs to its node's nearest ancestor-or-self with an entity-summary target, so each node is stamped on exactly one row.",
+          "description": "entity-summary and runtime topology targets only: the content digest of every declared source footprint this target documents, by node id. A footprint belongs to its node's nearest ancestor-or-self with an entity-summary target, so it is stamped on exactly one entity-summary row; a runtime topology node's footprint is stamped on every runtime topology row instead, and those rows carry identical stamps (ADR-0049).",
           "additionalProperties": {
             "$ref": "#/$defs/digest"
           }
@@ -360,6 +360,28 @@
             "properties": {
               "type": {
                 "not": {
+                  "enum": [
+                    "entity-summary",
+                    "diagram-runtime-topology",
+                    "runtime-topology-summary"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "sourceStamps"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "not": {
                   "const": "entity-summary"
                 }
               }
@@ -367,17 +389,8 @@
           },
           "then": {
             "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "sourceStamps"
-                  ]
-                },
-                {
-                  "required": [
-                    "scale"
-                  ]
-                }
+              "required": [
+                "scale"
               ]
             }
           }
