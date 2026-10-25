@@ -1,16 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { laneTargets } from "./verify-ci.mjs";
 
 const WORKFLOW = readFileSync(".github/workflows/verify.yml", "utf8");
 const READBACK_SCRIPT = readFileSync("scripts/platform-ipc-permission-readback.mjs", "utf8");
 
 describe("platform IPC permission workflow", () => {
   test("runs verify and uploads IPC permission readback for all supported OS targets", () => {
+    expect(WORKFLOW).toContain("matrix: ${{ fromJSON(needs.verify-topology.outputs.targets) }}");
+    const targets = laneTargets("matrix");
     for (const os of ["ubuntu-latest", "macos-15", "windows-latest"]) {
-      expect(WORKFLOW).toContain(os);
+      expect(targets.some(target => target.os === os)).toBe(true);
     }
     for (const nodeVersion of ["22.22.x", "24.x", "25.x"]) {
-      expect(WORKFLOW).toContain(nodeVersion);
+      expect(targets.some(target => target["node-version"] === nodeVersion)).toBe(true);
     }
 
     expect(WORKFLOW).toContain("bun run verify");

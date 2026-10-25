@@ -173,6 +173,7 @@
     "sync:brain-docs": "repo-harness run sync-brain-docs --all",
     "verify:pre": "bun scripts/check-bun-version.mjs && bun run typecheck && node scripts/package-boundary-audit.mjs && node scripts/production-mock-reachability-audit.mjs && bun run verify:architecture-mermaid && bun run verify:practices && bun run test:codegraph-selector-node",
     "verify:post": "bun run verify:explorer && node scripts/packaged-cli-smoke.mjs && node scripts/privacy-route-audit.mjs && bun run verify:github-api-contract && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && bun run readback:s3:hook-egress && bun run readback:s5:context7 && node scripts/security-scan-manifest.mjs readback && node scripts/verify-acceptance-ledger.mjs && node scripts/verify-practice-assets-acceptance-ledger.mjs && node scripts/sprint-status-check.mjs && bun evals/run.ts --check",
+    "verify:node-compat": "bun run test:codegraph-selector-node && node scripts/packaged-cli-smoke.mjs && bun test --timeout 60000 packages/surfaces/cli/test/bundle-entry.test.ts packages/surfaces/mcp-local/test/mcp-wire.test.ts tests/ownership-change-acceptance-recovery.test.ts deploy/scripts/fg2-staging-secrets.test.ts packages/contracts/test/publishability.test.ts",
     "verify:ci": "node scripts/verify-ci.mjs"
   },
   "devDependencies": {
