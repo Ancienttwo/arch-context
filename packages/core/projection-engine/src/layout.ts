@@ -62,9 +62,11 @@ const FIXED_TARGETS: ProjectionLayoutTargetDraft[] = [
  */
 export const RUNTIME_TOPOLOGY_DIAGRAM_PATH = "docs/architecture/diagrams/runtime-topology.mmd";
 export const RUNTIME_TOPOLOGY_SUMMARY_PATH = "docs/architecture/runtime-topology.md";
+/** The scope id of both topology targets. It has no `.`, so it never equals a node id. */
+export const RUNTIME_TOPOLOGY_SCOPE_ID = "runtime-topology";
 const RUNTIME_TOPOLOGY_TARGETS: ProjectionLayoutTargetDraft[] = [
-  layoutTarget("projection_target.diagram.runtime-topology", "diagram-runtime-topology", { kind: "diagram", id: "runtime-topology" }, RUNTIME_TOPOLOGY_DIAGRAM_PATH, "generated", "mermaid"),
-  layoutTarget("projection_target.runtime-topology.summary", "runtime-topology-summary", { kind: "diagram", id: "runtime-topology" }, RUNTIME_TOPOLOGY_SUMMARY_PATH, "generated", "markdown")
+  layoutTarget("projection_target.diagram.runtime-topology", "diagram-runtime-topology", { kind: "diagram", id: RUNTIME_TOPOLOGY_SCOPE_ID }, RUNTIME_TOPOLOGY_DIAGRAM_PATH, "generated", "mermaid"),
+  layoutTarget("projection_target.runtime-topology.summary", "runtime-topology-summary", { kind: "diagram", id: RUNTIME_TOPOLOGY_SCOPE_ID }, RUNTIME_TOPOLOGY_SUMMARY_PATH, "generated", "markdown")
 ];
 
 /** Whether the model has runtime topology data, which is what adds the topology targets to a layout. */

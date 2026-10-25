@@ -36,7 +36,7 @@ export const SUPERSEDED_ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSIONS = 
 export const PROJECTION_MANIFEST_UPGRADE_REQUIRED = "projection-manifest-upgrade-required" as const;
 /** The reason code of a current-format manifest that fails its contract; restore it from Git. */
 export const PROJECTION_MANIFEST_INVALID = "projection-manifest-invalid" as const;
-/** The reason code of a declared source footprint that no entity-summary target carries a stamp for. */
+/** The reason code of a declared source footprint that no stamping target carries a stamp for. */
 export const PROJECTION_FOOTPRINT_UNCOVERED = "projection-footprint-uncovered" as const;
 export const ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION = "archcontext.architecture-docs-projection-provenance/v3" as const;
 export const ARCHITECTURE_DOCS_LAYOUT_VERSION_V1 = "archcontext.docs-layout/v1" as const;
@@ -130,9 +130,11 @@ export interface ArchitectureDocsProjectionManifestTargetV3 {
   /** `digestJson({ targetId, body })` of the generated body: the region of a `mixed` target, the whole file of a `generated` one. */
   outputDigest: string;
   /**
-   * `entity-summary` targets only: the content digest of every declared source footprint this
-   * target documents, by node id. A footprint belongs to its node's nearest ancestor-or-self that
-   * has an entity-summary target, so every declared footprint is stamped on exactly one row.
+   * The content digest of every declared source footprint this target documents, by node id. On an
+   * `entity-summary` row a footprint belongs to its node's nearest ancestor-or-self that has an
+   * entity-summary target, so it is stamped on exactly one such row. A runtime topology node's
+   * footprint (ADR-0049) is stamped on every runtime topology row instead, and those rows carry
+   * identical stamps. No other target type carries stamps.
    */
   sourceStamps?: Record<string, string>;
   /** Present exactly when `sourceStamps` stamps the target's own node: the scale buckets its document prints (#264). */
@@ -181,6 +183,11 @@ const TARGET_TYPES: Record<ProjectionTargetType, true> = {
   "runtime-topology-summary": true,
   "agent-context": true
 };
+/** The whole-model targets that render the runtime topology and carry its nodes' stamps (ADR-0049). */
+export const RUNTIME_TOPOLOGY_TARGET_TYPES = ["diagram-runtime-topology", "runtime-topology-summary"] as const satisfies readonly ProjectionTargetType[];
+export function isRuntimeTopologyTargetType(type: unknown): type is (typeof RUNTIME_TOPOLOGY_TARGET_TYPES)[number] {
+  return typeof type === "string" && (RUNTIME_TOPOLOGY_TARGET_TYPES as readonly string[]).includes(type);
+}
 const SCOPE_KINDS: Record<ProjectionTargetScopeKind, true> = { repository: true, entity: true, relation: true, decision: true, diagram: true, changelog: true };
 const OWNERSHIPS: Record<ProjectionTargetOwnership, true> = { generated: true, mixed: true };
 const FORMATS: Record<ProjectionTargetFormat, true> = { markdown: true, mermaid: true, "structurizr-json": true, likec4: true };
@@ -213,6 +220,7 @@ export function architectureDocsProjectionManifestIssues(value: unknown): string
   }
   const paths = new Set<string>();
   const stampOwners = new Map<string, string>();
+  let topologyStamps: { targetId: string; stamps: string } | undefined;
   for (const [targetId, row] of Object.entries(targets)) {
     const prefix = `manifest.targets[${JSON.stringify(targetId)}]`;
     if (!isNonEmptyString(targetId)) issues.push("manifest.targets keys must be non-empty targetIds");
@@ -222,7 +230,20 @@ export function architectureDocsProjectionManifestIssues(value: unknown): string
       if (paths.has(path)) issues.push(`${prefix}.path is recorded by another target`);
       paths.add(path);
     }
-    for (const nodeId of Object.keys(record(record(row)?.sourceStamps) ?? {})) {
+    const stamps = record(record(row)?.sourceStamps) ?? {};
+    if (isRuntimeTopologyTargetType(record(row)?.type)) {
+      // Every topology row renders the same topology, so all of them carry one stamp set.
+      const serialized = JSON.stringify(Object.keys(stamps).sort(compareStrings).map((nodeId) => [nodeId, stamps[nodeId]]));
+      if (topologyStamps === undefined) topologyStamps = { targetId, stamps: serialized };
+      else if (topologyStamps.stamps !== serialized) issues.push(`${prefix}.sourceStamps must equal the sourceStamps of ${topologyStamps.targetId}`);
+      for (const nodeId of Object.keys(stamps)) {
+        const owner = stampOwners.get(nodeId);
+        if (owner !== undefined && !isRuntimeTopologyTargetType(record(targets[owner])?.type)) issues.push(`${prefix}.sourceStamps.${nodeId} is already stamped on ${owner}`);
+        else if (owner === undefined) stampOwners.set(nodeId, targetId);
+      }
+      continue;
+    }
+    for (const nodeId of Object.keys(stamps)) {
       const owner = stampOwners.get(nodeId);
       if (owner !== undefined) issues.push(`${prefix}.sourceStamps.${nodeId} is already stamped on ${owner}`);
       else stampOwners.set(nodeId, targetId);
@@ -319,7 +340,10 @@ export function architectureSemanticStateFromCapabilities(capabilities: readonly
   };
 }
 
-/** Every stamp the rows record, by node id. A valid manifest stamps each node on one row only. */
+/**
+ * Every stamp the rows record, by node id. A valid manifest stamps each node on one entity-summary
+ * row, or with one digest on every runtime topology row.
+ */
 export function architectureDocsProjectionManifestSourceStamps(manifest: ArchitectureDocsProjectionManifestV3): Record<string, string> {
   const stamps: Record<string, string> = {};
   for (const row of Object.values(manifest.targets)) Object.assign(stamps, row.sourceStamps ?? {});
@@ -502,9 +526,10 @@ function manifestTargetIssues(value: unknown, prefix: string): string[] {
   if (typeof target.ownership !== "string" || !Object.hasOwn(OWNERSHIPS, target.ownership)) issues.push(`${prefix}.ownership is unsupported`);
   if (typeof target.format !== "string" || !Object.hasOwn(FORMATS, target.format)) issues.push(`${prefix}.format is unsupported`);
   if (!isDigest(target.outputDigest)) issues.push(`${prefix}.outputDigest must be a SHA-256 digest`);
-  if ((target.sourceStamps !== undefined || target.scale !== undefined) && target.type !== "entity-summary") {
-    issues.push(`${prefix}.sourceStamps and scale are only allowed on entity-summary targets`);
+  if (target.sourceStamps !== undefined && target.type !== "entity-summary" && !isRuntimeTopologyTargetType(target.type)) {
+    issues.push(`${prefix}.sourceStamps are only allowed on entity-summary and runtime topology targets`);
   }
+  if (target.scale !== undefined && target.type !== "entity-summary") issues.push(`${prefix}.scale is only allowed on entity-summary targets`);
   if (target.sourceStamps !== undefined) {
     const stamps = record(target.sourceStamps);
     if (!stamps || Object.keys(stamps).length === 0) issues.push(`${prefix}.sourceStamps must be a non-empty object keyed by node id`);
