@@ -1,4 +1,4 @@
-import { FailureError, failureEnvelope, toEnvelope, type ArchContextErrorCode, type FailureStage, type JsonEnvelope } from "@archcontext/contracts";
+import { FailureError, failureEnvelope, toEnvelope, unclassifiedFailure, type ArchContextErrorCode, type FailureStage, type JsonEnvelope } from "@archcontext/contracts";
 import { ProjectionPreconditionError } from "@archcontext/core/projection-engine";
 import { ProjectionCodeFactsUnavailableError } from "@archcontext/local-runtime/codegraph-adapter";
 import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
@@ -25,8 +25,9 @@ export function selectedProducerFailure(error: unknown, stage: FailureStage): Fa
     }
     if (error instanceof ProjectionPreconditionError) return new FailureError("AC_PRECONDITION_FAILED", selectedProducerData(error, "reasonCode"));
     if (error instanceof ProjectionCodeFactsUnavailableError) return new FailureError(selectedProducerData(error, "code"), selectedProducerData(error, "reasonCode"));
+    const failure = unclassifiedFailure(stage, error);
+    return new FailureError(failure.code, failure.reasonCode, failure.details, failure);
   } catch { return new FailureError("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", { stage: "failure-metadata" }); }
-  return new FailureError("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", { stage });
 }
 export function selectedProducerFailureEnvelope(requestId: string, error: unknown, stage: FailureStage): JsonEnvelope {
   const failure = selectedProducerFailure(error, stage);

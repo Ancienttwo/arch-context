@@ -1,4 +1,5 @@
 import { changeSetRecoveryDetailsSnapshot } from "./changeset-recovery";
+import { isNativeError } from "node:util/types";
 import { MODEL_VALIDATION_DIAGNOSTIC_CODES } from "./ports";
 import { PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionRecoveryDetailsSnapshot } from "./projection-recovery";
 import { ERROR_CATALOG, canonicalize, type ArchContextErrorCode, type Json, type Severity } from "./schema";
@@ -7,6 +8,7 @@ import { ERROR_CATALOG, canonicalize, type ArchContextErrorCode, type Json, type
 export type FailureCode = ArchContextErrorCode | "RPC_TIMEOUT" | "RPC_ABORTED";
 export const FAILURE_STAGES = Object.freeze(["debt", "complete", "practice-checkpoint", "cli", "mcp", "hook-checkpoint", "failure-metadata", "public-operation", "native-export", "docs-anchors", "flows-check"] as const);
 export type FailureStage = typeof FAILURE_STAGES[number];
+const ERROR_CLASSES = Object.freeze(["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "URIError", "EvalError", "AggregateError", "NonError"]);
 export interface StrictFailure<C extends FailureCode = FailureCode> {
   code: C;
   message: string;
@@ -55,7 +57,7 @@ const policies: Record<string, Policy> = {
   "runtime-version-unsupported": { code: "AC_RUNTIME_VERSION_UNSUPPORTED", message: "The connected runtime version is unsupported." },
   "rpc-timeout": { code: "RPC_TIMEOUT", message: "The runtime RPC deadline elapsed without a response; a mutation outcome is unknown.", fields: ["method", "timeoutMs", "elapsedMs", "mutationOutcome"], action: "reconcile-before-retry" },
   "rpc-aborted": { code: "RPC_ABORTED", message: "The runtime RPC caller aborted without a response; a mutation outcome is unknown.", fields: ["method", "timeoutMs", "elapsedMs", "mutationOutcome"], action: "reconcile-before-retry" },
-  "failure-unclassified": { code: "AC_UNCLASSIFIED_FAILURE", message: "The operation failed without a classified cause. Run archctx doctor --json before retrying.", action: "inspect-diagnostics" },
+  "failure-unclassified": { code: "AC_UNCLASSIFIED_FAILURE", message: "The operation failed without a classified cause. Run archctx doctor --json before retrying.", action: "inspect-diagnostics", fields: ["errorClass"] },
 };
 // C1 policies are selected at explicit producer branches, never from diagnostic text.
 Object.assign(policies, {
@@ -312,6 +314,7 @@ function ownData(input: unknown, key: string): unknown {
 
 function fact(key: string, value: unknown): Json | undefined {
   if (key === "stage") return typeof value === "string" && (FAILURE_STAGES as readonly string[]).includes(value) ? value : undefined;
+  if (key === "errorClass") return typeof value === "string" && ERROR_CLASSES.includes(value) ? value : undefined;
   if (key === "checks") {
     if (!Array.isArray(value)) return undefined;
     const length = Object.getOwnPropertyDescriptor(value, "length")?.value;
@@ -744,8 +747,18 @@ function failureFromData<C extends FailureCode = FailureCode>(input: unknown): S
     action: action as string | undefined, severity: severity as Severity | undefined, retryable: retryable as boolean | undefined
   });
 }
-export function unclassifiedFailure(stage?: FailureStage): StrictFailure<"AC_UNCLASSIFIED_FAILURE"> {
-  return knownFailure("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", stage ? { stage } : {});
+export function unclassifiedFailure(stage?: FailureStage, error?: unknown): StrictFailure<"AC_UNCLASSIFIED_FAILURE"> {
+  const errorClass = error === undefined ? undefined
+    : !isNativeError(error) ? "NonError"
+    : error instanceof TypeError ? "TypeError"
+    : error instanceof RangeError ? "RangeError"
+    : error instanceof SyntaxError ? "SyntaxError"
+    : error instanceof ReferenceError ? "ReferenceError"
+    : error instanceof URIError ? "URIError"
+    : error instanceof EvalError ? "EvalError"
+    : error instanceof AggregateError ? "AggregateError"
+    : "Error";
+  return knownFailure("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", { ...(stage ? { stage } : {}), ...(errorClass ? { errorClass } : {}) });
 }
 export function failureEnvelope<C extends FailureCode>(requestId: string, failure: StrictFailure<C>): FailureEnvelope<C> {
   // Revalidate/copy even typed metadata so caller mutation cannot bypass the closed contract.
@@ -772,7 +785,7 @@ export class FailureError<C extends FailureCode = ArchContextErrorCode> extends 
 }
 export function toEnvelope(requestId: string, error: unknown, stage: FailureStage): FailureEnvelope {
   try {
-    return failureEnvelope(requestId, error instanceof FailureError ? ownData(error, "failure") as StrictFailure : unclassifiedFailure(stage));
+    return failureEnvelope(requestId, error instanceof FailureError ? ownData(error, "failure") as StrictFailure : unclassifiedFailure(stage, error));
   } catch {
     return failureEnvelope(requestId, unclassifiedFailure("failure-metadata"));
   }
