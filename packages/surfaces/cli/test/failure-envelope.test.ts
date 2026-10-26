@@ -70,7 +70,8 @@ test("all registered producer reasons survive selected CLI and MCP adapters", as
       projectionInputField: "headSha", ownershipAction: "remove-whole-file-outputs-and-reapply", ledgerModeField: "readMode",
       changedFields: ["headSha", "worktreeDigest"], publicConfirmationToken: facts.confirmationToken,
       consentReason: "not-granted", searched: "recorded", decisionStatus: "accepted", disposition: "resolved",
-      commandSuggestion: null, context7Kind: "timeout"
+      commandSuggestion: null, context7Kind: "timeout",
+      modelValidationDiagnostics: [{ path: "docs/adr/ADR-0001-x.md", code: "schema-version-missing" }]
     };
     // Dedicated recovery shapes are authorities, not ordinary summary facts.
     const recoveryIds = { requestId: "request.fixture", lookupKey: "sha256:" + "a".repeat(64), applyId: "sha256:" + "b".repeat(64), written: false };
@@ -82,6 +83,7 @@ test("all registered producer reasons survive selected CLI and MCP adapters", as
           : policy.facts
             ? Object.fromEntries(Object.entries(policy.facts).filter(([,rule]) => !rule.startsWith("optional:")).map(([key,rule]) => {
                 if (!Object.hasOwn(ruleFacts, rule)) throw new Error(`Missing valid fixture for ${reason}.${key}:${rule}`);
+                if (key === "omittedIssueCount") return [key, 1];
                 return [key, ruleFacts[rule]];
               }))
             : Object.fromEntries((policy.fields ?? []).map(key => [key, facts[key]]));

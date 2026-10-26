@@ -36,3 +36,10 @@ test("escaped path bytes cannot exhaust the public failure envelope budget", () 
   expect(details).toEqual({ issueCount: 1, diagnostics: [], omittedIssueCount: 1 });
   expect(failureIssues(knownFailure("AC_PRECONDITION_FAILED", "plan-model-invalid", details))).toEqual([]);
 });
+
+test("the new compound fact rejects placeholders, unknown codes, external paths and excess entries", () => {
+  const entry = { path: "docs/adr/ADR-0001-x.md", code: "schema-version-missing" };
+  for (const diagnostics of [5, ["private validator body"], [{ ...entry, code: "private-code" }], [{ ...entry, path: "/private/customer" }], Array.from({ length: 9 }, () => entry)]) {
+    expect(() => knownFailure("AC_PRECONDITION_FAILED", "plan-model-invalid", { issueCount: 1, diagnostics, omittedIssueCount: 0 })).toThrow();
+  }
+});
