@@ -43,3 +43,13 @@ test("the new compound fact rejects placeholders, unknown codes, external paths 
     expect(() => knownFailure("AC_PRECONDITION_FAILED", "plan-model-invalid", { issueCount: 1, diagnostics, omittedIssueCount: 0 })).toThrow();
   }
 });
+
+test("diagnostic array validation does not invoke caller property reads", () => {
+  let reads = 0;
+  const diagnostics = new Proxy([{ path: "docs/adr/ADR-0001-x.md", code: "schema-version-missing" }], {
+    get(target, key, receiver) { reads += 1; return Reflect.get(target, key, receiver); }
+  });
+  const failure = knownFailure("AC_PRECONDITION_FAILED", "plan-model-invalid", { issueCount: 1, diagnostics, omittedIssueCount: 0 });
+  expect(reads).toBe(0);
+  expect(failureIssues(failure)).toEqual([]);
+});

@@ -432,8 +432,10 @@ function localFactValue(rule: string, value: unknown): Json {
   if (rule === "commandSuggestion" && (value === null || (typeof value === "string" && bytes(value) <= 1024 && /^archctx (recommendations |refactor verify )[^\r\n]*$/.test(value)))) return value;
   if (rule === "publicConfirmationToken" && typeof value === "string" && bytes(value) <= 1024 && /^public:github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+:[a-f0-9]{40}:[A-Za-z0-9_.:-]+$/.test(value)) return value;
   if (rule === "modelValidationDiagnostics") {
-    if (!Array.isArray(value) || value.length > 8 || Reflect.ownKeys(value).length !== value.length + 1) throw new Error("Invalid model diagnostics budget");
-    return Array.from({ length: value.length }, (_, index) => {
+    if (!Array.isArray(value)) throw new Error("Invalid model diagnostics budget");
+    const length = Object.getOwnPropertyDescriptor(value, "length")?.value;
+    if (!Number.isSafeInteger(length) || length > 8 || Reflect.ownKeys(value).length !== length + 1) throw new Error("Invalid model diagnostics budget");
+    return Array.from({ length }, (_, index) => {
       const entry = Object.getOwnPropertyDescriptor(value, String(index));
       if (!entry || !("value" in entry)) throw new Error("Model diagnostics must use own data");
       const fields = dataRecord(entry.value);
