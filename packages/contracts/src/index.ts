@@ -6,6 +6,7 @@ export * from "./external-docs";
 export * from "./github-governance";
 export * from "./ledger";
 export * from "./native-context";
+export * from "./ref-impact";
 export * from "./ownership-dependencies";
 export * from "./ports";
 export * from "./practices";
