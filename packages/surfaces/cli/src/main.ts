@@ -2,6 +2,7 @@
 import { LocalEgressPolicyError, localEgressAdmission, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
 import { runArchitectureDebtCommand, selectedProducerFailureEnvelope } from "@archcontext/local-runtime/architecture-debt";
 import { runNativeContextCommand } from "./native-context";
+import { runConstraintCheckCommand } from "@archcontext/local-runtime/runtime-daemon";
 import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, discardLegacyGithubDeveloperReviewState, readGithubDeveloperReviewState, sanitizeGithubDeveloperReviewState, writeGithubDeveloperReviewState, type GitHubDeveloperReviewState } from "./github-review-state";
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
@@ -121,6 +122,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "checkpoint": { value: ["--changed-path"], boolean: [] },
   "complete": { value: ["--head-sha", "--posture", "--task", "--task-session-id"], boolean: [] },
   "config": { value: [], boolean: [] },
+  "constraints": { value: [], boolean: [] },
   "context": { value: ["--max-symbols", "--name", "--task"], boolean: ["--landscape"] },
   "deps": { value: ["--edge-limit", "--from", "--import-node-limit", "--into"], boolean: [] },
   "doctor": { value: [], boolean: ["--check-updates"] },
@@ -862,6 +864,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return runArchitectureDebtCommand(cwd, { changedPaths: readRepeatedFlag(args, "--changed-path") });
     case "deps":
       return runDepsCommand(args, cwd);
+    case "constraints":
+      return runConstraintsCommand(args, cwd);
     case "resolve": {
       if (args.includes("--path") && args.includes("--paths-from")) {
         return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve accepts exactly one of --path or --paths-from");
@@ -888,7 +892,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel", "flows", "deps", "debt"],
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel", "flows", "deps", "constraints", "debt"],
           examples: CLI_HELP_EXAMPLES
         }
       };
@@ -958,6 +962,13 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     });
   case "deps":
     return okEnvelope("deps", CLI_DEPS_HELP as unknown as Json);
+  case "constraints":
+    return okEnvelope("constraints.check", {
+      command: "archctx constraints check --json",
+      description: "Evaluate declared dependency constraints in-process using the current model and existing CodeGraph index. No daemon or runtime-state writes.",
+      result: "data.status is pass, violated, undetermined or not-applicable. Missing or incomplete code facts remain undetermined; unsupported rules appear in data.warnings.",
+      exitCode: "0 means the query succeeded; inspect data.status for the constraint verdict. Invalid input or model declarations exit 1."
+    });
   case "flows":
     return okEnvelope("flows", {
       command: "archctx flows check [--json]",
@@ -1914,6 +1925,15 @@ function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
     }
     signal.addEventListener("abort", done, { once: true });
   });
+}
+
+function runConstraintsCommand(args: string[], cwd: string): JsonEnvelope {
+  const formatAt = args.indexOf("--format");
+  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
+  if (args[0] !== "check" || unexpected.length > 0) {
+    return failureEnvelope("constraints.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
+  }
+  return runConstraintCheckCommand(cwd);
 }
 
 /** `flows check` is read-only and answered in-process, like `projection run` in `check` mode. */

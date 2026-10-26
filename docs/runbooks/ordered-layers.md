@@ -26,6 +26,20 @@ IDs and `fromLayer` / `toLayer`. Missing endpoint ownership or a missing layer o
 one end of a layered import yields an undetermined result, not a passing guard.
 Unavailable code facts remain undetermined as for existing dependency checks.
 
+Read the evaluated constraints without starting a daemon or writing runtime state:
+
+```sh
+archctx constraints check --json
+```
+
+This reads the current Git-visible model and the existing CodeGraph index through
+the same evaluator used by review. Invalid declarations fail with
+`constraint-model-invalid`; missing, stale or incomplete code facts remain
+`undetermined`. It never initializes or synchronizes the index. Exit code 0 means
+the query succeeded: consumers must inspect `data.status` (`pass`, `violated`,
+`undetermined` or `not-applicable`) for the constraint verdict. Unsupported rules
+are listed in `data.warnings`.
+
 Other unevaluated constraint types now produce a warning per constraint. A
 validated constraint is not proof that its rule has been evaluated. This feature
 does not implement cycle detection or infer additional architecture truth.
