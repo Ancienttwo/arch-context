@@ -191,7 +191,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
       migrate: { value: ["--expected-worktree-digest"], boolean: ["--dry-run", "--from-yaml", "--recommendation-v3", "--write"] }
     }
   },
-  "manifest": { value: ["--decisions", "--id"], boolean: [] },
+  "manifest": { value: ["--decisions", "--id", "--layers"], boolean: [] },
   "mcp": { value: ["--content", "--host"], boolean: [] },
   "paths": { value: [], boolean: [] },
   "plan": { value: ["--body", "--body-file", "--expected-hash", "--id", "--op", "--operations-file", "--path"], boolean: [] },
@@ -763,16 +763,20 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       const seen = new Set<string>();
       for (let index = 1; index < args.length; index += 2) {
         const flag = args[index];
-        if (!["--id", "--decisions"].includes(flag) || seen.has(flag) || !args[index + 1] || args[index + 1].startsWith("--")) {
-          return errorEnvelope("manifest", "AC_SCHEMA_INVALID", "manifest plan accepts one --id and one --decisions value only");
+        if (!["--id", "--decisions", "--layers"].includes(flag) || seen.has(flag) || !args[index + 1] || args[index + 1].startsWith("--")) {
+          return errorEnvelope("manifest", "AC_SCHEMA_INVALID", "manifest plan accepts one --id and optional --decisions / --layers values only");
         }
         seen.add(flag);
       }
       const id = requireFlag(args, "--id");
-      const decisions = requireFlag(args, "--decisions");
-      if (decisions !== "docs/adr") return errorEnvelope("manifest", "AC_SCHEMA_INVALID", "content.decisions supports only docs/adr");
+      const decisions = readFlag(args, "--decisions");
+      const layerValue = readFlag(args, "--layers");
+      const layers = layerValue?.split(",");
+      if (decisions === undefined && layers === undefined) return errorEnvelope("manifest", "AC_SCHEMA_INVALID", "manifest plan requires --decisions or --layers");
+      if (layers && (layers.length === 0 || new Set(layers).size !== layers.length || layers.some(layer => !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(layer)))) return errorEnvelope("manifest", "AC_SCHEMA_INVALID", "--layers must be a comma-separated unique ordered list of layer slugs");
+      if (decisions !== undefined && decisions !== "docs/adr") return errorEnvelope("manifest", "AC_SCHEMA_INVALID", "content.decisions supports only docs/adr");
       const root = findRepositoryRoot(cwd);
-      const operation = planManifestFieldsOperation(root, { "content.decisions": decisions });
+      const operation = planManifestFieldsOperation(root, { ...(decisions === undefined ? {} : { "content.decisions": decisions }), ...(layers === undefined ? {} : { "model.layers": layers }) });
       return (await runtime()).planUpdate(root, { id, operations: [operation] });
     }
     case "config":
@@ -921,8 +925,8 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     return okEnvelope("hash", CLI_HASH_HELP as unknown as Json);
   case "manifest":
     return okEnvelope("manifest", {
-      command: "archctx manifest plan --id <changeset.id> --decisions docs/adr",
-      supportedFields: { "content.decisions": "docs/adr" },
+      command: "archctx manifest plan --id <changeset.id> [--decisions docs/adr] [--layers cli,effects,core]",
+      supportedFields: { "content.decisions": "docs/adr", "model.layers": "non-empty unique ordered layer slugs, top layer first" },
       writes: "none; approve the returned ChangeSet with archctx apply"
     });
   case "resolve":

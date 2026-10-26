@@ -147,3 +147,56 @@ test("manifest operation schema is shared by MCP and the checked runtime schema 
   expect(validateJsonSchema(schema, { root: "/repo", id: "changeset.manifest", operations: [operation] } as unknown as Json).valid).toBe(true);
   for (const patch of invalid) expect(validateJsonSchema(schema, { root: "/repo", id: "changeset.manifest", operations: [{ ...operation, ...patch }] } as unknown as Json).valid).toBe(false);
 });
+
+test("ordered layers are planned and applied through the manifest ChangeSet without an ADR directory", async () => {
+  const { root, path, before, engine, plan } = await fixture();
+  rmSync(join(root, "docs/adr"), { recursive: true });
+  const operation = planManifestFieldsOperation(root, { "model.layers": ["cli", "effects", "core"] });
+  const draft = plan([operation]);
+  expect(engine.preview(root, draft).allowed).toBe(true);
+  await engine.apply(root, draft, { approved: true });
+  const after = readFileSync(path, "utf8");
+  expect(after).toContain("layers:");
+  expect(after).toContain('decisions: ".archcontext/decisions"');
+  expect(after.replace(/  layers:\n(?:    - .*\n)+/, "")).toBe(before);
+});
+
+test("layer field rejects empty, duplicate, malformed lists and can combine with decisions", () => {
+  const before = "schemaVersion: archcontext.manifest/v1\nmodel:\n  root: .archcontext/model\ncontent:\n  decisions: legacy\n";
+  for (const layers of [[], ["core", "core"], ["UPPER"], [""], [1]]) {
+    expect(() => renderManifestFieldsUpdate(before, { "model.layers": layers as string[] })).toThrow();
+  }
+  const after = renderManifestFieldsUpdate(before, { "content.decisions": "docs/adr", "model.layers": ["cli", "core"] });
+  expect(after).toContain("decisions: docs/adr");
+  expect(after).toContain("layers:");
+  expect(() => renderManifestFieldsUpdate(after, { "model.layers": ["cli", "core"] })).toThrow("already");
+});
+
+
+test("manifest layer update rolls back when a node layer is omitted", async () => {
+  const { root, path, before, engine, plan } = await fixture();
+  const nodePath = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
+  writeFileSync(nodePath, `${readFileSync(nodePath, "utf8")}\nlayer: core\n`);
+  const draft = plan([planManifestFieldsOperation(root, { "model.layers": ["cli"] })]);
+  await expect(engine.apply(root, draft, { approved: true })).rejects.toThrow("architecture-node-layer-undeclared");
+  expect(readFileSync(path, "utf8")).toBe(before);
+});
+
+
+test("supported manifest update repairs only structured layer order errors", async () => {
+  const { root, path, before, engine, plan } = await fixture();
+  writeFileSync(path, renderManifestFieldsUpdate(before, { "model.layers": ["cli"] }));
+  const nodePath = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
+  const nodeBefore = readFileSync(nodePath, "utf8");
+  writeFileSync(nodePath, `${nodeBefore}\nlayer: core\n`);
+  let draft = plan([planManifestFieldsOperation(root, { "model.layers": ["cli", "core"] })]);
+  await engine.apply(root, draft, { approved: true });
+  expect(readFileSync(path, "utf8")).toContain("core");
+  // An unrelated malformed node cannot be hidden by a layer-repair operation.
+  writeFileSync(path, renderManifestFieldsUpdate(readFileSync(path, "utf8"), { "model.layers": ["cli"] }));
+  writeFileSync(nodePath, `${nodeBefore.replace(/summary:.*\n/, "")}\nlayer: core\n`);
+  const invalidBefore = readFileSync(path, "utf8");
+  draft = plan([planManifestFieldsOperation(root, { "model.layers": ["cli", "core"] })]);
+  await expect(engine.apply(root, draft, { approved: true })).rejects.toThrow("summary");
+  expect(readFileSync(path, "utf8")).toBe(invalidBefore);
+});

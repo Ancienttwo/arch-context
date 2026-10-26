@@ -210,3 +210,25 @@ describe("architecture layer groups (ADR-0049)", () => {
       .toThrow(/architecture-node-layer-invalid: module\.api/);
   });
 });
+
+test("manifest layer order drives common grouping and loaders and rejects undeclared layers", () => {
+  const ordered = { ...layered, layers: ["interface-adapters", "domain"] };
+  expect(architectureLayerGroups(ordered).layers.map(group => group.layer)).toEqual(ordered.layers);
+  const mermaid = exportMermaidModel(ordered).files[0].content;
+  expect(mermaid.indexOf('subgraph layer__interface_adapters')).toBeLessThan(mermaid.indexOf('subgraph layer__domain'));
+  expect(() => architectureLayerGroups({ ...layered, layers: ["domain"] })).toThrow("native-context-model-invalid");
+  const files = new Map<string, string>([[".archcontext/manifest.yaml", JSON.stringify({ model: { layers: ordered.layers } })]]);
+  for (const node of layered.nodes) files.set(`.archcontext/model/nodes/${node.id}.yaml`, JSON.stringify({ ...node, schemaVersion: "archcontext.node/v2" }));
+  expect(loadNativeModelFromModelFiles(files).layers).toEqual(ordered.layers);
+  files.set(".archcontext/manifest.yaml", JSON.stringify({ model: { layers: ["domain"] } }));
+  expect(() => loadNativeModelFromModelFiles(files)).toThrow("native-context-model-invalid");
+});
+
+
+test("manifest comments do not change the absent-order exporter bytes", () => {
+  const files = new Map<string, string>([[".archcontext/manifest.yaml", "schemaVersion: archcontext.manifest/v1\n# layer order is optional\nmodel:\n  layout: split\n"]]);
+  for (const node of layered.nodes) files.set(`.archcontext/model/nodes/${node.id}.yaml`, JSON.stringify({ ...node, schemaVersion: "archcontext.node/v2" }));
+  const before = loadNativeModelFromModelFiles(new Map([...files].filter(([path]) => path !== ".archcontext/manifest.yaml")));
+  const after = loadNativeModelFromModelFiles(files);
+  for (const render of [exportMermaidModel, exportDocumentationLikeC4Model, exportDocumentationStructurizrWorkspace]) expect(render(after)).toEqual(render(before));
+});

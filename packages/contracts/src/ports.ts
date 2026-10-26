@@ -152,6 +152,8 @@ export interface ModelValidationResult {
   referenceErrors?: string[];
   /** Node schema errors with their file paths. Only a write to that node can repair them. */
   nodeSchemaErrors?: { path: string; error: string }[];
+  /** Errors specifically repairable by replacing manifest model.layers; after validation remains strict. */
+  layerOrderErrors?: string[];
   /** Problems that do not invalidate the model, such as an ignored legacy setting. Omitted when empty. */
   warnings?: string[];
   modelDigest: string;

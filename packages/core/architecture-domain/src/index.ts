@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { isMap, isScalar, isSeq, parseDocument } from "yaml";
 import {
   REVIEW_FAIL_ON_CATEGORIES,
+  orderedLayerIssues,
   canonicalize,
   digestJson,
   isRepoRelativePosixPath,
@@ -596,11 +597,12 @@ const CONSTRAINT_GATE_SEVERITY: Readonly<Record<string, DependencyConstraintV1["
 
 /**
  * `rule.type` values `schemas/repo/constraint.schema.json` allows, mirrored exactly (a test
- * asserts both lists match). Only `forbid-dependency` is evaluated by the dependency gate; the
- * other known types are ignored by it, and anything else is a validate error.
+ * asserts both lists match). `forbid-dependency` and `layer-direction` are evaluated by the dependency gate; the
+ * other known types produce warnings, and anything else is a validate error.
  */
 export const CONSTRAINT_RULE_TYPES = [
   "forbid-dependency",
+  "layer-direction",
   "require-interface",
   "forbid-data-access",
   "require-owner",
@@ -612,7 +614,8 @@ export const CONSTRAINT_RULE_TYPES = [
 ] as const;
 
 export interface DependencyConstraintRead {
-  /** Well-formed `forbid-dependency` constraints; other rule types are not evaluated here. */
+  layerOrderErrors: string[];
+  /** Well-formed dependency constraints; unsupported rule types emit warnings. */
   constraints: DependencyConstraintV1[];
   errors: string[];
   /** The subset of `errors` that are node ids resolving to no node. */
@@ -637,6 +640,22 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
   const errors: string[] = [];
   const referenceErrors: string[] = [];
   const warnings: string[] = [];
+  const layerOrderErrors: string[] = [];
+  let layers: unknown;
+  const manifest = files.find(file => file.path === ".archcontext/manifest.yaml");
+  if (manifest) {
+    try {
+      const document = parseDocument(manifest.body, { uniqueKeys: true });
+      if (document.errors.length || document.warnings.length) throw new Error("manifest YAML must be valid and unambiguous");
+      const value = document.toJSON() as Json;
+      if (isJsonRecord(value) && isJsonRecord(value.model)) layers = value.model.layers;
+    } catch (error) { errors.push(`${manifest.path}: ${String(error)}`); }
+  }
+  const layerNodes = files.filter(file => file.path.startsWith(".archcontext/model/nodes/")).flatMap(file => {
+    try { const value = parseJsonOrStableYaml(file.body, file.path); return isJsonRecord(value) ? [value] : []; } catch { return []; }
+  });
+  layerOrderErrors.push(...orderedLayerIssues(layers, layerNodes).map(issue => `.archcontext/manifest.yaml: ${issue}`));
+  errors.push(...layerOrderErrors);
   const declaredIn = new Map<string, string>();
   for (const file of [...files].sort((left, right) => left.path.localeCompare(right.path))) {
     if (!file.path.startsWith(MODEL_CONSTRAINT_PATH_PREFIX)) continue;
@@ -663,7 +682,10 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
       errors.push(`${file.path}: rule.type must be one of ${CONSTRAINT_RULE_TYPES.join(", ")}${rule?.type === undefined ? "" : ` (got ${JSON.stringify(rule.type)})`}`);
       continue;
     }
-    if (rule.type !== "forbid-dependency") continue;
+    if (rule.type !== "forbid-dependency" && rule.type !== "layer-direction") {
+      warnings.push(`${file.path}: constraint ${String(value.id)} rule ${rule.type} is not evaluated yet`);
+      continue;
+    }
     const scope = isJsonRecord(value.scope) ? value.scope : undefined;
     const fileErrors: string[] = [];
     if (typeof value.id !== "string" || !value.id) fileErrors.push("id is required");
@@ -672,9 +694,16 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
       : undefined;
     if (severity === undefined) fileErrors.push("severity must be one of notice, warning, error, critical");
     const scopeNodes = nonEmptyStrings(scope?.nodes);
-    if (!scopeNodes) fileErrors.push("scope.nodes must be a non-empty list of node ids");
+    if (rule.type === "forbid-dependency" && !scopeNodes) fileErrors.push("scope.nodes must be a non-empty list of node ids");
     const targets = nonEmptyStrings(rule.targets);
-    if (!targets) fileErrors.push("rule.targets must be a non-empty list of node ids");
+    if (rule.type === "forbid-dependency" && !targets) fileErrors.push("rule.targets must be a non-empty list of node ids");
+    if (rule.type === "layer-direction" && (layers === undefined || orderedLayerIssues(layers, layerNodes).length > 0)) {
+      const error = "layer-direction requires valid model.layers";
+      fileErrors.push(error);
+      layerOrderErrors.push(`${file.path}: ${error}`);
+    }
+    if (rule.type === "layer-direction" && (!scope || Object.keys(scope).length > 0)) fileErrors.push("layer-direction scope must be empty; model.layers is the only scope authority");
+    if (rule.type === "layer-direction" && Object.keys(rule).some(key => key !== "type")) fileErrors.push("layer-direction rule accepts only type; order comes from model.layers");
     if (value.allowedVia !== undefined) {
       warnings.push(`${file.path}: constraint ${String(value.id)} allowedVia is not enforced yet; the constraint is evaluated as if it were absent`);
     }
@@ -691,12 +720,12 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
     constraints.push({
       id: value.id as string,
       severity: severity!,
-      scope: { nodes: scopeNodes! },
-      rule: { type: "forbid-dependency", targets: targets! },
+      scope: { nodes: scopeNodes ?? [] },
+      rule: rule.type === "layer-direction" ? { type: "layer-direction", layers: [...layers as string[]] } : { type: "forbid-dependency", targets: targets! },
       rationale: typeof value.rationale === "string" ? value.rationale : ""
     });
   }
-  return { constraints: constraints.sort((left, right) => left.id.localeCompare(right.id)), errors, referenceErrors, warnings };
+  return { constraints: constraints.sort((left, right) => left.id.localeCompare(right.id)), errors, referenceErrors, warnings, layerOrderErrors };
 }
 
 export interface ReviewPolicyRead {

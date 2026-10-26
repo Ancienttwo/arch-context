@@ -216,11 +216,12 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
     const readback = await this.loadLedgerModel(workspace);
-    const { errors, referenceErrors, warnings } = validateModelFiles(readback.files);
+    const { errors, referenceErrors, warnings, layerOrderErrors } = validateLedgerModelFiles(readback.files);
     const result: ArchitectureLedgerReadModelValidation = {
       valid: errors.length === 0,
       errors,
       ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
+      ...(layerOrderErrors.length > 0 ? { layerOrderErrors } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
       modelDigest: modelDigestForFiles(readback.files),
       architectureLedger: {
@@ -1500,7 +1501,7 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
   };
 }
 
-function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[] } {
+export function validateLedgerModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[]; layerOrderErrors: string[] } {
   const errors: string[] = [];
   const paths = new Set(files.map((file) => file.path));
   for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
@@ -1516,6 +1517,7 @@ function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceEr
   return {
     errors,
     referenceErrors: [...adr.referenceErrors, ...constraints.referenceErrors],
+    layerOrderErrors: constraints.layerOrderErrors,
     warnings: [...constraints.warnings, ...reviewPolicy.warnings, ...manifestDecisionDiagnostics(files)]
   };
 }
