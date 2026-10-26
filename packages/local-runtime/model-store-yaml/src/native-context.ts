@@ -8,7 +8,7 @@ import {
   type NativeContextDocument, type NativeContextExportV1, type NativeContextInput, type NativeContextModel,
   type NativeContextSchemas, type NativeContextSnapshot, type NativeModelRecord
 } from "@archcontext/contracts";
-import { DuplicateModelKeyError, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
+import { ADR_FILE_PATH, DuplicateModelKeyError, parseArchitectureDecisionRecord, readAdrAppliesTo, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import { analyzeNativeDocument, absentNativeSection, parseRepoHarnessNodeProfile, repoHarnessIncludeAnchors, resolveArchitectureDocumentationLayout, type ProjectionLayoutNode } from "@archcontext/core/projection-engine";
 import { assertNativeGitRevision, decodeUtf8, readGitBlobTree, readGitBlobs, readNativeGitRoot, readOnlyGit, resolveNativeGitSnapshot, type GitBlobTreeEntry } from "../../git-adapter/src/blob-reader";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
@@ -36,6 +36,7 @@ abstract class CapturedSource {
   protected byteCount = 0;
   constructor(readonly root: string, readonly hooks: NativeContextReadHooks, readonly observation: number) {}
   abstract modelEntries(): string[];
+  abstract decisionEntries(): string[];
   abstract assertModelDirectories(): void;
   abstract readUncached(specs: InputSpec[]): CapturedInput[];
   read(specs: InputSpec[]): void {
@@ -98,6 +99,13 @@ class RefSource extends CapturedSource {
       return entry.path;
     });
   }
+  decisionEntries(): string[] {
+    this.lookup("docs/adr", true);
+    return this.entries.filter(entry => ADR_FILE_PATH.test(entry.path)).map(entry => {
+      if (!entry.utf8Valid) throw new NativeContextError("native-context-path-unsafe", { category: "decision-path-encoding" });
+      return entry.path;
+    }).sort(nativeByteCompare);
+  }
   readUncached(specs: InputSpec[]): CapturedInput[] {
     const entries = specs.map(spec => this.lookup(spec.path));
     const requests = entries.flatMap(entry => entry ? [entry] : []);
@@ -156,6 +164,7 @@ function observePath(root: string, path: string, directory = false): PathObserva
 
 class WorktreeSource extends CapturedSource {
   private membership: string[] | undefined;
+  private decisionMembership: string[] | undefined;
   private readonly windowsModes: Map<string, NativeContextInput["mode"]> | undefined;
   private readonly gitlinks: string[];
   constructor(root: string, hooks: NativeContextReadHooks, observation: number, treeOid: string) {
@@ -170,19 +179,24 @@ class WorktreeSource extends CapturedSource {
     return staged.toString("utf8").split("\0").flatMap(row => row.startsWith("160000 ") ? [row.slice(row.indexOf("\t") + 1)] : []);
   }
   assertModelDirectories(): void { for (const kind of MODEL_KINDS) observePath(this.root, `.archcontext/model/${kind}`, true); }
-  private enumerate(): string[] {
-    const bytes = readOnlyGit(this.root, "ls-files", ["--cached", "--others", "--exclude-standard", "-z", "--", ".archcontext/model/nodes", ".archcontext/model/relations", ".archcontext/model/flows"]);
+  private enumerate(decisions = false): string[] {
+    const bytes = readOnlyGit(this.root, "ls-files", ["--cached", "--others", "--exclude-standard", "-z", "--", ...(decisions ? ["docs/adr"] : [".archcontext/model/nodes", ".archcontext/model/relations", ".archcontext/model/flows"])]);
     if (bytes.length > 0 && bytes[bytes.length - 1] !== 0) throw new NativeContextError("native-context-git-read-failed", { operation: "ls-files", category: "missing-terminator" });
     let paths: string[];
     try { paths = decodeUtf8(bytes).split("\0").filter(Boolean).sort(nativeByteCompare); }
     catch { throw new NativeContextError("native-context-path-unsafe", { category: "model-path-encoding" }); }
     if (new Set(paths).size !== paths.length) throw new NativeContextError("native-context-input-ambiguous", { branch: "git-membership" });
-    return paths;
+    return decisions ? paths.filter(path => ADR_FILE_PATH.test(path)) : paths;
   }
   modelEntries(): string[] {
     this.membership = this.enumerate();
     this.hooks.onBoundary?.("after-model-enumeration", { observation: this.observation });
     return this.membership;
+  }
+  decisionEntries(): string[] {
+    observePath(this.root, "docs/adr", true);
+    this.decisionMembership = this.enumerate(true);
+    return this.decisionMembership;
   }
   readUncached(specs: InputSpec[]): CapturedInput[] {
     let batchBytes = this.byteCount;
@@ -226,6 +240,7 @@ class WorktreeSource extends CapturedSource {
   }
   assertStable(): void {
     if (canonicalize(this.enumerate()) !== canonicalize(this.membership!)) changed("model-membership");
+    if (canonicalize(this.enumerate(true)) !== canonicalize(this.decisionMembership!)) changed("decision-membership");
     const gitlinks = this.readGitlinks();
     const paths: string[] = [];
     for (const [path, captured] of this.captured) {
@@ -337,6 +352,18 @@ function capture(source: CapturedSource, snapshot: NativeContextSnapshot): Nativ
   const issues = nativeContextModelIssues(model, SCHEMAS, recordPaths);
   if (issues.length > 0) throw new NativeContextError(issues.some(issue => issue.invariant === "path-unsafe") ? "native-context-path-unsafe" : "native-context-model-invalid", { issues: issues.slice(0, 32) as unknown as Json, omittedDiagnosticCount: Math.max(0, issues.length - 32) });
   for (const kind of MODEL_KINDS) model[kind].sort((a, b) => nativeByteCompare(a.id as string, b.id as string));
+  const decisionPaths = source.decisionEntries();
+  source.read(decisionPaths.map(path => ({ path, role: "decision", requirement: "required" })));
+  const nodeIds = new Set(model.nodes.map(node => node.id));
+  const decisions = decisionPaths.map(path => {
+    const body = source.text(path)!;
+    const appliesTo = readAdrAppliesTo(body);
+    if (appliesTo.kind === "malformed") throw new NativeContextError("native-context-model-invalid", { path, invariant: "adr-applies-to-invalid" });
+    if (appliesTo.kind === "ids" && appliesTo.ids.some(id => !nodeIds.has(id))) throw new NativeContextError("native-context-model-invalid", { path, invariant: "adr-node-missing" });
+    try { return parseArchitectureDecisionRecord(path, body); }
+    catch { throw new NativeContextError("native-context-model-invalid", { path, invariant: "adr-metadata-invalid" }); }
+  }).sort((a, b) => nativeByteCompare(a.id, b.id) || nativeByteCompare(a.path, b.path));
+  if (new Set(decisions.map(decision => decision.id)).size !== decisions.length) throw new NativeContextError("native-context-model-invalid", { invariant: "adr-id-ambiguous" });
   const capabilityProfiles = profiles(model);
   const declared = new Map<string, { roles: ("agents" | "claude")[]; capabilityNodeIds: string[] }>();
   for (const profile of capabilityProfiles) for (const role of ["agents", "claude"] as const) {
@@ -363,7 +390,7 @@ function capture(source: CapturedSource, snapshot: NativeContextSnapshot): Nativ
   }).sort((a, b) => nativeByteCompare(a.path, b.path));
   const inputs = [...source.captured.values()].map(value => value.input).sort((a, b) => nativeByteCompare(a.path, b.path));
   const inputDigest = digestJson({ protocol: NATIVE_CONTEXT_SCHEMA_VERSION, profile: NATIVE_CONTEXT_PROFILE, inputs: inputs as unknown as Json });
-  return { schemaVersion: NATIVE_CONTEXT_SCHEMA_VERSION, profile: NATIVE_CONTEXT_PROFILE, snapshot, inputDigest, inputs, allowedNodeKinds: nativeAllowedNodeKinds(SCHEMAS), contextBudgetBytes: budget, model, capabilityProfiles, contracts, documents };
+  return { schemaVersion: NATIVE_CONTEXT_SCHEMA_VERSION, profile: NATIVE_CONTEXT_PROFILE, snapshot, inputDigest, inputs, allowedNodeKinds: nativeAllowedNodeKinds(SCHEMAS), contextBudgetBytes: budget, model, capabilityProfiles, contracts, documents, decisions };
 }
 
 /** Stateless native read. The success payload contains no local paths, timestamps or daemon identity. */

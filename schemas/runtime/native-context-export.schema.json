@@ -15,7 +15,8 @@
     "model",
     "capabilityProfiles",
     "contracts",
-    "documents"
+    "documents",
+    "decisions"
   ],
   "properties": {
     "schemaVersion": {
@@ -273,6 +274,57 @@
       "items": {
         "$ref": "#/$defs/document"
       }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "status",
+          "decidedAt",
+          "appliesTo",
+          "supersedes",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersedes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {
@@ -477,7 +529,8 @@
             "relation",
             "flow",
             "contract",
-            "document"
+            "document",
+            "decision"
           ]
         },
         "requirement": {

@@ -34,7 +34,7 @@ export interface NativeContextModel {
 }
 export interface NativeContextInput {
   path: string;
-  role: "manifest" | "node" | "relation" | "flow" | "contract" | "document";
+  role: "manifest" | "node" | "relation" | "flow" | "contract" | "document" | "decision";
   requirement: "required" | "declared" | "optional";
   presence: "present" | "missing";
   mode: "100644" | "100755" | null;
@@ -89,6 +89,10 @@ export interface NativeContextContract {
 export type NativeContextSnapshot =
   | { source: "ref"; commitSha: string; treeOid: string; validation: "immutable-tree" }
   | { source: "worktree"; headSha: string; headTreeOid: string; validation: "stable-read" };
+export interface NativeContextDecision {
+  id: string; title: string; status: string | null; decidedAt: string | null;
+  appliesTo: string[]; supersedes: string[]; path: string;
+}
 export interface NativeContextExportV1 {
   schemaVersion: typeof NATIVE_CONTEXT_SCHEMA_VERSION;
   profile: typeof NATIVE_CONTEXT_PROFILE;
@@ -101,6 +105,7 @@ export interface NativeContextExportV1 {
   capabilityProfiles: NativeCapabilityProfile[];
   contracts: NativeContextContract[];
   documents: NativeContextDocument[];
+  decisions: NativeContextDecision[];
 }
 
 const PATH_REASONS = new Set<NativeContextReasonCode>(["native-context-path-unsafe", "native-context-entry-kind-unsupported", "native-context-ref-unsafe"]);

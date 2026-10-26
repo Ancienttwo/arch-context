@@ -481,7 +481,7 @@ export function parseJsonOrStableYaml(body: string, path: string): Json {
   return new StableYamlParser(body, path).parse();
 }
 
-const ADR_FILE_PATH = /^docs\/adr\/ADR-\d{4}-.+\.md$/;
+export const ADR_FILE_PATH = /^docs\/adr\/ADR-\d{4}-.+\.md$/;
 const MODEL_NODE_PATH_PREFIX = ".archcontext/model/nodes/";
 
 export interface AdrAppliesToValidation {
@@ -503,17 +503,10 @@ export function validateAdrAppliesTo(files: readonly { path: string; body: strin
   const referenceErrors: string[] = [];
   for (const file of files) {
     if (!ADR_FILE_PATH.test(file.path)) continue;
-    const body = file.body.replace(/^\uFEFF/, "");
-    const frontmatter = body.match(/^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/);
-    if (!frontmatter) {
-      // An opening delimiter without a closing one would otherwise hide `appliesTo` from this check.
-      if (/^---[ \t]*\r?\n/.test(body)) errors.push(`${file.path}: ADR frontmatter has no closing --- delimiter`);
-      continue;
-    }
-    const appliesTo = extractAdrAppliesTo(frontmatter[1] ?? "");
+    const appliesTo = readAdrAppliesTo(file.body);
     if (appliesTo.kind === "absent") continue;
     if (appliesTo.kind === "malformed") {
-      errors.push(`${file.path}: ADR appliesTo ${appliesTo.reason}`);
+      errors.push(`${file.path}: ADR ${appliesTo.reason.startsWith("frontmatter") ? "" : "appliesTo "}${appliesTo.reason}`);
       continue;
     }
     for (const id of appliesTo.ids) {
@@ -524,6 +517,54 @@ export function validateAdrAppliesTo(files: readonly { path: string; body: strin
     }
   }
   return { errors, referenceErrors };
+}
+
+/** Shared frontmatter boundary and appliesTo reader for validation and native export. */
+export function readAdrAppliesTo(body: string): AdrAppliesToExtraction {
+  const frontmatter = adrFrontmatter(body);
+  if (frontmatter === null) return /^---[ \t]*\r?\n/.test(body.replace(/^\uFEFF/, ""))
+    ? { kind: "malformed", reason: "frontmatter has no closing --- delimiter" } : { kind: "absent" };
+  return extractAdrAppliesTo(frontmatter);
+}
+function adrFrontmatter(body: string): string | null {
+  const match = body.replace(/^\uFEFF/, "").match(/^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/);
+  return match ? match[1] ?? "" : null;
+}
+export interface ArchitectureDecisionMetadata {
+  id: string; title: string; status: string | null; decidedAt: string | null;
+  appliesTo: string[]; supersedes: string[]; path: string;
+}
+/** Pure ADR parser. Projection and native readers supply bytes from their own source boundary. */
+export function parseArchitectureDecisionRecord(path: string, body: string): ArchitectureDecisionMetadata {
+  const frontmatter = adrFrontmatter(body);
+  if (frontmatter === null) throw new Error(`${path}: ADR frontmatter is required`);
+  const document = parseDocument(frontmatter);
+  if (document.errors.length) throw new Error(`${path}: ADR frontmatter is invalid`);
+  const metadata: unknown = document.toJS();
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error(`${path}: ADR frontmatter must be an object`);
+  const fields = metadata as Record<string, unknown>;
+  const singleLine = (key: string, required = false): string | null => {
+    const value = fields[key];
+    if (value === undefined && !required) return null;
+    if (typeof value !== "string" || !value.trim() || /[\r\n]/.test(value)) throw new Error(`${path}: ADR frontmatter ${key} must be a non-empty single-line string`);
+    return value.trim();
+  };
+  const appliesTo = readAdrAppliesTo(body);
+  if (appliesTo.kind === "malformed") throw new Error(`${path}: ADR appliesTo ${appliesTo.reason}`);
+  const supersedes = fields.supersedes ?? [];
+  if (!Array.isArray(supersedes) || supersedes.some(id => typeof id !== "string" || !id.trim() || /[\r\n]/.test(id))) throw new Error(`${path}: ADR supersedes must be a list of ids`);
+  return { id: singleLine("id") ?? path.slice("docs/adr/".length, -3), title: singleLine("title", true)!, status: singleLine("status"), decidedAt: singleLine("decidedAt"), appliesTo: appliesTo.kind === "ids" ? appliesTo.ids : [], supersedes: supersedes as string[], path };
+}
+
+export function manifestDecisionDiagnostics(files: readonly { path: string; body: string }[]): string[] {
+  const file = files.find(file => file.path === ".archcontext/manifest.yaml");
+  if (!file) return [];
+  let manifest: Json;
+  try { manifest = parseJsonOrStableYaml(file.body, file.path); } catch { return []; }
+  const content = manifest && typeof manifest === "object" && !Array.isArray(manifest) ? manifest.content : undefined;
+  const decisions = content && typeof content === "object" && !Array.isArray(content) ? content.decisions : undefined;
+  if (decisions === undefined || decisions === "docs/adr") return [];
+  return ["manifest-decisions-unsupported: .archcontext/manifest.yaml content.decisions supports only docs/adr; run archctx manifest plan --id <changeset.id> --decisions docs/adr"];
 }
 
 /** Ids of `.archcontext/model/nodes/*`. Malformed node files are schema validation's to report. */

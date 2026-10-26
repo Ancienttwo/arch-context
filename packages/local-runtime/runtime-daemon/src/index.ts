@@ -49,6 +49,7 @@ import {
   bindRepository,
   computeWorktreeDigest,
   readDependencyConstraints,
+  manifestDecisionDiagnostics,
   readReviewPolicy,
   repositoryFingerprint,
   validateAdrAppliesTo,
@@ -1515,7 +1516,7 @@ function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceEr
   return {
     errors,
     referenceErrors: [...adr.referenceErrors, ...constraints.referenceErrors],
-    warnings: [...constraints.warnings, ...reviewPolicy.warnings]
+    warnings: [...constraints.warnings, ...reviewPolicy.warnings, ...manifestDecisionDiagnostics(files)]
   };
 }
 

@@ -121,3 +121,29 @@ can use at most 256 UTF-8 bytes. The rendered failure envelope can use at most 8
 The failure boundary omits complete oversized issues or fields and reports omission counts.
 It does not truncate paths or IDs.
 Source paths count toward this budget, so fewer issues can fit in one response.
+
+## Decision records
+
+`decisions` contains the ADRs under `docs/adr/ADR-NNNN-*.md`, ordered by ID and path.
+Each record exposes `id`, `title`, nullable `status` and `decidedAt`, `appliesTo`,
+`supersedes`, and `path`. An empty ADR directory produces `decisions: []`.
+The export and decision-index renderer use the same metadata reader; `appliesTo`
+uses the domain validator. An unknown node reference fails export with a typed
+model error naming the ADR path.
+
+ADR bytes and membership are part of the native input closure and digest.
+The ref selector reads them from its resolved Git tree; the worktree selector
+checks them for drift along with the model. Changing ADR prose changes the digest
+although the exported metadata may stay identical.
+
+Only `content.decisions: docs/adr` is supported. Model validation and `doctor`
+report `manifest-decisions-unsupported` for another explicit value; projection
+check refuses to claim a valid projection. Prepare the supported repair with
+`archctx manifest plan --id <changeset.id> --decisions docs/adr`, then review and
+apply it through the existing approved ChangeSet flow. The diagnostic does not
+move ADR files or recover missing records.
+
+This extends the strict v1 payload with required `decisions` and the `decision`
+input role. Consumers that validate against an older strict contracts schema must
+upgrade their runtime and contracts together before adopting this output. This
+source change is not a declaration that an existing published release supports it.
