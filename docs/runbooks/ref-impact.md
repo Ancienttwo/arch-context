@@ -15,6 +15,8 @@ counts remain unknown. Depth is bounded to 0 through 10.
 Paths mode accepts newline-separated repository-relative paths from a file or
 stdin (`--paths-from -`). It uses the stable current worktree model; line counts
 and model delta remain unknown. Paths mode cannot be combined with ref flags.
+LF and CRLF delimit records. Empty records are ignored; leading and trailing
+whitespace belongs to the path and is preserved, including whitespace-only paths.
 
 ## Flow coverage remains incomplete
 

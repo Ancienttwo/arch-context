@@ -47,7 +47,7 @@ export function runRefImpactCommand(args: string[], cwd: string, reader: typeof 
         if (error instanceof NativeContextError) throw error;
         throw new NativeContextError("native-context-input-unreadable", { category: "impact-paths-file" });
       } finally { if (fd !== undefined && fd !== 0) closeSync(fd); }
-      options = { paths: text.split(/\r?\n/).map(line => line.trim()).filter(Boolean), depth };
+      options = { paths: text.split(/\r?\n/).filter(line => line.length > 0), depth };
     } else {
       const base = values.get("--base"), head = values.get("--head");
       if (!base || !head) invalid("impact-requires-base-and-head");
