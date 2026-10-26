@@ -45,7 +45,7 @@ export function publicOperationFailure(error: unknown): FailureError<FailureCode
     else if (error instanceof ProjectionFreshnessChangedPathError) failure = knownFailure(own(error, "code") as any, own(error, "reasonCode") as string);
     else if (error instanceof LocalEgressPolicyError) failure = knownFailure("AC_POLICY_VIOLATION", "egress-policy-denied");
     else if (error instanceof Context7ProviderError) failure = knownFailure("AC_SCHEMA_INVALID", "context7-provider-refused", {kind: own(error, "kind") as any}, {retryable: own(error, "retryable") as boolean});
-    else failure = toEnvelope("public.operation", undefined, "public-operation").error;
+    else failure = toEnvelope("public.operation", error, "public-operation").error;
   } catch { failure = toEnvelope("public.operation", undefined, "failure-metadata").error; }
   return new FailureError(failure.code, failure.reasonCode, failure.details, failure);
 }

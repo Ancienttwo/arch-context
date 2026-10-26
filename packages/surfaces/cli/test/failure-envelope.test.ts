@@ -14,7 +14,8 @@ function assertUnknown(value: any) {
     severity: "error", retryable: false,
   } });
   expect(JSON.stringify(value)).not.toContain(sentinel);
-  expect(Object.keys(value.error.details).every(key => key === "stage")).toBe(true);
+  expect(Object.keys(value.error.details).every(key => key === "stage" || key === "errorClass")).toBe(true);
+  if ("errorClass" in value.error.details) expect(["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "URIError", "EvalError", "AggregateError", "NonError"]).toContain(value.error.details.errorClass);
 }
 
 test("selected CLI commands make unknown exceptions safe and explicitly unclassified", async () => {

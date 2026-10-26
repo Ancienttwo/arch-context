@@ -19,6 +19,9 @@ import {
   PROJECTION_WRITER_BRANCH_PREFIX,
   PROJECTION_WRITER_DEFAULT_BRANCH,
   FailureError,
+  knownFailure,
+  failureIssues,
+  normalizeFailureResult,
   errorEnvelope,
   okEnvelope,
   type ArchContextErrorCode,
@@ -145,7 +148,7 @@ interface ProjectionWriterStateV1 {
 
 /** A typed stop inside a locked run; it becomes the run's recorded `error`. */
 class ProjectionWriterFailure extends Error {
-  constructor(readonly code: ArchContextErrorCode, readonly reasonCode: string, message: string) {
+  constructor(readonly code: ArchContextErrorCode, readonly reasonCode: string, message: string, readonly details?: { [key: string]: Json }) {
     super(message);
     this.name = "ProjectionWriterFailure";
   }
@@ -344,7 +347,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
         const failure = envelopeFailure(applied, "projection-apply-failed");
         if (failure.code === "AC_CODE_FACTS_UNAVAILABLE") {
           throw new ProjectionWriterFailure(failure.code, failure.reasonCode,
-            `${failure.message}; the writer never initializes CodeGraph itself: run \`codegraph init ${paths.worktree}\` once, then publish again`);
+            `${failure.message}; the writer never initializes CodeGraph itself: run \`codegraph init ${paths.worktree}\` once, then publish again`, failure.details);
         }
         throw failure;
       }
@@ -447,7 +450,7 @@ function projectionPublishEnvelope(run: ProjectionPublishRunV1): JsonEnvelope {
   if (run.result !== "failed") return okEnvelope(PROJECTION_PUBLISH_REQUEST_ID, run as unknown as Json);
   const error = run.error ?? { code: "AC_UNCLASSIFIED_FAILURE", message: "projection publish failed" };
   return {
-    ...errorEnvelope(PROJECTION_PUBLISH_REQUEST_ID, error.code as ArchContextErrorCode, error.message, error.reasonCode),
+    ...errorEnvelope(PROJECTION_PUBLISH_REQUEST_ID, error.code as ArchContextErrorCode, error.message, error.reasonCode, "details" in error ? error.details : undefined),
     data: run as unknown as Json
   };
 }
@@ -1150,6 +1153,14 @@ function readProjectionWriterState(path: string, remote: string, base: string): 
   if (value?.schemaVersion !== PROJECTION_WRITER_STATE_SCHEMA_VERSION || value.remote !== remote || value.base !== base || typeof value.runSequence !== "number") {
     throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-state-invalid", `projection writer state at ${path} does not belong to ${remote}/${base}`);
   }
+  const error = value.lastRun?.error;
+  if (error?.details !== undefined) {
+    try {
+      const failure = knownFailure(error.code as ArchContextErrorCode, error.reasonCode!, error.details);
+      if (failureIssues({ ...failure, details: error.details }).length) throw new Error("Invalid stored metadata");
+      error.details = failure.details;
+    } catch { throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-state-invalid", "projection writer state contains invalid failure metadata"); }
+  }
   return { ...emptyProjectionWriterState(remote, base), ...value } as ProjectionWriterStateV1;
 }
 
@@ -1259,8 +1270,9 @@ function gitSucceeds(cwd: string, args: string[]): boolean {
 // ---------------------------------------------------------------------------------------------
 
 function envelopeFailure(envelope: JsonEnvelope, fallbackReason: string): ProjectionWriterFailure {
-  const error = envelope.error;
-  return new ProjectionWriterFailure(error?.code ?? "AC_UNCLASSIFIED_FAILURE", error?.reasonCode ?? fallbackReason, error?.message ?? fallbackReason);
+  const normalized = normalizeFailureResult(envelope, "public-operation") as JsonEnvelope;
+  const error = normalized.error;
+  return new ProjectionWriterFailure(error?.code ?? "AC_UNCLASSIFIED_FAILURE", error?.reasonCode ?? fallbackReason, error?.message ?? fallbackReason, error?.details);
 }
 
 function asWriterFailure(error: unknown): ProjectionWriterFailure {
@@ -1271,7 +1283,7 @@ function asWriterFailure(error: unknown): ProjectionWriterFailure {
 }
 
 function writerError(failure: ProjectionWriterFailure): NonNullable<ProjectionPublishRunV1["error"]> {
-  return { code: failure.code, reasonCode: failure.reasonCode, message: failure.message };
+  return { code: failure.code, reasonCode: failure.reasonCode, message: failure.message, ...(failure.details === undefined ? {} : { details: failure.details }) };
 }
 
 function errorMessage(error: unknown): string {

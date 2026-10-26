@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { jsonSchemaResolver, okEnvelope, validateJsonSchema, type Json, type JsonEnvelope, type ProjectionPublishRunV1, type ProjectionPublishStatusV1, type ProjectionRequestV1 } from "@archcontext/contracts";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
+import { publicOperationErrorEnvelope } from "../src/public-operation-failure";
+import { failureEnvelope, knownFailure } from "@archcontext/contracts";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import {
@@ -461,6 +463,42 @@ test("an apply failure is recorded as failed with its code, and code facts name 
   const status = statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env }));
   expect(status.lastRun?.result).toBe("failed");
   expect(status.lastSuccessfulSha).toBeNull();
+});
+
+test("a real filesystem failure retains safe diagnostics through publish, state and status", async () => {
+  const fixture = writerFixture();
+  let upstream: JsonEnvelope | undefined;
+  const result = await runProjectionPublishCommand({ cwd: fixture.clone, env: fixture.env, publisher: createNoneProjectionPublisher(), apply: async () => {
+    try { readFileSync(join(fixture.root, "missing-private-source"), "utf8"); throw new Error("unexpected success"); }
+    catch (error) { upstream = publicOperationErrorEnvelope("projection.run", error); return upstream; }
+  } });
+  expect(upstream?.error?.details).toMatchObject({ stage: "public-operation" });
+  expect(result.error?.details).toMatchObject({ stage: "public-operation", errorClass: "Error" });
+  const run = runOf(result);
+  expect(run.error).toMatchObject({ details: result.error?.details });
+  const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
+  const stored = JSON.parse(readFileSync(paths.state, "utf8"));
+  expect(stored.lastRun.error.details).toEqual(result.error?.details);
+  const status = statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env }));
+  expect(status.lastRun?.error).toEqual(run.error);
+  expect(JSON.stringify([result, stored, status])).not.toContain("missing-private-source");
+});
+
+test("known structured failure facts survive the writer and tampered state fails closed", async () => {
+  const fixture = writerFixture();
+  const details = { issueCount: 1, diagnostics: [{ path: "docs/adr/ADR-0001-x.md", code: "schema-version-missing" }], omittedIssueCount: 0 };
+  const result = await runProjectionPublishCommand({ cwd: fixture.clone, env: fixture.env, publisher: createNoneProjectionPublisher(), apply: async () => failureEnvelope("projection.run", knownFailure("AC_PRECONDITION_FAILED", "apply-model-invalid", details)) });
+  expect(result.error?.details).toEqual(details);
+  const run = runOf(result);
+  expect(run.error?.details).toEqual(details);
+  expect(statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env })).lastRun?.error?.details).toEqual(details);
+  const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
+  const stored = JSON.parse(readFileSync(paths.state, "utf8"));
+  stored.lastRun.error.details.privateBody = "private-provider-body";
+  writeFileSync(paths.state, JSON.stringify(stored));
+  const rejected = runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env });
+  expect(rejected).toMatchObject({ ok: false, error: { reasonCode: "projection-writer-state-invalid" } });
+  expect(JSON.stringify(rejected)).not.toContain("private-provider-body");
 });
 
 test("the command publisher runs with only PATH, HOME and the ARCHCTX_PUBLISH_* inputs and parses its JSON stdout", async () => {
