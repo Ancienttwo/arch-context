@@ -295,12 +295,15 @@ export class YamlModelStore implements ModelStorePort {
 
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     const errors: string[] = [];
+    const diagnostics: NonNullable<ModelValidationResult["diagnostics"]> = [];
     const nodeSchemaErrors: NonNullable<ModelValidationResult["nodeSchemaErrors"]> = [];
     for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
       try {
         readFileSync(resolve(workspace.root, required), "utf8");
       } catch {
-        errors.push(`missing ${required}`);
+        const error = `missing ${required}`;
+        errors.push(error);
+        diagnostics.push({ path: required, code: "missing-file", error });
       }
     }
     const files = listModelFiles(workspace.root);
@@ -330,7 +333,11 @@ export class YamlModelStore implements ModelStorePort {
           continue;
         }
       }
-      if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
+      if (!file.schemaVersion.startsWith("archcontext.")) {
+        const error = `${file.path}: missing schemaVersion`;
+        errors.push(error);
+        diagnostics.push({ path: file.path, code: "schema-version-missing", error });
+      }
       if (file.path.startsWith(".archcontext/model/flows/") && file.schemaVersion !== "archcontext.flow/v1") {
         errors.push(`${file.path}: expected archcontext.flow/v1, got ${file.schemaVersion || "missing"}`);
       }
@@ -348,6 +355,7 @@ export class YamlModelStore implements ModelStorePort {
     return {
       valid: errors.length === 0,
       errors,
+      ...(diagnostics.length > 0 ? { diagnostics } : {}),
       ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
       ...(nodeSchemaErrors.length > 0 ? { nodeSchemaErrors } : {}),
       ...(constraints.layerOrderErrors.length > 0 ? { layerOrderErrors: constraints.layerOrderErrors } : {}),

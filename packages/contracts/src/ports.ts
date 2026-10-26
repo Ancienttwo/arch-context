@@ -1,4 +1,4 @@
-import { digestJson, type Json } from "./schema";
+import { digestJson, isRepoRelativePosixPath, type Json } from "./schema";
 import type {
   AgentJobV1,
   ArchitectureEventSource,
@@ -142,9 +142,18 @@ export interface LocalStorePort {
   saveReviewResult(reviewId: string, result: unknown): Promise<void>;
 }
 
+export const MODEL_VALIDATION_DIAGNOSTIC_CODES = ["missing-file", "schema-version-missing", "node-schema-invalid"] as const;
+export interface ModelValidationDiagnostic {
+  path: string;
+  code: typeof MODEL_VALIDATION_DIAGNOSTIC_CODES[number];
+  /** Validation-owned error identity; never emitted in the public failure projection. */
+  error: string;
+}
+
 export interface ModelValidationResult {
   valid: boolean;
   errors: string[];
+  diagnostics?: ModelValidationDiagnostic[];
   /**
    * The subset of `errors` that are cross-file references resolving to nothing, such as an ADR
    * `appliesTo` id with no node. Omitted when empty.
@@ -157,6 +166,15 @@ export interface ModelValidationResult {
   /** Problems that do not invalidate the model, such as an ignored legacy setting. Omitted when empty. */
   warnings?: string[];
   modelDigest: string;
+}
+
+/** Projects only authority-supplied locations, never text parsed from validation errors. */
+export function modelValidationFailureDetails(result: ModelValidationResult, blockingErrors: readonly string[]) {
+  const blocking = new Set(blockingErrors);
+  const records = [...result.diagnostics ?? [], ...(result.nodeSchemaErrors ?? []).map(issue => ({ ...issue, code: "node-schema-invalid" as const }))];
+  const diagnostics = records.filter(issue => blocking.has(issue.error) && isRepoRelativePosixPath(issue.path) && new TextEncoder().encode(JSON.stringify(issue.path)).length <= 256)
+    .slice(0, Math.min(8, blockingErrors.length)).map(({ path, code }) => ({ path, code }));
+  return { issueCount: blockingErrors.length, diagnostics, omittedIssueCount: blockingErrors.length - diagnostics.length };
 }
 
 export interface ModelStorePort {

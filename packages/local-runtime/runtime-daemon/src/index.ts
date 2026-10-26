@@ -217,10 +217,11 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
     const readback = await this.loadLedgerModel(workspace);
-    const { errors, referenceErrors, warnings, layerOrderErrors } = validateLedgerModelFiles(readback.files);
+    const { errors, referenceErrors, warnings, layerOrderErrors, diagnostics } = validateLedgerModelFiles(readback.files);
     const result: ArchitectureLedgerReadModelValidation = {
       valid: errors.length === 0,
       errors,
+      ...(diagnostics?.length ? { diagnostics } : {}),
       ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
       ...(layerOrderErrors.length > 0 ? { layerOrderErrors } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
@@ -1502,14 +1503,23 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
   };
 }
 
-export function validateLedgerModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[]; layerOrderErrors: string[] } {
+export function validateLedgerModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[]; layerOrderErrors: string[]; diagnostics?: ModelValidationResult["diagnostics"] } {
   const errors: string[] = [];
+  const diagnostics: NonNullable<ModelValidationResult["diagnostics"]> = [];
   const paths = new Set(files.map((file) => file.path));
   for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
-    if (!paths.has(required)) errors.push(`missing ${required}`);
+    if (!paths.has(required)) {
+      const error = `missing ${required}`;
+      errors.push(error);
+      diagnostics.push({ path: required, code: "missing-file", error });
+    }
   }
   for (const file of files) {
-    if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
+    if (!file.schemaVersion.startsWith("archcontext.")) {
+      const error = `${file.path}: missing schemaVersion`;
+      errors.push(error);
+      diagnostics.push({ path: file.path, code: "schema-version-missing", error });
+    }
   }
   const adr = validateAdrAppliesTo(files);
   const constraints = readDependencyConstraints(files);
@@ -1518,6 +1528,7 @@ export function validateLedgerModelFiles(files: ModelFile[]): { errors: string[]
   return {
     errors,
     referenceErrors: [...adr.referenceErrors, ...constraints.referenceErrors],
+    ...(diagnostics.length ? { diagnostics } : {}),
     layerOrderErrors: constraints.layerOrderErrors,
     warnings: [...constraints.warnings, ...reviewPolicy.warnings, ...manifestDecisionDiagnostics(files)]
   };

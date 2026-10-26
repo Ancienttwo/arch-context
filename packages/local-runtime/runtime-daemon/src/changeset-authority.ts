@@ -1,5 +1,6 @@
 import { PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionApplyReceiptDataSnapshot, projectionApplyRecoveryDetailsBytes, projectionApplyRecoveryDetailsFit, failureEnvelope, knownFailure } from "@archcontext/contracts";
 import { FailureError } from "@archcontext/contracts";
+import { modelValidationFailureDetails } from "@archcontext/contracts";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -249,6 +250,10 @@ export class ChangeSetAuthorityService {
       reason: input.reason ?? { taskSessionId: "task_runtime" },
       operations: input.operations
     });
+    const baseErrors = changeSetBaseModelBlockingErrors(model, draft);
+    if (baseErrors.length > 0) {
+      throw new FailureError("AC_PRECONDITION_FAILED", "plan-model-invalid", modelValidationFailureDetails(model, baseErrors));
+    }
     this.changesets.set(draft.id, draft);
     this.changeSetRoots.set(draft.id, canonicalRepositoryRoot(root));
     this.changeSetWorktreeDigestProfiles.set(draft.id, worktreeDigestProfile);
@@ -340,7 +345,7 @@ export class ChangeSetAuthorityService {
       const currentModel = await this.readModelStore.validateModel(session.workspace);
       const baseErrors = changeSetBaseModelBlockingErrors(currentModel, draft);
       if (baseErrors.length > 0) {
-        throw new FailureError("AC_PRECONDITION_FAILED", "apply-model-invalid", {issueCount: baseErrors.length});
+        throw new FailureError("AC_PRECONDITION_FAILED", "apply-model-invalid", modelValidationFailureDetails(currentModel, baseErrors));
       }
       if (draft.base.modelDigest !== currentModel.modelDigest) throw new FailureError("AC_PRECONDITION_FAILED", "apply-model-changed", {expectedModelDigest: draft.base.modelDigest, actualModelDigest: currentModel.modelDigest});
       const committedReceipt = input.projectionApplyReceipt
