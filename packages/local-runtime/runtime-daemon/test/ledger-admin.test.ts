@@ -508,7 +508,7 @@ for (const operation of ["project", "rollback"] as const) {
       modelStore.validateModel = async () => ({ ...valid, valid: false, errors: [secret, "second error"] });
       const error = await (operation === "project" ? daemon.ledgerProject(root, input) : daemon.ledgerRollback(root, { ...input, toYaml: true })).catch(error => error);
       expect(error).toBeInstanceOf(FailureError);
-      expect(error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "apply-model-invalid", details: { issueCount: 2 }, action: "rebuild-plan" });
+      expect(error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "apply-model-invalid", details: { issueCount: 2, diagnostics: [], omittedIssueCount: 2 }, retryable: false, action: "repair-model" });
       expect(failureIssues(error.failure)).toEqual([]);
       expect(JSON.stringify(error.failure)).not.toContain(secret);
       expect(listModelFiles(root)).toEqual(filesBefore);

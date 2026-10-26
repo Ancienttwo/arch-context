@@ -9,6 +9,7 @@ test("every registered failure reason has the strict four fields and bounded UTF
     const facts: Record<string, any> = {
       stage: "debt", checks: ["ownership", "anchors"], issueCount: 2, method: "completeTask", timeoutMs: 5, elapsedMs: 6, mutationOutcome: "unknown",
       issues: [{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }],
+      diagnostics: [{ path: "docs/adr/ADR-0001-x.md", code: "schema-version-missing" }], omittedIssueCount: 1,
       jobId: "job.fixture", runId: "audit_run.fixture", draftId: "draft.fixture", recommendationId: "recommendation."+"a".repeat(16), currentRecommendationId: "recommendation."+"b".repeat(16), currentRecorded: true,
       consentReason: "not-granted", searched: "recorded", decisionStatus: "accepted", disposition: "resolved", changedFields: ["headSha", "worktreeDigest"],
       evidenceDigest: "sha256:"+"a".repeat(64), assessmentDigest: "sha256:"+"b".repeat(64), expectedHeadSha: "a".repeat(40), actualHeadSha: "b".repeat(40),

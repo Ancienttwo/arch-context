@@ -1,4 +1,5 @@
 import { changeSetRecoveryDetailsSnapshot } from "./changeset-recovery";
+import { MODEL_VALIDATION_DIAGNOSTIC_CODES } from "./ports";
 import { PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionRecoveryDetailsSnapshot } from "./projection-recovery";
 import { ERROR_CATALOG, canonicalize, type ArchContextErrorCode, type Json, type Severity } from "./schema";
 
@@ -141,7 +142,8 @@ Object.assign(policies, {
   "apply-profile-changed": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet worktree digest profile changed before apply.", "facts": {}},
   "apply-worktree-changed": {"code": "AC_PRECONDITION_FAILED", "message": "Worktree digest changed before apply.", "facts": {"expectedWorktreeDigest": "sha256", "actualWorktreeDigest": "sha256"}},
   "apply-head-changed": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet HEAD changed before apply.", "facts": {"expectedHeadSha": "head", "actualHeadSha": "head"}},
-  "apply-model-invalid": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet base model is invalid.", "facts": {"issueCount": "uint"}},
+  "apply-model-invalid": { code: "AC_PRECONDITION_FAILED", message: "ChangeSet base model is invalid.", retryable: false, action: "repair-model", facts: { issueCount: "uint", diagnostics: "modelValidationDiagnostics", omittedIssueCount: "uint" } },
+  "plan-model-invalid": { code: "AC_PRECONDITION_FAILED", message: "ChangeSet base model is invalid.", retryable: false, action: "repair-model", facts: { issueCount: "uint", diagnostics: "modelValidationDiagnostics", omittedIssueCount: "uint" } },
   "apply-model-changed": {"code": "AC_PRECONDITION_FAILED", "message": "ChangeSet model digest changed before apply.", "facts": {"expectedModelDigest": "sha256", "actualModelDigest": "sha256"}},
   "apply-preimage-changed": {"code": "AC_PRECONDITION_FAILED", "message": "Projection preimage changed before apply.", "facts": {"issueCount": "uint"}},
   "projection-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection input invalid.", "facts": {}},
@@ -429,6 +431,20 @@ function localFactValue(rule: string, value: unknown): Json {
   }
   if (rule === "commandSuggestion" && (value === null || (typeof value === "string" && bytes(value) <= 1024 && /^archctx (recommendations |refactor verify )[^\r\n]*$/.test(value)))) return value;
   if (rule === "publicConfirmationToken" && typeof value === "string" && bytes(value) <= 1024 && /^public:github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+:[a-f0-9]{40}:[A-Za-z0-9_.:-]+$/.test(value)) return value;
+  if (rule === "modelValidationDiagnostics") {
+    if (!Array.isArray(value)) throw new Error("Invalid model diagnostics budget");
+    const length = Object.getOwnPropertyDescriptor(value, "length")?.value;
+    if (!Number.isSafeInteger(length) || length > 8 || Reflect.ownKeys(value).length !== length + 1) throw new Error("Invalid model diagnostics budget");
+    return Array.from({ length }, (_, index) => {
+      const entry = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!entry || !("value" in entry)) throw new Error("Model diagnostics must use own data");
+      const fields = dataRecord(entry.value);
+      const path = fields.path?.value, code = fields.code?.value;
+      if (Object.keys(fields).length !== 2 || typeof path !== "string" || bytes(path) > 256 || path.startsWith("/") || path.includes("\\") || path.split("/").includes("..") || path.length === 0
+        || !MODEL_VALIDATION_DIAGNOSTIC_CODES.includes(code as any)) throw new Error("Invalid model diagnostic");
+      return { path, code: code as string };
+    });
+  }
   if (rule === "diagnosticPaths" || rule === "diagnosticCommands") {
     if (!Array.isArray(value)) throw new Error("Diagnostics must be an own list");
     const length=Object.getOwnPropertyDescriptor(value,"length")?.value;
