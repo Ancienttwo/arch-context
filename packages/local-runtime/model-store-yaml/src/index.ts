@@ -5,6 +5,7 @@ import { manifestDecisionDiagnostics, parseJsonOrStableYaml, readDependencyConst
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 export * from "./native-context";
+export { IMPACT_LIMITS, readRefImpact, type RefImpactOptions } from "./ref-impact";
 
 export interface ModelFile {
   path: string;

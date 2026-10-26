@@ -1,0 +1,574 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/ref-impact.schema.json",
+  "title": "RefImpactV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "base",
+    "head",
+    "depth",
+    "changedPaths",
+    "unownedPaths",
+    "touchedNodes",
+    "touchedFlowSteps",
+    "dependents",
+    "dependencyCoverage",
+    "modelDelta",
+    "limits",
+    "truncated"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.ref-impact/v1"
+    },
+    "base": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "commitSha",
+                "treeOid",
+                "validation"
+              ],
+              "properties": {
+                "source": {
+                  "const": "ref"
+                },
+                "commitSha": {
+                  "type": "string",
+                  "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+                },
+                "treeOid": {
+                  "type": "string",
+                  "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+                },
+                "validation": {
+                  "const": "immutable-tree"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "headSha",
+                "headTreeOid",
+                "validation"
+              ],
+              "properties": {
+                "source": {
+                  "const": "worktree"
+                },
+                "headSha": {
+                  "type": "string",
+                  "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+                },
+                "headTreeOid": {
+                  "type": "string",
+                  "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+                },
+                "validation": {
+                  "const": "stable-read"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "head": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "commitSha",
+            "treeOid",
+            "validation"
+          ],
+          "properties": {
+            "source": {
+              "const": "ref"
+            },
+            "commitSha": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "treeOid": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "validation": {
+              "const": "immutable-tree"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "headSha",
+            "headTreeOid",
+            "validation"
+          ],
+          "properties": {
+            "source": {
+              "const": "worktree"
+            },
+            "headSha": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "headTreeOid": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "validation": {
+              "const": "stable-read"
+            }
+          }
+        }
+      ]
+    },
+    "depth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "changedPaths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "added",
+          "deleted",
+          "baseOwners",
+          "headOwners",
+          "owners",
+          "reasonCodes"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "added": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "deleted": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "baseOwners": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "headOwners": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "owners": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reasonCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "maxItems": 1000
+    },
+    "unownedPaths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "touchedNodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "pathCount"
+        ],
+        "properties": {
+          "nodeId": {
+            "type": "string"
+          },
+          "pathCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "maxItems": 1000
+    },
+    "touchedFlowSteps": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "reasonCodes",
+            "items"
+          ],
+          "properties": {
+            "status": {
+              "const": "known"
+            },
+            "reasonCodes": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "flowId",
+                  "stepId",
+                  "outcomeId",
+                  "reasonCodes"
+                ],
+                "properties": {
+                  "flowId": {
+                    "type": "string"
+                  },
+                  "stepId": {
+                    "type": "string"
+                  },
+                  "outcomeId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reasonCodes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "maxItems": 2000
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "reasonCodes",
+            "items"
+          ],
+          "properties": {
+            "status": {
+              "const": "unknown"
+            },
+            "reasonCodes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "items": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "flowId",
+                      "stepId",
+                      "outcomeId",
+                      "reasonCodes"
+                    ],
+                    "properties": {
+                      "flowId": {
+                        "type": "string"
+                      },
+                      "stepId": {
+                        "type": "string"
+                      },
+                      "outcomeId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reasonCodes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "maxItems": 2000
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "dependents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "touchedNodeId",
+          "relationIds"
+        ],
+        "properties": {
+          "nodeId": {
+            "type": "string"
+          },
+          "touchedNodeId": {
+            "type": "string"
+          },
+          "relationIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "maxItems": 5000
+    },
+    "dependencyCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "graph",
+        "pathSelection"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "partial"
+          ]
+        },
+        "graph": {
+          "const": "head"
+        },
+        "pathSelection": {
+          "const": "one-shortest-path-per-node-pair"
+        }
+      }
+    },
+    "modelDelta": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "changes",
+            "truncated"
+          ],
+          "properties": {
+            "status": {
+              "const": "known"
+            },
+            "changes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "id",
+                  "change",
+                  "fields"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "nodes",
+                      "relations",
+                      "flows"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "change": {
+                    "enum": [
+                      "added",
+                      "removed",
+                      "changed"
+                    ]
+                  },
+                  "fields": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "maxItems": 5000
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "reasonCode",
+            "changes",
+            "truncated"
+          ],
+          "properties": {
+            "status": {
+              "const": "unknown"
+            },
+            "reasonCode": {
+              "const": "paths-only"
+            },
+            "changes": {
+              "type": "null"
+            },
+            "truncated": {
+              "const": false
+            }
+          }
+        }
+      ]
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changedPaths",
+        "nodes",
+        "relations",
+        "flowSteps",
+        "dependents",
+        "modelChanges",
+        "depth",
+        "diffBytes",
+        "responseBytes",
+        "diffLines",
+        "diffWork"
+      ],
+      "properties": {
+        "changedPaths": {
+          "const": 1000
+        },
+        "nodes": {
+          "const": 1000
+        },
+        "relations": {
+          "const": 5000
+        },
+        "flowSteps": {
+          "const": 2000
+        },
+        "dependents": {
+          "const": 5000
+        },
+        "modelChanges": {
+          "const": 5000
+        },
+        "depth": {
+          "const": 10
+        },
+        "diffBytes": {
+          "const": 8388608
+        },
+        "responseBytes": {
+          "const": 8388608
+        },
+        "diffLines": {
+          "const": 100000
+        },
+        "diffWork": {
+          "const": 2000000
+        }
+      }
+    },
+    "truncated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changedPaths",
+        "touchedNodes",
+        "relations",
+        "flowSteps",
+        "dependents",
+        "modelDelta"
+      ],
+      "properties": {
+        "changedPaths": {
+          "type": "boolean"
+        },
+        "touchedNodes": {
+          "type": "boolean"
+        },
+        "relations": {
+          "type": "boolean"
+        },
+        "flowSteps": {
+          "type": "boolean"
+        },
+        "dependents": {
+          "type": "boolean"
+        },
+        "modelDelta": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
