@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { REVIEW_FAIL_ON_CATEGORIES, digestJson, runtimeTopologyModelIssues, stableYaml, validateJsonSchema, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
-import { parseJsonOrStableYaml, readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
+import { manifestDecisionDiagnostics, parseJsonOrStableYaml, readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 export * from "./native-context";
@@ -343,7 +343,7 @@ export class YamlModelStore implements ModelStorePort {
     const reviewPolicy = readReviewPolicy(files);
     errors.push(...adr.errors, ...constraints.errors, ...reviewPolicy.errors);
     const referenceErrors = [...adr.referenceErrors, ...constraints.referenceErrors];
-    const warnings = [...constraints.warnings, ...reviewPolicy.warnings];
+    const warnings = [...constraints.warnings, ...reviewPolicy.warnings, ...manifestDecisionDiagnostics(files)];
     const modelDigest = digestJson(files.map((file) => ({ path: file.path, digest: file.digest })));
     return {
       valid: errors.length === 0,

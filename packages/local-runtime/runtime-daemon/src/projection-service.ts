@@ -1,8 +1,8 @@
 import { FailureError, failureEnvelope, knownFailure, PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionApplyCommittedDetails, projectionApplyManualOnlyDetails, projectionApplyRecoveryDetailsBytes, projectionApplyRecoveryDetailsFit } from "@archcontext/contracts";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { computeWorktreeDigest, manifestDecisionDiagnostics, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, ignoredRepositoryPaths, readHeadSha, listGitVisibleFiles, type IgnoredRepositoryPath } from "@archcontext/local-runtime/git-adapter";
 import { architectureModelIgnoreProbePaths } from "@archcontext/local-runtime/model-store-yaml";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
@@ -724,6 +724,11 @@ export function runProjectionCheckCommand(request: ProjectionRequestV1, root: st
 function runProjectionCheckCommandUnchecked(request: ProjectionRequestV1, root: string): JsonEnvelope {
   if (request.mode !== "check") {
     return publicFailureEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection-check-mode-invalid");
+  }
+  const manifestPath = ".archcontext/manifest.yaml";
+  if (existsSync(resolve(root, manifestPath))) {
+    const diagnostics = manifestDecisionDiagnostics([{ path: manifestPath, body: readFileSync(resolve(root, manifestPath), "utf8") }]);
+    if (diagnostics.length) return publicFailureEnvelope("projection.run", "AC_SCHEMA_INVALID", "native-context-model-invalid", { path: manifestPath, invariant: diagnostics[0]! });
   }
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {

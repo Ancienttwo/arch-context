@@ -13,7 +13,7 @@ import { FailureError, NativeContextError, toEnvelope, ARCHCONTEXT_NODE_RANGE, A
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
 import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
-import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { computeWorktreeDigest, manifestDecisionDiagnostics, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
@@ -3279,6 +3279,7 @@ async function doctorReport(cwd: string, args: string[] = []) {
     paths,
     codeGraph: product.runtime.codeGraph,
     codeFacts,
+    manifest: doctorManifest(("root" in git && git.root) || cwd),
     git,
     permissions,
     egress,
@@ -3286,6 +3287,13 @@ async function doctorReport(cwd: string, args: string[] = []) {
     ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable && egress.ok
       && (daemon as { writable?: boolean }).writable !== false
   };
+}
+
+/** Read-only manifest diagnostics shared with model validation. Does not start a runtime. */
+export function doctorManifest(root: string): { warnings: string[] } {
+  const path = ".archcontext/manifest.yaml";
+  try { return { warnings: manifestDecisionDiagnostics([{ path, body: readFileSync(resolve(root, path), "utf8") }]) }; }
+  catch { return { warnings: [] }; }
 }
 
 type UpdateCheckStatus = "not-checked" | "current" | "update-available" | "latest-unavailable" | "compare-unavailable";

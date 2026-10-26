@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, posix, resolve } from "node:path";
-import { parse as parseYaml } from "yaml";
 import { generatedMarkerAttributes, scanDocumentRegions } from "./document-regions";
 import { globLiteralPrefixLength } from "./source-globs";
 export * from "./document-regions";
@@ -57,7 +56,7 @@ import {
   type ProjectionMixedTargetV1,
   type ProjectionTargetV1
 } from "@archcontext/contracts";
-import { assertRepoRelativePath, computeWorktreeDigest, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
+import { assertRepoRelativePath, computeWorktreeDigest, parseArchitectureDecisionRecord, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments } from "@archcontext/core/changeset-engine";
 import {
   agentContextTargetPaths,
@@ -1293,25 +1292,8 @@ export function loadArchitectureDecisionRecords(root: string): ArchitectureDecis
     .sort()
     .map((file) => {
       const path = `docs/adr/${file}`;
-      const body = readFileSync(resolve(root, path), "utf8").replace(/^\uFEFF/, "");
-      const frontmatter = body.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
-      if (!frontmatter) throw new Error(`${path}: ADR frontmatter is required`);
-      const metadata = parseYaml(frontmatter[1]!) as unknown;
-      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-        throw new Error(`${path}: ADR frontmatter must be an object`);
-      }
-      const { title, status } = metadata as Record<string, unknown>;
-      if (typeof title !== "string" || !title.trim()) throw new Error(`${path}: ADR frontmatter title is required`);
-      if (/[\r\n]/.test(title)) throw new Error(`${path}: ADR frontmatter title must be a single line`);
-      if (status !== undefined && (typeof status !== "string" || !status.trim() || /[\r\n]/.test(status))) {
-        throw new Error(`${path}: ADR frontmatter status must be a non-empty single-line string`);
-      }
-      return {
-        id: basename(file, ".md"),
-        title: title.trim(),
-        path,
-        ...(status ? { status: status.trim() } : {})
-      };
+      const metadata = parseArchitectureDecisionRecord(path, readFileSync(resolve(root, path), "utf8"));
+      return { id: basename(file, ".md"), title: metadata.title, path, ...(metadata.status ? { status: metadata.status } : {}) };
     });
 }
 
