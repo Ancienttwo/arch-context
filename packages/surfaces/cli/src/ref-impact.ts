@@ -1,7 +1,7 @@
 import { openSync, closeSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 import { NativeContextError, nativeContextErrorEnvelope, okEnvelope, toEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
-import { IMPACT_LIMITS, readRefImpact, type RefImpactOptions } from "../../../local-runtime/model-store-yaml/src/ref-impact";
+import { IMPACT_LIMITS, readRefImpact, type RefImpactOptions } from "@archcontext/local-runtime/model-store-yaml";
 
 const invalid = (category: string): never => { throw new NativeContextError("native-context-arguments-invalid", { category }); };
 export function runRefImpactCommand(args: string[], cwd: string, reader: typeof readRefImpact = readRefImpact): JsonEnvelope {
