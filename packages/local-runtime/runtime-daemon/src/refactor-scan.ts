@@ -267,7 +267,19 @@ export interface ReviewDependencyConstraintInputV1 {
  */
 export function evaluateReviewDependencyConstraints(input: ReviewDependencyConstraintInputV1): DependencyConstraintEvaluationV1 {
   const constraints: DependencyConstraintV1[] = readDependencyConstraints(input.modelFiles).constraints;
-  const base = { nodes: modelNodes(input.modelFiles), constraints, worktreeDigest: input.worktreeDigest };
+  return evaluateWorktreeDependencyConstraints({ ...input, nodes: modelNodes(input.modelFiles), constraints });
+}
+
+/** Shared evidence read for daemon review and the stateless constraint query. */
+export function evaluateWorktreeDependencyConstraints(input: {
+  root: string;
+  worktreeDigest: string;
+  nodes: NativeNode[];
+  constraints: DependencyConstraintV1[];
+  edgeLimit?: number;
+}): DependencyConstraintEvaluationV1 {
+  const { constraints } = input;
+  const base = { nodes: input.nodes, constraints, worktreeDigest: input.worktreeDigest };
   if (constraints.length === 0) {
     return evaluateDependencyConstraints({
       ...base,

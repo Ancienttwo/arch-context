@@ -135,6 +135,13 @@ export function changeSetBaseModelBlockingErrors(result: ModelValidationResult, 
   const repairedErrors = new Set((result.nodeSchemaErrors ?? [])
     .filter(issue => repairedPaths.has(issue.path))
     .map(issue => issue.error));
+  if (draft.operations.length === 1) {
+    const operation = draft.operations[0]!;
+    try {
+      assertManifestUpdateOperation(operation);
+      if (operation.fields["model.layers"] !== undefined) for (const error of result.layerOrderErrors ?? []) repairedErrors.add(error);
+    } catch { /* An invalid or unrelated operation cannot relax base validation. */ }
+  }
   return baseModelBlockingErrors(result).filter(error => !repairedErrors.has(error));
 }
 
@@ -466,8 +473,10 @@ export class ChangeSetEngine {
     assertManifestUpdateOperation(operation);
     const absolute = assertPathHasNoSymlinkSegments(root, MANIFEST_UPDATE_PATH);
     assertExpectedHash(absolute, operation.expectedHash);
-    const directory = assertPathHasNoSymlinkSegments(root, "docs/adr");
-    if (!lstatSync(directory).isDirectory()) throw new Error("Manifest decisions target docs/adr must be an existing directory");
+    if (operation.fields["content.decisions"] !== undefined) {
+      const directory = assertPathHasNoSymlinkSegments(root, "docs/adr");
+      if (!lstatSync(directory).isDirectory()) throw new Error("Manifest decisions target docs/adr must be an existing directory");
+    }
     return renderManifestFieldsUpdate(readFileSync(absolute, "utf8"), operation.fields);
   }
 

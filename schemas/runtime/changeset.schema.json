@@ -202,12 +202,30 @@
               "fields": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": [
-                  "content.decisions"
+                "anyOf": [
+                  {
+                    "required": [
+                      "content.decisions"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "model.layers"
+                    ]
+                  }
                 ],
                 "properties": {
                   "content.decisions": {
                     "const": "docs/adr"
+                  },
+                  "model.layers": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+                    }
                   }
                 }
               }

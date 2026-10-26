@@ -135,6 +135,7 @@
             "$ref": "../repo/architecture-flow.schema.json"
           }
         },
+        "layers": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" } },
         "sourcePaths": {
           "type": "object",
           "additionalProperties": false,

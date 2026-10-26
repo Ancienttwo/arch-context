@@ -29,6 +29,7 @@ export { PROJECTION_PR_BODY_MARKER, PROJECTION_WRITER_DEFAULT_BASE, PROJECTION_W
 import { measureProjectionFreshness } from "./projection-freshness";
 export { runDocsAnchorsCommand } from "./docs-anchors";
 export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
+export { runConstraintCheckCommand } from "./constraints-check";
 export { runFlowSelectorCheckCommand } from "./flow-selector-check";
 import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type DeveloperReviewRunManifest, type DeveloperReviewRun, type DeveloperReviewRunPreparation, type DeveloperReviewRunCleanup, type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunRecovery } from "./developer-review-run";
 export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
@@ -216,11 +217,12 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
     const readback = await this.loadLedgerModel(workspace);
-    const { errors, referenceErrors, warnings } = validateModelFiles(readback.files);
+    const { errors, referenceErrors, warnings, layerOrderErrors } = validateLedgerModelFiles(readback.files);
     const result: ArchitectureLedgerReadModelValidation = {
       valid: errors.length === 0,
       errors,
       ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
+      ...(layerOrderErrors.length > 0 ? { layerOrderErrors } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
       modelDigest: modelDigestForFiles(readback.files),
       architectureLedger: {
@@ -1500,7 +1502,7 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
   };
 }
 
-function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[] } {
+export function validateLedgerModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[]; layerOrderErrors: string[] } {
   const errors: string[] = [];
   const paths = new Set(files.map((file) => file.path));
   for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
@@ -1516,6 +1518,7 @@ function validateModelFiles(files: ModelFile[]): { errors: string[]; referenceEr
   return {
     errors,
     referenceErrors: [...adr.referenceErrors, ...constraints.referenceErrors],
+    layerOrderErrors: constraints.layerOrderErrors,
     warnings: [...constraints.warnings, ...reviewPolicy.warnings, ...manifestDecisionDiagnostics(files)]
   };
 }

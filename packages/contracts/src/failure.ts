@@ -47,6 +47,7 @@ const policies: Record<string, Policy> = {
   "code-facts-not-ready": { code: "AC_CODE_FACTS_NOT_READY", message: "Repository code facts are not ready. Run archctx doctor --json and follow the reported action.", facts: { issues: "codeFactsIssues" } },
   "checkpoint-input-invalid": { code: "AC_SCHEMA_INVALID", message: "Checkpoint arguments violate the declared input schema.", fields: ["issueCount"], action: "correct-command-arguments" },
   "cli-input-invalid": { code: "AC_SCHEMA_INVALID", message: "Command arguments violate the declared input contract.", action: "correct-command-arguments" },
+  "constraint-model-invalid": { code: "AC_SCHEMA_INVALID", message: "Dependency constraint declarations are invalid.", facts: { issueCount: "uint" }, action: "repair-constraint-declarations" },
   "complete-input-invalid": { code: "AC_SCHEMA_INVALID", message: "Completion input violates the caller authority contract.", action: "correct-command-arguments" },
   "hook-event-invalid": { code: "AC_SCHEMA_INVALID", message: "Hook event violates the declared input contract.", action: "correct-command-arguments" },
   "egress-policy-denied": { code: "AC_POLICY_VIOLATION", message: "Local policy refused this operation." },

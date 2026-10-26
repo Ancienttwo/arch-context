@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, posix, resolve } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { generatedMarkerAttributes, scanDocumentRegions } from "./document-regions";
 import { globLiteralPrefixLength } from "./source-globs";
 export * from "./document-regions";
@@ -27,6 +28,8 @@ import {
   architectureProjectionOutputsDigest,
   architectureSourceStampsDigest,
   digestJson,
+  orderedLayerIssues,
+  NativeContextError,
   isRuntimeTopologyNodeKind,
   isRuntimeTopologyTargetType,
   isSupersededArchitectureDocsProjectionManifestSchemaVersion,
@@ -151,6 +154,7 @@ export interface NativeRelation extends Record<string, Json> {
 }
 
 export interface NativeModel {
+  layers?: string[];
   nodes: NativeNode[];
   relations: NativeRelation[];
   flows?: ArchitectureFlowV1[];
@@ -1597,7 +1601,9 @@ export function checkArchitectureFlowSelectors(input: {
 }
 
 export function normalizeNativeModel(model: NativeModel): NativeModel {
+  assertOrderedLayers(model.layers, model.nodes);
   return {
+    ...(model.layers === undefined ? {} : { layers: [...model.layers] }),
     nodes: [...model.nodes].sort((a, b) => a.id.localeCompare(b.id)),
     relations: [...model.relations].sort((a, b) => a.id.localeCompare(b.id)),
     flows: [...(model.flows ?? [])].sort((a, b) => a.id.localeCompare(b.id))
@@ -1627,7 +1633,7 @@ export interface ArchitectureLayerGroup<TNode extends NativeNode = NativeNode> {
 }
 
 export interface ArchitectureLayerGrouping<TNode extends NativeNode = NativeNode> {
-  /** Layers sorted by name; empty when no node declares a layer. */
+  /** Layers in manifest order when declared, otherwise by name; empty with no layered nodes. */
   layers: ArchitectureLayerGroup<TNode>[];
   /** Nodes without a layer, sorted by id (`normalizeNativeModel` order). */
   ungroupedNodes: TNode[];
@@ -1639,7 +1645,8 @@ export interface ArchitectureLayerGrouping<TNode extends NativeNode = NativeNode
  * Structurizr cannot disagree about which node sits in which layer. Layers come only from the
  * explicit `layer` field, never from ids, names or `parent`.
  */
-export function architectureLayerGroups<TNode extends NativeNode>(model: { nodes: readonly TNode[] }): ArchitectureLayerGrouping<TNode> {
+export function architectureLayerGroups<TNode extends NativeNode>(model: { nodes: readonly TNode[]; layers?: string[] }): ArchitectureLayerGrouping<TNode> {
+  assertOrderedLayers(model.layers, model.nodes);
   const nodesByLayer = new Map<string, TNode[]>();
   const ungroupedNodes: TNode[] = [];
   const layerByNodeId = new Map<string, string>();
@@ -1655,7 +1662,7 @@ export function architectureLayerGroups<TNode extends NativeNode>(model: { nodes
     layerByNodeId.set(node.id, layer);
   }
   const layers = [...nodesByLayer.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => model.layers ? model.layers.indexOf(left) - model.layers.indexOf(right) : left.localeCompare(right))
     .map(([layer, nodes]) => ({ layer, nodes }));
   return { layers, ungroupedNodes, layerByNodeId };
 }
@@ -2092,7 +2099,10 @@ export function renderRuntimeTopologySummary(model: NativeModel, summaryPath: st
 }
 
 export function loadNativeModelFromArchContext(root: string): NativeModel {
+  const manifestPath = resolve(root, ".archcontext/manifest.yaml");
+  const manifest = existsSync(manifestPath) ? parseYaml(readFileSync(manifestPath, "utf8")) as { model?: { layers?: unknown } } : undefined;
   return nativeModelFromYamlObjects({
+    layers: manifest?.model?.layers,
     nodes: readYamlObjects(resolve(root, ".archcontext/model/nodes")),
     relations: readYamlObjects(resolve(root, ".archcontext/model/relations")),
     flows: readYamlObjects(resolve(root, ".archcontext/model/flows"))
@@ -2110,11 +2120,19 @@ export function loadNativeModelFromModelFiles(files: ReadonlyMap<string, string>
     .filter((file) => file.path.startsWith(`.archcontext/model/${directory}/`) && !file.name.includes("/") && /\.ya?ml$/.test(file.name))
     .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
     .map((file) => parseJsonOrStableYaml(file.body, file.path) as Record<string, Json>);
-  return nativeModelFromYamlObjects({ nodes: objects("nodes"), relations: objects("relations"), flows: objects("flows") });
+  const body = files.get(".archcontext/manifest.yaml");
+  const manifest = body === undefined ? undefined : parseYaml(body) as { model?: { layers?: unknown } };
+  return nativeModelFromYamlObjects({ layers: manifest?.model?.layers, nodes: objects("nodes"), relations: objects("relations"), flows: objects("flows") });
 }
 
-function nativeModelFromYamlObjects(input: { nodes: Record<string, Json>[]; relations: Record<string, Json>[]; flows: Record<string, Json>[] }): NativeModel {
+function assertOrderedLayers(layers: unknown, nodes: readonly { id?: unknown; layer?: unknown }[]): asserts layers is string[] | undefined {
+  const issues = orderedLayerIssues(layers, nodes);
+  if (issues.length) throw new NativeContextError("native-context-model-invalid", { path: ".archcontext/manifest.yaml", invariant: issues[0] });
+}
+
+function nativeModelFromYamlObjects(input: { layers?: unknown; nodes: Record<string, Json>[]; relations: Record<string, Json>[]; flows: Record<string, Json>[] }): NativeModel {
   const nodes = input.nodes as NativeNode[];
+  assertOrderedLayers(input.layers, nodes);
   for (const node of nodes) {
     if (node.schemaVersion !== "archcontext.node/v2") {
       throw new Error(`architecture-node-schema-version-unsupported: ${node.id || "unknown"} (${String(node.schemaVersion)})`);
@@ -2125,6 +2143,7 @@ function nativeModelFromYamlObjects(input: { nodes: Record<string, Json>[]; rela
   const flows = input.flows;
   for (const flow of flows) assertArchitectureFlowV1(flow);
   return {
+    ...(input.layers === undefined ? {} : { layers: [...input.layers] }),
     nodes,
     relations: input.relations as unknown as NativeRelation[],
     flows: flows as unknown as ArchitectureFlowV1[]

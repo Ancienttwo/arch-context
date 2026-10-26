@@ -81,7 +81,7 @@ export interface DependencyConstraintV1 {
   id: string;
   severity: "error" | "warning";
   scope: { nodes: string[] };
-  rule: { type: "forbid-dependency"; targets: string[] };
+  rule: { type: "forbid-dependency"; targets: string[] } | { type: "layer-direction"; layers: string[] };
   rationale: string;
 }
 
@@ -102,6 +102,7 @@ export const DEPENDENCY_CONSTRAINT_REASON_CODES = [
   "code-facts-truncated",
   "code-facts-unavailable",
   "unresolved-import",
+  "layer-endpoint-unclassified",
   "workspace-resolution-failed"
 ] as const;
 export type DependencyConstraintReasonCode = (typeof DEPENDENCY_CONSTRAINT_REASON_CODES)[number];
@@ -112,6 +113,8 @@ export interface DependencyConstraintViolationV1 {
   toPath: string;
   fromNode: string;
   toNode: string;
+  fromLayer?: string;
+  toLayer?: string;
   severity: "error" | "warning";
 }
 

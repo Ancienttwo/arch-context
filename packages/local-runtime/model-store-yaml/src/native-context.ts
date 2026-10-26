@@ -339,7 +339,8 @@ function capture(source: CapturedSource, snapshot: NativeContextSnapshot): Nativ
   if (!manifest || manifest.schemaVersion !== "archcontext.manifest/v1" || record(manifest.model ?? null)?.layout !== "split" || record(manifest.model ?? null)?.root !== ".archcontext/model") throw new NativeContextError("native-context-model-invalid", { path: MANIFEST, invariant: "supported-manifest-layout" });
   const budget = record(manifest.runtime ?? null)?.contextBudgetBytes;
   if (typeof budget !== "number" || !Number.isSafeInteger(budget) || budget <= 0) throw new NativeContextError("native-context-budget-invalid", { path: MANIFEST, field: "runtime.contextBudgetBytes" });
-  const model: NativeContextModel = { nodes: [], relations: [], flows: [], sourcePaths: { nodes: {}, relations: {}, flows: {} } };
+  const layers = record(manifest.model ?? null)?.layers;
+  const model: NativeContextModel = { ...(layers === undefined ? {} : { layers: layers as string[] }), nodes: [], relations: [], flows: [], sourcePaths: { nodes: {}, relations: {}, flows: {} } };
   const recordPaths = new Map<NativeModelRecord, string>();
   for (const spec of specs) if (spec.role !== "manifest") {
     const value = record(parseInput(source, spec.path));

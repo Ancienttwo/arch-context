@@ -1,5 +1,6 @@
 import { FailureError, knownFailure, toEnvelope, unclassifiedFailure } from "./failure";
 import { canonicalize, errorEnvelope, type ArchContextErrorCode, type Json, type JsonEnvelope } from "./schema";
+import { orderedLayerIssues } from "./layers";
 import { runtimeTopologyModelIssues } from "./runtime-topology";
 import { jsonSchemaResolver, validateJsonSchema, type JsonSchemaResolver } from "./validator";
 
@@ -27,6 +28,7 @@ export const NATIVE_CONTEXT_REASONS = [
 export type NativeContextReasonCode = (typeof NATIVE_CONTEXT_REASONS)[number];
 export type NativeModelRecord = Record<string, Json>;
 export interface NativeContextModel {
+  layers?: string[];
   nodes: NativeModelRecord[];
   relations: NativeModelRecord[];
   flows: NativeModelRecord[];
@@ -170,7 +172,7 @@ export function nativeAllowedNodeKinds(schemas: NativeContextSchemas): string[] 
 
 /** Complete native shape/reference validation; optional paths bind parsed records, never IDs. */
 export function nativeContextModelIssues(model: NativeContextModel, schemas: NativeContextSchemas, recordPaths?: ReadonlyMap<NativeModelRecord, string>): NativeModelIssue[] {
-  const issues: NativeModelIssue[] = [];
+  const issues: NativeModelIssue[] = orderedLayerIssues(model.layers, model.nodes).map(invariant => ({ entityId: "manifest", field: "model.layers", invariant }));
   const add = (record: NativeModelRecord | string, field: string, invariant: string) => {
     const entityId = typeof record === "string" ? record : typeof record.id === "string" ? record.id : "(undeclared)";
     const path = typeof record === "string" ? undefined : recordPaths?.get(record);

@@ -350,6 +350,7 @@ export class YamlModelStore implements ModelStorePort {
       errors,
       ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
       ...(nodeSchemaErrors.length > 0 ? { nodeSchemaErrors } : {}),
+      ...(constraints.layerOrderErrors.length > 0 ? { layerOrderErrors: constraints.layerOrderErrors } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
       modelDigest
     };

@@ -188,6 +188,8 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
     (ownership.byPath.get(path)?.owners ?? []).map((owner) => ({ owner, chain: ancestorChain(owner, parents) }));
   const meets = (chain: Set<string>, ids: string[]): boolean => ids.some((id) => chain.has(id));
 
+  const nodeById = new Map(input.nodes.map(node => [node.id, node]));
+  const reasonCodes = new Set<DependencyConstraintReasonCode>(certification.reasonCodes);
   const violations = new Map<string, DependencyConstraintViolationV1>();
   for (const edge of edges) {
     if (edge.to === null) continue;
@@ -196,8 +198,23 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
     for (const constraint of constraints) {
       const key = JSON.stringify([constraint.id, edge.from, edge.to]);
       if (violations.has(key)) continue;
-      const from = fromOwners.find((owner) => meets(owner.chain, constraint.scope.nodes) && !meets(owner.chain, constraint.rule.targets));
-      const to = toOwners.find((owner) => meets(owner.chain, constraint.rule.targets));
+      const rule = constraint.rule;
+      if (rule.type === "layer-direction") {
+        const layer = (owner: { owner: string }) => nodeById.get(owner.owner)?.layer;
+        const classified = (owner: { owner: string }) => typeof layer(owner) === "string" && rule.layers.includes(layer(owner) as string);
+        const hasLayer = [...fromOwners, ...toOwners].some(owner => layer(owner) !== undefined);
+        if (hasLayer && (fromOwners.length === 0 || toOwners.length === 0 || [...fromOwners, ...toOwners].some(owner => !classified(owner)))) reasonCodes.add("layer-endpoint-unclassified");
+        for (const from of fromOwners) for (const to of toOwners) {
+          if (!classified(from) || !classified(to)) continue;
+          const fromLayer = layer(from) as string;
+          const toLayer = layer(to) as string;
+          if (rule.layers.indexOf(fromLayer) <= rule.layers.indexOf(toLayer)) continue;
+          if (!violations.has(key)) violations.set(key, { constraintId: constraint.id, fromPath: edge.from, toPath: edge.to, fromNode: from.owner, toNode: to.owner, fromLayer, toLayer, severity: constraint.severity });
+        }
+        continue;
+      }
+      const from = fromOwners.find((owner) => meets(owner.chain, constraint.scope.nodes) && !meets(owner.chain, rule.targets));
+      const to = toOwners.find((owner) => meets(owner.chain, rule.targets));
       if (!from || !to) continue;
       violations.set(key, {
         constraintId: constraint.id,
@@ -214,10 +231,9 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
   const unresolvedImports = edges
     .filter((edge) => edge.to === null
       && isRepositoryLocalSpecifier(edge.specifier, input.workspacePackages)
-      && ownerChains(edge.from).some((owner) => meets(owner.chain, scopeIds)))
+      && (constraints.some(constraint => constraint.rule.type === "layer-direction") || ownerChains(edge.from).some((owner) => meets(owner.chain, scopeIds))))
     .map((edge) => ({ from: edge.from, specifier: edge.specifier }));
 
-  const reasonCodes = new Set<DependencyConstraintReasonCode>(certification.reasonCodes);
   if (unresolvedImports.length > 0) reasonCodes.add("unresolved-import");
   if (input.workspacePackagesResolved === false) reasonCodes.add("workspace-resolution-failed");
   const sortedViolations = [...violations.values()].sort((left, right) => compare(left.constraintId, right.constraintId)

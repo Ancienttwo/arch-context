@@ -27,6 +27,7 @@
           "type": "string",
           "enum": [
             "forbid-dependency",
+            "layer-direction",
             "require-interface",
             "forbid-data-access",
             "require-owner",
