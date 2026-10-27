@@ -1183,7 +1183,9 @@ test("CLI flows check reports each selector proof status from a real index witho
       timeout: CLI_PROCESS_TIMEOUT_MS
     }));
     expect(flowsHelp.ok, JSON.stringify(flowsHelp)).toBe(true);
-    expect(flowsHelp.data.command).toBe("archctx flows check [--json]");
+    expect(flowsHelp.data.command).toBe("archctx flows check [--no-sync] [--json]");
+    expect(flowsHelp.data.writes).toContain("runs codegraph sync and writes the .codegraph index");
+    expect(flowsHelp.data.writes).toContain("With --no-sync: no checkout or index writes");
   } finally {
     rmSync(checkStateRoot, { recursive: true, force: true });
     removeTempRoot(root);

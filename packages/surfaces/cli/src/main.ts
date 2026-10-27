@@ -4342,8 +4342,10 @@ const CLI_RESOLVE_HELP = {
   exitCodes: "--path: 0 matched, 1 no match or error, 2 ambiguous. --paths-from: 0 when no path is ambiguous (unowned paths included), 2 when any path is ambiguous, 1 on error."
 };
 
-function cliArgumentFailure(requestId: string, message: string): FailureEnvelope {
-  return failureEnvelope(requestId, { ...knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"), message });
+function cliArgumentFailure(requestId: string, message: string): JsonEnvelope {
+  // Local CLI diagnostics retain the specific flag or input line, with canonical recovery policy.
+  return { schemaVersion: "archcontext.envelope/v1", ok: false, requestId,
+    error: { ...knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"), message } };
 }
 
 /** Validate the same core node schema as native export, without its profile or document reads. */
