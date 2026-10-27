@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestJson, serializeArchitectureDocsProjectionManifest, stableYaml, type Json } from "@archcontext/contracts";
+import { digestJson, serializeArchitectureDocsProjectionManifest, stableYaml, validateJsonSchema, type Json } from "@archcontext/contracts";
 import type { ArchitectureFlowV1, ArchitectureSemanticStateV1 } from "@archcontext/contracts";
 import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type ArchitectureSelectorEvidenceV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
 import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
@@ -585,6 +585,40 @@ test("planCommittedChangeAcceptance refuses a stale model that no longer matches
 });
 
 describe("committed change acceptance v2", () => {
+  test("exports portable committed receipt hashes without treating them as approval authentication", async () => {
+    await withFixture(async (fixture) => {
+      const before = digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json);
+      const added = await change(fixture, "changeset.portable-receipt", [{ op: "create_entity", path: nodePath("component.portable"), body: nodeBody("component.portable", { parent: CAPABILITY_A }) }]);
+      const exported = await fixture.daemon.changeSetReceipt(fixture.root, added.journalId);
+      expect(exported.ok, JSON.stringify(exported)).toBe(true);
+      const receiptSchema = JSON.parse(readFileSync(new URL("../../../../schemas/runtime/changeset-receipt.schema.json", import.meta.url), "utf8"));
+      expect(validateJsonSchema(receiptSchema, exported.data!).valid).toBe(true);
+      expect(exported.data).toMatchObject({
+        schemaVersion: "archcontext.changeset-receipt/v1", journalId: added.journalId, changeSetId: added.changeSetId,
+        baseModelDigest: before, resultModelDigest: digestJson(loadNativeModelFromArchContext(fixture.root) as unknown as Json),
+        approvalAuthenticity: "unverified",
+        files: [{ path: nodePath("component.portable"), operation: "write", bodyHash: currentHash(fixture.root, nodePath("component.portable")) }]
+      });
+      expect(JSON.stringify(exported)).not.toContain(fixture.root);
+      expect(JSON.stringify(exported)).not.toContain("Describes component.portable.");
+      // A reviewer on another checkout can hash the immutable Git blob with the declared algorithm.
+      commitAll(fixture.root, "portable model change");
+      const blob = execFileSync("git", ["show", `HEAD:${nodePath("component.portable")}`], { cwd: fixture.root, encoding: "utf8" });
+      expect((exported.data as any).files[0].bodyHash).toBe(digestJson({ body: blob }));
+      expect((await fixture.daemon.changeSetReceipt(fixture.root, added.journalId)).data).toEqual(exported.data);
+      const missing = await fixture.daemon.changeSetReceipt(fixture.root, "missing-journal");
+      expect(missing.error?.reasonCode).toBe("changeset-receipt-journal-unavailable");
+      const foreign = createAcceptanceRepo();
+      try {
+        expect((await fixture.daemon.changeSetReceipt(foreign, added.journalId)).error?.reasonCode).toBe("changeset-receipt-journal-unavailable");
+      } finally { rmSync(foreign, { recursive: true, force: true }); }
+      const deleted = await change(fixture, "changeset.portable-delete", [{ op: "delete_entity", path: nodePath("component.portable") }]);
+      expect((await fixture.daemon.changeSetReceipt(fixture.root, deleted.journalId)).data).toMatchObject({
+        files: [{ path: nodePath("component.portable"), operation: "delete", bodyHash: "missing" }]
+      });
+    });
+  }, TIMEOUT);
+
   test("accepts a node addition; only the approval issues the tuple, backed by a record-only v2 event", async () => {
     await withFixture(async (fixture) => {
       const added = await change(fixture, "changeset.add-component", [{ op: "create_entity", path: nodePath("component.added"), body: nodeBody("component.added", { parent: CAPABILITY_B, summary: "Added." }) }]);

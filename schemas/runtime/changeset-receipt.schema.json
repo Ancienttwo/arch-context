@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "archcontext.changeset-receipt/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "journalId", "changeSetId", "baseModelDigest", "resultModelDigest", "files", "hashAlgorithm", "approvalAuthenticity"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.changeset-receipt/v1" },
+    "journalId": { "type": "string", "minLength": 1 },
+    "changeSetId": { "type": "string", "minLength": 1 },
+    "baseModelDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "resultModelDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "hashAlgorithm": { "const": "sha256-canonical-json-body" },
+    "approvalAuthenticity": { "const": "unverified" },
+    "files": {
+      "type": "array", "maxItems": 10000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "operation", "bodyHash"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "operation": { "enum": ["write", "delete"] },
+          "bodyHash": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64}|missing)$" }
+        }
+      }
+    }
+  }
+}

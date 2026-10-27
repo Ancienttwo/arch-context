@@ -5015,6 +5015,9 @@ describe("archctx CLI", () => {
       nodeRmSync(root, { recursive: true, force: true });
       expect(existsSync(root)).toBe(false);
       expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([expect.objectContaining({ ...listing, rootExists: false })]);
+      expect((await cli(parent, "daemon", "list")).data.daemons[0].readiness).toEqual({
+        ready: false, code: "AC_RUNTIME_UNAVAILABLE", reasonCode: "daemon-root-missing"
+      });
 
       expect((await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir, "--workspace-id", paths.storageWorkspaceId)).error)
         .toMatchObject({ code: "AC_SCHEMA_INVALID", message: "daemon stop accepts at most one of --state-dir or --workspace-id" });

@@ -38,6 +38,11 @@ export const CODE_FACTS_ISSUE_MESSAGES = Object.freeze({
 });
 /** Each reason has a closed fact vocabulary. No source text or recovery binding is a summary fact. */
 const policies: Record<string, Policy> = {
+  "daemon-root-missing": { code: "AC_RUNTIME_UNAVAILABLE", message: "The daemon start worktree no longer exists. Stop this daemon using its workspace state directory.", action: "stop-targeted-daemon", retryable: false, facts: {} },
+  "changeset-receipt-journal-unavailable": { code: "AC_PRECONDITION_FAILED", message: "No committed ChangeSet journal exists for this repository and journal id.", action: "select-committed-journal" },
+  "changeset-receipt-transition-unavailable": { code: "AC_PRECONDITION_FAILED", message: "This journal has no recorded model transition; a complete receipt cannot be exported.", action: "inspect-journal-evidence" },
+  "changeset-receipt-files-invalid": { code: "AC_PRECONDITION_FAILED", message: "Journal file evidence cannot form a portable receipt.", action: "inspect-journal-evidence" },
+  "changeset-receipt-limit-exceeded": { code: "AC_PRECONDITION_FAILED", message: "Journal evidence exceeds the portable receipt size limit.", action: "inspect-journal-evidence" },
   "git-worktree-required": { code: "AC_REPO_NOT_FOUND", message: "This operation requires a Git worktree.", fields: ["checks"] },
   "model-missing": { code: "AC_MODEL_ADOPTION_REQUIRED", message: "Architecture debt requires an adopted model.", fields: ["checks"] },
   "changed-path-invalid": { code: "AC_SCHEMA_INVALID", message: "Changed paths must be an array of repository-relative POSIX paths.", fields: ["checks"] },
