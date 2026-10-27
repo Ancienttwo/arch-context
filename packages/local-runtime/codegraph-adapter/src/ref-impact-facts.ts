@@ -6,7 +6,7 @@ import { decodeUtf8, readGitBlobs, readGitBlobTree } from "../../git-adapter/src
 import type { RefImpactFacts } from "../../model-store-yaml/src/ref-impact";
 import { withExistingCodeGraphSnapshot } from "./index";
 type Sdk = typeof import("@colbymchenry/codegraph");
-type SnapshotGraph = Pick<InstanceType<Sdk["CodeGraph"]>, "getFiles" | "getNodesByName">;
+type SnapshotGraph = Pick<ReturnType<Sdk["CodeGraph"]["openSync"]>, "getFiles" | "getNodesByName">;
 const nonDeclarations = new Set(["file", "import", "export", "parameter"]);
 const requireFromAdapter = createRequire(import.meta.url);
 

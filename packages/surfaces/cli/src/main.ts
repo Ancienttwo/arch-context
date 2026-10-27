@@ -141,7 +141,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     }
   },
   "export": { value: [], boolean: [] },
-  "flows": { value: [], boolean: [] },
+  "flows": { value: [], boolean: ["--no-sync"] },
   "github": {
     value: [],
     boolean: [],
@@ -992,10 +992,11 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     });
   case "flows":
     return okEnvelope("flows", {
-      command: "archctx flows check [--json]",
+      command: "archctx flows check [--no-sync] [--json]",
       description: "Check every declared flow selector against the CodeGraph index without rendering a projection.",
       statuses: "Each selector reports proven, no-direct-call, only-references, false-builtin-call, ambiguous-symbol, evidence-missing or evidence-truncated. Only proven binds a flow step.",
-      writes: "none; runs in-process with no daemon, local store or task session. Like projection check, it runs codegraph sync first."
+      writes: "Default: runs codegraph sync and writes the .codegraph index. With --no-sync: no checkout or index writes; disposable private snapshots are created outside the checkout and removed after reading. Neither mode starts a daemon or task session.",
+      noSync: "Requires a complete existing index matching the source population. Missing, stale, partial, unsupported-layout or over-limit snapshots fail closed with AC_CODE_FACTS_UNAVAILABLE."
     });
   case "docs":
     if (subcommand === "anchors") return okEnvelope("help", CLI_DOCS_ANCHORS_HELP as unknown as Json);
@@ -1964,14 +1965,14 @@ function runConstraintsCommand(args: string[], cwd: string): JsonEnvelope {
   return runConstraintCheckCommand(cwd);
 }
 
-/** `flows check` is read-only and answered in-process, like `projection run` in `check` mode. */
+/** In-process flow proofs; only the explicit no-sync mode preserves the checkout index. */
 function runFlowsCommand(args: string[], cwd: string): JsonEnvelope {
   const formatAt = args.indexOf("--format");
-  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
+  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && arg !== "--no-sync" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
   if (args[0] !== "check" || unexpected.length > 0) {
     return failureEnvelope("flows.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
   }
-  return runFlowSelectorCheckCommand(cwd);
+  return runFlowSelectorCheckCommand(cwd, { noSync: args.includes("--no-sync") });
 }
 
 function acceptedArchitectureChange(args: string[]): AcceptedArchitectureChangeReferenceV1 | undefined {

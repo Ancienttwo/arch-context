@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { failureIssues } from "@archcontext/contracts";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { runFlowSelectorCheckCommand } from "../src/flow-selector-check";
@@ -56,6 +57,9 @@ for (const state of ["missing", "incomplete", "ready", "stale", "foreign"] as co
       if (state === "ready") {
         expect(result.ok).toBe(true);
         expect(result.data).toMatchObject({ selectors: [{ status: "proven" }] });
+        const cli = fileURLToPath(new URL("../../../surfaces/cli/src/main.ts", import.meta.url));
+        const output = execFileSync(process.execPath, [cli, "flows", "check", "--no-sync", "--json"], { cwd: target, encoding: "utf8" });
+        expect(JSON.parse(output)).toEqual(result);
         expect(runFlowSelectorCheckCommand(target, { noSync: true })).toEqual(result);
       } else {
         expect(result).toMatchObject({ ok: false, error: { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode:

@@ -18,11 +18,11 @@ User authorized parallel repair of all open issues, acceptance and PR merges, an
 
 ## Task Breakdown
 
-- [ ] Inspect and integrate #419 existing PR #420.
-- [ ] Repair #417 with process-path and invalid-input regressions.
-- [ ] Complete P1/P2/P3 for #415 and #421; implement independently owned changes.
-- [ ] Complete P1/P2/P3 for #409 and #414; implement remaining acceptance criteria.
-- [ ] Integrate worker commits and run typecheck and affected tests.
+- [x] Inspect and integrate #419 existing PR #420; merged remotely as 226b6bda, issue closed.
+- [x] Repair #417 with process-path and invalid-input regressions.
+- [x] Complete P1/P2/P3 for #415 and #421; implement independently owned changes.
+- [x] Complete P1/P2/P3 for #409 and #414; implement remaining acceptance criteria.
+- [x] Integrate worker commits and run typecheck and affected tests.
 - [ ] Read-only review of implementation and tests on the integrated diff, consuming existing evidence.
 - [ ] Choose next version from final API changes, align version sources and release notes.
 - [ ] Freeze candidate; run full release verification and package smoke once, recording exact head and exit codes.

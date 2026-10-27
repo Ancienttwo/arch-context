@@ -1153,7 +1153,8 @@ export function withExistingCodeGraphSnapshot<T>(
   options: RepositoryCodeFactsInspectionOptions = {}
 ): T {
   const originalRoot = realpathSync.native(root);
-  if (Object.keys(process.env).some(key => key.startsWith("GIT_") && process.env[key] && key !== "GIT_OPTIONAL_LOCKS") || process.env.CODEGRAPH_DIR) {
+  const redirectedGitInputs = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"];
+  if (redirectedGitInputs.some(key => process.env[key]) || process.env.CODEGRAPH_DIR) {
     throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
   }
   const indexDir = join(originalRoot, ".codegraph");

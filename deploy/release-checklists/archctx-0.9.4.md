@@ -9,7 +9,8 @@ This records a release candidate, not publication. Both registry latest versions
 - #417: `--version` reads product-version authority without initializing a runtime. Resolve argument errors direct callers to correct arguments while retaining model failures at their owning boundary.
 - #415: a daemon with a deleted start root reports non-readiness and refuses normal RPC. Authenticated shutdown remains reachable; `daemon list` reports the classified missing-root condition from persisted state.
 - #414: `ledger receipt --journal-id` exports committed ChangeSet ids, recorded model-transition digests and per-file hashes. It refuses missing historical evidence and makes no claim of authenticated approval. See `docs/runbooks/changeset-receipt.md`.
-- #409 and #421: existing-index reads and ref-bound impact remain under integration until their real CodeGraph fixture checks pass.
+- #409: bounded immutable-blob hunks are joined to CodeGraph declaration ranges only after indexed hashes match the requested ref. Real CLI fixtures cover positive impact, ambiguity, rename, missing files and stale evidence.
+- #421: `flows check --no-sync` reads a private snapshot using the pinned provider's source enumeration and readiness checks, preserving the original checkout and index. Default help now discloses index writes.
 
 ## Compatibility
 
@@ -24,7 +25,8 @@ Version 0.9.4 is the user-selected release target. Upgrade archctx and archctx-c
 - [x] RPC method wire sentinels and CLI usage tests: 95 passed across three files.
 - [x] #409 bounded-hunk and existing ref-impact tests: 13 passed.
 - [x] Version-bound catalog and FG4/FG6 deterministic records regenerated from their producers.
-- [ ] Finish #409/#421 integration and real Node/Bun no-write verification.
+- [x] #409/#421 integration: 35 of 36 targeted tests passed; the remaining config fixture was corrected to use a provider-supported directory and passed separately, with original-index preconditions retained. No assertions were relaxed.
+- [x] Node 24.22.1 bundled adapter smoke passed closed/live WAL preservation and stale-index refusal; real Bun CLI `flows check --no-sync` proof passed.
 - [ ] Freeze the complete candidate and record typecheck/full verification exit codes.
 - [ ] Independent read-only review, including assertions versus behavior.
 - [ ] Build both package tarballs and run clean-install/packaged smoke against the frozen candidate.

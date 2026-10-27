@@ -217,25 +217,29 @@ describe("capability documentation projection inputs from the code index", () =>
 
   test("private source mirror preserves provider includeIgnored, include and extension overrides", async () => {
     const { root } = seedWorkspace({ withIndex: false });
-    writeFileSync(join(root, ".gitignore"), ".codegraph/\nvendor/\nprivate-src/\n");
-    mkdirSync(join(root, "vendor/embedded"), { recursive: true });
-    execFileSync("git", ["init", "-q"], { cwd: join(root, "vendor/embedded"), stdio: "pipe" });
-    writeFileSync(join(root, "vendor/embedded/library.ts"), "export function optedInLibrary() { return 1; }\n");
+    writeFileSync(join(root, ".gitignore"), ".codegraph/\nexternal-projects/\nprivate-src/\n");
+    mkdirSync(join(root, "external-projects/embedded"), { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: join(root, "external-projects/embedded"), stdio: "pipe" });
+    writeFileSync(join(root, "external-projects/embedded/library.ts"), "export function optedInLibrary() { return 1; }\n");
     mkdirSync(join(root, "private-src"));
     writeFileSync(join(root, "private-src/source.fixture"), "export function customExtension() { return 1; }\n");
     writeFileSync(join(root, "codegraph.json"), JSON.stringify({
-      includeIgnored: ["vendor/"], include: ["private-src/**"], extensions: { ".fixture": "typescript" }
+      includeIgnored: ["external-projects/"], include: ["private-src/**"], extensions: { ".fixture": "typescript" }
     }));
     const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
     try {
       const graph = CodeGraph.initSync(root);
-      try { await graph.indexAll(); } finally { graph.close(); }
+      try {
+        await graph.indexAll();
+        expect(graph.getNodesByName("optedInLibrary").length).toBe(1);
+        expect(graph.getNodesByName("customExtension").length).toBe(1);
+      } finally { graph.close(); }
       Bun.gc(true);
       expect(withExistingCodeGraphSnapshot(root, snapshot => [
         snapshot.getNodesByName("optedInLibrary").length,
         snapshot.getNodesByName("customExtension").length
       ])).toEqual([1, 1]);
-      writeFileSync(join(root, "vendor/embedded/new.ts"), "export const newIgnoredSource = 1;\n");
+      writeFileSync(join(root, "external-projects/embedded/new.ts"), "export const newIgnoredSource = 1;\n");
       expect(() => withExistingCodeGraphSnapshot(root, () => true)).toThrow();
     } finally {
       Bun.gc(true);
