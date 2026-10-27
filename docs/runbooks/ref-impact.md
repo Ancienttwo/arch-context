@@ -44,6 +44,13 @@ from an unsupported snapshot layout. `flows check --no-sync` exposes the specifi
 snapshot failure reason. Ordinary ignored dependency trees
 are not copied. Private temporary files are removed after reading.
 
+Installed Git filter definitions alone do not prevent a snapshot. Git's effective
+attributes are checked across all tracked paths, including embedded repositories;
+selected clean/process filters are refused before provider status can run them.
+Configured drivers named `unset` or `unspecified` are also refused when their names
+make Git's attribute response ambiguous. The provider's name-status diff does not
+request patches, so diff/textconv configuration alone does not execute a callback.
+
 Consumers must inspect reason codes, dependency coverage and truncation fields;
 unknown or truncated output is not proof that no impact exists. Limits are
 included in the response, including a shared line-diff work budget. Oversized or
