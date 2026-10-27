@@ -214,13 +214,13 @@ try {
     const holder = liveWal ? CodeGraph.openSync(fixtureRoot) : undefined;
     try {
       const before = indexFiles();
-      assert.equal(adapter.withExistingCodeGraphSnapshot(fixtureRoot, graph => graph.getNodesByName("renderMain").length), 1);
+      assert.equal(adapter.withExistingCodeGraphSnapshot(fixtureRoot, { names: ["renderMain"], sources: [], includeFiles: false }, graph => graph.getNodesByName("renderMain").length), 1);
       assert.deepEqual(indexFiles(), before, `private Node snapshot must preserve original DB and sidecars, liveWal=${liveWal}`);
     } finally { holder?.close(); }
   }
   const beforeStale = indexFiles();
   writeFileSync(join(fixtureRoot, "src/render.ts"), 'export function renderBlock() { return "changed"; }\n');
-  assert.throws(() => adapter.withExistingCodeGraphSnapshot(fixtureRoot, () => true), error => error.reasonCode === "code-facts-read-not-ready");
+  assert.throws(() => adapter.withExistingCodeGraphSnapshot(fixtureRoot, { names: [], sources: [], includeFiles: false }, () => true), error => error.reasonCode === "code-facts-read-not-ready");
   assert.deepEqual(indexFiles(), beforeStale, "stale Node snapshot must not sync the original index");
 
   console.log(JSON.stringify({

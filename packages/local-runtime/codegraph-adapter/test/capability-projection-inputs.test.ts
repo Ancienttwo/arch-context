@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { digestJson } from "@archcontext/contracts";
-import { indexCodeGraphFixture } from "./real-index";
+import { fixtureNameCounts, holdCodeGraphFixture, indexCodeGraphFixture } from "./real-index";
 import { ProjectionCodeFactsUnavailableError, RUNTIME_BUILTIN_CALL_NAMES, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, withExistingCodeGraphSnapshot, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
 
 const model: NativeModel = {
@@ -199,7 +198,7 @@ describe("capability documentation projection inputs from the code index", () =>
       git("config", `filter.${driver}.clean`, `${quote(process.execPath.replaceAll("\\", "/"))} -e ${quote(script)}`);
       writeFileSync(join(root, ".gitattributes"), `*.ts filter=${driver}\n`);
       let failure: unknown;
-      try { withExistingCodeGraphSnapshot(root, () => true); } catch (error) { failure = error; }
+      try { withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => true); } catch (error) { failure = error; }
       expect(existsSync(marker)).toBe(false);
       expect(failure).toMatchObject({ reasonCode: "code-facts-snapshot-layout-unsupported" });
     } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); }
@@ -219,11 +218,11 @@ describe("capability documentation projection inputs from the code index", () =>
       indexCodeGraphFixture(root);
       Bun.gc(true);
       const indexBefore = readFileSync(join(root, ".git/index"));
-      expect(withExistingCodeGraphSnapshot(root, snapshot => snapshot.getNodesByName("MAIN_VERSION").length)).toBe(1);
+      expect(withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, snapshot => snapshot.getNodesByName("MAIN_VERSION").length)).toBe(1);
       expect(readFileSync(join(root, ".git/index"))).toEqual(indexBefore);
       for (const pattern of ["*.ts", "notes.txt"]) {
         writeFileSync(join(root, ".gitattributes"), `${pattern} filter=lfs\n`);
-        expect(() => withExistingCodeGraphSnapshot(root, () => true)).toThrow("safely isolated");
+        expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => true)).toThrow("safely isolated");
       }
       expect(readFileSync(join(root, ".git/index"))).toEqual(indexBefore);
     } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); }
@@ -234,28 +233,30 @@ describe("capability documentation projection inputs from the code index", () =>
     writeFileSync(join(root, ".gitignore"), ".codegraph/\nnode_modules/\n");
     mkdirSync(join(root, "node_modules"));
     symlinkSync(join(root, "packages/docs"), join(root, "node_modules/docs"), process.platform === "win32" ? "junction" : "dir");
-    const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
-    let holder: ReturnType<typeof CodeGraph.openSync> | undefined;
+    let holder: Awaited<ReturnType<typeof holdCodeGraphFixture>> | undefined;
     const indexState = () => readdirSync(join(root, ".codegraph")).sort().map(name => {
       const path = join(root, ".codegraph", name);
       return [name, statSync(path).mtimeMs, readFileSync(path).toString("base64")];
     });
     try {
       indexCodeGraphFixture(root);
-      if (liveWal) holder = CodeGraph.openSync(root);
+      if (liveWal) { holder = await holdCodeGraphFixture(root); expect(holder.isRunning()).toBe(true); }
       const before = indexState();
-      const names = withExistingCodeGraphSnapshot(root, graph => {
+      const names = withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, graph => {
         expect(graph.getProjectRoot()).not.toBe(root);
+        expect(graph.getNodesByName("customExtension")).toEqual([]);
+        expect(() => graph.getNodesByName("not-requested")).toThrow();
         return graph.getNodesByName("MAIN_VERSION").map(node => node.name);
       });
       expect(names).toContain("MAIN_VERSION");
+      if (holder) expect(holder.isRunning()).toBe(true);
       expect(indexState()).toEqual(before);
-      expect(() => withExistingCodeGraphSnapshot(root, () => {
+      expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => {
         writeFileSync(join(root, "packages/docs/src/main.ts"), "export const MAIN_VERSION = 2;\n");
       })).toThrow();
       expect(indexState()).toEqual(before);
     } finally {
-      holder?.close();
+      await holder?.close();
       Bun.gc(true);
       rmSync(root, { recursive: true, force: true });
     }
@@ -272,26 +273,21 @@ describe("capability documentation projection inputs from the code index", () =>
     writeFileSync(join(root, "codegraph.json"), JSON.stringify({
       includeIgnored: ["external-projects/"], include: ["private-src/**"], extensions: { ".fixture": "typescript" }
     }));
-    const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
     try {
       indexCodeGraphFixture(root);
-      const graph = CodeGraph.openSync(root);
-      try {
-        expect(graph.getNodesByName("optedInLibrary").length).toBe(1);
-        expect(graph.getNodesByName("customExtension").length).toBe(1);
-      } finally { graph.close(); }
+      expect(fixtureNameCounts(root, ["optedInLibrary", "customExtension"])).toEqual([1, 1]);
       Bun.gc(true);
-      expect(withExistingCodeGraphSnapshot(root, snapshot => [
+      expect(withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, snapshot => [
         snapshot.getNodesByName("optedInLibrary").length,
         snapshot.getNodesByName("customExtension").length
       ])).toEqual([1, 1]);
       writeFileSync(join(root, "external-projects/embedded/new.ts"), "export const newIgnoredSource = 1;\n");
-      expect(() => withExistingCodeGraphSnapshot(root, () => true)).toThrow();
+      expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => true)).toThrow();
       const embedded = join(root, "external-projects/embedded");
       execFileSync("git", ["add", "library.ts"], { cwd: embedded, stdio: "pipe" });
       execFileSync("git", ["config", "filter.selected.clean", "exit 99"], { cwd: embedded, stdio: "pipe" });
       writeFileSync(join(embedded, ".gitattributes"), "*.ts filter=selected\n");
-      expect(() => withExistingCodeGraphSnapshot(root, () => true)).toThrow("safely isolated");
+      expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => true)).toThrow("safely isolated");
     } finally {
       Bun.gc(true);
       rmSync(root, { recursive: true, force: true });

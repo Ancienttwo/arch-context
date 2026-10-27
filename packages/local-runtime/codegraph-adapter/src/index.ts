@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
+import { readSnapshotQueries, type SnapshotQueryRequest, type SnapshotQueryReader } from "./snapshot-query";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { parseJsonOrStableYaml, repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
@@ -42,7 +43,8 @@ function codeGraphSdk(): CodeGraphSdk {
   return installedCodeGraphSdk ??= requireFromAdapter(REQUIRED_CODEGRAPH_PACKAGE) as CodeGraphSdk;
 }
 
-function codeGraphSourceScanner(): (root: string) => string[] {
+/** The SDK and its Node executable must come from the same provider-selected platform bundle. */
+export function codeGraphSnapshotRuntime(): { node: string; sdk: string } {
   const sdk = codeGraphSdk();
   // Reuse the SDK shim's platform/cache resolution. The pinned platform ships this typed export
   // but the thin npm facade does not re-export it; never reconstruct its ignore/extension rules.
@@ -51,6 +53,13 @@ function codeGraphSourceScanner(): (root: string) => string[] {
   const dist = dirname(platformEntry.filename);
   const manifest = JSON.parse(readFileSync(join(dirname(dirname(dist)), "package.json"), "utf8")) as { version?: string };
   if (manifest.version !== REQUIRED_CODEGRAPH_VERSION) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+  const node = join(dirname(dirname(dist)), process.platform === "win32" ? "node.exe" : "node");
+  if (!isExecutablePath(node)) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+  return { node, sdk: platformEntry.filename };
+}
+
+function codeGraphSourceScanner(): (root: string) => string[] {
+  const dist = dirname(codeGraphSnapshotRuntime().sdk);
   const provider = requireFromAdapter(join(dist, "extraction/index.js")) as { scanDirectory(root: string): string[] };
   return provider.scanDirectory;
 }
@@ -1141,6 +1150,19 @@ export interface RepositoryCodeFactsInspectionOptions {
 export const CODEGRAPH_SNAPSHOT_MAX_BYTES = 512 * 1024 * 1024;
 export const CODEGRAPH_SNAPSHOT_MAX_ENTRIES = 100_000;
 
+export function codeGraphSnapshotQueries(nodes: NativeModel["nodes"], purpose: "flow" | "ref" = "flow"): SnapshotQueryRequest {
+  const names = new Set<string>();
+  const sources = new Map<string, { name: string; path: string }>();
+  for (const node of nodes) for (const entry of nativeNodeSource(node)?.entrypoints ?? []) {
+    for (const symbol of entry.symbols) for (const sink of symbol.sinks) {
+      names.add(symbol.name); names.add(sink.symbol);
+      const path = normalizedIndexPath(entry.path);
+      sources.set(`${path}\0${symbol.name}`, { path, name: symbol.name });
+    }
+  }
+  return { names: [...names].sort(), sources: purpose === "flow" ? [...sources.values()] : [], includeFiles: purpose === "ref" };
+}
+
 /**
  * Runs synchronous readers against a private, ready CodeGraph snapshot. Provider status opens
  * writable and SQLite readOnly can create WAL/SHM files, so neither ever sees the original root.
@@ -1149,7 +1171,8 @@ export const CODEGRAPH_SNAPSHOT_MAX_ENTRIES = 100_000;
  */
 export function withExistingCodeGraphSnapshot<T>(
   root: string,
-  callback: (graph: ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]>) => T,
+  queries: SnapshotQueryRequest,
+  callback: (graph: SnapshotQueryReader) => T,
   options: RepositoryCodeFactsInspectionOptions = {}
 ): T {
   const originalRoot = realpathSync.native(root);
@@ -1175,8 +1198,6 @@ export function withExistingCodeGraphSnapshot<T>(
     throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
   }
   const temporaryRoot = mkdtempSync(join(temporaryParent, "archctx-codegraph-snapshot-"));
-  let holder: ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]> | undefined;
-  let graph: ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]> | undefined;
   try {
     const snapshotRoot = join(temporaryRoot, "repository");
     mkdirSync(snapshotRoot);
@@ -1193,10 +1214,9 @@ export function withExistingCodeGraphSnapshot<T>(
       if (ready.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-read-not-ready", { issues: ready.issues });
     }
-    // Only the private copy gets a writable holder: Bun's SQLite needs live WAL/SHM files to
-    // open the selector handle readOnly. The provider owns this initialization, not raw SQL.
-    holder = codeGraphSdk().CodeGraph.openSync(snapshotRoot);
-    graph = codeGraphSdk().CodeGraph.openSync(snapshotRoot, { readOnly: true });
+    // Node owns all SDK/SQLite handles. Its completed process lifetime precedes removal,
+    // including when the caller is Bun, whose statement finalizers may otherwise retain files.
+    const graph = readSnapshotQueries(codeGraphSnapshotRuntime(), snapshotRoot, queries);
     const result = callback(graph);
     if (result !== null && typeof result === "object" && "then" in result) {
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
@@ -1209,9 +1229,7 @@ export function withExistingCodeGraphSnapshot<T>(
     if (error instanceof FailureError) throw error;
     throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
   } finally {
-    try { graph?.close(); } finally {
-      try { holder?.close(); } finally { rmSync(temporaryRoot, { recursive: true, force: true }); }
-    }
+    rmSync(temporaryRoot, { recursive: true, force: true });
   }
 }
 

@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { isRepoRelativePosixPath, REF_IMPACT_LIMITS, type NativeContextModel, type NativeContextSnapshot } from "@archcontext/contracts";
-import { nativeNodeSource, type NativeNode } from "@archcontext/core/projection-engine";
+import { nativeNodeSource, type NativeNode, type NativeModel } from "@archcontext/core/projection-engine";
 import { decodeUtf8, readGitBlobs, readGitBlobTree } from "../../git-adapter/src/blob-reader";
 import type { RefImpactFacts } from "../../model-store-yaml/src/ref-impact";
-import { withExistingCodeGraphSnapshot } from "./index";
+import { codeGraphSnapshotQueries, withExistingCodeGraphSnapshot } from "./index";
 type Sdk = typeof import("@colbymchenry/codegraph");
 type SnapshotGraph = Pick<ReturnType<Sdk["CodeGraph"]["openSync"]>, "getFiles" | "getNodesByName">;
 const nonDeclarations = new Set(["file", "import", "export", "parameter"]);
@@ -13,7 +13,7 @@ const requireFromAdapter = createRequire(import.meta.url);
 /** Both refs are compared against one provider-authenticated private snapshot; no original DB open. */
 export function readRefImpactFacts(root: string, base: { model: NativeContextModel; snapshot: NativeContextSnapshot }, head: { model: NativeContextModel; snapshot: NativeContextSnapshot }): { baseFacts?: RefImpactFacts; headFacts?: RefImpactFacts } {
   try {
-    return withExistingCodeGraphSnapshot(root, graph => {
+    return withExistingCodeGraphSnapshot(root, codeGraphSnapshotQueries([...base.model.nodes, ...head.model.nodes] as unknown as NativeModel["nodes"], "ref"), graph => {
       const bind = (input: typeof head) => input.snapshot.source === "ref"
         ? bindSnapshotRefImpactFacts(root, input.model, input.snapshot, graph) : undefined;
       return { baseFacts: bind(base), headFacts: bind(head) };

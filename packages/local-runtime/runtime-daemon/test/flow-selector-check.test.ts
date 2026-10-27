@@ -1,16 +1,13 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { failureIssues } from "@archcontext/contracts";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { runFlowSelectorCheckCommand } from "../src/flow-selector-check";
-import { indexCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
-
-const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
+import { incompleteCodeGraphFixture, indexCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
 
 function fixture() {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-flows-readonly-")));
@@ -43,7 +40,7 @@ for (const state of ["missing", "incomplete", "ready", "stale", "foreign"] as co
     let other: string | undefined;
     try {
       if (state !== "missing") {
-        if (state === "incomplete") CodeGraph.initSync(root).close();
+        if (state === "incomplete") incompleteCodeGraphFixture(root);
         else indexCodeGraphFixture(root);
         Bun.gc(true);
       }
@@ -84,7 +81,9 @@ test("default flow check still syncs stale code facts", async () => {
     Bun.gc(true);
     writeFileSync(join(root, "src/render.ts"), 'export function render() { return "changed"; }\n');
     expect(runFlowSelectorCheckCommand(root, { noSync: true }).ok).toBe(false);
-    expect(runFlowSelectorCheckCommand(root).ok).toBe(true);
+    const cli = fileURLToPath(new URL("../../../surfaces/cli/src/main.ts", import.meta.url));
+    const synced = JSON.parse(execFileSync(process.execPath, [cli, "flows", "check", "--json"], { cwd: root, encoding: "utf8" }));
+    expect(synced.ok).toBe(true);
     expect(runFlowSelectorCheckCommand(root, { noSync: true }).ok).toBe(true);
   } finally {
     Bun.gc(true);

@@ -1,16 +1,16 @@
 import { FailureError, okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import { architectureDocumentationSourceTreeDigest, checkArchitectureFlowSelectors, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
-import { assertProjectionCodeFactsAvailable, loadCapabilityCodeGraphProjectionInputs, prepareProjectionCodeFacts, REQUIRED_CODEGRAPH_VERSION, withExistingCodeGraphSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
+import { assertProjectionCodeFactsAvailable, codeGraphSnapshotQueries, loadCapabilityCodeGraphProjectionInputs, prepareProjectionCodeFacts, REQUIRED_CODEGRAPH_VERSION, withExistingCodeGraphSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { selectedProducerFailureEnvelope } from "./producer-failure";
 
 /**
  * `archctx flows check`: the P2 flow proof of every capability and the proof status of every
- * declared selector, without rendering. It runs in-process like `projection run` in `check` mode:
+ * declared selector, without rendering. Its control path is daemonless:
  * no daemon, no local store, no runtime state, no task session, no ChangeSet. It takes the same
  * CodeGraph handshake as a projection (version, status, `codegraph sync`) and reads selector
  * evidence through the same producer, but skips the import-graph query and every renderer.
- * `noSync` instead requires a ready existing index and reads it through a private snapshot.
+ * `noSync` requires a ready existing index; a provider Node process reads its private snapshot.
  */
 export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: string; noSync?: boolean } = {}): JsonEnvelope {
   try {
@@ -19,7 +19,7 @@ export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: str
     catch { throw new FailureError("AC_REPO_NOT_FOUND", "git-worktree-required"); }
     const model = loadNativeModelFromArchContext(root);
     if (options.noSync) {
-      const selectorEvidence = withExistingCodeGraphSnapshot(root, graph => loadCapabilityCodeGraphProjectionInputs(root, model, {
+      const selectorEvidence = withExistingCodeGraphSnapshot(root, codeGraphSnapshotQueries(model.nodes), graph => loadCapabilityCodeGraphProjectionInputs(root, model, {
         readOnly: true, importGraphs: false,
         // The snapshot boundary owns handle lifetime, including the post-read stability check.
         selectorIndexFactory: () => ({
