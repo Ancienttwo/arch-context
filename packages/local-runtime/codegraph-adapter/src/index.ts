@@ -1210,7 +1210,12 @@ export function withExistingCodeGraphSnapshot<T>(
     throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
   } finally {
     try { graph?.close(); } finally {
-      try { holder?.close(); } finally { rmSync(temporaryRoot, { recursive: true, force: true }); }
+      graph = undefined;
+      try { holder?.close(); } finally {
+        holder = undefined;
+        if (typeof Bun !== "undefined") Bun.gc(true);
+        rmSync(temporaryRoot, { recursive: true, force: true });
+      }
     }
   }
 }

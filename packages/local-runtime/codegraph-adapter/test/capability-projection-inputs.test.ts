@@ -256,6 +256,7 @@ describe("capability documentation projection inputs from the code index", () =>
       expect(indexState()).toEqual(before);
     } finally {
       holder?.close();
+      holder = undefined;
       Bun.gc(true);
       rmSync(root, { recursive: true, force: true });
     }
@@ -275,11 +276,11 @@ describe("capability documentation projection inputs from the code index", () =>
     const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
     try {
       indexCodeGraphFixture(root);
-      const graph = CodeGraph.openSync(root);
+      let graph: ReturnType<typeof CodeGraph.openSync> | undefined = CodeGraph.openSync(root);
       try {
         expect(graph.getNodesByName("optedInLibrary").length).toBe(1);
         expect(graph.getNodesByName("customExtension").length).toBe(1);
-      } finally { graph.close(); }
+      } finally { graph.close(); graph = undefined; }
       Bun.gc(true);
       expect(withExistingCodeGraphSnapshot(root, snapshot => [
         snapshot.getNodesByName("optedInLibrary").length,
