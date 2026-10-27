@@ -1,4 +1,4 @@
-# archctx / archctx-contracts 0.10.0 preparation
+# archctx / archctx-contracts 0.9.4 preparation
 
 Baseline: `origin/main@b38ae08bb925c88297dd392460122309bd4ca9a9`.
 This records a release candidate, not publication. Both registry latest versions were read back as 0.9.3 during preparation.
@@ -13,7 +13,7 @@ This records a release candidate, not publication. Both registry latest versions
 
 ## Compatibility
 
-Public additive analysis and receipt capabilities motivate the 0.10.0 minor release. Upgrade archctx and archctx-contracts together. RPC remains v2. There is no SQLite migration or architecture authority promotion. The receipt is not an input to ledger acceptance. The default flows behavior remains explicit; callers choose the zero-write mode.
+Version 0.9.4 is the user-selected release target. Upgrade archctx and archctx-contracts together. RPC remains v2. There is no SQLite migration or architecture authority promotion. The receipt is not an input to ledger acceptance. The default flows behavior remains explicit; callers choose the zero-write mode.
 
 ## Evidence and remaining gates
 
@@ -28,7 +28,7 @@ Public additive analysis and receipt capabilities motivate the 0.10.0 minor rele
 - [ ] Freeze the complete candidate and record typecheck/full verification exit codes.
 - [ ] Independent read-only review, including assertions versus behavior.
 - [ ] Build both package tarballs and run clean-install/packaged smoke against the frozen candidate.
-- [ ] Open the release candidate PR and observe hosted checks on its exact head.
+- [ ] Open the release candidate PR, accept its exact head after hosted checks, merge and read back main.
 
 ## Publication boundary
 

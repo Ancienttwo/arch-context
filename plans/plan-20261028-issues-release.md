@@ -4,7 +4,7 @@ Status: Executing
 
 ## Scope and authority
 
-User authorized parallel repair of all open issues and preparation of a new release. Baseline: origin/main b38ae08bb925c88297dd392460122309bd4ca9a9. No npm publication is included. Preserve the primary checkout and its unrelated untracked research file and index lock.
+User authorized parallel repair of all open issues, acceptance and PR merges, and preparation of release 0.9.4. Baseline: origin/main b38ae08bb925c88297dd392460122309bd4ca9a9. No npm publication is included. Preserve the primary checkout and its unrelated untracked research file and index lock.
 
 ## Design and invariants
 
