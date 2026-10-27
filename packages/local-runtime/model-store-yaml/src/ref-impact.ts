@@ -190,7 +190,11 @@ export function computeRefImpact(input: { base?: ModelSnapshot; head: ModelSnaps
   if (headFacts) for (const step of steps.slice(0, IMPACT_LIMITS.flowSteps)) {
     const found = headFacts.selectors.filter(row => key(row) === key(step.evidence));
     const current = found.length === 1 ? found[0] : undefined;
-    if (!current || !selectorKnown(current)) { unresolvedCoverage = true; continue; }
+    if (!current || !selectorKnown(current)) {
+      unresolvedCoverage = true;
+      touched.push({ flowId: step.flowId, stepId: step.id, outcomeId: step.outcomeId, reasonCodes: ["selector-evidence-unavailable"] });
+      continue;
+    }
     const reasons: string[] = [];
     if (current.status === "unresolved") reasons.push("selector-unresolved-at-head");
     if (current.status === "resolved" && current.ranges.some(range => changes.some(change => change.path === range.path && change.hunks.some(hunk => hunk.headCount > 0 && hunk.headStart <= range.endLine && hunk.headStart + hunk.headCount - 1 >= range.startLine)))) reasons.push("head-lines-changed");

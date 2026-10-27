@@ -81,6 +81,8 @@ describe("stateless ref impact", () => {
     expect(computeRefImpact({ head: state(), changes: [change], headFacts: { ...facts(), selectors: [{ ...SELECTOR, status: "resolved", ranges: [] }] } }).touchedFlowSteps.status).toBe("unknown");
     expect(computeRefImpact({ base: state(), head: state(), changes: [change], headFacts: facts(), baseFacts: { ...facts(), selectors: [] } }).touchedFlowSteps.status).toBe("unknown");
     expect(computeRefImpact({ head: state(), changes: [change], headFacts: { ...facts(), selectors: [] } }).touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["selector-evidence-unavailable"] });
+    expect(computeRefImpact({ head: state(), changes: [change], headFacts: { ...facts(), selectors: [{ ...SELECTOR, status: "unknown" }] } }).touchedFlowSteps.items)
+      .toContainEqual({ flowId: "flow.demo.primary", stepId: "request", outcomeId: null, reasonCodes: ["selector-evidence-unavailable"] });
   });
   test("equal-specificity owners retain both candidates and ambiguity", () => {
     const head = state();

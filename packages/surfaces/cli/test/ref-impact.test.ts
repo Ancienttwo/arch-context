@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -61,7 +61,7 @@ test("real CLI binds CodeGraph ranges to Git blobs without touching the source i
   } finally { fixture.cleanup(); }
 }, 120_000);
 
-test("real CodeGraph ambiguous and missing declarations stay unknown, never unresolved", () => {
+test("real CodeGraph distinguishes ambiguous declarations from a renamed selector", () => {
   const fixture = createNativeFixture();
   try {
     writeFixtureFile(fixture.root, ".gitignore", ".codegraph/\n");
@@ -72,17 +72,30 @@ test("real CodeGraph ambiguous and missing declarations stay unknown, never unre
     const env = { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" };
     execFileSync(provider.command, [...provider.argsPrefix, "init", fixture.root], { cwd: fixture.root, env, stdio: "pipe" });
     const frozen = indexBytes(fixture.root);
-    const invoke = (ref: string) => JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", ref, "--head", ref, "--json"], { cwd: fixture.root, env, encoding: "utf8" }));
+    const invoke = (ref: string, base = ref) => JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", base, "--head", ref, "--json"], { cwd: fixture.root, env, encoding: "utf8" }));
     const ambiguous = invoke(head);
     expect(ambiguous.ok).toBe(true);
-    expect(ambiguous.data.touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["selector-evidence-unavailable"], items: [] });
+    expect(ambiguous.data.touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["selector-evidence-unavailable"] });
+    expect(ambiguous.data.touchedFlowSteps.items).toContainEqual({ flowId: "flow.demo.primary", stepId: "request", outcomeId: null, reasonCodes: ["selector-evidence-unavailable"] });
     expect(indexBytes(fixture.root)).toEqual(frozen);
     writeFixtureFile(fixture.root, "src/worker.ts", "export function other() { return 1; }\n");
     const missingHead = commitFixture(fixture.root);
     execFileSync(provider.command, [...provider.argsPrefix, "sync", fixture.root, "--quiet"], { cwd: fixture.root, env, stdio: "pipe" });
     const frozenMissing = indexBytes(fixture.root);
-    expect(invoke(missingHead).data.touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["selector-evidence-unavailable"], items: [] });
+    const renamed = invoke(missingHead, head);
+    expect(renamed.data.touchedFlowSteps.items).toContainEqual({ flowId: "flow.demo.primary", stepId: "request", outcomeId: null, reasonCodes: ["selector-unresolved-at-head"] });
+    // This index cannot attest the deleted base lines, even though the head lookup is complete.
+    expect(renamed.data.touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["base-code-facts-unavailable"] });
+    expect(invoke(missingHead).data.touchedFlowSteps.status).toBe("known");
     expect(indexBytes(fixture.root)).toEqual(frozenMissing);
+    rmSync(join(fixture.root, "src/worker.ts"));
+    const deletedHead = commitFixture(fixture.root);
+    execFileSync(provider.command, [...provider.argsPrefix, "sync", fixture.root, "--quiet"], { cwd: fixture.root, env, stdio: "pipe" });
+    const frozenDeleted = indexBytes(fixture.root);
+    const deleted = invoke(deletedHead, missingHead);
+    expect(deleted.data.touchedFlowSteps.status).toBe("unknown");
+    expect(deleted.data.touchedFlowSteps.items).toContainEqual({ flowId: "flow.demo.primary", stepId: "request", outcomeId: null, reasonCodes: ["selector-evidence-unavailable"] });
+    expect(indexBytes(fixture.root)).toEqual(frozenDeleted);
   } finally { fixture.cleanup(); }
 }, 120_000);
 
