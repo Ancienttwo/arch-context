@@ -53,6 +53,9 @@
             "code": { "type": "string", "pattern": "^AC_[A-Z0-9_]+$" },
             "reasonCode": { "type": "string", "minLength": 1 },
             "message": { "type": "string" },
+            "severity": { "enum": ["notice", "warning", "error", "critical"] },
+            "retryable": { "type": "boolean" },
+            "action": { "type": "string", "minLength": 1 },
             "details": { "type": "object", "description": "Safe metadata validated by the registered failure contract; no raw exception diagnostics." }
           }
         },
