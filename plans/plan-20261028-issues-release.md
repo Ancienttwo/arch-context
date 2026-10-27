@@ -23,8 +23,8 @@ User authorized parallel repair of all open issues, acceptance and PR merges, an
 - [x] Complete P1/P2/P3 for #415 and #421; implement independently owned changes.
 - [x] Complete P1/P2/P3 for #409 and #414; implement remaining acceptance criteria.
 - [x] Integrate worker commits and run typecheck and affected tests.
-- [ ] Read-only review of implementation and tests on the integrated diff, consuming existing evidence.
-- [ ] Choose next version from final API changes, align version sources and release notes.
+- [x] Read-only review of implementation and tests on the integrated diff, consuming existing evidence.
+- [x] Align version sources and release notes to the user-selected 0.9.4 target.
 - [ ] Freeze candidate; run full release verification and package smoke once, recording exact head and exit codes.
 - [ ] Prepare reviewable release branch/PR and report remaining external release gates accurately.
 

@@ -27,8 +27,9 @@ Version 0.9.4 is the user-selected release target. Upgrade archctx and archctx-c
 - [x] Version-bound catalog and FG4/FG6 deterministic records regenerated from their producers.
 - [x] #409/#421 integration: 35 of 36 targeted tests passed; the remaining config fixture was corrected to use a provider-supported directory and passed separately, with original-index preconditions retained. No assertions were relaxed.
 - [x] Node 24.22.1 bundled adapter smoke passed closed/live WAL preservation and stale-index refusal; real Bun CLI `flows check --no-sync` proof passed.
-- [ ] Freeze the complete candidate and record typecheck/full verification exit codes.
-- [ ] Independent read-only review, including assertions versus behavior.
+- [x] Source frozen at `dc93dcf3308cc80e8dede032a7cbc3ea300801cc`; `bun run verify:pre` exited 0, including typecheck, package boundaries, production-mock reachability, Mermaid, practice and Node checks.
+- [x] Independent Claude Opus read-only review of `226b6bda..dc93dcf3`, including assertions versus behavior: no code blockers. Its requested runbook claim clarification is applied; see `tasks/reviews/20261028-issues-release.review.md`.
+- [ ] Full suite and post-verification exit codes on the final candidate.
 - [ ] Build both package tarballs and run clean-install/packaged smoke against the frozen candidate.
 - [ ] Open the release candidate PR, accept its exact head after hosted checks, merge and read back main.
 

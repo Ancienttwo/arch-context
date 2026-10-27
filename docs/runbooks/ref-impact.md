@@ -38,7 +38,10 @@ The snapshot uses CodeGraph 1.6.2's shipped source scanner, including its includ
 includeIgnored and extension settings. The selected source/configuration files,
 Git metadata and DB/WAL copy are limited to 512 MiB and 100,000 entries. Unsafe
 symlinks in selected inputs, external Git object stores, unsupported path/config
-overrides and changing inputs refuse evidence. Ordinary ignored dependency trees
+overrides and changing inputs refuse evidence. Impact summarizes these snapshot
+refusals as `ref-code-facts-unavailable`; it does not distinguish a missing index
+from an unsupported snapshot layout. `flows check --no-sync` exposes the specific
+snapshot failure reason. Ordinary ignored dependency trees
 are not copied. Private temporary files are removed after reading.
 
 Consumers must inspect reason codes, dependency coverage and truncation fields;
