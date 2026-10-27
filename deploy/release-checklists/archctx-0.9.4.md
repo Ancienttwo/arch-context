@@ -5,6 +5,7 @@ This records a release candidate, not publication. Both registry latest versions
 
 ## Changes
 
+- Earlier accepted main changes since 0.9.3 include ADR decision export, ordered architecture layers and stateless constraint queries (#410/#411), invalid ChangeSet base diagnostics (#416), and safe projection failure stage/error-family details (#418).
 - #419: preserve canonical producer recovery policy through projection publish, run records and persisted status. Reuses PR #420 at `e9563f8148b8e57d12f48a0b199df6ff46f9537d` and its completed hosted verification.
 - #417: `--version` reads product-version authority without initializing a runtime. Resolve argument errors direct callers to correct arguments while retaining model failures at their owning boundary.
 - #415: a daemon with a deleted start root reports non-readiness and refuses normal RPC. Authenticated shutdown remains reachable; `daemon list` reports the classified missing-root condition from persisted state.
@@ -14,7 +15,7 @@ This records a release candidate, not publication. Both registry latest versions
 
 ## Compatibility
 
-Version 0.9.4 is the user-selected release target. Upgrade archctx and archctx-contracts together. RPC remains v2. There is no SQLite migration or architecture authority promotion. The receipt is not an input to ledger acceptance. The default flows behavior remains explicit; callers choose the zero-write mode.
+Version 0.9.4 is the user-selected release target. Upgrade archctx and archctx-contracts together: earlier main changes add required ADR/input-role fields to strict native export v1, and adopted model.layers requires a supporting reader. Remove adopted fields through an approved ChangeSet before downgrading. RPC remains v2. There is no SQLite migration or architecture authority promotion. The receipt is not an input to ledger acceptance. The default flows behavior remains explicit; callers choose the zero-write mode.
 
 ## Evidence and remaining gates
 
@@ -29,12 +30,17 @@ Version 0.9.4 is the user-selected release target. Upgrade archctx and archctx-c
 - [x] Node 24.22.1 bundled adapter smoke passed closed/live WAL preservation and stale-index refusal; real Bun CLI `flows check --no-sync` proof passed.
 - [x] Source frozen at `dc93dcf3308cc80e8dede032a7cbc3ea300801cc`; `bun run verify:pre` exited 0, including typecheck, package boundaries, production-mock reachability, Mermaid, practice and Node checks.
 - [x] Independent Claude Opus read-only review of `226b6bda..dc93dcf3`, including assertions versus behavior: no code blockers. Its requested runbook claim clarification is applied; see `tasks/reviews/20261028-issues-release.review.md`.
-- [ ] Full suite and post-verification exit codes on the final candidate.
-- [ ] Build both package tarballs and run clean-install/packaged smoke against the frozen candidate.
+- [x] The first full attempt was stopped (exit 130) after a new schema used a non-URL `$id`. The one-line absolute-URL repair passed 278 contracts/debt/delta tests and a narrow independent review; runtime schemaVersion was unchanged.
+- [x] Full inventory at `ff81e1d7`: 3594 passed, 4 platform/existing skips, 2 failures, exit 1. These exposed an outdated flows help assertion and lost resolve line diagnostics. `06d6927f` preserves the old resolve assertion, repairs its local CLI message, updates the mandated flag syntax, and adds write-contract assertions. Targeted rerun: 5 passed / 60 assertions, exit 0; typecheck exit 0. This is not recorded as a green standalone full run.
+- [ ] Final-head hosted full/matrix CI and local post-verification.
+- [x] Both package dry-runs and isolated installed-product lifecycle smoke passed on `ff81e1d7` before the final diagnostic correction. Final artifacts must be rebuilt from accepted main; these initial archives are not publication candidates.
+- [ ] Rebuild both final package tarballs and read back their version/content/digests after merge.
 - [ ] Open the release candidate PR, accept its exact head after hosted checks, merge and read back main.
 
 ## Publication boundary
 
 Publication is not authorized by release preparation. After separately authorized merge/publication, rebuild from the accepted main commit, verify both tarballs, publish interactively, wait for both registry versions, and read back version/dist-tag/integrity. Do not republish an accepted upload while it is processing. Create the tag and GitHub Release only for that published commit.
+
+Both npm preflights currently report only `npm identity unavailable: E401`. Restore npm web authentication at publication time. No publish was attempted.
 
 Before publication, reverting the candidate restores prior code and version authorities. Published versions are immutable and require a new corrective version.

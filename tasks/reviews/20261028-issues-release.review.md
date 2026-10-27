@@ -13,3 +13,9 @@ The reviewer confirmed the configured-source fixture retained its `[1, 1]` asser
 Receipt model digests are already validated by the committed-journal reader; the parent did not add a second validator. Unsigned receipts remain explicitly unauthenticated. The positive Node/Bun snapshot fixtures cover the reviewer’s static uncertainty about private-root readiness. Tarball/clean-install checks and full release gates remain separate pending evidence.
 
 An automatic stop-hook ownership warning named historical `.github` paths outside this diff. It was not changed or treated as a candidate defect.
+
+## Verification follow-through
+
+The full run exposed the receipt schema's non-absolute `$id`. Commit `ff81e1d7` changes only that resolver identifier to the repository's HTTPS origin/path convention; the same reviewer checked this narrow delta and reaffirmed approval. A resolver-constructing targeted run passed 278 tests. No receipt schemaVersion or payload shape changed.
+
+The subsequent full inventory completed with 3594 passes, 4 existing/platform skips and 2 failures. Parent fix `06d6927f` preserves detailed local resolve argument messages while retaining the registered recovery policy; the existing `line 2` assertion remains unchanged. The flows help expectation now includes the required `--no-sync` flag and additionally checks both write modes. All five targeted CLI regressions passed, with typecheck exit 0. The prior review is not represented as a new independent whole-diff review of this follow-through; final-head hosted checks remain the merge gate.
