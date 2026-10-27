@@ -65,7 +65,7 @@ export interface ProjectionPublishRunV1 {
   /** `ProjectionResultV2.status` of the apply this run made, or null without one. */
   projectionStatus: string | null;
   humanActions: ProjectionPublishHumanActionV1[];
-  error: { code: string; reasonCode?: string; message: string; details?: { [key: string]: Json } } | null;
+  error: { code: string; reasonCode?: string; message: string; severity?: "notice" | "warning" | "error" | "critical"; retryable?: boolean; action?: string; details?: { [key: string]: Json } } | null;
   startedAt: string;
   finishedAt: string;
   /** Base tips evaluated in this run; above 1 when the base moved while the run worked. */

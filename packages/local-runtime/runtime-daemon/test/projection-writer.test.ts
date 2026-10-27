@@ -456,7 +456,7 @@ test("an apply failure is recorded as failed with its code, and code facts name 
   const { publisher } = recordingPublisher();
   const { apply } = fakeApply(() => ({ schemaVersion: "archcontext.envelope/v1", ok: false, requestId: "projection.run", error: { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing", message: "no CodeGraph index", severity: "error", retryable: true, action: "codegraph-init" } }) as JsonEnvelope);
   const failed = await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply, env: fixture.env });
-  expect(failed.error).toMatchObject({ code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" });
+  expect(failed.error).toMatchObject({ code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing", retryable: true, action: "codegraph-init" });
   const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
   expect(failed.error!.message).toContain(`codegraph init ${paths.worktree}`);
   expect(runOf(failed)).toMatchObject({ result: "failed", pushed: false });
@@ -488,17 +488,47 @@ test("known structured failure facts survive the writer and tampered state fails
   const fixture = writerFixture();
   const details = { issueCount: 1, diagnostics: [{ path: "docs/adr/ADR-0001-x.md", code: "schema-version-missing" }], omittedIssueCount: 0 };
   const result = await runProjectionPublishCommand({ cwd: fixture.clone, env: fixture.env, publisher: createNoneProjectionPublisher(), apply: async () => failureEnvelope("projection.run", knownFailure("AC_PRECONDITION_FAILED", "apply-model-invalid", details)) });
+  expect(result.error).toMatchObject({ reasonCode: "apply-model-invalid", retryable: false, action: "repair-model" });
   expect(result.error?.details).toEqual(details);
   const run = runOf(result);
+  expect(run.error).toEqual(result.error!);
+  expectSchema(RUN_SCHEMA, run);
   expect(run.error?.details).toEqual(details);
   expect(statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env })).lastRun?.error?.details).toEqual(details);
   const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
   const stored = JSON.parse(readFileSync(paths.state, "utf8"));
+  expect(stored.lastRun.error).toEqual(result.error);
+  const status = statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env }));
+  expect(status.lastRun?.error).toEqual(result.error);
+  expectSchema(STATUS_SCHEMA, status);
   stored.lastRun.error.details.privateBody = "private-provider-body";
   writeFileSync(paths.state, JSON.stringify(stored));
   const rejected = runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env });
   expect(rejected).toMatchObject({ ok: false, error: { reasonCode: "projection-writer-state-invalid" } });
   expect(JSON.stringify(rejected)).not.toContain("private-provider-body");
+});
+
+test("writer recovery metadata is validated while legacy state remains readable", async () => {
+  const fixture = writerFixture();
+  const result = await runProjectionPublishCommand({ cwd: fixture.clone, env: fixture.env, publisher: createNoneProjectionPublisher(), apply: async () => failureEnvelope("projection.run", knownFailure("AC_PRECONDITION_FAILED", "apply-model-invalid")) });
+  const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
+  const stored = JSON.parse(readFileSync(paths.state, "utf8"));
+  for (const patch of [{ retryable: "yes" }, { action: "not-a-registered-action" }, { severity: "info" }]) {
+    writeFileSync(paths.state, JSON.stringify({ ...stored, lastRun: { ...stored.lastRun, error: { ...stored.lastRun.error, ...patch } } }));
+    expect(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env })).toMatchObject({ ok: false, error: { reasonCode: "projection-writer-state-invalid" } });
+  }
+  delete stored.lastRun.error.severity;
+  delete stored.lastRun.error.retryable;
+  delete stored.lastRun.error.action;
+  writeFileSync(paths.state, JSON.stringify(stored));
+  expect(statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env })).lastRun?.error).toEqual(stored.lastRun.error);
+  // Writer-owned failures predate the strict producer registry and have no recovery fields.
+  stored.lastRun.error = { code: "AC_PRECONDITION_FAILED", reasonCode: "projection-writer-git-failed", message: "git fetch failed" };
+  writeFileSync(paths.state, JSON.stringify(stored));
+  const legacy = statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env }));
+  expect(legacy.lastRun?.error).toEqual(stored.lastRun.error);
+  expectSchema(STATUS_SCHEMA, legacy);
+  expect(result.ok).toBe(false);
 });
 
 test("the command publisher runs with only PATH, HOME and the ARCHCTX_PUBLISH_* inputs and parses its JSON stdout", async () => {
