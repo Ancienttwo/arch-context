@@ -32,14 +32,15 @@ Version 0.9.4 is the user-selected release target. Upgrade archctx and archctx-c
 - [x] Independent Claude Opus read-only review of `226b6bda..dc93dcf3`, including assertions versus behavior: no code blockers. Its requested runbook claim clarification is applied; see `tasks/reviews/20261028-issues-release.review.md`.
 - [x] The first full attempt was stopped (exit 130) after a new schema used a non-URL `$id`. The one-line absolute-URL repair passed 278 contracts/debt/delta tests and a narrow independent review; runtime schemaVersion was unchanged.
 - [x] Full inventory at `ff81e1d7`: 3594 passed, 4 platform/existing skips, 2 failures, exit 1. These exposed an outdated flows help assertion and lost resolve line diagnostics. `06d6927f` preserves the old resolve assertion, repairs its local CLI message, updates the mandated flag syntax, and adds write-contract assertions. Targeted rerun: 5 passed / 60 assertions, exit 0; typecheck exit 0. This is not recorded as a green standalone full run.
-- [ ] Final-head hosted full/matrix CI and local post-verification.
+- [x] `bun run verify:post` exited 0 on production source `06d6927f`, including Explorer, packaged CLI, privacy, acceptance ledgers and configured eval gates.
+- [ ] Final-head hosted full/matrix CI before merge; subsequent provider results belong in the release PR and local final-readiness record.
 - [x] Both package dry-runs and isolated installed-product lifecycle smoke passed on `ff81e1d7` before the final diagnostic correction. Final artifacts must be rebuilt from accepted main; these initial archives are not publication candidates.
 - [ ] Rebuild both final package tarballs and read back their version/content/digests after merge.
 - [ ] Open the release candidate PR, accept its exact head after hosted checks, merge and read back main.
 
 ## Publication boundary
 
-Publication is not authorized by release preparation. After separately authorized merge/publication, rebuild from the accepted main commit, verify both tarballs, publish interactively, wait for both registry versions, and read back version/dist-tag/integrity. Do not republish an accepted upload while it is processing. Create the tag and GitHub Release only for that published commit.
+After the authorized PR merge, rebuild both final tarballs from accepted main. Publication is a separate step from this preparation: when authorized, publish interactively, wait for both registry versions, and read back version/dist-tag/integrity. Do not republish an accepted upload while it is processing. Create the tag and GitHub Release only for that published commit.
 
 Both npm preflights currently report only `npm identity unavailable: E401`. Restore npm web authentication at publication time. No publish was attempted.
 
