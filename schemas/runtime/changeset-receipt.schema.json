@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "archcontext.changeset-receipt/v1",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/changeset-receipt.schema.json",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "journalId", "changeSetId", "baseModelDigest", "resultModelDigest", "files", "hashAlgorithm", "approvalAuthenticity"],
