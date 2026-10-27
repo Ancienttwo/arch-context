@@ -183,6 +183,32 @@ function builtinSelectorModel(sinkName: string): NativeModel {
 // shared by the import-graph and exact-selector assertions: spawning it per assertion made the
 // neighbouring adapter suite time out under parallel test execution.
 describe("capability documentation projection inputs from the code index", () => {
+  test("private snapshots allow inert filter configuration and reject effective filters", async () => {
+    const { root } = seedWorkspace({ withIndex: false });
+    writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+    const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
+    try {
+      writeFileSync(join(root, "notes.txt"), "not a CodeGraph source\n");
+      git("add", "packages", "notes.txt");
+      git("-c", "user.name=Snapshot Test", "-c", "user.email=snapshot@example.test", "commit", "-qm", "fixture");
+      git("config", "filter.lfs.clean", "git-lfs clean -- %f");
+      git("config", "filter.lfs.process", "git-lfs filter-process");
+      git("config", "diff.external.command", "exit 99");
+      const graph = CodeGraph.initSync(root);
+      try { await graph.indexAll(); } finally { graph.close(); }
+      Bun.gc(true);
+      const indexBefore = readFileSync(join(root, ".git/index"));
+      expect(withExistingCodeGraphSnapshot(root, snapshot => snapshot.getNodesByName("MAIN_VERSION").length)).toBe(1);
+      expect(readFileSync(join(root, ".git/index"))).toEqual(indexBefore);
+      for (const pattern of ["*.ts", "notes.txt"]) {
+        writeFileSync(join(root, ".gitattributes"), `${pattern} filter=lfs\n`);
+        expect(() => withExistingCodeGraphSnapshot(root, () => true)).toThrow("safely isolated");
+      }
+      expect(readFileSync(join(root, ".git/index"))).toEqual(indexBefore);
+    } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); }
+  }, 60_000);
+
   for (const liveWal of [false, true]) test(`private snapshot reads real facts without changing original SQLite sidecars (live WAL: ${liveWal})`, async () => {
     const { root } = seedWorkspace({ withIndex: false });
     writeFileSync(join(root, ".gitignore"), ".codegraph/\nnode_modules/\n");
@@ -241,6 +267,11 @@ describe("capability documentation projection inputs from the code index", () =>
       ])).toEqual([1, 1]);
       writeFileSync(join(root, "external-projects/embedded/new.ts"), "export const newIgnoredSource = 1;\n");
       expect(() => withExistingCodeGraphSnapshot(root, () => true)).toThrow();
+      const embedded = join(root, "external-projects/embedded");
+      execFileSync("git", ["add", "library.ts"], { cwd: embedded, stdio: "pipe" });
+      execFileSync("git", ["config", "filter.selected.clean", "exit 99"], { cwd: embedded, stdio: "pipe" });
+      writeFileSync(join(embedded, ".gitattributes"), "*.ts filter=selected\n");
+      expect(() => withExistingCodeGraphSnapshot(root, () => true)).toThrow("safely isolated");
     } finally {
       Bun.gc(true);
       rmSync(root, { recursive: true, force: true });

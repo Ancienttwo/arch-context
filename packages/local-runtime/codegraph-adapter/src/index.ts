@@ -1165,11 +1165,8 @@ export function withExistingCodeGraphSnapshot<T>(
   }).trim());
   const gitDir = gitPath("--git-dir");
   const commonDir = gitPath("--git-common-dir");
-  // An explicit worktree path or external object store could make Git in the mirror escape it.
-  const worktreeConfig = spawnSync("git", ["config", "--get-regexp", "^(core\\.(worktree|fsmonitor)|include\\.|include[iI]f\\.|filter\\.|diff\\..*\\.(command|textconv))"], {
-    cwd: originalRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5_000
-  });
-  if ((worktreeConfig.status !== 0 && worktreeConfig.status !== 1) || worktreeConfig.stdout.trim() || existsSync(join(commonDir, "objects/info/alternates"))) {
+  assertSnapshotGitReadSafety(originalRoot);
+  if (existsSync(join(commonDir, "objects/info/alternates"))) {
     throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
   }
   const temporaryParent = realpathSync.native(tmpdir());
@@ -1218,6 +1215,32 @@ export function withExistingCodeGraphSnapshot<T>(
   }
 }
 
+function assertSnapshotGitReadSafety(root: string): void {
+  const options = { cwd: root, stdio: "pipe" as const, timeout: 5_000, maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES };
+  const config = spawnSync("git", ["config", "--get-regexp", "^(core\\.(worktree|fsmonitor)|include\\.|include[iI]f\\.)"], { ...options, encoding: "utf8" });
+  if ((config.status !== 0 && config.status !== 1) || config.stdout.trim()) {
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+  }
+  // Provider readiness runs git status, which may execute clean/process filters on tracked
+  // content. Configuration alone (e.g. a system LFS installation) does not select a filter.
+  // Git owns attribute evaluation, including macros, nested attributes and info/attributes.
+  let attributes: string[];
+  try {
+    const tracked = execFileSync("git", ["ls-files", "--cached", "-z"], options);
+    if (tracked.length === 0) return;
+    const output = execFileSync("git", ["check-attr", "-z", "--stdin", "filter"], { ...options, input: tracked }).toString("utf8");
+    attributes = output.split("\0");
+    if (attributes.pop() !== "" || attributes.length % 3 !== 0) throw new Error("Invalid attribute response");
+  } catch {
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+  }
+  for (let index = 0; index < attributes.length; index += 3) {
+    if (attributes[index + 1] !== "filter" || !["unspecified", "unset"].includes(attributes[index + 2]!)) {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+    }
+  }
+}
+
 function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, destination?: string): string {
   const hash = createHash("sha256");
   let bytes = 0;
@@ -1261,18 +1284,21 @@ function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, 
   const sourceFiles = codeGraphSourceScanner()(root);
   const files = new Set([...sourceFiles, ...listGitVisibleFiles(root)]);
   const directories = new Set(["."]);
+  const repositories = new Set(["."]);
   for (const path of files) {
     if (isAbsolute(path) || path.split(/[\\/]/).includes("..")) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
     let directory = dirname(path);
     while (directory !== ".") { directories.add(directory); directory = dirname(directory); }
   }
   for (const directory of directories) {
-    for (const name of [".gitignore", "codegraph.json"]) {
+    for (const name of [".gitignore", ".gitattributes", "codegraph.json"]) {
       const path = join(directory, name);
       if (existsSync(join(root, path))) files.add(path);
     }
     if (directory !== "." && existsSync(join(root, directory, ".git"))) {
       visit(join(root, directory, ".git"), join(directory, ".git"));
+      assertSnapshotGitReadSafety(join(root, directory));
+      repositories.add(directory);
     }
   }
   hash.update(JSON.stringify([...sourceFiles].sort()));
@@ -1289,6 +1315,8 @@ function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, 
     hash.update(JSON.stringify([suffix, existsSync(source)]));
     if (existsSync(source)) visit(source, join(".codegraph", `codegraph.db${suffix}`));
   }
+  // Recheck the exact copied attribute population before any provider status operation.
+  if (destination) for (const repository of repositories) assertSnapshotGitReadSafety(join(destination, repository));
   return hash.digest("hex");
 }
 
