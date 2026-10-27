@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { failureIssues } from "@archcontext/contracts";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { runFlowSelectorCheckCommand } from "../src/flow-selector-check";
+import { indexCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
 
 const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
 
@@ -42,8 +43,8 @@ for (const state of ["missing", "incomplete", "ready", "stale", "foreign"] as co
     let other: string | undefined;
     try {
       if (state !== "missing") {
-        const graph = CodeGraph.initSync(root);
-        try { if (state !== "incomplete") await graph.indexAll(); } finally { graph.close(); }
+        if (state === "incomplete") CodeGraph.initSync(root).close();
+        else indexCodeGraphFixture(root);
         Bun.gc(true);
       }
       if (state === "stale") writeFileSync(join(root, "src/render.ts"), 'export function render() { return "changed"; }\n');
@@ -79,8 +80,7 @@ for (const state of ["missing", "incomplete", "ready", "stale", "foreign"] as co
 test("default flow check still syncs stale code facts", async () => {
   const root = fixture();
   try {
-    const graph = CodeGraph.initSync(root);
-    try { await graph.indexAll(); } finally { graph.close(); }
+    indexCodeGraphFixture(root);
     Bun.gc(true);
     writeFileSync(join(root, "src/render.ts"), 'export function render() { return "changed"; }\n');
     expect(runFlowSelectorCheckCommand(root, { noSync: true }).ok).toBe(false);

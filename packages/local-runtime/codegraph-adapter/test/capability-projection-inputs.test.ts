@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { digestJson } from "@archcontext/contracts";
+import { indexCodeGraphFixture } from "./real-index";
 import { ProjectionCodeFactsUnavailableError, RUNTIME_BUILTIN_CALL_NAMES, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, withExistingCodeGraphSnapshot, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
 
 const model: NativeModel = {
@@ -186,13 +187,11 @@ describe("capability documentation projection inputs from the code index", () =>
   test.each(["unspecified", "unset"])("private snapshots refuse the literal filter driver %s before execution", async (driver) => {
     const { root } = seedWorkspace({ withIndex: false });
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
-    const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
     try {
       writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
       git("add", "packages");
       git("-c", "user.name=Snapshot Test", "-c", "user.email=snapshot@example.test", "commit", "-qm", "fixture");
-      const graph = CodeGraph.initSync(root);
-      try { await graph.indexAll(); } finally { graph.close(); }
+      indexCodeGraphFixture(root);
       Bun.gc(true);
       const marker = join(root, "filter-executed");
       const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -210,7 +209,6 @@ describe("capability documentation projection inputs from the code index", () =>
     const { root } = seedWorkspace({ withIndex: false });
     writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
-    const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
     try {
       writeFileSync(join(root, "notes.txt"), "not a CodeGraph source\n");
       git("add", "packages", "notes.txt");
@@ -218,8 +216,7 @@ describe("capability documentation projection inputs from the code index", () =>
       git("config", "filter.lfs.clean", "git-lfs clean -- %f");
       git("config", "filter.lfs.process", "git-lfs filter-process");
       git("config", "diff.external.command", "exit 99");
-      const graph = CodeGraph.initSync(root);
-      try { await graph.indexAll(); } finally { graph.close(); }
+      indexCodeGraphFixture(root);
       Bun.gc(true);
       const indexBefore = readFileSync(join(root, ".git/index"));
       expect(withExistingCodeGraphSnapshot(root, snapshot => snapshot.getNodesByName("MAIN_VERSION").length)).toBe(1);
@@ -238,14 +235,14 @@ describe("capability documentation projection inputs from the code index", () =>
     mkdirSync(join(root, "node_modules"));
     symlinkSync(join(root, "packages/docs"), join(root, "node_modules/docs"), process.platform === "win32" ? "junction" : "dir");
     const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
-    let holder: ReturnType<typeof CodeGraph.initSync> | undefined = CodeGraph.initSync(root);
+    let holder: ReturnType<typeof CodeGraph.openSync> | undefined;
     const indexState = () => readdirSync(join(root, ".codegraph")).sort().map(name => {
       const path = join(root, ".codegraph", name);
       return [name, statSync(path).mtimeMs, readFileSync(path).toString("base64")];
     });
     try {
-      await holder.indexAll();
-      if (!liveWal) { holder.close(); holder = undefined; Bun.gc(true); }
+      indexCodeGraphFixture(root);
+      if (liveWal) holder = CodeGraph.openSync(root);
       const before = indexState();
       const names = withExistingCodeGraphSnapshot(root, graph => {
         expect(graph.getProjectRoot()).not.toBe(root);
@@ -277,9 +274,9 @@ describe("capability documentation projection inputs from the code index", () =>
     }));
     const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
     try {
-      const graph = CodeGraph.initSync(root);
+      indexCodeGraphFixture(root);
+      const graph = CodeGraph.openSync(root);
       try {
-        await graph.indexAll();
         expect(graph.getNodesByName("optedInLibrary").length).toBe(1);
         expect(graph.getNodesByName("customExtension").length).toBe(1);
       } finally { graph.close(); }
