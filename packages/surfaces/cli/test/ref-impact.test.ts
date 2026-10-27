@@ -43,7 +43,7 @@ test("real CLI binds CodeGraph ranges to Git blobs without touching the source i
     const frozen = indexBytes(fixture.root);
     const state = join(fixture.root, "runtime-state");
     const invoke = () => execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", base, "--head", head, "--json"], {
-      cwd: fixture.root, encoding: "utf8", env: { ...providerEnv, ARCHCONTEXT_STATE_DIR: state }
+      cwd: fixture.root, encoding: "utf8", env: { ...providerEnv, ARCHCONTEXT_STATE_DIR: state }, stdio: ["ignore", "pipe", "inherit"]
     });
     const bytes = invoke();
     const result = JSON.parse(bytes);
@@ -72,7 +72,7 @@ test("real CodeGraph distinguishes ambiguous declarations from a renamed selecto
     const env = { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" };
     execFileSync(provider.command, [...provider.argsPrefix, "init", fixture.root], { cwd: fixture.root, env, stdio: "pipe" });
     const frozen = indexBytes(fixture.root);
-    const invoke = (ref: string, base = ref) => JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", base, "--head", ref, "--json"], { cwd: fixture.root, env, encoding: "utf8" }));
+    const invoke = (ref: string, base = ref) => JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", base, "--head", ref, "--json"], { cwd: fixture.root, env, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }));
     const ambiguous = invoke(head);
     expect(ambiguous.ok).toBe(true);
     expect(ambiguous.data.touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["selector-evidence-unavailable"] });

@@ -18,7 +18,8 @@ export function readRefImpactFacts(root: string, base: { model: NativeContextMod
         ? bindSnapshotRefImpactFacts(root, input.model, input.snapshot, graph) : undefined;
       return { baseFacts: bind(base), headFacts: bind(head) };
     });
-  } catch {
+  } catch (error) {
+    console.error("DIAG SNAPSHOT ERROR", error);
     return {};
   }
 }
@@ -39,7 +40,7 @@ function bindSnapshotRefImpactFacts(
     const files = graph.getFiles();
     const sdk = requireFromAdapter("@colbymchenry/codegraph") as Sdk;
     const supportedPaths = new Set(files.filter(file => sdk.isLanguageSupported(file.language)).map(file => file.path));
-    if (files.length > REF_IMPACT_LIMITS.codeFactFiles) return undefined;
+    if (files.length > REF_IMPACT_LIMITS.codeFactFiles) { console.error("DIAG FILE LIMIT", files.length); return undefined; }
     const tree = new Map(readGitBlobTree(root, ref.treeOid, { sizes: true, trees: false }).map(entry => [entry.path, entry]));
     const entries = files.map(file => tree.get(file.path));
     let bytes = 0;
@@ -48,7 +49,7 @@ function bindSnapshotRefImpactFacts(
       if (!isRepoRelativePosixPath(file.path) || (file.errors?.length ?? 0) > 0
         || !entry || !entry.utf8Valid || entry.type !== "blob" || !["100644", "100755"].includes(entry.mode)
         || entry.byteLength === null || entry.byteLength > 1024 * 1024
-        || (bytes += entry.byteLength) > REF_IMPACT_LIMITS.codeFactBytes) return undefined;
+        || (bytes += entry.byteLength) > REF_IMPACT_LIMITS.codeFactBytes) { console.error("DIAG ENTRY", JSON.stringify({path:file.path, errors:file.errors, entry, bytes, ref})); return undefined; }
     }
     const blobs = readGitBlobs(root, entries.map(entry => entry!));
     const lineCounts = new Map<string, number>();
@@ -56,7 +57,7 @@ function bindSnapshotRefImpactFacts(
       const file = files[i]!, body = blobs[i]!;
       // decodeUtf8 preserves BOMs, matching the producer's readFile(..., 'utf8').
       const content = decodeUtf8(body);
-      if (createHash("sha256").update(content).digest("hex") !== file.contentHash) return undefined;
+      if (createHash("sha256").update(content).digest("hex") !== file.contentHash) { console.error("DIAG HASH", JSON.stringify({path:file.path, actual:createHash("sha256").update(content).digest("hex"), indexed:file.contentHash, ref})); return undefined; }
       lineCounts.set(file.path, content.split("\n").length);
     }
     const selectors: RefImpactFacts["selectors"] = [];
@@ -84,7 +85,8 @@ function bindSnapshotRefImpactFacts(
       }
     }
     return { ...ref, selectors };
-  } catch {
+  } catch (error) {
+    console.error("DIAG BINDER ERROR", error);
     // Optional code facts cannot turn an unavailable producer into a negative impact claim.
     return undefined;
   }
