@@ -1225,17 +1225,23 @@ function assertSnapshotGitReadSafety(root: string): void {
   // content. Configuration alone (e.g. a system LFS installation) does not select a filter.
   // Git owns attribute evaluation, including macros, nested attributes and info/attributes.
   let attributes: string[];
+  let ambiguousDrivers: Set<string>;
   try {
     const tracked = execFileSync("git", ["ls-files", "--cached", "-z"], options);
     if (tracked.length === 0) return;
     const output = execFileSync("git", ["check-attr", "-z", "--stdin", "filter"], { ...options, input: tracked }).toString("utf8");
     attributes = output.split("\0");
     if (attributes.pop() !== "" || attributes.length % 3 !== 0) throw new Error("Invalid attribute response");
+    // check-attr prints literal driver names "unset"/"unspecified" identically to its
+    // sentinels. A configured driver with either name makes that response ambiguous.
+    const drivers = spawnSync("git", ["config", "--name-only", "--get-regexp", "^filter\\.(unspecified|unset)\\.(clean|process)$"], { ...options, encoding: "utf8" });
+    if (drivers.status !== 0 && drivers.status !== 1) throw new Error("Cannot inspect filter drivers");
+    ambiguousDrivers = new Set(drivers.stdout.trim().split(/\r?\n/).filter(Boolean).map(key => key.split(".")[1]!));
   } catch {
     throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
   }
   for (let index = 0; index < attributes.length; index += 3) {
-    if (attributes[index + 1] !== "filter" || !["unspecified", "unset"].includes(attributes[index + 2]!)) {
+    if (attributes[index + 1] !== "filter" || !["unspecified", "unset"].includes(attributes[index + 2]!) || ambiguousDrivers.has(attributes[index + 2]!)) {
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
     }
   }

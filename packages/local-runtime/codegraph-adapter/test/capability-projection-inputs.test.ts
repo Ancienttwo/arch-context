@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -183,6 +183,29 @@ function builtinSelectorModel(sinkName: string): NativeModel {
 // shared by the import-graph and exact-selector assertions: spawning it per assertion made the
 // neighbouring adapter suite time out under parallel test execution.
 describe("capability documentation projection inputs from the code index", () => {
+  test.each(["unspecified", "unset"])("private snapshots refuse the literal filter driver %s before execution", async (driver) => {
+    const { root } = seedWorkspace({ withIndex: false });
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+    const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
+    try {
+      writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
+      git("add", "packages");
+      git("-c", "user.name=Snapshot Test", "-c", "user.email=snapshot@example.test", "commit", "-qm", "fixture");
+      const graph = CodeGraph.initSync(root);
+      try { await graph.indexAll(); } finally { graph.close(); }
+      Bun.gc(true);
+      const marker = join(root, "filter-executed");
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const script = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "executed"); process.stdin.pipe(process.stdout);`;
+      git("config", `filter.${driver}.clean`, `${quote(process.execPath.replaceAll("\\", "/"))} -e ${quote(script)}`);
+      writeFileSync(join(root, ".gitattributes"), `*.ts filter=${driver}\n`);
+      let failure: unknown;
+      try { withExistingCodeGraphSnapshot(root, () => true); } catch (error) { failure = error; }
+      expect(existsSync(marker)).toBe(false);
+      expect(failure).toMatchObject({ reasonCode: "code-facts-snapshot-layout-unsupported" });
+    } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); }
+  }, 60_000);
+
   test("private snapshots allow inert filter configuration and reject effective filters", async () => {
     const { root } = seedWorkspace({ withIndex: false });
     writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
