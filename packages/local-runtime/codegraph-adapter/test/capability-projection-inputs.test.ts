@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { digestJson } from "@archcontext/contracts";
-import { ProjectionCodeFactsUnavailableError, RUNTIME_BUILTIN_CALL_NAMES, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
+import { ProjectionCodeFactsUnavailableError, RUNTIME_BUILTIN_CALL_NAMES, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, withExistingCodeGraphSnapshot, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
 
 const model: NativeModel = {
   nodes: [
@@ -182,6 +183,66 @@ function builtinSelectorModel(sinkName: string): NativeModel {
 // shared by the import-graph and exact-selector assertions: spawning it per assertion made the
 // neighbouring adapter suite time out under parallel test execution.
 describe("capability documentation projection inputs from the code index", () => {
+  for (const liveWal of [false, true]) test(`private snapshot reads real facts without changing original SQLite sidecars (live WAL: ${liveWal})`, async () => {
+    const { root } = seedWorkspace({ withIndex: false });
+    writeFileSync(join(root, ".gitignore"), ".codegraph/\nnode_modules/\n");
+    mkdirSync(join(root, "node_modules"));
+    symlinkSync(join(root, "packages/docs"), join(root, "node_modules/docs"), process.platform === "win32" ? "junction" : "dir");
+    const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
+    let holder: ReturnType<typeof CodeGraph.initSync> | undefined = CodeGraph.initSync(root);
+    const indexState = () => readdirSync(join(root, ".codegraph")).sort().map(name => {
+      const path = join(root, ".codegraph", name);
+      return [name, statSync(path).mtimeMs, readFileSync(path).toString("base64")];
+    });
+    try {
+      await holder.indexAll();
+      if (!liveWal) { holder.close(); holder = undefined; Bun.gc(true); }
+      const before = indexState();
+      const names = withExistingCodeGraphSnapshot(root, graph => {
+        expect(graph.getProjectRoot()).not.toBe(root);
+        return graph.getNodesByName("MAIN_VERSION").map(node => node.name);
+      });
+      expect(names).toContain("MAIN_VERSION");
+      expect(indexState()).toEqual(before);
+      expect(() => withExistingCodeGraphSnapshot(root, () => {
+        writeFileSync(join(root, "packages/docs/src/main.ts"), "export const MAIN_VERSION = 2;\n");
+      })).toThrow();
+      expect(indexState()).toEqual(before);
+    } finally {
+      holder?.close();
+      Bun.gc(true);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("private source mirror preserves provider includeIgnored, include and extension overrides", async () => {
+    const { root } = seedWorkspace({ withIndex: false });
+    writeFileSync(join(root, ".gitignore"), ".codegraph/\nvendor/\nprivate-src/\n");
+    mkdirSync(join(root, "vendor/embedded"), { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: join(root, "vendor/embedded"), stdio: "pipe" });
+    writeFileSync(join(root, "vendor/embedded/library.ts"), "export function optedInLibrary() { return 1; }\n");
+    mkdirSync(join(root, "private-src"));
+    writeFileSync(join(root, "private-src/source.fixture"), "export function customExtension() { return 1; }\n");
+    writeFileSync(join(root, "codegraph.json"), JSON.stringify({
+      includeIgnored: ["vendor/"], include: ["private-src/**"], extensions: { ".fixture": "typescript" }
+    }));
+    const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
+    try {
+      const graph = CodeGraph.initSync(root);
+      try { await graph.indexAll(); } finally { graph.close(); }
+      Bun.gc(true);
+      expect(withExistingCodeGraphSnapshot(root, snapshot => [
+        snapshot.getNodesByName("optedInLibrary").length,
+        snapshot.getNodesByName("customExtension").length
+      ])).toEqual([1, 1]);
+      writeFileSync(join(root, "vendor/embedded/new.ts"), "export const newIgnoredSource = 1;\n");
+      expect(() => withExistingCodeGraphSnapshot(root, () => true)).toThrow();
+    } finally {
+      Bun.gc(true);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   test("measures import edges and exact node-v2 selector evidence in one index pass", () => {
     const { root, binary, log } = seedWorkspace({ withIndex: true });
     try {

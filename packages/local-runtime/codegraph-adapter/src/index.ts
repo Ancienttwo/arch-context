@@ -1,10 +1,11 @@
 import { assertLocalEgressAllowed, localEgressMode } from "@archcontext/local-runtime/egress-admission";
 import { CODE_FACTS_ISSUE_MESSAGES, FailureError } from "@archcontext/contracts";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
+import { accessSync, closeSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
-import { basename, delimiter, dirname, isAbsolute, join, posix, resolve } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { parseJsonOrStableYaml, repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
@@ -39,6 +40,19 @@ function codeGraphSdk(): CodeGraphSdk {
   // Stateless native export shares the CLI entry but does not use code facts.
   // Resolve the installed SDK only when a CodeGraph operation actually needs it.
   return installedCodeGraphSdk ??= requireFromAdapter(REQUIRED_CODEGRAPH_PACKAGE) as CodeGraphSdk;
+}
+
+function codeGraphSourceScanner(): (root: string) => string[] {
+  const sdk = codeGraphSdk();
+  // Reuse the SDK shim's platform/cache resolution. The pinned platform ships this typed export
+  // but the thin npm facade does not re-export it; never reconstruct its ignore/extension rules.
+  const platformEntry = Object.values(requireFromAdapter.cache).find(module => module?.exports === sdk && basename(module.filename) === "index.js");
+  if (!platformEntry) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+  const dist = dirname(platformEntry.filename);
+  const manifest = JSON.parse(readFileSync(join(dirname(dirname(dist)), "package.json"), "utf8")) as { version?: string };
+  if (manifest.version !== REQUIRED_CODEGRAPH_VERSION) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+  const provider = requireFromAdapter(join(dist, "extraction/index.js")) as { scanDirectory(root: string): string[] };
+  return provider.scanDirectory;
 }
 
 type MutableEnv = Record<string, string | undefined>;
@@ -1121,6 +1135,160 @@ function digestFile(path: string): string {
 export interface RepositoryCodeFactsInspectionOptions {
   binary?: string;
   timeouts?: { versionMs?: number; statusMs?: number };
+}
+
+/** Bounds apply to the complete source/config/Git mirror plus database and WAL. */
+export const CODEGRAPH_SNAPSHOT_MAX_BYTES = 512 * 1024 * 1024;
+export const CODEGRAPH_SNAPSHOT_MAX_ENTRIES = 100_000;
+
+/**
+ * Runs synchronous readers against a private, ready CodeGraph snapshot. Provider status opens
+ * writable and SQLite readOnly can create WAL/SHM files, so neither ever sees the original root.
+ * The provider-enumerated filesystem mirror preserves source discovery and configuration rather
+ * than approximating its source extensions, ignores or content hashes. Nothing is re-indexed.
+ */
+export function withExistingCodeGraphSnapshot<T>(
+  root: string,
+  callback: (graph: ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]>) => T,
+  options: RepositoryCodeFactsInspectionOptions = {}
+): T {
+  const originalRoot = realpathSync.native(root);
+  if (Object.keys(process.env).some(key => key.startsWith("GIT_") && process.env[key] && key !== "GIT_OPTIONAL_LOCKS") || process.env.CODEGRAPH_DIR) {
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+  }
+  const indexDir = join(originalRoot, ".codegraph");
+  if (!existsSync(join(indexDir, "codegraph.db"))) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-missing");
+  if (lstatSync(indexDir).isSymbolicLink()) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+  const gitPath = (flag: string) => realpathSync.native(execFileSync("git", ["rev-parse", "--path-format=absolute", flag], {
+    cwd: originalRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5_000
+  }).trim());
+  const gitDir = gitPath("--git-dir");
+  const commonDir = gitPath("--git-common-dir");
+  // An explicit worktree path or external object store could make Git in the mirror escape it.
+  const worktreeConfig = spawnSync("git", ["config", "--get-regexp", "^(core\\.(worktree|fsmonitor)|include\\.|include[iI]f\\.|filter\\.|diff\\..*\\.(command|textconv))"], {
+    cwd: originalRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5_000
+  });
+  if ((worktreeConfig.status !== 0 && worktreeConfig.status !== 1) || worktreeConfig.stdout.trim() || existsSync(join(commonDir, "objects/info/alternates"))) {
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+  }
+  const temporaryParent = realpathSync.native(tmpdir());
+  const temporaryRelative = relative(originalRoot, temporaryParent);
+  if (!temporaryRelative || (temporaryRelative !== ".." && !temporaryRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(temporaryRelative))) {
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+  }
+  const temporaryRoot = mkdtempSync(join(temporaryParent, "archctx-codegraph-snapshot-"));
+  let holder: ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]> | undefined;
+  let graph: ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]> | undefined;
+  try {
+    const snapshotRoot = join(temporaryRoot, "repository");
+    mkdirSync(snapshotRoot);
+    const before = mirrorCodeGraphInputs(originalRoot, gitDir, commonDir, snapshotRoot);
+    if (before !== mirrorCodeGraphInputs(originalRoot, gitDir, commonDir)) {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-changed");
+    }
+    const scan = codeGraphSourceScanner();
+    if (JSON.stringify([...scan(originalRoot)].sort()) !== JSON.stringify([...scan(snapshotRoot)].sort())) {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+    }
+    const ready = inspectRepositoryCodeFacts(snapshotRoot, options);
+    if (ready.state !== "ready") {
+      if (ready.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-read-not-ready", { issues: ready.issues });
+    }
+    // Only the private copy gets a writable holder: Bun's SQLite needs live WAL/SHM files to
+    // open the selector handle readOnly. The provider owns this initialization, not raw SQL.
+    holder = codeGraphSdk().CodeGraph.openSync(snapshotRoot);
+    graph = codeGraphSdk().CodeGraph.openSync(snapshotRoot, { readOnly: true });
+    const result = callback(graph);
+    if (result !== null && typeof result === "object" && "then" in result) {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+    }
+    if (before !== mirrorCodeGraphInputs(originalRoot, gitDir, commonDir)) {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-changed");
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof FailureError) throw error;
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+  } finally {
+    try { graph?.close(); } finally {
+      try { holder?.close(); } finally { rmSync(temporaryRoot, { recursive: true, force: true }); }
+    }
+  }
+}
+
+function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, destination?: string): string {
+  const hash = createHash("sha256");
+  let bytes = 0;
+  let entries = 0;
+  const visit = (source: string, target: string, skip: ReadonlySet<string> = new Set()) => {
+    const stat = lstatSync(source, { bigint: true });
+    if (++entries > CODEGRAPH_SNAPSHOT_MAX_ENTRIES) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-limit-exceeded");
+    hash.update(JSON.stringify([source, target, String(stat.ino), String(stat.size), String(stat.mtimeNs), String(stat.ctimeNs)]));
+    if (stat.isDirectory()) {
+      if (destination) mkdirSync(join(destination, target), { recursive: true });
+      for (const name of readdirSync(source).sort()) {
+        if (!skip.has(name)) visit(join(source, name), join(target, name));
+      }
+    } else if (stat.isFile()) {
+      if (basename(target) === ".git") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+      bytes += Number(stat.size);
+      if (bytes > CODEGRAPH_SNAPSHOT_MAX_BYTES) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-limit-exceeded");
+      // Bound the actual read as well as the prior stat: a growing file must not bypass the cap.
+      const data = Buffer.alloc(Number(stat.size));
+      const fd = openSync(source, "r");
+      try {
+        let offset = 0;
+        while (offset < data.length) {
+          const count = readSync(fd, data, offset, data.length - offset, offset);
+          if (count === 0) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-changed");
+          offset += count;
+        }
+        if (readSync(fd, Buffer.alloc(1), 0, 1, offset) !== 0) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-changed");
+      } finally { closeSync(fd); }
+      hash.update(data);
+      if (destination) {
+        mkdirSync(dirname(join(destination, target)), { recursive: true });
+        writeFileSync(join(destination, target), data, { mode: Number(stat.mode) & 0o777 });
+      }
+    } else {
+      // Following a symlink can silently omit an external source/config population or let a
+      // provider write outside the mirror. Such layouts require a separate snapshot contract.
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+    }
+  };
+  const sourceFiles = codeGraphSourceScanner()(root);
+  const files = new Set([...sourceFiles, ...listGitVisibleFiles(root)]);
+  const directories = new Set(["."]);
+  for (const path of files) {
+    if (isAbsolute(path) || path.split(/[\\/]/).includes("..")) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+    let directory = dirname(path);
+    while (directory !== ".") { directories.add(directory); directory = dirname(directory); }
+  }
+  for (const directory of directories) {
+    for (const name of [".gitignore", "codegraph.json"]) {
+      const path = join(directory, name);
+      if (existsSync(join(root, path))) files.add(path);
+    }
+    if (directory !== "." && existsSync(join(root, directory, ".git"))) {
+      visit(join(root, directory, ".git"), join(directory, ".git"));
+    }
+  }
+  hash.update(JSON.stringify([...sourceFiles].sort()));
+  for (const file of [...files].sort()) {
+    if (file.split(/[\\/]/).some(part => part === ".git" || part === ".codegraph")) {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+    }
+    visit(join(root, file), file);
+  }
+  visit(commonDir, ".git", new Set(["worktrees"]));
+  if (gitDir !== commonDir) visit(gitDir, ".git", new Set(["commondir", "gitdir"]));
+  for (const suffix of ["", "-wal"]) {
+    const source = join(root, ".codegraph", `codegraph.db${suffix}`);
+    hash.update(JSON.stringify([suffix, existsSync(source)]));
+    if (existsSync(source)) visit(source, join(".codegraph", `codegraph.db${suffix}`));
+  }
+  return hash.digest("hex");
 }
 
 export interface RepositoryCodeFactsPendingChangesV1 {
