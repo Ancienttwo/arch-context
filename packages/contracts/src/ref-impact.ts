@@ -1,6 +1,6 @@
 import type { NativeContextSnapshot } from "./native-context";
 export const REF_IMPACT_SCHEMA_VERSION = "archcontext.ref-impact/v1" as const;
-export const REF_IMPACT_LIMITS = Object.freeze({ changedPaths: 1000, nodes: 1000, relations: 5000, flowSteps: 2000, dependents: 5000, modelChanges: 5000, depth: 10, diffLines: 100_000, diffWork: 2_000_000, diffBytes: 8 * 1024 * 1024, responseBytes: 8 * 1024 * 1024 });
+export const REF_IMPACT_LIMITS = Object.freeze({ changedPaths: 1000, nodes: 1000, relations: 5000, flowSteps: 2000, dependents: 5000, modelChanges: 5000, depth: 10, diffLines: 100_000, diffWork: 2_000_000, diffBytes: 8 * 1024 * 1024, responseBytes: 8 * 1024 * 1024, codeFactFiles: 10_000, codeFactBytes: 8 * 1024 * 1024 });
 export interface RefImpactModelChange { kind: string; id: string; change: "added" | "removed" | "changed"; fields: string[] }
 export interface RefImpactFlowStep { flowId: string; stepId: string; outcomeId: string | null; reasonCodes: string[] }
 /** No timestamps, workspace paths, source bodies or live session state. */

@@ -2,6 +2,7 @@ import { canonicalize, isRepoRelativePosixPath, nativeByteCompare, NativeContext
 import { resolveArchitectureOwnersForPaths, type NativeNode, type ResolveArchitectureOwnerResult } from "@archcontext/core/projection-engine";
 import { decodeUtf8, readGitBlobTree, readGitBlobs, readNativeGitRoot, resolveNativeGitSnapshot, type GitBlobTreeEntry } from "../../git-adapter/src/blob-reader";
 import { exportNativeContext } from "./native-context";
+import { readRefImpactFacts } from "../../codegraph-adapter/src/ref-impact-facts";
 
 import { REF_IMPACT_LIMITS as IMPACT_LIMITS } from "@archcontext/contracts";
 export { IMPACT_LIMITS };
@@ -21,13 +22,13 @@ const key = (selector: Selector) => JSON.stringify([selector.entrypointId, selec
 const invalid = (category: string): never => { throw new NativeContextError("native-context-arguments-invalid", { category }); };
 
 /** Minimal insert/delete distance, independent of Git attributes, external drivers and worktree state. */
-export function countImpactLines(before: Buffer, after: Buffer, budget = { remaining: IMPACT_LIMITS.diffWork }): Pick<ImpactChange, "added" | "deleted" | "reasonCode"> {
+export function countImpactLines(before: Buffer, after: Buffer, budget: { remaining: number } = { remaining: IMPACT_LIMITS.diffWork }): Pick<ImpactChange, "added" | "deleted" | "reasonCode"> {
   const { hunks: _, ...counts } = diffImpactLines(before, after, budget);
   return counts;
 }
 
 /** Myers edit script over raw line tokens; trace storage and work share the advertised budget. */
-export function diffImpactLines(before: Buffer, after: Buffer, budget = { remaining: IMPACT_LIMITS.diffWork }): Omit<ImpactChange, "path"> {
+export function diffImpactLines(before: Buffer, after: Buffer, budget: { remaining: number } = { remaining: IMPACT_LIMITS.diffWork }): Omit<ImpactChange, "path"> {
   if (before.subarray(0, 8000).includes(0) || after.subarray(0, 8000).includes(0)) return { added: null, deleted: null, hunks: [], reasonCode: "binary-diff" };
   if (before.equals(after)) return { added: 0, deleted: 0, hunks: [] };
   const lines = (bytes: Buffer): string[] | undefined => {
@@ -249,5 +250,5 @@ export function readRefImpact(start: string, options: RefImpactOptions) {
     if ([a, b].some(entry => entry && (entry.type !== "blob" || !entry.utf8Valid))) return { path, added: null, deleted: null, hunks: [], reasonCode: "non-blob-entry" };
     return { path, ...diffImpactLines(a ? bodies.get(a.objectId)! : Buffer.alloc(0), b ? bodies.get(b.objectId)! : Buffer.alloc(0), diffBudget) };
   });
-  return computeRefImpact({ base, head, changes, depth: options.depth });
+  return computeRefImpact({ base, head, changes, depth: options.depth, ...readRefImpactFacts(root, base, head) });
 }

@@ -1,12 +1,90 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { runRefImpactCommand } from "../src/ref-impact";
 import { runCli } from "../src/main";
 import { type RefImpactV1 } from "@archcontext/contracts";
 import { createNativeFixture, commitFixture, writeFixtureFile } from "../../../local-runtime/model-store-yaml/test/fixtures/native-context/fixture";
+import { packagedCodeGraphCliInvocation } from "../../../local-runtime/codegraph-adapter/src/index";
+
+function indexBytes(root: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  const visit = (path: string) => {
+    for (const entry of readdirSync(join(root, path), { withFileTypes: true })) {
+      const name = `${path}/${entry.name}`;
+      if (entry.isDirectory()) visit(name);
+      else files[name] = createHash("sha256").update(readFileSync(join(root, name))).digest("hex");
+    }
+  };
+  visit(".codegraph");
+  files[".git/index"] = createHash("sha256").update(readFileSync(join(root, ".git/index"))).digest("hex");
+  files[".git/HEAD"] = readFileSync(join(root, ".git/HEAD"), "utf8");
+  return files;
+}
+
+test("real CLI binds CodeGraph ranges to Git blobs without touching the source index", () => {
+  const fixture = createNativeFixture();
+  try {
+    writeFixtureFile(fixture.root, ".gitignore", ".codegraph/\n");
+    writeFixtureFile(fixture.root, "src/done.ts", "export function finish() { return 1; }\n");
+    const before = "import { finish } from './done';\nexport function run() {\n  return finish();\n}\n";
+    writeFixtureFile(fixture.root, "src/worker.ts", before);
+    const base = commitFixture(fixture.root);
+    const after = before.replace("  return", "  const touched = 1;\n  void touched;\n  return");
+    writeFixtureFile(fixture.root, "src/worker.ts", after);
+    const head = commitFixture(fixture.root);
+    const provider = packagedCodeGraphCliInvocation();
+    const providerEnv = { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" };
+    // Index initialization is confined to this disposable test fixture.
+    execFileSync(provider.command, [...provider.argsPrefix, "init", fixture.root], { cwd: fixture.root, env: providerEnv, stdio: "pipe" });
+    const frozen = indexBytes(fixture.root);
+    const state = join(fixture.root, "runtime-state");
+    const invoke = () => execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", base, "--head", head, "--json"], {
+      cwd: fixture.root, encoding: "utf8", env: { ...providerEnv, ARCHCONTEXT_STATE_DIR: state }
+    });
+    const bytes = invoke();
+    const result = JSON.parse(bytes);
+    expect(result.ok).toBe(true);
+    expect(result.data.touchedFlowSteps.status).toBe("known");
+    expect(result.data.touchedFlowSteps.items).toContainEqual({ flowId: "flow.demo.primary", stepId: "request", outcomeId: null, reasonCodes: ["head-lines-changed"] });
+    expect(invoke()).toBe(bytes);
+    expect(indexBytes(fixture.root)).toEqual(frozen);
+    expect(existsSync(state)).toBe(false);
+    expect(readFileSync(join(fixture.root, "src/worker.ts"), "utf8")).toBe(after);
+    writeFixtureFile(fixture.root, "src/worker.ts", after + "// unsynced\n");
+    const stale = JSON.parse(invoke());
+    expect(stale.data.touchedFlowSteps.status).toBe("unknown");
+    expect(indexBytes(fixture.root)).toEqual(frozen);
+  } finally { fixture.cleanup(); }
+}, 120_000);
+
+test("real CodeGraph ambiguous and missing declarations stay unknown, never unresolved", () => {
+  const fixture = createNativeFixture();
+  try {
+    writeFixtureFile(fixture.root, ".gitignore", ".codegraph/\n");
+    writeFixtureFile(fixture.root, "src/done.ts", "export function finish() { return 1; }\n");
+    writeFixtureFile(fixture.root, "src/worker.ts", "import { finish } from './done';\nexport function run() {\n  function run() { return finish(); }\n  return run();\n}\n");
+    const head = commitFixture(fixture.root);
+    const provider = packagedCodeGraphCliInvocation();
+    const env = { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" };
+    execFileSync(provider.command, [...provider.argsPrefix, "init", fixture.root], { cwd: fixture.root, env, stdio: "pipe" });
+    const frozen = indexBytes(fixture.root);
+    const invoke = (ref: string) => JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", ref, "--head", ref, "--json"], { cwd: fixture.root, env, encoding: "utf8" }));
+    const ambiguous = invoke(head);
+    expect(ambiguous.ok).toBe(true);
+    expect(ambiguous.data.touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["selector-evidence-unavailable"], items: [] });
+    expect(indexBytes(fixture.root)).toEqual(frozen);
+    writeFixtureFile(fixture.root, "src/worker.ts", "export function other() { return 1; }\n");
+    const missingHead = commitFixture(fixture.root);
+    execFileSync(provider.command, [...provider.argsPrefix, "sync", fixture.root, "--quiet"], { cwd: fixture.root, env, stdio: "pipe" });
+    const frozenMissing = indexBytes(fixture.root);
+    expect(invoke(missingHead).data.touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["selector-evidence-unavailable"], items: [] });
+    expect(indexBytes(fixture.root)).toEqual(frozenMissing);
+  } finally { fixture.cleanup(); }
+}, 120_000);
 
 describe("impact CLI", () => {
   test.each(["\n", "\r\n"])("file and stdin preserve path whitespace with %j delimiters", newline => {
