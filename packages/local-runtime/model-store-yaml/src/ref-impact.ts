@@ -22,8 +22,14 @@ const invalid = (category: string): never => { throw new NativeContextError("nat
 
 /** Minimal insert/delete distance, independent of Git attributes, external drivers and worktree state. */
 export function countImpactLines(before: Buffer, after: Buffer, budget = { remaining: IMPACT_LIMITS.diffWork }): Pick<ImpactChange, "added" | "deleted" | "reasonCode"> {
-  if (before.subarray(0, 8000).includes(0) || after.subarray(0, 8000).includes(0)) return { added: null, deleted: null, reasonCode: "binary-diff" };
-  if (before.equals(after)) return { added: 0, deleted: 0 };
+  const { hunks: _, ...counts } = diffImpactLines(before, after, budget);
+  return counts;
+}
+
+/** Myers edit script over raw line tokens; trace storage and work share the advertised budget. */
+export function diffImpactLines(before: Buffer, after: Buffer, budget = { remaining: IMPACT_LIMITS.diffWork }): Omit<ImpactChange, "path"> {
+  if (before.subarray(0, 8000).includes(0) || after.subarray(0, 8000).includes(0)) return { added: null, deleted: null, hunks: [], reasonCode: "binary-diff" };
+  if (before.equals(after)) return { added: 0, deleted: 0, hunks: [] };
   const lines = (bytes: Buffer): string[] | undefined => {
     let count = bytes.length ? 1 : 0;
     for (let index = 0; index < bytes.length; index++) if (bytes[index] === 10 && index < bytes.length - 1 && ++count > IMPACT_LIMITS.diffLines) return undefined;
@@ -32,22 +38,54 @@ export function countImpactLines(before: Buffer, after: Buffer, budget = { remai
     return bytes.toString("latin1").match(/[^\n]*\n|[^\n]+$/g) ?? [];
   };
   const a = lines(before), b = lines(after);
-  const limited = () => ({ added: null, deleted: null, reasonCode: "diff-limit-exceeded" as const });
+  const limited = () => ({ added: null, deleted: null, hunks: [], reasonCode: "diff-limit-exceeded" as const });
   if (!a || !b) return limited();
-  if (!a.length || !b.length) return { added: b.length, deleted: a.length };
-  const frontier = new Map<number, number>([[1, 0]]);
+  if (!a.length || !b.length) return { added: b.length, deleted: a.length, hunks: [{ baseStart: a.length ? 1 : 0, baseCount: a.length, headStart: b.length ? 1 : 0, headCount: b.length }] };
+  const trace: Int32Array[] = [];
+  const at = (d: number, k: number) => d < 0 ? (k === 1 ? 0 : -1) : trace[d]![k + d] ?? -1;
   for (let distance = 0; distance <= a.length + b.length; distance++) {
+    // Charge every allocated cell as well as comparisons: at most diffWork Int32 cells.
+    budget.remaining -= 2 * distance + 1;
+    if (budget.remaining < 0) return limited();
+    const frontier = new Int32Array(2 * distance + 1).fill(-1);
+    trace.push(frontier);
     for (let diagonal = -distance; diagonal <= distance; diagonal += 2) {
       if (--budget.remaining < 0) return limited();
-      const down = frontier.get(diagonal + 1) ?? -1, right = frontier.get(diagonal - 1) ?? -1;
+      const down = at(distance - 1, diagonal + 1), right = at(distance - 1, diagonal - 1);
       let x = diagonal === -distance || (diagonal !== distance && right < down) ? down : right + 1;
       let y = x - diagonal;
       while (x < a.length && y < b.length && a[x] === b[y]) {
         if (--budget.remaining < 0) return limited();
         x++; y++;
       }
-      frontier.set(diagonal, x);
-      if (x >= a.length && y >= b.length) return { added: (distance + b.length - a.length) / 2, deleted: (distance + a.length - b.length) / 2 };
+      frontier[diagonal + distance] = x;
+      if (x >= a.length && y >= b.length) {
+        const edits: Array<{ x: number; y: number; insertion: boolean }> = [];
+        for (let d = distance; d > 0; d--) {
+          const k = x - y;
+          const insertion = k === -d || (k !== d && at(d - 1, k - 1) < at(d - 1, k + 1));
+          const px = at(d - 1, k + (insertion ? 1 : -1));
+          const py = px - k - (insertion ? 1 : -1);
+          edits.push({ x: px, y: py, insertion });
+          x = px; y = py;
+        }
+        const hunks: ImpactHunk[] = [];
+        let previous: { x: number; y: number } | undefined;
+        for (const edit of edits.reverse()) {
+          let hunk = hunks.at(-1);
+          if (!hunk || !previous || previous.x !== edit.x || previous.y !== edit.y) {
+            hunk = { baseStart: edit.x + 1, baseCount: 0, headStart: edit.y + 1, headCount: 0 };
+            hunks.push(hunk);
+          }
+          if (edit.insertion) hunk.headCount++; else hunk.baseCount++;
+          previous = { x: edit.x + (edit.insertion ? 0 : 1), y: edit.y + (edit.insertion ? 1 : 0) };
+        }
+        for (const hunk of hunks) {
+          if (!hunk.baseCount) hunk.baseStart--;
+          if (!hunk.headCount) hunk.headStart--;
+        }
+        return { added: (distance + b.length - a.length) / 2, deleted: (distance + a.length - b.length) / 2, hunks };
+      }
     }
   }
   return limited();
@@ -164,7 +202,7 @@ export function computeRefImpact(input: { base?: ModelSnapshot; head: ModelSnaps
     ...(!headFacts ? ["ref-code-facts-unavailable"] : []),
     ...(headFacts && input.base && !baseFacts && changes.some(row => (row.deleted ?? 0) > 0) ? ["base-code-facts-unavailable"] : []),
     ...(unresolvedCoverage ? ["selector-evidence-unavailable"] : []),
-    ...(changes.some(row => row.reasonCode) ? ["line-impact-unavailable"] : []),
+    ...(changes.some(row => row.reasonCode || ((row.added ?? 0) + (row.deleted ?? 0) > 0 && row.hunks.length === 0)) ? ["line-impact-unavailable"] : []),
     ...(steps.length > IMPACT_LIMITS.flowSteps || changes.length < allChanges.length ? ["impact-truncated"] : [])
   ]);
   const modelDelta = delta(input.base?.model, input.head.model);
@@ -209,8 +247,7 @@ export function readRefImpact(start: string, options: RefImpactOptions) {
     if (index >= IMPACT_LIMITS.changedPaths) return { path, added: null, deleted: null, hunks: [] };
     const a = before!.get(path), b = after!.get(path);
     if ([a, b].some(entry => entry && (entry.type !== "blob" || !entry.utf8Valid))) return { path, added: null, deleted: null, hunks: [], reasonCode: "non-blob-entry" };
-    return { path, ...countImpactLines(a ? bodies.get(a.objectId)! : Buffer.alloc(0), b ? bodies.get(b.objectId)! : Buffer.alloc(0), diffBudget), hunks: [] };
+    return { path, ...diffImpactLines(a ? bodies.get(a.objectId)! : Buffer.alloc(0), b ? bodies.get(b.objectId)! : Buffer.alloc(0), diffBudget) };
   });
-  // The existing CodeGraph producer is worktree-bound. Never mislabel it as historical ref facts.
   return computeRefImpact({ base, head, changes, depth: options.depth });
 }
