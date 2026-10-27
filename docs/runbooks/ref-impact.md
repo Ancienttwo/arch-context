@@ -44,6 +44,13 @@ from an unsupported snapshot layout. `flows check --no-sync` exposes the specifi
 snapshot failure reason. Ordinary ignored dependency trees
 are not copied. Private temporary files are removed after reading.
 
+SDK queries run in the Node executable shipped with the same pinned CodeGraph
+platform bundle. The caller receives complete query-result tables, without live
+SQLite handles; the worker must exit successfully before strict snapshot removal.
+The query boundary accepts at most 1 MiB of requests, 10,000 keys per table,
+100,000 result items and 32 MiB of output, with a 30-second deadline. Missing or
+malformed query coverage fails closed; an unrequested lookup is never an empty match.
+
 Installed Git filter definitions alone do not prevent a snapshot. Git's effective
 attributes are checked across all tracked paths, including embedded repositories;
 selected clean/process filters are refused before provider status can run them.

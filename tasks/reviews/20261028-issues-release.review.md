@@ -25,3 +25,11 @@ The subsequent full inventory completed with 3594 passes, 4 existing/platform sk
 Run `40584651324` failed in the shared Node pre-check at the blanket Git configuration guard. An inert Git LFS configuration reproduced that rejection locally. `cb3ccd6f` uses Git-owned effective attributes across tracked paths instead of rejecting all configured filters, including embedded repositories and copied attributes. Provider readiness uses `git status`, so selected filters still fail closed; its `--name-status --no-renames` diff does not invoke patch callbacks.
 
 The independent reviewer found a reserved-name ambiguity: real drivers named `unset` or `unspecified` have the same printed values as Git's sentinels. Two real clean-command fixtures demonstrated original-fixture marker writes before the fix. `c2c941fd` cross-checks configured reserved-name drivers and rejects before execution. Both marker tests now pass, with six snapshot tests / 24 assertions, typecheck and Node bundled smoke passing. The reviewer approved this bounded follow-up; the intermediate guard was never pushed or merged. Earlier affected suites passed 37 tests. Final-head hosted CI remains required.
+
+## Windows resource lifetime
+
+Run `40588721453` exposed EBUSY in Windows cleanup. Temporary diagnostic runs `40593845507` and `40595384814` isolated retained SQLite statements: private snapshot cleanup overrode valid ref facts. The GC experiment failed and was not added to the release branch.
+
+The accepted design boundary keeps query semantics in the pinned public SDK while assigning its handles to the same platform bundle's Node process. The caller receives validated complete query tables, evaluates inside the original-input stability window, and removes the private snapshot after child exit. No PATH fallback, global GC, private SDK mutation, ignored cleanup error, or weakened semantic assertion is used. Fixture setup and live-WAL holders also have explicit process lifetimes.
+
+Local affected suites passed 39 tests; Windows scoped run `40602640776` passed 39 tests / 176 assertions plus bundled Node smoke at `14475e63`, whose product/test files match `b195b249`. The diagnostic workflow is confined to its separate branch. Independent source/transport review and the complete final-head matrix remain separate gates.
