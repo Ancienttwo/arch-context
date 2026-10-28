@@ -2,8 +2,41 @@ import { describe, expect, test } from "bun:test";
 import { rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NativeContextModel, NativeContextSnapshot } from "@archcontext/contracts";
-import { computeRefImpact, countImpactLines, IMPACT_LIMITS, parseImpactHunks, parseImpactNumstat, readRefImpact, type RefImpactFacts } from "../src/ref-impact";
+import { computeRefImpact, countImpactLines, diffImpactLines, IMPACT_LIMITS, parseImpactHunks, parseImpactNumstat, readRefImpact, type RefImpactFacts } from "../src/ref-impact";
 import { createNativeFixture, commitFixture, fixtureGit, fixtureModel, writeFixtureFile, SELECTOR } from "./fixtures/native-context/fixture";
+
+test("raw edit hunks identify separated changes and deletion coordinates", () => {
+  expect(diffImpactLines(Buffer.from("a\nb\nc\nd\n"), Buffer.from("a\nB\nc\nD\n"))).toEqual({
+    added: 2, deleted: 2, hunks: [
+      { baseStart: 2, baseCount: 1, headStart: 2, headCount: 1 },
+      { baseStart: 4, baseCount: 1, headStart: 4, headCount: 1 }
+    ]
+  });
+  expect(diffImpactLines(Buffer.from("a\nb\nc\n"), Buffer.from("a\nc\n"))).toEqual({
+    added: 0, deleted: 1, hunks: [{ baseStart: 2, baseCount: 1, headStart: 1, headCount: 0 }]
+  });
+  expect(diffImpactLines(Buffer.from("a\n"), Buffer.from("a"))).toEqual({
+    added: 1, deleted: 1, hunks: [{ baseStart: 1, baseCount: 1, headStart: 1, headCount: 1 }]
+  });
+});
+
+test("hunks reconstruct all small repeated-line sequences and obey a shared budget", () => {
+  const sequences = [[], ["a\n"], ["b\n"], ["a\n", "a\n"], ["a\n", "b\n"], ["b\n", "a\n"], ["a\n", "b\n", "a\n"]];
+  for (const before of sequences) for (const after of sequences) {
+    const result = diffImpactLines(Buffer.from(before.join("")), Buffer.from(after.join("")));
+    expect(result.reasonCode).toBeUndefined();
+    const reconstructed = [...before];
+    for (const hunk of [...result.hunks].reverse()) {
+      reconstructed.splice(hunk.baseCount ? hunk.baseStart - 1 : hunk.baseStart, hunk.baseCount,
+        ...after.slice(hunk.headCount ? hunk.headStart - 1 : hunk.headStart, (hunk.headCount ? hunk.headStart - 1 : hunk.headStart) + hunk.headCount));
+    }
+    expect(reconstructed).toEqual(after);
+    expect(result.added).toBe(result.hunks.reduce((sum, hunk) => sum + hunk.headCount, 0));
+    expect(result.deleted).toBe(result.hunks.reduce((sum, hunk) => sum + hunk.baseCount, 0));
+  }
+  expect(diffImpactLines(Buffer.from("a\nb\n"), Buffer.from("x\ny\n"), { remaining: 1 }))
+    .toEqual({ added: null, deleted: null, hunks: [], reasonCode: "diff-limit-exceeded" });
+});
 const snapshot: NativeContextSnapshot = { source: "ref", commitSha: "a".repeat(40), treeOid: "b".repeat(40), validation: "immutable-tree" };
 function model(): NativeContextModel { return { ...fixtureModel(), sourcePaths: { nodes: {}, relations: {}, flows: {} } }; }
 function state() { return { model: model(), snapshot }; }
@@ -48,6 +81,8 @@ describe("stateless ref impact", () => {
     expect(computeRefImpact({ head: state(), changes: [change], headFacts: { ...facts(), selectors: [{ ...SELECTOR, status: "resolved", ranges: [] }] } }).touchedFlowSteps.status).toBe("unknown");
     expect(computeRefImpact({ base: state(), head: state(), changes: [change], headFacts: facts(), baseFacts: { ...facts(), selectors: [] } }).touchedFlowSteps.status).toBe("unknown");
     expect(computeRefImpact({ head: state(), changes: [change], headFacts: { ...facts(), selectors: [] } }).touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["selector-evidence-unavailable"] });
+    expect(computeRefImpact({ head: state(), changes: [change], headFacts: { ...facts(), selectors: [{ ...SELECTOR, status: "unknown" }] } }).touchedFlowSteps.items)
+      .toContainEqual({ flowId: "flow.demo.primary", stepId: "request", outcomeId: null, reasonCodes: ["selector-evidence-unavailable"] });
   });
   test("equal-specificity owners retain both candidates and ambiguity", () => {
     const head = state();

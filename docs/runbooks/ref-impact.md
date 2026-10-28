@@ -1,4 +1,4 @@
-# Stateless ref impact (partial delivery)
+# Stateless ref impact
 
 ```sh
 archctx impact --base main --head HEAD --depth 1 --json
@@ -18,13 +18,45 @@ and model delta remain unknown. Paths mode cannot be combined with ref flags.
 LF and CRLF delimit records. Empty records are ignored; leading and trailing
 whitespace belongs to the path and is preserved, including whitespace-only paths.
 
-## Flow coverage remains incomplete
+## Ref-bound flow evidence
 
-The actual CLI has no supported producer of historical CodeGraph facts bound to
-the selected commit and tree. Consequently `touchedFlowSteps.status` is `unknown`
-and its items are null. Pure-engine tests inject ref-bound facts to exercise
-matching; they do not establish real CLI flow-impact support. This change only
-partially addresses issue #409, which must remain open.
+The CLI reads the existing CodeGraph index through a disposable private snapshot.
+It never syncs or opens the original index. CodeGraph's own source enumeration and
+readiness checks validate the snapshot. Indexed source hashes must match the
+selected immutable Git blobs before declaration ranges are bound to that ref.
+Only matching refs receive evidence; historical refs without matching facts stay
+unknown. Hunk coordinates come from bounded comparisons of the same raw blobs.
+
+Changed head ranges report the affected flow step. An authoritative zero-match
+lookup in an indexed, supported, error-free file reports
+`selector-unresolved-at-head`. Ambiguous declarations, missing files and invalid
+ranges identify the step with `selector-evidence-unavailable`. Partial positive
+findings remain visible while aggregate coverage stays unknown. Deleted base
+lines require separately bound base evidence.
+
+The snapshot uses CodeGraph 1.6.2's shipped source scanner, including its include,
+includeIgnored and extension settings. The selected source/configuration files,
+Git metadata and DB/WAL copy are limited to 512 MiB and 100,000 entries. Unsafe
+symlinks in selected inputs, external Git object stores, unsupported path/config
+overrides and changing inputs refuse evidence. Impact summarizes these snapshot
+refusals as `ref-code-facts-unavailable`; it does not distinguish a missing index
+from an unsupported snapshot layout. `flows check --no-sync` exposes the specific
+snapshot failure reason. Ordinary ignored dependency trees
+are not copied. Private temporary files are removed after reading.
+
+SDK queries run in the Node executable shipped with the same pinned CodeGraph
+platform bundle. The caller receives complete query-result tables, without live
+SQLite handles; the worker must exit successfully before strict snapshot removal.
+The query boundary accepts at most 1 MiB of requests, 10,000 keys per table,
+100,000 result items and 32 MiB of output, with a 30-second deadline. Missing or
+malformed query coverage fails closed; an unrequested lookup is never an empty match.
+
+Installed Git filter definitions alone do not prevent a snapshot. Git's effective
+attributes are checked across all tracked paths, including embedded repositories;
+selected clean/process filters are refused before provider status can run them.
+Configured drivers named `unset` or `unspecified` are also refused when their names
+make Git's attribute response ambiguous. The provider's name-status diff does not
+request patches, so diff/textconv configuration alone does not execute a callback.
 
 Consumers must inspect reason codes, dependency coverage and truncation fields;
 unknown or truncated output is not proof that no impact exists. Limits are

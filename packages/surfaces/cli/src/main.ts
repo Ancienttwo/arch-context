@@ -141,7 +141,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     }
   },
   "export": { value: [], boolean: [] },
-  "flows": { value: [], boolean: [] },
+  "flows": { value: [], boolean: ["--no-sync"] },
   "github": {
     value: [],
     boolean: [],
@@ -187,6 +187,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
       state: { value: [], boolean: [] },
       drift: { value: [], boolean: [] },
       "accept-committed": { value: ["--acceptance-plan-id", "--changeset-id", "--expected-worktree-digest", "--journal", "--journal-id"], boolean: ["--approved"] },
+      receipt: { value: ["--journal-id"], boolean: [] },
       promote: { value: ["--mode"], boolean: ["--apply", "--enable", "--preflight", "--rollback-plan", "--write"] },
       project: { value: ["--expected-worktree-digest"], boolean: ["--dry-run", "--to-git", "--write"] },
       rebuild: { value: ["--expected-worktree-digest"], boolean: ["--accept-external-projection", "--from-git"] },
@@ -521,6 +522,14 @@ type CliCommandResult = Awaited<ReturnType<typeof runCliUnchecked>> | FailureEnv
 export function runCli(command: "capabilities", args?: string[], cwd?: string, deps?: CliRuntimeDeps): Promise<ArchctxCapabilitiesV1 | CliCommandResult>;
 export function runCli(command?: string, args?: string[], cwd?: string, deps?: CliRuntimeDeps): Promise<CliCommandResult>;
 export async function runCli(command = "help", args: string[] = [], cwd = process.cwd(), deps: CliRuntimeDeps = {}): Promise<ArchctxCapabilitiesV1 | CliCommandResult> {
+  if (command === "--version") {
+    if (args.some(arg => arg !== "--json") || args.length > 1) return cliArgumentFailure("version", "--version accepts only an optional --json flag");
+    return okEnvelope("version", { version: ARCHCONTEXT_PRODUCT_VERSION });
+  }
+  if (command === "resolve") {
+    const preflight = preflightCliArguments(command, args);
+    if (preflight) return preflight.ok ? preflight : cliArgumentFailure("resolve", preflight.error!.message);
+  }
   if (command === "capabilities") {
     const preflight = preflightCliArguments(command, args);
     if (preflight) return preflight;
@@ -871,19 +880,19 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return runConstraintsCommand(args, cwd);
     case "resolve": {
       if (args.includes("--path") && args.includes("--paths-from")) {
-        return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve accepts exactly one of --path or --paths-from");
+        return cliArgumentFailure("resolve", "resolve accepts exactly one of --path or --paths-from");
       }
       if (args.includes("--paths-from")) {
         const read = await readResolvePathsFrom(args, cwd, deps);
-        if ("problem" in read) return errorEnvelope("resolve", "AC_SCHEMA_INVALID", read.problem);
+        if ("problem" in read) return cliArgumentFailure("resolve", read.problem);
         const model = loadResolveModel(cwd);
         const outcomes = resolveArchitectureOwnersForPaths(model.nodes, read.paths);
         return okEnvelope("resolve", { results: outcomes.map((outcome, index) => resolveResultData(read.paths[index], outcome)) } as unknown as Json);
       }
       const path = readFlag(args, "--path");
-      if (!path) return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve requires --path or --paths-from");
+      if (!path) return cliArgumentFailure("resolve", "resolve requires --path or --paths-from");
       if (!isRepoRelativePosixPath(path)) {
-        return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve --path must be a repository-relative POSIX path");
+        return cliArgumentFailure("resolve", "resolve --path must be a repository-relative POSIX path");
       }
       const model = loadResolveModel(cwd);
       return okEnvelope("resolve", resolveResultData(path, resolveArchitectureOwnerForPath(model.nodes, path)) as unknown as Json);
@@ -938,6 +947,15 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     });
   case "resolve":
     return okEnvelope("resolve", CLI_RESOLVE_HELP as unknown as Json);
+  case "ledger":
+    if (subcommand === "receipt") return okEnvelope("ledger.receipt", {
+      usage: "archctx ledger receipt --journal-id <id> --json",
+      description: "Export recorded ChangeSet identity, model transition digests and file hashes for content comparison on another machine. Unsigned; approval authenticity is unverified.",
+      writes: "No model or journal writes; uses the local daemon, starting it if needed.",
+      limits: { files: 10000, bytes: 2097152 },
+      verification: "docs/runbooks/changeset-receipt.md"
+    });
+    break;
   case "practices":
     if (subcommand === "checkpoint") return okEnvelope("help", {
       usage: "archctx practices checkpoint [--task-session-id <id>] [--task <text>] [--event <event>] [--path <path>]... [--changed <path>]... [--expected-head-sha <sha>] [--expected-worktree-digest <digest>] [--tool-call-id <id>] [--max-bytes <bytes>] [--max-items <items>] [--json]",
@@ -974,10 +992,11 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     });
   case "flows":
     return okEnvelope("flows", {
-      command: "archctx flows check [--json]",
+      command: "archctx flows check [--no-sync] [--json]",
       description: "Check every declared flow selector against the CodeGraph index without rendering a projection.",
       statuses: "Each selector reports proven, no-direct-call, only-references, false-builtin-call, ambiguous-symbol, evidence-missing or evidence-truncated. Only proven binds a flow step.",
-      writes: "none; runs in-process with no daemon, local store or task session. Like projection check, it runs codegraph sync first."
+      writes: "Default: runs codegraph sync and writes the .codegraph index. With --no-sync: no checkout or index writes; disposable private snapshots are created outside the checkout and removed after reading. Neither mode starts a daemon or task session.",
+      noSync: "Requires a complete existing index matching the source population. Missing, stale, partial, unsupported-layout or over-limit snapshots fail closed with AC_CODE_FACTS_UNAVAILABLE."
     });
   case "docs":
     if (subcommand === "anchors") return okEnvelope("help", CLI_DOCS_ANCHORS_HELP as unknown as Json);
@@ -1168,6 +1187,13 @@ async function runRuntimeStateCommand(
 
 async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Promise<RuntimeDaemonClient>) {
   const subcommand = args[0] ?? "status";
+  if (subcommand === "receipt") {
+    const journalId = readFlag(args, "--journal-id");
+    const valid = journalId && args.filter(arg => arg === "--journal-id").length === 1
+      && args.slice(1).every((arg, index, rest) => arg === "--json" || arg === "--journal-id" || rest[index - 1] === "--journal-id");
+    if (!valid) return cliArgumentFailure("ledger.receipt", "ledger receipt requires exactly one --journal-id <id>");
+    return (await requiredLedgerRuntime(runtime)).changeSetReceipt(cwd, journalId);
+  }
   if (subcommand === "status" || subcommand === "state") {
     const daemon = await requiredLedgerRuntime(runtime);
     return daemon.ledgerState(cwd);
@@ -1939,14 +1965,14 @@ function runConstraintsCommand(args: string[], cwd: string): JsonEnvelope {
   return runConstraintCheckCommand(cwd);
 }
 
-/** `flows check` is read-only and answered in-process, like `projection run` in `check` mode. */
+/** In-process flow proofs; only the explicit no-sync mode preserves the checkout index. */
 function runFlowsCommand(args: string[], cwd: string): JsonEnvelope {
   const formatAt = args.indexOf("--format");
-  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
+  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && arg !== "--no-sync" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
   if (args[0] !== "check" || unexpected.length > 0) {
     return failureEnvelope("flows.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
   }
-  return runFlowSelectorCheckCommand(cwd);
+  return runFlowSelectorCheckCommand(cwd, { noSync: args.includes("--no-sync") });
 }
 
 function acceptedArchitectureChange(args: string[]): AcceptedArchitectureChangeReferenceV1 | undefined {
@@ -3313,6 +3339,7 @@ async function doctorReport(cwd: string, args: string[] = []) {
     hardening: { ...hardening, egress },
     ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable && egress.ok
       && (daemon as { writable?: boolean }).writable !== false
+      && (daemon as { usable?: boolean }).usable !== false
   };
 }
 
@@ -3467,6 +3494,7 @@ async function doctorDaemon(cwd: string) {
   }
   return {
     running: (health as any)?.ok === true,
+    ...(daemonReadinessFailure(health) ? { usable: false, readiness: (health as any).readiness, error: daemonReadinessFailure(health) } : {}),
     staleConnection: (health as any)?.ok !== true,
     rpcVersionCompatible: (health as any)?.schemaVersion === productVersionManifest().runtime.localRpc.schemaVersion,
     productVersionCompatible: (health as any)?.product?.product?.version === productVersionManifest().product.version,
@@ -3602,6 +3630,7 @@ async function createOrStartRuntimeRpcClient(cwd: string, preserveHealthFailure 
     const { health, unresponsivePid, transportFailure } = await probeDaemonHealth(client);
     const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
     if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
+    assertDaemonReady(health);
     if ((health as any)?.ok === true) return client;
     if (unresponsivePid !== undefined) {
       if (preserveHealthFailure && transportFailure) throw transportFailure;
@@ -3618,6 +3647,7 @@ async function createOrStartRuntimeRpcClient(cwd: string, preserveHealthFailure 
     const health = await startedClient.health().catch(() => undefined);
     const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, startedClient, health);
     if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
+    assertDaemonReady(health);
     if ((health as any)?.ok === true) return startedClient;
   }
   throw new Error(mcpDaemonStartRecoveryMessage("archctxd started but no healthy runtime RPC connection was available"));
@@ -3729,6 +3759,7 @@ async function runDaemonCommand(args: string[], cwd: string) {
       }
       return okEnvelope("daemon.status", {
         running: true,
+        ...(daemonReadinessFailure(health) ? { usable: false, readiness: (health as any).readiness, error: daemonReadinessFailure(health) } : {}),
         product: (health as any).product,
         rpcVersionCompatible: (health as any).schemaVersion === RUNTIME_RPC_VERSION,
         productVersionCompatible: true,
@@ -4016,6 +4047,7 @@ async function discoverRunningDaemonInfo(cwd: string, options: { recoverStale?: 
     };
   }
   if ((health as any)?.ok === true) {
+    assertDaemonReady(health);
     return { info: client.connectionInfo(), compatibilityIssue: undefined, recovery: emptyRecovery(cwd) };
   }
   if (unresponsivePid !== undefined) {
@@ -4026,6 +4058,21 @@ async function discoverRunningDaemonInfo(cwd: string, options: { recoverStale?: 
     compatibilityIssue: undefined,
     recovery: options.recoverStale ? recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true }) : emptyRecovery(cwd)
   };
+}
+
+function daemonReadinessFailure(health: unknown) {
+  if (health && typeof health === "object" && "readiness" in health) {
+    const readiness = health.readiness;
+    if (readiness && typeof readiness === "object" && "ready" in readiness && readiness.ready === false) {
+      return knownFailure("AC_RUNTIME_UNAVAILABLE", "daemon-root-missing");
+    }
+  }
+  return undefined;
+}
+
+function assertDaemonReady(health: unknown): void {
+  const failure = daemonReadinessFailure(health);
+  if (failure) throw new FailureError(failure.code, failure.reasonCode, failure.details, failure);
 }
 
 function runtimeRpcCompatibilityIssueFromHealth(
@@ -4294,6 +4341,12 @@ const CLI_RESOLVE_HELP = {
   result: "Each result carries path, matched, ambiguous and owningCapabilityId. A match adds stableId, kind, name, source and extensions of the most specific node. An ambiguous result adds candidates. owningCapabilityId is the nearest kind: capability node on the owner's parent chain (the owner itself when it is a capability), or null. For an ambiguous result it is set only when all candidates share one owning capability.",
   exitCodes: "--path: 0 matched, 1 no match or error, 2 ambiguous. --paths-from: 0 when no path is ambiguous (unowned paths included), 2 when any path is ambiguous, 1 on error."
 };
+
+function cliArgumentFailure(requestId: string, message: string): JsonEnvelope {
+  // Local CLI diagnostics retain the specific flag or input line, with canonical recovery policy.
+  return { schemaVersion: "archcontext.envelope/v1", ok: false, requestId,
+    error: { ...knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"), message } };
+}
 
 /** Validate the same core node schema as native export, without its profile or document reads. */
 function loadResolveModel(cwd: string) {

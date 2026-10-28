@@ -1,4 +1,5 @@
 import { FailureError } from "@archcontext/contracts";
+import { exportChangeSetReceipt } from "./changeset-receipt";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt, selectedProducerFailureEnvelope } from "./architecture-debt";
 import type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
@@ -955,6 +956,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
    */
   async acceptCommittedChange(root: string, rawInput: RuntimeAcceptCommittedChangeInput): Promise<JsonEnvelope> {
     return this.changeSetAuthority.acceptCommittedChange(root, rawInput);
+  }
+
+  async changeSetReceipt(root: string, journalId: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    return exportChangeSetReceipt(this.localStore, root, journalId);
   }
 
 

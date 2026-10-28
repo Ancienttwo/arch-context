@@ -500,9 +500,13 @@
         "diffBytes",
         "responseBytes",
         "diffLines",
-        "diffWork"
+        "diffWork",
+        "codeFactFiles",
+        "codeFactBytes"
       ],
       "properties": {
+        "codeFactFiles": { "const": 10000 },
+        "codeFactBytes": { "const": 8388608 },
         "changedPaths": {
           "const": 1000
         },

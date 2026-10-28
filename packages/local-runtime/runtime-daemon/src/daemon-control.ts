@@ -3,6 +3,7 @@ import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 export { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 import { RUNTIME_RPC_VERSION, type RuntimeRpcCompatibilityIssue, type RuntimeRpcConnection, type RuntimeRpcConnectionFile } from "./rpc-protocol";
 import { RuntimeRpcClient } from "./rpc-client";
+import { daemonReadiness, type DaemonReadiness } from "./daemon-readiness";
 import { existsSync, openSync, rmSync } from "node:fs";
 import { daemonControlPaths, defaultArchContextStateRoot, listWorkspaceStateDirs, runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 
@@ -108,6 +109,7 @@ export interface DaemonControlListing {
   connection: "valid" | "invalid" | "missing";
   root?: string;
   rootExists?: boolean;
+  readiness?: DaemonReadiness;
   pid?: number;
   pidAlive?: boolean;
   startedAt?: string;
@@ -134,6 +136,7 @@ export function listDaemonControlStates(stateRoot = defaultArchContextStateRoot(
       ...(connection ? {
         root: connection.root,
         rootExists: existsSync(connection.root),
+        readiness: daemonReadiness(connection.root),
         pid: connection.pid,
         pidAlive: isProcessAlive(connection.pid),
         startedAt: connection.startedAt

@@ -4,7 +4,7 @@ import { connect as netConnect } from "node:net";
 import { once } from "node:events";
 import { join, dirname } from "node:path";
 import { sleep, createStartedTestDaemon, readText, removeTempRepo, tempRepo, waitUntil, rmSync } from "./runtime-test-fixtures";
-import { RUNTIME_RPC_VERSION } from "../src/rpc-protocol";
+import { RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity } from "../src/rpc-protocol";
 import { test, expect, afterAll, describe } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, statSync, chmodSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { ArchctxRuntimeRpcServer } from "../src/rpc-server";
 import { RuntimeRpcClient } from "../src/rpc-client";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnection, recoverStaleDaemonControlFiles } from "../src/daemon-control";
+import { createRuntimeRpcClientFromWorkspaceStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnection, recoverStaleDaemonControlFiles } from "../src/daemon-control";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-rpc-server-state-"));
@@ -264,6 +264,62 @@ test("runtime health does not compute egress unless explicitly requested", async
       removeTempRepo(root);
     }
   });
+
+test.each(["identity", "targeted"] as const)("missing start root gates RPC but preserves %s authenticated shutdown (#415)", async (mode) => {
+  const root = tempRepo();
+  const daemon = await createStartedTestDaemon();
+  let stopped = false;
+  let handlerCalls = 0;
+  let egressCalls = 0;
+  const originalStatus = daemon.runtimeStatus.bind(daemon);
+  daemon.runtimeStatus = async (...args) => { handlerCalls += 1; return originalStatus(...args); };
+  daemon.egressReport = async () => { egressCalls += 1; throw new Error("deleted root must not reach egress"); };
+  const rpc = new ArchctxRuntimeRpcServer(daemon, { root, idleTimeoutMs: 0, onStop: () => { stopped = true; } });
+  try {
+    const connection = await rpc.start();
+    const client = new RuntimeRpcClient(connection);
+    expect(await client.health()).toMatchObject({ ok: true, readiness: { ready: true } });
+    expect((await client.runtimeStatus()).ok).toBe(true);
+    expect(handlerCalls).toBe(1);
+    removeTempRepo(root);
+    expect(existsSync(root)).toBe(false);
+
+    const health = await client.health({ includeEgress: true });
+    expect(health).toMatchObject({
+      ok: true, pid: connection.pid,
+      readiness: { ready: false, code: "AC_RUNTIME_UNAVAILABLE", reasonCode: "daemon-root-missing" }
+    });
+    expect(health).not.toHaveProperty("egress");
+    expect(egressCalls).toBe(0);
+    expect(await client.runtimeStatus()).toMatchObject({
+      ok: false, error: { code: "AC_RUNTIME_UNAVAILABLE", reasonCode: "daemon-root-missing" }
+    });
+    expect(handlerCalls).toBe(1);
+    expect(existsSync(connection.connectionPath)).toBe(true);
+    expect(existsSync(connection.lockPath)).toBe(true);
+
+    const unauthorized = await fetch(`${connection.url}rpc`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "shutdown", params: [] })
+    });
+    expect(unauthorized.status).toBe(401);
+    await unauthorized.text();
+    expect(await client.shutdown({ ...runtimeRpcDaemonIdentity(connection), instanceId: "wrong-instance" })).toMatchObject({
+      ok: false, error: { reasonCode: "daemon-stop-identity-mismatch" }
+    });
+    expect(stopped).toBe(false);
+
+    const target = mode === "targeted" ? createRuntimeRpcClientFromWorkspaceStateDir(dirname(connection.connectionPath)) : client;
+    expect(target).toBeDefined();
+    expect(await target!.shutdown(mode === "identity" ? runtimeRpcDaemonIdentity(connection) : undefined)).toMatchObject({ ok: true });
+    await waitUntil(() => stopped, 5_000, "authenticated shutdown of missing-root daemon");
+    expect(existsSync(connection.connectionPath)).toBe(false);
+    expect(existsSync(connection.lockPath)).toBe(false);
+  } finally {
+    if (!stopped) await rpc.stop();
+    removeTempRepo(root);
+  }
+}, 15_000);
 
 test("runtime RPC bounds request bodies and applies a body read deadline", async () => {
     const root = tempRepo();

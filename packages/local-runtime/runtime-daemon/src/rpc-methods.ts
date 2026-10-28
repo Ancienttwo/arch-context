@@ -251,6 +251,10 @@ export const RUNTIME_RPC_METHODS = {
     rpcRequiredString(params, 0, "acceptCommittedChange", "root"),
     rpcRequiredObject<RuntimeAcceptCommittedChangeInput>(params, 1, "acceptCommittedChange", "input")
   )),
+  changeSetReceipt: envelopeMethod("changeSetReceipt", "short", (root: string, journalId: string) => [root, journalId] as const, (params) => rpcArgs(
+    rpcRequiredString(params, 0, "changeSetReceipt", "root"),
+    rpcRequiredString(params, 1, "changeSetReceipt", "journalId")
+  )),
   ledgerProject: envelopeMethod("ledgerProject", "normal", (root: string, input: RuntimeLedgerProjectInput = { dryRun: true }) => [root, input] as const, (params) => rpcArgs(
     rpcRequiredString(params, 0, "ledgerProject", "root"),
     rpcOptionalObject<RuntimeLedgerProjectInput>(params, 1, "ledgerProject", "input")

@@ -16,6 +16,7 @@ import { isLoopbackRemote, writeJson } from "./loopback-http";
 import { matchesLoopbackAuthority, matchesSecret } from "./loopback-auth";
 import { randomBytes } from "node:crypto";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
+import { daemonReadiness } from "./daemon-readiness";
 
 // Only the daemon operations used by this transport; no runtime import of the facade.
 type RuntimeRpcServerTarget = RuntimeDaemonClient & {
@@ -293,18 +294,20 @@ export class ArchctxRuntimeRpcServer {
       }
       // A health check does not reset the idle timer, but it shows that a client is about to call.
       this.authorizedRequests += 1;
+      const readiness = daemonReadiness(this.connection.root);
       const changeSetRecovery = this.daemon.status().changeSetRecovery;
       writeJson(response, 200, {
         schemaVersion: RUNTIME_RPC_VERSION,
         ok: true,
+        readiness,
         pid: process.pid,
         protocol: "http-loopback",
         version: 1,
         product: this.options.productManifest?.() ?? productVersionManifest(),
         composition: this.daemon.compositionReport(),
         // Startup and idle liveness probes must not spawn Git processes to inspect egress policy.
-        ...(url.searchParams.get("egress") === "1"
-          ? { egress: await this.daemon.egressReport(this.options.root ?? process.cwd()) }
+        ...(readiness.ready && url.searchParams.get("egress") === "1"
+          ? { egress: await this.daemon.egressReport(this.connection.root) }
           : {}),
         // Alive but write-gated (#172): readers still work, so `ok` stays true, but callers must see it.
         ...(changeSetRecovery ? { changeSetRecovery } : {})
@@ -391,6 +394,9 @@ export class ArchctxRuntimeRpcServer {
     }
     const definition = runtimeRpcMethod(method);
     if (!definition) return publicFailureEnvelope("runtime-rpc", "AC_SCHEMA_INVALID", "rpc-method-invalid");
+    // Shutdown is authenticated above but remains reachable when the start worktree is gone.
+    const readiness = daemonReadiness(this.connection!.root);
+    if (!readiness.ready) return publicFailureEnvelope("runtime-rpc", readiness.code, readiness.reasonCode);
     const handler = this.daemon[method as RuntimeRpcMethodName];
     const result = await Reflect.apply(handler, this.daemon, definition.decodeArgs(params));
     return definition.encodeResponse(result);

@@ -22,6 +22,13 @@ const projectionCases = [
   }));
 });
 const cases = [...baseline.cases, ...projectionCases, {
+  method: "changeSetReceipt",
+  variant: "committed-journal-export",
+  args: ["/rpc/fixture/repo", "changeset_journal.fixture"],
+  params: ["/rpc/fixture/repo", "changeset_journal.fixture"],
+  timeout: "short",
+  response: "envelope"
+}, {
   method: "acceptCommittedChange",
   variant: "approved-yaml-journal-chain",
   args: ["/rpc/fixture/repo", {

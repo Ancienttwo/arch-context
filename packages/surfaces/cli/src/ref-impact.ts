@@ -7,8 +7,8 @@ const invalid = (category: string): never => { throw new NativeContextError("nat
 export function runRefImpactCommand(args: string[], cwd: string, reader: typeof readRefImpact = readRefImpact): JsonEnvelope {
   if (args.includes("--help") || args.includes("-h")) return okEnvelope("impact", {
     command: "impact", usage: ["archctx impact --base <ref> --head <ref> [--depth <0..10>] --json", "archctx impact --paths-from <file|-> [--depth <0..10>] --json"],
-    source: "Read-only Git objects; paths-from uses the current stable worktree model. No checkout, daemon or CodeGraph process.",
-    coverage: "Ref code facts are unavailable from the worktree-only producer, so touchedFlowSteps is unknown. Paths-only input has unknown line counts and model delta. Renames are a deletion plus an addition; dependents use the head model."
+    source: "Read-only Git objects and an existing CodeGraph index with readiness probes; paths-from uses the current stable worktree model. No checkout, daemon, index initialization or sync.",
+    coverage: "Declaration ranges require a complete existing index whose indexed source bytes match the selected tree. Missing, ambiguous, partial or stale evidence remains unknown. Historical trees without matching index facts remain unknown. Paths-only input has unknown line counts and model delta. Renames are a deletion plus an addition; dependents use the head model."
   });
   try {
     const values = new Map<string, string>(); const seen = new Set<string>();

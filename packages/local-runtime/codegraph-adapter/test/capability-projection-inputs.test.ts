@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { digestJson } from "@archcontext/contracts";
-import { ProjectionCodeFactsUnavailableError, RUNTIME_BUILTIN_CALL_NAMES, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
+import { fixtureNameCounts, holdCodeGraphFixture, indexCodeGraphFixture } from "./real-index";
+import { ProjectionCodeFactsUnavailableError, RUNTIME_BUILTIN_CALL_NAMES, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, withExistingCodeGraphSnapshot, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
 
 const model: NativeModel = {
   nodes: [
@@ -182,6 +183,117 @@ function builtinSelectorModel(sinkName: string): NativeModel {
 // shared by the import-graph and exact-selector assertions: spawning it per assertion made the
 // neighbouring adapter suite time out under parallel test execution.
 describe("capability documentation projection inputs from the code index", () => {
+  test.each(["unspecified", "unset"])("private snapshots refuse the literal filter driver %s before execution", async (driver) => {
+    const { root } = seedWorkspace({ withIndex: false });
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+    try {
+      writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
+      git("add", "packages");
+      git("-c", "user.name=Snapshot Test", "-c", "user.email=snapshot@example.test", "commit", "-qm", "fixture");
+      indexCodeGraphFixture(root);
+      Bun.gc(true);
+      const marker = join(root, "filter-executed");
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const script = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "executed"); process.stdin.pipe(process.stdout);`;
+      git("config", `filter.${driver}.clean`, `${quote(process.execPath.replaceAll("\\", "/"))} -e ${quote(script)}`);
+      writeFileSync(join(root, ".gitattributes"), `*.ts filter=${driver}\n`);
+      let failure: unknown;
+      try { withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => true); } catch (error) { failure = error; }
+      expect(existsSync(marker)).toBe(false);
+      expect(failure).toMatchObject({ reasonCode: "code-facts-snapshot-layout-unsupported" });
+    } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); }
+  }, 60_000);
+
+  test("private snapshots allow inert filter configuration and reject effective filters", async () => {
+    const { root } = seedWorkspace({ withIndex: false });
+    writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+    try {
+      writeFileSync(join(root, "notes.txt"), "not a CodeGraph source\n");
+      git("add", "packages", "notes.txt");
+      git("-c", "user.name=Snapshot Test", "-c", "user.email=snapshot@example.test", "commit", "-qm", "fixture");
+      git("config", "filter.lfs.clean", "git-lfs clean -- %f");
+      git("config", "filter.lfs.process", "git-lfs filter-process");
+      git("config", "diff.external.command", "exit 99");
+      indexCodeGraphFixture(root);
+      Bun.gc(true);
+      const indexBefore = readFileSync(join(root, ".git/index"));
+      expect(withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, snapshot => snapshot.getNodesByName("MAIN_VERSION").length)).toBe(1);
+      expect(readFileSync(join(root, ".git/index"))).toEqual(indexBefore);
+      for (const pattern of ["*.ts", "notes.txt"]) {
+        writeFileSync(join(root, ".gitattributes"), `${pattern} filter=lfs\n`);
+        expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => true)).toThrow("safely isolated");
+      }
+      expect(readFileSync(join(root, ".git/index"))).toEqual(indexBefore);
+    } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); }
+  }, 60_000);
+
+  for (const liveWal of [false, true]) test(`private snapshot reads real facts without changing original SQLite sidecars (live WAL: ${liveWal})`, async () => {
+    const { root } = seedWorkspace({ withIndex: false });
+    writeFileSync(join(root, ".gitignore"), ".codegraph/\nnode_modules/\n");
+    mkdirSync(join(root, "node_modules"));
+    symlinkSync(join(root, "packages/docs"), join(root, "node_modules/docs"), process.platform === "win32" ? "junction" : "dir");
+    let holder: Awaited<ReturnType<typeof holdCodeGraphFixture>> | undefined;
+    const indexState = () => readdirSync(join(root, ".codegraph")).sort().map(name => {
+      const path = join(root, ".codegraph", name);
+      return [name, statSync(path).mtimeMs, readFileSync(path).toString("base64")];
+    });
+    try {
+      indexCodeGraphFixture(root);
+      if (liveWal) { holder = await holdCodeGraphFixture(root); expect(holder.isRunning()).toBe(true); }
+      const before = indexState();
+      const names = withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, graph => {
+        expect(graph.getProjectRoot()).not.toBe(root);
+        expect(graph.getNodesByName("customExtension")).toEqual([]);
+        expect(() => graph.getNodesByName("not-requested")).toThrow();
+        return graph.getNodesByName("MAIN_VERSION").map(node => node.name);
+      });
+      expect(names).toContain("MAIN_VERSION");
+      if (holder) expect(holder.isRunning()).toBe(true);
+      expect(indexState()).toEqual(before);
+      expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => {
+        writeFileSync(join(root, "packages/docs/src/main.ts"), "export const MAIN_VERSION = 2;\n");
+      })).toThrow();
+      expect(indexState()).toEqual(before);
+    } finally {
+      await holder?.close();
+      Bun.gc(true);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("private source mirror preserves provider includeIgnored, include and extension overrides", async () => {
+    const { root } = seedWorkspace({ withIndex: false });
+    writeFileSync(join(root, ".gitignore"), ".codegraph/\nexternal-projects/\nprivate-src/\n");
+    mkdirSync(join(root, "external-projects/embedded"), { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: join(root, "external-projects/embedded"), stdio: "pipe" });
+    writeFileSync(join(root, "external-projects/embedded/library.ts"), "export function optedInLibrary() { return 1; }\n");
+    mkdirSync(join(root, "private-src"));
+    writeFileSync(join(root, "private-src/source.fixture"), "export function customExtension() { return 1; }\n");
+    writeFileSync(join(root, "codegraph.json"), JSON.stringify({
+      includeIgnored: ["external-projects/"], include: ["private-src/**"], extensions: { ".fixture": "typescript" }
+    }));
+    try {
+      indexCodeGraphFixture(root);
+      expect(fixtureNameCounts(root, ["optedInLibrary", "customExtension"])).toEqual([1, 1]);
+      Bun.gc(true);
+      expect(withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, snapshot => [
+        snapshot.getNodesByName("optedInLibrary").length,
+        snapshot.getNodesByName("customExtension").length
+      ])).toEqual([1, 1]);
+      writeFileSync(join(root, "external-projects/embedded/new.ts"), "export const newIgnoredSource = 1;\n");
+      expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => true)).toThrow();
+      const embedded = join(root, "external-projects/embedded");
+      execFileSync("git", ["add", "library.ts"], { cwd: embedded, stdio: "pipe" });
+      execFileSync("git", ["config", "filter.selected.clean", "exit 99"], { cwd: embedded, stdio: "pipe" });
+      writeFileSync(join(embedded, ".gitattributes"), "*.ts filter=selected\n");
+      expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION", "optedInLibrary", "customExtension"], sources: [], includeFiles: false }, () => true)).toThrow("safely isolated");
+    } finally {
+      Bun.gc(true);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   test("measures import edges and exact node-v2 selector evidence in one index pass", () => {
     const { root, binary, log } = seedWorkspace({ withIndex: true });
     try {

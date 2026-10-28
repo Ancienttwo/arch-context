@@ -1183,7 +1183,9 @@ test("CLI flows check reports each selector proof status from a real index witho
       timeout: CLI_PROCESS_TIMEOUT_MS
     }));
     expect(flowsHelp.ok, JSON.stringify(flowsHelp)).toBe(true);
-    expect(flowsHelp.data.command).toBe("archctx flows check [--json]");
+    expect(flowsHelp.data.command).toBe("archctx flows check [--no-sync] [--json]");
+    expect(flowsHelp.data.writes).toContain("runs codegraph sync and writes the .codegraph index");
+    expect(flowsHelp.data.writes).toContain("With --no-sync: no checkout or index writes");
   } finally {
     rmSync(checkStateRoot, { recursive: true, force: true });
     removeTempRoot(root);
@@ -5015,6 +5017,9 @@ describe("archctx CLI", () => {
       nodeRmSync(root, { recursive: true, force: true });
       expect(existsSync(root)).toBe(false);
       expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([expect.objectContaining({ ...listing, rootExists: false })]);
+      expect((await cli(parent, "daemon", "list")).data.daemons[0].readiness).toEqual({
+        ready: false, code: "AC_RUNTIME_UNAVAILABLE", reasonCode: "daemon-root-missing"
+      });
 
       expect((await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir, "--workspace-id", paths.storageWorkspaceId)).error)
         .toMatchObject({ code: "AC_SCHEMA_INVALID", message: "daemon stop accepts at most one of --state-dir or --workspace-id" });

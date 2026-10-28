@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -14,6 +15,9 @@ const buildRoot = mkdtempSync(join(cacheRoot, "archctx-codegraph-selector-node-"
 const fixtureRoot = mkdtempSync(join(tmpdir(), "archctx-codegraph-selector-node-"));
 
 try {
+  const initialized = spawnSync("git", ["init", "-q"], { cwd: fixtureRoot, encoding: "utf8" });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  writeFileSync(join(fixtureRoot, ".gitignore"), ".codegraph/\n");
   mkdirSync(join(fixtureRoot, "src"), { recursive: true });
   writeFileSync(join(fixtureRoot, "src", "render.ts"), [
     "export function renderBlock(): string {",
@@ -201,11 +205,30 @@ try {
   assert.equal(proof.duplicate.ambiguous, true);
   assert.equal(proof.duplicate.matched, false);
 
+  const indexFiles = (directory = join(fixtureRoot, ".codegraph")) => readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).map(entry => {
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? [entry.name, indexFiles(path)] : [entry.name, readFileSync(path).toString("base64"), statSync(path).mtimeMs];
+  });
+  const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph");
+  for (const liveWal of [false, true]) {
+    const holder = liveWal ? CodeGraph.openSync(fixtureRoot) : undefined;
+    try {
+      const before = indexFiles();
+      assert.equal(adapter.withExistingCodeGraphSnapshot(fixtureRoot, { names: ["renderMain"], sources: [], includeFiles: false }, graph => graph.getNodesByName("renderMain").length), 1);
+      assert.deepEqual(indexFiles(), before, `private Node snapshot must preserve original DB and sidecars, liveWal=${liveWal}`);
+    } finally { holder?.close(); }
+  }
+  const beforeStale = indexFiles();
+  writeFileSync(join(fixtureRoot, "src/render.ts"), 'export function renderBlock() { return "changed"; }\n');
+  assert.throws(() => adapter.withExistingCodeGraphSnapshot(fixtureRoot, { names: [], sources: [], includeFiles: false }, () => true), error => error.reasonCode === "code-facts-read-not-ready");
+  assert.deepEqual(indexFiles(), beforeStale, "stale Node snapshot must not sync the original index");
+
   console.log(JSON.stringify({
     schemaVersion: "archcontext.codegraph-selector-node-integration/v1",
     status: "verified",
     nodeVersion: process.version,
     codeGraphVersion: adapter.REQUIRED_CODEGRAPH_VERSION,
+    privateSnapshots: "closed-and-live-wal-preserved; stale-refused",
     callSite: { path: "src/main.ts", line: 4 }
   }));
 } finally {

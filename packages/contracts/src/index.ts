@@ -7,6 +7,7 @@ export * from "./github-governance";
 export * from "./ledger";
 export * from "./native-context";
 export * from "./ref-impact";
+export * from "./changeset-receipt";
 export * from "./ownership-dependencies";
 export * from "./ports";
 export * from "./practices";
