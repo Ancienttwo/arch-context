@@ -403,6 +403,162 @@ test("CLI projection check under repo-harness/v1 is fresh after apply when a mem
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
 
+function commitProjectionFixture(root: string, message: string): void {
+  git(root, "add", "-A");
+  git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", message);
+}
+
+/** The files a `docs plan` ChangeSet would write or delete, as the draft records them. */
+function plannedProjectionFiles(plan: { data?: unknown }): { path: string; delete?: true }[] {
+  const operation = (plan.data as any).draft.operations.find((entry: any) => entry.op === "render_projection");
+  return operation?.projectionFiles ?? [];
+}
+
+test("repo-harness/v1 plans capability documents and the manifest only (#433)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-433-plan-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Targets App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  try {
+    seedProjectionProtocolFixture(root);
+    const plan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
+    expect(plan.ok, JSON.stringify(plan)).toBe(true);
+    expect(plannedProjectionFiles(plan).map((file) => file.path).sort()).toEqual([
+      "docs/architecture/.projection-manifest.json",
+      "docs/architecture/modules/runtime-harness/hook-adapters.md"
+    ]);
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
+test("repo-harness/v1 plans the topology pair beside capability documents when the model has topology (#433)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-433-topology-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Topology App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  try {
+    seedProjectionProtocolFixture(root);
+    writeFileSync(join(root, ".archcontext/model/nodes/process.shop.web.yaml"), stableYaml({
+      schemaVersion: "archcontext.node/v2",
+      id: "process.shop.web",
+      kind: "process",
+      name: "Web",
+      status: "active",
+      summary: "Serves the storefront."
+    }), "utf8");
+    commitProjectionFixture(root, "declare a topology node");
+    const plan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
+    expect(plan.ok, JSON.stringify(plan)).toBe(true);
+    expect(plannedProjectionFiles(plan).map((file) => file.path).sort()).toEqual([
+      "docs/architecture/.projection-manifest.json",
+      "docs/architecture/diagrams/runtime-topology.mmd",
+      "docs/architecture/modules/runtime-harness/hook-adapters.md",
+      "docs/architecture/runtime-topology.md"
+    ]);
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
+test("repo-harness/v1 apply removes the intact whole-model files an earlier default projection recorded (#433)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-433-retired-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Migration App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  try {
+    seedProjectionProtocolFixture(root);
+    const defaultApply = await cli("docs", ["apply", "--profile", "default", "--approved"]);
+    expect(defaultApply.ok, JSON.stringify(defaultApply)).toBe(true);
+    commitProjectionFixture(root, "default profile projection");
+    const retiredTypes = new Set(["architecture-index", "decision-index", "architecture-changelog", "diagram-mermaid", "diagram-structurizr", "diagram-likec4"]);
+    const globalPaths = (Object.values(JSON.parse(readFileSync(manifestPath, "utf8")).targets) as Array<{ type: string; path: string }>)
+      .filter((target) => retiredTypes.has(target.type)).map((target) => target.path).sort();
+    expect(globalPaths).toHaveLength(6);
+
+    const plan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
+    expect(plan.ok, JSON.stringify(plan)).toBe(true);
+    const planned = plannedProjectionFiles(plan);
+    for (const path of globalPaths) {
+      expect(planned.find((file) => file.path === path)?.delete, path).toBe(true);
+    }
+
+    const applied = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    for (const path of globalPaths) expect(existsSync(join(root, path)), path).toBe(false);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    expect(manifest.profile).toBe("repo-harness/v1");
+    expect(Object.values(manifest.targets).map((target: any) => [target.type, target.path])).toEqual([
+      ["entity-summary", "docs/architecture/modules/runtime-harness/hook-adapters.md"]
+    ]);
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
+test("repo-harness/v1 apply keeps and reports a hand-modified whole-model file (#433)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-433-edited-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Projection Edited Global App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  const editedPath = "docs/architecture/index.md";
+  try {
+    seedProjectionProtocolFixture(root);
+    const defaultApply = await cli("docs", ["apply", "--profile", "default", "--approved"]);
+    expect(defaultApply.ok, JSON.stringify(defaultApply)).toBe(true);
+    commitProjectionFixture(root, "default profile projection");
+    const edited = `${readFileSync(join(root, editedPath), "utf8")}\nHuman note outside the generated region.\n`;
+    writeFileSync(join(root, editedPath), edited, "utf8");
+    const manifestBefore = readFileSync(manifestPath, "utf8");
+
+    const refused = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(refused.ok).toBe(false);
+    expect((refused as any).error).toMatchObject({
+      code: "AC_PRECONDITION_FAILED",
+      reasonCode: "projection-orphan-review-required",
+      details: { issueCount: 1 }
+    });
+    // The edited global file and the row that keeps it visible both remain.
+    expect(readFileSync(join(root, editedPath), "utf8")).toBe(edited);
+    expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
+
+    const drift = await cli("docs", ["drift", "--profile", "repo-harness/v1"]);
+    expect((drift.data as any).drift.orphans).toContainEqual(expect.objectContaining({ path: editedPath, disposition: "human-review" }));
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
 test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are removed from Git (#327)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-docs-rebaseline-v2-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
@@ -421,6 +577,17 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
   const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
   try {
     seedProjectionProtocolFixture(root);
+    // A topology node keeps whole-file (`generated`) targets in the repo-harness profile, which is
+    // what the 0.7.x tree below wraps in v5 markers.
+    writeFileSync(join(root, ".archcontext/model/nodes/process.shop.web.yaml"), stableYaml({
+      schemaVersion: "archcontext.node/v2",
+      id: "process.shop.web",
+      kind: "process",
+      name: "Web",
+      status: "active",
+      summary: "Serves the storefront."
+    }), "utf8");
+    commit("declare a topology node");
     expect((await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"])).ok).toBe(true);
     commit("project architecture documentation");
     const check = async (requestId: string) => {

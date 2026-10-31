@@ -30,7 +30,6 @@ const GAMMA = "capability.flows.gamma";
 const RENDERER_DOC = "docs/architecture/modules/flows/renderer.md";
 const CATALOG_DOC = "docs/architecture/modules/flows/catalog.md";
 const GAMMA_DOC = "docs/architecture/modules/flows/gamma.md";
-const INDEX_DOC = "docs/architecture/index.md";
 const MANIFEST = "docs/architecture/.projection-manifest.json";
 
 function git(root: string, ...args: string[]): string {
@@ -323,7 +322,7 @@ test("check and plan classify a source-only edit as stamp-only, then output, sem
     expect(semanticChanges.get(CATALOG_DOC)).toMatchObject({
       classification: "semantic-change", plannedAction: "none", semanticChanged: true, outputChanged: false, stampChanged: false, proofChanged: false, affectedCapabilityIds: [CATALOG], reasonCodes: ["semantic-fingerprint-changed"]
     });
-    // Repository-wide targets describe the whole model: the same semantic change, nothing to write.
+    // The unaffected capability's document stays unchanged: only the catalog moved.
     for (const entry of semantic.changes!) {
       if (entry.path === RENDERER_DOC) expect(entry.classification).toBe("unchanged");
       else expect(`${entry.path} ${entry.classification}/${entry.plannedAction}`).toBe(`${entry.path} semantic-change/none`);
@@ -343,12 +342,14 @@ test("check and plan classify a source-only edit as stamp-only, then output, sem
 
     // A committed manifest without a row for one target: that target alone is baseline-missing.
     const manifest = JSON.parse(readFileSync(join(root, MANIFEST), "utf8"));
-    delete manifest.targets["projection_target.architecture.index"];
+    const catalogTargetId = Object.entries(manifest.targets as Record<string, { path: string }>).find(([, row]) => row.path === CATALOG_DOC)?.[0];
+    if (!catalogTargetId) throw new Error("fixture manifest has no catalog document row");
+    delete manifest.targets[catalogTargetId];
     writeFileSync(join(root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     const rowMissing = await checkAndPlan(fixture, "row_missing");
     expect(rowMissing.files.map((file) => file.path)).toEqual([MANIFEST]);
-    expectOnly(rowMissing, { [INDEX_DOC]: "baseline-missing/none" });
-    expect(byPath(rowMissing).get(INDEX_DOC)).toMatchObject({ stampChanged: null, semanticChanged: false, proofChanged: false, reasonCodes: ["target-row-missing"] });
+    expectOnly(rowMissing, { [CATALOG_DOC]: "baseline-missing/none" });
+    expect(byPath(rowMissing).get(CATALOG_DOC)).toMatchObject({ stampChanged: null, semanticChanged: false, proofChanged: false, reasonCodes: ["target-row-missing"] });
     git(root, "checkout", "--", MANIFEST);
 
     // A proof change without a semantic change: only the renderer's document, ahead of its stamp and output.
@@ -407,7 +408,6 @@ test("partial, added, removed and review-orphan targets are classified, and plan
     expect(changes.get(CATALOG_DOC)).toMatchObject({ classification: "semantic-change", plannedAction: "delete", affectedCapabilityIds: [CATALOG] });
     expect(changes.get(CATALOG_DOC)!.reasonCodes).toContain("target-removed");
     expect(changes.get(RENDERER_DOC)!.classification).toBe("unchanged");
-    expect(changes.get(INDEX_DOC)).toMatchObject({ classification: "semantic-change", plannedAction: "update", affectedCapabilityIds: [CATALOG, GAMMA] });
     const plannedPaths = changed.changes!.filter((entry) => entry.plannedAction !== "none").map((entry) => entry.path);
     expect(plannedPaths).toContain(GAMMA_DOC);
     expect(plannedPaths).toContain(CATALOG_DOC);
@@ -431,7 +431,7 @@ test("partial, added, removed and review-orphan targets are classified, and plan
   });
 }, TEST_TIMEOUT_MS);
 
-test("a model change outside every capability marks the global documents semantic-change, and a rejected edited document keeps its byte change (#327)", async () => {
+test("a model change outside every capability leaves every capability document unchanged, and a rejected edited document keeps its byte change (#327)", async () => {
   await withFixture("archctx-classification-global-", false, async (fixture) => {
     const { root } = fixture;
     const STORE = "external.archive";
@@ -443,35 +443,26 @@ test("a model change outside every capability marks the global documents semanti
     commitAll(root, "an archive no capability owns");
     expectOnly(await checkAndPlan(fixture, "external_baseline"), {});
 
-    // The archive belongs to no capability: no capability fingerprint moves, only the model digest.
-    const rowTypes = new Map((Object.values(JSON.parse(readFileSync(join(root, MANIFEST), "utf8")).targets) as Array<{ path: string; type: string }>).map((row) => [row.path, row.type]));
+    // The archive belongs to no capability: no capability fingerprint moves, so no document moves
+    // and the manifest alone absorbs the model digest under repo-harness/v1.
     writeYaml(root, `.archcontext/model/nodes/${STORE}.yaml`, storeNode("high"));
     const moved = await checkAndPlan(fixture, "external_moved");
-    let globals = 0;
+    expect(moved.files.map((file) => file.path)).toEqual([MANIFEST]);
     for (const entry of moved.changes!) {
-      if (rowTypes.get(entry.path) === "entity-summary") {
-        expect(entry.reasonCodes, entry.path).not.toContain("model-digest-changed");
-        continue;
-      }
-      globals += 1;
-      expect(`${entry.path} ${entry.classification}`).toBe(`${entry.path} semantic-change`);
-      expect(entry).toMatchObject({ semanticChanged: true, affectedCapabilityIds: [] });
-      expect(entry.reasonCodes, entry.path).toContain("model-digest-changed");
-      expect(entry.reasonCodes, entry.path).not.toContain("semantic-fingerprint-changed");
+      expect(`${entry.path} ${entry.classification}/${entry.plannedAction}`).toBe(`${entry.path} unchanged/none`);
     }
-    expect(globals).toBeGreaterThan(0);
-    expect(byPath(moved).get(INDEX_DOC)!.classification).toBe("semantic-change");
-    for (const path of [RENDERER_DOC, CATALOG_DOC]) expect(byPath(moved).get(path)!.classification, path).toBe("unchanged");
+    expect(byPath(moved).get(RENDERER_DOC)!.classification).toBe("unchanged");
+    expect(byPath(moved).get(CATALOG_DOC)!.classification).toBe("unchanged");
     git(root, "checkout", "--", ".archcontext");
     expectOnly(await checkAndPlan(fixture, "external_restored"), {});
 
-    // An index without its generated region needs adoption: the render matches the committed row,
+    // A document without its generated region needs adoption: the render matches the committed row,
     // but the files[] update proves the on-disk bytes differ, so the blocked change keeps them.
-    write(root, INDEX_DOC, "# Index\n\nHuman notes only.\n");
+    write(root, CATALOG_DOC, "# Catalog\n\nHuman notes only.\n");
     const rejected = await checkAndPlan(fixture, "adoption");
     expect(rejected.status).toBe("adoption-required");
-    expect(rejected.files.find((file) => file.path === INDEX_DOC)).toMatchObject({ action: "update" });
-    expect(byPath(rejected).get(INDEX_DOC)).toMatchObject({
+    expect(rejected.files.find((file) => file.path === CATALOG_DOC)).toMatchObject({ action: "update" });
+    expect(byPath(rejected).get(CATALOG_DOC)).toMatchObject({
       classification: "blocked", plannedAction: "none", outputChanged: true, reasonCodes: ["adoption-required", "file-bytes-changed"]
     });
   });

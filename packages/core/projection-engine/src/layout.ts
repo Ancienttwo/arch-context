@@ -42,6 +42,8 @@ export interface ArchitectureDocumentationLayout {
   profile: ArchitectureProjectionProfile;
   targets: ProjectionLayoutTargetDraft[];
   expectedPaths: string[];
+  /** Paths a former profile rendered that this one does not; an intact committed file there is removed on apply. */
+  retiredTargetPaths: string[];
   orphanRoots: string[];
   entityPathByNodeId: ReadonlyMap<string, string>;
 }
@@ -147,13 +149,20 @@ export function resolveArchitectureDocumentationLayout(input: {
     "markdown"
   ));
   const topologyTargets = hasRuntimeTopologyNodes(input.nodes) ? RUNTIME_TOPOLOGY_TARGETS : [];
-  const targets = [FIXED_TARGETS[0]!, ...entityTargets, ...relationTargets, ...FIXED_TARGETS.slice(1), ...topologyTargets]
+  // repo-harness/v1 publishes one projection per fact class (repo-harness#1222 D9): the capability
+  // documents, the runtime topology pair (its only projection, ADR-0049 §4), and the manifest. The
+  // default profile keeps every whole-model view. The retired paths stay listed so an apply can
+  // remove the intact global files an earlier repo-harness/v1 manifest recorded.
+  const targets = (profile === REPO_HARNESS_PROJECTION_PROFILE
+    ? [...entityTargets, ...topologyTargets]
+    : [FIXED_TARGETS[0]!, ...entityTargets, ...relationTargets, ...FIXED_TARGETS.slice(1), ...topologyTargets])
     .map((target) => ({ ...target, path: requiredPath(target.path, target.targetId) }));
   assertUniqueTargets(targets);
   return {
     profile,
     targets,
     expectedPaths: [...new Set([...targets.map((target) => target.path), "docs/architecture/.projection-manifest.json"])].sort(),
+    retiredTargetPaths: profile === REPO_HARNESS_PROJECTION_PROFILE ? FIXED_TARGETS.map((target) => target.path) : [],
     orphanRoots: ["docs/architecture/modules", "docs/architecture/relations"],
     entityPathByNodeId: new Map(entityTargets.map((target, index) => [targetNodes[index]!.id, target.path]))
   };
@@ -206,10 +215,14 @@ export function loadArchitectureFilesForLayout(
     for (const path of recursiveMarkdownPaths(root, orphanRoot)) paths.add(path);
   }
   // A whole-file output carries no marker to scan for, so the committed manifest is what names the
-  // generated files a projection wrote. One the current layout no longer renders is an orphan.
+  // generated files a projection wrote. A mixed output does carry a marker, but its committed row is
+  // what proves the projection owned the path; a path this layout retired is read back for the same
+  // reason. One the current layout no longer renders is an orphan.
   if (paths.has(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH)) {
     const manifest = readProjectionOwnedFile(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
-    for (const output of committedGeneratedOutputs(currentFormatManifest(manifest.body))) {
+    const retired = new Set(layout.retiredTargetPaths);
+    for (const output of committedProjectionOutputs(currentFormatManifest(manifest.body))) {
+      if (output.ownership !== "generated" && !retired.has(output.path)) continue;
       if (resolveSafeRegularPath(root, output.path, false)) paths.add(output.path);
     }
   }
@@ -224,24 +237,37 @@ export interface CommittedGeneratedOutput {
   outputDigest: string;
 }
 
+/** One file a committed manifest row records as projection output, whatever its ownership. */
+interface CommittedProjectionOutput extends CommittedGeneratedOutput {
+  ownership: ProjectionTargetV1["ownership"];
+}
+
 const OUTPUT_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
 /**
- * The `generated` (whole-file) targets the committed projection manifest records. A generated file
- * carries no ownership marker, so its manifest row is the one record that the file is projection
- * output and of the bytes that were committed there. A row that names a path outside
- * `docs/architecture/` records nothing. No current-format manifest records nothing either; the
- * render reads and refuses the manifest itself.
+ * The files the committed projection manifest records under `docs/architecture/`. A generated file
+ * carries no ownership marker, so its row is the one record that the file is projection output and
+ * of the bytes that were committed there; a mixed file is recorded by its region, and its row is
+ * what proves the projection owned that path. A row that names a path outside `docs/architecture/`
+ * records nothing. No current-format manifest records nothing either; the render reads and refuses
+ * the manifest itself.
  */
-export function committedGeneratedOutputs(manifest: ArchitectureDocsProjectionManifestV3 | undefined): CommittedGeneratedOutput[] {
+function committedProjectionOutputs(manifest: ArchitectureDocsProjectionManifestV3 | undefined): CommittedProjectionOutput[] {
   if (manifest === undefined) return [];
-  const outputs: CommittedGeneratedOutput[] = [];
+  const outputs: CommittedProjectionOutput[] = [];
   for (const [targetId, row] of Object.entries(manifest.targets)) {
-    if (row.ownership !== "generated" || !OUTPUT_DIGEST_PATTERN.test(row.outputDigest) || !isRepoRelativePosixPath(row.path)
+    if (!OUTPUT_DIGEST_PATTERN.test(row.outputDigest) || !isRepoRelativePosixPath(row.path)
       || !row.path.startsWith("docs/architecture/") || row.path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH) continue;
-    outputs.push({ targetId, path: row.path, outputDigest: row.outputDigest });
+    outputs.push({ targetId, path: row.path, ownership: row.ownership, outputDigest: row.outputDigest });
   }
   return outputs;
+}
+
+/** The `generated` (whole-file) rows of `committedProjectionOutputs`. */
+export function committedGeneratedOutputs(manifest: ArchitectureDocsProjectionManifestV3 | undefined): CommittedGeneratedOutput[] {
+  return committedProjectionOutputs(manifest)
+    .filter((output) => output.ownership === "generated")
+    .map(({ targetId, path, outputDigest }) => ({ targetId, path, outputDigest }));
 }
 
 /**

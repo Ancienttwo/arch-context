@@ -728,10 +728,10 @@ test("plan previews each file as a bounded body or unified diff and writes nothi
     const nodePath = join(root, `.archcontext/model/nodes/${KEPT}.yaml`);
     const summary = Array.from({ length: 3_000 }, (_, index) => `Hook adapters route event ${index} through the validated runtime boundary.`).join("\n");
     writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("summary: \"Hook Adapters capability.\"", `summary: ${JSON.stringify(summary)}`), "utf8");
-    // A missing generated document becomes a create that previews its rendered body.
-    const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
-    const changelogPath: string = (Object.values(manifest.targets) as any[]).find((target) => target.type === "architecture-changelog").path;
-    rmSync(join(root, changelogPath));
+    // A missing document becomes a create that previews its rendered body. repo-harness/v1 has no
+    // whole-model generated view without topology nodes, so the module document is the missing target.
+    const createPath = manifestTargetPath(root, REMOVED_GENERATED);
+    rmSync(join(root, createPath));
     const modulePath = manifestTargetPath(root, KEPT);
 
     const calls: string[] = [];
@@ -751,7 +751,7 @@ test("plan previews each file as a bounded body or unified diff and writes nothi
     expect(planned.status).toBe("human-action-required");
 
     const byPath = new Map(planned.files.map((file) => [file.path, file]));
-    const created = byPath.get(changelogPath)!;
+    const created = byPath.get(createPath)!;
     expect(created).toMatchObject({ action: "create", preview: { format: "body", truncated: false } });
     expect(created.preview!.content).toContain("<!-- BEGIN ARCHCONTEXT:generated");
     expect(created.preview!.byteLength).toBe(new TextEncoder().encode(created.preview!.content).length);
@@ -786,7 +786,7 @@ test("plan previews each file as a bounded body or unified diff and writes nothi
     // The spies see the apply's ChangeSet, so their silence during plan was real.
     expect(calls).toEqual(["planUpdate", "applyUpdate"]);
     expect(applied.files.every((file) => file.preview === undefined)).toBe(true);
-    expect(readFileSync(join(root, changelogPath), "utf8")).toBe(created.preview!.content);
+    expect(readFileSync(join(root, createPath), "utf8")).toBe(created.preview!.content);
     const inspected = await daemon.inspectProjectionApplyReceipt(root, applied.applyReceipt!.lookupKey);
     expect(JSON.stringify(inspected)).not.toContain("\"preview\"");
   });
@@ -804,14 +804,17 @@ const LEGACY_BODY = "flowchart LR\n  legacy_a --> legacy_b\n";
  */
 function seedWholeFileOrphan(root: string, onDiskBody: string): void {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8"));
-  const mermaid = (Object.values(manifest.targets) as Array<{ path: string }>).find((row) => row.path.endsWith("/architecture.mmd"));
-  if (!mermaid) throw new Error("fixture manifest has no Mermaid diagram row");
+  // The row is self-contained: repo-harness/v1 records no Mermaid diagram of its own.
   manifest.targets[LEGACY_TARGET_ID] = {
-    ...mermaid,
+    type: "diagram-mermaid",
+    scope: { kind: "diagram", id: "architecture" },
     path: LEGACY_PATH,
+    ownership: "generated",
+    format: "mermaid",
     outputDigest: digestJson({ targetId: LEGACY_TARGET_ID, body: LEGACY_BODY } as any)
   };
   writeFileSync(join(root, MANIFEST_PATH), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  mkdirSync(dirname(join(root, LEGACY_PATH)), { recursive: true });
   writeFileSync(join(root, LEGACY_PATH), onDiskBody, "utf8");
   commitAll(root, "a whole-file output the layout no longer renders");
 }
@@ -1048,7 +1051,27 @@ test("legacy oversized receipts refuse automatic replay/restore; existing mainte
 test("accepted adopt rejects complete expanded recovery metadata before its business writer", async () => {
   await withProtocolFixture("archctx-projection-adopt-budget-", async ({ root, daemon, localStore, cli, request, projectionRun }) => {
     editKeptSummary(root);
-    writeFileSync(join(root, "docs/architecture/index.md"), "# Human architecture index\n\nPreserve this paragraph.\n", "utf8");
+    // A marker-free module document is the repo-harness/v1 adoption candidate: it is a current
+    // mixed target whose ownership the projection cannot prove. Its P1/P2/P3 headings make the
+    // adoption range unambiguous.
+    writeFileSync(join(root, manifestTargetPath(root, KEPT)), [
+      "# Hook Adapters Architecture",
+      "",
+      "Human scope paragraph.",
+      "",
+      "## 1. P1: Responsibilities",
+      "",
+      "Human-owned.",
+      "",
+      "## 2. P2: Relations",
+      "",
+      "Human-owned.",
+      "",
+      "## 3. P3: Design Decisions and Invariants",
+      "",
+      "Human-owned.",
+      ""
+    ].join("\n"), "utf8");
     const observed = projectionResult(await projectionRun(request("plan", "request.budget.adopt.plan")));
     expect(observed.status).toBe("adoption-required");
     const signal = observed.refreshSignals.find(signal => signal.mode === "human-action-required")!;

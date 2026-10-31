@@ -363,9 +363,15 @@ const LEGACY_BODY = "flowchart LR\n  legacy_a --> legacy_b\n";
 
 function seedWholeFileOrphan(root: string): void {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST), "utf8"));
-  const mermaid = (Object.values(manifest.targets) as Array<{ path: string }>).find((row) => row.path.endsWith("/architecture.mmd"));
-  if (!mermaid) throw new Error("fixture manifest has no Mermaid diagram row");
-  manifest.targets[LEGACY_TARGET_ID] = { ...mermaid, path: LEGACY_PATH, outputDigest: digestJson({ targetId: LEGACY_TARGET_ID, body: LEGACY_BODY } as any) };
+  // The row is self-contained: repo-harness/v1 records no Mermaid diagram of its own.
+  manifest.targets[LEGACY_TARGET_ID] = {
+    type: "diagram-mermaid",
+    scope: { kind: "diagram", id: "architecture" },
+    path: LEGACY_PATH,
+    ownership: "generated",
+    format: "mermaid",
+    outputDigest: digestJson({ targetId: LEGACY_TARGET_ID, body: LEGACY_BODY } as any)
+  };
   writeFileSync(join(root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   write(root, LEGACY_PATH, LEGACY_BODY);
   commitAll(root, "a whole-file output the layout no longer renders");

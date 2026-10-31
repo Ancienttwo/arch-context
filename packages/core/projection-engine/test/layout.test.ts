@@ -19,14 +19,25 @@ const model: NativeModel = {
 };
 
 describe("repo-harness projection layout", () => {
-  test("resolves one canonical nested module/index/contract target map", () => {
+  test("resolves one canonical nested module target map and no whole-model views", () => {
     const layout = resolveArchitectureDocumentationLayout({ ...model, profile: REPO_HARNESS_PROJECTION_PROFILE });
     expect(layout.entityPathByNodeId.get("capability.runtime-harness.hook-adapters"))
       .toBe("docs/architecture/modules/runtime-harness/hook-adapters.md");
     expect(layout.entityPathByNodeId.get("capability.source-tree.core-index"))
       .toBe("docs/architecture/modules/source-tree/core-index.md");
-    expect(layout.targets.find((target) => target.type === "architecture-index")?.path)
-      .toBe("docs/architecture/index.md");
+    // repo-harness/v1 projects one fact class per target: capability documents and the manifest.
+    expect(layout.targets.map((target) => [target.type, target.path])).toEqual([
+      ["entity-summary", "docs/architecture/modules/runtime-harness/hook-adapters.md"],
+      ["entity-summary", "docs/architecture/modules/source-tree/core-index.md"]
+    ]);
+    expect(layout.retiredTargetPaths).toEqual([
+      "docs/architecture/index.md",
+      "docs/architecture/decisions/index.md",
+      "docs/architecture/changelog.md",
+      "docs/architecture/diagrams/architecture.mmd",
+      "docs/architecture/diagrams/architecture.structurizr.json",
+      "docs/architecture/diagrams/architecture.likec4"
+    ]);
     expect(agentContextTargetPaths(model.nodes)).toEqual([
       { nodeId: "capability.runtime-harness.hook-adapters", path: "packages/runtime-harness/AGENTS.md" },
       { nodeId: "capability.runtime-harness.hook-adapters", path: "packages/runtime-harness/CLAUDE.md" },
@@ -65,11 +76,11 @@ describe("repo-harness projection layout", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-layout-"));
     try {
       const layout = resolveArchitectureDocumentationLayout({ ...model, profile: REPO_HARNESS_PROJECTION_PROFILE });
+      // An unrecorded index file is not a target under repo-harness/v1 and no manifest row claims it.
       write(root, "docs/architecture/index.md", "# index\n");
       write(root, "docs/architecture/modules/runtime-harness/hook-adapters.md", "# hook\n");
       write(root, "docs/architecture/modules/retired/deep/orphan.md", "# orphan\n");
       expect(loadArchitectureFilesForLayout(root, layout).map((file) => file.path)).toEqual([
-        "docs/architecture/index.md",
         "docs/architecture/modules/retired/deep/orphan.md",
         "docs/architecture/modules/runtime-harness/hook-adapters.md"
       ]);

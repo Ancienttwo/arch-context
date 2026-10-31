@@ -239,6 +239,30 @@ describe("runtime topology view (ADR-0049)", () => {
       .toEqual(["docs/architecture/diagrams/runtime-topology.mmd", "docs/architecture/runtime-topology.md"]);
   });
 
+  test("repo-harness/v1 publishes capability documents and the topology pair only", () => {
+    const capability = { id: "capability.shop.storefront", kind: "capability", name: "Storefront", extensions: { contractFiles: { agents: "shop/AGENTS.md", claude: "shop/CLAUDE.md" } } };
+    const layout = (nodes: NativeModel["nodes"]) => resolveArchitectureDocumentationLayout({
+      nodes, relations: [], profile: REPO_HARNESS_PROJECTION_PROFILE
+    });
+    expect(layout([capability]).targets.map((target) => target.type)).toEqual(["entity-summary"]);
+    const topologyLayout = layout([capability, { id: "process.shop.web", kind: "process", name: "Web" }]);
+    expect(topologyLayout.targets.map((target) => target.type)).toEqual([
+      "entity-summary",
+      "diagram-runtime-topology",
+      "runtime-topology-summary"
+    ]);
+    expect(topologyLayout.expectedPaths).toEqual([
+      "docs/architecture/.projection-manifest.json",
+      "docs/architecture/diagrams/runtime-topology.mmd",
+      "docs/architecture/modules/shop/storefront.md",
+      "docs/architecture/runtime-topology.md"
+    ]);
+    // The whole-model views repo-harness/v1 retired stay off the target set.
+    for (const type of ["architecture-index", "architecture-changelog", "decision-index", "diagram-mermaid", "diagram-likec4", "diagram-structurizr"]) {
+      expect(topologyLayout.targets.some((target) => target.type === type)).toBe(false);
+    }
+  });
+
   test("an invalid topology fails closed instead of rendering a guessed placement", () => {
     const model = topology();
     const runsInComponent = { ...model, relations: [...model.relations, { id: "relation.bad", kind: "runs-in", source: "process.shop.cron", target: "component.shop.api", intent: "bad" }] };
