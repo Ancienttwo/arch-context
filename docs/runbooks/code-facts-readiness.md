@@ -16,6 +16,20 @@ Pending edits do not block stateless or practice checkpoints.
 Without an index, checkpoint keeps its partial ownership and anchor report.
 It still lists the checks deferred to complete.
 
+## Reading facts while an index build runs
+
+`codegraph init`, `index` and `sync` hold `.codegraph/codegraph.lock` (the writer's PID) for
+the whole build. Readiness does not run `codegraph status` while that lock names a live process:
+in CodeGraph 1.6.2 `status` opens the live database read-write, replays crash recovery, and
+recreates the secondary indexes and FTS triggers a bulk build deliberately dropped. Those writes
+take SQLite write locks and fail the running build with `database is locked`.
+
+While a build holds the lock, `doctor` reports `not-ready` with the `index-incomplete` issue and
+`null` index fields (`indexState`, `pendingRefs`, `pendingChanges`, `reindexRecommended`), because a
+mid-build reading is a guess. The `--version` probe still runs; it does not open the database.
+Wait for the build to finish, then inspect again. A stale lock (its PID is gone) or a malformed
+lock does not suppress the probe.
+
 ## Public failure contract
 
 An index with a version, project, initialization, index-state, extraction, or worktree issue returns:

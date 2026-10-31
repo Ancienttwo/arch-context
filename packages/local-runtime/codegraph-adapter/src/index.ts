@@ -988,12 +988,47 @@ export function prepareProjectionCodeFacts(
   };
 }
 
+/**
+ * `.codegraph/codegraph.lock` is the provider's cross-process writer lock, held for a whole
+ * `codegraph init`, `index` or `sync` build. `codegraph status` is not a read of the live
+ * database: 1.6.2 opens it writable and replays crash recovery, recreating the secondary indexes
+ * and FTS triggers that a bulk build deliberately dropped. Those writes take SQLite write locks and
+ * starve the running build into `database is locked` (#426), so no probe may touch a database that
+ * is currently being built.
+ */
+class CodeGraphIndexBuildInProgressError extends Error {
+  constructor() {
+    super("CodeGraph index build is in progress");
+    this.name = "CodeGraphIndexBuildInProgressError";
+  }
+}
+
+/** True while the provider's writer lock names a live build of this workspace's index. */
+function codeGraphIndexBuildInProgress(workspaceRoot: string): boolean {
+  let raw: string;
+  try {
+    raw = readFileSync(join(workspaceRoot, ".codegraph", "codegraph.lock"), "utf8").trim();
+  } catch {
+    return false;
+  }
+  const pid = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(pid) || pid <= 0 || String(pid) !== raw) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process exists but belongs to another user.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 function readProjectionCodeGraphStatus(
   invocation: CodeGraphCliInvocation,
   root: string,
   timeout: number,
   envOverrides?: Record<string, string>
 ): CodeGraphProjectionStatusV1 {
+  if (codeGraphIndexBuildInProgress(root)) throw new CodeGraphIndexBuildInProgressError();
   const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout, envOverrides);
   try {
     return JSON.parse(output) as CodeGraphProjectionStatusV1;
@@ -1398,11 +1433,14 @@ const CODEGRAPH_NO_DOWNLOAD_ENV: Record<string, string> = { CODEGRAPH_NO_DOWNLOA
 /**
  * Inspects the repository's code-facts state with `codegraph --version` and `codegraph status -j`
  * only. It never runs `sync`, never writes the index and never throws for an unavailable CodeGraph.
+ * While a provider build holds the index it does not run `status` at all, because that command
+ * opens the live database writable and repairs it mid-build (#426).
  */
 export function inspectRepositoryCodeFacts(root: string, options: RepositoryCodeFactsInspectionOptions = {}): RepositoryCodeFactsV1 {
   const schemaVersion = "archcontext.repository-code-facts/v1" as const;
-  let codeGraphVersion: string;
+  let codeGraphVersion = "";
   let status: CodeGraphProjectionStatusV1 | undefined;
+  let indexBuildInProgress = false;
   const indexPresent = codeGraphIndexAvailable(root);
   try {
     const invocation = options.binary
@@ -1411,19 +1449,40 @@ export function inspectRepositoryCodeFacts(root: string, options: RepositoryCode
     codeGraphVersion = runProjectionCodeGraph(invocation, root, ["--version"], options.timeouts?.versionMs ?? 10_000, CODEGRAPH_NO_DOWNLOAD_ENV).trim();
     if (indexPresent) status = readProjectionCodeGraphStatus(invocation, root, options.timeouts?.statusMs ?? 10_000, CODEGRAPH_NO_DOWNLOAD_ENV);
   } catch (error) {
-    return {
-      schemaVersion,
-      state: "unavailable",
-      requiredVersion: REQUIRED_CODEGRAPH_VERSION,
-      reasonCode: "codegraph-unavailable",
-      message: (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").trim().slice(0, 400)
-    };
+    if (!(error instanceof CodeGraphIndexBuildInProgressError)) {
+      return {
+        schemaVersion,
+        state: "unavailable",
+        requiredVersion: REQUIRED_CODEGRAPH_VERSION,
+        reasonCode: "codegraph-unavailable",
+        message: (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").trim().slice(0, 400)
+      };
+    }
+    indexBuildInProgress = true;
   }
   const versionIssues: ProjectionCodeGraphStatusIssueV1[] = codeGraphVersion === REQUIRED_CODEGRAPH_VERSION
     ? []
     : [{ code: "version-mismatch", message: CODE_FACTS_ISSUE_MESSAGES["version-mismatch"] }];
   if (!indexPresent) {
     return { schemaVersion, state: "index-missing", indexPresent: false, requiredVersion: REQUIRED_CODEGRAPH_VERSION, codeGraphVersion, issues: versionIssues };
+  }
+  if (indexBuildInProgress) {
+    // Every index field would be a mid-build guess, and reading it is exactly the writable open
+    // this guard exists to avoid. `null` is the contract's unknown value.
+    return {
+      schemaVersion,
+      state: "not-ready",
+      indexPresent: true,
+      requiredVersion: REQUIRED_CODEGRAPH_VERSION,
+      codeGraphVersion,
+      indexBuiltWithVersion: null,
+      extractionVersion: { builtWith: null, current: null },
+      indexState: null,
+      reindexRecommended: null,
+      pendingRefs: null,
+      pendingChanges: null,
+      issues: [...versionIssues, { code: "index-incomplete", message: CODE_FACTS_ISSUE_MESSAGES["index-incomplete"] }]
+    };
   }
   if (typeof status !== "object" || status === null || Array.isArray(status)) {
     return {
