@@ -10,10 +10,13 @@ const specPath = "docs/spec.md";
 
 export async function collectSprintStatusFailures(root = process.cwd()) {
   const failures = [];
-  const sprint = await readRequired(root, sprintPath, failures);
-  const spec = await readRequired(root, specPath, failures);
+  // Task state lives in GitHub issues and pull requests. A repository without a
+  // local sprint backlog has nothing for this legacy checker to validate.
+  const sprint = await readOptional(root, sprintPath);
+  if (!sprint) return failures;
 
-  if (sprint && spec) await validateMvpSprint(root, sprint, spec, failures);
+  const spec = await readRequired(root, specPath, failures);
+  if (spec) await validateMvpSprint(root, sprint, spec, failures);
   await validateSprint2EvidenceClaims(root, failures);
   await validateSprint3EvidenceClaims(root, failures);
   await validateGovernanceFollowupPlan(root, failures);

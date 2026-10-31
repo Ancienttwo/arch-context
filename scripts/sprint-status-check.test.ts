@@ -613,6 +613,16 @@ describe("sprint-status-check", () => {
       }
     );
   });
+
+  test("passes when the repository has no local sprint backlog", async () => {
+    const root = await mkdtemp(join(tmpdir(), "archctx-sprint-status-"));
+    try {
+      await write(root, "docs/spec.md", "GitHub-only workflow.\n");
+      await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 async function withFixture(sprint2: string, run: (root: string) => Promise<void>, options: { approvalArtifact?: string } = {}) {

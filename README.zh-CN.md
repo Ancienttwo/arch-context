@@ -44,10 +44,8 @@ enforcement 升级、waiver、hook、Context7 pinning、source 更新、rollout 
 - `docs/runbooks/local-core-quickstart.md`: Local Core 首次运行路径。
 - `docs/runbooks/practice-assets-v1.md`: Practice Assets v1 的资产撰写、隐私、
   rollout 与 rollback 操作。
-- `plans/prds/20260619-2039-archcontext.prd.md`: ArchContext PRD v2.0。
-- `plans/prds/20260620-0236-archcontext-local-github-governance.prd.md`: 本地产品与 GitHub 治理的后续 PRD。
-- `plans/sprints/archctx-local-github-governance-sprint.md`: 治理后续工作的执行 checklist。
-- `plans/sprints/archctx-sprint.md`: MVP M0-M6 执行 backlog。
+- `docs/prds/20260619-2039-archcontext.prd.md`: ArchContext PRD v2.0。
+- `docs/prds/20260620-0236-archcontext-local-github-governance.prd.md`: 本地产品与 GitHub 治理的后续 PRD。
 - `docs/researches/`: 研究资料与历史 PRD 基线。
 - `docs/architecture/`: 架构索引、图表和后续快照入口。
 - `packages/contracts/`: M0 契约类型、Envelope、Digest、路径守卫和最小 JSON Schema validator。
