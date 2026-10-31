@@ -1,5 +1,5 @@
 import { FailureError, failureEnvelope, knownFailure, normalizeFailureResult, toEnvelope, type FailureCode, type JsonEnvelope, type StrictFailure } from "@archcontext/contracts";
-import { ProjectionPreconditionError } from "@archcontext/core/projection-engine";
+import { ProjectionManifestUpgradeRequiredError, ProjectionPreconditionError } from "@archcontext/core/projection-engine";
 import { ProjectionCodeFactsUnavailableError } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ProviderError } from "@archcontext/local-runtime/context7-adapter";
 import { LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
@@ -40,6 +40,8 @@ export function publicOperationFailure(error: unknown): FailureError<FailureCode
       else failure = toEnvelope("public.operation", undefined, "public-operation").error;
     }
     else if (error instanceof GitVisibleFilesUnavailableError) failure = knownFailure(own(error, "code") as any, own(error, "reasonCode") as string);
+    // A superseded manifest already carries the structured upgrade facts its details register.
+    else if (error instanceof ProjectionManifestUpgradeRequiredError) failure = knownFailure("AC_PRECONDITION_FAILED", own(error, "reasonCode") as string, own(error, "details"));
     else if (error instanceof ProjectionPreconditionError) failure = knownFailure("AC_PRECONDITION_FAILED", own(error, "reasonCode") as string);
     else if (error instanceof ProjectionCodeFactsUnavailableError) failure = knownFailure(own(error, "code") as any, own(error, "reasonCode") as string);
     else if (error instanceof ProjectionFreshnessChangedPathError) failure = knownFailure(own(error, "code") as any, own(error, "reasonCode") as string);

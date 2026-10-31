@@ -1069,7 +1069,18 @@ describe("committed change acceptance v2", () => {
       const owned = await change(fixture, "changeset.ownership", [editNode(fixture.root, "component.container", { source: { include: ["README.md"] } })]);
       const previewed = await preview(fixture, [owned]);
       expect(previewed.ok).toBe(false);
-      expect((previewed as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "projection-manifest-upgrade-required" });
+      expect((previewed as any).error).toMatchObject({
+        code: "AC_PRECONDITION_FAILED",
+        reasonCode: "projection-manifest-upgrade-required",
+        action: "rebuild-plan",
+        details: {
+          manifestPath: "docs/architecture/.projection-manifest.json",
+          foundSchemaVersion: "archcontext.architecture-docs-projection-manifest/v2",
+          supportedSchemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+          upgradeCommand: "archctx docs apply --approved --profile <default|repo-harness/v1>",
+          migrationGuide: "docs/runbooks/architecture-documentation-projections.md"
+        }
+      });
       expect(acceptedEvents(fixture)).toHaveLength(0);
     });
   }, TIMEOUT);

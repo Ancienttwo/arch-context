@@ -464,7 +464,21 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
 
     const drift = await cli("docs", ["drift"]);
     expect(drift.ok).toBe(false);
-    expect((drift as any).error.reasonCode).toBe("projection-manifest-upgrade-required");
+    // The operator gets the found and supported formats plus the one-time re-baseline, not an
+    // empty details object (#427).
+    expect((drift as any).requestId).toBe("docs.drift");
+    expect((drift as any).error).toMatchObject({
+      code: "AC_PRECONDITION_FAILED",
+      reasonCode: "projection-manifest-upgrade-required",
+      action: "rebuild-plan",
+      details: {
+        manifestPath: "docs/architecture/.projection-manifest.json",
+        foundSchemaVersion: "archcontext.architecture-docs-projection-manifest/v2",
+        supportedSchemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+        upgradeCommand: "archctx docs apply --approved --profile <default|repo-harness/v1>",
+        migrationGuide: "docs/runbooks/architecture-documentation-projections.md"
+      }
+    });
 
     // The re-baseline names every whole-file output nothing vouches for, says how to remove them,
     // and writes nothing.
@@ -491,8 +505,13 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
     const rebaselined = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
     expect(rebaselined.ok, JSON.stringify(rebaselined)).toBe(true);
     commit("re-baseline the projection");
-    expect(JSON.parse(readFileSync(manifestPath, "utf8")).schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v3");
-    for (const path of wholeFilePaths) expect(existsSync(join(root, path))).toBe(true);
+    const rebaselinedManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    expect(rebaselinedManifest.schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v3");
+    // A downstream consumer can resolve every generated path from the migrated v3 `targets`.
+    const targetPaths = Object.values(rebaselinedManifest.targets as Record<string, { path: string }>).map((row) => row.path);
+    expect(targetPaths.length).toBeGreaterThan(0);
+    for (const path of targetPaths) expect(existsSync(join(root, path))).toBe(true);
+    for (const path of wholeFilePaths) expect(targetPaths).toContain(path);
 
     const again = await cli("docs", ["apply", "--approved"]);
     expect(again.ok, JSON.stringify(again)).toBe(true);

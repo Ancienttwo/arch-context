@@ -210,7 +210,18 @@ test("D6-A anchors refusal retains code/action/reason/details through raw, CLI, 
   try { readArchitectureDebt(root); } catch (error) { raw = error; }
   expect(raw).toBeInstanceOf(FailureError);
   const producer = (raw as InstanceType<typeof FailureError>).failure;
-  expect(producer).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "projection-manifest-upgrade-required", action: "rebuild-plan", details: {} });
+  expect(producer).toMatchObject({
+    code: "AC_PRECONDITION_FAILED",
+    reasonCode: "projection-manifest-upgrade-required",
+    action: "rebuild-plan",
+    details: {
+      manifestPath: "docs/architecture/.projection-manifest.json",
+      foundSchemaVersion: "archcontext.architecture-docs-projection-manifest/v2",
+      supportedSchemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+      upgradeCommand: "archctx docs apply --approved --profile <default|repo-harness/v1>",
+      migrationGuide: "docs/runbooks/architecture-documentation-projections.md"
+    }
+  });
   expect(failureIssues(producer)).toEqual([]);
   for (const command of ["debt", "checkpoint"]) {
     const result = await runCli(command, [], root, { runtimeClient: noRuntime });

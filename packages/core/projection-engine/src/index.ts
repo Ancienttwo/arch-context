@@ -8,8 +8,10 @@ export * from "./document-regions";
 export * from "./source-globs";
 import {
   AGENT_CONTEXT_RENDERER_VERSION as CONTRACT_AGENT_CONTEXT_RENDERER_VERSION,
+  ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE,
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
+  ARCHITECTURE_DOCS_PROJECTION_MANIFEST_UPGRADE_COMMAND,
   ARCHITECTURE_DOCS_PROJECTION_PROVENANCE_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION as CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION,
   ARCHITECTURE_FLOW_SELECTOR_CHECK_SCHEMA_VERSION,
@@ -894,8 +896,23 @@ export abstract class ProjectionPreconditionError extends Error {
  */
 export class ProjectionManifestUpgradeRequiredError extends ProjectionPreconditionError {
   readonly reasonCode = PROJECTION_MANIFEST_UPGRADE_REQUIRED;
+  /**
+   * The structured failure details every public surface registers with this reason: the committed
+   * manifest, the superseded format it names, the format this release reads, and the one-time
+   * re-baseline plus its runbook. Populated only for a schemaVersion this release recognizes as
+   * superseded, because that is the only value the public fact vocabulary accepts; a forged value
+   * keeps the typed refusal without widening the diagnostic.
+   */
+  readonly details: Readonly<Record<string, string>>;
   constructor(readonly schemaVersion: string) {
-    super(`${PROJECTION_MANIFEST_UPGRADE_REQUIRED}: ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} is ${schemaVersion}, and this archctx reads only ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION}; reach a clean projection on the earlier release first, then re-baseline once with archctx docs apply --approved --profile <default|repo-harness/v1>; if that apply names whole-file outputs the earlier release wrote, remove them with git rm and run it again`);
+    super(`${PROJECTION_MANIFEST_UPGRADE_REQUIRED}: ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} is ${schemaVersion}, and this archctx reads only ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION}; reach a clean projection on the earlier release first, then re-baseline once with ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_UPGRADE_COMMAND}; if that apply names whole-file outputs the earlier release wrote, remove them with git rm and run it again; ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE} lists the model and release preconditions`);
+    this.details = isSupersededArchitectureDocsProjectionManifestSchemaVersion(schemaVersion) ? {
+      manifestPath: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
+      foundSchemaVersion: schemaVersion,
+      supportedSchemaVersion: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION,
+      upgradeCommand: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_UPGRADE_COMMAND,
+      migrationGuide: ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE
+    } : {};
   }
 }
 

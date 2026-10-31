@@ -1,6 +1,8 @@
 import { changeSetRecoveryDetailsSnapshot } from "./changeset-recovery";
 import { isNativeError } from "node:util/types";
 import { MODEL_VALIDATION_DIAGNOSTIC_CODES } from "./ports";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH } from "./projection";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_UPGRADE_COMMAND, SUPERSEDED_ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSIONS } from "./projection-manifest";
 import { PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionRecoveryDetailsSnapshot } from "./projection-recovery";
 import { ERROR_CATALOG, canonicalize, type ArchContextErrorCode, type Json, type Severity } from "./schema";
 
@@ -51,7 +53,7 @@ const policies: Record<string, Policy> = {
   "model-missing": { code: "AC_MODEL_ADOPTION_REQUIRED", message: "Architecture debt requires an adopted model.", fields: ["checks"] },
   "changed-path-invalid": { code: "AC_SCHEMA_INVALID", message: "Changed paths must be an array of repository-relative POSIX paths.", fields: ["checks"] },
   "debt-report-invalid": { code: "AC_SCHEMA_INVALID", message: "Architecture debt evidence violates its contract.", fields: ["checks"] },
-  "projection-manifest-upgrade-required": { code: "AC_PRECONDITION_FAILED", message: "The committed projection manifest requires supported re-baselining. First restore the original model if missing; the manifest digest cannot recover it. With the reviewed model available, follow docs/runbooks/architecture-documentation-projections.md before running archctx docs apply --approved --profile <default|repo-harness/v1>." },
+  "projection-manifest-upgrade-required": { code: "AC_PRECONDITION_FAILED", message: `The committed projection manifest requires supported re-baselining. First restore the original model if missing; the manifest digest cannot recover it. With the reviewed model available, follow ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE} before running ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_UPGRADE_COMMAND}.`, facts: { manifestPath: "optional:projectionManifestPath", foundSchemaVersion: "optional:projectionManifestSchemaVersion", supportedSchemaVersion: "optional:projectionManifestSchemaVersion", upgradeCommand: "optional:projectionManifestUpgradeCommand", migrationGuide: "optional:projectionManifestMigrationGuide" } },
   "projection-manifest-invalid": { code: "AC_PRECONDITION_FAILED", message: "The committed projection manifest violates its contract." },
   "architecture-model-ignored": { code: "AC_PRECONDITION_FAILED", action: "commit-architecture-model", message: "Git ignore rules exclude architecture model paths, so the model cannot be committed and a manifest digest cannot rebuild it. Remove or narrow the rule, commit the model, then retry adoption. The diagnostic command prints each deciding rule.", facts: { pathCount: "uint", paths: "optional:diagnosticPaths", commands: "optional:diagnosticCommands", omittedPathCount: "uint" } },
   "projection-footprint-uncovered": { code: "AC_PRECONDITION_FAILED", message: "Declared source footprints lack a projection target." },
@@ -382,6 +384,10 @@ const localEnums: Readonly<Record<string, readonly string[]>> = {
   upgradeAction: ["upgrade-archctx-runtime"],
   upgradeCommand: ["archctx daemon upgrade"],
   ownershipAction: ["remove-whole-file-outputs-and-reapply"],
+  projectionManifestPath: [ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH],
+  projectionManifestSchemaVersion: [...SUPERSEDED_ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSIONS, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION],
+  projectionManifestUpgradeCommand: [ARCHITECTURE_DOCS_PROJECTION_MANIFEST_UPGRADE_COMMAND],
+  projectionManifestMigrationGuide: [ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE],
   ledgerModeField: ["rolloutMode","readMode","writeMode"],
   depsField: ["from", "into", "importNodeLimit", "edgeLimit"],
   depsIssue: ["unknown-node", "invalid-limit", "missing-value"],
