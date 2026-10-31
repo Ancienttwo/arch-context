@@ -1,4 +1,4 @@
-> **状态：已被 `plans/prds/20260619-2039-archcontext.prd.md`（ArchContext PRD v2.0）取代（2026-06-19）。** 按"编号大、时间最新者为准"，v2.0 是当前权威 PRD，且已吸收本稿全部结论（CodeGraph 硬依赖、`.archcontext/` Agent-first YAML、vibe-coding 定位、渐进式治理、决策边界）。本稿保留为早期决策快照；与 v2.0 冲突处以 v2.0 为准。
+> **状态：已被 `docs/prds/20260619-2039-archcontext.prd.md`（ArchContext PRD v2.0）取代（2026-06-19）。** 按"编号大、时间最新者为准"，v2.0 是当前权威 PRD，且已吸收本稿全部结论（CodeGraph 硬依赖、`.archcontext/` Agent-first YAML、vibe-coding 定位、渐进式治理、决策边界）。本稿保留为早期决策快照；与 v2.0 冲突处以 v2.0 为准。
 
 可以把现在的方案收敛成一句话：
 

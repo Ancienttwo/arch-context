@@ -47,10 +47,8 @@ source-update, rollout, and rollback operations.
 - `docs/runbooks/local-core-quickstart.md`: Local Core first-run path.
 - `docs/runbooks/practice-assets-v1.md`: Practice Assets v1 authoring,
   privacy, rollout, and rollback operations.
-- `plans/prds/20260619-2039-archcontext.prd.md`: ArchContext PRD v2.0.
-- `plans/prds/20260620-0236-archcontext-local-github-governance.prd.md`: Local product and GitHub governance follow-up PRD.
-- `plans/sprints/archctx-local-github-governance-sprint.md`: Follow-up governance execution checklist.
-- `plans/sprints/archctx-sprint.md`: MVP M0-M6 execution backlog.
+- `docs/prds/20260619-2039-archcontext.prd.md`: ArchContext PRD v2.0.
+- `docs/prds/20260620-0236-archcontext-local-github-governance.prd.md`: Local product and GitHub governance follow-up PRD.
 - `docs/researches/`: research material and historical PRD baselines.
 - `docs/architecture/`: architecture index, diagrams, and entrypoints for later snapshots.
 - `packages/contracts/`: M0 contract types, Envelope, Digest, path guards, and the minimal JSON Schema validator.

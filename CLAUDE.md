@@ -7,14 +7,17 @@ This is the root routing contract for Claude Code and Codex.
 - Run npm publish in an interactive terminal. When npm shows an authentication URL, use web authentication. Do not request a code from `EOTP` alone.
 - If npm accepts an upload and reports processing, wait for registry visibility. Do not publish that version again.
 - Keep sibling `CLAUDE.md` and `AGENTS.md` files aligned. Claude Code consumes `CLAUDE.md`; Codex consumes `AGENTS.md`.
-- Treat `docs/spec.md` as stable product truth, `tasks/current.md` as a derived status snapshot, and `tasks/todos.md` as the deferred-goal ledger; current execution stays in the active plan's `## Task Breakdown`.
+- Task state lives only in GitHub issues and pull requests; do not create local status ledgers or execution backlogs.
+- Multi-agent work follows `repo-harness-issue-flow` (`assets/skills/repo-harness-issue-flow/SKILL.md`): roles, claims, handoff, dispatch, acceptance and merge.
+- `docs/architecture/archimap.html` is the single architecture entry. It links each module to its archctx-projected capability doc in `docs/architecture/modules/`. Change boundaries only through `repo-harness-architecture`; do not hand-write other architecture docs.
+- Treat `docs/spec.md` as stable product truth.
 - Treat `docs/researches/`, `tasks/lessons.md`, and `.ai/harness/policy.json` as durable workflow context.
 - Use `.ai/context/context-map.json` and `.ai/context/capabilities.json` to discover functional-block contracts.
 - Do not infer local `CLAUDE.md` or `AGENTS.md` files from broad physical layouts such as `apps/*`, `packages/*`, or `services/*`.
 - Put capability-specific ownership, entrypoints, and verification commands in explicitly selected functional-block contracts.
-- Keep root context concise; route deep implementation detail into plans, task notes, research, workstreams, or architecture docs.
+- Keep root context concise; route deep implementation detail into GitHub issues, pull requests, research, or architecture docs.
 - Treat `_ref/` as ignored external reference material and `_ops/` as ignored local operations state.
-- Prefer repo-local workflow artifacts over tool-specific chat memory.
+- Prefer GitHub issues and pull requests over tool-specific chat memory.
 
 ## Architecture Ledger Contract
 

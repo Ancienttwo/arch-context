@@ -9,7 +9,7 @@
       "status": "completed",
       "target": "E0",
       "evidence": [
-        "plans/prds/20260620-0236-archcontext-local-github-governance.prd.md",
+        "docs/prds/20260620-0236-archcontext-local-github-governance.prd.md",
         "docs/verification/fg0-contract-correction-gate.md"
       ]
     },
@@ -2372,8 +2372,7 @@
         "docs/approvals/fg6-personal-beta-launch.md",
         "docs/runbooks/personal-user-install.md",
         "docs/verification/fg6-acceptance-evidence.md",
-        "docs/verification/fg6-staging-release-gate.md",
-        "tasks/todos.md"
+        "docs/verification/fg6-staging-release-gate.md"
       ]
     },
     {
@@ -2519,8 +2518,7 @@
         "docs/approvals/fg6-personal-beta-launch.md",
         "docs/verification/fg6-personal-beta-launch-review.md",
         "docs/verification/fg6-acceptance-evidence.md",
-        "docs/verification/fg6-staging-release-gate.md",
-        "tasks/todos.md"
+        "docs/verification/fg6-staging-release-gate.md"
       ]
     }
   ]
