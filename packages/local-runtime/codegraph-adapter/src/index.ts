@@ -808,6 +808,11 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
     timeouts?: { versionMs?: number; statusMs?: number; syncMs?: number };
   } = {}
 ): PreparedArchitectureDocumentationProjectionSnapshot {
+  // Classify repository readiness with the same doctor evaluator the task commands use, before
+  // any code-facts read. A present but incompatible index is a typed refusal; pending-only
+  // freshness is accepted and cleared by the sync below. An absent index keeps its existing
+  // AC_CODE_FACTS_UNAVAILABLE contract.
+  if (codeGraphIndexAvailable(root)) assertRepositoryCodeFactsReady(root, options.binary ? { binary: options.binary } : {});
   const baseHeadSha = readProjectionHeadSha(root);
   const sourceFiles = listGitVisibleFiles(root);
   const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(root, model, sourceFiles);
