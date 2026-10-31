@@ -32,6 +32,14 @@ export const SUPERSEDED_ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSIONS = 
   "archcontext.architecture-docs-projection-manifest/v1",
   "archcontext.architecture-docs-projection-manifest/v2"
 ] as const;
+/**
+ * The one-time re-baseline an operator runs after the migration preconditions in the runbook are
+ * met. The profile comes from the repository, not from a superseded manifest, so the command names
+ * both supported profiles instead of guessing.
+ */
+export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_UPGRADE_COMMAND = "archctx docs apply --approved --profile <default|repo-harness/v1>" as const;
+/** The operator runbook that pairs a re-baseline with its prerequisites (model restoration, upgrade path, receipt drain). */
+export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE = "docs/runbooks/architecture-documentation-projections.md" as const;
 /** The reason code of a refused superseded manifest; the operator re-baselines once with `archctx docs apply --approved`. */
 export const PROJECTION_MANIFEST_UPGRADE_REQUIRED = "projection-manifest-upgrade-required" as const;
 /** The reason code of a current-format manifest that fails its contract; restore it from Git. */
