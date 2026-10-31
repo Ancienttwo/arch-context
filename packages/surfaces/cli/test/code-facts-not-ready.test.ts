@@ -3,12 +3,16 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failureIssues } from "@archcontext/contracts";
-import { CodeGraphAdapter, CodeGraphCliProvider, inspectRepositoryCodeFacts, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
+import { digestJson, failureIssues } from "@archcontext/contracts";
+import { canonicalRepositoryRoot, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
+import { CodeGraphAdapter, CodeGraphCliProvider, inspectRepositoryCodeFacts, prepareArchitectureDocumentationProjectionSnapshot, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { ArchctxDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
+import { incompleteCodeGraphFixture } from "../../../local-runtime/codegraph-adapter/test/real-index";
 import { runCli } from "../src/main";
 
 function fixture(allowSync = false, clearPending = false) {
@@ -147,3 +151,90 @@ for (const cached of [false, true]) {
     } finally { input.cleanup(); }
   });
 }
+
+/** Remove the default capability so projection inputs load instead of failing on a layout path first. */
+function trimProjectionFixtureModel(root: string): void {
+  rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
+  execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qam", "trim model"], { cwd: root });
+}
+
+/** The exact request shape `archctx projection run` accepts in read-only check mode. */
+function projectionCheckRequest(root: string, requestId: string) {
+  return {
+    schemaVersion: "archcontext.projection-request/v1",
+    requestId,
+    profile: "repo-harness/v1",
+    mode: "check",
+    targets: ["agent-context", "architecture-docs"],
+    changedPaths: [],
+    expected: {
+      repositoryId: repositoryFingerprint(root),
+      workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+      headSha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
+      worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
+    }
+  };
+}
+
+test("projection snapshot preparation refuses an indexing version-mismatched index with the doctor issues", () => {
+  const input = fixture();
+  try {
+    // The reported #425 state: an index still being built, with no compatible build version.
+    writeFileSync(input.statusPath, JSON.stringify({
+      ...input.status,
+      index: { ...input.status.index, state: "indexing", pendingRefs: 128 }
+    }));
+    const doctor = inspectRepositoryCodeFacts(input.root, { binary: input.binary });
+    expect("issues" in doctor && doctor.issues.map(issue => issue.code)).toEqual(["version-mismatch", "index-incomplete"]);
+    writeFileSync(input.calls, "");
+    let failure: unknown;
+    try { prepareArchitectureDocumentationProjectionSnapshot(input.root, loadNativeModelFromArchContext(input.root), { binary: input.binary }); }
+    catch (error) { failure = error; }
+    expect(failure).toMatchObject({
+      code: "AC_CODE_FACTS_NOT_READY", reasonCode: "code-facts-not-ready", retryable: false, action: "codegraph-index",
+      details: { issues: "issues" in doctor ? doctor.issues : [] }
+    });
+    expect(failureIssues((failure as { failure?: any })?.failure)).toEqual([]);
+    expect(JSON.stringify(failure)).not.toContain("private raw process output");
+    expect(JSON.stringify(failure)).not.toContain(input.root);
+    // The readiness probe runs version and status only: no sync, rebuild or retry.
+    expect(readFileSync(input.calls, "utf8")).toBe("--version\nstatus\n");
+  } finally { input.cleanup(); }
+});
+
+test("CLI projection run check classifies an incomplete index instead of failing unclassified", async () => {
+  const input = fixture();
+  try {
+    trimProjectionFixtureModel(input.root);
+    // A real package-local index with no completed extraction stamps reproduces the reported
+    // not-ready state: version-mismatch and index-incomplete, without a shim.
+    incompleteCodeGraphFixture(input.root);
+    const doctor = inspectRepositoryCodeFacts(input.root);
+    const issueCodes = "issues" in doctor ? doctor.issues.map(issue => issue.code) : [];
+    expect(doctor.state).toBe("not-ready");
+    expect(issueCodes).toContain("version-mismatch");
+    expect(issueCodes).toContain("index-incomplete");
+    const result = await runCli("projection", ["run", "--request-json", JSON.stringify(projectionCheckRequest(input.root, "projection_request.code_facts_not_ready"))], input.root);
+    expect(result).toMatchObject({ ok: false, error: {
+      code: "AC_CODE_FACTS_NOT_READY", reasonCode: "code-facts-not-ready", retryable: false, action: "codegraph-index",
+      details: { issues: "issues" in doctor ? doctor.issues : [] }
+    } });
+    expect((result as { error?: { code?: string } }).error?.code).not.toBe("AC_UNCLASSIFIED_FAILURE");
+    expect(JSON.stringify(result)).not.toContain(input.root);
+  } finally { input.cleanup(); }
+}, 60_000);
+
+test("CLI projection run check keeps the missing-index unavailable contract", async () => {
+  const input = fixture();
+  try {
+    rmSync(join(input.root, ".codegraph"), { recursive: true, force: true });
+    trimProjectionFixtureModel(input.root);
+    const result = await runCli("projection", ["run", "--request-json", JSON.stringify(projectionCheckRequest(input.root, "projection_request.code_facts_missing"))], input.root);
+    expect(result).toMatchObject({ ok: false, error: {
+      code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing", retryable: true, action: "codegraph-init"
+    } });
+    // The missing-index contract still names the init command and never becomes the not-ready code.
+    expect((result as { error?: { code?: string } }).error?.code).not.toBe("AC_CODE_FACTS_NOT_READY");
+    expect(JSON.stringify(result)).not.toContain(input.root);
+  } finally { input.cleanup(); }
+}, 60_000);

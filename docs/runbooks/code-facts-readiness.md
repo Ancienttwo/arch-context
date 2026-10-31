@@ -4,13 +4,15 @@
 It does not sync or rebuild the index.
 The default runtime provider uses the same package-local CodeGraph binary.
 
-`complete` and `prepare` check compatibility before CodeGraph sync.
+`complete`, `prepare` and `projection run` check compatibility before CodeGraph sync.
 A read-only `CodeFactsPort.assertCanSync` hook checks them before a runtime session
 is stored, even when prepare requests no symbols. The hook is optional for older ports.
 Pending source changes alone may use the existing one incremental sync.
 The index must remain compatible after that sync. Pending source changes alone
 do not cause failure, even if they remain after sync. There is no automatic retry.
 A cached snapshot does not bypass this check.
+`projection run` checks a present index the same way before its snapshot reads.
+An absent index keeps its existing `AC_CODE_FACTS_UNAVAILABLE` contract.
 CLI and MCP `checkpoint` check a present index before they read debt.
 Pending edits do not block stateless or practice checkpoints.
 Without an index, checkpoint keeps its partial ownership and anchor report.
