@@ -114,6 +114,16 @@ async function projectedOrigin(daemon: Awaited<ReturnType<typeof startDaemon>>) 
     applicability: "not-applicable",
     rationale: "The writer fixture only validates projection publishing."
   }), "utf8");
+  // A topology node keeps one whole-file (`generated`) target in the repo-harness profile, which
+  // otherwise publishes only mixed capability documents.
+  writeFileSync(join(dev, ".archcontext/model/nodes/process.app.web.yaml"), stableYaml({
+    schemaVersion: "archcontext.node/v2",
+    id: "process.app.web",
+    kind: "process",
+    name: "Web",
+    status: "active",
+    summary: "Serves the application."
+  }), "utf8");
   git(dev, "init", "-q", "-b", "main");
   git(dev, "config", "core.autocrlf", "false");
   git(dev, "add", "-A");

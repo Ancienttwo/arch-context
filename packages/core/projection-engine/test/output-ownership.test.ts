@@ -11,6 +11,7 @@ import {
   loadArchitectureFilesForLayout,
   renderArchitectureDocumentationProjection,
   resolveArchitectureDocumentationLayout,
+  REPO_HARNESS_PROJECTION_PROFILE,
   type ArchitectureDocumentationProjectionPlan,
   type NativeModel
 } from "../src/index";
@@ -202,6 +203,39 @@ describe("whole-file outputs carry no ownership marker (#327)", () => {
       const reloaded = render(loaded);
       expect(driftFor(reloaded, jsonPath)).toEqual([]);
       expect(reloaded.orphans.map((orphan) => orphan.path)).toEqual([legacyPath]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the repo-harness layout reads a retired mixed output back, but no other mixed row", () => {
+    const first = render([]);
+    const manifest = JSON.parse(first.manifest.body);
+    const indexId = "projection_target.architecture.index";
+    const legacyId = "projection_target.architecture.legacy";
+    manifest.targets[legacyId] = { ...manifest.targets[indexId], path: "docs/architecture/legacy.md" };
+    const tree = [
+      ...replaceBody(written(first), manifestPath, `${JSON.stringify(manifest, null, 2)}\n`),
+      { path: "docs/architecture/legacy.md", body: "# Legacy\n" }
+    ];
+    const root = mkdtempSync(join(tmpdir(), "archctx-retired-output-"));
+    try {
+      for (const entry of tree) {
+        mkdirSync(join(root, dirname(entry.path)), { recursive: true });
+        writeFileSync(join(root, entry.path), entry.body);
+      }
+      const layout = resolveArchitectureDocumentationLayout({
+        nodes: [{ id: "capability.example.app", kind: "capability", name: "App", extensions: { contractFiles: { agents: "app/AGENTS.md", claude: "app/CLAUDE.md" } } }],
+        relations: [],
+        profile: REPO_HARNESS_PROJECTION_PROFILE
+      });
+      const loaded = loadArchitectureFilesForLayout(root, layout).map((entry) => entry.path);
+      // A mixed row at a retired fixed path is read back so apply can remove the earlier global file.
+      expect(loaded).toContain("docs/architecture/index.md");
+      // A generated retired output is read back for the same reason.
+      expect(loaded).toContain(mermaidPath);
+      // A mixed row the repo-harness layout never rendered at a non-retired path proves no ownership.
+      expect(loaded).not.toContain("docs/architecture/legacy.md");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

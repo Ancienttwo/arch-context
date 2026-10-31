@@ -289,7 +289,8 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
       expect(await daemon.inspectProjectionApplyReceipt(root, lookupKey)).toMatchObject({ ok: true, data: { deliveryStatus: "pending" } });
     }
 
-    const ownedPath = join(root, "docs/architecture/index.md");
+    // repo-harness/v1 owns the capability document; the whole-model index is retired (#433).
+    const ownedPath = join(root, "docs/architecture/modules/runtime-harness/hook-adapters.md");
     const ownedBefore = readFileSync(ownedPath, "utf8");
     writeFileSync(ownedPath, `${ownedBefore}\n<!-- dirty -->\n`, "utf8");
     const dirtyProjection = await runTestCli("projection", ["recover", "--request-json", JSON.stringify(recoveryIntent("projection_request.recovery_dirty"))], root, racingClient);
