@@ -47,6 +47,16 @@ const cases = [...baseline.cases, ...projectionCases, {
   response: "envelope"
 }];
 
+describe("RPC method table encoded wire contract", () => {
+  for (const sample of cases) {
+    test(`${sample.method} preserves ${sample.variant} encoded wire arguments`, () => {
+      const definition = runtimeRpcMethod(sample.method)!;
+      const encoded = Reflect.apply(definition.encodeArgs, undefined, sample.args);
+      expect(JSON.parse(JSON.stringify(encoded))).toEqual(sample.params);
+    });
+  }
+});
+
 // Captured by exercising the pre-table client, including omitted and explicit arguments.
 // These are transport sentinels; domain validation remains covered by daemon integration tests.
 describe("RPC method table wire contract", () => {
@@ -93,7 +103,8 @@ describe("RPC method table wire contract", () => {
     test(`${sample.method} preserves ${sample.variant} wire arguments and response`, async () => {
       const method = sample.method as RuntimeRpcMethodName;
       const result = await Reflect.apply(client[method], client, sample.args);
-      expect(calls.at(-1)).toEqual({ method, params: sample.params, bound: true });
+      // The wire represents omission as null; decoded handlers receive undefined.
+      expect(calls.at(-1)).toEqual({ method, params: sample.params.map(value => value === null ? undefined : value), bound: true });
       expect(result).toEqual(sample.response === "data" ? payload : envelope);
       expect(sample.timeout).toBe(runtimeRpcMethod(method)!.timeout);
     });

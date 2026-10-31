@@ -53,9 +53,9 @@ describe("rpc-argument-codec: shared positional decoders", () => {
     }
   });
 
-  test("rpcOptionalString passes undefined/null through unchanged and rejects wrong-type", () => {
+  test("rpcOptionalString normalizes undefined/null to omission and rejects wrong-type", () => {
     expect(rpcOptionalString([undefined], 0, ctx, "label")).toBeUndefined();
-    expect(rpcOptionalString([null], 0, ctx, "label")).toBeNull();
+    expect(rpcOptionalString([null], 0, ctx, "label")).toBeUndefined();
     expect(rpcOptionalString([], 0, ctx, "label")).toBeUndefined();
     expect(rpcOptionalString(["value"], 0, ctx, "label")).toBe("value");
     for (const bad of [42, true, {}, []]) {
@@ -63,9 +63,9 @@ describe("rpc-argument-codec: shared positional decoders", () => {
     }
   });
 
-  test("rpcOptionalNumber passes undefined/null through unchanged and rejects non-finite/wrong-type", () => {
+  test("rpcOptionalNumber normalizes undefined/null to omission and rejects non-finite/wrong-type", () => {
     expect(rpcOptionalNumber([undefined], 0, ctx, "label")).toBeUndefined();
-    expect(rpcOptionalNumber([null], 0, ctx, "label")).toBeNull();
+    expect(rpcOptionalNumber([null], 0, ctx, "label")).toBeUndefined();
     expect(rpcOptionalNumber([12], 0, ctx, "label")).toBe(12);
     expect(rpcOptionalNumber([0], 0, ctx, "label")).toBe(0);
     for (const bad of ["12", true, {}, [], NaN, Infinity, -Infinity]) {
@@ -73,9 +73,9 @@ describe("rpc-argument-codec: shared positional decoders", () => {
     }
   });
 
-  test("rpcOptionalStringArray passes undefined/null through, accepts string[], rejects other shapes", () => {
+  test("rpcOptionalStringArray normalizes undefined/null, accepts string[], rejects other shapes", () => {
     expect(rpcOptionalStringArray([undefined], 0, ctx, "label")).toBeUndefined();
-    expect(rpcOptionalStringArray([null], 0, ctx, "label")).toBeNull();
+    expect(rpcOptionalStringArray([null], 0, ctx, "label")).toBeUndefined();
     expect(rpcOptionalStringArray([[]], 0, ctx, "label")).toEqual([]);
     expect(rpcOptionalStringArray([["a", "b"]], 0, ctx, "label")).toEqual(["a", "b"]);
     for (const bad of ["a", 1, {}, [1, 2], ["a", 2], [null]]) {
@@ -95,9 +95,9 @@ describe("rpc-argument-codec: shared positional decoders", () => {
     expect(() => rpcRequiredObject([], 0, ctx, "label")).toThrow("runtime-rpc-input-invalid: unitTest label must be an object");
   });
 
-  test("rpcOptionalObject passes undefined/null through unchanged and rejects non-object shapes", () => {
+  test("rpcOptionalObject normalizes undefined/null to omission and rejects non-object shapes", () => {
     expect(rpcOptionalObject([undefined], 0, ctx, "label")).toBeUndefined();
-    expect(rpcOptionalObject([null], 0, ctx, "label")).toBeNull();
+    expect(rpcOptionalObject([null], 0, ctx, "label")).toBeUndefined();
     expect(rpcOptionalObject<{ a: number }>([{ a: 1 }], 0, ctx, "label")).toEqual({ a: 1 });
     for (const bad of ["x", 1, true, [], ["nested"]]) {
       expect(() => rpcOptionalObject([bad], 0, ctx, "label")).toThrow(RuntimeRpcInputInvalidError);

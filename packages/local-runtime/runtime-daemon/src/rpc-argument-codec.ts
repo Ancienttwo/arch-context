@@ -27,11 +27,10 @@
  * values instead of failing (`"/tmp/x"[0]` is the character `"/"`, not the first real argument).
  *
  * Optional variants (`rpcOptionalString`, `rpcOptionalNumber`, `rpcOptionalStringArray`,
- * `rpcOptionalObject`) still pass `undefined`/`null` through unchanged rather than rejecting them:
+ * `rpcOptionalObject`) normalize `undefined`/`null` to `undefined` rather than rejecting them:
  * that is not malformed input, it is the wire's "omitted" representation for a parameter whose
  * `encodeArgs` signature has a JS default — `Reflect.apply(handler, daemon, decodedArgs)` still
- * triggers that default whenever the decoded slot is `undefined`, exactly as under the previous
- * `params as Args` cast.
+ * triggers that default only when the decoded slot is `undefined`.
  */
 
 export class RuntimeRpcInputInvalidError extends Error {
@@ -62,18 +61,18 @@ export function rpcRequiredBoolean(params: readonly unknown[], index: number, co
 /**
  * Optional positional string. `undefined` and `null` both mean "omitted" on the wire (a JSON array
  * turns an `undefined` element into `null`, see `RuntimeRpcClient`'s `JSON.stringify` of `params`),
- * so both pass through unchanged rather than being normalized to one or the other.
+ * so both must decode to `undefined` for the handler's JS default to apply.
  */
 export function rpcOptionalString(params: readonly unknown[], index: number, context: string, label: string): string | undefined {
   const value = params[index];
-  if (value === undefined || value === null) return value as undefined;
+  if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") throw rpcInputInvalid(context, `${label} must be a string`);
   return value;
 }
 
 export function rpcOptionalNumber(params: readonly unknown[], index: number, context: string, label: string): number | undefined {
   const value = params[index];
-  if (value === undefined || value === null) return value as undefined;
+  if (value === undefined || value === null) return undefined;
   if (typeof value !== "number" || !Number.isFinite(value)) throw rpcInputInvalid(context, `${label} must be a number`);
   return value;
 }
@@ -81,7 +80,7 @@ export function rpcOptionalNumber(params: readonly unknown[], index: number, con
 /** Optional positional array of strings (e.g. `sync`'s `changedPaths: string[] = []`). */
 export function rpcOptionalStringArray(params: readonly unknown[], index: number, context: string, label: string): string[] | undefined {
   const value = params[index];
-  if (value === undefined || value === null) return value as undefined;
+  if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) throw rpcInputInvalid(context, `${label} must be an array of strings`);
   return value as string[];
 }
@@ -100,10 +99,10 @@ export function rpcRequiredObject<T>(params: readonly unknown[], index: number, 
   return value as T;
 }
 
-/** Optional positional object; `undefined`/`null` pass through so the handler's own default applies. */
+/** Optional positional object; `undefined`/`null` normalize to `undefined` so the handler's own default applies. */
 export function rpcOptionalObject<T>(params: readonly unknown[], index: number, context: string, label: string): T | undefined {
   const value = params[index];
-  if (value === undefined || value === null) return value as undefined;
+  if (value === undefined || value === null) return undefined;
   if (!isPlainRpcObject(value)) throw rpcInputInvalid(context, `${label} must be an object`);
   return value as T;
 }
