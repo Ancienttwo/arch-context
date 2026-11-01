@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArchContext Architecture Map</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=Noto+Sans+SC:wght@400;600&display=swap">
+<!--
+  repo-harness-archimap template. Keep the stylesheet; replace the sample
+  content. Inline styles carry position and size only.
+-->
+<style>
+:root {
+  --canvas: #F7F7F4; --page: #F5F4EF; --ink: #16181D; --ink-2: #4A4F57; --ink-3: #5A5F68; --ink-4: #9AA0A8;
+  --panel: #FFFFFF; --rule: #E2E2DC;
+  --sans: 'IBM Plex Sans', 'Noto Sans SC', -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--sans); }
+main { display: flex; flex-direction: column; align-items: center; gap: 48px; padding: 48px 0; }
+h2.caption { margin: 0 0 12px; font: 600 15px/20px var(--sans); color: var(--ink-3); }
+a { color: #1E40AF; } a:hover { color: #1E3A8A; }
+
+.board { position: relative; width: 1680px; background: var(--canvas); overflow: hidden; }
+.board > * { position: absolute; }
+.kicker { left: 64px; top: 64px; font: 13px/16px var(--mono); letter-spacing: .08em; color: var(--ink-3); }
+.title { left: 64px; top: 88px; font-size: 36px; line-height: 44px; font-weight: 600; }
+.legend { right: 64px; top: 72px; width: 552px; font-size: 13px; line-height: 22px; color: var(--ink-2); text-align: right; }
+.foot { font-size: 11px; line-height: 16px; color: var(--ink-3); }
+.mono { font-family: var(--mono); }
+
+/* Overview */
+.band { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; }
+.layer { font-size: 15px; line-height: 22px; color: var(--ink-2); width: 184px; }
+.layer b { color: var(--ink); }
+.layer small { display: block; font-size: 12px; }
+.node { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  padding: 8px 12px; border: 1.5px solid; border-radius: 10px; font-size: 15px; line-height: 20px;
+  text-decoration: none; color: inherit; }
+.node:hover, .node:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+.node:focus-visible { outline: 2px solid #1E40AF; outline-offset: 2px; }
+.node b { font-weight: 600; }
+.node .loc { font: 12px var(--mono); }
+.node small { display: block; font-size: 13px; line-height: 18px; opacity: .85; }
+.node .id { font: 11px var(--mono); color: var(--ink-4); }
+.k-app { background: #EEF0F3; border-color: #4B5563; color: #1F2937; }
+.k-compose { background: #E8EEFB; border-color: #1E40AF; color: #1E2A4A; }
+.k-kernel { background: #EFEAFB; border-color: #5B21B6; color: #2E1F4F; }
+.k-contract { background: #E3F3F0; border-color: #0F766E; color: #16332F; }
+.k-remote { background: #FBEDE6; border-color: #9A3412; color: #4A2414; }
+.k-external { background: #FFFFFF; border-style: dashed; border-color: #8A8F98; color: var(--ink); }
+.zone { border: 1.5px dashed #C2703F; background: #FFF8F4; border-radius: 14px; }
+.zone-label { font-size: 15px; line-height: 22px; color: #7C2D12; }
+.note { background: #FFF4D6; border: 1px solid #B7791F; border-radius: 8px; padding: 6px 10px; font-size: 12px; line-height: 17px; color: #5C3D0A; }
+
+/* Edges */
+svg.edges { left: 0; top: 0; overflow: visible; pointer-events: none; }
+/* Direct children only: marker paths inside <defs> keep their own fill. */
+.edges > path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.e-call { stroke: #6B7079; stroke-width: 2; }
+.e-import { stroke: #2B2F36; stroke-width: 3; }
+.e-remote { stroke: #9A3412; stroke-width: 2; }
+.e-host { stroke: #5B21B6; stroke-width: 2; }
+.e-dash { stroke-dasharray: 6 6; }
+.lifeline { stroke: #C4C6BF; stroke-width: 1.5; stroke-dasharray: 4 6; }
+.badge { font: 600 12px/16px var(--mono); background: #FFFFFF; border: 1px solid var(--rule); border-radius: 6px; padding: 1px 6px; }
+.elabel { font-size: 13px; line-height: 16px; color: var(--ink-2); white-space: nowrap; }
+
+/* Matrix */
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 24px; }
+table.matrix { border-collapse: separate; border-spacing: 4px; font-size: 13px; }
+.matrix th { font: 600 12px var(--mono); color: var(--ink-2); padding: 6px 8px; text-align: center; }
+.matrix th.row { text-align: right; }
+.matrix td { width: 120px; height: 44px; white-space: nowrap; text-align: center; border-radius: 6px; font: 600 13px var(--mono); background: #F2F2EE; color: var(--ink-4); }
+.matrix td small { display: block; font: 400 11px var(--sans); }
+.h1 { background: #E6F2EF !important; color: #16332F !important; }
+.h2 { background: #BFE0D9 !important; color: #16332F !important; }
+.h3 { background: #7FC1B4 !important; color: #10302B !important; }
+.h4 { background: #2F8F7E !important; color: #FFFFFF !important; }
+.forbid { background: #FBEDEA !important; color: #9A3412 !important; font-size: 11px !important; }
+.attn { background: #FFF4D6 !important; color: #5C3D0A !important; outline: 2px solid #B7791F; }
+.viol { background: #FBEDEA !important; color: #B42318 !important; outline: 2px solid #B42318; }
+.swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin: 0 4px 0 12px; }
+
+/* Sequence */
+.lifehead { display: flex; align-items: center; justify-content: center; text-align: center; width: 192px; height: 64px;
+  border: 1.5px solid #4B5563; border-radius: 10px; background: var(--panel); font-size: 14px; line-height: 18px; }
+.phase { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; }
+.phase.dashed { border-style: dashed; }
+.phase-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+
+/* Dark strip and file tree */
+.dark { background: #16181D; color: #E6E7EA; border-radius: 12px; padding: 24px; }
+.dark h3 { margin: 0 0 16px; font-size: 15px; }
+.chip { display: inline-block; background: #262A31; border-radius: 8px; padding: 8px 12px; font: 12px/16px var(--mono); }
+.chip b { color: #FFFFFF; margin-right: 6px; }
+.sep { color: #6B7079; margin: 0 8px; }
+.tree { font: 12.5px/20px var(--mono); white-space: pre; }
+.tree i { color: #8A8F98; font-style: normal; }
+
+/* Remarks */
+.remarks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.remark { background: var(--panel); border: 1px solid var(--rule); border-left: 4px solid var(--ink-4); border-radius: 12px; padding: 20px; }
+.remark.high { border-left-color: #B42318; }
+.remark.medium { border-left-color: #B7791F; }
+.remark .meta { font: 12px var(--mono); color: var(--ink-3); }
+.remark h3 { margin: 8px 0; font-size: 17px; line-height: 24px; }
+.remark p { margin: 0 0 8px; font-size: 13px; line-height: 20px; color: var(--ink-2); }
+.remark .ref { font: 12px var(--mono); color: var(--ink-3); }
+.tag { display: inline-block; font: 600 11px var(--sans); background: #FFF4D6; color: #5C3D0A; border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
+</style>
+</head>
+<body>
+<main>
+
+<!-- Board 1: layered overview -->
+<section>
+<h2 class="caption">1 · Layered overview</h2>
+<div class="board" style="height:1300px">
+  <div class="kicker">ARCHCONTEXT · ARCHITECTURE · 8dee040a</div>
+  <div class="title">Layered overview</div>
+  <div class="legend">Thin line: runtime call (model relation) · Thick line: value import, number = edge count<br>Dashed line: process or network boundary · Dashed box: not provided by the project</div>
+
+  <div class="band" style="left:64px;top:184px;width:1104px;height:176px"></div>
+  <div class="band" style="left:64px;top:392px;width:1104px;height:176px"></div>
+  <div class="band" style="left:64px;top:600px;width:1104px;height:176px"></div>
+  <div class="band" style="left:64px;top:808px;width:1104px;height:176px"></div>
+  <div class="band" style="left:64px;top:1016px;width:1104px;height:176px"></div>
+  <div class="layer" style="left:88px;top:244px"><b>L1</b> Surfaces<small>CLI · MCP · UIs</small></div>
+  <div class="layer" style="left:88px;top:452px"><b>L2</b> Local runtime<small>daemon · store · RPC</small></div>
+  <div class="layer" style="left:88px;top:660px"><b>L3</b> Engines<small>domain logic · renderer</small></div>
+  <div class="layer" style="left:88px;top:868px"><b>L4</b> Contracts<small>shared by every layer</small></div>
+  <div class="layer" style="left:88px;top:1076px"><b>T</b> Dev tooling<small>scripts/ (dev-time)</small></div>
+
+  <div class="node k-external" style="left:616px;top:220px;width:528px;height:104px">
+    <span><b>Operator</b></span><small>developer shell · agent hosts · MCP clients · browser</small></div>
+
+  <a class="node k-app" data-module="surfaces" href="modules/architecture/context.md" style="left:296px;top:220px;width:288px;height:104px">
+    <span><b>Surfaces</b> <span class="loc">6.5k</span></span><small>CLI · local MCP · review state</small><span class="id">surfaces</span></a>
+
+  <a class="node k-compose" data-module="local-runtime" href="modules/architecture/context.md" style="left:296px;top:428px;width:832px;height:104px">
+    <span><b>Local runtime</b> <span class="loc">32.5k</span></span><small>daemon · RPC server/client · SQLite store · projection apply · liveness</small><span class="id">local-runtime</span></a>
+
+  <a class="node k-kernel" data-module="core" href="modules/architecture/context.md" style="left:296px;top:636px;width:416px;height:104px">
+    <span><b>Core engines</b> <span class="loc">17.6k</span></span><small>ChangeSet · policy · ledger · review · retrieval</small><span class="id">core</span></a>
+  <a class="node k-kernel" data-module="renderer" href="modules/architecture/context.md" style="left:744px;top:636px;width:384px;height:104px">
+    <span><b>Projection renderer</b> <span class="loc">5.6k</span></span><small>model → docs · provenance stamps</small><span class="id">renderer</span></a>
+
+  <a class="node k-contract" data-module="contracts" href="modules/architecture/context.md" style="left:296px;top:844px;width:400px;height:104px">
+    <span><b>Contracts</b> <span class="loc">9.4k</span></span><small>schemas · envelopes · digests · ports</small><span class="id">contracts</span></a>
+  <a class="node k-contract" data-module="capability-root" href="modules/architecture/context.md" style="left:728px;top:844px;width:400px;height:104px">
+    <span><b>Capability root</b> <span class="loc">17.3k</span></span><small>published runtime schemas (schemas/)</small><span class="id">capability-root</span></a>
+
+  <a class="node k-app" data-module="tooling" href="modules/architecture/context.md" style="left:296px;top:1052px;width:560px;height:104px">
+    <span><b>Dev tooling</b> <span class="loc">39.1k</span></span><small>verify · release · readbacks (scripts/)</small><span class="id">tooling</span></a>
+
+  <div class="zone" style="left:1224px;top:184px;width:392px;height:592px"></div>
+  <div class="zone-label" style="left:1248px;top:200px"><b>Cloud side · hosted</b> <span class="mono" style="font-size:12px">8.0k</span></div>
+  <a class="node k-remote" data-module="cloud" href="modules/architecture/context.md" style="left:1248px;top:248px;width:336px;height:104px">
+    <span><b>Control plane</b> <span class="loc">8.0k</span></span><small>GitHub App · attestations · billing</small><span class="id">cloud</span></a>
+  <div class="foot" style="left:1248px;top:376px;width:344px">Receives local capabilities through contracts ports only (constraint: cloud ⇏ local-runtime, cloud ⇏ surfaces).</div>
+
+  <svg class="edges" width="1680" height="1300">
+    <defs>
+      <marker id="a-import" viewBox="0 0 4 4" refX="2" refY="2" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L4 2 L0 4 Z" fill="#2B2F36"/></marker>
+      <marker id="a-call" viewBox="0 0 4 4" refX="2" refY="2" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L4 2 L0 4 Z" fill="#6B7079"/></marker>
+    </defs>
+    <path class="e-call" d="M612 272 H588" marker-end="url(#a-call)"/>
+    <path class="e-import" d="M400 324 V424" marker-end="url(#a-import)"/>
+    <path class="e-import" d="M380 532 V632" marker-end="url(#a-import)"/>
+    <path class="e-import" d="M780 532 H936 V632" marker-end="url(#a-import)"/>
+    <path class="e-import" d="M292 480 H272 V860 H292" marker-end="url(#a-import)"/>
+    <path class="e-import" d="M420 740 V840" marker-end="url(#a-import)"/>
+    <path class="e-import" d="M936 740 V796 H600 V840" marker-end="url(#a-import)"/>
+    <path class="e-call" d="M900 840 V744" marker-end="url(#a-call)"/>
+    <path class="e-import" d="M1244 300 H1176 V820 H700 V840" marker-end="url(#a-import)"/>
+    <path class="e-import" d="M292 1104 H252 V500 H292" marker-end="url(#a-import)"/>
+  </svg>
+  <div class="badge" style="left:408px;top:368px">20</div>
+  <div class="badge" style="left:388px;top:576px">72</div>
+  <div class="badge" style="left:800px;top:576px">23</div>
+  <div class="badge" style="left:278px;top:660px">50</div>
+  <div class="badge" style="left:428px;top:790px">26</div>
+  <div class="badge" style="left:620px;top:790px">9</div>
+  <div class="badge" style="left:716px;top:660px">2</div>
+  <div class="badge" style="left:1150px;top:560px">8</div>
+  <div class="badge" style="left:258px;top:800px">60</div>
+  <div class="elabel" style="left:908px;top:750px">declared: calls</div>
+  <div class="note" style="left:880px;top:1080px;width:288px">tooling also imports: contracts 42 · core 34 · cloud 39 · surfaces 15 · renderer 3 (board 2)</div>
+  <div class="foot" style="left:64px;top:1232px">Size: non-test LOC measured by measure.ts at 8dee040a. Every map module resolves to the one capability document (repo-harness/v1 profile). Undrawn model calls are internal to a map module; the full matrix is board 2.</div>
+</div>
+</section>
+
+<!-- Board 2: dependency direction (measured) -->
+<section>
+<h2 class="caption">2 · Dependency direction (measured)</h2>
+<div class="board" style="height:820px">
+  <div class="kicker">ARCHCONTEXT · DEPENDENCIES · 8dee040a</div>
+  <div class="title">Dependency direction (measured)</div>
+  <div class="legend"><span class="swatch h1"></span>1–5<span class="swatch h2"></span>6–20<span class="swatch h3"></span>21–50<span class="swatch h4"></span>51+ value imports<br><span class="swatch forbid"></span>forbidden, satisfied<span class="swatch attn"></span>allowed, worth attention</div>
+  <div class="panel" style="left:64px;top:184px;width:1180px">
+    <table class="matrix">
+      <tr><th></th><th>contracts</th><th>schemas</th><th>core</th><th>renderer</th><th>runtime</th><th>surfaces</th><th>cloud</th><th>tooling</th></tr>
+      <tr><th class="row">contracts</th><td>·</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td>—</td></tr>
+      <tr><th class="row">schemas</th><td>—</td><td>·</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+      <tr><th class="row">core</th><td class="h2">26</td><td>—</td><td>·</td><td class="h1">5</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td>—</td></tr>
+      <tr><th class="row">renderer</th><td class="h1">9</td><td>—</td><td class="h1 attn">2<small>R-A1</small></td><td>·</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td>—</td></tr>
+      <tr><th class="row">runtime</th><td class="h3">50</td><td class="h1">5</td><td class="h4">72</td><td class="h2">23</td><td>·</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td>—</td></tr>
+      <tr><th class="row">surfaces</th><td class="h1">8</td><td class="h1">1</td><td class="h1">7</td><td class="h1">1</td><td class="h2">20</td><td>·</td><td class="h1">3</td><td>—</td></tr>
+      <tr><th class="row">cloud</th><td class="h1">8</td><td>—</td><td class="h1">2</td><td>—</td><td class="forbid">forbidden · 0</td><td class="forbid">forbidden · 0</td><td>·</td><td>—</td></tr>
+      <tr><th class="row">tooling</th><td class="h2">42</td><td>—</td><td class="h2">34</td><td class="h1">3</td><td class="h3">60</td><td class="h2">15</td><td class="h2">39</td><td>·</td></tr>
+    </table>
+    <p class="foot">Value imports only, tests excluded, tracked files only (measure.ts at 8dee040a). 21 tooling imports of workspace test factories stay unresolved (R-A2) and are not counted. renderer is packages/core/projection-engine: core ↔ renderer edges are intra-workspace and not governed by the constraints.</p>
+  </div>
+  <div class="panel" style="left:1284px;top:184px;width:332px">
+    <div class="meta mono" style="font-size:12px;color:#5A5F68">R-A1 · Medium</div>
+    <h3 style="margin:8px 0;font-size:17px">Import cycle core ↔ renderer</h3>
+    <p style="margin:0;font-size:13px;color:#4A4F57">core → renderer <span class="mono">5</span>, renderer → core <span class="mono">2</span>. No gate checks cycles inside packages/core.</p>
+  </div>
+  <div class="panel" style="left:1284px;top:368px;width:332px">
+    <h3 style="margin:0 0 8px;font-size:15px">Who guards these directions</h3>
+    <p style="margin:0;font-size:13px;line-height:20px;color:#4A4F57">Checked by <span class="mono">scripts/package-boundary-audit.mjs</span> (bun run verify): cloud ⇏ runtime/surfaces, contracts ⇏ all, core ⇏ runtime/surfaces/cloud, runtime ⇏ surfaces/cloud — all five model constraints mirrored, all satisfied.<br>Not checked: import cycles inside a workspace (R-A1).</p>
+  </div>
+</div>
+</section>
+
+<!-- Board 3: runtime topology -->
+<section>
+<h2 class="caption">3 · Runtime topology</h2>
+<div class="board" style="height:900px">
+  <div class="kicker">ARCHCONTEXT · TOPOLOGY · 8dee040a</div>
+  <div class="title">Runtime topology</div>
+  <div class="legend">Solid box: process · Dashed box: not provided by the project · Grey line: channel, labeled with its transport</div>
+
+  <div class="band" style="left:64px;top:184px;width:1104px;height:560px"></div>
+  <div class="layer" style="left:88px;top:200px"><b>Host</b> developer machine<small>one daemon per checkout</small></div>
+
+  <div class="panel" style="left:296px;top:240px;width:300px;height:170px">
+    <b style="font-size:15px">archctx CLI</b>
+    <p class="mono" style="font-size:12px;color:#5A5F68;margin:8px 0 0">per-invocation process<br>bin launcher · fast hook-enqueue path</p>
+  </div>
+  <div class="panel" style="left:296px;top:440px;width:300px;height:170px">
+    <b style="font-size:15px">archctx MCP server</b>
+    <p class="mono" style="font-size:12px;color:#5A5F68;margin:8px 0 0">per-session process<br>stdio · loopback HTTP · secure tunnel</p>
+  </div>
+  <div class="panel" style="left:656px;top:240px;width:480px;height:370px">
+    <b style="font-size:15px">Runtime daemon</b> <span class="mono" style="font-size:12px;color:#5A5F68">long-lived</span>
+    <p class="mono" style="margin:12px 0 0;font-size:12.5px;line-height:24px;color:#3B4048">
+      rpc-server — loopback RPC · auth · control files<br>
+      projection-service — render entrypoints<br>
+      explorer-server — HTTP · SSE · token revocation<br>
+      SQLite local store — journals · ledger events<br>
+      process-liveness — signal-zero checks
+    </p>
+  </div>
+  <div class="node k-external" style="left:656px;top:648px;width:480px;height:72px">
+    <span><b>Operator browser</b></span><small>explorer UI</small></div>
+
+  <svg class="edges" width="1680" height="900">
+    <defs><marker id="t-call" viewBox="0 0 4 4" refX="2" refY="2" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L4 2 L0 4 Z" fill="#6B7079"/></marker></defs>
+    <path class="e-call" d="M596 300 H652" marker-end="url(#t-call)"/>
+    <path class="e-call" d="M596 520 H652" marker-end="url(#t-call)"/>
+    <path class="e-call e-dash" d="M896 644 V614" marker-end="url(#t-call)"/>
+    <path class="e-remote e-dash" d="M1168 300 H1220" marker-end="url(#t-call)"/>
+  </svg>
+  <div class="elabel" style="left:606px;top:278px">loopback RPC</div>
+  <div class="elabel" style="left:606px;top:498px">loopback RPC</div>
+  <div class="elabel" style="left:906px;top:624px">loopback HTTP · SSE</div>
+  <div class="elabel" style="left:1120px;top:168px">via contracts ports</div>
+
+  <div class="zone" style="left:1224px;top:184px;width:392px;height:560px"></div>
+  <div class="zone-label" style="left:1248px;top:200px"><b>Cloud side · hosted</b></div>
+  <div class="panel" style="left:1248px;top:248px;width:336px;height:300px">
+    <b style="font-size:15px">Control plane worker</b>
+    <p class="mono" style="margin:12px 0 0;font-size:12.5px;line-height:24px;color:#3B4048">
+      GitHub OAuth · device auth<br>
+      review challenges · attestations<br>
+      device · runner keys<br>
+      billing webhooks · notifications<br>
+      settings console
+    </p>
+  </div>
+  <div class="foot" style="left:64px;top:800px">Channels: loopback RPC (rpc-server), loopback HTTP + SSE (explorer-server), stdio + loopback HTTP (MCP). Daemon liveness checks are signal-zero probes (component.architecture-context.local-runtime.process-liveness); the model declares no child-process spawn/supervise stages, so no life-cycle strip is drawn.</div>
+</div>
+</section>
+
+<!-- Board 4: key sequence -->
+<section>
+<h2 class="caption">4 · Key sequence</h2>
+<div class="board" style="height:760px">
+  <div class="kicker">ARCHCONTEXT · SEQUENCE · 8dee040a</div>
+  <div class="title">Project the accepted architecture model into documentation</div>
+  <div class="legend">Purple: caller side · Grey dashed: return · Amber note: side effect or decision</div>
+  <div class="lifehead" style="left:324px;top:184px">Trigger<br>CLI · MCP · daemon task</div>
+  <div class="lifehead" style="left:1164px;top:184px">Projection renderer</div>
+
+  <div class="phase" style="left:64px;top:280px;width:1552px;height:104px"></div>
+  <div class="phase-label" style="left:80px;top:288px">① Entry — flow.architecture-context.projection-render</div>
+  <svg class="edges" width="1680" height="760">
+    <defs><marker id="s-host" viewBox="0 0 4 4" refX="2" refY="2" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L4 2 L0 4 Z" fill="#5B21B6"/></marker>
+    <marker id="s-ret" viewBox="0 0 4 4" refX="2" refY="2" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L4 2 L0 4 Z" fill="#6B7079"/></marker></defs>
+    <path class="lifeline" d="M420 248 V720"/>
+    <path class="lifeline" d="M1260 248 V720"/>
+    <path class="e-host" d="M420 336 H1256" marker-end="url(#s-host)"/>
+    <path class="e-host" d="M420 400 H1256" marker-end="url(#s-host)"/>
+    <path class="e-call e-dash" d="M1260 608 H424" marker-end="url(#s-ret)" />
+    <path class="e-call e-dash" d="M1260 664 H424" marker-end="url(#s-ret)" />
+  </svg>
+  <div class="elabel" style="left:432px;top:314px">CLI/MCP request — entrypoint.architecture-context.projection-service · sink render (renderArchitectureDocsProjectionFromInputs)</div>
+  <div class="elabel" style="left:432px;top:378px">daemon task-complete stamp render — entrypoint.architecture-context.daemon · sink render-daemon (completeTaskProjectionDrift)</div>
+
+  <div class="phase" style="left:64px;top:424px;width:1552px;height:104px"></div>
+  <div class="phase-label" style="left:80px;top:432px">② Render decision</div>
+  <div class="note" style="left:1120px;top:456px;width:300px">P1/P2 flow proof and scale signals must be measured; proof is recorded per capability</div>
+
+  <div class="phase dashed" style="left:64px;top:560px;width:1552px;height:136px"></div>
+  <div class="phase-label" style="left:80px;top:568px">③ Return to trigger</div>
+  <div class="elabel" style="left:560px;top:584px">projected: emit the projection plan and its per-target stamps → return the plan</div>
+  <div class="elabel" style="left:560px;top:672px">unmeasured: refuse to project rather than print an unmeasured guess → return a typed projection failure</div>
+  <div class="foot" style="left:64px;top:690px">Steps, labels and outcomes are the model's own flow (flow.architecture-context.projection-render); both entries render through the same renderer sink.</div>
+</div>
+</section>
+
+<!-- Board 5: interfaces and mounts -->
+<section>
+<h2 class="caption">5 · Interfaces and mounts</h2>
+<div class="board" style="height:900px">
+  <div class="kicker">ARCHCONTEXT · INTERFACES · 8dee040a</div>
+  <div class="title">Public surface</div>
+  <div class="legend">Chips group what each module exposes; the dark card lists what the local store persists</div>
+
+  <div class="panel" style="left:64px;top:184px;width:744px;height:300px">
+    <b style="font-size:15px">Local surfaces</b>
+    <p class="mono" style="margin:12px 0 0;font-size:12.5px;line-height:24px;color:#3B4048">
+      <b>CLI</b> — archctx bin · fast hook-enqueue path · command dispatcher<br>
+      <b>MCP</b> — local ArchContext tools over stdio · loopback HTTP · tool-loop transcript<br>
+      <b>RPC</b> — loopback RPC · auth · bounded decode · daemon control files<br>
+      <b>Explorer</b> — loopback HTTP · SSE · token expiry and revocation
+    </p>
+  </div>
+  <div class="panel" style="left:848px;top:184px;width:768px;height:300px">
+    <b style="font-size:15px">Cloud surface</b>
+    <p class="mono" style="margin:12px 0 0;font-size:12.5px;line-height:24px;color:#3B4048">
+      <b>cloud</b> — GitHub OAuth · device authorization<br>
+      <b>cloud</b> — review challenges · attestations<br>
+      <b>cloud</b> — device and runner keys · billing webhooks<br>
+      <b>cloud</b> — notifications · settings console
+    </p>
+  </div>
+
+  <div class="panel" style="left:64px;top:520px;width:744px;height:260px">
+    <b style="font-size:15px">Published schemas</b>
+    <p class="mono" style="margin:12px 0 0;font-size:12.5px;line-height:24px;color:#3B4048">
+      <b>schemas/runtime</b> — envelope · projection-target · projection-manifest<br>
+      <b>schemas/cloud</b> — attestation · device/runner identity · entitlement<br>
+      <span style="color:#5A5F68">84 schema files · 17.3k lines — the typed contract every consumer validates against</span>
+    </p>
+  </div>
+
+  <div class="dark" style="left:848px;top:520px;width:768px;height:260px">
+    <h3>SQLite local store (runtime state, not architecture authority)</h3>
+    <p class="tree">schema migrations
+ChangeSet journals + recovery
+architecture ledger events
+evidence bindings · recommendation runs
+agent jobs · freshness</p>
+  </div>
+  <div class="foot" style="left:64px;top:820px">YAML under .archcontext/ stays the Git-visible architecture authority; SQLite is operational runtime state until an accepted ledger-authoritative promotion (ADR-0040, ADR-0050).</div>
+</div>
+</section>
+
+<!-- Board 6: remarks -->
+<section>
+<h2 class="caption">6 · Remarks</h2>
+<div class="board" style="height:560px">
+  <div class="kicker">ARCHCONTEXT · REMARKS · 8dee040a · observations only; not scheduled work</div>
+  <div class="title">Remarks · 5</div>
+  <div class="legend"><span class="swatch" style="background:#B42318"></span>High · correctness or security boundary<span class="swatch" style="background:#B7791F"></span>Medium · structural burden<span class="swatch" style="background:#9AA0A8"></span>Low · naming and cleanup</div>
+  <div class="remarks" style="left:64px;top:184px;width:1552px">
+    <div class="remark medium">
+      <div class="meta">R-A1 · Medium · structure</div>
+      <h3>Import cycle core ↔ renderer</h3>
+      <p>packages/core and packages/core/projection-engine import each other (5 vs 2 value imports), so neither workspace slice can be reasoned about alone. No gate checks cycles inside a workspace. Direction: let the engines consume the renderer through a contracts port, or fold the cycle into one slice deliberately.</p>
+      <div class="ref">packages/core/projection-engine/src/index.ts · measure.ts at 8dee040a</div>
+    </div>
+    <div class="remark medium">
+      <div class="meta">R-A2 · Medium · measurement blind spot</div>
+      <h3>21 unresolved workspace imports from tooling</h3>
+      <p>Readback scripts import workspace test factories via subpaths that package exports do not declare, so the import matrix under-counts tooling → runtime edges. Direction: declare the test-factory subpath in local-runtime exports, or import through the package root.</p>
+      <div class="ref">scripts/architecture-ledger-al10-chaos-security-readback.ts · @archcontext/local-runtime/test/*</div>
+    </div>
+    <div class="remark medium">
+      <div class="meta">R-A3 · Medium · coverage</div>
+      <h3>7.2k LOC of code outside every model footprint</h3>
+      <p>evals/run.ts (1.7k), .ai/hooks/lib/workflow-state.sh (1.7k) and deploy/cloudflare/fg2-staging-worker.ts (0.7k) are unassigned: no model node owns them, so the map and freshness never watch them. Direction: give them model nodes or declare them out of architectural scope.</p>
+      <div class="ref">evals/run.ts · .ai/hooks/lib/workflow-state.sh · deploy/cloudflare/fg2-staging-worker.ts</div>
+    </div>
+    <div class="remark medium">
+      <div class="meta">R-A4 · Medium · stale references <span class="tag">needs owner decision</span></div>
+      <h3>Harness contract still names retired architecture paths</h3>
+      <p>.ai/harness/policy.json and .ai/harness/workflow-contract.json declare the retired requests/snapshots/domains directories and require docs/architecture/index.md; .ai/context/capabilities.json points at deleted module pages. Byte projections of the repo-harness contract — not edited here (#434). Direction: refresh the contract from the repo-harness template.</p>
+      <div class="ref">.ai/harness/policy.json:332 · .ai/context/capabilities.json:15</div>
+    </div>
+    <div class="remark low">
+      <div class="meta">R-A5 · Low · proportion</div>
+      <h3>Dev tooling is the largest measured slice</h3>
+      <p>scripts/ holds 39.1k non-test LOC — more than any runtime workspace (local-runtime 32.5k). The script surface retention policy is ADR-0051. Direction: no action; revisit when a milestone's readbacks lose their evidence role.</p>
+      <div class="ref">scripts/ · docs/adr/ADR-0051-script-surface-policy.md</div>
+    </div>
+  </div>
+</div>
+</section>
+
+</main>
+<script type="application/json" id="archimap-meta">
+{
+  "schema": "archimap/v1",
+  "project": "ArchContext",
+  "base": "8dee040a",
+  "generated": "2026-11-01",
+  "sources": [".archcontext/model", "measure.ts archimap-measure/v1"],
+  "boards": ["overview", "dependencies", "topology", "sequence", "interfaces", "remarks"],
+  "modules": [
+    { "id": "capability-root", "label": "Capability root", "include": ["schemas/**"], "exclude": [], "nodes": ["capability.architecture.context"], "docs": ["docs/architecture/modules/architecture/context.md"] },
+    { "id": "contracts", "label": "Contracts", "include": ["packages/contracts/src/**"], "exclude": ["packages/contracts/test/**"], "nodes": ["module.architecture-context.contracts"], "docs": ["docs/architecture/modules/architecture/context.md"] },
+    { "id": "core", "label": "Core engines", "include": ["packages/core/**/src/**"], "exclude": ["packages/core/**/test/**", "packages/core/projection-engine/src/**"], "nodes": ["module.architecture-context.core", "component.architecture-context.core.agent-orchestrator", "component.architecture-context.core.application", "component.architecture-context.core.architecture-delta", "component.architecture-context.core.architecture-domain", "component.architecture-context.core.architecture-ledger", "component.architecture-context.core.changeset-engine", "component.architecture-context.core.context-compiler", "component.architecture-context.core.module-statistics", "component.architecture-context.core.policy-engine", "component.architecture-context.core.practice-catalog", "component.architecture-context.core.practice-engine", "component.architecture-context.core.pressure-engine", "component.architecture-context.core.recommendation-engine", "component.architecture-context.core.reconcile-engine", "component.architecture-context.core.refactor-assessment", "component.architecture-context.core.refactor-decision", "component.architecture-context.core.retrieval", "component.architecture-context.core.review-engine"], "docs": ["docs/architecture/modules/architecture/context.md"] },
+    { "id": "renderer", "label": "Projection renderer", "include": ["packages/core/projection-engine/src/**"], "exclude": [], "nodes": ["component.architecture-context.projection-renderer"], "docs": ["docs/architecture/modules/architecture/context.md"] },
+    { "id": "local-runtime", "label": "Local runtime", "include": ["packages/local-runtime/**/src/**"], "exclude": ["packages/local-runtime/**/test/**"], "nodes": ["module.architecture-context.local-runtime", "component.architecture-context.local-runtime.agent-jobs", "component.architecture-context.local-runtime.architecture-book", "component.architecture-context.local-runtime.audit", "component.architecture-context.local-runtime.control-file-security", "component.architecture-context.local-runtime.developer-review-run", "component.architecture-context.local-runtime.egress-admission", "component.architecture-context.local-runtime.explorer-server", "component.architecture-context.local-runtime.external-documentation", "component.architecture-context.local-runtime.ledger-admin", "component.architecture-context.local-runtime.local-store-sqlite", "component.architecture-context.local-runtime.process-liveness", "component.architecture-context.local-runtime.projection-apply", "component.architecture-context.local-runtime.projection-paths", "component.architecture-context.local-runtime.projection-service", "component.architecture-context.local-runtime.public-entrypoints", "component.architecture-context.local-runtime.recommendations", "component.architecture-context.local-runtime.rpc-client", "component.architecture-context.local-runtime.rpc-server", "component.architecture-context.local-runtime.runtime-daemon", "component.architecture-context.local-runtime.runtime-state-paths"], "docs": ["docs/architecture/modules/architecture/context.md"] },
+    { "id": "surfaces", "label": "Surfaces", "include": ["packages/surfaces/**/src/**"], "exclude": ["packages/surfaces/**/test/**"], "nodes": ["module.architecture-context.surfaces", "component.architecture-context.surfaces.cli", "component.architecture-context.surfaces.github-review-state", "component.architecture-context.surfaces.mcp-local"], "docs": ["docs/architecture/modules/architecture/context.md"] },
+    { "id": "cloud", "label": "Cloud control plane", "include": ["packages/cloud/**/src/**"], "exclude": ["packages/cloud/**/test/**"], "nodes": ["module.architecture-context.cloud", "component.architecture-context.cloud.control-plane"], "docs": ["docs/architecture/modules/architecture/context.md"] },
+    { "id": "tooling", "label": "Dev tooling", "include": ["scripts/**"], "exclude": ["scripts/**/*.test.ts"], "nodes": ["module.architecture-context.tooling"], "docs": ["docs/architecture/modules/architecture/context.md"] }
+  ]
+}
+</script>
+</body>
+</html>

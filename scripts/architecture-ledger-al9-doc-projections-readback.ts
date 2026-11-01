@@ -66,8 +66,8 @@ export async function runArchitectureLedgerAl9DocProjectionsReadback({ out = DEF
     assertions: {
       "AL9-01": current.projectionTargetSchemaPresent,
       "AL9-02": current.repoProjectionManifestPresent && current.placementRuleCount >= 8,
-      "AL9-03": current.docs.indexPresent && current.docs.entitySummaryPresent && current.docs.decisionIndexPresent && current.docs.changelogPresent,
-      "AL9-04": current.docs.mermaidPresent && current.docs.structurizrPresent && current.docs.likec4Present,
+      "AL9-03": current.docs.markdownTargetsPresent,
+      "AL9-04": current.docs.wholeFileTargetsPresent,
       "AL9-05": integration.humanTextPreserved && integration.ambiguousOwnershipRejected,
       "AL9-06": current.projectionManifestTracksDigests,
       "AL9-07": integration.manualEditDetected && integration.orphanDetected && integration.missingDetected,
@@ -104,6 +104,20 @@ export function inspectArchitectureLedgerAl9DocProjectionsReadback(packet: any) 
   };
 }
 
+/** The committed manifest is the only authority for which projection files must exist; the
+ * probes follow it instead of hardcoding one profile's layout (repo-harness/v1 keeps only
+ * the capability entity summaries, while `default` still renders the global documents). */
+function projectionDocsReadback(projectionManifest: any) {
+  const targets = Object.values(projectionManifest?.targets ?? {}) as any[];
+  const present = (target: any) => existsSync(resolve(REPO_ROOT, String(target.path)));
+  return {
+    targetCount: targets.length,
+    allTargetsPresent: targets.every(present),
+    markdownTargetsPresent: targets.filter((target) => target.format === "markdown").every(present),
+    wholeFileTargetsPresent: targets.filter((target) => target.ownership === "generated").every(present)
+  };
+}
+
 function currentRepoProjectionReadback() {
   const loaded = loadArchitectureDocumentationInputs(REPO_ROOT);
   const projectionManifest = JSON.parse(readFileSync(resolve(REPO_ROOT, "docs/architecture/.projection-manifest.json"), "utf8"));
@@ -137,15 +151,7 @@ function currentRepoProjectionReadback() {
       projectionManifest.schemaVersion === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION
       && architectureDocsProjectionManifestDigests(projectionManifest).projectionDigest === plan.projectionDigest
       && Object.values(projectionManifest.targets).every((target: any) => typeof target.outputDigest === "string" && target.outputDigest.startsWith("sha256:")),
-    docs: {
-      indexPresent: existsSync(resolve(REPO_ROOT, "docs/architecture/index.md")),
-      entitySummaryPresent: existsSync(resolve(REPO_ROOT, "docs/architecture/modules/capability-architecture-context.md")),
-      decisionIndexPresent: existsSync(resolve(REPO_ROOT, "docs/architecture/decisions/index.md")),
-      changelogPresent: existsSync(resolve(REPO_ROOT, "docs/architecture/changelog.md")),
-      mermaidPresent: existsSync(resolve(REPO_ROOT, "docs/architecture/diagrams/architecture.mmd")),
-      structurizrPresent: existsSync(resolve(REPO_ROOT, "docs/architecture/diagrams/architecture.structurizr.json")),
-      likec4Present: existsSync(resolve(REPO_ROOT, "docs/architecture/diagrams/architecture.likec4"))
-    }
+    docs: projectionDocsReadback(projectionManifest)
   };
 }
 

@@ -21,7 +21,7 @@ This is the root routing contract for Claude Code and Codex.
 
 ## Architecture Ledger Contract
 
-- Treat `docs/adr/ADR-0040-hybrid-architecture-ledger.md`, `docs/architecture/architecture-ledger-authority-matrix.md`, and `packages/contracts/src/ledger.ts` as the AL0 source of truth for ledger authority.
+- Treat `docs/adr/ADR-0040-hybrid-architecture-ledger.md`, `docs/adr/ADR-0050-architecture-ledger-authority-matrix.md`, and `packages/contracts/src/ledger.ts` as the AL0 source of truth for ledger authority.
 - Current Git-visible architecture truth remains `.archcontext/`; SQLite ledger state is operational runtime state until an accepted `ledger-authoritative` promotion.
 - Do not edit SQLite databases, WAL files, runtime state directories, generated projections, or `.archcontext/` model files to bypass ChangeSet/daemon mutation rules.
 - Ledger-affecting writes must go through ChangeSet or a daemon-owned transactional event append. CLI, MCP, hooks, and agents are triggers/readers unless an explicit command crosses that boundary.

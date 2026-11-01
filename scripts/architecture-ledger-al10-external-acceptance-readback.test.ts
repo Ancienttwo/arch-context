@@ -81,7 +81,6 @@ function blockedPacket(): any {
       legacy("production-ga-external-readback", "docs/verification/production-ga-external-readback.md", "Production GA external readback is blocked and explicitly not a production launch approval.")
     ],
     sourceReadbacks: [
-      source("docs/architecture/architecture-ledger-authority-promotion-review.md"),
       source("docs/runbooks/architecture-ledger-rollout.md"),
       source("docs/verification/architecture-ledger-al10-beta-decision.md"),
       source("docs/verification/architecture-ledger-al10-ga-technical.md")

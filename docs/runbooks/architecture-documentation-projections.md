@@ -26,6 +26,8 @@ archctx requires a Git worktree. Outside one, projection commands fail with `AC_
 
 The `docs` commands use the profile of the committed manifest when you do not give `--profile`. A repository without a manifest uses `default`. Give `--profile` only to select a different layout, and give the same value to `plan` and `apply`. `apply` renders the projection again and does not read the profile of the planned ChangeSet.
 
+The `repo-harness/v1` profile renders only the capability entity summaries (plus the runtime topology pair when the model declares topology nodes) and the manifest. Its retired target paths keep the whole-model outputs of the `default` profile (`index.md`, `decisions/index.md`, `changelog.md`, `diagrams/architecture.*`): an apply under `repo-harness/v1` deletes the intact files that the committed manifest still records at those paths, while an orphan that no manifest row records — for example a retired module page under `modules/`, or an edited global document — is `human-review-required`: review its human-owned text, delete it, and apply again.
+
 ### Module document language
 
 A new module document gets a skeleton outside the generated region: the title and empty `## 3`, `## 4` and `## Optimization Backlog` headings. Set `docs.language` in `.archcontext/manifest.yaml` to select the language of the title and the `## 3` and `## 4` headings:
