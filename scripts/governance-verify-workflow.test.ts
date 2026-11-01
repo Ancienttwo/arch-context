@@ -9,8 +9,8 @@ import { GOVERNANCE_COMMANDS, runGovernanceCommands } from "./verify-governance.
 const PACKAGE_JSON = readFileSync("package.json", "utf8");
 const WORKFLOW = readFileSync(".github/workflows/verify.yml", "utf8");
 const VERIFY_GOVERNANCE = readFileSync("scripts/verify-governance.mjs", "utf8");
-const ARCHITECTURE_INDEX = readFileSync("docs/architecture/index.md", "utf8");
-const SCRIPT_SURFACE_POLICY = readFileSync("docs/architecture/script-surface-policy.md", "utf8");
+const ADR_INDEX = readFileSync("docs/adr/README.md", "utf8");
+const SCRIPT_SURFACE_POLICY = readFileSync("docs/adr/ADR-0051-script-surface-policy.md", "utf8");
 const ROOT_PACKAGE = JSON.parse(PACKAGE_JSON) as { scripts?: Record<string, string> };
 
 interface ScriptOwnerCorpus {
@@ -182,7 +182,7 @@ describe("governance verify workflow", () => {
   });
 
   test("keeps the script surface policy discoverable and enforceable", () => {
-    expect(ARCHITECTURE_INDEX).toContain("[`script-surface-policy.md`](script-surface-policy.md)");
+    expect(ADR_INDEX).toContain("ADR-0051 | Script Surface Policy");
     expect(SCRIPT_SURFACE_POLICY).toContain("Every non-test file under `scripts/` must be owned");
     expect(SCRIPT_SURFACE_POLICY).toContain("Tests alone are not an ownership surface");
     expect(SCRIPT_SURFACE_POLICY).toContain("Root `record:*` and `readback:*` aliases must be referenced outside `package.json`");

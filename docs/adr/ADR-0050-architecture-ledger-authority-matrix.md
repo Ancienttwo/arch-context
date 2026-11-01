@@ -1,4 +1,22 @@
+---
+schemaVersion: archcontext.adr/v1
+id: adr.0050.architecture-ledger-authority-matrix
+title: Architecture Ledger Authority Matrix
+status: accepted
+decidedAt: 2026-06-25
+appliesTo:
+  - module.architecture-context.contracts
+  - component.architecture-context.local-runtime.local-store-sqlite
+  - component.architecture-context.local-runtime.runtime-daemon
+  - component.architecture-context.core.changeset-engine
+  - component.architecture-context.surfaces.cli
+  - component.architecture-context.surfaces.mcp-local
+supersedes: []
+---
+
 # Architecture Ledger Authority Matrix
+
+> Moved from `docs/architecture/` by [#434](https://github.com/Ancienttwo/arch-context/issues/434); ledger contract: [ADR-0040](ADR-0040-hybrid-architecture-ledger.md).
 
 > Status: AL0 accepted contract
 > ADR: `docs/adr/ADR-0040-hybrid-architecture-ledger.md`

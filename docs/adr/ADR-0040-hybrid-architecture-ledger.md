@@ -28,6 +28,10 @@ The sprint checklist originally named `ADR-0026`, but that number is already
 assigned to Multi-repo Architecture Context. This ADR uses the next available
 number to preserve the ADR ID invariant.
 
+The per-fact-class writer authority that freezes this ledger's mutation
+contract lives in
+[ADR-0050](ADR-0050-architecture-ledger-authority-matrix.md) (#434).
+
 # Decision
 
 Adopt a hybrid architecture ledger.

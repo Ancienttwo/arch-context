@@ -1,3 +1,14 @@
+---
+schemaVersion: archcontext.adr/v1
+id: adr.0051.script-surface-policy
+title: Script Surface Policy
+status: accepted
+decidedAt: 2026-11-01
+appliesTo:
+  - module.architecture-context.tooling
+supersedes: []
+---
+
 # Script Surface Policy
 
 > **Status**: Active

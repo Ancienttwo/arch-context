@@ -90,7 +90,6 @@ const LEGACY_ARTIFACTS = [
 ] as const;
 
 const SOURCE_PATHS = [
-  "docs/architecture/architecture-ledger-authority-promotion-review.md",
   "docs/runbooks/architecture-ledger-rollout.md",
   "docs/verification/architecture-ledger-al10-beta-decision.md",
   "docs/verification/architecture-ledger-al10-ga-technical.md"
