@@ -40,6 +40,7 @@ export const CODE_FACTS_ISSUE_MESSAGES = Object.freeze({
 });
 /** Each reason has a closed fact vocabulary. No source text or recovery binding is a summary fact. */
 const policies: Record<string, Policy> = {
+  "history-shallow-repository": { code: "AC_PRECONDITION_FAILED", message: "Architecture history requires a complete Git repository.", action: "unshallow-repository" },
   "code-facts-read-not-ready": { code: "AC_CODE_FACTS_UNAVAILABLE", message: "The existing CodeGraph index does not attest to the current source population.", facts: { issues: "codeFactsIssues" }, action: "codegraph-sync", retryable: false },
   "code-facts-snapshot-changed": { code: "AC_CODE_FACTS_UNAVAILABLE", message: "Source or index inputs changed while reading the private snapshot.", action: "retry-read", retryable: true, facts: {} },
   "code-facts-snapshot-limit-exceeded": { code: "AC_CODE_FACTS_UNAVAILABLE", message: "The private CodeGraph snapshot exceeds its 512 MiB or 100000 entry limit.", action: "reduce-snapshot-size", retryable: false, facts: {} },
@@ -587,6 +588,7 @@ const nativeEnums: Readonly<Record<string, readonly string[]>> = {
   ],
   "operation": [
     "rev-parse",
+    "log",
     "ls-tree",
     "ls-files",
     "cat-file"

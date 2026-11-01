@@ -30,18 +30,21 @@ export function assertNativeGitRevision(ref: string): void {
   if (!isGitRevisionArgument(ref)) throw new NativeContextError("native-context-ref-unsafe", { selector: "ref" });
 }
 
-type GitReadOperation = "rev-parse" | "ls-tree" | "ls-files" | "cat-file";
+type GitReadOperation = "rev-parse" | "ls-tree" | "ls-files" | "cat-file" | "log";
 export interface GitReadOptions { input?: string; maxBytes?: number; timeoutMs?: number }
 
 /** Whitelisted read operations only; never a shell, lazy fetch, filter or index writer. */
 export function readOnlyGit(root: string, operation: GitReadOperation, args: string[], options: GitReadOptions = {}): Buffer {
-  if (!["rev-parse", "ls-tree", "ls-files", "cat-file"].includes(operation)) throw new NativeContextError("native-context-git-read-failed", { category: "unsupported-operation" });
+  if (!["rev-parse", "ls-tree", "ls-files", "cat-file", "log"].includes(operation)) throw new NativeContextError("native-context-git-read-failed", { category: "unsupported-operation" });
   const unsafeArguments = (): never => { throw new NativeContextError("native-context-git-read-failed", { operation, category: "unsupported-read-arguments" }); };
   if (operation === "rev-parse") {
-    if (args.length === 1 && args[0] === "--show-toplevel") { /* root discovery */ }
+    if (args.length === 1 && ["--show-toplevel", "--is-shallow-repository"].includes(args[0]!)) { /* repository metadata */ }
     else if (args.length === 1 && isGitRevisionArgument(args[0]!)) { /* bounded metadata helper */ }
     else if (args.length === 3 && args[0] === "--verify" && args[1] === "--end-of-options") assertNativeGitRevision(args[2]!);
     else unsafeArguments();
+  }
+  if (operation === "log") {
+    if (args.length !== 8 || args[0] !== "--first-parent" || args[1] !== "--reverse" || args[2] !== "-z" || args[3] !== "--format=%H%x00%cI%x00%s" || !OBJECT_ID.test(args[4]!) || args[5] !== "--" || args[6] !== ".archcontext/model" || args[7] !== ".archcontext/manifest.yaml") unsafeArguments();
   }
   if (operation === "ls-tree") {
     const flags = args.slice(0, -1);

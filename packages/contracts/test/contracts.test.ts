@@ -1,7 +1,26 @@
 import { describe, expect, test } from "bun:test";
+import { ARCHITECTURE_HISTORY_SCHEMA_VERSION, architectureHistoryIssues, decodeArchitectureHistory, decodeArchitectureHistoryState } from "../src/architecture-history";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+test("architecture history decoders reject malformed results and cached states", () => {
+  const history = { schemaVersion: ARCHITECTURE_HISTORY_SCHEMA_VERSION, head: "a".repeat(40), total: 0, offset: 0, limit: 200, milestones: [] };
+  expect(decodeArchitectureHistory(history)).toEqual(history);
+  expect(architectureHistoryIssues({ ...history, milestones: [{ rev: 5 }] })).not.toEqual([]);
+  expect(decodeArchitectureHistoryState({ nodes: [], edges: [], structure: [] })).toEqual({ nodes: [], edges: [], structure: [] });
+  expect(decodeArchitectureHistoryState({ nodes: null, edges: null, structure: null, error: { code: "unknown" } })).toBeUndefined();
+  expect(decodeArchitectureHistoryState({ nodes: null, edges: null, structure: null, error: { code: "history-model-invalid", path: "/absolute/path" } })).toBeUndefined();
+  const milestone = { rev: "b".repeat(40), date: "date", subject: "subject", nodes: [], edges: [], delta: { baseRev: null, added: [], removed: [], renamed: [], edgesChanged: { added: [], removed: [] } } };
+  expect(decodeArchitectureHistory({ ...history, total: 2, milestones: [milestone, { ...milestone, rev: "c".repeat(40) }] })).toBeUndefined();
+  const error = { rev: "d".repeat(40), date: "date", subject: "error", nodes: null, edges: null, delta: null, error: { code: "history-model-invalid" } };
+  const next = { ...milestone, rev: "c".repeat(40), delta: { ...milestone.delta, baseRev: milestone.rev } };
+  expect(decodeArchitectureHistory({ ...history, total: 3, milestones: [milestone, error, next] })).toBeDefined();
+  expect(decodeArchitectureHistory({ ...history, total: 3, milestones: [{ ...milestone, delta: { ...milestone.delta, baseRev: "e".repeat(40) } }] })).toBeUndefined();
+  expect(decodeArchitectureHistory({ ...history, total: 3, offset: 1, milestones: [milestone] })).toBeDefined();
+  expect(decodeArchitectureHistory({ ...history, total: 3, offset: 1, milestones: [{ ...milestone, delta: { ...milestone.delta, baseRev: "e".repeat(40) } }] })).toBeDefined();
+  expect(decodeArchitectureHistory({ ...history, total: 1, milestones: [{ ...milestone, error: error.error }] })).toBeUndefined();
+});
 import {
   DEVELOPER_REVIEW_CHECK_NAME,
   DEFAULT_GOVERNANCE_FEATURE_FLAGS,

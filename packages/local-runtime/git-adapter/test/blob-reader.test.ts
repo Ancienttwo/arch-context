@@ -32,6 +32,15 @@ describe("checked Git blob reader", () => {
     expect(() => readOnlyGit("/missing/repo", "rev-parse", ["--output=outside"])).toThrow("native-context-git-read-failed");
     expect(() => readOnlyGit("/missing/repo", "checkout" as any, ["HEAD"])).toThrow("native-context-git-read-failed");
   });
+  test("history log accepts only its fixed NUL-delimited shape", () => {
+    const sha = readOnlyGit(process.cwd(), "rev-parse", ["HEAD"]).toString().trim();
+    const args = ["--first-parent", "--reverse", "-z", "--format=%H%x00%cI%x00%s", sha, "--", ".archcontext/model", ".archcontext/manifest.yaml"];
+    const fields = readOnlyGit(process.cwd(), "log", args).toString().split("\0");
+    expect(fields.pop()).toBe("");
+    expect(fields.length % 3).toBe(0);
+    expect(fields.filter((_, index) => index % 3 === 0).every(rev => /^[a-f0-9]{40,64}$/.test(rev))).toBe(true);
+    expect(() => readOnlyGit(process.cwd(), "log", args.filter(arg => arg !== "-z"))).toThrow("native-context-git-read-failed");
+  });
   test("file, total and protocol bounds are independently enforced", () => {
     const body = blob(Buffer.from("123"));
     const request = { objectId: objectId(Buffer.from("123")) };
