@@ -1,41 +1,9 @@
 {
   "version": 1,
-  "active_plan": {
-    "marker_file": ".ai/harness/active-plan",
-    "directory": "plans",
-    "archive_directory": "plans/archive",
-    "glob": "plan-*.md",
-    "active_worktree_marker_file": ".ai/harness/active-worktree",
-    "source_of_truth": "per-worktree explicit marker with active-worktree owner; legacy Claude marker fallback only",
-    "lifecycle": {
-      "annotation_end": "Annotating",
-      "approved": "Approved",
-      "executing": "Executing",
-      "terminal_start": "Complete"
-    },
-    "statuses": [
-      "Draft",
-      "Annotating",
-      "Approved",
-      "Executing",
-      "Blocked",
-      "Review",
-      "Complete",
-      "Completed",
-      "Done",
-      "Fulfilled",
-      "Archived",
-      "Abandoned",
-      "Superseded"
-    ],
-    "legacy_marker_file": ".claude/.active-plan"
-  },
   "tasks": {
-    "todo_file": "tasks/todos.md",
-    "current_status_file": "tasks/current.md",
     "lessons_file": "tasks/lessons.md",
     "research_dir": "docs/researches",
-    "workstreams_dir": "tasks/workstreams",
+    "todo_file": "tasks/todos.md",
     "contracts_dir": "tasks/contracts",
     "reviews_dir": "tasks/reviews",
     "notes_dir": "tasks/notes"
@@ -57,6 +25,7 @@
     }
   },
   "worktree_strategy": {
+    "worktree_dir_template": "{{system_tmp}}/{{repo}}-wt-{{slug}}",
     "base_branch": "main",
     "review_base": "main",
     "merge_back": {
@@ -67,7 +36,6 @@
     "auto_on_conflict": true,
     "auto_for_contract_tasks": true,
     "branch_prefix": "codex/",
-    "worktree_dir_template": "../{{repo}}-wt-{{slug}}",
     "start_script": "repo-harness run contract-worktree start --plan <plan-file>",
     "finish_script": "repo-harness run contract-worktree finish",
     "cleanup_script": "repo-harness run contract-worktree cleanup --slug <slug>",
@@ -81,13 +49,12 @@
   },
   "harness": {
     "policy_file": ".ai/harness/policy.json",
-    "checks_file": ".ai/harness/checks/latest.json",
-    "handoff_file": ".ai/harness/handoff/current.md",
     "helper_runtime_dir": ".ai/harness/scripts",
     "helper_source": "package",
+    "checks_file": ".ai/harness/checks/latest.json",
+    "handoff_file": ".ai/harness/handoff/current.md",
     "failure_log_file": ".ai/harness/failures/latest.jsonl",
     "events_file": ".ai/harness/events.jsonl",
-    "architecture_events_file": ".ai/harness/architecture/events.jsonl",
     "runs_dir": ".ai/harness/runs",
     "helper_compat_dir": "scripts",
     "helper_package_dir": "assets/templates/helpers"
@@ -95,17 +62,13 @@
   "agent_runtime": {
     "mode": "off",
     "adapters": {
-      "codex-app-thread": {
+      "herdr-cli-agent": {
         "enabled": false
       },
-      "herdr-cli-agent": {
+      "codex-app-thread": {
         "enabled": false
       }
     }
-  },
-  "development_campaign": {
-    "version": 1,
-    "mode": "off"
   },
   "operations": {
     "dir": "deploy",
@@ -161,6 +124,14 @@
         "linux-x86_64": {
           "url": "https://github.com/herdrdev/herdr/releases/download/v0.9.0/herdr-linux-x86_64",
           "sha256": "4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f"
+        },
+        "macos-aarch64": {
+          "url": "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-macos-aarch64",
+          "sha256": "fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2"
+        },
+        "macos-x86_64": {
+          "url": "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-macos-x86_64",
+          "sha256": "5fb0a908ec7f6745e3e245738b06bfad56c46391c391ab3c0955fbead01f1369"
         }
       }
     },
@@ -297,6 +268,11 @@
       "dry_run_required": true
     }
   },
+  "internal_pr_authors": [],
+  "development_campaign": {
+    "version": 1,
+    "mode": "off"
+  },
   "prds": {
     "dir": "plans/prds",
     "template_file": ".claude/templates/prd.template.md",
@@ -326,26 +302,6 @@
     "mode": "external-ignored",
     "commit_policy": "never commit _ref contents",
     "rule": "use _ref as an occasional ignored external reference checkout cache for upstream/source comparison only; refresh from external sources instead of editing as product code; when it influences a decision, cite the source repo plus commit/tag and path in tasks/notes/ or docs/researches/"
-  },
-  "architecture": {
-    "index_file": "docs/architecture/index.md",
-    "requests_dir": "docs/architecture/requests",
-    "snapshots_dir": "docs/architecture/snapshots",
-    "diagrams_dir": "docs/architecture/diagrams",
-    "domains_dir": "docs/architecture/domains",
-    "modules_dir": "docs/architecture/modules",
-    "diagram_skill": "mermaid",
-    "diagram_skill_source": "~/.codex/skills/mermaid",
-    "vendoring_policy": "do-not-vendor-diagram-skill-assets",
-    "freshness_gate": "advisory",
-    "gate_min_severity": "medium",
-    "pending_card_scope": "capability",
-    "pending_block_begin": "<!-- BEGIN ARCHITECTURE PENDING REQUESTS -->",
-    "pending_block_end": "<!-- END ARCHITECTURE PENDING REQUESTS -->",
-    "queue_script": "repo-harness run architecture-queue",
-    "contract_block_begin": "<!-- BEGIN ARCHITECTURE CONTRACT -->",
-    "contract_block_end": "<!-- END ARCHITECTURE CONTRACT -->",
-    "rule": "hooks record architecture queue cards and sync controlled local context blocks; agents author semantic snapshots and diagrams"
   },
   "workstreams": {
     "dir": "tasks/workstreams",
@@ -399,28 +355,8 @@
     "global_handoff_dir": "~/.codex/handoffs",
     "auto_start_new_session": false
   },
-  "plan_capture": {
-    "script": "repo-harness run capture-plan",
-    "sources": [
-      "codex-plan-mode",
-      "waza-think",
-      "repo-harness-plan",
-      "repo-harness-sprint"
-    ],
-    "rule": "Codex Plan mode and Waza think planning should capture decision-complete plans into plans/plan-*.md; implementation approval then projects the active approved plan through repo-harness run plan-to-todo; sprint backlog rows are long-task waypoints and should be expanded with $think before capture/execution"
-  },
   "planning": {
-    "pending_orchestration_file": ".ai/harness/planning/pending.json",
-    "source_of_truth": "transient host planning bridge only; plans/ and .ai/harness/active-plan remain authoritative"
-  },
-  "guards": {
-    "edit_plan_gate": "enforce",
-    "edit_plan_gate_modes": [
-      "enforce",
-      "advice",
-      "off"
-    ],
-    "rule": "pre-edit-guard blocks implementation edits (non-workflow paths) unless an active plan is Approved/Executing; prompt-layer plan gates are advisory routing only"
+    "pending_orchestration_file": ".ai/harness/planning/pending.json"
   },
   "sidecar_research": {
     "default": true,

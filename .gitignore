@@ -57,28 +57,21 @@ _ops/
 # Runtime evidence and local agent state
 .claude/settings.local.json
 .claude/.atomic_pending
-.claude/.session-id
-.claude/.trace.jsonl
 .claude/.session-handoff.md
 .claude/.task-state.json
 .claude/.task-handoff.md
-.claude/.codegraph-state/
 .claude/*.tmp
 .claude/*.bak
 .claude/*.bak.*
 .claude/*.backup-*
-tasks/.current.md.tmp.*
-tasks/current.md
-.ai/harness/checks/latest.json
+.ai/harness/checks/
 .ai/harness/checks/*.latest.json
 .ai/harness/checks/*.latest.md
-.ai/harness/checks/post-bash-latest.json
 .ai/harness/events.jsonl
 .ai/harness/archive/
 .ai/harness/backups/
 .ai/harness/failures/latest.jsonl
-.ai/harness/handoff/current.md
-.ai/harness/handoff/resume.md
+.ai/harness/standing-orders.md
 .ai/harness/capability-context/
 .ai/harness/journal/
 .ai/harness/architecture-projection/
@@ -88,23 +81,21 @@ tasks/current.md
 !.ai/harness/planning/.gitkeep
 .ai/harness/delegation/*
 .ai/harness/architecture/events.jsonl
-.ai/harness/active-plan
 .ai/harness/active-worktree
-.ai/harness/sprint/
 .ai/harness/worktrees/
 .ai/harness/evidence/
 .ai/harness/runs/
 .ai/harness/state/
-.ai/harness/chatgpt/browser-lock.json
-.ai/harness/chatgpt/tmp/
-.ai/harness/chatgpt/sessions/
+.ai/harness/chatgpt/
+.ai/harness/handoff/gptpro/
+.ai/harness/mcp/
 .ai/harness/triage/*
 !.ai/harness/triage/.gitkeep
 .repo-harness/
 .codex/*
-.claude/.active-plan
-.claude/.plan-state/
+.claude/worktrees/
 # END: repo-harness generated-runtime
+.claude/.codegraph-state/
 
 # Repo-local override: this repo IS the archcontext product; .archcontext/ is
 # Git-visible architecture truth (see CLAUDE.md), only .local/ is runtime state.
