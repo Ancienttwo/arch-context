@@ -66,8 +66,8 @@ export async function runArchitectureLedgerAl9DocProjectionsReadback({ out = DEF
     assertions: {
       "AL9-01": current.projectionTargetSchemaPresent,
       "AL9-02": current.repoProjectionManifestPresent && current.placementRuleCount >= 8,
-      "AL9-03": current.docs.markdownTargetsPresent,
-      "AL9-04": current.docs.wholeFileTargetsPresent,
+      "AL9-03": current.docs.targetCount > 0 && current.docs.allTargetsPresent && integration.globalDocsPresent,
+      "AL9-04": integration.diagramOutputsPresent,
       "AL9-05": integration.humanTextPreserved && integration.ambiguousOwnershipRejected,
       "AL9-06": current.projectionManifestTracksDigests,
       "AL9-07": integration.manualEditDetected && integration.orphanDetected && integration.missingDetected,
@@ -104,17 +104,16 @@ export function inspectArchitectureLedgerAl9DocProjectionsReadback(packet: any) 
   };
 }
 
-/** The committed manifest is the only authority for which projection files must exist; the
- * probes follow it instead of hardcoding one profile's layout (repo-harness/v1 keeps only
- * the capability entity summaries, while `default` still renders the global documents). */
+/** The committed manifest is the only authority for which projection files must exist in this
+ * repository; the probes follow it instead of hardcoding one profile's layout. That this repo
+ * renders at least one target and that the `default` profile still renders the global documents
+ * and the three whole-file diagram outputs are asserted by AL9-03/AL9-04 below. */
 function projectionDocsReadback(projectionManifest: any) {
   const targets = Object.values(projectionManifest?.targets ?? {}) as any[];
   const present = (target: any) => existsSync(resolve(REPO_ROOT, String(target.path)));
   return {
     targetCount: targets.length,
-    allTargetsPresent: targets.every(present),
-    markdownTargetsPresent: targets.filter((target) => target.format === "markdown").every(present),
-    wholeFileTargetsPresent: targets.filter((target) => target.ownership === "generated").every(present)
+    allTargetsPresent: targets.every(present)
   };
 }
 
@@ -179,6 +178,12 @@ function runTempRepoProjectionReadback() {
     const secondPlan = runCli(root, env, ["docs", "plan", "--id", "changeset.docs-projection-al9-replan"]);
     const beforeApplyDrift = runCli(root, env, ["docs", "drift"]);
     const apply = runCli(root, env, ["docs", "apply", "--approved", "--id", "changeset.docs-projection-al9"]);
+    // The default profile still renders the whole-model documents this gate family was written
+    // for; read them after the apply and before the fixture is torn down.
+    const globalDocsPresent = ["docs/architecture/index.md", "docs/architecture/changelog.md", "docs/architecture/decisions/index.md"]
+      .every((path) => existsSync(resolve(root, path)));
+    const diagramOutputsPresent = ["architecture.mmd", "architecture.structurizr.json", "architecture.likec4"]
+      .every((name) => existsSync(resolve(root, `docs/architecture/diagrams/${name}`)));
     // Add human prose only after the public apply establishes generated-region ownership.
     const indexPath = resolve(root, "docs/architecture/index.md");
     writeFileSync(indexPath, `Human note before generated region.\n\n${readFileSync(indexPath, "utf8")}`, "utf8");
@@ -199,6 +204,8 @@ function runTempRepoProjectionReadback() {
 
     return {
       initOk: init.ok === true,
+      globalDocsPresent,
+      diagramOutputsPresent,
       deterministicProjectionDigest: firstPlan.data?.projectionDigest === secondPlan.data?.projectionDigest,
       missingDetected: beforeApplyDrift.data?.drift?.reasonCodes?.includes("projection-file-missing") === true,
       changeSetPreviewAllowed: firstPlan.data?.preview?.allowed === true,

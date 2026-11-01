@@ -16,6 +16,8 @@ supersedes: []
 
 # Architecture Ledger Authority Matrix
 
+> Moved from `docs/architecture/` by [#434](https://github.com/Ancienttwo/arch-context/issues/434); ledger contract: [ADR-0040](ADR-0040-hybrid-architecture-ledger.md).
+
 > Status: AL0 accepted contract
 > ADR: `docs/adr/ADR-0040-hybrid-architecture-ledger.md`
 > Contract source: `packages/contracts/src/ledger.ts`
