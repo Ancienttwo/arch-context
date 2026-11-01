@@ -134,7 +134,6 @@
     "readback:al10:runbooks": "bun scripts/architecture-ledger-al10-runbooks-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-runbooks-readback.json --json",
     "record:al10:telemetry": "bun scripts/architecture-ledger-al10-telemetry-readback.ts run --out docs/verification/architecture-ledger-al10-telemetry-readback.json --report docs/verification/architecture-ledger-al10-telemetry.md --json",
     "readback:al10:telemetry": "bun scripts/architecture-ledger-al10-telemetry-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-telemetry-readback.json --json",
-    "record:al10:beta-decision": "bun scripts/architecture-ledger-al10-beta-decision-readback.ts run --out docs/verification/architecture-ledger-al10-beta-decision-readback.json --report docs/verification/architecture-ledger-al10-beta-decision.md --json",
     "readback:al10:beta-decision": "bun scripts/architecture-ledger-al10-beta-decision-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-beta-decision-readback.json --json",
     "record:al10:ga-technical": "bun scripts/architecture-ledger-al10-ga-technical-readback.ts run --out docs/verification/architecture-ledger-al10-ga-technical-readback.json --report docs/verification/architecture-ledger-al10-ga-technical.md --json",
     "readback:al10:ga-technical": "bun scripts/architecture-ledger-al10-ga-technical-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-ga-technical-readback.json --json",
