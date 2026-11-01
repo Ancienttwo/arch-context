@@ -116,7 +116,6 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     ]);
     expect(projectionOwnedPaths(explicit)).toEqual([
       "docs/architecture/**",
-      "docs/architecture/history.md",
       "runtime/hooks/AGENTS.md",
       "runtime/hooks/CLAUDE.md"
     ]);
@@ -260,7 +259,6 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     // The same derivation is what freshness subtracts, alongside the documentation tree.
     expect(projectionOwnedPaths(model)).toEqual([
       "docs/architecture/**",
-      "docs/architecture/history.md",
       "packages/core/projection-engine/AGENTS.md",
       "packages/core/projection-engine/CLAUDE.md",
       "scripts/AGENTS.md",

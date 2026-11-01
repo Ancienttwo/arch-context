@@ -49,6 +49,13 @@ test("history derives valid states around errors and keeps the preceding milesto
     expect(projectHistoryMermaid(history).diagrams[1]!.mermaid).toBeNull();
     expect(renderHistoryMarkdown(history)).toContain("```mermaid\nflowchart LR");
     expect(readArchitectureHistory(root, { env, offset: 1, limit: 1 }).milestones[0]!.rev).toBe(invalid);
+    write("nodes/a.yaml", "invalid: ["); commit("broken again");
+    write("nodes/a.yaml", node("capability.one.a", "capability", "Renamed"));
+    const recovered = commit("recovered without structural change");
+    expect(readArchitectureHistory(root, { env }).milestones.at(-1)).toMatchObject({
+      rev: recovered,
+      delta: { baseRev: removed, added: [], removed: [], renamed: [], edgesChanged: { added: [], removed: [] } }
+    });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

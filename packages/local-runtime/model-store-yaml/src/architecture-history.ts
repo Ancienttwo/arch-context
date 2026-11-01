@@ -129,9 +129,10 @@ export function readArchitectureHistory(cwd: string, options: { ref?: string; of
       if (priorError !== state.error.code) milestones.push({ rev, date, subject, nodes: null, edges: null, delta: null, error: state.error });
       priorError = state.error.code; continue;
     }
+    const recovered = priorError !== undefined;
     priorError = undefined;
     const delta = difference(previous, state, previousMilestone);
-    if (!havePrevious || delta.added.length || delta.removed.length || delta.renamed.length || delta.edgesChanged.added.length || delta.edgesChanged.removed.length) {
+    if (!havePrevious || recovered || delta.added.length || delta.removed.length || delta.renamed.length || delta.edgesChanged.added.length || delta.edgesChanged.removed.length) {
       milestones.push({ rev, date, subject, nodes: state.nodes, edges: state.edges, delta });
       previousMilestone = rev;
     }

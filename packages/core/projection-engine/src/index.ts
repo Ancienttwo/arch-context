@@ -1377,7 +1377,6 @@ export interface ArchitectureProjectionFreshnessEvaluation {
 export function projectionOwnedPaths(model: NativeModel): string[] {
   return [
     "docs/architecture/**",
-    "docs/architecture/history.md",
     ...agentContextProjectionTargetPaths(model).map((target) => target.path)
   ].sort((left, right) => left.localeCompare(right));
 }

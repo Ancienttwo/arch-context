@@ -2,7 +2,7 @@ import { isRepoRelativePosixPath } from "./schema";
 
 export const ARCHITECTURE_HISTORY_SCHEMA_VERSION = "archcontext.architecture-history/v1" as const;
 export const ARCHITECTURE_HISTORY_MERMAID_SCHEMA_VERSION = "archcontext.architecture-history-mermaid/v1" as const;
-export const ARCHITECTURE_HISTORY_DERIVATION_VERSION = "v2" as const;
+export const ARCHITECTURE_HISTORY_DERIVATION_VERSION = "v3" as const;
 
 export type HistoryErrorCode = "history-model-layout-unsupported" | "history-model-missing" | "history-model-invalid" | "history-model-too-large";
 export interface HistoryNode { id: string; name: string; domain: string | null }
