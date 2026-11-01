@@ -20,6 +20,9 @@ test("architecture history decoders reject malformed results and cached states",
   expect(decodeArchitectureHistory({ ...history, total: 3, offset: 1, milestones: [milestone] })).toBeDefined();
   expect(decodeArchitectureHistory({ ...history, total: 3, offset: 1, milestones: [{ ...milestone, delta: { ...milestone.delta, baseRev: "e".repeat(40) } }] })).toBeDefined();
   expect(decodeArchitectureHistory({ ...history, total: 1, milestones: [{ ...milestone, error: error.error }] })).toBeUndefined();
+  const invalidOwner = { ...milestone, delta: { ...milestone.delta, added: [{ id: "capability.one.a", kind: "capability", capability: "capability.one.b" }] } };
+  expect(decodeArchitectureHistory({ ...history, total: 1, milestones: [invalidOwner] })).toBeUndefined();
+  expect(decodeArchitectureHistoryState({ nodes: [], edges: [], structure: [{ id: "component.one.a", kind: "component", name: "A" }] })).toBeUndefined();
 });
 import {
   DEVELOPER_REVIEW_CHECK_NAME,

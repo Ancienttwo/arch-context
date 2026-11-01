@@ -7,12 +7,12 @@ export const ARCHITECTURE_HISTORY_DERIVATION_VERSION = "v3" as const;
 export type HistoryErrorCode = "history-model-layout-unsupported" | "history-model-missing" | "history-model-invalid" | "history-model-too-large";
 export interface HistoryNode { id: string; name: string; domain: string | null }
 export interface HistoryEdge { source: string; target: string }
-export interface HistoryStructureNode { id: string; kind: "capability" | "module" | "component"; name: string }
+export interface HistoryStructureNode { id: string; kind: "capability" | "module" | "component"; name: string; capability: string | null }
 export interface HistoryDelta {
   baseRev: string | null;
-  added: Array<Pick<HistoryStructureNode, "id" | "kind">>;
-  removed: Array<Pick<HistoryStructureNode, "id" | "kind">>;
-  renamed: Array<Pick<HistoryStructureNode, "id" | "kind"> & { from: string; to: string }>;
+  added: Array<Pick<HistoryStructureNode, "id" | "kind" | "capability">>;
+  removed: Array<Pick<HistoryStructureNode, "id" | "kind" | "capability">>;
+  renamed: Array<Pick<HistoryStructureNode, "id" | "kind" | "capability"> & { from: string; to: string }>;
   edgesChanged: { added: HistoryEdge[]; removed: HistoryEdge[] };
 }
 export type HistoryState = { nodes: HistoryNode[]; edges: HistoryEdge[]; structure: HistoryStructureNode[]; error?: never } | { nodes: null; edges: null; structure: null; error: { code: HistoryErrorCode; path?: string } };
@@ -23,7 +23,8 @@ const object = (v: unknown): v is Record<string, unknown> => typeof v === "objec
 const string = (v: unknown): v is string => typeof v === "string";
 const edge = (v: unknown) => object(v) && string(v.source) && string(v.target);
 const kind = (v: unknown) => v === "capability" || v === "module" || v === "component";
-const structure = (v: unknown) => object(v) && string(v.id) && kind(v.kind) && string(v.name);
+const item = (v: unknown) => object(v) && string(v.id) && kind(v.kind) && (v.capability === null || string(v.capability)) && (v.kind !== "capability" || v.capability === v.id);
+const structure = (v: unknown) => item(v) && object(v) && string(v.name);
 const node = (v: unknown) => object(v) && string(v.id) && string(v.name) && (v.domain === null || string(v.domain));
 const errors: readonly string[] = ["history-model-layout-unsupported", "history-model-missing", "history-model-invalid", "history-model-too-large"];
 const sha = (v: unknown) => string(v) && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(v);
@@ -47,7 +48,6 @@ export function architectureHistoryIssues(value: unknown): string[] {
     if (m.nodes === null && m.edges === null && m.delta === null) return error(m.error);
     if (m.error !== undefined || !list(m.nodes, node) || !list(m.edges, edge) || !object(m.delta) || (m.delta.baseRev !== null && !sha(m.delta.baseRev)) || (previousValid !== null && m.delta.baseRev !== previousValid) || (previousValid === null && value.offset === 0 && m.delta.baseRev !== null)) return false;
     previousValid = m.rev as string;
-    const item = (v: unknown) => object(v) && string(v.id) && kind(v.kind);
     const renamed = (v: unknown) => item(v) && object(v) && string(v.from) && string(v.to);
     return list(m.delta.added, item) && list(m.delta.removed, item) && list(m.delta.renamed, renamed) && object(m.delta.edgesChanged) && list(m.delta.edgesChanged.added, edge) && list(m.delta.edgesChanged.removed, edge);
   });

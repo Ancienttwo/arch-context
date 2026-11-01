@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readArchitectureHistory } from "../src/architecture-history";
-import { projectHistoryMermaid, renderHistoryMarkdown } from "@archcontext/core/projection-engine";
+import { projectHistoryMermaid, renderHistoryDomainOverview, renderHistoryMarkdown } from "@archcontext/core/projection-engine";
 import { ARCHITECTURE_HISTORY_DERIVATION_VERSION, architectureHistoryIssues, decodeArchitectureHistory } from "@archcontext/contracts";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 
@@ -38,6 +38,8 @@ test("history derives valid states around errors and keeps the preceding milesto
     expect(history.milestones[0]!.delta?.baseRev).toBeNull();
     expect(history.milestones[2]).toMatchObject({ delta: { baseRev: first, added: [{ id: "component.one.c", kind: "component" }], renamed: [{ id: "capability.one.a", from: "A", to: "Renamed" }], edgesChanged: { added: [{ source: "capability.one.a", target: "capability.two.b" }] } } });
     expect(history.milestones[3]).toMatchObject({ delta: { removed: [{ id: "component.one.c", kind: "component" }], edgesChanged: { removed: [{ source: "capability.one.a", target: "capability.two.b" }] } } });
+    expect(history.milestones[2]!.delta!.added).toContainEqual({ id: "component.one.c", kind: "component", capability: "capability.one.a" });
+    expect(history.milestones[3]!.delta!.removed).toContainEqual({ id: "component.one.c", kind: "component", capability: "capability.one.a" });
     const cache = join(runtimeStatePaths(root, env).sharedCacheDir, "architecture-history", ARCHITECTURE_HISTORY_DERIVATION_VERSION, `${first}.json`);
     writeFileSync(cache, "{broken");
     expect(JSON.stringify(readArchitectureHistory(root, { env }))).toBe(JSON.stringify(history));
@@ -48,6 +50,31 @@ test("history derives valid states around errors and keeps the preceding milesto
     expect(architectureHistoryIssues({ ...history, milestones: [null] }).length).toBeGreaterThan(0);
     expect(projectHistoryMermaid(history).diagrams[1]!.mermaid).toBeNull();
     expect(renderHistoryMarkdown(history)).toContain("```mermaid\nflowchart LR");
+    const source = history.milestones[2]!;
+    if (source.nodes === null) throw new Error("expected a valid milestone");
+    const a = "capability.one.a", b = "capability.one.b", c = "capability.two.c", d = "capability.two.d", e = "capability.zzz.e";
+    const diagramHistory = { ...history, milestones: [{ ...source,
+      nodes: [a, b, c].map(id => ({ id, name: id, domain: id === c ? "two" : "one" })),
+      edges: [{ source: a, target: b }, { source: b, target: c }],
+      delta: { ...source.delta, added: [{ id: "component.one.part", kind: "component" as const, capability: a }], removed: [{ id: d, kind: "capability" as const, capability: d }, { id: e, kind: "capability" as const, capability: e }], edgesChanged: { added: [{ source: b, target: c }], removed: [{ source: b, target: d }, { source: c, target: d }, { source: c, target: e }] } }
+    }] };
+    const markdown = renderHistoryMarkdown(diagramHistory);
+    expect(markdown).not.toContain("n0 --> n1");
+    expect(markdown).toContain("n1 --> n2");
+    expect(markdown).toContain("n2 -.-> n3");
+    expect(markdown).toContain('n3["capability.two.d"]');
+    expect(markdown).toContain("class n3 removed");
+    expect(markdown).toContain("classDef removed stroke-dasharray: 4 4");
+    expect(markdown).toContain('d0["one (2)"]');
+    expect(markdown).toContain('d1["two (1)"]');
+    expect(markdown).toContain("d0 -->|+1 −1| d1");
+    expect(markdown).not.toContain("d1 -.->|+0 −1| d1");
+    expect(markdown).toContain("d1 -.->|+0 −1| d2");
+    const componentOnly = { ...diagramHistory.milestones[0]!, delta: { ...diagramHistory.milestones[0]!.delta, removed: [], renamed: [], edgesChanged: { added: [], removed: [] } } };
+    const componentOverview = renderHistoryDomainOverview(componentOnly)!.mermaid;
+    expect(componentOverview).toContain("class d0 changed");
+    expect(componentOverview).not.toContain("class d1 changed");
+    expect(projectHistoryMermaid(diagramHistory).diagrams[0]!.mermaid).toContain("n0 --> n1");
     expect(readArchitectureHistory(root, { env, offset: 1, limit: 1 }).milestones[0]!.rev).toBe(invalid);
     write("nodes/a.yaml", "invalid: ["); commit("broken again");
     write("nodes/a.yaml", node("capability.one.a", "capability", "Renamed"));
@@ -56,7 +83,36 @@ test("history derives valid states around errors and keeps the preceding milesto
       rev: recovered,
       delta: { baseRev: removed, added: [], removed: [], renamed: [], edgesChanged: { added: [], removed: [] } }
     });
+    write("nodes/x.yaml", node("component.one.x", "component", "X", "capability.one.a"));
+    write("nodes/y.yaml", node("component.one.y", "component", "Y", "capability.one.a"));
+    const ownerBase = commit("add components");
+    write("nodes/x.yaml", node("component.one.x", "component", "X", "capability.two.b"));
+    write("nodes/y.yaml", node("component.one.y", "component", "Y", "capability.two.b"));
+    commit("reparent without a milestone");
+    rmSync(join(root, ".archcontext/model/nodes/x.yaml"));
+    write("nodes/y.yaml", node("component.one.y", "component", "Y renamed", "capability.two.b"));
+    commit("remove and rename");
+    expect(readArchitectureHistory(root, { env }).milestones.at(-1)!.delta).toMatchObject({
+      baseRev: ownerBase,
+      removed: [{ id: "component.one.x", kind: "component", capability: "capability.one.a" }],
+      renamed: [{ id: "component.one.y", kind: "component", capability: "capability.two.b", from: "Y", to: "Y renamed" }]
+    });
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("history markdown caps capability detail while retaining the domain overview", () => {
+  const a = Array.from({ length: 21 }, (_, index) => `capability.one.n${index}`), target = "capability.two.target";
+  const edges = a.map(source => ({ source, target }));
+  const milestone = { rev: "a".repeat(40), date: "2026-01-01", subject: "large change", nodes: [...a, target].map(id => ({ id, name: id, domain: id === target ? "two" : "one" })), edges,
+    delta: { baseRev: null, added: [], removed: [], renamed: [], edgesChanged: { added: edges, removed: [] } } };
+  const history = { schemaVersion: "archcontext.architecture-history/v1" as const, head: milestone.rev, total: 1, offset: 0, limit: 200, milestones: [milestone] };
+  const markdown = renderHistoryMarkdown(history);
+  expect([...markdown.matchAll(/```mermaid/g)]).toHaveLength(1);
+  expect(markdown).toContain("d0 -->|+21 −0| d1");
+  expect(markdown).toContain("21 changed edges across 1 domain pairs; run archctx history --ref aaaaaaaaaaaa --format mermaid for the full shape.");
+  expect(projectHistoryMermaid(history).diagrams[0]!.mermaid).toContain(" --> ");
+  const atLimit = { ...milestone, delta: { ...milestone.delta, edgesChanged: { added: edges.slice(0, 20), removed: [] } } };
+  expect([...renderHistoryMarkdown({ ...history, milestones: [atLimit] }).matchAll(/```mermaid/g)]).toHaveLength(2);
 });
 
 test("CLI --ref reproduces the bytes emitted when the selected commit was HEAD", () => {

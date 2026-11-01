@@ -82,7 +82,7 @@ function stateForRevision(root: string, rev: string, parsed: Map<string, unknown
     return {
       nodes: nodes.filter(node => node.kind === "capability").map(node => ({ id: node.id, name: node.name, domain: /^capability\.([a-z0-9]+(?:-[a-z0-9]+)*)\.([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(node.id)?.[1] ?? null })).sort((a, b) => compare(a.id, b.id)),
       edges: [...edges.values()].sort((a, b) => compare(a.source, b.source) || compare(a.target, b.target)),
-      structure: nodes.filter(node => ["capability", "module", "component"].includes(node.kind)).map(node => ({ id: node.id, kind: node.kind as HistoryStructureNode["kind"], name: node.name })).sort((a, b) => compare(a.id, b.id))
+      structure: nodes.filter(node => ["capability", "module", "component"].includes(node.kind)).map(node => ({ id: node.id, kind: node.kind as HistoryStructureNode["kind"], name: node.name, capability: nearest(node.id) ?? null })).sort((a, b) => compare(a.id, b.id))
     };
   } catch (error) {
     if (error instanceof NativeContextError && error.reasonCode === "native-context-limit-exceeded") return failed("history-model-too-large");
@@ -95,9 +95,9 @@ function difference(before: HistoryState & { structure: HistoryStructureNode[]; 
   const ae = new Map(before.edges.map(edge => [edgeKey(edge), edge])), be = new Map(after.edges.map(edge => [edgeKey(edge), edge]));
   return {
     baseRev,
-    added: after.structure.filter(node => !a.has(node.id)).map(({ id, kind }) => ({ id, kind })),
-    removed: before.structure.filter(node => !b.has(node.id)).map(({ id, kind }) => ({ id, kind })),
-    renamed: after.structure.flatMap(node => { const old = a.get(node.id); return old && old.name !== node.name ? [{ id: node.id, kind: node.kind, from: old.name, to: node.name }] : []; }),
+    added: after.structure.filter(node => !a.has(node.id)).map(({ id, kind, capability }) => ({ id, kind, capability })),
+    removed: before.structure.filter(node => !b.has(node.id)).map(({ id, kind, capability }) => ({ id, kind, capability })),
+    renamed: after.structure.flatMap(node => { const old = a.get(node.id); return old && old.name !== node.name ? [{ id: node.id, kind: node.kind, capability: node.capability, from: old.name, to: node.name }] : []; }),
     edgesChanged: { added: after.edges.filter(edge => !ae.has(edgeKey(edge))), removed: before.edges.filter(edge => !be.has(edgeKey(edge))) }
   };
 }
@@ -135,8 +135,8 @@ export function readArchitectureHistory(cwd: string, options: { ref?: string; of
     if (!havePrevious || recovered || delta.added.length || delta.removed.length || delta.renamed.length || delta.edgesChanged.added.length || delta.edgesChanged.removed.length) {
       milestones.push({ rev, date, subject, nodes: state.nodes, edges: state.edges, delta });
       previousMilestone = rev;
+      previous = state; havePrevious = true;
     }
-    previous = state; havePrevious = true;
   }
   const offset = options.offset ?? 0, limit = options.limit ?? 200;
   return { schemaVersion: ARCHITECTURE_HISTORY_SCHEMA_VERSION, head, total: milestones.length, offset, limit, milestones: milestones.slice(offset, offset + limit) };
