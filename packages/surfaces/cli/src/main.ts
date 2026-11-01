@@ -3,6 +3,7 @@ import { LocalEgressPolicyError, localEgressAdmission, withLocalEgress } from "@
 import { runArchitectureDebtCommand, selectedProducerFailureEnvelope } from "@archcontext/local-runtime/architecture-debt";
 import { runNativeContextCommand } from "./native-context";
 import { runRefImpactCommand } from "./ref-impact";
+import { runArchitectureHistoryCommand } from "./architecture-history";
 import { runConstraintCheckCommand } from "@archcontext/local-runtime/runtime-daemon";
 import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, discardLegacyGithubDeveloperReviewState, readGithubDeveloperReviewState, sanitizeGithubDeveloperReviewState, writeGithubDeveloperReviewState, type GitHubDeveloperReviewState } from "./github-review-state";
@@ -247,6 +248,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "repo": { value: ["--name", "--repository-id", "--root"], boolean: [] },
   "resolve": { value: ["--path", "--paths-from"], boolean: [] },
   "impact": { value: ["--base", "--head", "--depth", "--paths-from"], boolean: [] },
+  "history": { value: ["--ref", "--format", "--offset", "--limit"], boolean: [] },
   "review": { value: ["--head-sha", "--posture", "--task", "--task-session-id"], boolean: [] },
   "state": { value: ["--expected-target-fingerprint", "--expected-worktree-digest"], boolean: ["--accept-external-projection", "--dry-run", "--from-git", "--write"] },
   "status": { value: [], boolean: [] },
@@ -592,6 +594,7 @@ export function runCapabilitiesCommand() {
 
 async function runCliUnchecked(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
   if (command === "impact") return runRefImpactCommand(args, cwd);
+  if (command === "history") return runArchitectureHistoryCommand(args, cwd);
   if (command === "export" && args[0] === "native") return runNativeContextCommand(args.slice(1), cwd);
   const preflight = preflightCliArguments(command, args);
   if (preflight) return preflight;
@@ -904,7 +907,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "impact", "tunnel", "flows", "deps", "constraints", "debt"],
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "impact", "history", "tunnel", "flows", "deps", "constraints", "debt"],
           examples: CLI_HELP_EXAMPLES
         }
       };

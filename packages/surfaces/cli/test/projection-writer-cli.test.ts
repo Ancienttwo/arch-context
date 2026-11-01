@@ -7,7 +7,8 @@ import { jsonSchemaResolver, stableYaml, validateJsonSchema, type Json, type Pro
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
+import { initializeArchContextModel, readArchitectureHistory } from "@archcontext/local-runtime/model-store-yaml";
+import { renderHistoryMarkdown } from "@archcontext/core/projection-engine";
 import { createStartedDaemon, projectionWriterPaths, runProjectionCheckInvocation, runProjectionVerifyPrCommand } from "@archcontext/local-runtime/runtime-daemon";
 import { runCli } from "../src/main";
 
@@ -143,6 +144,35 @@ async function projectedOrigin(daemon: Awaited<ReturnType<typeof startDaemon>>) 
   return { root, origin, dev, clone };
 }
 
+test("a committed model and generated history do not create history drift in check or complete", async () => {
+  const daemon = await startDaemon();
+  const fixture = await projectedOrigin(daemon);
+  try {
+    writeFileSync(join(fixture.dev, "docs/architecture/history.md"), renderHistoryMarkdown(readArchitectureHistory(fixture.dev)));
+    git(fixture.dev, "add", "docs/architecture/history.md");
+    git(fixture.dev, "commit", "-qm", "commit generated history");
+    git(fixture.dev, "checkout", "-qb", "feature/model-change");
+    const modelPath = join(fixture.dev, ".archcontext/model/nodes/capability.app.service.yaml");
+    writeFileSync(modelPath, readFileSync(modelPath, "utf8").replace("Serves the application.", "Serves the revised application."));
+    git(fixture.dev, "add", ".archcontext/model");
+    git(fixture.dev, "commit", "-qm", "change model");
+    const snapshot = await runCli("projection", ["snapshot", "--json"], fixture.dev, { runtimeClient: daemon });
+    expect(snapshot.ok).toBe(true);
+    const request = { schemaVersion: "archcontext.projection-request/v1", requestId: "projection_request.history_check", profile: "repo-harness/v1", mode: "check", targets: ["agent-context", "architecture-docs"], changedPaths: [], expected: (snapshot.data as any).expected };
+    const checked = await runCli("projection", ["run", "--request-json", JSON.stringify(request), "--json"], fixture.dev, { runtimeClient: daemon });
+    expect(checked.ok, JSON.stringify(checked)).toBe(true);
+    expect(JSON.stringify(checked)).not.toContain("docs/architecture/history.md");
+    const drift = await runCli("docs", ["drift", "--profile", "repo-harness/v1"], fixture.dev, { runtimeClient: daemon });
+    expect(drift.ok, JSON.stringify(drift)).toBe(true);
+    expect(JSON.stringify(drift)).not.toContain("docs/architecture/history.md");
+    const completed = await runCli("complete", ["--task", "verify history does not drift"], fixture.dev, { runtimeClient: daemon });
+    expect(JSON.stringify(completed)).not.toContain("docs/architecture/history.md");
+  } finally {
+    await daemon.stop();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, TEST_TIMEOUT_MS);
+
 test("projection publish pushes a generated-only commit for a stamp-only source change, then is a no-op; publish-status reports it", async () => {
   const daemon = await startDaemon();
   const fixture = await projectedOrigin(daemon);
@@ -152,6 +182,12 @@ test("projection publish pushes a generated-only commit for a stamp-only source 
     git(fixture.dev, "commit", "-q", "-am", "change app source");
     git(fixture.dev, "push", "-q", "origin", "main");
     const baseSha = git(fixture.dev, "rev-parse", "HEAD");
+
+    const history = await runCli("history", ["--format", "mermaid", "--limit", "1", "--json"], fixture.dev);
+    expect(history).toMatchObject({ ok: true, data: { schemaVersion: "archcontext.architecture-history-mermaid/v1", head: baseSha, limit: 1 } });
+    expect(await runCli("history", ["--limit", "1001", "--json"], fixture.dev)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+    expect(await runCli("history", ["--offset", "1.5", "--json"], fixture.dev)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+    expect(await runCli("history", ["--ref", "", "--json"], fixture.dev)).toMatchObject({ ok: false, error: { reasonCode: "native-context-ref-unsafe" } });
 
     const published = dataOf<ProjectionPublishRunV1>(
       await runCli("projection", ["publish", "--publisher", "none", "--json"], fixture.clone, { runtimeClient: daemon }),

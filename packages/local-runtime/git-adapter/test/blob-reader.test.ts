@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NativeContextError } from "@archcontext/contracts";
 import { assertNativeGitRevision, decodeGitBlobBatch, decodeGitTreeEntries, readOnlyGit } from "../src/blob-reader";
 const objectId = (body: Buffer, algorithm = "sha1") => createHash(algorithm).update(`blob ${body.length}\0`).update(body).digest("hex");
@@ -31,6 +35,35 @@ describe("checked Git blob reader", () => {
     expect(() => readOnlyGit("/missing/repo", "cat-file", ["--filters", "HEAD"])).toThrow("native-context-git-read-failed");
     expect(() => readOnlyGit("/missing/repo", "rev-parse", ["--output=outside"])).toThrow("native-context-git-read-failed");
     expect(() => readOnlyGit("/missing/repo", "checkout" as any, ["HEAD"])).toThrow("native-context-git-read-failed");
+  });
+  test("history log accepts only its fixed NUL-delimited shape", () => {
+    const sha = readOnlyGit(process.cwd(), "rev-parse", ["HEAD"]).toString().trim();
+    const args = ["--first-parent", "--reverse", "-z", "--format=%H%x00%cI%x00%s", sha, "--", ".archcontext/model", ".archcontext/manifest.yaml"];
+    const fields = readOnlyGit(process.cwd(), "log", args).toString().split("\0");
+    expect(fields.pop()).toBe("");
+    expect(fields.length % 3).toBe(0);
+    expect(fields.filter((_, index) => index % 3 === 0).every(rev => /^[a-f0-9]{40,64}$/.test(rev))).toBe(true);
+    expect(() => readOnlyGit(process.cwd(), "log", args.filter(arg => arg !== "-z"))).toThrow("native-context-git-read-failed");
+    const root = mkdtempSync(join(tmpdir(), "archctx-signed-log-"));
+    try {
+      const key = join(root, "test-signing-key");
+      execFileSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]);
+      const git = (...input: string[]) => execFileSync("git", input, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+      git("init", "-q");
+      git("config", "user.name", "History Test"); git("config", "user.email", "history@example.test");
+      git("config", "gpg.format", "ssh"); git("config", "user.signingkey", key);
+      git("config", "commit.gpgSign", "true"); git("config", "log.showSignature", "true");
+      mkdirSync(join(root, ".archcontext/model/nodes"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/model/nodes/node.yaml"), "test\n");
+      git("add", ".archcontext"); git("commit", "-qm", "signed model");
+      const signedSha = git("rev-parse", "HEAD");
+      expect(git("cat-file", "commit", signedSha)).toContain("gpgsig -----BEGIN SSH SIGNATURE-----");
+      const signedArgs = [...args]; signedArgs[4] = signedSha;
+      const signedFields = readOnlyGit(root, "log", signedArgs).toString().split("\0");
+      expect(signedFields[0]).toBe(signedSha);
+      expect(signedFields[2]).toBe("signed model");
+      expect(signedFields[3]).toBe("");
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
   test("file, total and protocol bounds are independently enforced", () => {
     const body = blob(Buffer.from("123"));

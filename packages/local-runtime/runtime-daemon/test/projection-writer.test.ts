@@ -7,7 +7,8 @@ import { jsonSchemaResolver, okEnvelope, validateJsonSchema, type Json, type Jso
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { publicOperationErrorEnvelope } from "../src/public-operation-failure";
 import { failureEnvelope, knownFailure } from "@archcontext/contracts";
-import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
+import { initializeArchContextModel, readArchitectureHistory } from "@archcontext/local-runtime/model-store-yaml";
+import { renderHistoryMarkdown } from "@archcontext/core/projection-engine";
 import { declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import {
   PROJECTION_PR_BODY_MARKER,
@@ -18,6 +19,7 @@ import {
   runProjectionPublishCommand,
   runProjectionPublishFollow,
   runProjectionPublishStatusCommand,
+  runProjectionVerifyPrCommand,
   type ProjectionPublisherExec,
   type ProjectionPublisherInput,
   type ProjectionPublisherPort,
@@ -91,6 +93,11 @@ function writerFixture(): WriterFixture {
   git(dev, "config", "core.autocrlf", "false");
   git(dev, "add", "-A");
   git(dev, "commit", "-q", "-m", "fixture");
+  const history = readArchitectureHistory(dev, { env: { ARCHCONTEXT_STATE_DIR: join(root, "fixture-state") } });
+  mkdirSync(join(dev, "docs/architecture"), { recursive: true });
+  writeFileSync(join(dev, "docs/architecture/history.md"), renderHistoryMarkdown(history));
+  git(dev, "add", "docs/architecture/history.md");
+  git(dev, "commit", "-q", "-m", "baseline generated history");
   git(dev, "remote", "add", "origin", origin);
   git(dev, "push", "-q", "origin", "main");
   // Byte-exact checkout regardless of a global core.autocrlf (Windows runners default to true).
@@ -171,6 +178,22 @@ function statusOf(envelope: JsonEnvelope): ProjectionPublishStatusV1 {
 function changedFiles(fixture: WriterFixture, commit: string): string[] {
   return git(fixture.origin, "diff-tree", "--no-commit-id", "--name-only", "-r", commit).split("\n").filter(Boolean).sort();
 }
+
+test("writer publishes history and verify-pr rejects a changed history that differs from its render", async () => {
+  const fixture = writerFixture();
+  git(fixture.dev, "rm", "-q", "docs/architecture/history.md");
+  git(fixture.dev, "commit", "-qm", "remove generated history");
+  git(fixture.dev, "push", "-q", "origin", "main");
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: recordingPublisher().publisher, apply: fakeApply(() => ({ status: "noop" })).apply, env: fixture.env }));
+  expect(run.files).toEqual(["docs/architecture/history.md"]);
+  git(fixture.clone, "fetch", "-q", "origin");
+  git(fixture.clone, "checkout", "-q", "-b", "test-history", "origin/archctx/projection");
+  const check = () => okEnvelope("projection.run", { status: "noop", files: [] } as unknown as Json);
+  expect(runProjectionVerifyPrCommand({ cwd: fixture.clone, base: "origin/main", check }).data).toMatchObject({ generatedOnly: true, renderEquivalent: true, differingPaths: [] });
+  writeFileSync(join(fixture.clone, "docs/architecture/history.md"), "modified\n");
+  git(fixture.clone, "commit", "-qam", "alter history");
+  expect(runProjectionVerifyPrCommand({ cwd: fixture.clone, base: "origin/main", check }).data).toMatchObject({ generatedOnly: true, renderEquivalent: false, differingPaths: ["docs/architecture/history.md"] });
+});
 
 test("first run publishes one generated-only commit on the base tip; the same SHA is then already processed", async () => {
   const fixture = writerFixture();

@@ -2,6 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } f
 import { dirname, resolve } from "node:path";
 import { REVIEW_FAIL_ON_CATEGORIES, digestJson, runtimeTopologyModelIssues, stableYaml, validateJsonSchema, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
 import { manifestDecisionDiagnostics, parseJsonOrStableYaml, readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
+export * from "./architecture-history";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 export * from "./native-context";

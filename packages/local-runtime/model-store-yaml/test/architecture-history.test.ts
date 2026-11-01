@@ -1,0 +1,156 @@
+import { expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { readArchitectureHistory } from "../src/architecture-history";
+import { projectHistoryMermaid, renderHistoryDomainOverview, renderHistoryMarkdown } from "@archcontext/core/projection-engine";
+import { ARCHITECTURE_HISTORY_DERIVATION_VERSION, architectureHistoryIssues, decodeArchitectureHistory } from "@archcontext/contracts";
+import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
+
+test("history derives valid states around errors and keeps the preceding milestone as baseRev", () => {
+  const root = mkdtempSync(join(tmpdir(), "architecture-history-"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  const node = (id: string, kind: string, name: string, parent?: string) => JSON.stringify({ schemaVersion: "archcontext.node/v2", id, kind, name, status: "active", summary: "test", ...(parent ? { parent } : {}) });
+  const write = (path: string, body: string) => writeFileSync(join(root, ".archcontext/model", path), body);
+  const commit = (subject: string) => { git("add", ".archcontext"); git("commit", "-qm", subject); return git("rev-parse", "HEAD"); };
+  try {
+    git("init", "-q"); git("config", "user.name", "Test"); git("config", "user.email", "test@example.test");
+    mkdirSync(join(root, ".archcontext/model/nodes"), { recursive: true });
+    mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+    write("nodes/a.yaml", node("capability.one.a", "capability", "A"));
+    write("nodes/b.yaml", node("capability.two.b", "capability", "B"));
+    const first = commit("first");
+    write("nodes/a.yaml", "invalid: ["); const invalid = commit("broken");
+    write("nodes/a.yaml", "invalid: {"); commit("still broken");
+    write("nodes/a.yaml", node("capability.one.a", "capability", "Renamed"));
+    write("nodes/c.yaml", node("component.one.c", "component", "C", "capability.one.a"));
+    write("relations/ab.yaml", JSON.stringify({ schemaVersion: "archcontext.relation/v1", id: "relation.one.ab", kind: "calls", source: "component.one.c", target: "capability.two.b", intent: "test" }));
+    const changed = commit("changed");
+    rmSync(join(root, ".archcontext/model/nodes/c.yaml"));
+    rmSync(join(root, ".archcontext/model/relations/ab.yaml"));
+    const removed = commit("removed");
+    const env = { ARCHCONTEXT_STATE_DIR: join(root, "state") };
+    const history = readArchitectureHistory(root, { env });
+    expect(history.milestones.map(row => row.rev)).toEqual([first, invalid, changed, removed]);
+    expect(history.milestones[1]).toMatchObject({ nodes: null, delta: null, error: { code: "history-model-invalid" } });
+    expect(history.milestones[0]!.delta?.baseRev).toBeNull();
+    expect(history.milestones[2]).toMatchObject({ delta: { baseRev: first, added: [{ id: "component.one.c", kind: "component" }], renamed: [{ id: "capability.one.a", from: "A", to: "Renamed" }], edgesChanged: { added: [{ source: "capability.one.a", target: "capability.two.b" }] } } });
+    expect(history.milestones[3]).toMatchObject({ delta: { removed: [{ id: "component.one.c", kind: "component" }], edgesChanged: { removed: [{ source: "capability.one.a", target: "capability.two.b" }] } } });
+    expect(history.milestones[2]!.delta!.added).toContainEqual({ id: "component.one.c", kind: "component", capability: "capability.one.a" });
+    expect(history.milestones[3]!.delta!.removed).toContainEqual({ id: "component.one.c", kind: "component", capability: "capability.one.a" });
+    const cache = join(runtimeStatePaths(root, env).sharedCacheDir, "architecture-history", ARCHITECTURE_HISTORY_DERIVATION_VERSION, `${first}.json`);
+    writeFileSync(cache, "{broken");
+    expect(JSON.stringify(readArchitectureHistory(root, { env }))).toBe(JSON.stringify(history));
+    const oid = git("rev-parse", `${first}:.archcontext/model/nodes/a.yaml`);
+    rmSync(join(root, ".git/objects", oid.slice(0, 2), oid.slice(2)));
+    expect(JSON.stringify(readArchitectureHistory(root, { env }))).toBe(JSON.stringify(history));
+    expect(decodeArchitectureHistory(history)).toEqual(history);
+    expect(architectureHistoryIssues({ ...history, milestones: [null] }).length).toBeGreaterThan(0);
+    expect(projectHistoryMermaid(history).diagrams[1]!.mermaid).toBeNull();
+    expect(renderHistoryMarkdown(history)).toContain("```mermaid\nflowchart LR");
+    const source = history.milestones[2]!;
+    if (source.nodes === null) throw new Error("expected a valid milestone");
+    const a = "capability.one.a", b = "capability.one.b", c = "capability.two.c", d = "capability.two.d", e = "capability.zzz.e";
+    const diagramHistory = { ...history, milestones: [{ ...source,
+      nodes: [a, b, c].map(id => ({ id, name: id, domain: id === c ? "two" : "one" })),
+      edges: [{ source: a, target: b }, { source: b, target: c }],
+      delta: { ...source.delta, added: [{ id: "component.one.part", kind: "component" as const, capability: a }], removed: [{ id: d, kind: "capability" as const, capability: d }, { id: e, kind: "capability" as const, capability: e }], edgesChanged: { added: [{ source: b, target: c }], removed: [{ source: b, target: d }, { source: c, target: d }, { source: c, target: e }] } }
+    }] };
+    const markdown = renderHistoryMarkdown(diagramHistory);
+    expect(markdown).not.toContain("n0 --> n1");
+    expect(markdown).toContain("n1 --> n2");
+    expect(markdown).toContain("n2 -.-> n3");
+    expect(markdown).toContain('n3["capability.two.d"]');
+    expect(markdown).toContain("class n3 removed");
+    expect(markdown).toContain("classDef removed stroke-dasharray: 4 4");
+    expect(markdown).toContain('d0["one (2)"]');
+    expect(markdown).toContain('d1["two (1)"]');
+    expect(markdown).toContain("d0 -->|+1 −1| d1");
+    expect(markdown).not.toContain("d1 -.->|+0 −1| d1");
+    expect(markdown).toContain("d1 -.->|+0 −1| d2");
+    const componentOnly = { ...diagramHistory.milestones[0]!, delta: { ...diagramHistory.milestones[0]!.delta, removed: [], renamed: [], edgesChanged: { added: [], removed: [] } } };
+    const componentOverview = renderHistoryDomainOverview(componentOnly)!.mermaid;
+    expect(componentOverview).toContain("class d0 changed");
+    expect(componentOverview).not.toContain("class d1 changed");
+    expect(projectHistoryMermaid(diagramHistory).diagrams[0]!.mermaid).toContain("n0 --> n1");
+    expect(readArchitectureHistory(root, { env, offset: 1, limit: 1 }).milestones[0]!.rev).toBe(invalid);
+    write("nodes/a.yaml", "invalid: ["); commit("broken again");
+    write("nodes/a.yaml", node("capability.one.a", "capability", "Renamed"));
+    const recovered = commit("recovered without structural change");
+    expect(readArchitectureHistory(root, { env }).milestones.at(-1)).toMatchObject({
+      rev: recovered,
+      delta: { baseRev: removed, added: [], removed: [], renamed: [], edgesChanged: { added: [], removed: [] } }
+    });
+    write("nodes/x.yaml", node("component.one.x", "component", "X", "capability.one.a"));
+    write("nodes/y.yaml", node("component.one.y", "component", "Y", "capability.one.a"));
+    const ownerBase = commit("add components");
+    write("nodes/x.yaml", node("component.one.x", "component", "X", "capability.two.b"));
+    write("nodes/y.yaml", node("component.one.y", "component", "Y", "capability.two.b"));
+    commit("reparent without a milestone");
+    rmSync(join(root, ".archcontext/model/nodes/x.yaml"));
+    write("nodes/y.yaml", node("component.one.y", "component", "Y renamed", "capability.two.b"));
+    commit("remove and rename");
+    expect(readArchitectureHistory(root, { env }).milestones.at(-1)!.delta).toMatchObject({
+      baseRev: ownerBase,
+      removed: [{ id: "component.one.x", kind: "component", capability: "capability.one.a" }],
+      renamed: [{ id: "component.one.y", kind: "component", capability: "capability.two.b", from: "Y", to: "Y renamed" }]
+    });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("history markdown caps capability detail while retaining the domain overview", () => {
+  const a = Array.from({ length: 21 }, (_, index) => `capability.one.n${index}`), target = "capability.two.target";
+  const edges = a.map(source => ({ source, target }));
+  const milestone = { rev: "a".repeat(40), date: "2026-01-01", subject: "large change", nodes: [...a, target].map(id => ({ id, name: id, domain: id === target ? "two" : "one" })), edges,
+    delta: { baseRev: null, added: [], removed: [], renamed: [], edgesChanged: { added: edges, removed: [] } } };
+  const history = { schemaVersion: "archcontext.architecture-history/v1" as const, head: milestone.rev, total: 1, offset: 0, limit: 200, milestones: [milestone] };
+  const markdown = renderHistoryMarkdown(history);
+  expect([...markdown.matchAll(/```mermaid/g)]).toHaveLength(1);
+  expect(markdown).toContain("d0 -->|+21 −0| d1");
+  expect(markdown).toContain("21 changed edges across 1 domain pairs; run archctx history --ref aaaaaaaaaaaa --format mermaid for the full shape.");
+  expect(projectHistoryMermaid(history).diagrams[0]!.mermaid).toContain(" --> ");
+  const atLimit = { ...milestone, delta: { ...milestone.delta, edgesChanged: { added: edges.slice(0, 20), removed: [] } } };
+  expect([...renderHistoryMarkdown({ ...history, milestones: [atLimit] }).matchAll(/```mermaid/g)]).toHaveLength(2);
+});
+
+test("CLI --ref reproduces the bytes emitted when the selected commit was HEAD", () => {
+  const root = mkdtempSync(join(tmpdir(), "history-ref-"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  const cli = (args: string[]) => execFileSync("bun", [join(import.meta.dir, "../../../surfaces/cli/src/main.ts"), "history", ...args, "--json"], { cwd: root, env: { ...process.env, ARCHCONTEXT_STATE_DIR: join(root, "state") }, encoding: "utf8" });
+  try {
+    git("init", "-q"); git("config", "user.name", "Test"); git("config", "user.email", "test@example.test");
+    mkdirSync(join(root, ".archcontext/model/nodes"), { recursive: true });
+    const path = join(root, ".archcontext/model/nodes/a.yaml");
+    const node = { schemaVersion: "archcontext.node/v2", id: "capability.one.a", kind: "capability", name: "A", status: "active", summary: "test" };
+    writeFileSync(path, JSON.stringify(node));
+    git("add", ".archcontext"); git("commit", "-qm", "first");
+    const first = git("rev-parse", "HEAD"), output = cli([]);
+    writeFileSync(path, JSON.stringify({ ...node, name: "Renamed" }));
+    git("add", ".archcontext"); git("commit", "-qm", "next");
+    expect(cli(["--ref", first])).toBe(output);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("unsupported layouts, missing nodes and shallow repositories fail with their declared reasons", () => {
+  const root = mkdtempSync(join(tmpdir(), "history-errors-"));
+  const repo = join(root, "repo"), clone = join(root, "clone");
+  mkdirSync(join(repo, ".archcontext/model/nodes"), { recursive: true });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+  try {
+    git("init", "-q"); git("config", "user.name", "Test"); git("config", "user.email", "test@example.test");
+    writeFileSync(join(repo, ".archcontext/model/nodes/a.yaml"), JSON.stringify({ schemaVersion: "archcontext.node/v2", id: "capability.one.a", kind: "capability", name: "A", status: "active", summary: "test" }));
+    writeFileSync(join(repo, ".archcontext/manifest.yaml"), "invalid: true\n");
+    git("add", ".archcontext"); git("commit", "-qm", "unsupported");
+    rmSync(join(repo, ".archcontext/model/nodes/a.yaml"));
+    writeFileSync(join(repo, ".archcontext/manifest.yaml"), JSON.stringify({ schemaVersion: "archcontext.manifest/v1", model: { layout: "split", root: ".archcontext/model" } }));
+    git("add", "-A"); git("commit", "-qm", "missing");
+    rmSync(join(repo, ".archcontext/manifest.yaml"));
+    git("add", "-A"); git("commit", "-qm", "remove context");
+    const env = { ARCHCONTEXT_STATE_DIR: join(root, "state") };
+    expect(readArchitectureHistory(repo, { env }).milestones.map(row => row.error?.code)).toEqual(["history-model-layout-unsupported", "history-model-missing"]);
+    execFileSync("git", ["clone", "-q", "--depth=1", pathToFileURL(repo).href, clone]);
+    expect(() => readArchitectureHistory(clone, { env })).toThrow("complete Git repository");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

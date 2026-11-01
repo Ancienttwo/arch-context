@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { generatedMarkerAttributes, scanDocumentRegions } from "./document-regions";
 import { globLiteralPrefixLength } from "./source-globs";
 export * from "./document-regions";
+export * from "./architecture-history";
 export * from "./source-globs";
 import {
   AGENT_CONTEXT_RENDERER_VERSION as CONTRACT_AGENT_CONTEXT_RENDERER_VERSION,

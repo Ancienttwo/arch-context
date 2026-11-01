@@ -1,5 +1,6 @@
 export * from "./control-plane-routes";
 export * from "./architecture";
+export * from "./architecture-history";
 export * from "./architecture-debt";
 export * from "./docs-anchors";
 export * from "./external-docs";
