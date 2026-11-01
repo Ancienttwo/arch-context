@@ -62,7 +62,7 @@ export function readOnlyGit(root: string, operation: GitReadOperation, args: str
   }
   const env = { ...process.env, LC_ALL: "C", GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", GIT_ALLOW_PROTOCOL: "", GIT_TERMINAL_PROMPT: "0" };
   for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE"]) delete (env as NodeJS.ProcessEnv)[key];
-  const result = spawnSync("git", ["--no-pager", "--no-replace-objects", "-c", "core.fsmonitor=false", operation, ...args], {
+  const result = spawnSync("git", ["--no-pager", "--no-replace-objects", "-c", "core.fsmonitor=false", ...(operation === "log" ? ["-c", "log.showSignature=false"] : []), operation, ...args], {
     cwd: root,
     env,
     input: options.input,

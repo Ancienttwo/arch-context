@@ -110,6 +110,7 @@ export function readArchitectureHistory(cwd: string, options: { ref?: string; of
   const fields = output ? output.split("\0") : [];
   if (fields.length && fields.pop() !== "") throw new NativeContextError("native-context-git-read-failed", { operation: "log", category: "malformed-record" });
   if (fields.length % 3 !== 0) throw new NativeContextError("native-context-git-read-failed", { operation: "log", category: "malformed-record" });
+  for (let i = 0; i < fields.length; i += 3) if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(fields[i]!)) throw new NativeContextError("native-context-git-read-failed", { operation: "log", category: "malformed-record" });
   const parsed = new Map<string, unknown>(); const milestones: HistoryMilestone[] = [];
   let previous: Extract<HistoryState, { nodes: unknown[] }> = { nodes: [], edges: [], structure: [] };
   let havePrevious = false, priorError: string | undefined, previousMilestone: string | null = null;
