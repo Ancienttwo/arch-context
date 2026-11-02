@@ -12,6 +12,8 @@ import { incompleteCodeGraphFixture, indexCodeGraphFixture } from "../../codegra
 function fixture() {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-flows-readonly-")));
   execFileSync("git", ["init", "-q"], { cwd: root, stdio: "pipe" });
+  // Auto-maintenance detaches after a commit and churns objects/maintenance.lock while snapshot() walks .git.
+  for (const [key, value] of [["gc.auto", "0"], ["maintenance.auto", "false"]]) execFileSync("git", ["config", key, value!], { cwd: root, stdio: "pipe" });
   writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
   initializeArchContextModel(root, "Read-only flows");
   writeFileSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), JSON.stringify({

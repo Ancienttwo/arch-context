@@ -101,6 +101,8 @@ function seedWorkspace(options: { withIndex: boolean }): { root: string; log: st
   writeFileSync(binary, fakeCli(log));
   // Footprints are measured over Git-visible files; untracked files count, so no commit is needed.
   execFileSync("git", ["init", "-q"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  // Tests that commit later must not start detached auto-maintenance that writes into .git while it is copied or listed.
+  for (const [key, value] of [["gc.auto", "0"], ["maintenance.auto", "false"]]) execFileSync("git", ["config", key, value!], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   return { root, log, binary };
 }
 
