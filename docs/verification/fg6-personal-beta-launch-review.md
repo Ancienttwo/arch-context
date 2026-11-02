@@ -62,7 +62,7 @@ At 10x personal-user adoption, the first likely failures are install/runtime com
 | Fault and SLO evidence | PASS | `docs/verification/fg6-chaos-fault-matrix-readback.json`; `docs/verification/fg6-slo-readback.json` |
 | Rollback compatibility | PASS | `docs/verification/fg6-rollback-compat-readback.json` |
 | Collaboration rollout | DEFERRED | `tasks/todos.md` |
-| Human launch approval | PASS | `docs/approvals/fg6-personal-beta-launch.md` |
+| Human launch approval | PASS | https://github.com/Ancienttwo/arch-context/pull/2#issuecomment-6571948948 |
 
 ## Support Matrix
 
@@ -85,4 +85,4 @@ Personal-user Beta support is constrained to the verified local runtime matrix:
 
 ## Launch Decision
 
-Approved for the personal-user Beta boundary in `docs/approvals/fg6-personal-beta-launch.md`. Current exact npm version is governed by the release distribution readback and `docs/runbooks/personal-user-install.md`.
+Approved for the personal-user Beta boundary in https://github.com/Ancienttwo/arch-context/pull/2#issuecomment-6571948948. Current exact npm version is governed by the release distribution readback and `docs/runbooks/personal-user-install.md`.

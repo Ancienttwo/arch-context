@@ -6,7 +6,7 @@ Human Gate approval is a governance artifact, not a test result. Agent-authored 
 
 ## Approval Contract
 
-Sprint approval artifacts live under `docs/approvals/`.
+`docs/approvals/` holds only `archctx-sprint-2.md`, the CD-EG3 input and a listed E5 exception, until a human completes CD-EG3. Decisions and acceptance go to issue decision comments, PR review threads and ADRs.
 
 Required fields:
 

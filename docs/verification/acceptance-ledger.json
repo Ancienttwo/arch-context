@@ -2369,7 +2369,6 @@
       "target": "E4",
       "evidence": [
         "docs/verification/fg6-personal-beta-launch-review.md",
-        "docs/approvals/fg6-personal-beta-launch.md",
         "docs/runbooks/personal-user-install.md",
         "docs/verification/fg6-acceptance-evidence.md",
         "docs/verification/fg6-staging-release-gate.md"
@@ -2515,7 +2514,6 @@
       "status": "completed",
       "target": "E4",
       "evidence": [
-        "docs/approvals/fg6-personal-beta-launch.md",
         "docs/verification/fg6-personal-beta-launch-review.md",
         "docs/verification/fg6-acceptance-evidence.md",
         "docs/verification/fg6-staging-release-gate.md"

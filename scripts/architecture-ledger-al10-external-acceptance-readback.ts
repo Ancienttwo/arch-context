@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -8,6 +9,7 @@ const ROOT = resolve(import.meta.dir, "..");
 const SCHEMA_VERSION = "archcontext.architecture-ledger-al10-external-acceptance-readback/v1";
 const DEFAULT_OUT = "docs/verification/architecture-ledger-al10-external-acceptance-readback.json";
 const DEFAULT_REPORT = "docs/verification/architecture-ledger-al10-external-acceptance.md";
+const GITHUB_REPOSITORY = "Ancienttwo/arch-context";
 
 const REQUIRED_GATES = ["AL10-14", "AL10-GA-6", "AL10-GA-7"] as const;
 
@@ -31,7 +33,7 @@ const REQUIRED_ARTIFACTS = [
   {
     id: "independent-architecture-security-review",
     gate: "AL10-GA-6",
-    path: "docs/approvals/architecture-ledger-al10-independent-review.md",
+    url: "https://github.com/Ancienttwo/arch-context/pull/83#issuecomment-6571947292",
     requiredStatus: "Approved",
     requiredTerms: [
       "Status",
@@ -77,7 +79,7 @@ const LEGACY_ARTIFACTS = [
   },
   {
     id: "fg6-personal-beta-launch",
-    path: "docs/approvals/fg6-personal-beta-launch.md",
+    url: "https://github.com/Ancienttwo/arch-context/pull/2#issuecomment-6571948948",
     rejectionReason: "Personal-user beta launch approval; explicitly not production GA or design-partner rollout.",
     rejectionTerms: ["does not approve", "production GA"]
   },
@@ -133,11 +135,15 @@ if (import.meta.main) {
   if (!result.ok) process.exit(1);
 }
 
+export type IssueComment = { author: string; body: string };
+export type IssueCommentReader = (url: string) => IssueComment;
+
 export function runArchitectureLedgerAl10ExternalAcceptanceReadback({
   outPath = DEFAULT_OUT,
-  reportPath = DEFAULT_REPORT
-} = {}) {
-  const packet = buildArchitectureLedgerAl10ExternalAcceptancePacket();
+  reportPath = DEFAULT_REPORT,
+  readComment = readGitHubIssueComment
+}: { outPath?: string; reportPath?: string; readComment?: IssueCommentReader } = {}) {
+  const packet = buildArchitectureLedgerAl10ExternalAcceptancePacket(readComment);
   const inspected = inspectArchitectureLedgerAl10ExternalAcceptanceReadback(packet);
   const finalPacket = {
     ...packet,
@@ -149,8 +155,8 @@ export function runArchitectureLedgerAl10ExternalAcceptanceReadback({
   return inspectArchitectureLedgerAl10ExternalAcceptanceReadback(finalPacket);
 }
 
-export function buildArchitectureLedgerAl10ExternalAcceptancePacket() {
-  const requiredArtifacts = REQUIRED_ARTIFACTS.map(inspectRequiredArtifact);
+export function buildArchitectureLedgerAl10ExternalAcceptancePacket(readComment: IssueCommentReader = readGitHubIssueComment) {
+  const requiredArtifacts = REQUIRED_ARTIFACTS.map((spec) => inspectRequiredArtifact(spec, readComment));
   const gateResults = REQUIRED_GATES.map((gate) => {
     const artifact = requiredArtifacts.find((item) => item.gate === gate);
     const verified = artifact?.verified === true;
@@ -158,14 +164,14 @@ export function buildArchitectureLedgerAl10ExternalAcceptancePacket() {
       gate,
       status: verified ? "verified" : "blocked",
       artifactId: artifact?.id ?? "",
-      artifactPath: artifact?.path ?? "",
+      artifactLocation: artifact ? locationOf(artifact) : "",
       blocker: verified ? "" : artifact?.blockedReasons.join("; ")
     };
   });
   const verifiedGates = gateResults.filter((gate) => gate.status === "verified").map((gate) => gate.gate);
   const blockedGates = gateResults.filter((gate) => gate.status !== "verified").map((gate) => gate.gate);
   const status = blockedGates.length === 0 ? "verified" : "blocked";
-  const legacyArtifacts = LEGACY_ARTIFACTS.map(inspectLegacyArtifact);
+  const legacyArtifacts = LEGACY_ARTIFACTS.map((spec) => inspectLegacyArtifact(spec, readComment));
   const sourceReadbacks = SOURCE_PATHS.map(inspectSourcePath);
   const privacy = inspectPrivacy({
     requiredArtifacts,
@@ -186,7 +192,7 @@ export function buildArchitectureLedgerAl10ExternalAcceptancePacket() {
   const assertions = {
     canonicalArtifactsPresent: requiredArtifacts.every((artifact) => artifact.exists),
     canonicalSourcesOnly: requiredArtifacts.every((artifact) =>
-      REQUIRED_ARTIFACTS.some((spec) => spec.id === artifact.id && spec.path === artifact.path && spec.gate === artifact.gate)
+      REQUIRED_ARTIFACTS.some((spec) => spec.id === artifact.id && locationOf(spec) === locationOf(artifact) && spec.gate === artifact.gate)
     ),
     externalEvidenceComplete: status === "verified",
     externalEvidenceBlocked: status === "blocked" && blockedGates.length > 0,
@@ -294,7 +300,11 @@ function inspectRequiredArtifacts(requiredArtifacts: any, failures: string[]): v
       continue;
     }
     if (artifact.gate !== spec.gate) failures.push(`${spec.id}: gate must be ${spec.gate}`);
-    if (artifact.path !== spec.path) failures.push(`${spec.id}: artifact path must use canonical path ${spec.path}`);
+    if ("url" in spec) {
+      if (artifact.url !== spec.url) failures.push(`${spec.id}: artifact url must use canonical url ${spec.url}`);
+    } else if (artifact.path !== spec.path) {
+      failures.push(`${spec.id}: artifact path must use canonical path ${spec.path}`);
+    }
     if (artifact.requiredStatus !== spec.requiredStatus) failures.push(`${spec.id}: requiredStatus must be ${spec.requiredStatus}`);
     if (!["missing", "blocked", "verified"].includes(artifact.status)) failures.push(`${spec.id}: status must be missing, blocked or verified`);
     if (artifact.verified === true && artifact.status !== "verified") failures.push(`${spec.id}: verified artifact must have status verified`);
@@ -323,7 +333,8 @@ function inspectGateResults(gateResults: any, status: string, failures: string[]
     if (!["blocked", "verified"].includes(result.status)) failures.push(`${gate}: gate status must be blocked or verified`);
     const spec = REQUIRED_ARTIFACTS.find((item) => item.gate === gate);
     if (result.artifactId !== spec?.id) failures.push(`${gate}: artifactId must be ${spec?.id}`);
-    if (result.artifactPath !== spec?.path) failures.push(`${gate}: artifactPath must be ${spec?.path}`);
+    const location = spec ? locationOf(spec) : "";
+    if (result.artifactLocation !== location) failures.push(`${gate}: artifactLocation must be ${location}`);
     if (result.status !== "verified") blocked.push(gate);
   }
   if (status === "verified" && blocked.length > 0) failures.push(`verified packet cannot have blocked gates: ${blocked.join(",")}`);
@@ -341,7 +352,11 @@ function inspectLegacyArtifacts(legacyArtifacts: any, failures: string[]): void 
       failures.push(`legacy artifact readback missing: ${spec.id}`);
       continue;
     }
-    if (artifact.path !== spec.path) failures.push(`${spec.id}: legacy artifact path must remain ${spec.path}`);
+    if ("url" in spec) {
+      if (artifact.url !== spec.url) failures.push(`${spec.id}: legacy artifact url must remain ${spec.url}`);
+    } else if (artifact.path !== spec.path) {
+      failures.push(`${spec.id}: legacy artifact path must remain ${spec.path}`);
+    }
     if (artifact.rejected !== true) failures.push(`${spec.id}: legacy artifact must be rejected for AL10 external acceptance`);
     if (artifact.rejectionReason !== spec.rejectionReason) failures.push(`${spec.id}: rejectionReason must be stable`);
   }
@@ -405,13 +420,13 @@ function inspectAssertions(assertions: Record<string, unknown> | undefined, stat
   }
 }
 
-function inspectRequiredArtifact(spec: typeof REQUIRED_ARTIFACTS[number]) {
-  const absolutePath = resolve(ROOT, spec.path);
-  if (!existsSync(absolutePath)) {
+function inspectRequiredArtifact(spec: typeof REQUIRED_ARTIFACTS[number], readComment: IssueCommentReader) {
+  const source = readArtifactSource(spec, readComment);
+  if (!source) {
     return {
       id: spec.id,
       gate: spec.gate,
-      path: spec.path,
+      ...locationField(spec),
       exists: false,
       sha256: "",
       requiredStatus: spec.requiredStatus,
@@ -423,7 +438,7 @@ function inspectRequiredArtifact(spec: typeof REQUIRED_ARTIFACTS[number]) {
       blockedReasons: ["artifact missing"]
     };
   }
-  const raw = readFileSync(absolutePath, "utf8");
+  const { raw, author } = source;
   const statusMarkerPresent = includesLoose(raw, `Status**: ${spec.requiredStatus}`)
     || includesLoose(raw, `Status: ${spec.requiredStatus}`);
   const requiredTermsPresent = spec.requiredTerms.filter((term) => includesLoose(raw, term));
@@ -436,7 +451,8 @@ function inspectRequiredArtifact(spec: typeof REQUIRED_ARTIFACTS[number]) {
   return {
     id: spec.id,
     gate: spec.gate,
-    path: spec.path,
+    ...locationField(spec),
+    ...(author === undefined ? {} : { author }),
     exists: true,
     sha256: sha256(raw),
     requiredStatus: spec.requiredStatus,
@@ -449,12 +465,12 @@ function inspectRequiredArtifact(spec: typeof REQUIRED_ARTIFACTS[number]) {
   };
 }
 
-function inspectLegacyArtifact(spec: typeof LEGACY_ARTIFACTS[number]) {
-  const absolutePath = resolve(ROOT, spec.path);
-  if (!existsSync(absolutePath)) {
+function inspectLegacyArtifact(spec: typeof LEGACY_ARTIFACTS[number], readComment: IssueCommentReader) {
+  const source = readArtifactSource(spec, readComment);
+  if (!source) {
     return {
       id: spec.id,
-      path: spec.path,
+      ...locationField(spec),
       exists: false,
       sha256: "",
       rejected: true,
@@ -462,16 +478,47 @@ function inspectLegacyArtifact(spec: typeof LEGACY_ARTIFACTS[number]) {
       rejectionTermsPresent: []
     };
   }
-  const raw = readFileSync(absolutePath, "utf8");
+  const { raw, author } = source;
   return {
     id: spec.id,
-    path: spec.path,
+    ...locationField(spec),
+    ...(author === undefined ? {} : { author }),
     exists: true,
     sha256: sha256(raw),
     rejected: true,
     rejectionReason: spec.rejectionReason,
     rejectionTermsPresent: spec.rejectionTerms.filter((term) => includesLoose(raw, term))
   };
+}
+
+type ArtifactLocation = { path: string } | { url: string };
+
+function locationField(spec: ArtifactLocation): ArtifactLocation {
+  return "url" in spec ? { url: spec.url } : { path: spec.path };
+}
+
+function locationOf(spec: ArtifactLocation): string {
+  return "url" in spec ? spec.url : spec.path;
+}
+
+// A file artifact that is absent reads as missing; an unreadable comment URL fails the run.
+function readArtifactSource(spec: ArtifactLocation, readComment: IssueCommentReader): { raw: string; author?: string } | undefined {
+  if ("url" in spec) {
+    const comment = readComment(spec.url);
+    return { raw: comment.body, author: comment.author };
+  }
+  const absolutePath = resolve(ROOT, spec.path);
+  return existsSync(absolutePath) ? { raw: readFileSync(absolutePath, "utf8") } : undefined;
+}
+
+function readGitHubIssueComment(url: string): IssueComment {
+  const id = /#issuecomment-(\d+)$/.exec(url)?.[1];
+  if (!id) throw new Error(`not a GitHub issue comment URL: ${url}`);
+  const comment = JSON.parse(execFileSync("gh", ["api", `repos/${GITHUB_REPOSITORY}/issues/comments/${id}`], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  }));
+  return { author: comment.user.login, body: comment.body };
 }
 
 function inspectSourcePath(path: string) {
@@ -511,13 +558,13 @@ function renderReport(packet: any): string {
     "",
     "| Gate | Artifact | Status | Blocker |",
     "| --- | --- | --- | --- |",
-    ...packet.gateResults.map((gate: any) => `| ${gate.gate} | ${gate.artifactPath} | ${gate.status} | ${gate.blocker || "none"} |`),
+    ...packet.gateResults.map((gate: any) => `| ${gate.gate} | ${gate.artifactLocation} | ${gate.status} | ${gate.blocker || "none"} |`),
     "",
     "## Rejected Carry-Over Artifacts",
     "",
     "| Artifact | Rejected | Reason |",
     "| --- | --- | --- |",
-    ...packet.legacyArtifacts.map((artifact: any) => `| ${artifact.path} | ${artifact.rejected ? "yes" : "no"} | ${artifact.rejectionReason} |`),
+    ...packet.legacyArtifacts.map((artifact: any) => `| ${locationOf(artifact)} | ${artifact.rejected ? "yes" : "no"} | ${artifact.rejectionReason} |`),
     "",
     "## Readback",
     "",
