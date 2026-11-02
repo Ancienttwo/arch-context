@@ -39,7 +39,7 @@ The bounded next work-package must define an approved, existing-file/hash-bound 
 - Independent read-only consumer security review passed; it is not whole-task acceptance.
 - No full matrix was rerun: migration remains a prerequisite. Historical hosted proof applies to its recorded source only, not these new source changes. #223 stays Draft; #225 stays open; no typed AcceptanceReceipt, merge or release is claimed.
 
-Machine-readable source hashes, counts, paired readback and rollback proof: `docs/verification/20260926-capability-profile-diagnosis.json`.
+Machine-readable source hashes, counts, paired readback and rollback proof: `docs/researches/20260926-capability-profile-diagnosis.json`.
 
 ## Restricted writers and live migration (2026-09-26)
 
@@ -47,7 +47,7 @@ The earlier rollback section above is historical. The approved follow-up added a
 
 Existing root `AGENTS.md` and `CLAUDE.md` now have a narrower `render_agent_context` write path. Explicit current-model `extensions.contractFiles` targets, exact preimage hashes and equality with a freshly rendered canonical body are all required. The first append retains every byte of human text; malformed, duplicated and nested markers fail closed. Existing-file loading rejects symlink targets before reading them. The engine rechecks hash, symlink, current target scope and canonical body after journal append and before each write. Failure rolls back both root files. Inferred root ownership and generic writes remain rejected.
 
-The exact-digest 11-operation ChangeSet `changeset.issue225.capability-profile-v3` committed as journal `changeset_66fe1df3-bef9-4983-9c60-597dad4a1a91`, then `changeset.issue225.root-contract` committed the two root marker regions as journal `changeset_525e926f-0b96-4d4e-93a0-38e9ee9393d6`. The old node is absent, the new three-part ID exists, model and ADR no longer cite the old ID, root contracts match byte-for-byte, and source include/exclude/entrypoints were retained. No direct model, ADR or root-file edit bypassed the daemon. Focused verification: 180 tests / 946 assertions, typecheck, five-workspace package boundary audit, and journal rollback/recovery cases passed. Exact current readback is `docs/verification/20260926-restricted-writer-migration.json`.
+The exact-digest 11-operation ChangeSet `changeset.issue225.capability-profile-v3` committed as journal `changeset_66fe1df3-bef9-4983-9c60-597dad4a1a91`, then `changeset.issue225.root-contract` committed the two root marker regions as journal `changeset_525e926f-0b96-4d4e-93a0-38e9ee9393d6`. The old node is absent, the new three-part ID exists, model and ADR no longer cite the old ID, root contracts match byte-for-byte, and source include/exclude/entrypoints were retained. No direct model, ADR or root-file edit bypassed the daemon. Focused verification: 180 tests / 946 assertions, typecheck, five-workspace package boundary audit, and journal rollback/recovery cases passed. Exact current readback is `docs/researches/20260926-restricted-writer-migration.json`.
 
 The preceding paragraph records the pre-event boundary. The operator-invoked daemon append later bound a real local `architecture.changeset.accepted` event to the committed 11-file YAML journal; the event has zero graph operations and preserves YAML authority. The accepted tuple was used unchanged by `projection run`. The existing isolated harness candidate is still unreleased.
 

@@ -13,6 +13,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Source: [#380](https://github.com/Ancienttwo/arch-context/pull/380), feat(projection): add rolling writer and prepare 0.9.0.
+
 # ADR-0048: Projection Writer Mode and the Rolling Generated-Only Pull Request
 
 ## Context

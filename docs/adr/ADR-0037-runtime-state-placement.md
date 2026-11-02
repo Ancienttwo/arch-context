@@ -11,6 +11,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Source: [#12](https://github.com/Ancienttwo/arch-context/pull/12), Partition runtime state under user data.
+
 # Context
 
 ArchContext has three different state classes:

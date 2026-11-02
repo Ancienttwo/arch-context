@@ -11,6 +11,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Source: [#86](https://github.com/Ancienttwo/arch-context/pull/86), Add archctx audit native pending-run pipeline and daemon lifecycle hardening.
+
 # Context
 
 ADR-0041 gave `archctx` a daemon-driven, opt-in audit flow that produces typed, advisory-only

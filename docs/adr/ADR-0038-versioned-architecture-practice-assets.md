@@ -13,6 +13,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Source: [#38](https://github.com/Ancienttwo/arch-context/pull/38), release(practices): expand curated assets and close production gates.
+
 # Context
 
 ArchContext already has a deterministic local control loop, `.archcontext/` as

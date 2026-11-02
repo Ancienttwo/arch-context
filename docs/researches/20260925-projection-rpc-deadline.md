@@ -52,7 +52,7 @@ Pre-fix reproduction and timing logs are retained under
 `_ops/remaining-issues/projection-rpc/round1*`; observational evidence under `round2*`.
 The final check uses the package-declared Bun runner without the diagnostic preload
 and selects only the two named cases. Final result and source/log hashes are recorded
-in `docs/verification/20260925-projection-rpc-diagnosis.json` after completion.
+in `docs/researches/20260925-projection-rpc-diagnosis.json` after completion.
 This bounded result is separate from full current-candidate CI and from the earlier
 macOS kernel-isolated egress proof.
 

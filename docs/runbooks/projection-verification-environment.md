@@ -17,6 +17,6 @@ The fixture code still creates independent repositories and runs the real packag
 
 Keep all child and outer deadlines unchanged. A real child timeout still fails closed. Do not replace the public CLI with a version string, mock indexed proof, cache current-read authority, or treat a later pass as rewriting an earlier failure.
 
-The unchanged two tests passed locally in 29.84 seconds with 79 assertions; the existing bounded child-timeout negative guard also passed. Exact source/log identities and contrasting observations: `docs/verification/20260925-projection-environment-diagnosis.json`. This is a local verification-environment remedy, not a universal Bun fix or a Windows result. The exact internal Bun function/directory set behind the sampled enumeration is unresolved.
+The unchanged two tests passed locally in 29.84 seconds with 79 assertions; the existing bounded child-timeout negative guard also passed. Exact source/log identities and contrasting observations: `docs/researches/20260925-projection-environment-diagnosis.json`. This is a local verification-environment remedy, not a universal Bun fix or a Windows result. The exact internal Bun function/directory set behind the sampled enumeration is unresolved.
 
 Whole-plan acceptance still requires #225's capability contract repair and a normal frozen acceptance run. If that run uses this isolated environment, declare the same `TMPDIR` input. This runbook does not bypass automatic architecture projection or issue an AcceptanceReceipt.

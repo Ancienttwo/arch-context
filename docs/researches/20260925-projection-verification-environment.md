@@ -24,7 +24,7 @@ At 10x process starts the startup cost multiplies even if every individual call 
 - root_cause: local system-temp Bun bootstrap spends substantial time enumerating directories before user code; one no-CodeGraph start exceeds 5s, and repeated CodeGraph starts exhaust the outer 120s scenario. Exact native internal function/directory remains unresolved.
 - repro: `readback-round1` reproduces the outer timeout; `readback-round2` reproduces child deadlines; `bun-startup-results.json` reproduces a no-CodeGraph 5s failure.
 - regression_guard: both original targeted tests under task-scoped `TMPDIR`, plus the existing bounded child-handshake rejection test. No test or production source changed.
-- pre_fix_failure_artifact: original full-run hash, both diagnostic failures and minimal startup probes are bound in `docs/verification/20260925-projection-environment-diagnosis.json`.
+- pre_fix_failure_artifact: original full-run hash, both diagnostic failures and minimal startup probes are bound in `docs/researches/20260925-projection-environment-diagnosis.json`.
 
 ## Disposition
 
