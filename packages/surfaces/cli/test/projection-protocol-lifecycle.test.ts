@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
@@ -13,6 +13,7 @@ import { ArchctxRuntimeRpcServer, createRuntimeRpcClientFromConnectionFile, crea
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { PROJECTION_FILE_PREVIEW_MAX_BYTES, projectionApplyReadbackRequestFromReceipt, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryDetailsBytes, type ProjectionApplyReceiptV1, architectureRefreshSignalInvariantIssues, digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { runCli } from "../src/main";
+import { preparedFixture } from "./prepared-fixture";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
 const RESULT_SCHEMA = JSON.parse(readFileSync(join(REPOSITORY_ROOT, "schemas/runtime/projection-result.schema.json"), "utf8"));
@@ -90,6 +91,27 @@ function seedTwoCapabilityFixture(root: string): void {
   execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
 }
 
+/**
+ * The seeded repository with its baseline projection applied and committed. The daemon that
+ * applied it is discarded, so each case's daemon starts with an empty store.
+ */
+const baselineFixture = preparedFixture("archctx-projection-baseline-", async (root) => {
+  seedTwoCapabilityFixture(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  try {
+    const baseline = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root, { runtimeClient: daemon });
+    expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
+  } finally {
+    await daemon.stop();
+  }
+  commitAll(root, "project architecture documentation");
+});
+afterAll(() => baselineFixture.dispose());
+
 function removeCapability(root: string, id: string, slug: string): void {
   for (const path of [`nodes/${id}.yaml`, `relations/relation.${slug}-journal.yaml`, `flows/flow.${slug}.yaml`]) {
     rmSync(join(root, ".archcontext/model", path));
@@ -154,10 +176,7 @@ test("check, plan and apply agree on orphaned module documents after a node is r
       ...extra
     } satisfies ProjectionRequestV1)]);
   try {
-    seedTwoCapabilityFixture(root);
-    const baseline = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
-    expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
-    commitAll(root, "project architecture documentation");
+    await baselineFixture.copyTo(root);
     const modulePath = manifestTargetPath(root, REMOVED);
     const generatedPath = manifestTargetPath(root, REMOVED_GENERATED);
     // One module document carries one line of human text in its §3 skeleton section; the other is
@@ -266,10 +285,7 @@ async function withProtocolFixture(prefix: string, run: (context: {
   });
   const projectionRun = (value: unknown) => cli("projection", ["run", "--request-json", JSON.stringify(value)]);
   try {
-    seedTwoCapabilityFixture(root);
-    const baseline = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
-    expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
-    commitAll(root, "project architecture documentation");
+    await baselineFixture.copyTo(root);
     await run({ root, daemon, localStore, cli, request, projectionRun });
   } finally {
     await daemon.stop();
