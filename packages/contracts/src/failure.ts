@@ -4,7 +4,7 @@ import { MODEL_VALIDATION_DIAGNOSTIC_CODES } from "./ports";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH } from "./projection";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_UPGRADE_COMMAND, SUPERSEDED_ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSIONS } from "./projection-manifest";
 import { PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionRecoveryDetailsSnapshot } from "./projection-recovery";
-import { ERROR_CATALOG, canonicalize, type ArchContextErrorCode, type Json, type Severity } from "./schema";
+import { ERROR_CATALOG, canonicalize, isRepoRelativePosixPath, type ArchContextErrorCode, type Json, type Severity } from "./schema";
 
 /** Only selected entrypoints support transport failures; the legacy AC-only envelope is unchanged. */
 export type FailureCode = ArchContextErrorCode | "RPC_TIMEOUT" | "RPC_ABORTED";
@@ -488,7 +488,7 @@ function localFactValue(rule: string, value: unknown): Json {
     if (rule === "id" && value.length > 0) return value;
     if (rule === "sha256" && /^sha256:[a-f0-9]{64}$/.test(value)) return value;
     if (rule === "head" && /^[a-f0-9]{40}$/.test(value)) return value;
-    if (rule === "repoPath" && value.length > 0 && !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes("..")) return value;
+    if (rule === "repoPath" && isRepoRelativePosixPath(value)) return value;
     if (rule === "exportsSubpath" && value.startsWith(".")) return value;
     if (localEnums[rule]?.includes(value)) return value;
   }

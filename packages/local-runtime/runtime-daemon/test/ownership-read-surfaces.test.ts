@@ -234,4 +234,22 @@ describe("deps workspace discovery (#301)", () => {
     expect(caught).toBeInstanceOf(CapabilityDependenciesError);
     expect(caught).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "deps-workspace-invalid" });
   });
+
+  test("an unsupported exports shape keeps its classified reason and manifest facts (#445)", () => {
+    const root = createRepo();
+    mkdirSync(join(root, "packages/p"), { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ workspaces: ["packages/p"] }), "utf8");
+    writeFileSync(join(root, "packages/p/package.json"), JSON.stringify({ name: "@fixture/p", exports: { "./sub": { types: 5 } } }), "utf8");
+    let caught: unknown;
+    try {
+      readCapabilityDependencies(root, {});
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({
+      code: "AC_SCHEMA_INVALID",
+      reasonCode: "workspace-exports-unsupported",
+      details: { manifestPath: "packages/p/package.json", subpath: "./sub" }
+    });
+  });
 });
