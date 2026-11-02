@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "decisions": [
+    {
+      "path": ".ai/harness/handoff/resume.md",
+      "decision": "keep",
+      "contentHash": "sha256:2b8c0280200af89f1786ff4b7aef3b4edeb95701a6382a289803b36208f3a833"
+    },
+    {
+      "path": ".ai/hooks/lib/workflow-state.sh",
+      "decision": "keep",
+      "contentHash": "sha256:b8750733d95aa5b4fa9538de433fd54f71af7573299f52abc20cc23419a4c291"
+    },
+    {
+      "path": "AGENTS.md",
+      "decision": "keep",
+      "contentHash": "sha256:5da04c13204fbd67796659583a01f67a5f3abe99d7621c959782c75fd695a2cd"
+    },
+    {
+      "path": "CLAUDE.md",
+      "decision": "keep",
+      "contentHash": "sha256:5da04c13204fbd67796659583a01f67a5f3abe99d7621c959782c75fd695a2cd"
+    },
+    {
+      "path": "docs/reference-configs/handoff-protocol.md",
+      "decision": "keep",
+      "contentHash": "sha256:7c7bfb3e48534de86f3be394b1659521013574ecf683cc598a4eaaa76ab0cda4"
+    }
+  ]
+}

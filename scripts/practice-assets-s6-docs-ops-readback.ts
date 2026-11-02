@@ -304,8 +304,7 @@ function buildEvidence(texts: Record<string, string>, json: Record<string, any>)
     hookNoRawChangedPathBody: json.hook?.assertions?.rawChangedPathBodyAbsent === true && json.hook?.assertions?.sourceBodyAbsent === true,
     // Harness-owned helper docs describe runtime ownership; product evidence lives in the runbook.
     hookReadmeCentralFirst: includesAll(texts.hookReadme, [
-      "user-level", "repo-harness-hook", "operator helper libraries only",
-      "no repo-local host-event dispatcher or route script is supported"
+      "user-level", "repo-harness-hook", "Operator helpers run from the installed package"
     ]) && includesAll(texts.practiceRunbook, [PATHS.hookReadback])
   };
 
