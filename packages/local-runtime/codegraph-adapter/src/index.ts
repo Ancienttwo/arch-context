@@ -1388,7 +1388,7 @@ function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, 
   const visitRepository = (source: string, target: string, skip: ReadonlySet<string>) => {
     const objects = join(source, "objects");
     if (existsSync(join(objects, "info/alternates"))) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
-    visit("git", source, target, new Set([...skip, "objects", "hooks"]));
+    visit("git", source, target, new Set([...skip, "objects", "hooks", "archctx-empty-hooks"]));
     visitObjects(objects, join(target, "objects"));
     const original = realpathSync.native(objects);
     const alternate = process.platform === "win32" ? original.replaceAll("\\", "/") : original;

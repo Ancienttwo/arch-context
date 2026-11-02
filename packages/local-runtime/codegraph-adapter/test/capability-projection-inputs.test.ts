@@ -297,9 +297,10 @@ describe("capability documentation projection inputs from the code index", () =>
       git(root, "-c", "user.name=Snapshot Test", "-c", "user.email=snapshot@example.test", "commit", "-qm", "fixture");
       indexCodeGraphFixture(root);
       Bun.gc(true);
-      const markers = ["repository", "configured"].map(name => join(outside, `${name}-hook-ran`));
+      const markers = ["repository", "configured", "planted"].map(name => join(outside, `${name}-hook-ran`));
       mkdirSync(join(outside, "hooks"));
-      for (const [directory, marker] of [[join(root, ".git/hooks"), markers[0]!], [join(outside, "hooks"), markers[1]!]] as const) {
+      mkdirSync(join(root, ".git/archctx-empty-hooks"));
+      for (const [directory, marker] of [[join(root, ".git/hooks"), markers[0]!], [join(outside, "hooks"), markers[1]!], [join(root, ".git/archctx-empty-hooks"), markers[2]!]] as const) {
         writeFileSync(join(directory, "post-index-change"), `#!/bin/sh\necho ran > "${posix(marker)}"\n`, { mode: 0o755 });
       }
       git(root, "config", "core.hooksPath", posix(join(outside, "hooks")));
@@ -308,11 +309,11 @@ describe("capability documentation projection inputs from the code index", () =>
         git(graph.getProjectRoot(), "status", "--porcelain", "-uall");
         return [existsSync(join(snapshotGit, "hooks")), readdirSync(join(snapshotGit, "archctx-empty-hooks")), git(graph.getProjectRoot(), "config", "core.hooksPath") === posix(join(snapshotGit, "archctx-empty-hooks"))];
       })).toEqual([false, [], true]);
-      expect(markers.map(marker => existsSync(marker))).toEqual([false, false]);
+      expect(markers.map(marker => existsSync(marker))).toEqual([false, false, false]);
       git(root, "config", "extensions.worktreeConfig", "true");
       git(root, "config", "--worktree", "core.hooksPath", posix(join(outside, "hooks")));
       expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION"], sources: [], includeFiles: false }, () => true)).toThrow(expect.objectContaining({ reasonCode: "code-facts-snapshot-layout-unsupported" }));
-      expect(markers.map(marker => existsSync(marker))).toEqual([false, false]);
+      expect(markers.map(marker => existsSync(marker))).toEqual([false, false, false]);
     } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
   }, 60_000);
 
