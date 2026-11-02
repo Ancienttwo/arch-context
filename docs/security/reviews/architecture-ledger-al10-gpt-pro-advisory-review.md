@@ -109,7 +109,7 @@ Blockers and required follow-ups:
 1. Record verified real beta-user interview evidence in
    `docs/verification/architecture-ledger-al10-beta-user-interviews.md`.
 2. Record human independent architecture and security approval in
-   `docs/approvals/architecture-ledger-al10-independent-review.md`.
+   https://github.com/Ancienttwo/arch-context/pull/83#issuecomment-6571947292.
 3. Record verified production or explicitly accepted production-equivalent
    rollback drill evidence in
    `docs/verification/architecture-ledger-al10-production-rollback-drill.md`.

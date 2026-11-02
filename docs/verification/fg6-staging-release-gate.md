@@ -162,7 +162,7 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - `scripts/fg6-release-distribution-readback.ts` writes and inspects the release distribution precondition; npm registry state now verifies `archctx@0.1.0` as publicly installable.
 - `docs/runbooks/personal-user-install.md` documents the current individual-user install and no-cloud first-run path.
 - `docs/verification/fg6-personal-beta-launch-review.md` records the personal-user Beta launch review and support boundary.
-- `docs/approvals/fg6-personal-beta-launch.md` is the approved human launch artifact for FG6-EG10 and FG6-20.
+- https://github.com/Ancienttwo/arch-context/pull/2#issuecomment-6571948948 is the approved human launch artifact for FG6-EG10 and FG6-20.
 - `scripts/fg6-rollout-readback.ts` writes and inspects deferred collaboration rollout intake; the generated `_ops/env/fg6-rollout-evidence.json` draft is fail-closed and not current acceptance evidence.
 - `docs/verification/fg6-acceptance-evidence.md` records the AC-01 through AC-06 evidence manifest rows plus the adversarial governance, chaos/fault, security release, external security review, representative benchmark, SLO, retention/deletion, ops runbook, and feature flag matrices.
 
@@ -233,7 +233,7 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - `bun test scripts/fg6-rollout-readback.test.ts`: PASS, 4 tests / 32 expects.
 - `docs/runbooks/personal-user-install.md`: recorded the FG6 individual-user install path using Bun and `npm install -g archctx@0.1.0`; the same runbook now carries the current `archctx@0.1.4` install command after AL10 release supersession.
 - `docs/verification/fg6-personal-beta-launch-review.md`: records the personal-user Beta launch review, support matrix, known limitations, and deferred collaboration scope.
-- `docs/approvals/fg6-personal-beta-launch.md`: PASS, records human approval by Chris for the personal-user Beta boundary.
+- https://github.com/Ancienttwo/arch-context/pull/2#issuecomment-6571948948: PASS, records human approval by Chris for the personal-user Beta boundary.
 - `bun run readback:fg6:rollout`: BLOCKED as expected for deferred collaboration DRAFT intake, wrote `docs/verification/fg6-rollout-readback.json` and `docs/verification/fg6-rollout-evidence-intake.md` from `_ops/env/fg6-rollout-evidence.json`.
 
 ## Negative Tests

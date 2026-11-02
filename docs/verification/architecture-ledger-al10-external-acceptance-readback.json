@@ -52,9 +52,10 @@
     {
       "id": "independent-architecture-security-review",
       "gate": "AL10-GA-6",
-      "path": "docs/approvals/architecture-ledger-al10-independent-review.md",
+      "url": "https://github.com/Ancienttwo/arch-context/pull/83#issuecomment-6571947292",
+      "author": "Ancienttwo",
       "exists": true,
-      "sha256": "sha256:0332b531e8d6cab60755b4b57abf9def6e24f4e3b4fd20c1b13b1c35a8b5066f",
+      "sha256": "sha256:2915c5456da5e60859c1d3fc8bf88fd6d015c81285372057c4030411d3b8c728",
       "requiredStatus": "Approved",
       "status": "verified",
       "verified": true,
@@ -101,21 +102,21 @@
       "gate": "AL10-14",
       "status": "verified",
       "artifactId": "beta-user-interviews",
-      "artifactPath": "docs/verification/architecture-ledger-al10-beta-user-interviews.md",
+      "artifactLocation": "docs/verification/architecture-ledger-al10-beta-user-interviews.md",
       "blocker": ""
     },
     {
       "gate": "AL10-GA-6",
       "status": "verified",
       "artifactId": "independent-architecture-security-review",
-      "artifactPath": "docs/approvals/architecture-ledger-al10-independent-review.md",
+      "artifactLocation": "https://github.com/Ancienttwo/arch-context/pull/83#issuecomment-6571947292",
       "blocker": ""
     },
     {
       "gate": "AL10-GA-7",
       "status": "verified",
       "artifactId": "production-rollback-drill",
-      "artifactPath": "docs/verification/architecture-ledger-al10-production-rollback-drill.md",
+      "artifactLocation": "docs/verification/architecture-ledger-al10-production-rollback-drill.md",
       "blocker": ""
     }
   ],
@@ -146,9 +147,10 @@
     },
     {
       "id": "fg6-personal-beta-launch",
-      "path": "docs/approvals/fg6-personal-beta-launch.md",
+      "url": "https://github.com/Ancienttwo/arch-context/pull/2#issuecomment-6571948948",
+      "author": "Ancienttwo",
       "exists": true,
-      "sha256": "sha256:3f0c1ddae45016cc0953af12ec6ff97f6405d0b5fd96db3173495e7b041f6975",
+      "sha256": "sha256:133d5263076a050098d47f9f0cc34297ccf450d2fc174c3759f97cfcb424e63a",
       "rejected": true,
       "rejectionReason": "Personal-user beta launch approval; explicitly not production GA or design-partner rollout.",
       "rejectionTermsPresent": [
@@ -171,14 +173,9 @@
   ],
   "sourceReadbacks": [
     {
-      "path": "docs/architecture/architecture-ledger-authority-promotion-review.md",
-      "exists": true,
-      "sha256": "sha256:5ce236e0cf37dd66d3962ff422567178ccd68deb1ffc99b3af54293f31ad2724"
-    },
-    {
       "path": "docs/runbooks/architecture-ledger-rollout.md",
       "exists": true,
-      "sha256": "sha256:96cc0f9e33d0486989736126ae051cf1598273a1ddd61653466328f934c71015"
+      "sha256": "sha256:e5ff2997b9ad2365babe24dc9bdd89c4e2af17ddd56add9ecc9235cf392429eb"
     },
     {
       "path": "docs/verification/architecture-ledger-al10-beta-decision.md",
@@ -208,7 +205,7 @@
     "privacyClean": true,
     "sourceReadbacksPresent": true
   },
-  "readbackDigest": "sha256:e98079a13148d2dcad864a027a2b5f7f755339235daebe3f77d0ea15808c0dd5",
+  "readbackDigest": "sha256:8a5507f98759651320321e568188e06bf115404a7c599823c7475eb94cdd5177",
   "readback": {
     "command": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-external-acceptance-readback.json --json",
     "recordCommand": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts run --out docs/verification/architecture-ledger-al10-external-acceptance-readback.json --report docs/verification/architecture-ledger-al10-external-acceptance.md --json",
