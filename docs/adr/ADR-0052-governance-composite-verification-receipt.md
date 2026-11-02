@@ -2,7 +2,7 @@
 schemaVersion: archcontext.adr/v1
 id: adr.0052.governance-composite-verification-receipt
 title: Governance Composite Verification Receipt
-status: proposed
+status: accepted
 decidedAt: 2026-11-03
 appliesTo:
   - module.architecture-context.tooling
@@ -11,7 +11,7 @@ supersedes: []
 
 # ADR-0052: Governance Composite Verification Receipt
 
-> **Status**: Proposed. The owner accepts it on the pull request that closes [#461](https://github.com/Ancienttwo/arch-context/issues/461).
+> **Status**: Accepted by the owner on [#463](https://github.com/Ancienttwo/arch-context/pull/463). [#462](https://github.com/Ancienttwo/arch-context/issues/462) implements it; until it merges, the single-job receipt stays in force.
 > **Owner**: Governance Verify
 > **Origin**: [#456](https://github.com/Ancienttwo/arch-context/issues/456), [#461](https://github.com/Ancienttwo/arch-context/issues/461). Implementation: [#462](https://github.com/Ancienttwo/arch-context/issues/462).
 > **Verification**: `bun test scripts/verify-sharding-workflow.test.ts scripts/governance-verify-workflow.test.ts`
