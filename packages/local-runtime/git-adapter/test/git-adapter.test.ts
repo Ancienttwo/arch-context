@@ -12,6 +12,7 @@ import {
   readCommitChangeMetadata,
   readTrackedSourceFiles,
   readWorkspacePackages,
+  normalizePackageExports,
   readTrackedTreeEntries,
   readRepositoryBinding,
   readHeadSha,
@@ -209,21 +210,61 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     try {
       mkdirSync(join(root, "packages/alpha"), { recursive: true });
       mkdirSync(join(root, "packages/beta"), { recursive: true });
-      writeFileSync(join(root, "package.json"), JSON.stringify({ workspaces: ["packages/beta", "packages/alpha"] }));
+      mkdirSync(join(root, "packages/gamma"), { recursive: true });
+      mkdirSync(join(root, "packages/delta"), { recursive: true });
+      writeFileSync(join(root, "package.json"), JSON.stringify({ workspaces: ["packages/beta", "packages/alpha", "packages/gamma", "packages/delta"] }));
       writeFileSync(join(root, "packages/alpha/package.json"), JSON.stringify({
         name: "@fixture/alpha",
         exports: { ".": "./src/index.ts", "./sub": "./sub/src/index.ts" }
       }));
       writeFileSync(join(root, "packages/beta/package.json"), JSON.stringify({ name: "@fixture/beta" }));
+      // Condition objects (#445): `types` wins by the fixed order, not by key order.
+      writeFileSync(join(root, "packages/gamma/package.json"), JSON.stringify({
+        name: "@fixture/gamma",
+        exports: { "./sub": { default: "./dist/sub.js", types: "./src/sub.ts" } }
+      }));
+      writeFileSync(join(root, "packages/delta/package.json"), JSON.stringify({
+        name: "@fixture/delta",
+        exports: { types: "./src/index.ts", import: "./dist/index.js" }
+      }));
 
       expect(readWorkspacePackages(root)).toEqual([
         { name: "@fixture/alpha", root: "packages/alpha", exports: { ".": "./src/index.ts", "./sub": "./sub/src/index.ts" } },
         // A manifest without `exports` contributes no resolvable subpath rather than a guess.
-        { name: "@fixture/beta", root: "packages/beta", exports: {} }
+        { name: "@fixture/beta", root: "packages/beta", exports: {} },
+        { name: "@fixture/delta", root: "packages/delta", exports: { ".": "./src/index.ts" } },
+        { name: "@fixture/gamma", root: "packages/gamma", exports: { "./sub": "./src/sub.ts" } }
       ]);
     } finally {
       removeTempRoot(root);
     }
+  });
+
+  test("normalizes the remaining exports shapes and fails closed on unsupported ones", () => {
+    expect(normalizePackageExports(null, "p/package.json")).toEqual({});
+    expect(normalizePackageExports("./index.js", "p/package.json")).toEqual({ ".": "./index.js" });
+    expect(normalizePackageExports({
+      "./array": [null, { node: "./node.js" }, { import: { types: "./nested.d.ts" } }],
+      "./unresolved": { node: "./node.js" },
+      "./null": null,
+      "./require": { require: "./index.cjs" }
+    }, "p/package.json")).toEqual({ "./array": "./nested.d.ts", "./require": "./index.cjs" });
+
+    const failure = (exportsField: unknown) => {
+      try {
+        normalizePackageExports(exportsField, "packages/p/package.json");
+      } catch (error) {
+        return error;
+      }
+      throw new Error("expected a failure");
+    };
+    expect(failure({ ".": "./index.js", "./sub": { types: 5 } })).toMatchObject({
+      code: "AC_SCHEMA_INVALID",
+      reasonCode: "workspace-exports-unsupported",
+      details: { manifestPath: "packages/p/package.json", subpath: "./sub" }
+    });
+    // Node rejects a map that mixes subpaths and conditions too.
+    expect(failure({ ".": "./index.js", import: "./index.mjs" })).toMatchObject({ details: { subpath: "." } });
   });
 
   test("expands a dir/* workspace entry and refuses other glob shapes", () => {

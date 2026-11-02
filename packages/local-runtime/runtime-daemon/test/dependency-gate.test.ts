@@ -53,6 +53,8 @@ async function fixture(options: {
   policyBody?: string;
   /** Extra top-level constraint fields. */
   constraintExtra?: Record<string, Json>;
+  /** The runtime manifest's `exports`; a subpath map of strings by default. */
+  runtimeExports?: Json;
 }) {
   const root = mkdtempSync(join(tmpdir(), "archctx-dependency-gate-"));
   roots.push(root);
@@ -60,7 +62,7 @@ async function fixture(options: {
   write(root, "package.json", `${JSON.stringify({ name: "fixture", private: true, workspaces }, null, 2)}\n`);
   write(root, "packages/core/package.json", `${JSON.stringify({ name: "@fixture/core", exports: { ".": "./src/index.ts" } }, null, 2)}\n`);
   write(root, "packages/core/src/index.ts", "export const core = 1;\n");
-  write(root, "packages/runtime/package.json", `${JSON.stringify({ name: "@fixture/runtime", exports: { ".": "./src/index.ts" } }, null, 2)}\n`);
+  write(root, "packages/runtime/package.json", `${JSON.stringify({ name: "@fixture/runtime", exports: options.runtimeExports ?? { ".": "./src/index.ts" } }, null, 2)}\n`);
   write(root, "packages/runtime/src/index.ts", "import { core } from \"@fixture/core\";\nexport const runtime = core + 1;\n");
   git(root, "init", "-q");
 
@@ -162,8 +164,11 @@ describe("complete_task dependency constraint gate (#163)", () => {
     }
   }, 120_000);
 
-  test("a packages/* workspace resolves a bare workspace specifier to the violation", async () => {
-    const { root, daemon } = await fixture({ leak: true, index: true, workspaces: ["packages/*"], leakSpecifier: "@fixture/runtime" });
+  test.each([
+    ["a string", { ".": "./src/index.ts" }],
+    ["a condition object (#445)", { ".": { types: "./src/index.ts", import: "./dist/index.js" } }]
+  ] as const)("a packages/* workspace resolves a bare workspace specifier exported as %s to the violation", async (_label, runtimeExports) => {
+    const { root, daemon } = await fixture({ leak: true, index: true, workspaces: ["packages/*"], leakSpecifier: "@fixture/runtime", runtimeExports });
     try {
       const review = await daemon.completeTask(root, { taskSessionId: "task_dependency_gate" });
 

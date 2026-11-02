@@ -180,6 +180,7 @@ Object.assign(policies, {
   "changeset-rollback-conflict": {code: "AC_PRECONDITION_FAILED", message: "ChangeSet rollback is incomplete because the projection manifest changed externally. Preserve the pending journal and backup for manual recovery.", facts: {journalId: "optional:id", changeSetId: "id", manualRecoveryRequired: "boolean"}},
   "deps-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Deps input invalid.","facts": {"field":"optional:depsField","issue":"optional:depsIssue"}},
   "deps-workspace-invalid": {"code": "AC_SCHEMA_INVALID","message": "Deps workspace invalid.","facts": {}},
+  "workspace-exports-unsupported": {"code": "AC_SCHEMA_INVALID","message": "A workspace package.json exports value has an unsupported shape.","facts": {"manifestPath":"repoPath","subpath":"exportsSubpath"}},
   "deps-model-unreadable": {"code": "AC_MODEL_ADOPTION_REQUIRED","message": "Deps model unreadable.","facts": {}},
   "code-facts-unavailable": {"code": "AC_CODE_FACTS_UNAVAILABLE","message": "Code facts unavailable.","facts": {}},
   "projection-check-mode-invalid": {"code": "AC_SCHEMA_INVALID","message": "Projection check mode invalid.","facts": {}},
@@ -487,6 +488,8 @@ function localFactValue(rule: string, value: unknown): Json {
     if (rule === "id" && value.length > 0) return value;
     if (rule === "sha256" && /^sha256:[a-f0-9]{64}$/.test(value)) return value;
     if (rule === "head" && /^[a-f0-9]{40}$/.test(value)) return value;
+    if (rule === "repoPath" && value.length > 0 && !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes("..")) return value;
+    if (rule === "exportsSubpath" && value.startsWith(".")) return value;
     if (localEnums[rule]?.includes(value)) return value;
   }
   throw new Error("Fact violates its closed schema");
