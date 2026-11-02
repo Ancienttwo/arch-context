@@ -78,8 +78,7 @@ test("S6 run accepts the current harness boundary and product evidence link", as
 for (const [path, witness] of [
   [".ai/hooks/README.md", "user-level"],
   [".ai/hooks/README.md", "repo-harness-hook"],
-  [".ai/hooks/README.md", "operator helper libraries only"],
-  [".ai/hooks/README.md", "no repo-local host-event dispatcher or route script is supported"],
+  [".ai/hooks/README.md", "Operator helpers run from the installed package"],
   ["docs/runbooks/practice-assets-v1.md", "docs/verification/practice-hook-egress-readback.json"]
 ]) test(`S6 run rejects missing central-hook documentation: ${witness}`, async () => {
   await withSourceFixture(async (root) => {
