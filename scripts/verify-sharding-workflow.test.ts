@@ -7,49 +7,77 @@ import { tmpdir } from "node:os";
 import {
   changedPaths, classifyPaths, discoverTestFiles, executeShard, expectedWorkers, globToRegExp, jobVerdicts, laneTargets,
   NODE_TARGETS, OS_TARGETS, partitionFiles, readConfig, readScope, runnerMinutes, targetName, validateConfig, validateCoverage,
-  GOVERNANCE_WORKER, governanceSourceHead, hostedJobs, validateGovernancePrerequisite
+  governanceSourceHead, hostedJobs, RECEIPT_GATE_STEPS, validateGovernancePrerequisite
 } from "./verify-ci.mjs";
 
 const identity = { runId: 123, attempt: 1, checkoutSha: "a".repeat(40) };
+const LINUX_PRE = "Verify execution: ubuntu-latest / Node 22.22.x / pre";
+const LINUX_POST = "Verify execution: ubuntu-latest / Node 22.22.x / post";
+const linuxShard = (shard: number) => `Verify execution: ubuntu-latest / Node 22.22.x / shard ${shard}`;
 
 function governanceFixture(eventName = "pull_request") {
+  const config = readConfig();
   const sourceHeadSha = eventName === "pull_request" ? "b".repeat(40) : identity.checkoutSha;
   const run = { id: identity.runId, run_attempt: identity.attempt, head_sha: sourceHeadSha, event: eventName, path: ".github/workflows/verify.yml" };
-  const job = { id: 17, name: GOVERNANCE_WORKER, status: "completed", conclusion: "success", run_id: run.id, run_attempt: run.run_attempt,
-    head_sha: sourceHeadSha, steps: [{ name: "Verify", status: "completed", conclusion: "success" }] };
-  return { run, jobs: [job], context: { eventName, sourceHeadSha, actualCheckoutSha: identity.checkoutSha,
+  const names = expectedWorkers(config, "ubuntu-latest", "22.22.x");
+  const jobs = names.map((name, index) => ({ id: 17 + index, name, status: "completed", conclusion: "success", run_id: run.id,
+    run_attempt: run.run_attempt, head_sha: sourceHeadSha,
+    steps: RECEIPT_GATE_STEPS[index === 0 ? "pre" : index === names.length - 1 ? "post" : "shard"]
+      .map(step => ({ name: step, status: "completed", conclusion: "success" })) }));
+  return { config, run, jobs, context: { eventName, sourceHeadSha, actualCheckoutSha: identity.checkoutSha,
     prerequisiteResult: "success", prerequisiteCheckoutSha: identity.checkoutSha } };
 }
 
-test("Governance binds the provider's current full worker and both checkouts while distinguishing PR merge/source SHAs", () => {
+test("Governance binds every Linux split job of the current attempt and both checkouts while distinguishing PR merge/source SHAs", () => {
   for (const event of ["pull_request", "push", "workflow_dispatch"]) {
-    const { run, jobs, context } = governanceFixture(event);
-    expect(validateGovernancePrerequisite(identity, run, jobs, context)).toBe(jobs[0]);
+    const { config, run, jobs, context } = governanceFixture(event);
+    expect(jobs.map(job => job.name)).toEqual([LINUX_PRE, linuxShard(1), linuxShard(2), linuxShard(3), LINUX_POST]);
+    expect(validateGovernancePrerequisite(config, identity, run, jobs, context)).toEqual(jobs);
     expect(run.head_sha === identity.checkoutSha).toBe(event !== "pull_request");
   }
 });
 
 test("Governance rejects green booleans with missing, stale, duplicate, cancelled, skipped or mismatched provider evidence", () => {
   const mutations: ((fixture: any) => void)[] = [
-    f => f.jobs = [], f => f.jobs.push(structuredClone(f.jobs[0])),
-    f => f.jobs[0].id = undefined, f => f.jobs[0].name = "unrelated worker",
+    f => f.jobs = [],
     f => f.run.id++, f => f.run.run_attempt++, f => f.run.head_sha = "c".repeat(40),
     f => f.run.path = ".github/workflows/other.yml", f => f.run.event = "push",
     f => f.context.eventName = "pull_request_target", f => f.context.sourceHeadSha = "",
     f => f.context.actualCheckoutSha = "b".repeat(40),
-    f => f.context.prerequisiteCheckoutSha = "b".repeat(40), f => f.context.prerequisiteCheckoutSha = "",
-    f => f.jobs[0].run_id++, f => f.jobs[0].run_attempt++, f => f.jobs[0].head_sha = "c".repeat(40),
-    f => f.jobs[0].status = "in_progress", f => f.jobs[0].steps = [],
-    f => f.jobs[0].steps.push(structuredClone(f.jobs[0].steps[0])), f => f.jobs[0].steps[0].status = "in_progress"
+    f => f.context.prerequisiteCheckoutSha = "b".repeat(40), f => f.context.prerequisiteCheckoutSha = ""
   ];
-  for (const conclusion of ["failure", "skipped", "cancelled", "timed_out", "neutral", null]) {
-    mutations.push(f => f.jobs[0].conclusion = conclusion, f => f.jobs[0].steps[0].conclusion = conclusion,
-      f => f.context.prerequisiteResult = conclusion);
+  for (const conclusion of ["failure", "skipped", "cancelled", "timed_out", "neutral", null]) mutations.push(f => f.context.prerequisiteResult = conclusion);
+  for (let job = 0; job < governanceFixture().jobs.length; job++) {
+    mutations.push(f => f.jobs.push(structuredClone(f.jobs[job])), f => f.jobs[job].id = undefined, f => f.jobs[job].name = "unrelated worker",
+      f => f.jobs[job].run_id++, f => f.jobs[job].run_attempt++, f => f.jobs[job].head_sha = "c".repeat(40),
+      f => f.jobs[job].status = "in_progress", f => f.jobs[job].steps = []);
+    for (const conclusion of ["failure", "skipped", "cancelled", "timed_out", "neutral", null]) mutations.push(f => f.jobs[job].conclusion = conclusion);
+    for (let step = 0; step < governanceFixture().jobs[job].steps.length; step++) {
+      mutations.push(f => f.jobs[job].steps.splice(step, 1), f => f.jobs[job].steps.push(structuredClone(f.jobs[job].steps[step])),
+        f => f.jobs[job].steps[step].status = "in_progress");
+      for (const conclusion of ["failure", "skipped", "cancelled", null]) mutations.push(f => f.jobs[job].steps[step].conclusion = conclusion);
+    }
   }
   for (const mutate of mutations) {
     const fixture = governanceFixture(); mutate(fixture);
-    expect(() => validateGovernancePrerequisite(identity, fixture.run, fixture.jobs, fixture.context)).toThrow();
+    expect(() => validateGovernancePrerequisite(fixture.config, identity, fixture.run, fixture.jobs, fixture.context)).toThrow();
   }
+});
+
+test("Governance fails closed by name for each invalid composite receipt branch", () => {
+  const reject = (mutate: (fixture: any) => void, message: string) => {
+    const fixture = governanceFixture(); mutate(fixture);
+    expect(() => validateGovernancePrerequisite(fixture.config, identity, fixture.run, fixture.jobs, fixture.context)).toThrow(message);
+  };
+  const job = (fixture: any, name: string) => fixture.jobs.find((candidate: any) => candidate.name === name);
+  reject(f => f.jobs = f.jobs.filter((candidate: any) => candidate.name !== linuxShard(2)), `missing/duplicate prerequisite job: ${linuxShard(2)}`);
+  reject(f => job(f, linuxShard(3)).conclusion = "skipped", `prerequisite job was not successful: ${linuxShard(3)}`);
+  reject(f => job(f, LINUX_PRE).conclusion = "cancelled", `prerequisite job was not successful: ${LINUX_PRE}`);
+  reject(f => job(f, linuxShard(1)).head_sha = "c".repeat(40), `prerequisite job ran on a different head: ${linuxShard(1)}`);
+  reject(f => f.context.prerequisiteCheckoutSha = "c".repeat(40), "Linux post verified a different checkout");
+  reject(f => job(f, LINUX_POST).steps = job(f, LINUX_POST).steps.filter((step: any) => step.name !== "Prove each discovered file executed exactly once"),
+    `missing/duplicate gate step "Prove each discovered file executed exactly once": ${LINUX_POST}`);
+  reject(f => f.config.splitTargets.find((row: any) => row.os === "ubuntu-latest").shards = 4, `missing/duplicate prerequisite job: ${linuxShard(4)}`);
 });
 
 test("Governance reads the immutable PR event source head and rejects missing or malformed authority", () => {
@@ -149,7 +177,8 @@ test("the actual plan/shard/coverage commands transfer only run-bound metadata b
   const root = mkdtempSync(join(tmpdir(), "archctx-ci-command-test-"));
   const entry = fileURLToPath(new URL("./verify-ci.mjs", import.meta.url));
   const runner = join(root, "runner");
-  const baseEnv = { ...process.env, RUNNER_TEMP: runner, GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha, VERIFY_TARGET: "macos-15 / Node 22.22.x" };
+  const baseEnv = { ...process.env, RUNNER_TEMP: runner, GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha,
+    VERIFY_TARGET: "macos-15 / Node 22.22.x", GITHUB_OUTPUT: join(root, "github-output") };
   const command = (name: string, env: NodeJS.ProcessEnv = baseEnv) => {
     const result = spawnSync("node", [entry, name], { cwd: root, env, encoding: "utf8" });
     if (result.status !== 0) throw new Error(result.stderr || result.stdout);
@@ -161,6 +190,8 @@ test("the actual plan/shard/coverage commands transfer only run-bound metadata b
     command("plan");
     const plan = JSON.parse(readFileSync(join(runner, "verify-plan/plan.json"), "utf8"));
     expect(plan.subject).toEqual(identity);
+    expect(readOutputs(join(root, "github-output")).shards.include)
+      .toEqual([1, 2, 3].map(shard => ({ os: "macos-15", "node-version": "22.22.x", shards: 3, index: shard - 1, shard })));
     for (let index = 0; index < 3; index++) {
       const evidence = join(runner, "verify-reports", `artifact-${index}`);
       command("shard", { ...baseEnv, VERIFY_SHARD_INDEX: String(index), VERIFY_EVIDENCE: evidence });
@@ -298,13 +329,14 @@ test("laneTargets names exactly the targets a lane executes", () => {
   for (const lane of ["", "Linux", undefined, null]) expect(() => laneTargets(lane as any)).toThrow();
 });
 
-test("linux-lane verdicts name only the Linux full target", () => {
+test("linux-lane verdicts name only the Linux split target", () => {
   const config = readConfig();
   const run = { id: 123, run_attempt: 1, head_sha: "a".repeat(40) };
-  const job = { name: GOVERNANCE_WORKER, status: "completed", conclusion: "success", run_id: run.id, run_attempt: run.run_attempt, head_sha: run.head_sha };
-  expect(jobVerdicts(config, run, [job], laneTargets("linux"))).toEqual({ "ubuntu-latest / Node 22.22.x": true });
-  expect(jobVerdicts(config, run, [{ ...job, conclusion: "failure" }], laneTargets("linux"))).toEqual({ "ubuntu-latest / Node 22.22.x": false });
-  expect(jobVerdicts(config, run, [], laneTargets("linux"))).toEqual({ "ubuntu-latest / Node 22.22.x": false });
+  const jobs = [LINUX_PRE, linuxShard(1), linuxShard(2), linuxShard(3), LINUX_POST].map(name => ({
+    name, status: "completed", conclusion: "success", run_id: run.id, run_attempt: run.run_attempt, head_sha: run.head_sha }));
+  expect(jobVerdicts(config, run, jobs, laneTargets("linux"))).toEqual({ "ubuntu-latest / Node 22.22.x": true });
+  expect(jobVerdicts(config, run, [...jobs.slice(0, 4), { ...jobs[4], conclusion: "failure" }], laneTargets("linux"))).toEqual({ "ubuntu-latest / Node 22.22.x": false });
+  expect(jobVerdicts(config, run, jobs.slice(1), laneTargets("linux"))).toEqual({ "ubuntu-latest / Node 22.22.x": false });
 });
 
 test("the topology command selects the lane from the event and the merge commit's changed paths", () => {
@@ -339,7 +371,7 @@ test("the topology command selects the lane from the event and the merge commit'
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("topology runs full verify at Node 22.22.x on each OS and node compat on the six Node 24/25 targets in thirty-one jobs", () => {
+test("topology runs full verify at Node 22.22.x on each OS and node compat on the six Node 24/25 targets in thirty-five jobs", () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-node-compat-topology-test-"));
   try {
     const outputPath = join(root, "github-output");
@@ -353,10 +385,12 @@ test("topology runs full verify at Node 22.22.x on each OS and node compat on th
     expect(outputs.targets.include).toHaveLength(9);
     expect(outputs.excluded).toBeUndefined();
     const config = readConfig();
-    expect(outputs.split.include).toEqual(config.splitTargets);
+    const governance = { os: "ubuntu-latest", "node-version": "22.22.x" };
+    const same = (a: any, b: any) => a.os === b.os && a["node-version"] === b["node-version"];
+    expect(outputs.split.include).toEqual(config.splitTargets.filter((row: any) => !same(row, governance)));
     expect(outputs.split.include).toHaveLength(2);
     expect(outputs.shards.include).toHaveLength(6);
-    for (const row of config.splitTargets) {
+    for (const row of outputs.split.include) {
       expect(row["node-version"]).toBe("22.22.x");
       expect(outputs.shards.include.filter((shard: any) => shard.os === row.os && shard["node-version"] === row["node-version"]))
         .toEqual(Array.from({ length: 3 }, (_, index) => ({ ...row, index, shard: index + 1 })));
@@ -364,14 +398,12 @@ test("topology runs full verify at Node 22.22.x on each OS and node compat on th
     const nodeCompat = OS_TARGETS.flatMap(os => ["24.x", "25.x"].map(node => ({ os, "node-version": node })));
     expect(outputs.compat.include).toEqual(nodeCompat);
     expect(outputs.compat.include).toHaveLength(6);
-    const governance = { os: "ubuntu-latest", "node-version": "22.22.x" };
-    const same = (a: any, b: any) => a.os === b.os && a["node-version"] === b["node-version"];
     for (const row of outputs.compat.include) {
       expect([...outputs.split.include, governance].some((other: any) => same(row, other))).toBe(false);
       expect(expectedWorkers(config, row.os, row["node-version"])).toEqual([`Verify execution: ${row.os} / Node ${row["node-version"]} / node compat`]);
     }
-    expect(expectedWorkers(config, governance.os, governance["node-version"])).toEqual([GOVERNANCE_WORKER]);
-    expect(OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node)))).toHaveLength(17);
+    expect(expectedWorkers(config, governance.os, governance["node-version"])).toEqual([LINUX_PRE, linuxShard(1), linuxShard(2), linuxShard(3), LINUX_POST]);
+    expect(OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node)))).toHaveLength(21);
     const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
     expect(workflow.jobs["verify-topology"].outputs.compat).toBe("${{ steps.topology.outputs.compat }}");
     expect(workflow.jobs["verify-topology"].outputs.excluded).toBeUndefined();
@@ -380,17 +412,18 @@ test("topology runs full verify at Node 22.22.x on each OS and node compat on th
       "verify-split-pre": outputs.split.include.length,
       "verify-split-tests": outputs.shards.include.length,
       "verify-split-post": outputs.split.include.length,
+      "verify-linux-shards": config.splitTargets.find((row: any) => same(row, governance)).shards,
       "verify-summary": outputs.targets.include.length
     };
     const jobs = Object.entries(workflow.jobs).flatMap(([id, job]) => Array.from({ length: counts[id] ?? 1 }, () => job as any));
-    expect(jobs).toHaveLength(31);
-    expect(jobs.filter(job => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(19);
-    expect(workflow.jobs["verify-collect"].needs).toContain("verify-linux-full");
-    expect(workflow.jobs["verify-linux-full"].name).toBe("Verify execution: ubuntu-latest / Node 22.22.x / full");
+    expect(jobs).toHaveLength(35);
+    expect(jobs.filter(job => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(23);
+    for (const id of ["verify-linux-pre", "verify-linux-shards", "verify-linux-post"]) expect(workflow.jobs["verify-collect"].needs).toContain(id);
+    expect(Object.values(workflow.jobs).some((job: any) => job.name?.endsWith("/ full"))).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("a split target outside the engines-minimum Node, or the Governance target, is refused", () => {
+test("a split target outside the engines-minimum Node, or an OS without exactly one split row, is refused", () => {
   const split = (os: string, node: string) => {
     const config = structuredClone(readConfig());
     config.splitTargets[0] = { os, "node-version": node, shards: 3 };
@@ -402,7 +435,9 @@ test("a split target outside the engines-minimum Node, or the Governance target,
   expect(() => validateConfig(split("macos-15", "22.22.x"))).not.toThrow();
   expect(() => validateConfig(split("macos-15", "24.x"))).toThrow("node compat");
   expect(() => validateConfig(split("windows-latest", "25.x"))).toThrow("node compat");
-  expect(() => validateConfig(split("ubuntu-latest", "22.22.x"))).toThrow("Governance");
+  const withoutLinux = structuredClone(readConfig());
+  withoutLinux.splitTargets = withoutLinux.splitTargets.filter((row: any) => row.os !== "ubuntu-latest");
+  expect(() => validateConfig(withoutLinux)).toThrow("every OS");
 });
 
 test("the compat job installs, uploads the IPC artifact and runs only the Node-runtime checks", () => {
@@ -434,7 +469,8 @@ test("workflow targets only measured slow legs, keeps gate order, original nine 
   const config = readConfig();
   expect(config.splitTargets).toEqual([
     { os: "macos-15", "node-version": "22.22.x", shards: 3 },
-    { os: "windows-latest", "node-version": "22.22.x", shards: 3 }
+    { os: "windows-latest", "node-version": "22.22.x", shards: 3 },
+    { os: "ubuntu-latest", "node-version": "22.22.x", shards: 3 }
   ]);
   expect(pkg.scripts.verify).toBe(`${pkg.scripts["verify:pre"]} && bun test --timeout 60000 && ${pkg.scripts["verify:post"]}`);
   expect(workflow.jobs["verify-split-tests"].needs).toContain("verify-split-pre");
@@ -452,7 +488,7 @@ test("workflow targets only measured slow legs, keeps gate order, original nine 
     expect(workflow.jobs[id].if).toContain("github.event_name != 'workflow_dispatch'");
     expect(workflow.jobs[id].needs).toContain("verify-topology");
   }
-  for (const id of ["verify-linux-full", "governance-verify"]) expect(workflow.jobs[id].if ?? "").not.toContain("lane");
+  for (const id of ["verify-linux-pre", "verify-linux-shards", "verify-linux-post", "governance-verify"]) expect(workflow.jobs[id].if ?? "").not.toContain("lane");
   expect(workflow.jobs["verify-topology"].steps[0].with["fetch-depth"]).toBe(2);
   expect(workflow.jobs["verify-topology"].outputs.lane).toBe("${{ steps.topology.outputs.lane }}");
   expect(workflow.jobs["verify-topology"].outputs.targets).toBe("${{ steps.topology.outputs.targets }}");
