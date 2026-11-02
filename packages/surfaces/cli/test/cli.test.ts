@@ -1,6 +1,6 @@
 import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
-import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -6127,50 +6127,13 @@ describe("archctx CLI", () => {
     }
   }, CLI_DOCS_TEST_TIMEOUT_MS);
 
-  type AdoptedHookAdaptersScenario = Awaited<ReturnType<typeof driveAdoptedHookAdaptersScenario>>;
-  const adoptedScenarios = new Map<boolean, Promise<{ scenario: AdoptedHookAdaptersScenario; template: string }>>();
-  afterAll(async () => {
-    for (const saved of adoptedScenarios.values()) {
-      const built = await saved.catch(() => undefined);
-      if (built) rmSync(built.template, { recursive: true, force: true });
-    }
-  });
-
-  /**
-   * The adopted end state of `driveAdoptedHookAdaptersScenario`, driven once per CodeGraph variant
-   * and restored for each caller, which owns cleanup. The repository and its runtime state are
-   * restored at the paths the scenario ran at: the runtime store and the protocol request carry
-   * identities derived from those paths.
-   */
-  async function runAdoptedHookAdaptersScenario(options: { codeGraphReady?: boolean } = {}): Promise<AdoptedHookAdaptersScenario> {
-    const variant = options.codeGraphReady === true;
-    let saved = adoptedScenarios.get(variant);
-    if (!saved) {
-      saved = saveAdoptedHookAdaptersScenario(options);
-      adoptedScenarios.set(variant, saved);
-    }
-    const { scenario, template } = await saved;
-    removeTempRoot(scenario.root);
-    cpSync(join(template, "root"), scenario.root, { recursive: true });
-    if (existsSync(join(template, "state"))) cpSync(join(template, "state"), testStateRoot(scenario.root), { recursive: true });
-    return structuredClone(scenario);
-  }
-
-  async function saveAdoptedHookAdaptersScenario(options: { codeGraphReady?: boolean }) {
-    const scenario = await driveAdoptedHookAdaptersScenario(options);
-    const template = mkdtempSync(join(tmpdir(), "archctx-cli-adopted-template-"));
-    cpSync(scenario.root, join(template, "root"), { recursive: true });
-    if (existsSync(testStateRoot(scenario.root))) cpSync(testStateRoot(scenario.root), join(template, "state"), { recursive: true });
-    removeTempRoot(scenario.root);
-    return { scenario, template };
-  }
-
   /**
    * Drives the shared adoption fixture and asserts its invariants: docs adopt is
    * preview-bound, human sections survive, the next profile apply is a noop, and an
-   * accepted major change produces exactly one deduplicated refresh signal.
+   * accepted major change produces exactly one deduplicated refresh signal. Two tests
+   * need that end state, so the scenario is driven once here and the caller owns cleanup.
    */
-  async function driveAdoptedHookAdaptersScenario(options: { codeGraphReady?: boolean }) {
+  async function runAdoptedHookAdaptersScenario(options: { codeGraphReady?: boolean } = {}) {
     const root = createInitializedGitRepo({ codeFacts: options.codeGraphReady ? "required" : "optional" });
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
     const original = [
