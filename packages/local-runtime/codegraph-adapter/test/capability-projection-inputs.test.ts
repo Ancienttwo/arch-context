@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
@@ -261,6 +261,53 @@ describe("capability documentation projection inputs from the code index", () =>
       rmSync(root, { recursive: true, force: true });
     }
   }, 60_000);
+
+  test("private snapshot reads Git objects through a read-only alternate and refuses object writes during the read", async () => {
+    const { root } = seedWorkspace({ withIndex: false });
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+    const query = { names: ["MAIN_VERSION"], sources: [], includeFiles: false };
+    try {
+      writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
+      git(root, "add", "packages", ".gitignore");
+      git(root, "-c", "user.name=Snapshot Test", "-c", "user.email=snapshot@example.test", "commit", "-qm", "fixture");
+      const head = git(root, "rev-parse", "HEAD");
+      indexCodeGraphFixture(root);
+      Bun.gc(true);
+      expect(withExistingCodeGraphSnapshot(root, query, graph => {
+        const objects = join(graph.getProjectRoot(), ".git/objects");
+        return [readdirSync(objects).sort(), readdirSync(join(objects, "pack")), readdirSync(join(objects, "info")),
+          git(graph.getProjectRoot(), "rev-parse", "HEAD"), git(graph.getProjectRoot(), "cat-file", "-t", head)];
+      })).toEqual([["info", "pack"], [], ["alternates"], head, "commit"]);
+      let failure: unknown;
+      try {
+        withExistingCodeGraphSnapshot(root, query, () => execFileSync("git", ["hash-object", "-w", "--stdin"], { cwd: root, input: "new object\n", stdio: "pipe" }));
+      } catch (error) { failure = error; }
+      expect(failure).toMatchObject({ reasonCode: "code-facts-snapshot-changed" });
+    } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); }
+  }, 60_000);
+
+  test("private snapshot limit stops copying and reports the measured breakdown", () => {
+    const { root } = seedWorkspace({ withIndex: true });
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+    try {
+      writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
+      writeFileSync(join(root, ".codegraph/codegraph.db"), "");
+      git("add", "packages", ".gitignore");
+      git("-c", "user.name=Snapshot Test", "-c", "user.email=snapshot@example.test", "commit", "-qm", "fixture");
+      const large = openSync(join(root, "large.bin"), "w");
+      try { ftruncateSync(large, 513 * 1024 * 1024); } finally { closeSync(large); }
+      let failure: any;
+      try { withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION"], sources: [], includeFiles: false }, () => true); } catch (error) { failure = error; }
+      const copiedBytes = (dir: string): number => readdirSync(dir).reduce((sum, name) => {
+        const stat = statSync(join(dir, name));
+        return sum + (!stat.isDirectory() ? stat.size : dir === join(root, ".git") && name === "objects" ? 0 : copiedBytes(join(dir, name)));
+      }, 0);
+      expect(failure?.reasonCode).toBe("code-facts-snapshot-limit-exceeded");
+      expect(failure.details).toMatchObject({ limit: "bytes", maxBytes: 512 * 1024 * 1024, gitBytes: copiedBytes(join(root, ".git")), indexBytes: 0, indexEntries: 1 });
+      expect(failure.details.sourceBytes).toBeGreaterThanOrEqual(513 * 1024 * 1024);
+      expect(failure.details.gitObjectEntries).toBeGreaterThan(0);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 
   test("private source mirror preserves provider includeIgnored, include and extension overrides", async () => {
     const { root } = seedWorkspace({ withIndex: false });

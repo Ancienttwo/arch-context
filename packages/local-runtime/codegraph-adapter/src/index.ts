@@ -1186,7 +1186,7 @@ export interface RepositoryCodeFactsInspectionOptions {
   timeouts?: { versionMs?: number; statusMs?: number };
 }
 
-/** Bounds apply to the complete source/config/Git mirror plus database and WAL. */
+/** Bytes bound the copied source/config, Git metadata, database and WAL; entries also count the uncopied Git objects. */
 export const CODEGRAPH_SNAPSHOT_MAX_BYTES = 512 * 1024 * 1024;
 export const CODEGRAPH_SNAPSHOT_MAX_ENTRIES = 100_000;
 
@@ -1229,9 +1229,6 @@ export function withExistingCodeGraphSnapshot<T>(
   const gitDir = gitPath("--git-dir");
   const commonDir = gitPath("--git-common-dir");
   assertSnapshotGitReadSafety(originalRoot);
-  if (existsSync(join(commonDir, "objects/info/alternates"))) {
-    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
-  }
   const temporaryParent = realpathSync.native(tmpdir());
   const temporaryRelative = relative(originalRoot, temporaryParent);
   if (!temporaryRelative || (temporaryRelative !== ".." && !temporaryRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(temporaryRelative))) {
@@ -1307,21 +1304,31 @@ function assertSnapshotGitReadSafety(root: string): void {
 
 function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, destination?: string): string {
   const hash = createHash("sha256");
+  const measured = { sourceBytes: 0, sourceEntries: 0, gitBytes: 0, gitEntries: 0, gitObjectEntries: 0, indexBytes: 0, indexEntries: 0 };
   let bytes = 0;
   let entries = 0;
-  const visit = (source: string, target: string, skip: ReadonlySet<string> = new Set()) => {
+  // After the first cap trips nothing more is read or copied; the walk only completes the counts.
+  let limit: "bytes" | "entries" | undefined;
+  const fingerprint = (source: string, target: string) => {
     const stat = lstatSync(source, { bigint: true });
-    if (++entries > CODEGRAPH_SNAPSHOT_MAX_ENTRIES) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-limit-exceeded");
+    if (++entries > CODEGRAPH_SNAPSHOT_MAX_ENTRIES) limit ??= "entries";
     hash.update(JSON.stringify([source, target, String(stat.ino), String(stat.size), String(stat.mtimeNs), String(stat.ctimeNs)]));
+    return stat;
+  };
+  const visit = (part: "source" | "git" | "index", source: string, target: string, skip: ReadonlySet<string> = new Set()) => {
+    const stat = fingerprint(source, target);
+    measured[`${part}Entries`]++;
     if (stat.isDirectory()) {
-      if (destination) mkdirSync(join(destination, target), { recursive: true });
+      if (destination && !limit) mkdirSync(join(destination, target), { recursive: true });
       for (const name of readdirSync(source).sort()) {
-        if (!skip.has(name)) visit(join(source, name), join(target, name));
+        if (!skip.has(name)) visit(part, join(source, name), join(target, name));
       }
     } else if (stat.isFile()) {
       if (basename(target) === ".git") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+      measured[`${part}Bytes`] += Number(stat.size);
       bytes += Number(stat.size);
-      if (bytes > CODEGRAPH_SNAPSHOT_MAX_BYTES) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-limit-exceeded");
+      if (bytes > CODEGRAPH_SNAPSHOT_MAX_BYTES) limit ??= "bytes";
+      if (limit) return;
       // Bound the actual read as well as the prior stat: a growing file must not bypass the cap.
       const data = Buffer.alloc(Number(stat.size));
       const fd = openSync(source, "r");
@@ -1345,6 +1352,33 @@ function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, 
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
     }
   };
+  // Objects are fingerprinted, never read or copied: a write to the original store changes the
+  // fingerprint, and the copy grows with what the read needs rather than with history.
+  const visitObjects = (source: string, target: string) => {
+    const stat = fingerprint(source, target);
+    measured.gitObjectEntries++;
+    if (stat.isDirectory()) {
+      for (const name of readdirSync(source).sort()) visitObjects(join(source, name), join(target, name));
+    } else if (!stat.isFile()) {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+    }
+  };
+  // The snapshot reads the original objects read-only through a snapshot-local alternate.
+  // An original alternates chain, or a path Git cannot store in that file, is a separate layout.
+  const visitRepository = (source: string, target: string, skip: ReadonlySet<string>) => {
+    const objects = join(source, "objects");
+    if (existsSync(join(objects, "info/alternates"))) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+    visit("git", source, target, new Set([...skip, "objects"]));
+    visitObjects(objects, join(target, "objects"));
+    const original = realpathSync.native(objects);
+    const alternate = process.platform === "win32" ? original.replaceAll("\\", "/") : original;
+    if (/[\r\n]/.test(alternate)) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+    if (destination && !limit) {
+      mkdirSync(join(destination, target, "objects/pack"), { recursive: true });
+      mkdirSync(join(destination, target, "objects/info"), { recursive: true });
+      writeFileSync(join(destination, target, "objects/info/alternates"), `${alternate}\n`);
+    }
+  };
   const sourceFiles = codeGraphSourceScanner()(root);
   const files = new Set([...sourceFiles, ...listGitVisibleFiles(root)]);
   const directories = new Set(["."]);
@@ -1360,7 +1394,7 @@ function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, 
       if (existsSync(join(root, path))) files.add(path);
     }
     if (directory !== "." && existsSync(join(root, directory, ".git"))) {
-      visit(join(root, directory, ".git"), join(directory, ".git"));
+      visitRepository(join(root, directory, ".git"), join(directory, ".git"), new Set());
       assertSnapshotGitReadSafety(join(root, directory));
       repositories.add(directory);
     }
@@ -1370,14 +1404,19 @@ function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, 
     if (file.split(/[\\/]/).some(part => part === ".git" || part === ".codegraph")) {
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
     }
-    visit(join(root, file), file);
+    visit("source", join(root, file), file);
   }
-  visit(commonDir, ".git", new Set(["worktrees"]));
-  if (gitDir !== commonDir) visit(gitDir, ".git", new Set(["commondir", "gitdir"]));
+  visitRepository(commonDir, ".git", new Set(["worktrees"]));
+  if (gitDir !== commonDir) visit("git", gitDir, ".git", new Set(["commondir", "gitdir"]));
   for (const suffix of ["", "-wal"]) {
     const source = join(root, ".codegraph", `codegraph.db${suffix}`);
     hash.update(JSON.stringify([suffix, existsSync(source)]));
-    if (existsSync(source)) visit(source, join(".codegraph", `codegraph.db${suffix}`));
+    if (existsSync(source)) visit("index", source, join(".codegraph", `codegraph.db${suffix}`));
+  }
+  if (limit) {
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-limit-exceeded", {
+      limit, maxBytes: CODEGRAPH_SNAPSHOT_MAX_BYTES, maxEntries: CODEGRAPH_SNAPSHOT_MAX_ENTRIES, ...measured
+    });
   }
   // Recheck the exact copied attribute population before any provider status operation.
   if (destination) for (const repository of repositories) assertSnapshotGitReadSafety(join(destination, repository));
