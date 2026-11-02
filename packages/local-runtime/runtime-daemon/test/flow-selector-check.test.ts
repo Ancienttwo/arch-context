@@ -22,15 +22,22 @@ function fixture() {
   }));
   mkdirSync(join(root, "src"));
   writeFileSync(join(root, "src/main.ts"), 'import { render } from "./render";\nexport function entry() { return render(); }\n');
+  const commit = (message: string) => {
+    execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+    execFileSync("git", ["-c", "user.name=Flows Test", "-c", "user.email=flows@example.test", "commit", "-qm", message], { cwd: root, stdio: "pipe" });
+  };
+  writeFileSync(join(root, "src/render.ts"), 'export function render() { return "draft"; }\n');
+  commit("draft");
   writeFileSync(join(root, "src/render.ts"), 'export function render() { return "result"; }\n');
+  commit("result");
   return root;
 }
 
 function snapshot(root: string): unknown[] {
   return readdirSync(root).sort().map(name => {
     const path = join(root, name);
-    const stat = statSync(path);
-    return [name, stat.mtimeMs, stat.isDirectory() ? snapshot(path) : readFileSync(path).toString("base64")];
+    const stat = statSync(path, { bigint: true });
+    return [name, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs, stat.isDirectory() ? snapshot(path) : readFileSync(path).toString("base64")];
   });
 }
 

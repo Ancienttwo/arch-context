@@ -71,7 +71,7 @@ test("all registered producer reasons survive selected CLI and MCP adapters", as
       projectionInputField: "headSha", ownershipAction: "remove-whole-file-outputs-and-reapply", ledgerModeField: "readMode",
       changedFields: ["headSha", "worktreeDigest"], publicConfirmationToken: facts.confirmationToken,
       consentReason: "not-granted", searched: "recorded", decisionStatus: "accepted", disposition: "resolved",
-      commandSuggestion: null, context7Kind: "timeout", repoPath: "packages/fixture/package.json", exportsSubpath: "./sub",
+      commandSuggestion: null, context7Kind: "timeout", repoPath: "packages/fixture/package.json", exportsSubpath: "./sub", snapshotLimit: "bytes",
       modelValidationDiagnostics: [{ path: "docs/adr/ADR-0001-x.md", code: "schema-version-missing" }]
     };
     // Dedicated recovery shapes are authorities, not ordinary summary facts.
