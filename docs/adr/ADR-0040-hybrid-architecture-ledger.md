@@ -14,6 +14,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Source: [#82](https://github.com/Ancienttwo/arch-context/pull/82), release(ledger): land Architecture Ledger AL0-AL10.
+
 # Context
 
 ArchContext already has two useful state classes:

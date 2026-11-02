@@ -18,4 +18,4 @@ The new record explicitly scopes its result to current docs/CLI metadata and his
 
 ## Verification
 
-The added run-path regression failed on unchanged code/docs (exit 1, `hookReadmeCentralFirst` false). After repair, docs/hook tests passed 14 cases / 61 assertions, including missing documentation, missing live contract, wrong entrypoint, extra args and permitted-network negatives. Two existing CLI hook cases passed with 29 assertions. Canonical v2 run/inspect, typecheck and both acceptance ledgers passed. Exact input hashes and scope are in `../verification/20260925-s6-current-hook-readback.json`.
+The added run-path regression failed on unchanged code/docs (exit 1, `hookReadmeCentralFirst` false). After repair, docs/hook tests passed 14 cases / 61 assertions, including missing documentation, missing live contract, wrong entrypoint, extra args and permitted-network negatives. Two existing CLI hook cases passed with 29 assertions. Canonical v2 run/inspect, typecheck and both acceptance ledgers passed. Exact input hashes and scope are in `20260925-s6-current-hook-readback.json`.

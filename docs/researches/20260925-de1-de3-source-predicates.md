@@ -1,6 +1,6 @@
 # DE1/DE3 source predicate repair
 
-The approved #171 slice repairs three obsolete source detectors; it does not change runtime semantics or rewrite historical readback verdicts. Evidence: [`20260925-de1-de3-predicate-readback.json`](../verification/20260925-de1-de3-predicate-readback.json).
+The approved #171 slice repairs three obsolete source detectors; it does not change runtime semantics or rewrite historical readback verdicts. Evidence: [`20260925-de1-de3-predicate-readback.json`](20260925-de1-de3-predicate-readback.json).
 
 ## P1: authority map
 

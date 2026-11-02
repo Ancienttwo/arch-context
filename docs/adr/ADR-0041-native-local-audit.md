@@ -14,6 +14,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Source: [#86](https://github.com/Ancienttwo/arch-context/pull/86), Add archctx audit native pending-run pipeline and daemon lifecycle hardening.
+
 # Context
 
 `archctxd` already accepts `jobsEnqueueGitHook` and queues `AgentJobV1` records, but

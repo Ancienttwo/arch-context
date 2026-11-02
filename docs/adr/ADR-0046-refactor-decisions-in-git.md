@@ -18,6 +18,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Source: [#334](https://github.com/Ancienttwo/arch-context/pull/334), feat(refactor): keep refactor decisions in Git with portable ids (#321).
+
 # ADR-0046: Refactor Decisions in Git
 
 ## Context

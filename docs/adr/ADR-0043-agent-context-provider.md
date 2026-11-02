@@ -12,6 +12,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Source: [#85](https://github.com/Ancienttwo/arch-context/pull/85), Add agent-context projection, path resolve, and ADR-0043 capability contract.
+
 # Context
 
 repo-harness maintains its own capability filing (`.ai/context/capabilities.json` plus

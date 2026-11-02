@@ -15,4 +15,4 @@ Task history and exact results: `plans/plan-20260925-1345-remaining-audit-issues
 
 ## Verified execution
 
-[Manual run 36122160055](https://github.com/Ancienttwo/arch-context/actions/runs/36122160055) on `405d6ca1bec1fe6ec603e9eb11ff9c7cc49e5ec8` succeeded: only Governance executed, all 24 canonical commands passed, and the matrix was skipped. Full Verify reported 2037 pass / 2 platform skips / 0 fail. Exact subject, job and log provenance: `docs/verification/20260925-governance-revalidation.json`. The prior platform matrix is a separate run and retains its original source binding.
+[Manual run 36122160055](https://github.com/Ancienttwo/arch-context/actions/runs/36122160055) on `405d6ca1bec1fe6ec603e9eb11ff9c7cc49e5ec8` succeeded: only Governance executed, all 24 canonical commands passed, and the matrix was skipped. Full Verify reported 2037 pass / 2 platform skips / 0 fail. Exact subject, job and log provenance: `docs/researches/20260925-governance-revalidation.json`. The prior platform matrix is a separate run and retains its original source binding.
