@@ -1302,6 +1302,25 @@ function assertSnapshotGitReadSafety(root: string): void {
   }
 }
 
+/**
+ * A repository-local core.hooksPath replaces any copied, global or system value, so provider Git
+ * operations (an index refresh runs post-index-change) cannot execute repository or user hooks.
+ * A higher-precedence source such as config.worktree would beat the pin, so the value Git will
+ * actually use must be exactly the pinned directory.
+ */
+function pinSnapshotHooks(snapshotRepository: string): void {
+  const gitDir = join(snapshotRepository, ".git");
+  const hooks = join(gitDir, "archctx-empty-hooks");
+  mkdirSync(hooks);
+  const path = process.platform === "win32" ? hooks.replaceAll("\\", "/") : hooks;
+  const options = { cwd: snapshotRepository, encoding: "utf8" as const, stdio: "pipe" as const, timeout: 5_000 };
+  const pinned = spawnSync("git", ["config", "--file", join(gitDir, "config"), "--replace-all", "core.hooksPath", path], options);
+  const effective = spawnSync("git", ["config", "--get", "core.hooksPath"], options);
+  if (pinned.status !== 0 || effective.status !== 0 || effective.stdout.replace(/\r?\n$/, "") !== path) {
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+  }
+}
+
 function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, destination?: string): string {
   const hash = createHash("sha256");
   const measured = { sourceBytes: 0, sourceEntries: 0, gitBytes: 0, gitEntries: 0, gitObjectEntries: 0, indexBytes: 0, indexEntries: 0 };
@@ -1365,10 +1384,11 @@ function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, 
   };
   // The snapshot reads the original objects read-only through a snapshot-local alternate.
   // An original alternates chain, or a path Git cannot store in that file, is a separate layout.
+  // Repository hooks are not part of the read; the snapshot pins its own empty hooks directory.
   const visitRepository = (source: string, target: string, skip: ReadonlySet<string>) => {
     const objects = join(source, "objects");
     if (existsSync(join(objects, "info/alternates"))) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
-    visit("git", source, target, new Set([...skip, "objects"]));
+    visit("git", source, target, new Set([...skip, "objects", "hooks", "archctx-empty-hooks"]));
     visitObjects(objects, join(target, "objects"));
     const original = realpathSync.native(objects);
     const alternate = process.platform === "win32" ? original.replaceAll("\\", "/") : original;
@@ -1419,7 +1439,10 @@ function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, 
     });
   }
   // Recheck the exact copied attribute population before any provider status operation.
-  if (destination) for (const repository of repositories) assertSnapshotGitReadSafety(join(destination, repository));
+  if (destination) for (const repository of repositories) {
+    pinSnapshotHooks(join(destination, repository));
+    assertSnapshotGitReadSafety(join(destination, repository));
+  }
   return hash.digest("hex");
 }
 
