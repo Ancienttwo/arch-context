@@ -39,7 +39,7 @@ describe("governance verify workflow", () => {
     expect(workflow.jobs["governance-verify"].needs).toEqual(["verify-linux-full"]);
     expect(workflow.jobs["governance-verify"].steps.at(-1).run).toBe("bun run verify:governance --ci-inspect");
     expect(workflow.jobs["governance-verify"]["timeout-minutes"]).toBe(15);
-    expect(workflow.jobs["verify-linux-full"]["timeout-minutes"]).toBe(20);
+    expect(workflow.jobs["verify-linux-full"]["timeout-minutes"]).toBe(30);
     expect(workflow.jobs["verify-linux-full"].if).toBeUndefined();
     for (const [id, job] of Object.entries(workflow.jobs) as [string, any][]) {
       if (!["verify-linux-full", "governance-verify"].includes(id)) expect(job.if).toContain("github.event_name != 'workflow_dispatch'");

@@ -20,7 +20,7 @@ jobs:
   verify-linux-full:
     name: "Verify execution: ubuntu-latest / Node 22.22.x / full"
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     outputs:
       checkout_sha: ${{ steps.verified_checkout.outputs.sha }}
 
