@@ -14,6 +14,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Source: [#82](https://github.com/Ancienttwo/arch-context/pull/82), release(ledger): land Architecture Ledger AL0-AL10.
+
 # Architecture Ledger Authority Matrix
 
 > Moved from `docs/architecture/` by [#434](https://github.com/Ancienttwo/arch-context/issues/434); ledger contract: [ADR-0040](ADR-0040-hybrid-architecture-ledger.md).
