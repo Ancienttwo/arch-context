@@ -11,7 +11,7 @@ supersedes: []
 
 # ADR-0052: Governance Composite Verification Receipt
 
-> **Status**: Accepted by the owner on [#463](https://github.com/Ancienttwo/arch-context/pull/463). [#462](https://github.com/Ancienttwo/arch-context/issues/462) implements it; until it merges, the single-job receipt stays in force.
+> **Status**: Accepted by the owner on [#463](https://github.com/Ancienttwo/arch-context/pull/463). [#462](https://github.com/Ancienttwo/arch-context/issues/462) implements it in [#467](https://github.com/Ancienttwo/arch-context/pull/467).
 > **Owner**: Governance Verify
 > **Origin**: [#456](https://github.com/Ancienttwo/arch-context/issues/456), [#461](https://github.com/Ancienttwo/arch-context/issues/461). Implementation: [#462](https://github.com/Ancienttwo/arch-context/issues/462).
 > **Verification**: `bun test scripts/verify-sharding-workflow.test.ts scripts/governance-verify-workflow.test.ts`
