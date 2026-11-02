@@ -1305,13 +1305,20 @@ function assertSnapshotGitReadSafety(root: string): void {
 /**
  * A repository-local core.hooksPath replaces any copied, global or system value, so provider Git
  * operations (an index refresh runs post-index-change) cannot execute repository or user hooks.
+ * A higher-precedence source such as config.worktree would beat the pin, so the value Git will
+ * actually use must be exactly the pinned directory.
  */
-function pinSnapshotHooks(snapshotGitDir: string): void {
-  const hooks = join(snapshotGitDir, "archctx-empty-hooks");
+function pinSnapshotHooks(snapshotRepository: string): void {
+  const gitDir = join(snapshotRepository, ".git");
+  const hooks = join(gitDir, "archctx-empty-hooks");
   mkdirSync(hooks);
   const path = process.platform === "win32" ? hooks.replaceAll("\\", "/") : hooks;
-  const pinned = spawnSync("git", ["config", "--file", join(snapshotGitDir, "config"), "--replace-all", "core.hooksPath", path], { stdio: "pipe", timeout: 5_000 });
-  if (pinned.status !== 0) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+  const options = { cwd: snapshotRepository, encoding: "utf8" as const, stdio: "pipe" as const, timeout: 5_000 };
+  const pinned = spawnSync("git", ["config", "--file", join(gitDir, "config"), "--replace-all", "core.hooksPath", path], options);
+  const effective = spawnSync("git", ["config", "--get", "core.hooksPath"], options);
+  if (pinned.status !== 0 || effective.status !== 0 || effective.stdout.replace(/\r?\n$/, "") !== path) {
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
+  }
 }
 
 function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, destination?: string): string {
@@ -1433,7 +1440,7 @@ function mirrorCodeGraphInputs(root: string, gitDir: string, commonDir: string, 
   }
   // Recheck the exact copied attribute population before any provider status operation.
   if (destination) for (const repository of repositories) {
-    pinSnapshotHooks(join(destination, repository, ".git"));
+    pinSnapshotHooks(join(destination, repository));
     assertSnapshotGitReadSafety(join(destination, repository));
   }
   return hash.digest("hex");

@@ -286,7 +286,7 @@ describe("capability documentation projection inputs from the code index", () =>
     } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); }
   }, 60_000);
 
-  test("private snapshot runs no repository or configured hook", async () => {
+  test("private snapshot runs no repository or configured hook and refuses an overriding worktree config", async () => {
     const { root } = seedWorkspace({ withIndex: false });
     const outside = mkdtempSync(join(tmpdir(), "archctx-snapshot-hooks-"));
     const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
@@ -308,6 +308,10 @@ describe("capability documentation projection inputs from the code index", () =>
         git(graph.getProjectRoot(), "status", "--porcelain", "-uall");
         return [existsSync(join(snapshotGit, "hooks")), readdirSync(join(snapshotGit, "archctx-empty-hooks")), git(graph.getProjectRoot(), "config", "core.hooksPath") === posix(join(snapshotGit, "archctx-empty-hooks"))];
       })).toEqual([false, [], true]);
+      expect(markers.map(marker => existsSync(marker))).toEqual([false, false]);
+      git(root, "config", "extensions.worktreeConfig", "true");
+      git(root, "config", "--worktree", "core.hooksPath", posix(join(outside, "hooks")));
+      expect(() => withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION"], sources: [], includeFiles: false }, () => true)).toThrow(expect.objectContaining({ reasonCode: "code-facts-snapshot-layout-unsupported" }));
       expect(markers.map(marker => existsSync(marker))).toEqual([false, false]);
     } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
   }, 60_000);
