@@ -102,6 +102,8 @@ function readWorkspaces(root: string): ReturnType<typeof declaredWorkspacePackag
   try {
     return declaredWorkspacePackages(root);
   } catch (error) {
+    // A classified manifest failure already names its package.json and subpath.
+    if (error instanceof FailureError) throw error;
     throw new CapabilityDependenciesError(
       "AC_SCHEMA_INVALID",
       `workspace packages are unreadable: ${error instanceof Error ? error.message : String(error)}`,

@@ -39,7 +39,7 @@ import {
   codeGraphIndexAvailable,
   repositoryImportPairs
 } from "@archcontext/local-runtime/codegraph-adapter";
-import { readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
+import { normalizePackageExports, readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import type { RefactorDecisionSetV1 } from "./refactor-decisions";
 import { planRefactorRunWithRecording, previousRecommendationsFromAuthority, type RefactorRunRecordingV1 } from "./refactor-recording";
@@ -346,11 +346,7 @@ function reviewWorkspacePackages(root: string): { packages: WorkspacePackage[]; 
     const packages = directories.flatMap((directory): WorkspacePackage[] => {
       const packageManifest = JSON.parse(readFileSync(join(root, ...directory.split("/"), "package.json"), "utf8")) as { name?: unknown; exports?: unknown };
       if (typeof packageManifest.name !== "string") return [];
-      const exports = typeof packageManifest.exports === "string"
-        ? { ".": packageManifest.exports }
-        : Object.fromEntries(Object.entries((packageManifest.exports ?? {}) as Record<string, unknown>)
-          .filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-      return [{ name: packageManifest.name, root: directory, exports }];
+      return [{ name: packageManifest.name, root: directory, exports: normalizePackageExports(packageManifest.exports, `${directory}/package.json`) }];
     });
     return { packages: packages.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)), resolved: true };
   } catch {

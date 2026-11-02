@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
 import { matchesGlob } from "@archcontext/core/projection-engine";
-import { digestJson, type Json, type ReviewCheckoutGitPort, type DetachedReviewWorktreeVerification } from "@archcontext/contracts";
+import { digestJson, FailureError, type Json, type ReviewCheckoutGitPort, type DetachedReviewWorktreeVerification } from "@archcontext/contracts";
 import { isGitRevisionArgument, readGitBlobTree, readGitBlobs } from "./blob-reader";
 export * from "./blob-reader";
 
@@ -268,7 +268,7 @@ export interface WorkspacePackageV1 {
   name: string;
   /** Repo-relative package directory. */
   root: string;
-  /** The manifest `exports` map verbatim: subpath -> package-relative target. */
+  /** The manifest `exports` field normalized by `normalizePackageExports`: subpath -> package-relative target. */
   exports: Record<string, string>;
 }
 
@@ -312,10 +312,50 @@ export function readWorkspacePackages(root: string): WorkspacePackageV1[] {
     .flatMap((entry) => expandWorkspaceEntry(root, entry))
     .map((directory) => {
       const path = join(root, ...directory.split("/"), "package.json");
-      const packageManifest = JSON.parse(readFileSync(path, "utf8")) as { name: string; exports?: Record<string, string> };
-      return { name: packageManifest.name, root: directory, exports: packageManifest.exports ?? {} };
+      const packageManifest = JSON.parse(readFileSync(path, "utf8")) as { name: string; exports?: unknown };
+      return { name: packageManifest.name, root: directory, exports: normalizePackageExports(packageManifest.exports, `${directory}/package.json`) };
     })
     .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+}
+
+/** Conditions a static reader can follow, in precedence order; every other condition is ignored. */
+const EXPORT_CONDITIONS = ["types", "import", "default", "require"] as const;
+
+/**
+ * A manifest `exports` field as subpath -> package-relative target. A string or a root condition
+ * object is the `"."` target; a subpath map resolves each value. A condition object takes the first
+ * of `EXPORT_CONDITIONS` that resolves, an array its first entry that resolves. A subpath with no
+ * resolvable target is left out, so its specifier stays unresolved. Any other shape fails closed
+ * with `workspace-exports-unsupported` naming `manifestPath` and the subpath.
+ */
+export function normalizePackageExports(exportsField: unknown, manifestPath: string): Record<string, string> {
+  if (exportsField === undefined) return {};
+  const unsupported = (subpath: string) => new FailureError("AC_SCHEMA_INVALID", "workspace-exports-unsupported", { manifestPath, subpath });
+  const target = (value: unknown, subpath: string): string | undefined => {
+    if (typeof value === "string") return value;
+    if (value === null) return undefined;
+    if (typeof value !== "object") throw unsupported(subpath);
+    const candidates = Array.isArray(value)
+      ? value
+      : EXPORT_CONDITIONS.filter((condition) => Object.hasOwn(value, condition)).map((condition) => (value as Record<string, unknown>)[condition]);
+    for (const candidate of candidates) {
+      const resolved = target(candidate, subpath);
+      if (resolved !== undefined) return resolved;
+    }
+    return undefined;
+  };
+  const keys = exportsField !== null && typeof exportsField === "object" && !Array.isArray(exportsField) ? Object.keys(exportsField) : [];
+  const subpathKeys = keys.filter((key) => key.startsWith("."));
+  if (subpathKeys.length === 0) {
+    const root = target(exportsField, ".");
+    return root === undefined ? {} : { ".": root };
+  }
+  if (subpathKeys.length !== keys.length) throw unsupported(".");
+  const entries = subpathKeys.flatMap((subpath) => {
+    const resolved = target((exportsField as Record<string, unknown>)[subpath], subpath);
+    return resolved === undefined ? [] : [[subpath, resolved] as const];
+  });
+  return Object.fromEntries(entries);
 }
 
 function expandWorkspaceEntry(root: string, entry: string): string[] {

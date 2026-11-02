@@ -4,7 +4,7 @@ import { MODEL_VALIDATION_DIAGNOSTIC_CODES } from "./ports";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH } from "./projection";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_UPGRADE_COMMAND, SUPERSEDED_ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSIONS } from "./projection-manifest";
 import { PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionRecoveryDetailsSnapshot } from "./projection-recovery";
-import { ERROR_CATALOG, canonicalize, type ArchContextErrorCode, type Json, type Severity } from "./schema";
+import { ERROR_CATALOG, canonicalize, isRepoRelativePosixPath, type ArchContextErrorCode, type Json, type Severity } from "./schema";
 
 /** Only selected entrypoints support transport failures; the legacy AC-only envelope is unchanged. */
 export type FailureCode = ArchContextErrorCode | "RPC_TIMEOUT" | "RPC_ABORTED";
@@ -180,6 +180,7 @@ Object.assign(policies, {
   "changeset-rollback-conflict": {code: "AC_PRECONDITION_FAILED", message: "ChangeSet rollback is incomplete because the projection manifest changed externally. Preserve the pending journal and backup for manual recovery.", facts: {journalId: "optional:id", changeSetId: "id", manualRecoveryRequired: "boolean"}},
   "deps-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Deps input invalid.","facts": {"field":"optional:depsField","issue":"optional:depsIssue"}},
   "deps-workspace-invalid": {"code": "AC_SCHEMA_INVALID","message": "Deps workspace invalid.","facts": {}},
+  "workspace-exports-unsupported": {"code": "AC_SCHEMA_INVALID","message": "A workspace package.json exports value has an unsupported shape.","facts": {"manifestPath":"repoPath","subpath":"exportsSubpath"}},
   "deps-model-unreadable": {"code": "AC_MODEL_ADOPTION_REQUIRED","message": "Deps model unreadable.","facts": {}},
   "code-facts-unavailable": {"code": "AC_CODE_FACTS_UNAVAILABLE","message": "Code facts unavailable.","facts": {}},
   "projection-check-mode-invalid": {"code": "AC_SCHEMA_INVALID","message": "Projection check mode invalid.","facts": {}},
@@ -487,6 +488,8 @@ function localFactValue(rule: string, value: unknown): Json {
     if (rule === "id" && value.length > 0) return value;
     if (rule === "sha256" && /^sha256:[a-f0-9]{64}$/.test(value)) return value;
     if (rule === "head" && /^[a-f0-9]{40}$/.test(value)) return value;
+    if (rule === "repoPath" && isRepoRelativePosixPath(value)) return value;
+    if (rule === "exportsSubpath" && value.startsWith(".")) return value;
     if (localEnums[rule]?.includes(value)) return value;
   }
   throw new Error("Fact violates its closed schema");
