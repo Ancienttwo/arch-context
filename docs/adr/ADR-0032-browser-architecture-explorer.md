@@ -11,6 +11,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Approval source: Sprint 4 CD4 record, first committed in `aa3d5b98`, [docs/approvals/archctx-sprint-4-cd4.md @ 04b4c108](https://github.com/Ancienttwo/arch-context/blob/04b4c1084d78f7c2fa805f4cebd64a84bee84924/docs/approvals/archctx-sprint-4-cd4.md). Removed from `docs/approvals/` by [#442](https://github.com/Ancienttwo/arch-context/issues/442).
+
 # Context
 
 ArchContext already exports architecture projections, but users still need a local interactive way to inspect nodes, relations, verification state, pressure, interventions, evidence selectors, and multi-repo landscape edges during agent work. That surface must not become a second writer or a SaaS relay.

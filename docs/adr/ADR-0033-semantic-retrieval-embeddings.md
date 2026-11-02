@@ -11,6 +11,8 @@ appliesTo:
 supersedes: []
 ---
 
+> Approval source: Sprint 4 CD4 record, first committed in `aa3d5b98`, [docs/approvals/archctx-sprint-4-cd4.md @ 04b4c108](https://github.com/Ancienttwo/arch-context/blob/04b4c1084d78f7c2fa805f4cebd64a84bee84924/docs/approvals/archctx-sprint-4-cd4.md). Removed from `docs/approvals/` by [#442](https://github.com/Ancienttwo/arch-context/issues/442).
+
 # Context
 
 The current shipped retrieval path is an in-memory lexical baseline over constraint-tagged documents, with English normalization and jieba search tokenization for Chinese. Real SQLite FTS5 remains part of the local-store target architecture, but it is not the current implementation. Embeddings may improve semantic context recall, but they add index complexity, provider choice, storage cost, privacy risk, and nondeterministic tuning pressure if introduced unconditionally.
