@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +13,7 @@ import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { runCli } from "../src/main";
+import { preparedFixture } from "./prepared-fixture";
 
 /**
  * #327 finding 3, Phase 1 isolation end to end, on a real CodeGraph index: a source edit makes one
@@ -201,6 +202,26 @@ interface IsolationFixture {
   run: (value: unknown) => ReturnType<typeof runCli>;
 }
 
+/**
+ * The seeded repository with its baseline projection applied and not yet committed. The daemon that
+ * applied it is discarded, so each case's daemon starts with an empty store.
+ */
+const baselineFixture = preparedFixture("archctx-isolation-baseline-", async (root) => {
+  seedFixture(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  try {
+    const baseline = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root, { runtimeClient: daemon });
+    expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
+  } finally {
+    await stopDaemonAndRemoveFixture(daemon, []);
+  }
+});
+afterAll(() => baselineFixture.dispose());
+
 /** A fixture whose baseline projection is applied and committed, with CRLF line endings when asked. */
 async function withIsolationFixture(prefix: string, crlf: boolean, scenario: (fixture: IsolationFixture) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), prefix));
@@ -223,9 +244,7 @@ async function withIsolationFixture(prefix: string, crlf: boolean, scenario: (fi
   });
   const run = (value: unknown) => cli("projection", ["run", "--request-json", JSON.stringify(value)]);
   try {
-    seedFixture(root);
-    const baseline = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
-    expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
+    await baselineFixture.copyTo(root);
     if (crlf) {
       // A `core.autocrlf` checkout: every projected file is committed and read back with CRLF.
       for (const [path, body] of Object.entries(docsSnapshot(root))) writeFileSync(join(root, path), body.replaceAll("\n", "\r\n"), "utf8");
