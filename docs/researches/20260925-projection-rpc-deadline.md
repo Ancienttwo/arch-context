@@ -1,7 +1,7 @@
 # Projection/RPC verification blockers
 
 This is the approved diagnosis of the two failures in
-`docs/researches/20260925-egress-local-checkpoint.json`. Before reproduction, every
+`docs/verification/20260925-egress-local-checkpoint.json`. Before reproduction, every
 recorded egress source fingerprint matched the working tree. Existing failed logs
 remain historical; a later pass does not rewrite them.
 
@@ -56,4 +56,4 @@ in `docs/researches/20260925-projection-rpc-diagnosis.json` after completion.
 This bounded result is separate from full current-candidate CI and from the earlier
 macOS kernel-isolated egress proof.
 
-Final uninstrumented check: 2 pass / 0 fail / 95 assertions in 239.57 seconds; churn 109.124s, parity 130.021s. Typecheck passes. Frozen candidate `5117abd` then passed all ten Verify jobs in run `36138457129`; both named cases passed in every job. Full hosted source/job/artifact evidence is `docs/researches/20260925-egress-hosted-ci.json`. These passes do not establish the missing historical churn envelope's root cause.
+Final uninstrumented check: 2 pass / 0 fail / 95 assertions in 239.57 seconds; churn 109.124s, parity 130.021s. Typecheck passes. Frozen candidate `5117abd` then passed all ten Verify jobs in run `36138457129`; both named cases passed in every job. Full hosted source/job/artifact evidence is `docs/verification/20260925-egress-hosted-ci.json`. These passes do not establish the missing historical churn envelope's root cause.

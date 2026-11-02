@@ -12,7 +12,7 @@
     "platform": "darwin",
     "arch": "arm64"
   },
-  "priorFailure": "docs/researches/20260925-integrated-pr-acceptance.json",
+  "priorFailure": "docs/verification/20260925-integrated-pr-acceptance.json",
   "round1": {
     "completion": {
       "exitCode": 0,

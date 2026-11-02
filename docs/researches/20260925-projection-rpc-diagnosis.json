@@ -13,7 +13,7 @@
   },
   "originalChurnFalseEnvelope": {
     "status": "not reproduced; cause unconfirmed",
-    "originalEvidence": "docs/researches/20260925-egress-local-checkpoint.json",
+    "originalEvidence": "docs/verification/20260925-egress-local-checkpoint.json",
     "diagnosticPassMs": 116485.98,
     "finalPassMs": 109124.2,
     "timeoutChanged": false,

@@ -175,7 +175,7 @@
       ".github/workflows/verify.yml",
       "docs/researches/20260925-fg6-matrix-conclusions.md",
       "docs/runbooks/governance-revalidation.md",
-      "docs/researches/20260925-fg6-hosted-matrix-artifacts.json",
+      "docs/verification/20260925-fg6-hosted-matrix-artifacts.json",
       "docs/verification/fg1-local-product-gate.md",
       "docs/verification/fg6-platform-workflow-matrix-readback.json",
       "plans/plan-20260925-1345-remaining-audit-issues.md",

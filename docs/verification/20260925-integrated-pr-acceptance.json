@@ -15,7 +15,7 @@
     "jobs": 10,
     "testsPerFullSuite": 2115,
     "zeroFailures": true,
-    "record": "docs/researches/20260925-integrated-pr-hosted-ci.json"
+    "record": "docs/verification/20260925-integrated-pr-hosted-ci.json"
   },
   "localContract": {
     "command": "repo-harness run verify-contract --contract tasks/contracts/20260925-1345-remaining-audit-issues.contract.md --strict",
