@@ -77,3 +77,4 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0049 | Architecture Layers and the Runtime Topology View |
 | ADR-0050 | Architecture Ledger Authority Matrix |
 | ADR-0051 | Script Surface Policy |
+| ADR-0052 | Governance Composite Verification Receipt |
