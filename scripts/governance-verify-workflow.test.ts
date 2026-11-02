@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GOVERNANCE_COMMANDS, runGovernanceCommands } from "./verify-governance.mjs";
+import { readConfig, RECEIPT_GATE_STEPS } from "./verify-ci.mjs";
 
 const PACKAGE_JSON = readFileSync("package.json", "utf8");
 const WORKFLOW = readFileSync(".github/workflows/verify.yml", "utf8");
@@ -12,6 +13,7 @@ const VERIFY_GOVERNANCE = readFileSync("scripts/verify-governance.mjs", "utf8");
 const ADR_INDEX = readFileSync("docs/adr/README.md", "utf8");
 const SCRIPT_SURFACE_POLICY = readFileSync("docs/adr/ADR-0051-script-surface-policy.md", "utf8");
 const ROOT_PACKAGE = JSON.parse(PACKAGE_JSON) as { scripts?: Record<string, string> };
+const LINUX_SPLIT_JOBS = ["verify-linux-pre", "verify-linux-shards", "verify-linux-post"];
 
 interface ScriptOwnerCorpus {
   packageJson: string;
@@ -36,13 +38,15 @@ describe("governance verify workflow", () => {
     expect(workflow.on.push.branches).toEqual(["main"]);
     expect(workflow.jobs.verify.if).toBe("github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'");
     expect(workflow.jobs["governance-verify"].if).toBe("${{ always() }}");
-    expect(workflow.jobs["governance-verify"].needs).toEqual(["verify-linux-full"]);
+    expect(workflow.jobs["governance-verify"].needs).toEqual(LINUX_SPLIT_JOBS);
     expect(workflow.jobs["governance-verify"].steps.at(-1).run).toBe("bun run verify:governance --ci-inspect");
     expect(workflow.jobs["governance-verify"]["timeout-minutes"]).toBe(15);
-    expect(workflow.jobs["verify-linux-full"]["timeout-minutes"]).toBe(30);
-    expect(workflow.jobs["verify-linux-full"].if).toBeUndefined();
+    for (const id of LINUX_SPLIT_JOBS) {
+      expect(workflow.jobs[id]["timeout-minutes"]).toBe(20);
+      expect(workflow.jobs[id].if).toBeUndefined();
+    }
     for (const [id, job] of Object.entries(workflow.jobs) as [string, any][]) {
-      if (!["verify-linux-full", "governance-verify"].includes(id)) expect(job.if).toContain("github.event_name != 'workflow_dispatch'");
+      if (![...LINUX_SPLIT_JOBS, "governance-verify"].includes(id)) expect(job.if).toContain("github.event_name != 'workflow_dispatch'");
     }
     expect(workflow.permissions).toEqual({ contents: "read" });
     expect(workflow.concurrency.group).toBe("verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}");
@@ -160,25 +164,40 @@ describe("governance verify workflow", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  test("the shared full worker retains Linux readbacks and exposes only its actually verified checkout", () => {
+  test("the Linux split jobs keep the Linux readbacks, run every gate step in order and expose only the post job's verified checkout", () => {
     const workflow: any = Bun.YAML.parse(WORKFLOW);
-    const full = workflow.jobs["verify-linux-full"];
-    expect(full["runs-on"]).toBe("ubuntu-latest");
-    expect(full.steps.find((step: any) => step.name === "Setup Node").with["node-version"]).toBe("22.22.x");
-    expect(full.steps.filter((step: any) => step.run).map((step: any) => step.run).slice(0, 4)).toEqual([
-      "bun install --frozen-lockfile", "node scripts/local-no-cloud-e2e.mjs > local-no-cloud-network-readback.json",
-      "node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json", "bun run verify"
-    ]);
-    expect(full.steps.find((step: any) => step.name === "Verify").if).toBeUndefined();
-    expect(full.steps.at(-1).run).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
-    expect(full.outputs.checkout_sha).toBe("${{ steps.verified_checkout.outputs.sha }}");
+    const [pre, shards, post] = LINUX_SPLIT_JOBS.map(id => workflow.jobs[id]);
+    const linux = { matrix: { include: [{ os: "ubuntu-latest", "node-version": "22.22.x" }] } };
+    expect(pre.strategy).toEqual(linux);
+    expect(post.strategy).toEqual(linux);
+    expect(shards.strategy.matrix).toBe("${{ fromJSON(needs.verify-linux-pre.outputs.shards) }}");
+    expect(pre.outputs.shards).toBe("${{ steps.plan.outputs.shards }}");
+    expect(shards.needs).toBe("verify-linux-pre");
+    expect(post.needs).toEqual(["verify-linux-pre", "verify-linux-shards"]);
+    const bind = 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"\necho "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"\n';
+    const runs = (job: any) => job.steps.filter((step: any) => step.run).map((step: any) => step.run);
+    expect(runs(pre)).toEqual(["bun install --frozen-lockfile", "node scripts/local-no-cloud-e2e.mjs > local-no-cloud-network-readback.json",
+      "node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json", "bun run verify:pre", "bun run verify:ci plan", bind]);
+    expect(runs(shards)).toEqual(["bun install --frozen-lockfile", "bun run verify:ci shard", bind]);
+    expect(runs(post)).toEqual(["bun install --frozen-lockfile", "bun run verify:ci coverage", "bun run verify:post", bind]);
+    for (const [job, gates] of [[pre, RECEIPT_GATE_STEPS.pre], [shards, RECEIPT_GATE_STEPS.shard], [post, RECEIPT_GATE_STEPS.post]] as [any, string[]][]) {
+      expect(job["runs-on"]).toBe("ubuntu-latest");
+      expect(job.steps.find((step: any) => step.name === "Setup Node").with["node-version"]).toBe("${{ matrix.node-version }}");
+      expect(job.steps.map((step: any) => step.name).filter((name: string) => gates.includes(name))).toEqual(gates);
+      for (const gate of gates) expect(job.steps.find((step: any) => step.name === gate).if).toBeUndefined();
+      expect(job.steps.at(-1)).toMatchObject({ name: "Bind verified checkout", id: "verified_checkout", run: bind });
+    }
+    expect(pre.steps.find((step: any) => step.name === "Upload network isolation readback").with.name).toBe("local-no-cloud-network-linux-node-22");
+    expect(post.outputs.checkout_sha).toBe("${{ steps.verified_checkout.outputs.sha }}");
     const gov = workflow.jobs["governance-verify"];
-    expect(gov.env.VERIFY_PREREQUISITE_RESULT).toBe("${{ needs.verify-linux-full.result }}");
-    expect(gov.env.VERIFY_PREREQUISITE_CHECKOUT_SHA).toBe("${{ needs.verify-linux-full.outputs.checkout_sha }}");
+    expect(gov.env.VERIFY_PREREQUISITE_RESULT).toBe("${{ needs.verify-linux-post.result }}");
+    expect(gov.env.VERIFY_PREREQUISITE_CHECKOUT_SHA).toBe("${{ needs.verify-linux-post.outputs.checkout_sha }}");
     expect(gov.env.GITHUB_TOKEN).toBe("${{ github.token }}");
     const manualJobs = Object.entries(workflow.jobs).filter(([, job]: any) => job.if === undefined || job.if === "${{ always() }}");
-    expect(manualJobs.map(([id]) => id)).toEqual(["verify-linux-full", "governance-verify"]);
-    expect(manualJobs.filter(([, job]: any) => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(2);
+    expect(manualJobs.map(([id]) => id)).toEqual(["governance-verify", ...LINUX_SPLIT_JOBS]);
+    expect(manualJobs.filter(([, job]: any) => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(4);
+    const shardCount = readConfig().splitTargets.find((row: any) => row.os === "ubuntu-latest" && row["node-version"] === "22.22.x").shards;
+    expect(manualJobs.map(([id]) => id === "verify-linux-shards" ? shardCount : 1).reduce((sum, count) => sum + count, 0)).toBe(shardCount + 3);
   });
 
   test("keeps the script surface policy discoverable and enforceable", () => {

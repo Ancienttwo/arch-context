@@ -16,68 +16,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # One existing matrix worker also supplies Governance's full verification prerequisite.
-  verify-linux-full:
-    name: "Verify execution: ubuntu-latest / Node 22.22.x / full"
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    outputs:
-      checkout_sha: ${{ steps.verified_checkout.outputs.sha }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22.22.x
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.3
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Network-isolated local first experience
-        run: node scripts/local-no-cloud-e2e.mjs > local-no-cloud-network-readback.json
-
-      - name: Upload network isolation readback
-        uses: actions/upload-artifact@v6
-        with:
-          name: local-no-cloud-network-linux-node-22
-          path: local-no-cloud-network-readback.json
-
-      - name: Platform IPC permission readback
-        run: node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json
-
-      - name: Upload platform IPC permission readback
-        uses: actions/upload-artifact@v6
-        with:
-          name: platform-ipc-permission-ubuntu-latest-node-22.22.x
-          path: platform-ipc-permission-readback.json
-
-      - name: Verify
-        run: bun run verify
-
-      - name: Bind verified checkout
-        id: verified_checkout
-        run: |
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
   governance-verify:
     name: Governance Verify
     if: ${{ always() }}
-    needs: [verify-linux-full]
+    needs: [verify-linux-pre, verify-linux-shards, verify-linux-post]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       GITHUB_TOKEN: ${{ github.token }}
-      VERIFY_PREREQUISITE_RESULT: ${{ needs.verify-linux-full.result }}
-      VERIFY_PREREQUISITE_CHECKOUT_SHA: ${{ needs.verify-linux-full.outputs.checkout_sha }}
+      VERIFY_PREREQUISITE_RESULT: ${{ needs.verify-linux-post.result }}
+      VERIFY_PREREQUISITE_CHECKOUT_SHA: ${{ needs.verify-linux-post.outputs.checkout_sha }}
 
     steps:
       - name: Checkout
@@ -207,10 +155,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.verify-topology.outputs.split) }}
-    env:
+    env: &split-pre-env
       VERIFY_TARGET: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     steps:
-      - name: Checkout
+      - &split-checkout
+        name: Checkout
         uses: actions/checkout@v6
       - name: Keep temporary files on the Windows runner work disk
         # The system-drive temp directory has multi-second write and fsync stalls on hosted
@@ -221,31 +170,40 @@ jobs:
           "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
           "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
-      - name: Setup Node
+      - &split-setup-node
+        name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Setup Bun
+      - &split-setup-bun
+        name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
-      - name: Install dependencies
+      - &split-install
+        name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Windows control-file ACL regression
         if: runner.os == 'Windows'
         run: bun test --timeout 60000 packages/local-runtime/control-file-security/test/control-file-security.test.ts packages/local-runtime/runtime-daemon/test/daemon-control-acl.test.ts packages/local-runtime/runtime-daemon/test/rpc-server.test.ts packages/surfaces/cli/test/hook-state-paths.test.ts
-      - name: Platform IPC permission readback
+      - &split-ipc-readback
+        name: Platform IPC permission readback
         run: node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json
-      - name: Upload platform IPC permission readback
+      - &split-ipc-upload
+        name: Upload platform IPC permission readback
         uses: actions/upload-artifact@v6
         with:
           name: platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}
           path: platform-ipc-permission-readback.json
-      - name: Verify pre-gates in original order
+      - &split-pre-gates
+        name: Verify pre-gates in original order
         run: bun run verify:pre
-      - name: Inventory real Bun discovery and balance full files
+      - &split-plan
+        name: Inventory real Bun discovery and balance full files
+        id: plan
         run: bun run verify:ci plan
-      - name: Upload run-bound discovery plan
+      - &split-plan-upload
+        name: Upload run-bound discovery plan
         uses: actions/upload-artifact@v6
         with:
           name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}-attempt-${{ github.run_attempt }}
@@ -261,7 +219,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.verify-topology.outputs.shards) }}
-    env:
+    env: &split-shard-env
       VERIFY_TARGET: ${{ matrix.os }} / Node ${{ matrix.node-version }}
       VERIFY_SHARD_INDEX: ${{ matrix.index }}
     steps:
@@ -286,14 +244,17 @@ jobs:
           bun-version: 1.4.3
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Download run-bound discovery plan
+      - &split-plan-download
+        name: Download run-bound discovery plan
         uses: actions/download-artifact@v6
         with:
           name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/verify-plan
-      - name: Execute assigned full files with all real assertions
+      - &split-shard
+        name: Execute assigned full files with all real assertions
         run: bun run verify:ci shard
-      - name: Upload actual file inventory and JUnit
+      - &split-shard-upload
+        name: Upload actual file inventory and JUnit
         if: always()
         uses: actions/upload-artifact@v6
         with:
@@ -337,19 +298,98 @@ jobs:
         with:
           name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/verify-plan
-      - name: Download every shard inventory
+      - &split-reports-download
+        name: Download every shard inventory
         uses: actions/download-artifact@v6
         with:
           pattern: verify-shard-${{ matrix.os }}-node-${{ matrix.node-version }}-*-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/verify-reports
-      - name: Prove each discovered file executed exactly once
+      - &split-coverage
+        name: Prove each discovered file executed exactly once
         run: bun run verify:ci coverage
-      - name: Verify post-gates in original order with fresh local fixtures
+      - &split-post-gates
+        name: Verify post-gates in original order with fresh local fixtures
         run: bun run verify:post
+
+  # Governance's full-verification receipt (ADR-0052): the split steps above, as dedicated Linux jobs
+  # outside the lane-gated generic matrix, so they run on every event and never wait on another OS.
+  verify-linux-pre:
+    name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / pre"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy: &linux-target
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node-version: 22.22.x
+    env: *split-pre-env
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - *split-checkout
+      - *split-setup-node
+      - *split-setup-bun
+      - *split-install
+      - name: Network-isolated local first experience
+        run: node scripts/local-no-cloud-e2e.mjs > local-no-cloud-network-readback.json
+      - name: Upload network isolation readback
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-no-cloud-network-linux-node-22
+          path: local-no-cloud-network-readback.json
+      - *split-ipc-readback
+      - *split-ipc-upload
+      - *split-pre-gates
+      - *split-plan
+      - *split-plan-upload
+      - &bind-verified-checkout
+        name: Bind verified checkout
+        id: verified_checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  verify-linux-shards:
+    needs: verify-linux-pre
+    name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / shard ${{ matrix.shard }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.verify-linux-pre.outputs.shards) }}
+    env: *split-shard-env
+    steps:
+      - *split-checkout
+      - *split-setup-node
+      - *split-setup-bun
+      - *split-install
+      - *split-plan-download
+      - *split-shard
+      - *split-shard-upload
+      - *bind-verified-checkout
+
+  verify-linux-post:
+    needs: [verify-linux-pre, verify-linux-shards]
+    name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / post"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy: *linux-target
+    outputs:
+      checkout_sha: ${{ steps.verified_checkout.outputs.sha }}
+    steps:
+      - *split-checkout
+      - *split-setup-node
+      - *split-setup-bun
+      - *split-install
+      - *split-plan-download
+      - *split-reports-download
+      - *split-coverage
+      - *split-post-gates
+      - *bind-verified-checkout
 
   verify-collect:
     if: ${{ always() && github.event_name != 'workflow_dispatch' }}
-    needs: [verify-topology, verify-linux-full, verify, verify-split-pre, verify-split-tests, verify-split-post]
+    needs: [verify-topology, verify-linux-pre, verify-linux-shards, verify-linux-post, verify, verify-split-pre, verify-split-tests, verify-split-post]
     name: Verify job evidence
     runs-on: ubuntu-latest
     timeout-minutes: 5

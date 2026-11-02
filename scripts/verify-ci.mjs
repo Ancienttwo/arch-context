@@ -10,7 +10,12 @@ export const NODE_TARGETS = ["22.22.x", "24.x", "25.x"];
 export const targetName = (os, node) => `${os} / Node ${node}`;
 export const workerName = (os, node, part) => `Verify execution: ${targetName(os, node)} / ${part}`;
 export const GOVERNANCE_TARGET = { os: "ubuntu-latest", "node-version": "22.22.x" };
-export const GOVERNANCE_WORKER = workerName(GOVERNANCE_TARGET.os, GOVERNANCE_TARGET["node-version"], "full");
+// ADR-0052 section 2: renaming a Linux split job or one of these steps changes Governance's receipt.
+export const RECEIPT_GATE_STEPS = {
+  pre: ["Verify pre-gates in original order", "Bind verified checkout"],
+  shard: ["Execute assigned full files with all real assertions", "Bind verified checkout"],
+  post: ["Prove each discovered file executed exactly once", "Verify post-gates in original order with fresh local fixtures", "Bind verified checkout"]
+};
 const CONFIG_PATH = new URL("../.github/verify-sharding.json", import.meta.url);
 const SCOPE_PATH = new URL("../.github/verify-scope.json", import.meta.url);
 
@@ -22,8 +27,7 @@ export function validateConfig(config) {
     assert(Number.isInteger(row.shards) && row.shards > 1);
   }
   assert.equal(new Set(config.splitTargets.map(row => targetName(row.os, row["node-version"]))).size, config.splitTargets.length);
-  assert(!config.splitTargets.some(row => row.os === GOVERNANCE_TARGET.os && row["node-version"] === GOVERNANCE_TARGET["node-version"]), "shared Governance prerequisite must remain a full worker");
-  assert.deepEqual([GOVERNANCE_TARGET.os, ...config.splitTargets.map(row => row.os)].sort(), [...OS_TARGETS].sort(), "every OS needs exactly one full verification");
+  assert.deepEqual(config.splitTargets.map(row => row.os).sort(), [...OS_TARGETS].sort(), "every OS has exactly one splitTargets row at 22.22.x");
   return config;
 }
 
@@ -187,10 +191,13 @@ export async function executeShard(root, plan, index, evidenceDir, bun = "bun") 
   return report;
 }
 
+export function shardMatrix(rows) {
+  return rows.flatMap(row => Array.from({ length: row.shards }, (_, index) => ({ ...row, index, shard: index + 1 })));
+}
+
 export function expectedWorkers(config, os, node) {
   const row = config.splitTargets.find(row => row.os === os && row["node-version"] === node);
   if (row) return [workerName(os, node, "pre"), ...Array.from({ length: row.shards }, (_, i) => workerName(os, node, `shard ${i + 1}`)), workerName(os, node, "post")];
-  if (os === GOVERNANCE_TARGET.os && node === GOVERNANCE_TARGET["node-version"]) return [GOVERNANCE_WORKER];
   return [workerName(os, node, "node compat")];
 }
 
@@ -267,32 +274,39 @@ export function governanceSourceHead(env = process.env) {
   return head;
 }
 
-export function validateGovernancePrerequisite(identity, run, jobs, context) {
+/** ADR-0052 composite receipt: every Linux split job and each of its gate steps succeeded in this run attempt. */
+export function validateGovernancePrerequisite(config, identity, run, jobs, context) {
   assert(["pull_request", "push", "workflow_dispatch"].includes(context.eventName));
-  assert.equal(context.prerequisiteResult, "success", "Linux full prerequisite did not succeed");
+  assert.equal(context.prerequisiteResult, "success", "Linux post prerequisite did not succeed");
   assert.match(context.prerequisiteCheckoutSha ?? "", /^[a-f0-9]{40}$/, "missing/invalid prerequisite checkout");
   assert.equal(context.actualCheckoutSha, identity.checkoutSha, "Governance checkout differs from this event");
-  assert.equal(context.prerequisiteCheckoutSha, identity.checkoutSha, "Linux full verified a different checkout");
+  assert.equal(context.prerequisiteCheckoutSha, identity.checkoutSha, "Linux post verified a different checkout");
   assert.equal(run.id, identity.runId, "different prerequisite run");
   assert.equal(run.run_attempt, identity.attempt, "different prerequisite attempt");
   assert.equal(run.path, ".github/workflows/verify.yml", "different prerequisite workflow");
   assert.equal(run.event, context.eventName, "different prerequisite event");
   assert.match(context.sourceHeadSha ?? "", /^[a-f0-9]{40}$/);
   assert.equal(run.head_sha, context.sourceHeadSha, "different prerequisite source HEAD");
-  const matches = jobs.filter(job => job.name === GOVERNANCE_WORKER);
-  assert.equal(matches.length, 1, "missing/duplicate Linux full prerequisite");
-  const job = matches[0];
-  assert(Number.isSafeInteger(job.id) && job.id > 0, "missing/invalid prerequisite job id");
-  assert.equal(job.status, "completed", "Linux full prerequisite is incomplete");
-  assert.equal(job.conclusion, "success", "Linux full prerequisite was not successful");
-  assert.equal(job.run_id, run.id);
-  assert.equal(job.run_attempt, run.run_attempt);
-  assert.equal(job.head_sha, run.head_sha);
-  const verifySteps = (job.steps ?? []).filter(step => step.name === "Verify");
-  assert.equal(verifySteps.length, 1, "missing/duplicate full Verify step");
-  assert.equal(verifySteps[0].status, "completed");
-  assert.equal(verifySteps[0].conclusion, "success", "full Verify step was not successful");
-  return job;
+  const names = expectedWorkers(config, GOVERNANCE_TARGET.os, GOVERNANCE_TARGET["node-version"]);
+  return names.map((name, index) => {
+    const matches = jobs.filter(job => job.name === name);
+    assert.equal(matches.length, 1, `missing/duplicate prerequisite job: ${name}`);
+    const job = matches[0];
+    assert(Number.isSafeInteger(job.id) && job.id > 0, `missing/invalid prerequisite job id: ${name}`);
+    assert.equal(job.status, "completed", `prerequisite job is incomplete: ${name}`);
+    assert.equal(job.conclusion, "success", `prerequisite job was not successful: ${name}`);
+    assert.equal(job.run_id, run.id, `prerequisite job ran in a different run: ${name}`);
+    assert.equal(job.run_attempt, run.run_attempt, `prerequisite job ran in a different attempt: ${name}`);
+    assert.equal(job.head_sha, run.head_sha, `prerequisite job ran on a different head: ${name}`);
+    const gates = RECEIPT_GATE_STEPS[index === 0 ? "pre" : index === names.length - 1 ? "post" : "shard"];
+    for (const gate of gates) {
+      const steps = (job.steps ?? []).filter(step => step.name === gate);
+      assert.equal(steps.length, 1, `missing/duplicate gate step "${gate}": ${name}`);
+      assert.equal(steps[0].status, "completed", `gate step "${gate}" is incomplete: ${name}`);
+      assert.equal(steps[0].conclusion, "success", `gate step "${gate}" was not successful: ${name}`);
+    }
+    return job;
+  });
 }
 
 export async function verifyGovernancePrerequisite(env = process.env) {
@@ -302,12 +316,12 @@ export async function verifyGovernancePrerequisite(env = process.env) {
   const checkout = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", shell: false });
   assert.equal(checkout.status, 0, "cannot read Governance checkout");
   const { run, jobs } = await hostedJobs(env);
-  const job = validateGovernancePrerequisite(identity, run, jobs, {
+  const receipt = validateGovernancePrerequisite(readConfig(), identity, run, jobs, {
     eventName: env.GITHUB_EVENT_NAME, sourceHeadSha, actualCheckoutSha: checkout.stdout.trim(),
     prerequisiteResult: env.VERIFY_PREREQUISITE_RESULT,
     prerequisiteCheckoutSha: env.VERIFY_PREREQUISITE_CHECKOUT_SHA
   });
-  return { runId: run.id, attempt: run.run_attempt, sourceHeadSha: run.head_sha, checkoutSha: identity.checkoutSha, jobId: job.id };
+  return { runId: run.id, attempt: run.run_attempt, sourceHeadSha: run.head_sha, checkoutSha: identity.checkoutSha, jobIds: receipt.map(job => job.id) };
 }
 
 export async function main(command, env = process.env) {
@@ -321,11 +335,11 @@ export async function main(command, env = process.env) {
     assert(["pull_request", "push"].includes(env.GITHUB_EVENT_NAME), "topology requires a pull_request or push event");
     const classification = env.GITHUB_EVENT_NAME === "pull_request" ? classifyPaths(readScope(), changedPaths(process.cwd())) : { lane: "matrix", matrixPaths: [] };
     const { lane } = classification;
-    const split = config.splitTargets;
-    const shards = split.flatMap(row => Array.from({ length: row.shards }, (_, index) => ({ ...row, index, shard: index + 1 })));
-    const full = [...split, GOVERNANCE_TARGET];
-    const compat = laneTargets("matrix").filter(target => !full.some(row => row.os === target.os && row["node-version"] === target["node-version"]));
-    for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shards }, compat: { include: compat },
+    const sameTarget = (a, b) => a.os === b.os && a["node-version"] === b["node-version"];
+    // The Governance target's split runs as dedicated jobs outside the lane-gated generic matrix (ADR-0052).
+    const split = config.splitTargets.filter(row => !sameTarget(row, GOVERNANCE_TARGET));
+    const compat = laneTargets("matrix").filter(target => !config.splitTargets.some(row => sameTarget(row, target)));
+    for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shardMatrix(split) }, compat: { include: compat },
       targets: { include: laneTargets(lane) } })) {
       appendFileSync(env.GITHUB_OUTPUT, `${key}=${JSON.stringify(value)}\n`);
     }
@@ -341,6 +355,8 @@ export async function main(command, env = process.env) {
     assert(row, "target is not authorized for sharding");
     jsonWrite(temporaryPath("VERIFY_PLAN", "verify-plan", "plan.json"), { version: 1, subject: subject(env), target: env.VERIFY_TARGET, files,
       groups: partitionFiles(files, config.fileWeightsMs, row.shards) });
+    // The dedicated Linux shard matrix comes from the same config row as the plan's groups.
+    appendFileSync(env.GITHUB_OUTPUT, `shards=${JSON.stringify({ include: shardMatrix([row]) })}\n`);
   } else if (command === "shard") {
     const plan = JSON.parse(readFileSync(temporaryPath("VERIFY_PLAN", "verify-plan", "plan.json"), "utf8"));
     assert.deepEqual(plan.subject, subject(env));
