@@ -286,6 +286,32 @@ describe("capability documentation projection inputs from the code index", () =>
     } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); }
   }, 60_000);
 
+  test("private snapshot runs no repository or configured hook", async () => {
+    const { root } = seedWorkspace({ withIndex: false });
+    const outside = mkdtempSync(join(tmpdir(), "archctx-snapshot-hooks-"));
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+    const posix = (path: string) => path.replaceAll("\\", "/");
+    try {
+      writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
+      git(root, "add", "packages", ".gitignore");
+      git(root, "-c", "user.name=Snapshot Test", "-c", "user.email=snapshot@example.test", "commit", "-qm", "fixture");
+      indexCodeGraphFixture(root);
+      Bun.gc(true);
+      const markers = ["repository", "configured"].map(name => join(outside, `${name}-hook-ran`));
+      mkdirSync(join(outside, "hooks"));
+      for (const [directory, marker] of [[join(root, ".git/hooks"), markers[0]!], [join(outside, "hooks"), markers[1]!]] as const) {
+        writeFileSync(join(directory, "post-index-change"), `#!/bin/sh\necho ran > "${posix(marker)}"\n`, { mode: 0o755 });
+      }
+      git(root, "config", "core.hooksPath", posix(join(outside, "hooks")));
+      expect(withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION"], sources: [], includeFiles: false }, graph => {
+        const snapshotGit = join(graph.getProjectRoot(), ".git");
+        git(graph.getProjectRoot(), "status", "--porcelain", "-uall");
+        return [existsSync(join(snapshotGit, "hooks")), readdirSync(join(snapshotGit, "archctx-empty-hooks")), git(graph.getProjectRoot(), "config", "core.hooksPath") === posix(join(snapshotGit, "archctx-empty-hooks"))];
+      })).toEqual([false, [], true]);
+      expect(markers.map(marker => existsSync(marker))).toEqual([false, false]);
+    } finally { Bun.gc(true); rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
+  }, 60_000);
+
   test("private snapshot limit stops copying and reports the measured breakdown", () => {
     const { root } = seedWorkspace({ withIndex: true });
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
@@ -300,7 +326,7 @@ describe("capability documentation projection inputs from the code index", () =>
       try { withExistingCodeGraphSnapshot(root, { names: ["MAIN_VERSION"], sources: [], includeFiles: false }, () => true); } catch (error) { failure = error; }
       const copiedBytes = (dir: string): number => readdirSync(dir).reduce((sum, name) => {
         const stat = statSync(join(dir, name));
-        return sum + (!stat.isDirectory() ? stat.size : dir === join(root, ".git") && name === "objects" ? 0 : copiedBytes(join(dir, name)));
+        return sum + (!stat.isDirectory() ? stat.size : dir === join(root, ".git") && ["objects", "hooks"].includes(name) ? 0 : copiedBytes(join(dir, name)));
       }, 0);
       expect(failure?.reasonCode).toBe("code-facts-snapshot-limit-exceeded");
       expect(failure.details).toMatchObject({ limit: "bytes", maxBytes: 512 * 1024 * 1024, gitBytes: copiedBytes(join(root, ".git")), indexBytes: 0, indexEntries: 1 });
