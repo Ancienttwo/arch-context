@@ -52,54 +52,14 @@ describe("governance verify workflow", () => {
     expect(workflow.jobs.verify.strategy.matrix).toBe("${{ fromJSON(needs.verify-topology.outputs.compat) }}");
   });
 
-  test("keeps governance verify local and evidence-inspection only after full verify", () => {
+  test("keeps governance verify local and runs only full verify", () => {
     expect(VERIFY_GOVERNANCE).toContain('"run", "verify"');
-    for (const evidence of [
-      "docs/verification/fg3-real-pr-synchronize-e2e.json",
-      "docs/verification/fg4-public-fork-adversarial-readback.json",
-      "docs/verification/fg5-check-failure-readback.json",
-      "docs/verification/fg5-retention-staging-readback.json",
-      "docs/verification/fg5-control-plane-incident-drill.json",
-      "docs/verification/fg5-full-plane-dlp-readback.json",
-      "docs/verification/fg6-local-no-cloud-readback.json",
-      "docs/verification/fg6-developer-review-provenance-readback.json",
-      "docs/verification/fg6-new-commit-invalidation-readback.json",
-      "docs/verification/fg6-organization-runner-no-llm-readback.json",
-      "docs/verification/fg6-privacy-dlp-readback.json",
-      "docs/verification/fg6-platform-workflow-matrix-readback.json",
-      "docs/verification/fg6-adversarial-governance-matrix-readback.json",
-      "docs/verification/fg6-chaos-fault-matrix-readback.json",
-      "docs/verification/fg6-security-release-readback.json",
-      "docs/verification/fg6-external-security-review-readback.json",
-      "docs/verification/fg6-representative-benchmark-readback.json",
-      "docs/verification/fg6-slo-readback.json",
-      "docs/verification/fg6-retention-deletion-readback.json",
-      "docs/verification/fg6-ops-runbook-readback.json",
-      "docs/verification/fg6-feature-flag-readback.json",
-      "docs/verification/fg6-rollback-compat-readback.json"
-    ]) {
-      expect(VERIFY_GOVERNANCE).toContain(evidence);
-    }
     expect(VERIFY_GOVERNANCE).not.toContain("_ops/env");
     expect(VERIFY_GOVERNANCE).not.toContain("wrangler deploy");
   });
 
-  test("preserves the exact full-plus-23 command order and arguments", () => {
-    const inspections = [
-      "fg3-real-pr-synchronize-e2e", "fg4-public-fork-adversarial-readback", "fg5-check-failure-readback",
-      "fg5-retention-staging-readback", "fg5-control-plane-incident-drill", "fg5-full-plane-dlp-readback",
-      "fg6-local-no-cloud-readback", "fg6-developer-review-provenance-readback", "fg6-new-commit-invalidation-readback",
-      "fg6-organization-runner-no-llm-readback", "fg6-privacy-dlp-readback", "fg6-no-provider-deterministic-readback",
-      "fg6-platform-workflow-matrix-readback", "fg6-adversarial-governance-matrix-readback", "fg6-chaos-fault-matrix-readback",
-      "fg6-security-release-readback", "fg6-external-security-review-readback", "fg6-representative-benchmark-readback",
-      "fg6-slo-readback", "fg6-retention-deletion-readback", "fg6-ops-runbook-readback", "fg6-feature-flag-readback", "fg6-rollback-compat-readback"
-    ];
-    expect(GOVERNANCE_COMMANDS).toEqual([
-      { command: "bun", args: ["run", "verify"] },
-      ...inspections.map(name => ({ command: "bun", args: name === "fg6-no-provider-deterministic-readback"
-        ? [`scripts/${name}.ts`, "run", "--json"]
-        : [`scripts/${name}.ts`, "inspect", "--evidence", `docs/verification/${name}.json`, "--json"] }))
-    ]);
+  test("preserves the full-verify command and an empty CI inspection list", () => {
+    expect(GOVERNANCE_COMMANDS).toEqual([{ command: "bun", args: ["run", "verify"] }]);
     const calls: { command: string; args: string[] }[] = [];
     const env = { VERIFY_TEST_SENTINEL: "preserved" };
     const options = { env,
@@ -108,17 +68,21 @@ describe("governance verify workflow", () => {
         calls.push({ command, args }); return { status: 0 };
       }) as any,
       logger: { ...console, log() {}, error() {} } };
-    expect(runGovernanceCommands(GOVERNANCE_COMMANDS, options)).toMatchObject({ commandCount: 24, ok: true });
+    expect(runGovernanceCommands(GOVERNANCE_COMMANDS, options)).toMatchObject({ commandCount: 1, ok: true });
     expect(calls).toEqual(GOVERNANCE_COMMANDS.map(({ command, args }: any) => ({ command, args })));
     calls.length = 0;
-    expect(runGovernanceCommands(GOVERNANCE_COMMANDS.slice(1), options)).toMatchObject({ commandCount: 23, ok: true });
+    expect(runGovernanceCommands(GOVERNANCE_COMMANDS.slice(1), options)).toMatchObject({ commandCount: 0, ok: true });
     expect(calls).toEqual(GOVERNANCE_COMMANDS.slice(1).map(({ command, args }: any) => ({ command, args })));
   });
 
   test("a failed full verify or inspection stops the real runner before later commands", () => {
-    for (const start of [0, 1]) for (const failedIndex of [0, 3]) {
+    for (const failedIndex of [0, 1]) {
       const calls: string[] = [];
-      const commands = GOVERNANCE_COMMANDS.slice(start);
+      const commands = [
+        { command: "bun", args: ["run", "verify"] },
+        { command: "bun", args: ["run", "first"] },
+        { command: "bun", args: ["run", "second"] }
+      ];
       const run = () => runGovernanceCommands(commands, {
         spawn: ((command: string, args: string[]) => { calls.push([command, ...args].join(" ")); return { status: calls.length - 1 === failedIndex ? 37 : 0 }; }) as any,
         logger: { ...console, log() {}, error() {} }
