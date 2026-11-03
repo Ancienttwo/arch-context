@@ -17,7 +17,7 @@ export const GOVERNANCE_COMMANDS = [
   command("bun", ["scripts/fg6-new-commit-invalidation-readback.ts", "inspect", "--evidence", "docs/verification/fg6-new-commit-invalidation-readback.json", "--json"]),
   command("bun", ["scripts/fg6-organization-runner-no-llm-readback.ts", "inspect", "--evidence", "docs/verification/fg6-organization-runner-no-llm-readback.json", "--json"]),
   command("bun", ["scripts/fg6-privacy-dlp-readback.ts", "inspect", "--evidence", "docs/verification/fg6-privacy-dlp-readback.json", "--json"]),
-  command("bun", ["scripts/fg6-no-provider-deterministic-readback.ts", "inspect", "--evidence", "docs/verification/fg6-no-provider-deterministic-readback.json", "--json"]),
+  command("bun", ["scripts/fg6-no-provider-deterministic-readback.ts", "run", "--json"]),
   command("bun", ["scripts/fg6-platform-workflow-matrix-readback.ts", "inspect", "--evidence", "docs/verification/fg6-platform-workflow-matrix-readback.json", "--json"]),
   command("bun", ["scripts/fg6-adversarial-governance-matrix-readback.ts", "inspect", "--evidence", "docs/verification/fg6-adversarial-governance-matrix-readback.json", "--json"]),
   command("bun", ["scripts/fg6-chaos-fault-matrix-readback.ts", "inspect", "--evidence", "docs/verification/fg6-chaos-fault-matrix-readback.json", "--json"]),

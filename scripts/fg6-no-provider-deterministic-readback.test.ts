@@ -1,8 +1,24 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { REVIEW_ACTION_NO_LLM_MODEL_DIGEST } from "@archcontext/cloud/runner";
-import { inspectFg6NoProviderDeterministic } from "./fg6-no-provider-deterministic-readback";
+import { buildFg6NoProviderDeterministicConfig, inspectFg6NoProviderDeterministic, runFg6NoProviderDeterministic } from "./fg6-no-provider-deterministic-readback";
 
 describe("fg6 no-provider deterministic gate readback evidence", () => {
+  test("runs with historical sources and a fresh deterministic recording without writing a file", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "fg6-readback-"));
+    try {
+      const config = buildFg6NoProviderDeterministicConfig({}, []);
+      const result = await runFg6NoProviderDeterministic({ ...config, root,
+        localNoCloudSource: resolve(config.localNoCloudSource), runnerSource: resolve(config.runnerSource),
+        orgNoLlmSource: resolve(config.orgNoLlmSource) });
+      expect(result.ok).toBe(true);
+      expect(result.evidence.sourceInspections.deterministic.ok).toBe(true);
+      expect(result.sources).not.toHaveProperty("deterministicSource");
+      expect(await readdir(root)).toEqual([]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   test("accepts AC-06 no-provider deterministic gate evidence", () => {
     expect(inspectFg6NoProviderDeterministic(verifiedRecording())).toEqual({ ok: true, failures: [] });
   });
@@ -41,7 +57,6 @@ function verifiedRecording() {
     sources: {
       localNoCloudSource: "docs/verification/fg6-local-no-cloud-readback.json",
       runnerSource: "docs/verification/fg4-github-hosted-runner-readback.json",
-      deterministicSource: "docs/verification/fg4-deterministic-conclusion-readback.json",
       orgNoLlmSource: "docs/verification/fg6-organization-runner-no-llm-readback.json"
     },
     evidence: {

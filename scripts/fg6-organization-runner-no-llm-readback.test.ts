@@ -37,8 +37,7 @@ function verifiedRecording() {
     generatedAt: "2026-06-22T07:00:00.000Z",
     sources: {
       runnerSource: "docs/verification/fg4-github-hosted-runner-readback.json",
-      rulesetSource: "docs/verification/fg4-organization-runner-ruleset-readback.json",
-      deterministicSource: "docs/verification/fg4-deterministic-conclusion-readback.json"
+      rulesetSource: "docs/verification/fg4-organization-runner-ruleset-readback.json"
     },
     evidence: {
       runner: {

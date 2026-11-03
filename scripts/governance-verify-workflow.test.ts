@@ -66,7 +66,6 @@ describe("governance verify workflow", () => {
       "docs/verification/fg6-new-commit-invalidation-readback.json",
       "docs/verification/fg6-organization-runner-no-llm-readback.json",
       "docs/verification/fg6-privacy-dlp-readback.json",
-      "docs/verification/fg6-no-provider-deterministic-readback.json",
       "docs/verification/fg6-platform-workflow-matrix-readback.json",
       "docs/verification/fg6-adversarial-governance-matrix-readback.json",
       "docs/verification/fg6-chaos-fault-matrix-readback.json",
@@ -97,7 +96,9 @@ describe("governance verify workflow", () => {
     ];
     expect(GOVERNANCE_COMMANDS).toEqual([
       { command: "bun", args: ["run", "verify"] },
-      ...inspections.map(name => ({ command: "bun", args: [`scripts/${name}.ts`, "inspect", "--evidence", `docs/verification/${name}.json`, "--json"] }))
+      ...inspections.map(name => ({ command: "bun", args: name === "fg6-no-provider-deterministic-readback"
+        ? [`scripts/${name}.ts`, "run", "--json"]
+        : [`scripts/${name}.ts`, "inspect", "--evidence", `docs/verification/${name}.json`, "--json"] }))
     ]);
     const calls: { command: string; args: string[] }[] = [];
     const env = { VERIFY_TEST_SENTINEL: "preserved" };
