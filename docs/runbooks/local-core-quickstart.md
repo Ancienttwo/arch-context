@@ -141,6 +141,4 @@ bun test scripts/local-core-quickstart-doc.test.ts
 node scripts/packaged-cli-smoke.mjs
 bun run readback:release
 node scripts/platform-ipc-permission-readback.mjs
-bun run verify:acceptance-ledger
-bun run check:sprint
 ```

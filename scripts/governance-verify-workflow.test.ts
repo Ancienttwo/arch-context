@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
@@ -20,7 +20,6 @@ interface ScriptOwnerCorpus {
   workflow: string;
   docsVerification: string;
   docsRunbooks: string;
-  acceptanceLedger: string;
 }
 
 describe("governance verify workflow", () => {
@@ -55,9 +54,6 @@ describe("governance verify workflow", () => {
 
   test("keeps governance verify local and evidence-inspection only after full verify", () => {
     expect(VERIFY_GOVERNANCE).toContain('"run", "verify"');
-    expect(VERIFY_GOVERNANCE).toContain("requiresCompletedLedgerIds");
-    expect(VERIFY_GOVERNANCE).toContain("FG6-EG2");
-    expect(VERIFY_GOVERNANCE).toContain("skipped pending evidence");
     for (const evidence of [
       "docs/verification/fg3-real-pr-synchronize-e2e.json",
       "docs/verification/fg4-public-fork-adversarial-readback.json",
@@ -89,7 +85,7 @@ describe("governance verify workflow", () => {
     expect(VERIFY_GOVERNANCE).not.toContain("wrangler deploy");
   });
 
-  test("preserves the exact full-plus-23 command order, arguments and sole ledger condition", () => {
+  test("preserves the exact full-plus-23 command order and arguments", () => {
     const inspections = [
       "fg3-real-pr-synchronize-e2e", "fg4-public-fork-adversarial-readback", "fg5-check-failure-readback",
       "fg5-retention-staging-readback", "fg5-control-plane-incident-drill", "fg5-full-plane-dlp-readback",
@@ -101,26 +97,21 @@ describe("governance verify workflow", () => {
     ];
     expect(GOVERNANCE_COMMANDS).toEqual([
       { command: "bun", args: ["run", "verify"] },
-      ...inspections.map(name => ({ command: "bun", args: [`scripts/${name}.ts`, "inspect", "--evidence", `docs/verification/${name}.json`, "--json"],
-        ...(name === "fg6-platform-workflow-matrix-readback" ? { requiresCompletedLedgerIds: ["FG6-EG2"] } : {}) }))
+      ...inspections.map(name => ({ command: "bun", args: [`scripts/${name}.ts`, "inspect", "--evidence", `docs/verification/${name}.json`, "--json"] }))
     ]);
     const calls: { command: string; args: string[] }[] = [];
     const env = { VERIFY_TEST_SENTINEL: "preserved" };
-    const options = { ledgerStatuses: new Map([["FG6-EG2", "completed"]]), env,
+    const options = { env,
       spawn: ((command: string, args: string[], spawnOptions: any) => {
         expect(spawnOptions).toEqual({ stdio: "inherit", env, shell: false });
         calls.push({ command, args }); return { status: 0 };
       }) as any,
       logger: { ...console, log() {}, error() {} } };
-    expect(runGovernanceCommands(GOVERNANCE_COMMANDS, options)).toMatchObject({ commandCount: 24, skippedCount: 0, ok: true });
+    expect(runGovernanceCommands(GOVERNANCE_COMMANDS, options)).toMatchObject({ commandCount: 24, ok: true });
     expect(calls).toEqual(GOVERNANCE_COMMANDS.map(({ command, args }: any) => ({ command, args })));
     calls.length = 0;
-    expect(runGovernanceCommands(GOVERNANCE_COMMANDS.slice(1), options)).toMatchObject({ commandCount: 23, skippedCount: 0, ok: true });
+    expect(runGovernanceCommands(GOVERNANCE_COMMANDS.slice(1), options)).toMatchObject({ commandCount: 23, ok: true });
     expect(calls).toEqual(GOVERNANCE_COMMANDS.slice(1).map(({ command, args }: any) => ({ command, args })));
-    calls.length = 0;
-    expect(runGovernanceCommands(GOVERNANCE_COMMANDS.slice(1), { ...options, ledgerStatuses: new Map() })).toMatchObject({ commandCount: 23, skippedCount: 1 });
-    expect(calls).toHaveLength(22);
-    expect(calls.some(call => call.args[0] === "scripts/fg6-platform-workflow-matrix-readback.ts")).toBe(false);
   });
 
   test("a failed full verify or inspection stops the real runner before later commands", () => {
@@ -128,7 +119,6 @@ describe("governance verify workflow", () => {
       const calls: string[] = [];
       const commands = GOVERNANCE_COMMANDS.slice(start);
       const run = () => runGovernanceCommands(commands, {
-        ledgerStatuses: new Map([["FG6-EG2", "completed"]]),
         spawn: ((command: string, args: string[]) => { calls.push([command, ...args].join(" ")); return { status: calls.length - 1 === failedIndex ? 37 : 0 }; }) as any,
         logger: { ...console, log() {}, error() {} }
       });
@@ -145,8 +135,6 @@ describe("governance verify workflow", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-governance-cli-"));
     const entry = fileURLToPath(new URL("./verify-governance.mjs", import.meta.url));
     try {
-      mkdirSync(join(root, "docs/verification"), { recursive: true });
-      writeFileSync(join(root, "docs/verification/acceptance-ledger.json"), JSON.stringify({ entries: [] }));
       writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { verify: "node full-verify-fixture.mjs" } }));
       writeFileSync(join(root, "full-verify-fixture.mjs"), 'import {writeFileSync} from "node:fs";writeFileSync("full-verify-ran","yes");process.exit(37);');
       const execute = (args: string[]) => spawnSync("node", [entry, ...args], { cwd: root, encoding: "utf8", timeout: 10_000,
@@ -223,7 +211,6 @@ describe("governance verify workflow", () => {
     const nonTestScripts = scripts.filter((script) => !isTestScript(script));
     const docsVerification = readTextFiles("docs/verification");
     const docsRunbooks = readTextFiles("docs/runbooks");
-    const acceptanceLedger = readFileSync("docs/verification/acceptance-ledger.json", "utf8");
     const failures: string[] = [];
 
     for (const script of nonTestScripts) {
@@ -231,8 +218,7 @@ describe("governance verify workflow", () => {
         packageJson: PACKAGE_JSON,
         workflow: WORKFLOW,
         docsVerification,
-        docsRunbooks,
-        acceptanceLedger
+        docsRunbooks
       });
       if (owners.length === 0) {
         failures.push(script);
@@ -307,7 +293,6 @@ function scriptOwners(script: string, scripts: string[], corpus: ScriptOwnerCorp
   if (scriptIsImported(script, scripts)) owners.push("script-import");
   if (corpus.docsVerification.includes(script)) owners.push("docs/verification");
   if (corpus.docsRunbooks.includes(script)) owners.push("docs/runbooks");
-  if (corpus.acceptanceLedger.includes(script)) owners.push("acceptance-ledger");
   return owners;
 }
 

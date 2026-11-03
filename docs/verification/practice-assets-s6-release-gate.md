@@ -432,7 +432,7 @@ in the sprint ledger:
 - `matchPracticesForTask` filters candidate assets by asset repository kind,
   language, framework, path/node scope, and matching profile include/exclude
   sets before retrieval scoring.
-- `docs/verification/practice-assets-acceptance-ledger.json` records Practice
+- [`docs/verification/practice-assets-acceptance-ledger.json`](https://github.com/Ancienttwo/arch-context/blob/47d949d216580cd933971e8e27c66a1cf860958c/docs/verification/practice-assets-acceptance-ledger.json) records Practice
   Assets sprint acceptance evidence and is verified by
   `scripts/verify-practice-assets-acceptance-ledger.mjs`.
 

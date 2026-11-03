@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyGovernancePrerequisite } from "./verify-ci.mjs";
@@ -19,9 +18,7 @@ export const GOVERNANCE_COMMANDS = [
   command("bun", ["scripts/fg6-organization-runner-no-llm-readback.ts", "inspect", "--evidence", "docs/verification/fg6-organization-runner-no-llm-readback.json", "--json"]),
   command("bun", ["scripts/fg6-privacy-dlp-readback.ts", "inspect", "--evidence", "docs/verification/fg6-privacy-dlp-readback.json", "--json"]),
   command("bun", ["scripts/fg6-no-provider-deterministic-readback.ts", "inspect", "--evidence", "docs/verification/fg6-no-provider-deterministic-readback.json", "--json"]),
-  command("bun", ["scripts/fg6-platform-workflow-matrix-readback.ts", "inspect", "--evidence", "docs/verification/fg6-platform-workflow-matrix-readback.json", "--json"], {
-    requiresCompletedLedgerIds: ["FG6-EG2"]
-  }),
+  command("bun", ["scripts/fg6-platform-workflow-matrix-readback.ts", "inspect", "--evidence", "docs/verification/fg6-platform-workflow-matrix-readback.json", "--json"]),
   command("bun", ["scripts/fg6-adversarial-governance-matrix-readback.ts", "inspect", "--evidence", "docs/verification/fg6-adversarial-governance-matrix-readback.json", "--json"]),
   command("bun", ["scripts/fg6-chaos-fault-matrix-readback.ts", "inspect", "--evidence", "docs/verification/fg6-chaos-fault-matrix-readback.json", "--json"]),
   command("bun", ["scripts/fg6-security-release-readback.ts", "inspect", "--evidence", "docs/verification/fg6-security-release-readback.json", "--json"]),
@@ -34,23 +31,9 @@ export const GOVERNANCE_COMMANDS = [
   command("bun", ["scripts/fg6-rollback-compat-readback.ts", "inspect", "--evidence", "docs/verification/fg6-rollback-compat-readback.json", "--json"])
 ];
 
-export function runGovernanceCommands(commands, { ledgerStatuses = readLedgerStatuses(), spawn = spawnSync, env = process.env, logger = console } = {}) {
+export function runGovernanceCommands(commands, { spawn = spawnSync, env = process.env, logger = console } = {}) {
   const results = [];
   for (const entry of commands) {
-    const skipReason = skipReasonFor(entry, ledgerStatuses);
-    if (skipReason) {
-      const result = {
-        command: [entry.command, ...entry.args].join(" "),
-        exitCode: 0,
-        durationMs: 0,
-        skipped: true,
-        reason: skipReason
-      };
-      results.push(result);
-      logger.log(`[verify-governance] skipped pending evidence: ${result.command} (${skipReason})`);
-      continue;
-    }
-
     const startedAt = Date.now();
     const child = spawn(entry.command, entry.args, {
       stdio: "inherit",
@@ -74,7 +57,6 @@ export function runGovernanceCommands(commands, { ledgerStatuses = readLedgerSta
     status: "verified",
     ok: true,
     commandCount: results.length,
-    skippedCount: results.filter((result) => result.skipped === true).length,
     results
   };
   logger.log(JSON.stringify(report, null, 2));
@@ -92,18 +74,8 @@ export async function main(args = process.argv.slice(2)) {
   return runGovernanceCommands(GOVERNANCE_COMMANDS);
 }
 
-function command(command, args, options = {}) {
-  return { command, args, ...options };
-}
-
-function readLedgerStatuses() {
-  const ledger = JSON.parse(readFileSync("docs/verification/acceptance-ledger.json", "utf8"));
-  return new Map((ledger.entries ?? []).map((entry) => [entry.id, entry.status]));
-}
-
-function skipReasonFor(entry, ledgerStatuses) {
-  const pendingIds = (entry.requiresCompletedLedgerIds ?? []).filter((id) => ledgerStatuses.get(id) !== "completed");
-  return pendingIds.length > 0 ? `waiting for completed acceptance ledger entries: ${pendingIds.join(", ")}` : "";
+function command(command, args) {
+  return { command, args };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

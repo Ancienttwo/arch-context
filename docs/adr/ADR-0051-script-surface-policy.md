@@ -14,6 +14,7 @@ supersedes: []
 > **Status**: Active
 > **Owner**: Governance Verify
 > **Verification**: `bun test scripts/governance-verify-workflow.test.ts`
+> **Amended**: [#468](https://github.com/Ancienttwo/arch-context/issues/468) retired the acceptance ledger surface.
 
 ## Purpose
 
@@ -21,7 +22,7 @@ The root `scripts/` directory is an executable governance, verification, release
 
 This policy prevents two failure modes:
 
-- deleting a historical readback script that still anchors `docs/verification/` or the acceptance ledger;
+- deleting a historical readback script that still anchors `docs/verification/`;
 - keeping milestone scripts forever without a visible owner, command, import, or readback reference.
 
 ## Ownership Surfaces
@@ -35,7 +36,6 @@ Every non-test file under `scripts/` must be owned by at least one of these surf
 | Script import | Another script imports it as a shared helper or fixture producer | Importing script |
 | `docs/verification/` | Historical or current evidence names the script as the readback mechanism | Verification evidence |
 | `docs/runbooks/` | Operator documentation names the script as an operational command | Runbook owner |
-| acceptance ledger | `docs/verification/acceptance-ledger.json` records the script as evidence | Acceptance owner |
 
 Tests alone are not an ownership surface. A tested script with no command, import, runbook, or evidence reference is still a cleanup candidate.
 
@@ -52,14 +52,14 @@ Tests alone are not an ownership surface. A tested script with no command, impor
 
 Before deleting a script:
 
-1. Confirm it has no `package.json`, workflow, import, verification doc, runbook, or acceptance-ledger reference.
+1. Confirm it has no `package.json`, workflow, import, verification doc, or runbook reference.
 2. If it has a root command but the command is obsolete, remove the command and keep or update the evidence reference in the same change.
-3. If it has evidence references, delete it only when the evidence is superseded by a newer accepted artifact and the ledger/docs are updated in the same change.
+3. If it has evidence references, delete it only when the evidence is superseded by a newer accepted artifact and the docs are updated in the same change.
 4. Run `bun test scripts/governance-verify-workflow.test.ts`.
 5. Run the narrow test for the owning area, then `bun run verify:governance` before merge.
 
-Rollback is path-level: restore the script and any command/doc/ledger references removed in the cleanup change.
+Rollback is path-level: restore the script and any command/doc references removed in the cleanup change.
 
 ## Current Boundary
 
-This policy does not require moving files out of `scripts/`. Directory reshaping would touch many evidence paths and should be a separate migration with explicit ledger and documentation updates.
+This policy does not require moving files out of `scripts/`. Directory reshaping would touch many evidence paths and should be a separate migration with explicit documentation updates.
