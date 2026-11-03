@@ -2,16 +2,14 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { REVIEW_ACTION_NO_LLM_MODEL_DIGEST } from "@archcontext/cloud/runner";
-import { inspectFg4DeterministicConclusionReadback } from "./fg4-deterministic-conclusion-readback";
+import { buildFg4DeterministicConclusionConfig, inspectFg4DeterministicConclusionReadback, runFg4DeterministicConclusionReadback } from "./fg4-deterministic-conclusion-readback";
 import { inspectFg4GithubHostedRunnerReadback } from "./fg4-github-hosted-runner-readback";
 import { inspectFg6LocalNoCloud } from "./fg6-local-no-cloud-readback";
 import { inspectFg6OrganizationRunnerNoLlm } from "./fg6-organization-runner-no-llm-readback";
 
 const DEFAULT_LOCAL_NO_CLOUD_SOURCE = "docs/verification/fg6-local-no-cloud-readback.json";
 const DEFAULT_RUNNER_SOURCE = "docs/verification/fg4-github-hosted-runner-readback.json";
-const DEFAULT_DETERMINISTIC_SOURCE = "docs/verification/fg4-deterministic-conclusion-readback.json";
 const DEFAULT_ORG_NO_LLM_SOURCE = "docs/verification/fg6-organization-runner-no-llm-readback.json";
-const DEFAULT_OUTPUT = "docs/verification/fg6-no-provider-deterministic-readback.json";
 const PROVIDER_ENV_KEYS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY"] as const;
 const SECRET_PATTERNS = [
   /gh[opsu]_[A-Za-z0-9_]+/,
@@ -30,7 +28,11 @@ if (import.meta.main) {
     process.stdout.write(`${config.json ? JSON.stringify(result, null, 2) : renderHuman(result)}\n`);
     if (!result.ok) process.exit(1);
   } else if (command === "inspect") {
-    const evidencePath = readFlag(args, "--evidence") ?? DEFAULT_OUTPUT;
+    const evidencePath = readFlag(args, "--evidence");
+    if (!evidencePath) {
+      console.error("[fg6-no-provider-deterministic-readback] usage: run|inspect [--out path] [--json]");
+      process.exit(2);
+    }
     const recording = JSON.parse(await readFile(resolve(process.cwd(), evidencePath), "utf8")) as unknown;
     const result = inspectFg6NoProviderDeterministic(recording);
     process.stdout.write(`${args.includes("--json") ? JSON.stringify(result, null, 2) : renderInspectHuman(result)}\n`);
@@ -46,9 +48,8 @@ export function buildFg6NoProviderDeterministicConfig(env: NodeJS.ProcessEnv = p
     root: readFlag(args, "--root") ?? env.ARCHCONTEXT_READBACK_ROOT ?? process.cwd(),
     localNoCloudSource: readFlag(args, "--local-no-cloud-source") ?? env.ARCHCONTEXT_FG6_LOCAL_NO_CLOUD_SOURCE ?? DEFAULT_LOCAL_NO_CLOUD_SOURCE,
     runnerSource: readFlag(args, "--runner-source") ?? env.ARCHCONTEXT_FG6_RUNNER_SOURCE ?? DEFAULT_RUNNER_SOURCE,
-    deterministicSource: readFlag(args, "--deterministic-source") ?? env.ARCHCONTEXT_FG6_DETERMINISTIC_SOURCE ?? DEFAULT_DETERMINISTIC_SOURCE,
     orgNoLlmSource: readFlag(args, "--org-no-llm-source") ?? env.ARCHCONTEXT_FG6_ORG_NO_LLM_SOURCE ?? DEFAULT_ORG_NO_LLM_SOURCE,
-    outputPath: readFlag(args, "--out") ?? env.ARCHCONTEXT_FG6_NO_PROVIDER_DETERMINISTIC_OUTPUT ?? DEFAULT_OUTPUT,
+    outputPath: readFlag(args, "--out"),
     json: args.includes("--json"),
     generatedAt: () => new Date().toISOString()
   };
@@ -58,7 +59,7 @@ export async function runFg6NoProviderDeterministic(config: ReturnType<typeof bu
   const [localNoCloudSource, runnerSource, deterministicSource, orgNoLlmSource] = await Promise.all([
     readJson(resolve(config.root, config.localNoCloudSource)),
     readJson(resolve(config.root, config.runnerSource)),
-    readJson(resolve(config.root, config.deterministicSource)),
+    runFg4DeterministicConclusionReadback(buildFg4DeterministicConclusionConfig()),
     readJson(resolve(config.root, config.orgNoLlmSource))
   ]);
   const localInspection = inspectFg6LocalNoCloud(localNoCloudSource);
@@ -76,7 +77,6 @@ export async function runFg6NoProviderDeterministic(config: ReturnType<typeof bu
     sources: {
       localNoCloudSource: config.localNoCloudSource,
       runnerSource: config.runnerSource,
-      deterministicSource: config.deterministicSource,
       orgNoLlmSource: config.orgNoLlmSource
     },
     evidence: {
@@ -113,8 +113,10 @@ export async function runFg6NoProviderDeterministic(config: ReturnType<typeof bu
   recording.status = inspection.ok ? "verified" : "failed";
   recording.ok = inspection.ok;
   recording.failures = inspection.failures;
-  await mkdir(dirname(resolve(config.root, config.outputPath)), { recursive: true });
-  await writeFile(resolve(config.root, config.outputPath), `${JSON.stringify(recording, null, 2)}\n`, "utf8");
+  if (config.outputPath) {
+    await mkdir(dirname(resolve(config.root, config.outputPath)), { recursive: true });
+    await writeFile(resolve(config.root, config.outputPath), `${JSON.stringify(recording, null, 2)}\n`, "utf8");
+  }
   return recording;
 }
 

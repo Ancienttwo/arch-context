@@ -21,7 +21,6 @@ import {
 } from "@archcontext/cloud/runner";
 import type { GovernanceKeyStatus, RunnerIdentity } from "@archcontext/contracts";
 
-const DEFAULT_OUTPUT = "docs/verification/fg4-deterministic-conclusion-readback.json";
 const WORKFLOW_REF = "ancienttwo/arch-context/.github/workflows/archcontext-review.yml@refs/heads/main";
 const FORBIDDEN_NONCE_MARKER = "nonce_fg4_deterministic_conclusion_secret";
 const DIGEST = `sha256:${"1".repeat(64)}`;
@@ -43,7 +42,11 @@ if (import.meta.main) {
     process.stdout.write(`${config.json ? JSON.stringify(result, null, 2) : renderHuman(result)}\n`);
     if (!result.ok) process.exit(1);
   } else {
-    const evidencePath = readFlag(args, "--evidence") ?? DEFAULT_OUTPUT;
+    const evidencePath = readFlag(args, "--evidence");
+    if (!evidencePath) {
+      console.error("[fg4-deterministic-conclusion-readback] usage: run|inspect [--out path] [--evidence path] [--json]");
+      process.exit(2);
+    }
     const recording = JSON.parse(await Bun.file(resolve(process.cwd(), evidencePath)).text()) as unknown;
     const result = inspectFg4DeterministicConclusionReadback(recording);
     process.stdout.write(`${args.includes("--json") ? JSON.stringify(result, null, 2) : renderInspectHuman(result)}\n`);
@@ -54,7 +57,7 @@ if (import.meta.main) {
 export function buildFg4DeterministicConclusionConfig(args: string[] = []) {
   return {
     root: readFlag(args, "--root") ?? process.cwd(),
-    outputPath: readFlag(args, "--out") ?? DEFAULT_OUTPUT,
+    outputPath: readFlag(args, "--out"),
     json: args.includes("--json"),
     now: () => new Date().toISOString()
   };
@@ -194,8 +197,10 @@ export async function runFg4DeterministicConclusionReadback(config: ReturnType<t
     final.status = failures.length === 0 ? "verified" : "failed";
     final.ok = failures.length === 0;
     final.failures = failures;
-    await mkdir(dirname(resolve(config.root, config.outputPath)), { recursive: true });
-    await writeFile(resolve(config.root, config.outputPath), `${JSON.stringify(final, null, 2)}\n`, "utf8");
+    if (config.outputPath) {
+      await mkdir(dirname(resolve(config.root, config.outputPath)), { recursive: true });
+      await writeFile(resolve(config.root, config.outputPath), `${JSON.stringify(final, null, 2)}\n`, "utf8");
+    }
     return final;
   } finally {
     for (const [key, value] of restoredEnv.entries()) {

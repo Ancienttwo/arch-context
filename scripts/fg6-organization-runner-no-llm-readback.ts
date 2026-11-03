@@ -2,12 +2,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { inspectFg3RequiredTrustStagingReadback } from "./fg3-required-trust-staging-readback";
-import { inspectFg4DeterministicConclusionReadback } from "./fg4-deterministic-conclusion-readback";
+import { buildFg4DeterministicConclusionConfig, inspectFg4DeterministicConclusionReadback, runFg4DeterministicConclusionReadback } from "./fg4-deterministic-conclusion-readback";
 import { inspectFg4GithubHostedRunnerReadback } from "./fg4-github-hosted-runner-readback";
 
 const DEFAULT_RUNNER_SOURCE = "docs/verification/fg4-github-hosted-runner-readback.json";
 const DEFAULT_RULESET_SOURCE = "docs/verification/fg4-organization-runner-ruleset-readback.json";
-const DEFAULT_DETERMINISTIC_SOURCE = "docs/verification/fg4-deterministic-conclusion-readback.json";
 const DEFAULT_OUTPUT = "docs/verification/fg6-organization-runner-no-llm-readback.json";
 const ORGANIZATION_RUNNER_CHECK_NAME = "ArchContext / Organization Runner";
 const SECRET_PATTERNS = [
@@ -56,7 +55,6 @@ export function buildFg6OrganizationRunnerNoLlmConfig(env: NodeJS.ProcessEnv = p
     root: readFlag(args, "--root") ?? env.ARCHCONTEXT_READBACK_ROOT ?? process.cwd(),
     runnerSource: readFlag(args, "--runner-source") ?? env.ARCHCONTEXT_FG6_RUNNER_SOURCE ?? DEFAULT_RUNNER_SOURCE,
     rulesetSource: readFlag(args, "--ruleset-source") ?? env.ARCHCONTEXT_FG6_RULESET_SOURCE ?? DEFAULT_RULESET_SOURCE,
-    deterministicSource: readFlag(args, "--deterministic-source") ?? env.ARCHCONTEXT_FG6_DETERMINISTIC_SOURCE ?? DEFAULT_DETERMINISTIC_SOURCE,
     outputPath: readFlag(args, "--out") ?? env.ARCHCONTEXT_FG6_ORG_RUNNER_OUTPUT ?? DEFAULT_OUTPUT,
     json: args.includes("--json"),
     generatedAt: () => new Date().toISOString()
@@ -66,7 +64,7 @@ export function buildFg6OrganizationRunnerNoLlmConfig(env: NodeJS.ProcessEnv = p
 export async function runFg6OrganizationRunnerNoLlm(config: ReturnType<typeof buildFg6OrganizationRunnerNoLlmConfig>) {
   const runnerSource = JSON.parse(await readFile(resolve(config.root, config.runnerSource), "utf8")) as unknown;
   const rulesetSource = JSON.parse(await readFile(resolve(config.root, config.rulesetSource), "utf8")) as unknown;
-  const deterministicSource = JSON.parse(await readFile(resolve(config.root, config.deterministicSource), "utf8")) as unknown;
+  const deterministicSource = await runFg4DeterministicConclusionReadback(buildFg4DeterministicConclusionConfig());
   const runnerInspection = inspectFg4GithubHostedRunnerReadback(runnerSource);
   const rulesetInspection = inspectFg3RequiredTrustStagingReadback(rulesetSource);
   const deterministicInspection = inspectFg4DeterministicConclusionReadback(deterministicSource);
@@ -82,8 +80,7 @@ export async function runFg6OrganizationRunnerNoLlm(config: ReturnType<typeof bu
     generatedAt: config.generatedAt(),
     sources: {
       runnerSource: config.runnerSource,
-      rulesetSource: config.rulesetSource,
-      deterministicSource: config.deterministicSource
+      rulesetSource: config.rulesetSource
     },
     evidence: {
       runner: {
