@@ -314,7 +314,6 @@
     "scripts/privacy-capture-manifest.test.ts": 3,
     "scripts/release-provenance-readback.test.ts": 1,
     "scripts/security-scan-manifest.test.ts": 6,
-    "scripts/sprint-status-check.test.ts": 52,
     "scripts/sprint2-external-evidence-handoff.test.ts": 0,
     "scripts/sprint2-external-evidence-readback.test.ts": 4,
     "scripts/sprint2-external-evidence-record.test.ts": 5,

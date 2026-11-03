@@ -22,7 +22,7 @@ A change is breaking when it does any of the following:
 - Starts accepting repository content, diffs, patches, detailed findings, prompts, completions, raw webhook bodies, bearer tokens, installation tokens, private keys, or Secret Store values.
 - Replaces metadata-only IDs, digests, statuses, reason codes, or timestamps with raw payload fields.
 
-Breaking changes require a new route or a new `schemaVersion`, migration notes, and acceptance-ledger evidence.
+Breaking changes require a new route or a new `schemaVersion` and migration notes.
 
 ## Privacy Contract
 
@@ -61,8 +61,7 @@ Compatibility evidence must include:
 - OpenAPI route coverage for the affected route;
 - request `schemaVersion` coverage when a body is accepted;
 - state-machine regression tests for Challenge, Check Delivery, Device Key, Runner Key, or Attestation changes;
-- privacy-route audit and package-boundary verification;
-- acceptance-ledger entry for the completed sprint task.
+- privacy-route audit and package-boundary verification.
 
 ## Submit key authority
 

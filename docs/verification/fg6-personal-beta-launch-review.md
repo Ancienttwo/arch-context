@@ -19,7 +19,7 @@ The personal-user launch boundary is:
 - Current install package: `archctx@0.1.4` from npm `latest`.
 - Install runbook: `docs/runbooks/personal-user-install.md`.
 - Local no-cloud workflow: `doctor -> init -> sync -> context -> prepare -> status`.
-- Verification ledger: `docs/verification/acceptance-ledger.json`.
+- Verification ledger: [`docs/verification/acceptance-ledger.json`](https://github.com/Ancienttwo/arch-context/blob/47d949d216580cd933971e8e27c66a1cf860958c/docs/verification/acceptance-ledger.json).
 - Aggregate verifier: `bun run verify:governance`.
 - Current-head support matrix guard: `bun scripts/fg6-platform-workflow-matrix-readback.ts inspect --evidence docs/verification/fg6-platform-workflow-matrix-readback.json --json`.
 

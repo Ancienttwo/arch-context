@@ -123,8 +123,6 @@ Manual cleanup policy:
 ```bash
 bun test scripts/local-product-lifecycle-doc.test.ts
 node scripts/packaged-cli-smoke.mjs
-bun run verify:acceptance-ledger
-bun run check:sprint
 ```
 
 ## Local health authentication
