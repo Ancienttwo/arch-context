@@ -47,9 +47,6 @@ interface ExplorerProjectionContext {
  * Owns Explorer projection compilation, the digest-addressed projection cache and delta reads,
  * and the architecture change-feed drain that invalidates cached occurrences. The daemon keeps the
  * ledger append itself and hands each committed scope to `processArchitectureChangeFeedAfterCommit`.
- *
- * `localStore` and `architectureLedger` keep the daemon's field names on purpose: the DE source
- * readbacks and `scripts/data-engine-source-invariants.ts` match these method bodies verbatim.
  */
 export class ExplorerProjectionService {
   private readonly localStore: RuntimeLocalStore;
