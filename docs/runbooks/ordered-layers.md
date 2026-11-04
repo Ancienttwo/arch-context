@@ -44,6 +44,8 @@ With a `layer-direction` constraint, `data.layerEdges` counts resolved imports p
 `constraintId`, `fromLayer` and `toLayer`, including same-layer pairs; a row whose
 `fromLayer` is ordered below its `toLayer` counts violating imports. An import is
 counted only when every owner of each endpoint shares one layer listed in the rule.
+`imports` counts import edges, so two specifiers from one file to the same target count
+twice, while `violations` holds one record per file pair.
 Imports with an unowned, unlayered, unlisted or contested endpoint, and unresolved or
 external imports, appear in no row. The key is present only when `data.status` is
 `pass` or `violated` and `data.coverage` is `complete`; otherwise it is absent, and
