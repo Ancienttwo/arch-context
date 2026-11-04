@@ -40,6 +40,15 @@ the query succeeded: consumers must inspect `data.status` (`pass`, `violated`,
 `undetermined` or `not-applicable`) for the constraint verdict. Unsupported rules
 are listed in `data.warnings`.
 
+With a `layer-direction` constraint, `data.layerEdges` counts resolved imports per
+`constraintId`, `fromLayer` and `toLayer`, including same-layer pairs; a row whose
+`fromLayer` is ordered below its `toLayer` counts violating imports. An import is
+counted only when every owner of each endpoint shares one layer listed in the rule.
+Imports with an unowned, unlayered, unlisted or contested endpoint, and unresolved or
+external imports, appear in no row. The key is present only when `data.status` is
+`pass` or `violated` and `data.coverage` is `complete`; otherwise it is absent, and
+when present it may be an empty list.
+
 Other unevaluated constraint types now produce a warning per constraint. A
 validated constraint is not proof that its rule has been evaluated. This feature
 does not implement cycle detection or infer additional architecture truth.

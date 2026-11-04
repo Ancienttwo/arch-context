@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readDependencyConstraints } from "@archcontext/core/architecture-domain";
+import type { DependencyConstraintEvaluationV1 } from "@archcontext/contracts";
 import { evaluateDependencyConstraints, type DependencyConstraintInputV1 } from "../src/index";
 
 const files = (layers: unknown = ["cli", "effects", "core"], rule = "layer-direction") => [
@@ -33,6 +34,49 @@ test("unresolved imports and stale facts remain unknown", () => {
   expect(evaluateDependencyConstraints(a)).toMatchObject({ status: "undetermined", reasonCodes: ["unresolved-import"] });
   a.codeFacts.availability = "unavailable";
   expect(evaluateDependencyConstraints(a).status).toBe("undetermined");
+});
+/** Both decision invariants, for the single `constraint.layers` constraint of these fixtures. */
+function expectLayerEdgeInvariants(evaluation: DependencyConstraintEvaluationV1, unclassified: number, singleLayerViolations: number) {
+  const order = ["cli", "effects", "core"];
+  const rows = evaluation.layerEdges!;
+  expect(rows.reduce((sum, row) => sum + row.imports, 0) + unclassified).toBe(evaluation.importEdgeCount);
+  const violating = rows.filter(row => order.indexOf(row.fromLayer) > order.indexOf(row.toLayer));
+  expect(violating.reduce((sum, row) => sum + row.imports, 0)).toBe(singleLayerViolations);
+}
+test("layer edges count allowed, same-layer and violating pairs; an external import is left out", () => {
+  const a = input(); a.files.push("core/d.ts");
+  a.importEdges = [
+    { from: "cli/c.ts", to: "effects/b.ts", specifier: "../effects/b" },
+    { from: "core/a.ts", to: "core/d.ts", specifier: "./d" },
+    { from: "core/a.ts", to: "effects/b.ts", specifier: "../effects/b" },
+    { from: "cli/c.ts", to: null, specifier: "react" }
+  ];
+  const evaluation = evaluateDependencyConstraints(a);
+  expect(evaluation).toMatchObject({ status: "violated", coverage: "complete", reasonCodes: [], importEdgeCount: 4, violations: [{ fromPath: "core/a.ts", toPath: "effects/b.ts" }] });
+  expect(evaluation.layerEdges).toEqual([
+    { constraintId: "constraint.layers", fromLayer: "cli", toLayer: "effects", imports: 1 },
+    { constraintId: "constraint.layers", fromLayer: "core", toLayer: "core", imports: 1 },
+    { constraintId: "constraint.layers", fromLayer: "core", toLayer: "effects", imports: 1 }
+  ]);
+  expectLayerEdgeInvariants(evaluation, 1, 1);
+});
+test("a contested file is left out of layer edges but its violation stands", () => {
+  const a = input(); a.nodes.push({ id: "component.shared", kind: "component", name: "Shared", layer: "cli", source: { include: ["core/a.ts"] } });
+  a.importEdges = [{ from: "cli/c.ts", to: "effects/b.ts", specifier: "../effects/b" }, { from: "core/a.ts", to: "effects/b.ts", specifier: "../effects/b" }];
+  const evaluation = evaluateDependencyConstraints(a);
+  expect(evaluation).toMatchObject({ status: "violated", coverage: "complete", violations: [{ fromPath: "core/a.ts", fromNode: "module.core" }] });
+  expect(evaluation.layerEdges).toEqual([{ constraintId: "constraint.layers", fromLayer: "cli", toLayer: "effects", imports: 1 }]);
+  expectLayerEdgeInvariants(evaluation, 1, 0);
+});
+test("layer edges are absent when undetermined or when coverage is partial", () => {
+  const a = input(); a.importEdges = [{ from: "cli/c.ts", to: "effects/b.ts", specifier: "../effects/b" }, { from: "core/a.ts", to: "unowned.ts", specifier: "../unowned" }];
+  const undetermined = evaluateDependencyConstraints(a);
+  expect(undetermined).toMatchObject({ status: "undetermined", coverage: "complete" });
+  expect(undetermined).not.toHaveProperty("layerEdges");
+  a.importEdges = [{ from: "core/a.ts", to: "effects/b.ts", specifier: "../effects/b" }]; a.truncated = true;
+  const partial = evaluateDependencyConstraints(a);
+  expect(partial).toMatchObject({ status: "violated", coverage: "partial" });
+  expect(partial).not.toHaveProperty("layerEdges");
 });
 test("ordered list is validated; unsupported constraints warn once", () => {
   for (const layers of [[], ["core", "core"], ["Core"], "core", ["core"]]) expect(readDependencyConstraints(files(layers)).errors.length).toBeGreaterThan(0);

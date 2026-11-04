@@ -16,6 +16,7 @@ import {
   type DependencyConstraintReasonCode,
   type DependencyConstraintV1,
   type DependencyConstraintViolationV1,
+  type DependencyLayerEdgeV1,
   type EvidenceCoverageLevelV2,
   type Json,
   type ModuleStatisticsSnapshotV1,
@@ -191,17 +192,31 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
   const nodeById = new Map(input.nodes.map(node => [node.id, node]));
   const reasonCodes = new Set<DependencyConstraintReasonCode>(certification.reasonCodes);
   const violations = new Map<string, DependencyConstraintViolationV1>();
+  const layerEdgeCounts = new Map<string, DependencyLayerEdgeV1>();
   for (const edge of edges) {
     if (edge.to === null) continue;
     const fromOwners = ownerChains(edge.from);
     const toOwners = ownerChains(edge.to);
     for (const constraint of constraints) {
       const key = JSON.stringify([constraint.id, edge.from, edge.to]);
-      if (violations.has(key)) continue;
       const rule = constraint.rule;
       if (rule.type === "layer-direction") {
         const layer = (owner: { owner: string }) => nodeById.get(owner.owner)?.layer;
         const classified = (owner: { owner: string }) => typeof layer(owner) === "string" && rule.layers.includes(layer(owner) as string);
+        // Every import edge is counted, so this runs before the per-file-pair violation dedupe.
+        const soleLayer = (owners: { owner: string }[]): string | undefined => {
+          const layers = new Set(owners.map(layer));
+          const [only] = layers;
+          return layers.size === 1 && only !== undefined && rule.layers.includes(only) ? only : undefined;
+        };
+        const fromSole = soleLayer(fromOwners);
+        const toSole = soleLayer(toOwners);
+        if (fromSole !== undefined && toSole !== undefined) {
+          const rowKey = JSON.stringify([constraint.id, fromSole, toSole]);
+          const row = layerEdgeCounts.get(rowKey);
+          if (row) row.imports += 1;
+          else layerEdgeCounts.set(rowKey, { constraintId: constraint.id, fromLayer: fromSole, toLayer: toSole, imports: 1 });
+        }
         const hasLayer = [...fromOwners, ...toOwners].some(owner => layer(owner) !== undefined);
         if (hasLayer && (fromOwners.length === 0 || toOwners.length === 0 || [...fromOwners, ...toOwners].some(owner => !classified(owner)))) reasonCodes.add("layer-endpoint-unclassified");
         for (const from of fromOwners) for (const to of toOwners) {
@@ -213,6 +228,7 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
         }
         continue;
       }
+      if (violations.has(key)) continue;
       const from = fromOwners.find((owner) => meets(owner.chain, constraint.scope.nodes) && !meets(owner.chain, rule.targets));
       const to = toOwners.find((owner) => meets(owner.chain, rule.targets));
       if (!from || !to) continue;
@@ -239,15 +255,23 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
   const sortedViolations = [...violations.values()].sort((left, right) => compare(left.constraintId, right.constraintId)
     || compare(left.fromPath, right.fromPath)
     || compare(left.toPath, right.toPath));
+  const status = sortedViolations.length > 0 ? "violated" : reasonCodes.size > 0 ? "undetermined" : "pass";
+  const layerEdgesObserved = constraints.some(constraint => constraint.rule.type === "layer-direction")
+    && (status === "pass" || status === "violated")
+    && certification.coverage === "complete";
+  const layerEdges = [...layerEdgeCounts.values()].sort((left, right) => compare(left.constraintId, right.constraintId)
+    || compare(left.fromLayer, right.fromLayer)
+    || compare(left.toLayer, right.toLayer));
   return {
     schemaVersion: "archcontext.dependency-constraint-evaluation/v1",
-    status: sortedViolations.length > 0 ? "violated" : reasonCodes.size > 0 ? "undetermined" : "pass",
+    status,
     coverage: certification.coverage,
     reasonCodes: [...reasonCodes].sort(),
     constraintIds: constraints.map((constraint) => constraint.id),
     importEdgeCount: edges.length,
     unresolvedImports,
-    violations: sortedViolations
+    violations: sortedViolations,
+    ...(layerEdgesObserved ? { layerEdges } : {})
   };
 }
 
