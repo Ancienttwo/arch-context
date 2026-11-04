@@ -118,6 +118,17 @@ export interface DependencyConstraintViolationV1 {
   severity: "error" | "warning";
 }
 
+/**
+ * Resolved imports between two layers of one `layer-direction` constraint. An import counts only
+ * when every owner of each endpoint carries one shared layer listed in `rule.layers`.
+ */
+export interface DependencyLayerEdgeV1 {
+  constraintId: string;
+  fromLayer: string;
+  toLayer: string;
+  imports: number;
+}
+
 export interface DependencyConstraintEvaluationV1 {
   schemaVersion: "archcontext.dependency-constraint-evaluation/v1";
   status: DependencyConstraintStatus;
@@ -130,6 +141,11 @@ export interface DependencyConstraintEvaluationV1 {
   /** Repository-local specifiers from constrained files that resolved to no file. */
   unresolvedImports: { from: string; specifier: string }[];
   violations: DependencyConstraintViolationV1[];
+  /**
+   * Present only with a `layer-direction` constraint, status `pass` or `violated`, and `complete`
+   * coverage; one row per `(constraintId, fromLayer, toLayer)`, sorted by those keys.
+   */
+  layerEdges?: DependencyLayerEdgeV1[];
 }
 
 /**
