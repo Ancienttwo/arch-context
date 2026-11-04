@@ -9,19 +9,17 @@ appliesTo:
 supersedes: []
 ---
 
+> **Amended**: [ADR-0053](ADR-0053-retire-github-app-governance-bridge.md) ([#478](https://github.com/Ancienttwo/arch-context/pull/478), 2026-11-05): the control plane no longer covers GitHub metadata, challenges or attestation verification. Identity, entitlement and Stripe state stay as written and stay deferred. The "Cloud release gate" section is removed: #224 is closed, and the challenge, lease and check delivery it gated are retired. The section also gated identity, authorization exchange, device registration and credential storage; the deferred identity and billing decision sets its own release gate for those.
+
 # Context
 
 The SaaS plane has low-write metadata needs and should stay operationally small.
 
 # Decision
 
-Use Cloudflare Workers, D1, and Queue for identity, entitlement, GitHub metadata, Stripe state, challenges, and attestation verification.
+Use Cloudflare Workers, D1, and Queue for identity, entitlement, and Stripe state.
 
 # Consequences
 
 - D1 schema has no source, diff, symbol, model body, or detailed finding columns.
 - Worker routes are privacy-audited.
-
-## Cloud release gate
-
-This decision remains the delivery target. Local CLI status truthfulness does not deliver the cloud service. Before a real cloud release, #224 must demonstrate D1-backed identity/challenge/lease/nonce state across Worker restarts, Queue-backed check delivery, a real authorization exchange and device registration, and secure credentials usable by a later CLI process. In-memory ControlPlane and credential adapters and FG3 fixture readbacks do not satisfy this gate. The CLI connection surface fails closed while that composition is unavailable.

@@ -2,13 +2,16 @@
 schemaVersion: archcontext.adr/v1
 id: adr.0015.github-app-without-contents-permission
 title: GitHub Governance API Allowlist without Contents Permission
-status: accepted
+status: superseded
 decidedAt: 2026-06-19
 appliesTo:
   - module.architecture-context.cloud
   - component.architecture-context.cloud.control-plane
 supersedes: []
+supersededBy: adr.0053.retire-github-app-governance-bridge
 ---
+
+> **Status**: Superseded by [ADR-0053](ADR-0053-retire-github-app-governance-bridge.md), accepted on [#478](https://github.com/Ancienttwo/arch-context/pull/478) on 2026-11-05. The GitHub App governance bridge, Developer Review and Organization Runner are retired; this record stays as history.
 
 # Context
 
