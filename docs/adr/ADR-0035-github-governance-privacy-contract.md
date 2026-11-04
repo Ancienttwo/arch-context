@@ -10,6 +10,8 @@ appliesTo:
 supersedes: []
 ---
 
+> **Amended**: [ADR-0053](ADR-0053-retire-github-app-governance-bridge.md) ([#478](https://github.com/Ancienttwo/arch-context/pull/478), 2026-11-05): the GitHub API allowlist and webhook projection rules lapse with the App. The privacy rules for any remaining ArchContext Cloud surface stay in force.
+
 # Context
 
 The privacy boundary cannot rely on permission wording alone. A safe GitHub App can still become unsafe if generic API clients, raw webhook bodies, logs, queue payloads, or database schemas admit code content fields.

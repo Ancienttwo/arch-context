@@ -2,7 +2,7 @@
 schemaVersion: archcontext.adr/v1
 id: adr.0053.retire-github-app-governance-bridge
 title: Retire the GitHub App Governance Bridge
-status: proposed
+status: accepted
 decidedAt: 2026-11-03
 appliesTo:
   - module.architecture-context.cloud
@@ -10,12 +10,16 @@ appliesTo:
   - component.architecture-context.surfaces.cli
   - component.architecture-context.surfaces.github-review-state
   - module.architecture-context.tooling
-supersedes: []
+supersedes:
+  - adr.0015.github-app-without-contents-permission
+  - adr.0016.signed-local-attestation
+  - adr.0024.developer-vs-organization-attestation
+  - adr.0027.trusted-runner-attestation
 ---
 
 # ADR-0053: Retire the GitHub App Governance Bridge
 
-> **Status**: Proposed. `supersedes` stays empty until acceptance. The acceptance change sets it to ADR-0015, ADR-0016, ADR-0024 and ADR-0027, moves those four to `superseded` with `supersededBy: adr.0053.retire-github-app-governance-bridge`, and applies the ADR-0003, ADR-0017 and ADR-0035 amendments below in the same commit. Until then no ADR record presents the four as superseded.
+> **Status**: Accepted by the owner on #478 on 2026-11-05 (decision https://github.com/Ancienttwo/arch-context/pull/478#issuecomment-6640095044). Follow-up issues implement the removal. The acceptance commit moved ADR-0015, ADR-0016, ADR-0024 and ADR-0027 to `superseded` with `supersededBy: adr.0053.retire-github-app-governance-bridge`, and applied the ADR-0003, ADR-0017 and ADR-0035 amendments below.
 >
 > **Origin**: PR #478 (owner decision https://github.com/Ancienttwo/arch-context/pull/478#issuecomment-6636922610)
 
@@ -64,7 +68,7 @@ Also kept:
 
 - Local Core: local review, MCP and CLI workflow.
 - Local `gh`-based publishing that runs as the user: advisory issue drafts (ADR-0041, ADR-0042, accepted) and the projection writer rolling pull request (ADR-0048, itself still `proposed`; this ADR neither depends on nor decides its acceptance). Neither uses the App.
-- `packages/cloud/cloud-db` and `deploy/sql` remain as code for the deferred billing decision.
+- `packages/cloud/cloud-db` and `deploy/sql` remain as code for the deferred billing decision, keeping only `accounts`, `subscriptions` and their code (see Consequences).
 
 Out of scope, for a separate decision:
 
@@ -89,7 +93,8 @@ No ArchContext check appears on pull requests, and architecture review stays loc
 - API, runbook and security docs: `docs/api/control-plane-openapi.yaml` and `docs/api/control-plane-compatibility-policy.md` drop the retired routes; `docs/runbooks/trusted-runner.md`, `docs/runbooks/github-review-state.md` and `docs/runbooks/staging-readback-auth.md` are removed; `docs/runbooks/control-plane-incidents.md` and `docs/security/threat-model-v1.md` drop the governance sections; `docs/security/self-hosted-runner-hardening.md` is removed.
 - Schemas: `schemas/cloud/{attestation,attestation-v2,review-challenge-v2,check-delivery,device-identity,governance-key-status,runner-identity,org-runner-identity}.schema.json` and their `packages/contracts/fixtures` are removed; `schemas/runtime/product-version-manifest.schema.json` and `packages/contracts/src/product-version.ts` drop the `reviewChallenge`, `attestation`, `deviceIdentity` and `runnerIdentity` schema pins.
 - Code: `packages/cloud/{github-app,runner,attestation}` are deleted; `packages/cloud/control-plane` loses its challenge, attestation, runner-key and check-delivery routes; `packages/surfaces/cli/src/github-review-state.ts`, the runtime daemon's `developer-review-run.ts` and the `developerReview.*` RPC methods go; `actions/review-action/` and `.github/workflows/archcontext-organization-runner.yml` go.
-- Deploy: `deploy/cloudflare/fg2-staging-worker{,.test}.ts`, `deploy/scripts/fg2-staging-secrets{.mjs,.test.ts}`, `deploy/env/fg2-staging.env.example` and `wrangler.jsonc` are deleted. `deploy/sql`, `deploy/release-checklists/` and the production readback stay.
+- Deploy: `deploy/cloudflare/fg2-staging-worker{,.test}.ts`, `deploy/scripts/fg2-staging-secrets{.mjs,.test.ts}`, `deploy/env/fg2-staging.env.example` and `wrangler.jsonc` are deleted. `deploy/release-checklists/` and the production readback stay.
+- Persistence: `packages/cloud/cloud-db` drops its attestation and check-delivery persistence (`persistAcceptedAttestationSubmission`, `persistPendingCheckDelivery` and their dependents), and `deploy/sql/0001_archcontext_control_plane.sql` drops the governance tables (`github_installations`, `device_identities`, `review_challenges`, `attestations` with its triggers and `retention_purge_authorizations`, `legacy_attestation_migrations`, the three `runner_*` tables, `check_deliveries` and `webhook_deliveries`). `accounts`, `subscriptions` and their code stay for the deferred billing decision.
 - Scripts and CI: root `package.json` drops `deploy:fg2:staging:secrets`, `deploy:fg2:staging`, `readback:fg5:check-failure` and `readback:fg6:rollback-compat`, and `verify:node-compat` drops `deploy/scripts/fg2-staging-secrets.test.ts`. `scripts/fg5-check-failure-readback{,.test}.ts` and `scripts/fg6-rollback-compat-readback{,.test}.ts` are deleted under the ADR-0051 deletion gate. `scripts/privacy-route-audit.mjs`, `scripts/package-boundary-audit.mjs` and `.github/verify-sharding.json` drop the retired paths. `scripts/github-api-contract-audit.mjs`, which runs in `verify`, drops the retired files it hard-codes (`isGitHubApiContractFile`, line 186) and the GitHub API allowlist (`allowedGitHubApiMethods`, `allowedGitHubApiPathPatterns`), and `scripts/github-api-contract-audit.test.ts` follows.
 - Examples and release: `docs/examples/github-hosted-runner-workflow.yml` and `docs/examples/reusable-organization-runner-caller.yml` are removed, which ends the per-release version bump of the review action default and the example workflows that the release checklist requires.
 - Architecture model: a ChangeSet under `repo-harness-architecture` updates the cloud module summary and the control-plane component summary, retires the `github-review-state` component and `component.architecture-context.local-runtime.developer-review-run` with its three relations (`developer-review-run.review-engine`, `developer-review-run.rpc-server`, `runtime-daemon.developer-review-run`), and removes `developer-review-run.ts` from the runtime-daemon component's source list.
@@ -101,7 +106,7 @@ Irreversible steps come last.
 
 1. Re-confirm that no ruleset or branch protection requires `ArchContext / Developer Review` or `ArchContext / Organization Runner`. The owner lists every installation of App `4102781` from the App settings page.
 2. The owner suspends or uninstalls every installation, so webhooks stop.
-3. Land the code, schema, workflow and doc removal in one change, released as `archctx` and `archctx-contracts` 0.12.0.
+3. Land the code, schema, workflow and doc removal in one change, released as `archctx` and `archctx-contracts` 0.12.0. It also trims the `cloud-db` attestation and check-delivery persistence and the governance tables in `deploy/sql/0001_archcontext_control_plane.sql`; `accounts`, `subscriptions` and their code stay.
 4. Tear down the Worker, its four secrets and the custom domain.
 5. The owner revokes the App private key and deletes the App registration (App ID `4102781`), and deletes the local key copies `_ops/env/fg2-staging.env` and `_ops/env/fg2-staging.github-app.private-key.pem`.
 6. Delete the D1 database `archcontext-control-plane-staging` without an export. **Data-irreversible**: its `accounts` and `subscriptions` rows are lost; the owner treats them as test data.
