@@ -190,11 +190,6 @@ export async function withGithubIssueBodyFile<T>(
  * Value-shape detectors for the publish pre-flight. Each carries a stable `id` so a rejection can
  * name *what* tripped without echoing the matched text (see `preflightGithubIssueDrafts`).
  *
- * Deliberately not shared with `scripts/fg5-retention-staging-readback.ts`, whose own
- * `SECRET_PATTERNS` scans machine-generated retention output rather than human-authored advisory
- * prose: that script lives outside any package boundary, and the two scanners now have different
- * false-positive budgets, so a shared module would couple two unrelated tuning decisions.
- *
  * The `jwt` / `installation_token` *keywords* are not secrets — an architecture audit has to be
  * able to say "validate the JWT audience" or "rotate the installation-token" — so those two
  * detectors match a credential value (compact-token structure, or a value in assignment context)

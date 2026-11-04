@@ -14,7 +14,7 @@ supersedes: []
 > **Status**: Active
 > **Owner**: Governance Verify
 > **Verification**: `bun test scripts/governance-verify-workflow.test.ts`
-> **Amended**: [#468](https://github.com/Ancienttwo/arch-context/issues/468) retired the acceptance ledger surface. [#471](https://github.com/Ancienttwo/arch-context/issues/471) keeps reproducible evidence out of the repository and lets a completed readback script go once nothing runs it.
+> **Amended**: [#468](https://github.com/Ancienttwo/arch-context/issues/468) retired the acceptance ledger surface. [#471](https://github.com/Ancienttwo/arch-context/issues/471) keeps reproducible evidence out of the repository and lets a completed readback script go once nothing runs it. [#476](https://github.com/Ancienttwo/arch-context/issues/476) retired the governance inspections that only re-checked committed records.
 
 ## Purpose
 
@@ -44,6 +44,7 @@ Tests alone are not an ownership surface. A tested script with no command, impor
 
 - Evidence that the run verifying a head can reproduce (a process fixture, a static audit, a deterministic gate) is produced and checked inside that run. Do not commit its output; the CI run bound to the head SHA is its record.
 - A committed record of evidence that CI cannot reproduce (a real staging installation, a hosted or self-hosted runner execution, an owner approval) describes the run that produced it. Its inspection checks the record's own consistency and never compares it with the current product version, commit or date.
+- A governance command must exercise current code, whether on the repository, a fixture or a recorded artifact. An inspection that only compares a committed record's fields with fixed values fails only when someone edits the record or the inspection itself, so it does not belong in `GOVERNANCE_COMMANDS`.
 - A readback script of a completed milestone can be deleted once no workflow, governance command, import or runbook runs it. Its committed records stay as history unless a separate change retires them.
 - Do not preserve root `package.json` aliases only for convenience after a milestone has closed. If the evidence remains discoverable from `docs/verification/`, the root command can be removed in a focused cleanup.
 - Root `record:*` and `readback:*` aliases must be referenced outside `package.json`. If no runbook, evidence, workflow, plan, or script names the alias, use the direct script command instead of keeping a root alias.
