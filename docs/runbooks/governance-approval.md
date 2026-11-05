@@ -6,27 +6,6 @@ Human Gate approval is a governance artifact, not a test result. Agent-authored 
 
 ## Approval Contract
 
-`docs/approvals/` holds only `archctx-sprint-2.md`, the CD-EG3 input and a listed E5 exception, until a human completes CD-EG3. Decisions and acceptance go to issue decision comments, PR review threads and ADRs.
+A human approver records an approval in an issue decision comment. Acceptance goes to PR review threads. A durable decision goes to an ADR that links the issue decision. There is no approval file, and no script reads an approval.
 
-Required fields:
-
-- `Status: Approved`
-- `Date: YYYY-MM-DD`
-- `Approved By: <human approver>`
-- `Scope: <sprint slug and approved ADRs>`
-- `Approved Boundary` section
-
-For Sprint 2, the artifact must reference `archctx-s2`, `ADR-0026`, `ADR-0027`, and `ADR-0028`.
-
-## Readback
-
-```bash
-node scripts/governance-approval-check.mjs readback \
-  --artifact docs/approvals/archctx-sprint-2.md \
-  --sprint archctx-s2 \
-  --required-adr ADR-0026 \
-  --required-adr ADR-0027 \
-  --required-adr ADR-0028
-```
-
-The readback fails if the artifact is missing, not approved, missing required ADRs, missing an approved boundary, or self-attested by automation.
+CD-EG3 is closed without approval. The decision and its reason are on [issue #487](https://github.com/Ancienttwo/arch-context/issues/487).

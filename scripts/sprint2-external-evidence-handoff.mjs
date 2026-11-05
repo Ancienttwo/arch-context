@@ -32,10 +32,9 @@ export function renderSprint2ExternalEvidenceHandoff(result) {
     "",
     "## Required Actions",
     "",
-    "1. Complete `docs/approvals/archctx-sprint-2.md`: set `Status` to `Approved` and replace the placeholder approver with a real human approver after ADR-0026, ADR-0027, and ADR-0028 are reviewed.",
-    "2. Capture staging or production SaaS traffic, redact secrets/customer identifiers, save it as `docs/security/captures/production-redacted.har.json` or `docs/security/captures/staging-redacted.har.json`.",
-    "3. Commit a staging or production security scan artifact with zero Critical and High findings.",
-    "4. Run the combined recorder. It records capture and scan evidence, then immediately runs strict Sprint 2 readback.",
+    "1. Capture staging or production SaaS traffic, redact secrets/customer identifiers, save it as `docs/security/captures/production-redacted.har.json` or `docs/security/captures/staging-redacted.har.json`.",
+    "2. Commit a staging or production security scan artifact with zero Critical and High findings.",
+    "3. Run the combined recorder. It records capture and scan evidence, then immediately runs strict Sprint 2 readback.",
     "",
     "## Combined Recorder",
     "",
@@ -67,7 +66,7 @@ export function renderSprint2ExternalEvidenceHandoff(result) {
     "",
     "## Boundary",
     "",
-    "This packet does not create approval, packet capture, or security scan evidence. It only identifies the exact artifacts and commands needed to close the remaining Sprint 2 external gates.",
+    "This packet does not create packet capture or security scan evidence. It only identifies the exact artifacts and commands needed to close the remaining Sprint 2 external gates.",
     ""
   );
 
