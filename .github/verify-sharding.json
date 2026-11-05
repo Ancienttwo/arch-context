@@ -240,7 +240,6 @@
     "scripts/fg6-npm-release-dry-run.test.ts": 5,
     "scripts/fg6-rollback-compat-readback.test.ts": 0,
     "scripts/github-api-contract-audit.test.ts": 7,
-    "scripts/governance-approval-check.test.ts": 2,
     "scripts/governance-verify-workflow.test.ts": 500,
     "scripts/local-core-quickstart-doc.test.ts": 0,
     "scripts/local-product-lifecycle-doc.test.ts": 0,

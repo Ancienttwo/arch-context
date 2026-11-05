@@ -2,6 +2,8 @@
 
 Date: 2026-06-20
 
+> Superseded: CD-EG3 is closed without approval on [issue #487](https://github.com/Ancienttwo/arch-context/issues/487). `docs/approvals/` and `scripts/governance-approval-check.mjs` no longer exist. This file is a dated record of the state on 2026-06-20.
+
 ## Result
 
 Status: blocked.

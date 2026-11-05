@@ -1,12 +1,9 @@
 #!/usr/bin/env node
-import { readbackGovernanceApproval } from "./governance-approval-check.mjs";
 import { readbackManifest } from "./privacy-capture-manifest.mjs";
 import { readbackSecurityScanManifest } from "./security-scan-manifest.mjs";
 
-const DEFAULT_APPROVAL_ARTIFACT = "docs/approvals/archctx-sprint-2.md";
 const DEFAULT_CAPTURE_MANIFEST = "docs/security/captures/manifest.json";
 const DEFAULT_SECURITY_SCAN_MANIFEST = "docs/security/scans/manifest.json";
-const DEFAULT_REQUIRED_ADRS = ["ADR-0026", "ADR-0027", "ADR-0028"];
 
 if (import.meta.main) {
   const [command = "readback", ...args] = process.argv.slice(2);
@@ -24,7 +21,6 @@ if (import.meta.main) {
 export function buildSprint2ExternalEvidenceConfig(env = process.env, args = []) {
   return {
     root: readFlag(args, "--root") ?? env.ARCHCONTEXT_READBACK_ROOT ?? process.cwd(),
-    approvalArtifact: readFlag(args, "--approval-artifact") ?? env.ARCHCONTEXT_SPRINT2_APPROVAL_ARTIFACT ?? DEFAULT_APPROVAL_ARTIFACT,
     captureManifestPath: readFlag(args, "--capture-manifest") ?? env.ARCHCONTEXT_CAPTURE_MANIFEST_PATH ?? DEFAULT_CAPTURE_MANIFEST,
     securityScanManifestPath: readFlag(args, "--security-scan-manifest") ?? env.ARCHCONTEXT_SECURITY_SCAN_MANIFEST_PATH ?? DEFAULT_SECURITY_SCAN_MANIFEST,
     externalEnvironment: readFlag(args, "--require-environment") ?? "",
@@ -35,23 +31,15 @@ export function buildSprint2ExternalEvidenceConfig(env = process.env, args = [])
 export async function readbackSprint2ExternalEvidence(config = {}) {
   const normalized = {
     root: config.root ?? process.cwd(),
-    approvalArtifact: config.approvalArtifact ?? DEFAULT_APPROVAL_ARTIFACT,
     captureManifestPath: config.captureManifestPath ?? DEFAULT_CAPTURE_MANIFEST,
     securityScanManifestPath: config.securityScanManifestPath ?? DEFAULT_SECURITY_SCAN_MANIFEST,
     externalEnvironment: config.externalEnvironment ?? ""
   };
-  const [governance, capture, securityScan] = await Promise.all([
-    readGovernance(normalized),
+  const [capture, securityScan] = await Promise.all([
     readCapture(normalized),
     readSecurityScan(normalized)
   ]);
   const gates = [
-    gate({
-      id: "CD-EG3",
-      name: "Human Gate approval for ADR-0026/0027/0028",
-      evidence: normalized.approvalArtifact,
-      readback: governance
-    }),
     gate({
       id: "MR-EG5/TR-EG4/HL-EG1",
       name: "External packet capture proves metadata-only SaaS traffic",
@@ -74,21 +62,8 @@ export async function readbackSprint2ExternalEvidence(config = {}) {
     status: blockers.length === 0 ? "ready" : "blocked",
     blockers,
     gates,
-    acquisitionPlan: acquisitionPlan(normalized)
+    acquisitionPlan: acquisitionPlan()
   };
-}
-
-async function readGovernance(config) {
-  try {
-    return await readbackGovernanceApproval({
-      root: config.root,
-      artifactPath: config.approvalArtifact,
-      sprint: "archctx-s2",
-      requiredAdrs: DEFAULT_REQUIRED_ADRS
-    });
-  } catch (error) {
-    return failedReadback(error);
-  }
 }
 
 async function readCapture(config) {
@@ -134,12 +109,8 @@ function failedReadback(error) {
   return { ok: false, verified: 0, pending: 0, externalVerified: 0, failures: [error.message] };
 }
 
-function acquisitionPlan(config) {
+function acquisitionPlan() {
   return [
-    {
-      gate: "CD-EG3",
-      command: `node scripts/governance-approval-check.mjs readback --artifact ${config.approvalArtifact} --sprint archctx-s2 --required-adr ADR-0026 --required-adr ADR-0027 --required-adr ADR-0028`
-    },
     {
       gate: "MR-EG5/TR-EG4/HL-EG1",
       command: "node scripts/privacy-capture-manifest.mjs record --environment production --capture docs/security/captures/production-redacted.har.json --id production.real-capture"

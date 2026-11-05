@@ -7,7 +7,6 @@ import { recordSprint2ExternalEvidence } from "./sprint2-external-evidence-recor
 describe("sprint2-external-evidence-record", () => {
   test("records external capture and security scan evidence, then verifies Sprint 2 readback", async () => {
     await withFixture(async (root) => {
-      await writeApprovedFixture(root);
       await writeEvidenceFixture(root);
       await writePendingManifests(root);
 
@@ -39,33 +38,8 @@ describe("sprint2-external-evidence-record", () => {
     });
   });
 
-  test("does not write manifests when governance approval is still pending", async () => {
-    await withFixture(async (root) => {
-      await writePendingApprovalFixture(root);
-      await writeEvidenceFixture(root);
-      await writePendingManifests(root);
-      const beforeCaptureManifest = await readFile(join(root, "docs/security/captures/manifest.json"), "utf8");
-      const beforeSecurityManifest = await readFile(join(root, "docs/security/scans/manifest.json"), "utf8");
-
-      const result = await recordSprint2ExternalEvidence({
-        root,
-        environment: "production",
-        capturePath: "docs/security/captures/production-redacted.har.json",
-        scanArtifactPath: "docs/security/reviews/production-security-scan.md",
-        critical: 0,
-        high: 0
-      });
-
-      expect(result.ok).toBe(false);
-      expect(result.failures).toContain("docs/approvals/archctx-sprint-2.md: Status must be Approved");
-      expect(await readFile(join(root, "docs/security/captures/manifest.json"), "utf8")).toBe(beforeCaptureManifest);
-      expect(await readFile(join(root, "docs/security/scans/manifest.json"), "utf8")).toBe(beforeSecurityManifest);
-    });
-  });
-
   test("rejects non-zero Critical or High counts before writing manifests", async () => {
     await withFixture(async (root) => {
-      await writeApprovedFixture(root);
       await writeEvidenceFixture(root);
       await writePendingManifests(root);
       const beforeCaptureManifest = await readFile(join(root, "docs/security/captures/manifest.json"), "utf8");
@@ -93,42 +67,6 @@ async function withFixture(run: (root: string) => Promise<void>) {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-}
-
-async function writeApprovedFixture(root: string) {
-  await write(
-    root,
-    "docs/approvals/archctx-sprint-2.md",
-    `# ArchContext Sprint 2 Approval Record
-
-> **Status**: Approved
-> **Date**: 2026-06-20
-> **Approved By**: Repository Owner
-> **Scope**: archctx-s2 contract delta and ADR-0026/ADR-0027/ADR-0028
-
-## Approved Boundary
-
-- ADR-0026, ADR-0027, and ADR-0028 are accepted.
-`
-  );
-}
-
-async function writePendingApprovalFixture(root: string) {
-  await write(
-    root,
-    "docs/approvals/archctx-sprint-2.md",
-    `# ArchContext Sprint 2 Approval Handoff
-
-> **Status**: Pending
-> **Date**: 2026-06-20
-> **Approved By**: <human approver required>
-> **Scope**: archctx-s2 contract delta and ADR-0026/ADR-0027/ADR-0028
-
-## Approved Boundary
-
-- ADR-0026, ADR-0027, and ADR-0028 require review.
-`
-  );
 }
 
 async function writeEvidenceFixture(root: string) {

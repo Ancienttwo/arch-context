@@ -6,7 +6,7 @@ import { auditCaptureFile, digestFile } from "./privacy-capture-lib.mjs";
 import { readbackSprint2ExternalEvidence } from "./sprint2-external-evidence-readback.mjs";
 
 describe("sprint2-external-evidence-readback", () => {
-  test("reports blocked until governance, capture, and security scan evidence are verified", async () => {
+  test("reports blocked until capture and security scan evidence are verified", async () => {
     await withFixture(async (root) => {
       await writeCaptureManifest(root, [
         {
@@ -27,7 +27,6 @@ describe("sprint2-external-evidence-readback", () => {
 
       const result = await readbackSprint2ExternalEvidence({ root });
       expect(result.status).toBe("blocked");
-      expect(result.blockers.some((item) => item.includes("CD-EG3") && item.includes("missing or unreadable"))).toBe(true);
       expect(result.blockers.some((item) => item.includes("MR-EG5/TR-EG4/HL-EG1") && item.includes("missing verified staging or production capture"))).toBe(true);
       expect(result.blockers.some((item) => item.includes("HL-EG5") && item.includes("missing verified staging or production security scan"))).toBe(true);
     });
@@ -35,7 +34,6 @@ describe("sprint2-external-evidence-readback", () => {
 
   test("reports ready when all Sprint 2 external evidence gates are verified", async () => {
     await withFixture(async (root) => {
-      await write(root, "docs/approvals/archctx-sprint-2.md", approvalArtifact());
       await write(root, "docs/security/captures/production-redacted.har.json", JSON.stringify(capture()));
       const captureAudit = await auditCaptureFile(join(root, "docs/security/captures/production-redacted.har.json"));
       await writeCaptureManifest(root, [
@@ -72,7 +70,8 @@ describe("sprint2-external-evidence-readback", () => {
         status: "ready",
         blockers: []
       });
-      expect(result.gates.map((item) => item.status)).toEqual(["verified", "verified", "verified"]);
+      expect(result.gates.map((item) => item.id)).toEqual(["MR-EG5/TR-EG4/HL-EG1", "HL-EG5"]);
+      expect(result.gates.map((item) => item.status)).toEqual(["verified", "verified"]);
     });
   });
 });
@@ -84,21 +83,6 @@ async function withFixture(run: (root: string) => Promise<void>) {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-}
-
-function approvalArtifact() {
-  return `# ArchContext Sprint 2 Approval Record
-
-> **Status**: Approved
-> **Date**: 2026-06-20
-> **Approved By**: Repository Owner
-> **Scope**: archctx-s2 contract delta and ADR-0026/ADR-0027/ADR-0028
-
-## Approved Boundary
-
-- ADR-0026, ADR-0027, and ADR-0028 are accepted for repo-local implementation.
-- This approval does not close production capture or production security scan evidence.
-`;
 }
 
 function capture() {

@@ -1,16 +1,13 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { readbackGovernanceApproval } from "./governance-approval-check.mjs";
 import { auditCaptureFile, digestFile } from "./privacy-capture-lib.mjs";
 import { recordCapture } from "./privacy-capture-manifest.mjs";
 import { recordSecurityScan } from "./security-scan-manifest.mjs";
 import { readbackSprint2ExternalEvidence } from "./sprint2-external-evidence-readback.mjs";
 
-const DEFAULT_APPROVAL_ARTIFACT = "docs/approvals/archctx-sprint-2.md";
 const DEFAULT_CAPTURE_MANIFEST = "docs/security/captures/manifest.json";
 const DEFAULT_SECURITY_SCAN_MANIFEST = "docs/security/scans/manifest.json";
-const DEFAULT_REQUIRED_ADRS = ["ADR-0026", "ADR-0027", "ADR-0028"];
 const EXTERNAL_ENVIRONMENTS = ["staging", "production"];
 
 if (import.meta.main) {
@@ -31,7 +28,6 @@ export function buildSprint2ExternalEvidenceRecordConfig(env = process.env, args
   return {
     root: readFlag(args, "--root") ?? env.ARCHCONTEXT_READBACK_ROOT ?? process.cwd(),
     environment,
-    approvalArtifact: readFlag(args, "--approval-artifact") ?? env.ARCHCONTEXT_SPRINT2_APPROVAL_ARTIFACT ?? DEFAULT_APPROVAL_ARTIFACT,
     captureManifestPath: readFlag(args, "--capture-manifest") ?? env.ARCHCONTEXT_CAPTURE_MANIFEST_PATH ?? DEFAULT_CAPTURE_MANIFEST,
     capturePath: readFlag(args, "--capture") ?? env.ARCHCONTEXT_CAPTURE_PATH ?? `docs/security/captures/${environment}-redacted.har.json`,
     captureId: readFlag(args, "--capture-id") ?? env.ARCHCONTEXT_CAPTURE_ID ?? `${environment}.real-capture`,
@@ -86,7 +82,6 @@ export async function recordSprint2ExternalEvidence(config = {}) {
     });
     const readback = await readbackSprint2ExternalEvidence({
       root: normalized.root,
-      approvalArtifact: normalized.approvalArtifact,
       captureManifestPath: normalized.captureManifestPath,
       securityScanManifestPath: normalized.securityScanManifestPath,
       externalEnvironment: normalized.environment
@@ -124,14 +119,6 @@ async function preflightExternalEvidence(config) {
     failures.push(`environment must be staging or production: ${config.environment}`);
   }
 
-  const governance = await readbackGovernanceApproval({
-    root: config.root,
-    artifactPath: config.approvalArtifact,
-    sprint: "archctx-s2",
-    requiredAdrs: DEFAULT_REQUIRED_ADRS
-  });
-  if (!governance.ok) failures.push(...governance.failures);
-
   try {
     const audit = await auditCaptureFile(resolve(config.root, config.capturePath));
     if (!audit.ok) failures.push(`${config.capturePath}: packet capture audit failed`);
@@ -158,7 +145,6 @@ function normalizeConfig(config) {
   return {
     root: config.root ?? process.cwd(),
     environment,
-    approvalArtifact: config.approvalArtifact ?? DEFAULT_APPROVAL_ARTIFACT,
     captureManifestPath: config.captureManifestPath ?? DEFAULT_CAPTURE_MANIFEST,
     capturePath: config.capturePath ?? `docs/security/captures/${environment}-redacted.har.json`,
     captureId: config.captureId ?? `${environment}.real-capture`,
