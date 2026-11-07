@@ -625,3 +625,24 @@ test("#492: lane verdicts re-read a nonterminal worker but still reject a settle
   expect(waits).toBe(0);
   expect(RECEIPT_READ_ATTEMPTS).toBeGreaterThan(1);
 });
+
+test("#492: the cost job carries no lane, so only the verdict loop resolves one", async () => {
+  // `verify-cost` runs `node scripts/verify-ci.mjs cost` with no VERIFY_LANE. Resolving lane
+  // targets on that path threw "Unknown verify lane: undefined" and failed the job (#492).
+  const workflow = await Bun.file(new URL("../.github/workflows/verify.yml", import.meta.url)).text();
+  const cost = workflow.slice(workflow.indexOf("  verify-cost:"));
+  expect(cost.slice(0, cost.indexOf("Upload measured cost readback"))).not.toContain("VERIFY_LANE");
+  expect(() => laneTargets(undefined as any)).toThrow(/Unknown verify lane/);
+
+  // The guard that matters: resolving this lane's verdicts must never happen for `cost`.
+  const run = { id: identity.runId, run_attempt: identity.attempt, head_sha: identity.checkoutSha };
+  const jobs: any[] = [];
+  const env = { GITHUB_REPOSITORY: "Ancienttwo/arch-context", GITHUB_RUN_ID: String(identity.runId),
+    GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha };
+  const read = async (path: string) => path.includes("/jobs?") ? { total_count: 0, jobs } : run;
+  const snapshot = await hostedJobs(env, read);
+  expect(snapshot.jobs).toEqual([]);
+  // `collect` needs a lane and refuses a missing one; `cost` never calls it.
+  await expect((async () => collectJobVerdicts(readConfig(), env, laneTargets(undefined as any)))())
+    .rejects.toThrow(/Unknown verify lane/);
+});

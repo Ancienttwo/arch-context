@@ -464,10 +464,13 @@ export async function main(command, env = process.env) {
     validateCoverage(plan, reports, subject(env));
     console.log(`Verified ${plan.files.length} Bun-discovered files exactly once across ${plan.groups.length} isolated shards`);
   } else if (command === "collect" || command === "cost") {
-    // A pending expected job is re-read within a finite budget instead of being persisted as a
-    // settled verdict, so a snapshot taken mid-flight cannot fail the run (issue #492).
-    const { run, jobs, verdicts: laneVerdicts, pending, attempts } = await collectJobVerdicts(
-      config, env, laneTargets(env.VERIFY_LANE));
+    // `collect` resolves this lane's verdicts, so it waits for a pending expected job within a finite
+    // budget instead of persisting a mid-flight snapshot as a settled verdict (issue #492). `cost`
+    // only measures runner minutes and carries no lane, so it reads the snapshot once.
+    const verdictRead = command === "collect"
+      ? await collectJobVerdicts(config, env, laneTargets(env.VERIFY_LANE))
+      : { ...(await hostedJobs(env)), verdicts: null, pending: [], attempts: 1 };
+    const { run, jobs, verdicts: laneVerdicts, pending, attempts } = verdictRead;
     if (pending.length > 0) {
       console.error(`Expected jobs still nonterminal after ${attempts} reads: ${JSON.stringify(pending)}`);
     }
