@@ -731,8 +731,18 @@ test("the follow loop runs one publish per interval until stopped", async () => 
 });
 
 
-test("a failed branch switch cannot reuse the prior branch success", async () => {
-  for (const failurePoint of ["apply", "publisher"] as const) {
+/**
+ * One fixture publishes, fails on `archctx/other`, then retries there. A publish run costs about
+ * 1.5 s here (on macOS) and about 6 s on Windows, where each of the ~50 git spawns of a run costs
+ * ~85 ms instead of ~11 ms. The budget is a failure deadline, not a performance assertion: when it
+ * fires, Bun abandons the await while the writer keeps running, so a later run is issued against a
+ * writer that is still holding the lock and the retry reports a spurious `failed`. A timeout must
+ * therefore be far above the real cost, never marginally above it.
+ */
+const FAILED_BRANCH_SWITCH_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 60_000;
+
+for (const failurePoint of ["apply", "publisher"] as const) {
+  test(`a failed branch switch cannot reuse the prior branch success (failure point: ${failurePoint})`, async () => {
     const fixture = writerFixture();
     const { apply, calls } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# overview\n" } }));
     const firstPublisher = recordingPublisher();
@@ -744,13 +754,15 @@ test("a failed branch switch cannot reuse the prior branch success", async () =>
     expect(failed.result).toBe("failed");
     const beforeRetry = calls.length;
     const retryPublisher = recordingPublisher();
-    const retry = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, branch: "archctx/other", publisher: retryPublisher.publisher, apply, env: fixture.env }));
-    expect(retry.result).toBe("published");
+    const retryEnvelope = await runProjectionPublishCommand({ cwd: fixture.clone, branch: "archctx/other", publisher: retryPublisher.publisher, apply, env: fixture.env });
+    // The run's own error names why a retry failed, so a red build does not need a re-run to diagnose.
+    const retry = runOf(retryEnvelope);
+    expect(retry.result, JSON.stringify(retry.error)).toBe("published");
     expect(retryPublisher.calls).toHaveLength(1);
     expect(retry.publishedCommit).toBe(originRef(fixture, "refs/heads/archctx/other"));
     expect(calls.length).toBe(beforeRetry + (failurePoint === "apply" ? 1 : 0));
-  }
-}, 30000);
+  }, FAILED_BRANCH_SWITCH_TIMEOUT_MS);
+}
 
 test("enabling a publisher after push-only publishes the existing commit", async () => {
   const fixture = writerFixture();
