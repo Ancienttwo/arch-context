@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,6 +43,25 @@ const IDENTITY = {
 };
 const previousEnv: Record<string, string | undefined> = {};
 const roots: string[] = [];
+
+/**
+ * Every test in this file builds real Git fixtures (a bare origin, a dev checkout, a clone and an
+ * owned worktree) and drives full publish runs through them. One publish run makes about 50 git
+ * spawns, and a Windows spawn costs about 85 ms against about 11 ms on macOS, so the file costs
+ * about 70 s on macOS and about 180 s on Windows. A test's budget is a failure deadline, not a
+ * performance assertion, so give it several times the real cost: it only has to fire for a hang.
+ *
+ * Keep it generous. When a budget fires, Bun reports a timeout and lets the abandoned test body keep
+ * running. That body then races the next test for the fixture's Git remotes and the writer's OS
+ * lock, and the damage surfaces as a confusing assertion failure somewhere else. That is exactly how
+ * #489 was reported: a 30 s per-test budget against ~26 s of real Windows work.
+ *
+ * 17 of these tests used to inherit Bun's 5 s default here: only the two tests below carried an
+ * explicit 30 s budget, and CI hid the gap with `bun test --timeout 60000`. On Windows that default
+ * made those 17 fail outright, so this file now sets one budget for every test in it and no longer
+ * depends on how it happens to be invoked.
+ */
+setDefaultTimeout(process.platform === "win32" ? 180_000 : 60_000);
 
 beforeAll(() => {
   for (const [key, value] of Object.entries({ ...IDENTITY, DO_NOT_TRACK: "1" })) {
@@ -732,15 +751,10 @@ test("the follow loop runs one publish per interval until stopped", async () => 
 
 
 /**
- * One fixture publishes, fails on `archctx/other`, then retries there. A publish run costs about
- * 1.5 s here (on macOS) and about 6 s on Windows, where each of the ~50 git spawns of a run costs
- * ~85 ms instead of ~11 ms. The budget is a failure deadline, not a performance assertion: when it
- * fires, Bun abandons the await while the writer keeps running, so a later run is issued against a
- * writer that is still holding the lock and the retry reports a spurious `failed`. A timeout must
- * therefore be far above the real cost, never marginally above it.
+ * One fixture publishes, fails on `archctx/other`, then retries there. The two failure points are
+ * separate tests so neither inherits the other's elapsed time, and the retry's own error is
+ * serialized so a red build carries its diagnosis instead of costing a workflow re-run.
  */
-const FAILED_BRANCH_SWITCH_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 60_000;
-
 for (const failurePoint of ["apply", "publisher"] as const) {
   test(`a failed branch switch cannot reuse the prior branch success (failure point: ${failurePoint})`, async () => {
     const fixture = writerFixture();
@@ -761,7 +775,7 @@ for (const failurePoint of ["apply", "publisher"] as const) {
     expect(retryPublisher.calls).toHaveLength(1);
     expect(retry.publishedCommit).toBe(originRef(fixture, "refs/heads/archctx/other"));
     expect(calls.length).toBe(beforeRetry + (failurePoint === "apply" ? 1 : 0));
-  }, FAILED_BRANCH_SWITCH_TIMEOUT_MS);
+  });
 }
 
 test("enabling a publisher after push-only publishes the existing commit", async () => {
@@ -817,7 +831,7 @@ console.log(JSON.stringify(result));`);
   const { apply } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# recovered\n" } }));
   const recovered = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: createNoneProjectionPublisher(), apply, env: fixture.env }));
   expect(recovered.result, JSON.stringify(recovered)).toBe("published");
-}, 30000);
+});
 
 test("the base is the push repository's tip when the fetch remote has advanced", async () => {
   const fixture = writerFixture();
@@ -942,7 +956,7 @@ test("publisher recovery and lease use the push URL when fetch points elsewhere"
   expect(refused.result).toBe("failed");
   expect(originRef(fixture, "refs/heads/archctx/multiple")).toBeNull();
   expect(spawnSync("git", ["rev-parse", "--verify", "refs/heads/archctx/multiple"], { cwd: pushOrigin }).status).not.toBe(0);
-}, 30000);
+});
 
 
 test("gh publisher selects the same-repository PR behind a newer fork PR", async () => {
