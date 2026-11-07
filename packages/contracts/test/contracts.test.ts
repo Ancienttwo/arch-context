@@ -214,6 +214,7 @@ const schemaByFixture: Record<string, string> = {
   "recommendation-v3": "schemas/runtime/recommendation-v3.schema.json",
   "runtime-refactor-scan": "schemas/runtime/runtime-refactor-scan.schema.json",
   "capability-dependencies": "schemas/runtime/capability-dependencies.schema.json",
+  "dependency-constraint-evaluation": "schemas/runtime/dependency-constraint-evaluation.schema.json",
   "runtime-recommendation-show": "schemas/runtime/runtime-recommendation-show.schema.json",
   "recommendation-feedback": "schemas/runtime/recommendation-feedback.schema.json",
   "agent-job": "schemas/runtime/agent-job.schema.json",
@@ -1185,6 +1186,36 @@ test("capability dependency cells say whether a relation declares them (#326)", 
   expect(validateJsonSchema(schema, { ...valid, matrix: [], imports: { ...valid.imports, coverage: "unknown", reasonCodes: ["code-facts-unavailable"] } }).valid).toBe(false);
 });
 
+test("dependency-constraint-evaluation schema holds the runbook's layerEdges absence contract", () => {
+  const schema = readJson("schemas/runtime/dependency-constraint-evaluation.schema.json") as any;
+  const valid = readJson("packages/contracts/fixtures/valid/dependency-constraint-evaluation.json") as any;
+  const accepts = (value: any) => validateJsonSchema(schema, value);
+  expect(accepts(valid).issues).toEqual([]);
+
+  // The fixture is a real `archctx constraints check` payload: it has no layer-direction constraint.
+  expect(valid).not.toHaveProperty("layerEdges");
+  const row = { constraintId: "constraint.layers", fromLayer: "core", toLayer: "effects", imports: 1 };
+  const settled = { ...valid, status: "violated", coverage: "complete" };
+  expect(accepts({ ...settled, layerEdges: [row] }).issues).toEqual([]);
+  expect(accepts({ ...settled, layerEdges: [] }).issues).toEqual([]);
+
+  // Absent is the contract for anything but a settled verdict over complete coverage.
+  expect(accepts({ ...settled, coverage: "partial", layerEdges: [row] }).valid).toBe(false);
+  expect(accepts({ ...settled, status: "undetermined", violations: [], layerEdges: [row] }).valid).toBe(false);
+  expect(accepts({ ...settled, status: "pass", layerEdges: [row] }).issues).toEqual([]);
+
+  // Each row is a count of import edges, so it is a positive integer and nothing else.
+  expect(accepts({ ...settled, layerEdges: [{ ...row, imports: 0 }] }).valid).toBe(false);
+  expect(accepts({ ...settled, layerEdges: [{ ...row, imports: 1.5 }] }).valid).toBe(false);
+  expect(accepts({ ...settled, layerEdges: [{ constraintId: row.constraintId, fromLayer: row.fromLayer, imports: 1 }] }).valid).toBe(false);
+  expect(accepts({ ...settled, layerEdges: [{ ...row, extra: 1 }] }).valid).toBe(false);
+
+  // `warnings` comes from the declaration reader, so every payload carries it.
+  const { warnings: _warnings, ...withoutWarnings } = valid;
+  expect(accepts(withoutWarnings).valid).toBe(false);
+  expect(accepts({ ...valid, unknownField: 1 }).valid).toBe(false);
+});
+
 test("docs anchors report contract: schema and invariants agree with the TypeScript constants", () => {
   const schema = readJson("schemas/runtime/docs-anchors.schema.json") as any;
   const valid = readJson("packages/contracts/fixtures/valid/docs-anchors.json") as unknown as DocsAnchorsReportV1;
@@ -1780,6 +1811,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.recommendation/v3": "recommendation-v3",
     "archcontext.runtime-refactor-scan/v1": "runtime-refactor-scan",
     "archcontext.capability-dependencies/v1": "capability-dependencies",
+    "archcontext.dependency-constraint-evaluation/v1": "dependency-constraint-evaluation",
     "archcontext.docs-anchors/v1": "docs-anchors",
     "archcontext.runtime-recommendation-show/v1": "runtime-recommendation-show",
     "archcontext.recommendation-feedback/v1": "recommendation-feedback",

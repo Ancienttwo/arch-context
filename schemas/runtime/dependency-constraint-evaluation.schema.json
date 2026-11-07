@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/dependency-constraint-evaluation.schema.json",
+  "title": "DependencyConstraintEvaluationV1",
+  "description": "The data of `archctx constraints check`: a read-only evaluation of the model's dependency constraints against observed import edges. `warnings` is added by the constraints-check command from the declaration reader, so it is not part of the evaluator's own type. Without code facts that attest to the measured tree, the evaluation still answers, but `coverage` is not `complete` and the import observations are dropped rather than reported as facts about some other tree.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "coverage",
+    "reasonCodes",
+    "constraintIds",
+    "importEdgeCount",
+    "unresolvedImports",
+    "violations",
+    "warnings"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.dependency-constraint-evaluation/v1"
+    },
+    "status": {
+      "enum": [
+        "not-applicable",
+        "pass",
+        "undetermined",
+        "violated"
+      ]
+    },
+    "coverage": {
+      "enum": [
+        "complete",
+        "partial",
+        "unknown"
+      ],
+      "description": "`complete` only when an index attested to the evaluated worktree and was not truncated."
+    },
+    "reasonCodes": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Why a result is not a complete observation, sorted.",
+      "items": {
+        "enum": [
+          "code-facts-import-limit",
+          "code-facts-stale",
+          "code-facts-truncated",
+          "code-facts-unavailable",
+          "unresolved-import",
+          "layer-endpoint-unclassified",
+          "workspace-resolution-failed"
+        ]
+      }
+    },
+    "constraintIds": {
+      "type": "array",
+      "description": "The constraints this evaluation covered, in declaration order.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "importEdgeCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Import observations the evaluation read; zero when the index did not attest to this tree."
+    },
+    "unresolvedImports": {
+      "type": "array",
+      "description": "Repository-local specifiers from constrained files that resolved to no file.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "specifier"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "minLength": 1
+          },
+          "specifier": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "violations": {
+      "type": "array",
+      "description": "One record per (constraint, from path, to path), sorted by those keys.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "constraintId",
+          "fromPath",
+          "toPath",
+          "fromNode",
+          "toNode",
+          "severity"
+        ],
+        "properties": {
+          "constraintId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fromPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "toPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fromNode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "toNode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fromLayer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "toLayer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning"
+            ]
+          }
+        }
+      }
+    },
+    "layerEdges": {
+      "type": "array",
+      "description": "Resolved imports between two layers of one `layer-direction` constraint. An import counts only when every owner of each endpoint carries one shared layer listed in the rule. Present only with a `layer-direction` constraint, `status` `pass` or `violated`, and `coverage` `complete`; otherwise absent. When present it may be an empty list, and it is sorted by `(constraintId, fromLayer, toLayer)`.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "constraintId",
+          "fromLayer",
+          "toLayer",
+          "imports"
+        ],
+        "properties": {
+          "constraintId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fromLayer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "toLayer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "imports": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Import edges, so two specifiers from one file to the same target count twice."
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Declaration-reader warnings, such as an unsupported rule. Every unevaluated constraint type produces one, because a validated constraint is not proof that its rule was evaluated.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "allOf": [
+    {
+      "description": "The layer edges are an observation, so they exist only for a settled verdict over complete coverage.",
+      "if": {
+        "required": [
+          "layerEdges"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "enum": [
+              "pass",
+              "violated"
+            ]
+          },
+          "coverage": {
+            "const": "complete"
+          }
+        }
+      }
+    }
+  ]
+}
