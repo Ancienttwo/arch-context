@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "archcontext.dependency-constraint-evaluation/v1",
+  "status": "pass",
+  "coverage": "complete",
+  "reasonCodes": [],
+  "constraintIds": [
+    "constraint.architecture-context.cloud-not-local-runtime",
+    "constraint.architecture-context.cloud-not-surfaces",
+    "constraint.architecture-context.contracts-depends-on-nothing",
+    "constraint.architecture-context.core-stays-pure",
+    "constraint.architecture-context.local-runtime-not-surfaces-or-cloud"
+  ],
+  "importEdgeCount": 2858,
+  "unresolvedImports": [],
+  "violations": [],
+  "warnings": []
+}
