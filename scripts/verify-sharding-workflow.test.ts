@@ -7,10 +7,16 @@ import { tmpdir } from "node:os";
 import {
   changedPaths, classifyPaths, discoverTestFiles, executeShard, expectedWorkers, globToRegExp, jobVerdicts, laneTargets,
   NODE_TARGETS, OS_TARGETS, partitionFiles, readConfig, readScope, runnerMinutes, targetName, validateConfig, validateCoverage,
-  governanceSourceHead, hostedJobs, RECEIPT_GATE_STEPS, validateGovernancePrerequisite
+  collectJobVerdicts, governanceReceiptPending, governanceSourceHead, hostedJobs, RECEIPT_READ_ATTEMPTS,
+  readGovernanceReceipt, RECEIPT_GATE_STEPS, validateGovernancePrerequisite
 } from "./verify-ci.mjs";
 
 const identity = { runId: 123, attempt: 1, checkoutSha: "a".repeat(40) };
+
+/** The hosted-read identity environment a Governance receipt read needs. */
+const governedEnv = (context: { sourceHeadSha: string }) => ({ GITHUB_REPOSITORY: "Ancienttwo/arch-context",
+  GITHUB_RUN_ID: String(identity.runId), GITHUB_RUN_ATTEMPT: String(identity.attempt),
+  GITHUB_SHA: context.sourceHeadSha });
 const LINUX_PRE = "Verify execution: ubuntu-latest / Node 22.22.x / pre";
 const LINUX_POST = "Verify execution: ubuntu-latest / Node 22.22.x / post";
 const linuxShard = (shard: number) => `Verify execution: ubuntu-latest / Node 22.22.x / shard ${shard}`;
@@ -512,4 +518,110 @@ test("workflow targets only measured slow legs, keeps gate order, original nine 
     expect(jobSteps[temp].run).toContain('"TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV');
     expect(temp).toBeLessThan(jobSteps.findIndex((step: any) => step.name === "Install dependencies"));
   }
+});
+
+test("#492: a nonterminal prerequisite job is re-read instead of being read as a final failure", async () => {
+  const { config, run, jobs, context } = governanceFixture("push");
+  const post = jobs[jobs.length - 1];
+  const inFlight = jobs.map(job => job === post ? { ...job, status: "in_progress", conclusion: null,
+    steps: job.steps.map(step => ({ ...step, status: "in_progress", conclusion: null })) } : job);
+  // Every expected job except the in-flight one is already a settled success, which is the snapshot
+  // the old one-shot consumer kept: it must be retried, never accepted as a final failed receipt.
+  expect(governanceReceiptPending(config, inFlight)).toEqual([{ job: post.name, reason: "incomplete", status: "in_progress", conclusion: null }]);
+  expect(governanceReceiptPending(config, jobs)).toEqual([]);
+
+  const snapshots: any[] = [inFlight];
+  const waits: number[] = [];
+  let jobsReads = 0;
+  const read = async (path: string) => {
+    if (!path.includes("/jobs?")) return run;
+    jobsReads += 1;
+    const batch = (snapshots.length > 0 ? snapshots.shift() : jobs)!;
+    return { total_count: batch.length, jobs: batch };
+  };
+  const receipt = await readGovernanceReceipt(config, governedEnv(context), identity, context,
+    { read, attempts: 3, wait: async (ms: number) => { waits.push(ms); } });
+  expect(receipt.attempts).toBe(2);
+  expect(receipt.pending).toEqual([]);
+  expect(waits).toHaveLength(1);
+  expect(jobsReads).toBe(2);
+});
+
+test("#492: a prerequisite job that never settles fails closed with its observed state, and settled failures never retry", async () => {
+  const { config, run, jobs, context } = governanceFixture("push");
+  const post = jobs[jobs.length - 1];
+  const stuck = jobs.map(job => job === post ? { ...job, status: "in_progress", conclusion: null } : job);
+  const responder = (batch: any[]) => async (path: string) => path.includes("/jobs?") ? { total_count: batch.length, jobs: batch } : run;
+
+  let waits = 0;
+  await expect(readGovernanceReceipt(config, governedEnv(context), identity, context, {
+    read: responder(stuck), attempts: 2, wait: async () => { waits += 1; }
+  })).rejects.toThrow(/nonterminal after 2 reads/);
+  expect(waits).toBe(1);
+
+  // A settled non-success is a final receipt: the read settles at once with no retry, and the
+  // existing validator is what rejects it. Waiting must never turn a failure into a pass.
+  const failed = jobs.map(job => job === post ? { ...job, conclusion: "failure" } : job);
+  waits = 0;
+  const settled = await readGovernanceReceipt(config, governedEnv(context), identity, context, {
+    read: responder(failed), attempts: 3, wait: async () => { waits += 1; }
+  });
+  expect(settled.attempts).toBe(1);
+  expect(waits).toBe(0);
+  expect(() => validateGovernancePrerequisite(config, identity, settled.run, settled.jobs, context)).toThrow(/not successful/);
+
+  // A mismatched run is still refused outright, with no retry.
+  waits = 0;
+  await expect(readGovernanceReceipt(config, governedEnv(context), identity, { ...context, sourceHeadSha: "c".repeat(40) }, {
+    read: responder(stuck), attempts: 3, wait: async () => { waits += 1; }
+  })).rejects.toThrow(/different prerequisite source HEAD/);
+  expect(waits).toBe(0);
+});
+
+test("#492: lane verdicts re-read a nonterminal worker but still reject a settled failure", async () => {
+  const config = readConfig();
+  const targets = laneTargets("linux");
+  const run = { id: identity.runId, run_attempt: identity.attempt, head_sha: identity.checkoutSha };
+  const names = expectedWorkers(config, "ubuntu-latest", "22.22.x");
+  const green = names.map((name, index) => ({ id: 40 + index, name, status: "completed", conclusion: "success",
+    run_id: run.id, run_attempt: run.run_attempt, head_sha: run.head_sha }));
+  const env = { GITHUB_REPOSITORY: "Ancienttwo/arch-context", GITHUB_RUN_ID: String(identity.runId),
+    GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha };
+  const responder = (sequence: any[][]) => async (path: string) => {
+    if (!path.includes("/jobs?")) return run;
+    const batch = (sequence.length > 1 ? sequence.shift() : sequence[0])!;
+    return { total_count: batch.length, jobs: batch };
+  };
+
+  const inFlight = green.map((job, index) => index === green.length - 1 ? { ...job, status: "in_progress", conclusion: null } : job);
+  let waits = 0;
+  const recovered = await collectJobVerdicts(config, env, targets, {
+    read: responder([inFlight, green]), attempts: 3, wait: async () => { waits += 1; }
+  });
+  expect(Object.values(recovered.verdicts).every(Boolean)).toBe(true);
+  expect(recovered.pending).toEqual([]);
+  expect(recovered.attempts).toBe(2);
+  expect(waits).toBe(1);
+
+  // Permanent nonterminal: the budget exhausts and the last snapshot is returned with its pending state.
+  waits = 0;
+  const expired = await collectJobVerdicts(config, env, targets, {
+    read: responder([inFlight]), attempts: 2, wait: async () => { waits += 1; }
+  });
+  expect(Object.values(expired.verdicts).every(Boolean)).toBe(false);
+  expect(expired.pending.map(entry => entry.job)).toEqual([green[green.length - 1].name]);
+  expect(expired.attempts).toBe(2);
+  expect(waits).toBe(1);
+
+  // A settled failure is final: no retry and still a false verdict.
+  waits = 0;
+  const failed = green.map(job => ({ ...job, conclusion: "failure" }));
+  const rejected = await collectJobVerdicts(config, env, targets, {
+    read: responder([failed]), attempts: 3, wait: async () => { waits += 1; }
+  });
+  expect(Object.values(rejected.verdicts).every(Boolean)).toBe(false);
+  expect(rejected.pending).toEqual([]);
+  expect(rejected.attempts).toBe(1);
+  expect(waits).toBe(0);
+  expect(RECEIPT_READ_ATTEMPTS).toBeGreaterThan(1);
 });

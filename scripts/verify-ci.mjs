@@ -19,6 +19,16 @@ export const RECEIPT_GATE_STEPS = {
 const CONFIG_PATH = new URL("../.github/verify-sharding.json", import.meta.url);
 const SCOPE_PATH = new URL("../.github/verify-scope.json", import.meta.url);
 
+/**
+ * A provider snapshot can land while an expected job is still in flight: the collector or Governance
+ * reader then reads a nonterminal job and treats it as a final failed receipt (issue #492). Re-read a
+ * bounded number of times before failing closed, and never treat nonterminal as success.
+ */
+export const RECEIPT_READ_ATTEMPTS = 6;
+export const RECEIPT_READ_DELAY_MS = 10_000;
+
+const TERMINAL_JOB_STATUSES = new Set(["completed"]);
+
 export function validateConfig(config) {
   assert.equal(config.version, 1);
   for (const row of config.splitTargets) {
@@ -201,6 +211,70 @@ export function expectedWorkers(config, os, node) {
   return [workerName(os, node, "node compat")];
 }
 
+/** Everything a receipt needs to be attributable to one attempt of one workflow run. */
+function assertReceiptIdentity(run, identity, context) {
+  assert.equal(run.id, identity.runId, "different prerequisite run");
+  assert.equal(run.run_attempt, identity.attempt, "different prerequisite attempt");
+  assert.equal(run.path, ".github/workflows/verify.yml", "different prerequisite workflow");
+  assert.equal(run.event, context.eventName, "different prerequisite event");
+  assert.match(context.sourceHeadSha ?? "", /^[a-f0-9]{40}$/);
+  assert.equal(run.head_sha, context.sourceHeadSha, "different prerequisite source HEAD");
+}
+
+/**
+ * The expected gate jobs that this snapshot does not yet show as a settled success. Only `incomplete`
+ * is retryable: every other outcome is a final receipt and must never be re-read into a pass. Job and
+ * step names are the only identity recorded, so the evidence stays non-sensitive.
+ */
+export function governanceReceiptPending(config, jobs) {
+  const names = expectedWorkers(config, GOVERNANCE_TARGET.os, GOVERNANCE_TARGET["node-version"]);
+  const pending = [];
+  names.forEach((name, index) => {
+    const matches = jobs.filter(job => job.name === name);
+    if (matches.length !== 1) return;
+    const job = matches[0];
+    if (!TERMINAL_JOB_STATUSES.has(job.status)) {
+      pending.push({ job: name, reason: "incomplete", status: job.status ?? null, conclusion: job.conclusion ?? null });
+      return;
+    }
+    if (job.conclusion !== "success") return;
+    const gates = RECEIPT_GATE_STEPS[index === 0 ? "pre" : index === names.length - 1 ? "post" : "shard"];
+    for (const gate of gates) {
+      const steps = (job.steps ?? []).filter(step => step.name === gate);
+      if (steps.length !== 1 || !TERMINAL_JOB_STATUSES.has(steps[0].status)) {
+        pending.push({ job: name, reason: "incomplete", status: steps[0]?.status ?? null, conclusion: steps[0]?.conclusion ?? null, step: gate });
+        return;
+      }
+      if (steps[0].conclusion !== "success") return;
+    }
+  });
+  return pending;
+}
+
+/**
+ * Resolve the lane verdicts, re-reading only while an expected worker is nonterminal. A settled
+ * failure or a missing/duplicate job is final; a job still in flight is re-read within a finite
+ * budget and then returned with its pending state, so an in-flight snapshot is never reported as a
+ * settled failed receipt (issue #492).
+ */
+export async function collectJobVerdicts(config, env, targets, options = {}) {
+  const read = options.read ?? githubRead;
+  const attempts = options.attempts ?? RECEIPT_READ_ATTEMPTS;
+  const wait = options.wait ?? (ms => new Promise(done => setTimeout(done, ms)));
+  const delayMs = options.delayMs ?? RECEIPT_READ_DELAY_MS;
+  assert(Number.isSafeInteger(attempts) && attempts > 0, "verdict read budget must be positive");
+  const expected = new Set(targets.flatMap(({ os, "node-version": node }) => expectedWorkers(config, os, node)));
+  for (let attempt = 1; ; attempt += 1) {
+    const { run, jobs } = await hostedJobs(env, read);
+    const pending = jobs.filter(job => expected.has(job.name) && !TERMINAL_JOB_STATUSES.has(job.status))
+      .map(job => ({ job: job.name, status: job.status ?? null, conclusion: job.conclusion ?? null }));
+    const verdicts = jobVerdicts(config, run, jobs, targets);
+    if (pending.length === 0) return { run, jobs, verdicts, attempts: attempt, pending };
+    if (attempt >= attempts) return { run, jobs, verdicts, attempts: attempt, pending };
+    await wait(delayMs);
+  }
+}
+
 export function jobVerdicts(config, run, jobs, targets) {
   const verdicts = {};
   for (const { os, "node-version": node } of targets) {
@@ -281,12 +355,7 @@ export function validateGovernancePrerequisite(config, identity, run, jobs, cont
   assert.match(context.prerequisiteCheckoutSha ?? "", /^[a-f0-9]{40}$/, "missing/invalid prerequisite checkout");
   assert.equal(context.actualCheckoutSha, identity.checkoutSha, "Governance checkout differs from this event");
   assert.equal(context.prerequisiteCheckoutSha, identity.checkoutSha, "Linux post verified a different checkout");
-  assert.equal(run.id, identity.runId, "different prerequisite run");
-  assert.equal(run.run_attempt, identity.attempt, "different prerequisite attempt");
-  assert.equal(run.path, ".github/workflows/verify.yml", "different prerequisite workflow");
-  assert.equal(run.event, context.eventName, "different prerequisite event");
-  assert.match(context.sourceHeadSha ?? "", /^[a-f0-9]{40}$/);
-  assert.equal(run.head_sha, context.sourceHeadSha, "different prerequisite source HEAD");
+  assertReceiptIdentity(run, identity, context);
   const names = expectedWorkers(config, GOVERNANCE_TARGET.os, GOVERNANCE_TARGET["node-version"]);
   return names.map((name, index) => {
     const matches = jobs.filter(job => job.name === name);
@@ -309,13 +378,39 @@ export function validateGovernancePrerequisite(config, identity, run, jobs, cont
   });
 }
 
-export async function verifyGovernancePrerequisite(env = process.env) {
+/**
+ * Read the prerequisite receipt, re-reading only while an expected job or gate step is nonterminal.
+ * A settled failure, a missing/duplicate job, or a different run/attempt/head fails immediately: only
+ * a job still in flight is worth another read, and the budget is finite so a stuck job still fails
+ * closed with its last observed state (issue #492).
+ */
+export async function readGovernanceReceipt(config, env, identity, context, options = {}) {
+  const read = options.read ?? githubRead;
+  const attempts = options.attempts ?? RECEIPT_READ_ATTEMPTS;
+  const wait = options.wait ?? (ms => new Promise(done => setTimeout(done, ms)));
+  const delayMs = options.delayMs ?? RECEIPT_READ_DELAY_MS;
+  assert(Number.isSafeInteger(attempts) && attempts > 0, "receipt read budget must be positive");
+  for (let attempt = 1; ; attempt += 1) {
+    const snapshot = await hostedJobs(env, read);
+    assertReceiptIdentity(snapshot.run, identity, context);
+    const pending = governanceReceiptPending(config, snapshot.jobs);
+    if (pending.length === 0) return { ...snapshot, pending, attempts: attempt };
+    if (attempt >= attempts) {
+      assert.fail(`prerequisite receipt still nonterminal after ${attempts} reads: ${JSON.stringify(pending)}`);
+    }
+    await wait(delayMs);
+  }
+}
+
+export async function verifyGovernancePrerequisite(env = process.env, options = {}) {
   assert.equal(env.GITHUB_ACTIONS, "true", "hosted inspections require the current GitHub Actions run");
   const identity = subject(env);
   const sourceHeadSha = governanceSourceHead(env);
   const checkout = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", shell: false });
   assert.equal(checkout.status, 0, "cannot read Governance checkout");
-  const { run, jobs } = await hostedJobs(env);
+  const { run, jobs } = await readGovernanceReceipt(readConfig(), env, identity, {
+    eventName: env.GITHUB_EVENT_NAME, sourceHeadSha, actualCheckoutSha: checkout.stdout.trim()
+  }, options);
   const receipt = validateGovernancePrerequisite(readConfig(), identity, run, jobs, {
     eventName: env.GITHUB_EVENT_NAME, sourceHeadSha, actualCheckoutSha: checkout.stdout.trim(),
     prerequisiteResult: env.VERIFY_PREREQUISITE_RESULT,
@@ -369,15 +464,20 @@ export async function main(command, env = process.env) {
     validateCoverage(plan, reports, subject(env));
     console.log(`Verified ${plan.files.length} Bun-discovered files exactly once across ${plan.groups.length} isolated shards`);
   } else if (command === "collect" || command === "cost") {
-    const { run, jobs } = await hostedJobs(env);
+    // A pending expected job is re-read within a finite budget instead of being persisted as a
+    // settled verdict, so a snapshot taken mid-flight cannot fail the run (issue #492).
+    const { run, jobs, verdicts: laneVerdicts, pending, attempts } = await collectJobVerdicts(
+      config, env, laneTargets(env.VERIFY_LANE));
+    if (pending.length > 0) {
+      console.error(`Expected jobs still nonterminal after ${attempts} reads: ${JSON.stringify(pending)}`);
+    }
     const metrics = runnerMinutes(jobs);
     const evidence = temporaryPath("VERIFY_EVIDENCE", "verify-evidence");
     jsonWrite(join(evidence, "runner-minutes.json"), { runId: run.id, attempt: run.run_attempt, headSha: run.head_sha, ...metrics });
     if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `### Measured runner time (current attempt)\n\nCompleted jobs: ${metrics.completedMinutes.toFixed(2)} raw runner minutes; per-job rounded model ${metrics.roundedCompletedMinutes}. Completed installs: ${metrics.installJobs}, ${metrics.installMinutes.toFixed(2)} runner minutes. ${metrics.note}\n`);
     if (command === "collect") {
-      const verdicts = jobVerdicts(config, run, jobs, laneTargets(env.VERIFY_LANE));
-      appendFileSync(env.GITHUB_OUTPUT, `verdicts=${JSON.stringify(verdicts)}\n`);
-      jsonWrite(join(evidence, "job-verdicts.json"), { runId: run.id, attempt: run.run_attempt, headSha: run.head_sha, verdicts });
+      appendFileSync(env.GITHUB_OUTPUT, `verdicts=${JSON.stringify(laneVerdicts)}\n`);
+      jsonWrite(join(evidence, "job-verdicts.json"), { runId: run.id, attempt: run.run_attempt, headSha: run.head_sha, verdicts: laneVerdicts, readAttempts: attempts, pending });
     }
   } else throw new Error(`Unknown verify-ci command: ${command}`);
 }
