@@ -1,6 +1,7 @@
 # archctx / archctx-contracts 0.12.0 preparation
 
 Baseline: `origin/main@57dc8f4f`, the merge of #503.
+Published from the merged release-candidate commit `478fc5c1`, the merge of #505. Both registry versions went live on 2026-11-09. The tag and GitHub Release were created the same day, after the readback below.
 
 ## Changes
 
@@ -40,11 +41,22 @@ The `archctx` tarball ships the whole `schemas/` tree, because the root package 
 ## Evidence and remaining gates
 
 - [x] Version authorities synchronized: the root and package manifests, `bun.lock`, `product-version.ts`, the contracts fixtures (`archctx-capabilities`, `product-version-manifest`) and the practice catalog manifest. `catalogDigest` was regenerated from `loadPracticeCatalog`.
-- [ ] Release-candidate PR head: hosted full/matrix Verify passes before merge.
-- [ ] Owner rollout step 2 confirmed: every installation of App `4102781` is suspended or uninstalled. No `archcontext-staging` check appeared on the #501 head.
-- [ ] Rebuild both package tarballs from accepted main, and read back the version, the contents (including the absence of the eight schemas) and the digests.
-- [ ] Publish interactively with npm web authentication. Wait for both registry versions, then read back version, dist-tag and integrity.
-- [ ] Create the tag and GitHub Release only for the published commit, using the Release notes above.
+- [x] Release-candidate PR head: hosted full/matrix Verify passed before merge (35 check runs, including all three Windows shards).
+- [x] Owner rollout step 2: the `archcontext-staging` App posted one check run on the #496 and #499 heads, and none on the #501, #502 or #503 heads. ADR-0053's FG2 evidence records this repository as its only installation. The owner authorized publication on that basis.
+- [x] Rebuild both package tarballs from accepted main, and read back the version, the contents (including the absence of the eight schemas) and the digests.
+- [x] Publish interactively with npm web authentication. Wait for both registry versions, then read back version, dist-tag and integrity.
+- [x] Create the tag and GitHub Release only for the published commit, using the Release notes above.
+
+## Publication record
+
+- Published commit: `478fc5c10247a3c531b7a31f3eb7377c22145dae`, the merge of #505.
+- The annotated tag `v0.12.0` sits on that commit, and the GitHub Release `v0.12.0` resolves to the same SHA.
+- Registry: `archctx@0.12.0` has shasum `e160da3f7bb19d48ede0b103bcb597d9673c8e65` and `archctx-contracts@0.12.0` has shasum `b111cd254c05b8d703c0862413ab4c9c5ef44539`. Both dist-tags `latest` point at 0.12.0.
+- `archctx-contracts`: the first `publish:contracts` run uploaded the package, but its readback ran before the registry exposed the version and reported `blocked`. After the version became visible, a second run reported `already-published`, skipped the upload, and passed the readback and the clean-room import smoke.
+- Byte identity: the registry archives match the tarballs built in the release worktree, with sha256 `5ff4a6c7…f75e0ef` and `04bd163b…ce79bfd2`.
+- Payload: the `archctx` archive carries 77 files under `schemas/`. `schemas/cloud/` holds only `cloud-egress-envelope` and `entitlement`, and none of the eight retired schemas is present. The `homepage` field is `https://github.com/Ancienttwo/arch-context`.
+- Release assets: both `.tgz` files plus `SHA256SUMS` are attached, and a download of the release verifies against that manifest.
+- Clean-room install from the registry: `archctx --version` reports 0.12.0, and `github` is absent from the command list.
 
 Publication procedure: `docs/runbooks/npm-release.md`.
 
