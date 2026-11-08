@@ -4,7 +4,6 @@
 > **Last Updated**: 2026-09-24
 > **Owner**: Planner
 > **Full PRD**: `plans/prds/20260619-2039-archcontext.prd.md`
-> **Follow-up PRD**: `plans/prds/20260620-0236-archcontext-local-github-governance.prd.md`
 > **Architecture Ledger PRD**: `plans/prds/Deep Research Report on ArchContext.md`
 
 ## Product Outcome
