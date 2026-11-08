@@ -16,8 +16,8 @@ Practice Assets v1 has two inputs with different trust levels:
   external, unverified, advisory-only data in `resources`; they never become
   built-in practices, complete-stage checks, or repo policy by themselves.
 
-Local Core remains usable with no GitHub App, Cloud account, LLM provider, or
-Context7 provider. Hook, checkpoint, prepare, complete, and practice validation
+Local Core remains usable with no Cloud account, LLM provider, or Context7
+provider. Hook, checkpoint, prepare, complete, and practice validation
 must continue to work with `egress: none`.
 
 ## Write A Repo Practice

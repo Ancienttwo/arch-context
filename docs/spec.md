@@ -17,25 +17,21 @@ ArchContext 是嵌入 Agentic Coding Runtime 的软件架构控制循环。它�
 
 ## Product Modes
 
-| Mode | Local install | GitHub App | Execution | Result |
-|---|---:|---:|---|---|
-| Local Core | Required | No | Developer machine | Local review and MCP/CLI workflow |
-| Personal Publish | Required | No | Developer machine | User-authored status or comment, informational only |
-| Developer Review | Required | Yes | Developer machine | `ArchContext / Developer Review`, developer-attested |
-| Organization Runner | Runner install | Yes | Customer-controlled GitHub Actions or self-hosted runner | `ArchContext / Organization Runner`, organization-attested |
-
-GitHub App is an optional governance bridge. It handles installation, PR metadata, Challenge, Attestation verification, and Check delivery; it is not a code executor and it is not required for the local product.
+| Mode | Local install | Execution | Result |
+|---|---:|---|---|
+| Local Core | Required | Developer machine | Local review and MCP/CLI workflow |
+| Personal Publish | Required | Developer machine | User-authored status or comment, informational only |
 
 ## Success Criteria
 
-- **Primary workflow**: 用户用自然语言提出产品需求 → Agent 经 `prepare → checkpoint → intervention/change → reconcile → cleanup → complete` SOP 完成实现；ArchContext 在背后判断局部修改还是结构性重构、阻止无依据的 wrapper/fallback/双轨、把架构变化写入结构化模型、清理迁移旧路径，并可在 GitHub 发布绑定 Commit 的 Developer Review 或 Organization Runner Check。
-- **Quality bar**: 长期项目中 Agent 能在不累积结构性技术债的前提下持续完成新需求（北极星）。确定性内核（Schema/Policy/路径安全/Digest/写入）100% 可复现；Stale Plan、路径逃逸、Attestation Replay 拦截率 100%；无依据兼容代码检测 Recall ≥ 85%；SaaS 代码内容路由数 = 0。
+- **Primary workflow**: 用户用自然语言提出产品需求 → Agent 经 `prepare → checkpoint → intervention/change → reconcile → cleanup → complete` SOP 完成实现；ArchContext 在背后判断局部修改还是结构性重构、阻止无依据的 wrapper/fallback/双轨、把架构变化写入结构化模型、清理迁移旧路径。
+- **Quality bar**: 长期项目中 Agent 能在不累积结构性技术债的前提下持续完成新需求（北极星）。确定性内核（Schema/Policy/路径安全/Digest/写入）100% 可复现；Stale Plan、路径逃逸拦截率 100%；无依据兼容代码检测 Recall ≥ 85%；SaaS 代码内容路由数 = 0。
 - **Out of scope (MVP)**: 通用代码图谱解析器、大型可视化画布、云端代码分析/Embedding、通用 Bug/Security AI Review、跨仓库图谱、ArchContext 托管私有代码 Runner、Slack Bot、多人实时协作编辑、PGlite/托管 Vector DB、Agent 自动合并 PR、第三方 Skill 作为核心执行依赖。
 
 ## Constraints
 
 - **Technical**: TypeScript + Node.js `>=22.22 <26` + Bun workspaces；CodeGraph 为产品硬依赖，仅经 `CodeFacts` Adapter 软耦合、精确锁版本、禁止读取其内部 DB；本地 SQLite（`node:sqlite` + WAL + FTS5）默认位于 OS 用户数据目录中的 `repositories/<storage-repository-id>/worktrees/<storage-workspace-id>/runtime.sqlite`，不用 PGlite；当前架构事实源是 Git 中 `.archcontext/` 的结构化 YAML，Markdown/图表为生成投影；Architecture Ledger 采用 ADR-0040 的 hybrid 模式：SQLite ledger 是 operational architecture state，`.archcontext/` 仍是 review/collaboration boundary，必须先经过 `yaml` → `dual` → `ledger-shadow` → `ledger-authoritative` 的可回滚晋级；一个版本一致的 `archctx` 本地产品交付 CLI、`archctxd`、MCP stdio adapter、local RPC schema、SQLite migrations 和 runtime build provenance；CLI/MCP 的写操作共享 Daemon RPC，debt checkpoint 读取在进程内运行；native context export 是只读、无状态的 Git/文件读取例外，不使用 Daemon、SQLite 或 CodeGraph；MCP 默认暴露 8 个 `archcontext_*` 工具（`prepare_task` / `practices` / `checkpoint` / `practice_checkpoint` / `plan_update` / `apply_update` / `projection` / `complete_task`）。
-- **Compliance**: SaaS 代码内容路由数必须为 0。ArchContext Cloud 不请求、不调用、不处理、不存储 Repository Contents、PR Diff/Patch、文件名、Symbol、CodeGraph、架构模型正文、Prompt/Completion 或详细 Finding；该边界由 GitHub API allowlist、Diff/Patch media type denylist、DTO allowlist、日志投影、egress recorder、D1/Queue schema audit 和 CI Privacy Contract Test 共同守护。GitHub App 默认无 Contents 权限，但不得把权限文案写成“技术上绝对无法读取代码”。ChatGPT Secure MCP Tunnel 场景必须明示数据会进入 OpenAI，不得宣称"数据永不离开本地"。
+- **Compliance**: SaaS 代码内容路由数必须为 0。ArchContext Cloud 不请求、不调用、不处理、不存储 Repository Contents、PR Diff/Patch、文件名、Symbol、CodeGraph、架构模型正文、Prompt/Completion 或详细 Finding；该边界由 Diff/Patch media type denylist、DTO allowlist、日志投影、egress recorder、D1/Queue schema audit 和 CI Privacy Contract Test 共同守护。ChatGPT Secure MCP Tunnel 场景必须明示数据会进入 OpenAI，不得宣称"数据永不离开本地"。
 - **Delivery**: 公开仓库免费；个人 Pro $5/月，覆盖该开发者可访问的全部私有仓库，不按仓库/Seat/Token/调用计费。MVP 以"可闭环的 Agentic Coding 架构 SOP"为完成标准，而非功能数量；里程碑 M0（契约冻结）→ M6（Beta 加固）。
 
 ## Acceptance Scenarios
@@ -347,13 +343,12 @@ and `0.5.2` supersedes it. `0.5.0` was prepared but never published. `archctx@0.
 `archctx-contracts@0.4.8` were the last pre-0.5.x published pair (verified with
 `npm view archctx version` on 2026-09-03). The scoped `@archcontext/contracts`
 workspace remains private internal source authority with no `publishConfig`; it is never the public contracts artifact. The release staging boundary generates public `archctx-contracts` at the same version with `src`, `fixtures`, and `schemas`; publisher and dry-run checks reject divergence from this contract (ADR-0034). `0.4.7`
-and earlier do not carry recovery semantics. Installation and organization-runner rollout still
-fail closed on an unavailable or version-mismatched artifact.
+and earlier do not carry recovery semantics. Installation still fails closed on an unavailable or
+version-mismatched artifact.
 
 - **Given** 一个从单体 Web 演进到含登录/订阅/支付 Webhook 的项目，**When** Agent 实现支付能力，**Then** ArchContext 从 L0 升级到 L1、给出支付数据边界与 Lifecycle Owner，并阻止把付款凭据写入业务数据库。
 - **Given** 任务要统一新旧状态字段且旧字段只有内部消费者，**When** Agent 建议加永久 Mapper，**Then** ArchContext 拒绝无真实契约的兼容层，生成调用方迁移与 Kill List，完成后仓库只剩单一路径。
 - **Given** 架构压力高但 CodeGraph 无法确认部分动态调用方（信心低），**When** Agent 想直接重构，**Then** 进入 Proof Required，先做最小验证实验，而非补丁或盲目重写。
-- **Given** PR `synchronize`，**When** 本地 Runtime 完成 Review 并生成设备签名 Attestation，**Then** SaaS 仅验证最小字段并更新 `ArchContext / Developer Review`；新 Commit 到达后旧 Attestation 立即失效，且 Developer Review 不能满足要求 `ArchContext / Organization Runner` 的策略。
 
 ## Open Questions
 

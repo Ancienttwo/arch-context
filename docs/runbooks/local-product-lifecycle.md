@@ -1,6 +1,6 @@
 # Local Product Lifecycle
 
-This runbook is the Local Core lifecycle policy for FG1. It covers the local `archctx` package, `archctxd`, MCP host configuration, repository architecture files, and OS user-data runtime state. It does not cover GitHub App installation, Cloud accounts, subscriptions, or organization runners.
+This runbook is the Local Core lifecycle policy for FG1. It covers the local `archctx` package, `archctxd`, MCP host configuration, repository architecture files, and OS user-data runtime state. It does not cover Cloud accounts or subscriptions.
 
 ## Install
 
@@ -37,7 +37,7 @@ Expected install state:
 - MCP host config points to `archctx mcp`; it does not create a second store or CodeGraph handle.
 - MCP runtime tool calls start the same local daemon on first use when needed; `mcp status` remains a host configuration readback and does not prove daemon health.
 - The daemon is started lazily by runtime commands or explicitly by `archctx daemon start`.
-- No GitHub App, Cloud account, subscription, or LLM provider is required for Local Core.
+- No Cloud account, subscription, or LLM provider is required for Local Core.
 
 ## Upgrade
 
@@ -107,7 +107,6 @@ Data retained by default:
 
 Data not retained by Local Core:
 
-- GitHub App tokens.
 - Cloud account credentials.
 - LLM prompts, completions, source bodies, diffs, or detailed findings.
 
