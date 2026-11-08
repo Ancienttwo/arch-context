@@ -1,6 +1,6 @@
 # architecture/context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" rendererVersion="archcontext.docs-renderer/v6" outputDigest="sha256:793814acbf8fa2cf798b01466d2c824fa0bbf24f8bce3690f670208c1ec36a0a" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" rendererVersion="archcontext.docs-renderer/v6" outputDigest="sha256:c6868d9800053ad3362ea82ddff2584ec1bb7b39bf17591c7fa6ad6a622dc134" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture.context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -39,7 +39,6 @@ flowchart LR
   p1_component_architecture_context_local_runtime_architecture_book_ec146b18["Architecture Book Service"]:::component
   p1_component_architecture_context_local_runtime_audit_eaeac660["Architecture Audit Service"]:::component
   p1_component_architecture_context_local_runtime_control_file_security_af51dbd4["Control File Security"]:::component
-  p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce["Developer Review Runs and Attestations"]:::component
   p1_component_architecture_context_local_runtime_egress_admission_279f8a51["Egress Admission"]:::component
   p1_component_architecture_context_local_runtime_explorer_server_52082528["Explorer Server and Session"]:::component
   p1_component_architecture_context_local_runtime_external_documentation_cb71400c["External Documentation Service"]:::component
@@ -57,7 +56,6 @@ flowchart LR
   p1_component_architecture_context_local_runtime_runtime_state_paths_13691514["Runtime State Paths"]:::component
   p1_component_architecture_context_projection_renderer_53dbb119["Architecture Documentation Renderer"]:::component
   p1_component_architecture_context_surfaces_cli_c2747804["CLI"]:::component
-  p1_component_architecture_context_surfaces_github_review_state_a43938db["GitHub Review State Privacy"]:::component
   p1_component_architecture_context_surfaces_mcp_local_d11d91ff["Local MCP Server"]:::component
   p1_module_architecture_context_cloud_8901d681["Cloud Workspace"]:::component
   p1_module_architecture_context_contracts_c9d1ed3f["Contracts Workspace"]:::component
@@ -71,13 +69,9 @@ flowchart LR
   p1_component_architecture_context_local_runtime_audit_eaeac660 -->|"Use the same job completion#44; ID#44; risk and proposal validation semantics through the existing daemon callbacks"| p1_component_architecture_context_local_runtime_agent_jobs_33e671d3
   p1_component_architecture_context_local_runtime_audit_eaeac660 -->|"Run read-only investigation and compile advisory proposals before daemon-owned ledger recording"| p1_component_architecture_context_core_agent_orchestrator_dd368317
   p1_component_architecture_context_surfaces_cli_c2747804 -->|"Use shared private control-file permission authority"| p1_component_architecture_context_local_runtime_control_file_security_af51dbd4
-  p1_component_architecture_context_surfaces_cli_c2747804 -->|"Persist and read only review metadata and apply the shared CLI credential privacy guard"| p1_component_architecture_context_surfaces_github_review_state_a43938db
   p1_component_architecture_context_surfaces_cli_c2747804 -->|"Use the shared state path authority in the fast hook client"| p1_component_architecture_context_local_runtime_runtime_state_paths_13691514
-  p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce -->|"Compute deterministic review results from daemon-owned digests before persistence and attestation signing"| p1_component_architecture_context_core_review_engine_f590debf
-  p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce -->|"Use shared daemon control paths#44; process liveness and strict persisted run manifest decoding"| p1_component_architecture_context_local_runtime_rpc_server_90daf412
   p1_component_architecture_context_local_runtime_explorer_server_52082528 -->|"Request authoritative projection and delta through daemon callbacks without moving cache or ledger ownership"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
   p1_component_architecture_context_local_runtime_external_documentation_cb71400c -->|"Open repository sessions and execute approved pins under the daemon writer and recovery guard"| p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0
-  p1_component_architecture_context_surfaces_github_review_state_a43938db -->|"Resolve the worktree-specific user state directory for local review metadata"| p1_component_architecture_context_local_runtime_runtime_state_paths_13691514
   p1_component_architecture_context_local_runtime_ledger_admin_0c86ee18 -->|"Plan explicit ledger migrations and Git projection changes with shared ledger contracts"| p1_component_architecture_context_core_architecture_ledger_248e87de
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Use the same generated projection path guard"| p1_component_architecture_context_local_runtime_projection_paths_f737d52b
   p1_component_architecture_context_local_runtime_local_store_sqlite_cd341e9b -->|"Use the shared process liveness semantics before stale-owner recovery"| p1_component_architecture_context_local_runtime_process_liveness_f8365b95
@@ -100,7 +94,6 @@ flowchart LR
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose job queue orchestration and supply existing session and ledger scope ports"| p1_component_architecture_context_local_runtime_agent_jobs_33e671d3
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose Architecture Book reads and the task-context ledger query port using the shared ledger readback and local store"| p1_component_architecture_context_local_runtime_architecture_book_ec146b18
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate audit orchestration with existing lifecycle cancellation#44; writer gate#44; stores and job completion"| p1_component_architecture_context_local_runtime_audit_eaeac660
-  p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate review worktree lifecycle through the composed service with the daemon running-state guard and clock"| p1_component_architecture_context_local_runtime_developer_review_run_dfe068ce
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose Explorer session lifecycle and send committed projection and authority invalidations"| p1_component_architecture_context_local_runtime_explorer_server_52082528
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Compose external documentation operations using the existing provider#44; store and writer ports"| p1_component_architecture_context_local_runtime_external_documentation_cb71400c
   p1_component_architecture_context_local_runtime_runtime_daemon_edb1d9b0 -->|"Delegate explicit ledger administration using the existing writer gate#44; stores and transactional append callback"| p1_component_architecture_context_local_runtime_ledger_admin_0c86ee18
@@ -116,8 +109,8 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:a7cc74cf00722409ed2da4c30404fba0bf0d94831bfdcd679ed4432311d7d613`).
-- Semantic nodes: `50`; declared relations: `45`.
+- Proof: `proven` (`sha256:fc11fc1edec9ad12fd37121944f45b022d992168deb8ed85d95fd3ded188046b`).
+- Semantic nodes: `48`; declared relations: `40`.
 
 ### 1.2 模組職責表
 
@@ -145,7 +138,7 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **Proof**: `proven` (`sha256:a7cc74cf00722409ed2da4c30404fba0bf0d94831bfdcd679ed4432311d7d613`); selectors `2/2`.
+> **Proof**: `proven` (`sha256:fc11fc1edec9ad12fd37121944f45b022d992168deb8ed85d95fd3ded188046b`); selectors `2/2`.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%
