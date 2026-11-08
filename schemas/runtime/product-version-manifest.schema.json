@@ -58,14 +58,10 @@
     "schemas": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaSetVersion", "contractsPackageVersion", "reviewChallenge", "attestation", "deviceIdentity", "runnerIdentity"],
+      "required": ["schemaSetVersion", "contractsPackageVersion"],
       "properties": {
         "schemaSetVersion": { "type": "string", "minLength": 1 },
-        "contractsPackageVersion": { "$ref": "#/$defs/semver" },
-        "reviewChallenge": { "const": "archcontext.review-challenge/v2" },
-        "attestation": { "const": "archcontext.attestation/v2" },
-        "deviceIdentity": { "const": "archcontext.device-identity/v1" },
-        "runnerIdentity": { "const": "archcontext.runner-identity/v1" }
+        "contractsPackageVersion": { "$ref": "#/$defs/semver" }
       }
     },
     "runtime": {

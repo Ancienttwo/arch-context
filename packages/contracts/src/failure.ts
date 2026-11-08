@@ -73,14 +73,8 @@ const policies: Record<string, Policy> = {
 };
 // C1 policies are selected at explicit producer branches, never from diagnostic text.
 Object.assign(policies, {
-  "developer-review-run-not-owned": {code:"AC_PRECONDITION_FAILED",message:"developer-review-run-not-owned",facts:{refusal:"reviewOwnershipRefusal"}},
-  "developer-review-attestation-input-invalid": {code:"AC_SCHEMA_INVALID",message:"Caller-provided attestation fields are forbidden.",facts:{issueCount:"uint"}},
   "init-would-overwrite-existing-model": {"code": "AC_PRECONDITION_FAILED", "message": "init-would-overwrite-existing-model: an existing architecture model must not be overwritten.", "facts": {}},
   "waiver-list-unreadable": {"code": "AC_SCHEMA_INVALID", "message": "Practice waiver list or owner registry could not be read.", "facts": {}},
-  "developer-review-run-already-active": {"code": "AC_PRECONDITION_FAILED", "message": "developer-review-run-already-active", "facts": {"challengeId": "id"}},
-  "developer-review-run-prepare-failed": {"code": "AC_PRECONDITION_FAILED", "message": "developer-review-run-prepare-failed", "facts": {}},
-  "developer-review-worktree-invalid": {"code": "AC_PRECONDITION_FAILED", "message": "developer-review-worktree-invalid", "facts": {"refusal":"reviewWorktreeRefusal"}},
-  "device-private-key-signer-unavailable": {"code": "AC_PRECONDITION_FAILED", "message": "device-private-key-signer-unavailable", "facts": {}},
 
   "ledger-worktree-claim-required": {code:"AC_PRECONDITION_FAILED", message:"Ledger write requires expectedWorktreeDigest.", facts:{}},
   "ledger-worktree-claim-changed": {code:"AC_PRECONDITION_FAILED", message:"Worktree digest changed before ledger write.", facts:{expectedWorktreeDigest:"sha256",actualWorktreeDigest:"sha256"}},
@@ -380,8 +374,6 @@ function dataRecord(value: unknown): Record<string, PropertyDescriptor> {
   return fields;
 }
 const localEnums: Readonly<Record<string, readonly string[]>> = {
-  reviewWorktreeRefusal: ["UNKNOWN","HEAD_UNAVAILABLE","HEAD_SHA_MISMATCH","TREE_OID_MISMATCH","WORKTREE_NOT_DETACHED","WORKTREE_NOT_CLEAN"],
-  reviewOwnershipRefusal: ["persisted-manifest-missing","persisted-manifest-identity-mismatch","run-id","manifest-path","lock-path","persisted-manifest-mismatch","persisted-lock-mismatch","run-root-name","worktree-temp-root","codegraph-temporary-state-root","run-root-not-a-directory","run-root-owner-marker-missing","run-root-owner-marker-mismatch","worktree-temporary-root","worktree-root","worktree-source-root"],
   projectionInputField: ["headSha","worktreeDigest","sourceFiles"],
   upgradeAction: ["upgrade-archctx-runtime"],
   upgradeCommand: ["archctx daemon upgrade"],

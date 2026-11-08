@@ -247,7 +247,6 @@ export interface RendererPort {
 
 export interface CloudMetadataPort {
   verifyEntitlement(input: { repositoryVisibility: "public" | "private"; accountId?: string }): Promise<{ allowed: boolean; reason?: string }>;
-  submitAttestation(input: unknown): Promise<{ accepted: boolean; checkRunId?: string; reason?: string }>;
 }
 
 export type NotificationResult = "pass" | "pass_with_warnings" | "fail_action_required";
