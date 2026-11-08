@@ -21,7 +21,7 @@ describe("local product lifecycle runbook", () => {
       expect(DOC).toContain(command);
     }
 
-    expect(DOC).toContain("No GitHub App, Cloud account, subscription, or LLM provider is required for Local Core.");
+    expect(DOC).toContain("No Cloud account, subscription, or LLM provider is required for Local Core.");
     expect(DOC).toContain("Destructive data deletion must be an explicit user action");
     expect(DOC).toContain(".archcontext/model");
     expect(DOC).toContain("OS user-data");

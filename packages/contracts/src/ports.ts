@@ -247,7 +247,6 @@ export interface RendererPort {
 
 export interface CloudMetadataPort {
   verifyEntitlement(input: { repositoryVisibility: "public" | "private"; accountId?: string }): Promise<{ allowed: boolean; reason?: string }>;
-  submitAttestation(input: unknown): Promise<{ accepted: boolean; checkRunId?: string; reason?: string }>;
 }
 
 export type NotificationResult = "pass" | "pass_with_warnings" | "fail_action_required";
@@ -798,40 +797,6 @@ export interface ChatGptGaToolContract {
   dataClassification: "cloud-metadata" | "local-metadata" | "local-architecture";
   requiresLocalConfirmationForWrite: boolean;
   disclosure: string;
-}
-
-export type DetachedReviewWorktreeReason =
-  | "HEAD_UNAVAILABLE"
-  | "HEAD_SHA_MISMATCH"
-  | "TREE_OID_MISMATCH"
-  | "WORKTREE_NOT_DETACHED"
-  | "WORKTREE_NOT_CLEAN";
-
-export interface DetachedReviewWorktreeVerification {
-  schemaVersion: "archcontext.detached-review-worktree-verification/v1";
-  accepted: boolean;
-  reasonCode?: DetachedReviewWorktreeReason;
-  expected: {
-    headSha: string;
-    headTreeOid?: string;
-  };
-  observed: {
-    headSha?: string;
-    headTreeOid?: string;
-    detached?: boolean;
-    clean?: boolean;
-  };
-}
-
-
-export interface ReviewCheckoutGitPort {
-  findRepositoryRoot(start: string): string;
-  readOriginUrl(root: string): string | null;
-  verifyDetachedWorktree(input: {
-    worktreeRoot: string;
-    expectedHeadSha: string;
-    expectedHeadTreeOid?: string;
-  }): DetachedReviewWorktreeVerification;
 }
 
 export interface NonLocalEgressChannel {

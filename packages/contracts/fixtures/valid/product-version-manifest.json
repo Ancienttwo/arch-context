@@ -30,11 +30,7 @@
   },
   "schemas": {
     "schemaSetVersion": "2026-06-25.al0-ledger",
-    "contractsPackageVersion": "0.11.4",
-    "reviewChallenge": "archcontext.review-challenge/v2",
-    "attestation": "archcontext.attestation/v2",
-    "deviceIdentity": "archcontext.device-identity/v1",
-    "runnerIdentity": "archcontext.runner-identity/v1"
+    "contractsPackageVersion": "0.11.4"
   },
   "runtime": {
     "localRpc": {

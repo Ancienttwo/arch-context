@@ -126,19 +126,6 @@ test("MCP stale snapshot keeps its proven field and precondition classification"
  } finally {await daemon.stop();removeTempRepo(root);}
 });
 
-test("remaining review value APIs preserve success object identity and safely type raw failures",async()=>{
- const {daemon,store}=fixture();const success={marker:"same instance"};
- const groups=[
-  ["developerReviewRuns",["prepareDeveloperReviewWorktree","startDeveloperReviewRun","withDeveloperReviewRun","cleanupOwnedDeveloperReviewRun","cleanupDeveloperReviewRun","recoverDeveloperReviewRuns"]],
-  ["developerReviewSessions",["computeDeveloperReviewDigestBundle","runDeveloperReviewSession","runSignedDeveloperReviewAttestation"]]
- ] as const;
- try {for(const [field,methods] of groups) {
-  daemon[field]=Object.fromEntries(methods.map(method=>[method,()=>success]));
-  for(const method of methods)expect(await daemon[method]({})).toBe(success);
-  daemon[field]=Object.fromEntries(methods.map(method=>[method,()=>{throw new Error(privateText);} ]));
-  for(const method of methods)strict(await Promise.resolve().then(()=>daemon[method]({})).catch(error=>error));
- }}finally{store.close();}
-});
 test("init, waiver list and status do not expose raw ordinary failures",async()=>{
  const {daemon,store}=fixture();
  try {

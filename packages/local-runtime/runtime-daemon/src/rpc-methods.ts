@@ -1,12 +1,7 @@
-import { FailureError, normalizeFailureResult } from "@archcontext/contracts";
-import type { AgentJobV1, ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, Json, JsonEnvelope, ProjectionApplyRecoveryIntentV1, ProjectionRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
+import type { AgentJobV1, ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, JsonEnvelope, ProjectionApplyRecoveryIntentV1, ProjectionRequestV1 } from "@archcontext/contracts";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
-import type { DetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
-import type { DeveloperReviewAttestation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunPreparation, DeveloperReviewRunRecovery } from "./developer-review-codec";
 import type { ExplorerServerOptions, RuntimeAcceptCommittedChangeInput, RuntimeAgentContextProjectionInput, RuntimeAgentJobCancelRpcInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobRetryRpcInput, RuntimeApplyUpdateInput, RuntimeAuditApproveInput, RuntimeAuditRunInput, RuntimeBookInput, RuntimePracticeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeDocsProjectionInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeProjectionInvocation, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput, RuntimeRefactorVerifyInput } from "./rpc-types";
 import type { PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
-import { okEnvelope } from "@archcontext/contracts";
-import { decodeStartDeveloperReviewRunParams, decodeSignedDeveloperReviewAttestationParams, decodeDeveloperReviewRunCleanupRequest, decodeRecoverDeveloperReviewRunsParams } from "./developer-review-codec";
 import { rpcInputInvalid, rpcOptionalNumber, rpcOptionalObject, rpcOptionalString, rpcOptionalStringArray, rpcRequiredBoolean, rpcRequiredObject, rpcRequiredString } from "./rpc-argument-codec";
 
 export type RuntimeRpcTimeoutClass = "short" | "normal" | "long";
@@ -58,42 +53,8 @@ function envelopeMethod<Args extends unknown[]>(
   };
 }
 
-function dataMethod<Args extends unknown[], Result>(
-  timeout: RuntimeRpcTimeoutClass,
-  requestId: string,
-  encodeArgs: (...args: Args) => Readonly<NoInfer<Args>>,
-  // See the matching `NoInfer` note on `envelopeMethod`'s `decodeArgs` parameter.
-  decodeArgs: (params: unknown[]) => NoInfer<Args>,
-  decodeResponse: (result: JsonEnvelope) => Result
-): RuntimeRpcMethodDefinition<Args, Result> {
-  return {
-    timeout,
-    encodeArgs,
-    decodeArgs,
-    encodeResponse: (result) => okEnvelope(requestId, result as unknown as Json),
-    decodeResponse
-  };
-}
-
-function unwrapRpcData<Result>(result: JsonEnvelope): Result {
-  if (!result.ok) {
-    const negotiation = result as unknown as Record<string, unknown>;
-    if (negotiation.error === "runtime RPC version mismatch") {
-      try { throw new FailureError("AC_RUNTIME_VERSION_UNSUPPORTED", "rpc-version-mismatch", {expected:negotiation.expected,received:negotiation.received,action:negotiation.action,upgradeCommand:negotiation.upgradeCommand}); }
-      catch(error) { if(error instanceof FailureError) throw error; }
-    }
-    const failure = (normalizeFailureResult(result, "public-operation", "runtime-rpc.data") as JsonEnvelope).error!;
-    throw new FailureError(failure.code, failure.reasonCode!, failure.details, failure);
-  }
-  return result.data as unknown as Result;
-}
-
-function singleRpcArgument<T>(value: T): [T] {
-  return [value];
-}
-
 /**
- * Rest-tuple identity, the multi-argument sibling of `singleRpcArgument`: a plain array literal
+ * Rest-tuple identity: a plain array literal
  * (`[a, b]`) returned from a function whose declared return type is a generic `Args extends
  * unknown[]` widens to `(A | B)[]`, which then fails to satisfy the exact positional tuple
  * `decodeArgs: (params: unknown[]) => Args` expects. A generic rest parameter is inferred
@@ -324,29 +285,7 @@ export const RUNTIME_RPC_METHODS = {
   )),
   runtimeStatus: envelopeMethod("runtimeStatus", "short", (root?: string) => [root] as const, (params) => rpcArgs(
     rpcOptionalString(params, 0, "runtimeStatus", "root")
-  )),
-  // These inputs authorize filesystem operations. Keep strict decoders, including unknown-field rejection.
-  startDeveloperReviewRun: dataMethod("long", "developerReview.startRun", (input: {
-    repositoryRoot: string;
-    challenge: ReviewChallengeV2;
-    expectedHeadTreeOid?: string;
-  }) => [input] as const, (params) => singleRpcArgument(decodeStartDeveloperReviewRunParams(params)), unwrapRpcData<DeveloperReviewRunPreparation>),
-  runSignedDeveloperReviewAttestation: dataMethod("long", "developerReview.attestation", (input: {
-    challenge: ReviewChallengeV2;
-    worktree: DetachedReviewWorktree;
-    keyRef: string;
-    principalId: string;
-    publicKeyId: string;
-    taskSessionId?: string;
-    mergeBaseSha?: string;
-    startedAt?: string;
-    completedAt?: string;
-  }) => [input] as const, (params) => singleRpcArgument(decodeSignedDeveloperReviewAttestationParams(params)), unwrapRpcData<DeveloperReviewAttestation>),
-  cleanupDeveloperReviewRun: dataMethod("normal", "developerReview.cleanupRun", (input: DeveloperReviewRunCleanupRequest) => [input] as const, (params) => singleRpcArgument(decodeDeveloperReviewRunCleanupRequest(params[0])), unwrapRpcData<DeveloperReviewRunCleanup>),
-  recoverDeveloperReviewRuns: dataMethod("normal", "developerReview.recoverRuns", (input: {
-    repositoryRoot: string;
-    force?: boolean;
-  }) => [input] as const, (params) => singleRpcArgument(decodeRecoverDeveloperReviewRunsParams(params)), unwrapRpcData<DeveloperReviewRunRecovery>)
+  ))
 };
 
 export type RuntimeRpcMethodName = keyof typeof RUNTIME_RPC_METHODS;

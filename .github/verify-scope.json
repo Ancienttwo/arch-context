@@ -28,8 +28,6 @@
     "packages/local-runtime/runtime-daemon/test/projection-writer*",
     "packages/local-runtime/runtime-daemon/test/rpc-*",
     "packages/surfaces/cli/src/main.ts",
-    "packages/surfaces/cli/src/github-review-state.ts",
-    "packages/surfaces/cli/test/github-review-state*",
     "packages/surfaces/cli/test/rpc-*",
     "packages/surfaces/cli/**/hook*"
   ],

@@ -4,7 +4,7 @@ kind: module
 name: "Cloud Workspace"
 status: active
 parent: capability.architecture.context
-summary: "Provides the hosted control plane, GitHub App, runner, attestation, hardening, and notification services."
+summary: "Provides the hosted control plane, hardening, and notification services."
 source:
   exclude:
     - "packages/cloud/**/test/**"

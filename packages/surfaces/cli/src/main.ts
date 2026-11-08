@@ -6,14 +6,13 @@ import { runRefImpactCommand } from "./ref-impact";
 import { runArchitectureHistoryCommand } from "./architecture-history";
 import { runConstraintCheckCommand } from "@archcontext/local-runtime/runtime-daemon";
 import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
-import { assertNoCliSecretMaterial, defaultGithubDeveloperReviewStatePath, discardLegacyGithubDeveloperReviewState, readGithubDeveloperReviewState, sanitizeGithubDeveloperReviewState, writeGithubDeveloperReviewState, type GitHubDeveloperReviewState } from "./github-review-state";
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
 import { spawn, spawnSync } from "node:child_process";
-import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
+import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FailureError, NativeContextError, toEnvelope, ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2 } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ExplorerProjectionQueryV2, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1 } from "@archcontext/contracts";
 import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
 import { computeWorktreeDigest, manifestDecisionDiagnostics, repositoryFingerprint } from "@archcontext/core/architecture-domain";
@@ -143,17 +142,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   },
   "export": { value: [], boolean: [] },
   "flows": { value: [], boolean: ["--no-sync"] },
-  "github": {
-    value: [],
-    boolean: [],
-    subcommands: {
-      status: { value: [], boolean: [] },
-      connect: { value: [], boolean: [] },
-      disconnect: { value: [], boolean: [] },
-      review: { value: ["--challenge-json", "--challenge-path", "--claimant-id", "--completed-at", "--expected-head-tree-oid", "--merge-base-sha", "--now", "--pr", "--principal-id", "--public-key-id", "--pull-request", "--started-at", "--task-session-id"], boolean: ["--force"] },
-      "verify-head": { value: ["--challenge-json", "--challenge-path"], boolean: [] }
-    }
-  },
   "hash": { value: ["--path"], boolean: [] },
   "hook": {
     value: [],
@@ -467,49 +455,6 @@ export interface CliRuntimeDeps extends RuntimeDeps {
   /** Source of `plan --body -` and `resolve --paths-from -`; defaults to the process stdin. */
   readStdin?: () => string | Promise<string>;
   disableRpcDiscovery?: boolean;
-  devicePrivateKeyStore?: {
-    provisionDevicePrivateKey(input: { accountId: string; publicKeyId: string; createdAt?: string }): { reference: DeviceKeyCredentialReference };
-    signWithDevicePrivateKey(input: { keyRef: string; payload: string | Uint8Array }): string;
-    removeDevicePrivateKey(keyRef: string): void;
-  };
-  // The adapter must verify authorization, device registration and durable credential access.
-  // A cached local JSON record is never connection authority.
-  githubConnectionReader?: {
-    readVerifiedConnection(input: { repositoryRoot: string }): Promise<GitHubConnectionRecord | undefined>;
-  };
-  githubGovernancePort?: Pick<GitHubGovernancePort, "getPullHeadMetadata">;
-  githubReviewChallengePort?: {
-    fetchReviewChallenge(input: {
-      pullRequestNumber: number;
-      connection: ReturnType<typeof sanitizeGithubConnection>;
-    }): Promise<ReviewChallengeV2> | ReviewChallengeV2;
-  };
-  githubReviewSubmissionPort?: {
-    submitDeveloperReview(input: {
-      challenge: ReviewChallengeV2;
-      attestation: AttestationV2;
-      attestationDigest: string;
-    }): Promise<Json> | Json;
-  };
-}
-
-interface DeviceKeyCredentialReference {
-  schemaVersion: "archcontext.device-key-credential-ref/v1";
-  accountId: string;
-  publicKeyId: string;
-  publicKeyFingerprint: string;
-  keyRef: string;
-  createdAt: string;
-}
-
-export interface GitHubConnectionRecord {
-  schemaVersion: "archcontext.github-connection/v1";
-  status: "connected";
-  accountId: string;
-  githubUserId: string;
-  issuer: string;
-  deviceKey: DeviceKeyCredentialReference;
-  connectedAt: string;
 }
 
 interface CliRuntimeHandle {
@@ -599,7 +544,6 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
   const preflight = preflightCliArguments(command, args);
   if (preflight) return preflight;
   if (command === "daemon") return runDaemonCommand(args, cwd);
-  if (command === "github") return runGithubCommand(args, cwd, deps);
   // One runtime per command: over RPC every call reaches the same archctxd anyway, and an embedded
   // runtime owns the local store exclusively (#160), so a second one in the same command would be a
   // second writer on the same store.
@@ -907,7 +851,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "github", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "impact", "history", "tunnel", "flows", "deps", "constraints", "debt"],
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "impact", "history", "tunnel", "flows", "deps", "constraints", "debt"],
           examples: CLI_HELP_EXAMPLES
         }
       };
@@ -2640,384 +2584,6 @@ async function runAgentsCommand(args: string[], cwd: string, daemon: RuntimeDaem
   return errorEnvelope("agents", "AC_SCHEMA_INVALID", "agents requires status|budget");
 }
 
-async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {
-  const subcommand = args[0] ?? "status";
-  const connectionPath = defaultGithubConnectionPath(cwd);
-  if (subcommand === "status") {
-    const record = await deps.githubConnectionReader?.readVerifiedConnection({ repositoryRoot: cwd });
-    return okEnvelope("github.status", record ? sanitizeGithubConnection(record, connectionPath) : {
-      connected: false,
-      status: "unavailable",
-      reason: "Verified GitHub authorization, device registration and durable credential storage are not configured",
-      connectionPath,
-      ghCli: "not-used"
-    } as any);
-  }
-  if (subcommand === "connect") {
-    return errorEnvelope(
-      "github.connect", "AC_CAPABILITY_UNSUPPORTED",
-      "GitHub connection is unavailable: authorization exchange, device registration and durable credential storage are not implemented"
-    );
-  }
-  if (subcommand === "disconnect") {
-    const connection = await deps.githubConnectionReader?.readVerifiedConnection({ repositoryRoot: cwd });
-    const localRecordRemoved = existsSync(connectionPath);
-    rmSync(connectionPath, { force: true });
-    return okEnvelope("github.disconnect", {
-      connected: connection !== undefined,
-      localRecordRemoved,
-      remoteRevoked: false,
-      connectionPath,
-      ghCli: "not-used"
-    } as any);
-  }
-  if (subcommand === "review") {
-    return runGithubReviewCommand(args.slice(1), cwd, deps, connectionPath);
-  }
-  if (subcommand === "verify-head") {
-    const challengeResult = await readReviewChallengeV2Arg(args, cwd, "github verify-head");
-    if (!challengeResult.ok) return errorEnvelope("github.verify-head", "AC_SCHEMA_INVALID", challengeResult.message);
-    if (!deps.githubGovernancePort) {
-      return errorEnvelope("github.verify-head", "AC_RUNTIME_UNAVAILABLE", "github verify-head requires a configured GitHub governance metadata port");
-    }
-    const { ControlPlane } = await import("@archcontext/cloud/control-plane");
-    const result = await new ControlPlane().fetchAndVerifyReviewChallengePullHead({
-      challenge: challengeResult.challenge,
-      github: deps.githubGovernancePort
-    });
-    const data = { ...result, ghCli: "not-used" };
-    assertNoCliSecretMaterial(data);
-    return okEnvelope("github.verify-head", data as unknown as Json);
-  }
-  return errorEnvelope("github", "AC_SCHEMA_INVALID", "github requires connect|status|disconnect|review|verify-head");
-}
-
-async function runGithubReviewCommand(args: string[], cwd: string, deps: CliRuntimeDeps, connectionPath: string) {
-  const actions = new Set(["claim", "run", "submit", "status", "retry", "cancel", "discard-legacy-state"]);
-  const explicitAction = actions.has(args[0] ?? "") ? args[0] : undefined;
-  const action = explicitAction ?? "submit";
-  const commandArgs = explicitAction ? args.slice(1) : args;
-  const pullRequestNumber = readPullRequestNumber(commandArgs);
-  const statePath = defaultGithubDeveloperReviewStatePath(cwd, pullRequestNumber);
-
-  if (action === "discard-legacy-state") {
-    return okEnvelope("github.review.discardLegacyState", { discarded: discardLegacyGithubDeveloperReviewState(statePath), statePath } as Json);
-  }
-
-  if (action === "status") {
-    const state = readGithubDeveloperReviewState(statePath);
-    return okEnvelope("github.review.status", state
-      ? sanitizeGithubDeveloperReviewState(state, statePath)
-      : { status: "not_started", statePath, ghCli: "not-used" } as any);
-  }
-
-  if (action === "cancel") {
-    const state = readGithubDeveloperReviewState(statePath);
-    if (!state) return okEnvelope("github.review.cancel", { cancelled: false, status: "not_started", statePath, ghCli: "not-used" } as any);
-    const cancelled = await writeGithubDeveloperReviewState(cwd, {
-      ...state,
-      status: "cancelled",
-      updatedAt: readFlag(commandArgs, "--now") ?? new Date().toISOString()
-    });
-    return okEnvelope("github.review.cancel", { ...sanitizeGithubDeveloperReviewState(cancelled.state, cancelled.path), cancelled: true } as any);
-  }
-
-  const connection = await deps.githubConnectionReader?.readVerifiedConnection({ repositoryRoot: cwd });
-  if (!connection) {
-    return errorEnvelope("github.review", "AC_RUNTIME_UNAVAILABLE", "github review requires verified authorization, device registration and durable credential access from a configured connection adapter");
-  }
-  const sanitizedConnection = sanitizeGithubConnection(connection, connectionPath);
-  const existing = readGithubDeveloperReviewState(statePath);
-  if (action === "retry" && existing?.status === "cancelled" && !commandArgs.includes("--force")) {
-    return errorEnvelope("github.review.retry", "AC_SCHEMA_INVALID", "github review retry requires --force after cancel");
-  }
-  const challengeResult = await resolveGithubReviewChallenge(commandArgs, cwd, deps, sanitizedConnection);
-  if (!challengeResult.ok) return errorEnvelope(`github.review.${action}`, "AC_SCHEMA_INVALID", challengeResult.message);
-
-  if (action === "claim") {
-    return claimGithubDeveloperReview({
-      args: commandArgs,
-      cwd,
-      deps,
-      challenge: challengeResult.challenge,
-      connection,
-      existing
-    });
-  }
-
-  const claimed = await claimGithubDeveloperReviewState({
-    args: commandArgs,
-    cwd,
-    deps,
-    challenge: challengeResult.challenge,
-    connection,
-    existing
-  });
-  if (!claimed.ok) return claimed.envelope;
-
-  const runtime = await createCliRuntime(cwd, deps);
-  let cleanup: Json | undefined;
-  const reviewSecrets = [claimed.challenge.nonce];
-  try {
-    const prepared = await runtime.client.startDeveloperReviewRun({
-      repositoryRoot: cwd,
-      challenge: claimed.challenge,
-      expectedHeadTreeOid: readFlag(commandArgs, "--expected-head-tree-oid")
-    });
-    if (!prepared.accepted || !prepared.run) {
-      const failed = await writeGithubDeveloperReviewState(cwd, {
-        ...claimed.state,
-        status: "failed",
-        reasonCode: prepared.reasonCode ?? "WORKTREE_PREPARE_FAILED",
-        updatedAt: readFlag(commandArgs, "--now") ?? new Date().toISOString()
-      }, reviewSecrets);
-      return okEnvelope(`github.review.${action}`, sanitizeGithubDeveloperReviewState(failed.state, failed.path) as unknown as Json);
-    }
-
-    try {
-      const signed = await runtime.client.runSignedDeveloperReviewAttestation({
-        challenge: claimed.challenge,
-        worktree: prepared.run.worktree,
-        keyRef: connection.deviceKey.keyRef,
-        principalId: readFlag(commandArgs, "--principal-id") ?? connection.githubUserId,
-        publicKeyId: readFlag(commandArgs, "--public-key-id") ?? connection.deviceKey.publicKeyId,
-        taskSessionId: readFlag(commandArgs, "--task-session-id") ?? `github_pr_${claimed.challenge.pullRequestNumber}`,
-        mergeBaseSha: readFlag(commandArgs, "--merge-base-sha"),
-        startedAt: readFlag(commandArgs, "--started-at"),
-        completedAt: readFlag(commandArgs, "--completed-at") ?? readFlag(commandArgs, "--now")
-      });
-      reviewSecrets.push(signed.attestation.signature.value);
-      cleanup = await runtime.client.cleanupDeveloperReviewRun({
-        repositoryRoot: prepared.run.sourceRoot,
-        challengeId: prepared.run.challengeId,
-        runId: prepared.run.runId
-      }) as unknown as Json;
-      const ran = await writeGithubDeveloperReviewState(cwd, {
-        ...claimed.state,
-        status: action === "run" ? "ran" : "ready_for_submit",
-        review: {
-          reviewId: signed.reviewSession.reviewId,
-          reviewDigest: signed.reviewSession.reviewDigest,
-          result: signed.reviewSession.reviewResult,
-          attestationResult: signed.reviewSession.attestationResult,
-          worktreeDigest: signed.reviewSession.digests.worktreeDigest,
-          modelDigest: signed.reviewSession.digests.modelDigest,
-          codeFactsDigest: signed.reviewSession.digests.codeFactsDigest
-        },
-        attestationDigest: signed.attestationDigest,
-        updatedAt: readFlag(commandArgs, "--now") ?? new Date().toISOString()
-      }, reviewSecrets);
-      if (action === "run") {
-        return okEnvelope("github.review.run", {
-          ...sanitizeGithubDeveloperReviewState(ran.state, ran.path),
-          cleanup
-        } as unknown as Json);
-      }
-      const submitted = await submitGithubDeveloperReview(commandArgs, cwd, deps, ran.state, claimed.challenge, signed.attestation);
-      return okEnvelope("github.review.submit", {
-        ...sanitizeGithubDeveloperReviewState(submitted.state, submitted.path),
-        cleanup
-      } as unknown as Json);
-    } catch (error) {
-      if (!cleanup) cleanup = await Promise.resolve(runtime.client.cleanupDeveloperReviewRun({
-        repositoryRoot: prepared.run.sourceRoot,
-        challengeId: prepared.run.challengeId,
-        runId: prepared.run.runId
-      })).catch((cleanupError: unknown) => ({
-        cleaned: false,
-        errors: [cleanupError instanceof Error ? cleanupError.message : String(cleanupError)]
-      })) as unknown as Json;
-      const failed = await writeGithubDeveloperReviewState(cwd, {
-        ...claimed.state,
-        status: "failed",
-        reasonCode: error instanceof Error ? error.message : String(error),
-        updatedAt: readFlag(commandArgs, "--now") ?? new Date().toISOString()
-      }, reviewSecrets);
-      return okEnvelope(`github.review.${action}`, {
-        ...sanitizeGithubDeveloperReviewState(failed.state, failed.path),
-        cleanup
-      } as unknown as Json);
-    }
-  } finally {
-    await runtime.close();
-  }
-}
-
-async function claimGithubDeveloperReview(input: {
-  args: string[];
-  cwd: string;
-  deps: CliRuntimeDeps;
-  challenge: ReviewChallengeV2;
-  connection: GitHubConnectionRecord;
-  existing?: GitHubDeveloperReviewState;
-}) {
-  const claimed = await claimGithubDeveloperReviewState(input);
-  return claimed.ok ? okEnvelope("github.review.claim", sanitizeGithubDeveloperReviewState(claimed.state, claimed.path) as unknown as Json) : claimed.envelope;
-}
-
-async function claimGithubDeveloperReviewState(input: {
-  args: string[];
-  cwd: string;
-  deps: CliRuntimeDeps;
-  challenge: ReviewChallengeV2;
-  connection: GitHubConnectionRecord;
-  existing?: GitHubDeveloperReviewState;
-}): Promise<
-  | { ok: true; state: GitHubDeveloperReviewState; path: string; challenge: ReviewChallengeV2 }
-  | { ok: false; envelope: ReturnType<typeof errorEnvelope> | ReturnType<typeof okEnvelope> }
-> {
-  if (!input.deps.githubGovernancePort) {
-    return { ok: false, envelope: errorEnvelope("github.review.claim", "AC_RUNTIME_UNAVAILABLE", "github review claim requires a configured GitHub governance metadata port") };
-  }
-  const { ControlPlane } = await import("@archcontext/cloud/control-plane");
-  const controlPlane = new ControlPlane();
-  const head = await controlPlane.fetchAndVerifyReviewChallengePullHead({
-    challenge: input.challenge,
-    github: input.deps.githubGovernancePort
-  });
-  const now = readFlag(input.args, "--now") ?? new Date().toISOString();
-  const digest = await digestReviewChallenge(input.challenge);
-  if (!head.accepted) {
-    const failed = await writeGithubDeveloperReviewState(input.cwd, {
-      schemaVersion: "archcontext.github-developer-review-state/v2",
-      status: "failed",
-      challenge: input.challenge,
-      challengeDigest: digest,
-      reasonCode: head.reasonCode ?? "HEAD_VERIFICATION_FAILED",
-      updatedAt: now
-    }, [input.challenge.nonce]);
-    return { ok: false, envelope: okEnvelope("github.review.claim", sanitizeGithubDeveloperReviewState(failed.state, failed.path) as unknown as Json) };
-  }
-  const lease = controlPlane.claimReviewChallengeLease({
-    challenge: input.challenge,
-    claimantId: readFlag(input.args, "--claimant-id") ?? input.connection.deviceKey.publicKeyId,
-    now,
-    currentLease: input.existing?.lease as any
-  });
-  const state = await writeGithubDeveloperReviewState(input.cwd, {
-    schemaVersion: "archcontext.github-developer-review-state/v2",
-    status: lease.claimed ? "claimed" : "failed",
-    challenge: lease.challenge,
-    challengeDigest: await digestReviewChallenge(lease.challenge),
-    lease: lease.lease as unknown as Json,
-    reasonCode: lease.reasonCode,
-    updatedAt: now
-  }, [input.challenge.nonce]);
-  if (!lease.claimed) {
-    return { ok: false, envelope: okEnvelope("github.review.claim", sanitizeGithubDeveloperReviewState(state.state, state.path) as unknown as Json) };
-  }
-  return { ok: true, state: state.state, path: state.path, challenge: lease.challenge };
-}
-
-async function submitGithubDeveloperReview(args: string[], cwd: string, deps: CliRuntimeDeps, state: GitHubDeveloperReviewState, challenge: ReviewChallengeV2, attestation: AttestationV2): Promise<{ state: GitHubDeveloperReviewState; path: string }> {
-  const reviewSecrets = [challenge.nonce, attestation.signature.value];
-  if (!state.attestationDigest) {
-    return writeGithubDeveloperReviewState(cwd, {
-      ...state,
-      status: "failed",
-      reasonCode: "ATTESTATION_UNAVAILABLE",
-      updatedAt: readFlag(args, "--now") ?? new Date().toISOString()
-    }, reviewSecrets);
-  }
-  if (!deps.githubReviewSubmissionPort) {
-    return writeGithubDeveloperReviewState(cwd, {
-      ...state,
-      status: "ready_for_submit",
-      submission: {
-        submitted: false,
-        reasonCode: "SUBMISSION_TRANSPORT_UNAVAILABLE"
-      } as Json,
-      updatedAt: readFlag(args, "--now") ?? new Date().toISOString()
-    }, reviewSecrets);
-  }
-  const submission = await deps.githubReviewSubmissionPort.submitDeveloperReview({
-    challenge,
-    attestation,
-    attestationDigest: state.attestationDigest
-  });
-  return writeGithubDeveloperReviewState(cwd, {
-    ...state,
-    status: "submitted",
-    submission,
-    updatedAt: readFlag(args, "--now") ?? new Date().toISOString()
-  }, reviewSecrets);
-}
-
-async function resolveGithubReviewChallenge(
-  args: string[],
-  cwd: string,
-  deps: CliRuntimeDeps,
-  connection: ReturnType<typeof sanitizeGithubConnection>
-): Promise<{ ok: true; challenge: ReviewChallengeV2 } | { ok: false; message: string }> {
-  const challengeInput = await readReviewChallengeV2Arg(args, cwd, "github review");
-  if (challengeInput.ok) return challengeInput;
-  const hasChallengeFlag = Boolean(readFlag(args, "--challenge-json") || readFlag(args, "--challenge-path"));
-  if (hasChallengeFlag) return challengeInput;
-  const pullRequestNumber = readPullRequestNumber(args);
-  if (pullRequestNumber && deps.githubReviewChallengePort) {
-    return {
-      ok: true,
-      challenge: await deps.githubReviewChallengePort.fetchReviewChallenge({
-        pullRequestNumber,
-        connection
-      })
-    };
-  }
-  return { ok: false, message: "github review requires --challenge-json, --challenge-path, or --pr with a configured Challenge fetch port" };
-}
-
-function readPullRequestNumber(args: string[]): number | undefined {
-  const raw = readFlag(args, "--pr") ?? readFlag(args, "--pull-request");
-  if (!raw) return undefined;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1) throw new CliUsageError("--pr must be a positive integer");
-  return value;
-}
-
-async function digestReviewChallenge(challenge: ReviewChallengeV2): Promise<string> {
-  const attestation = await import("@archcontext/cloud/attestation");
-  return attestation.reviewChallengeV2Digest(challenge);
-}
-
-function defaultGithubConnectionPath(cwd: string): string {
-  return join(dirname(defaultDaemonConnectionPath(cwd)), "github-connection.json");
-}
-
-function sanitizeGithubConnection(record: GitHubConnectionRecord, connectionPath: string) {
-  return {
-    schemaVersion: record.schemaVersion,
-    connected: true,
-    status: record.status,
-    accountId: record.accountId,
-    githubUserId: record.githubUserId,
-    issuer: record.issuer,
-    deviceKey: record.deviceKey,
-    connectedAt: record.connectedAt,
-    connectionPath,
-    ghCli: "not-used"
-  };
-}
-
-async function readReviewChallengeV2Arg(args: string[], cwd: string, commandName = "github verify-head"): Promise<
-  | { ok: true; challenge: ReviewChallengeV2 }
-  | { ok: false; message: string }
-> {
-  const inline = readFlag(args, "--challenge-json");
-  const challengePath = readFlag(args, "--challenge-path");
-  if (inline && challengePath) return { ok: false, message: `${commandName} accepts only one of --challenge-json or --challenge-path` };
-  if (!inline && !challengePath) return { ok: false, message: `${commandName} requires --challenge-json or --challenge-path` };
-  try {
-    const raw = inline ?? readFileSync(resolve(cwd, challengePath!), "utf8");
-    const parsed = JSON.parse(raw);
-    const attestation = await import("@archcontext/cloud/attestation");
-    const assertReviewChallengeV2: (value: unknown) => asserts value is ReviewChallengeV2 = attestation.assertReviewChallengeV2;
-    assertReviewChallengeV2(parsed);
-    return { ok: true, challenge: parsed };
-  } catch (error) {
-    return { ok: false, message: `invalid ReviewChallenge v2: ${error instanceof Error ? error.message : String(error)}` };
-  }
-}
-
 function runMcpCommand(args: string[]) {
   const subcommand = args[0] ?? "serve";
   if (subcommand === "serve" || subcommand === "start") {
@@ -3609,18 +3175,12 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps, preserveHealt
   const {
     runtimeClient: _runtimeClient,
     disableRpcDiscovery: _disableRpcDiscovery,
-    devicePrivateKeyStore,
-    githubConnectionReader: _githubConnectionReader,
-    githubGovernancePort: _githubGovernancePort,
-    githubReviewChallengePort: _githubReviewChallengePort,
-    githubReviewSubmissionPort: _githubReviewSubmissionPort,
     ...runtimeDeps
   } = deps;
   if (!runtimeDeps.localStorePath) migrateLegacyLocalStoreIfNeeded(cwd);
   const daemon = await createStartedDaemon({
     localStorePath: defaultLocalStorePath(cwd),
-    ...runtimeDeps,
-    devicePrivateKeySigner: runtimeDeps.devicePrivateKeySigner ?? devicePrivateKeyStore
+    ...runtimeDeps
   });
   return { client: daemon, close: () => daemon.stop() };
 }
@@ -3722,8 +3282,6 @@ function hasEmbeddedRuntimeDeps(deps: CliRuntimeDeps): boolean {
     "localStorePath",
     "clock",
     "maxRepoSessions",
-    "devicePrivateKeySigner",
-    "devicePrivateKeyStore",
     "externalDocumentation"
   ].some((key) => key in deps);
 }
@@ -4335,7 +3893,7 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
   return 1;
 }
 
-const CLI_HELP_EXAMPLES = ["archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection freshness --changed-path src/app.ts --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
+const CLI_HELP_EXAMPLES = ["archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection freshness --changed-path src/app.ts --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
 
 const CLI_RESOLVE_HELP = {
   command: "archctx resolve (--path <repo-relative path> | --paths-from <file> | --paths-from -)",

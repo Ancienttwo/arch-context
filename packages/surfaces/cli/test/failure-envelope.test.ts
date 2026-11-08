@@ -66,7 +66,6 @@ test("all registered producer reasons survive selected CLI and MCP adapters", as
     const ruleFacts: Record<string, any> = {
       codeFactsIssues: [{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }],
       id: "fixture.authority", uint: 2, sha256: "sha256:" + "a".repeat(64), head: "a".repeat(40), boolean: true,
-      reviewOwnershipRefusal: "persisted-manifest-missing", reviewWorktreeRefusal: "WORKTREE_NOT_CLEAN",
       rpcVersion: "archcontext.runtime-rpc/v2", upgradeAction: "upgrade-archctx-runtime", upgradeCommand: "archctx daemon upgrade",
       projectionInputField: "headSha", ownershipAction: "remove-whole-file-outputs-and-reapply", ledgerModeField: "readMode",
       changedFields: ["headSha", "worktreeDigest"], publicConfirmationToken: facts.confirmationToken,

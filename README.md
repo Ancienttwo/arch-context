@@ -6,13 +6,11 @@
 
 ArchContext is a software architecture control loop embedded in the Agentic Coding Runtime. It compiles architecture context before a task, detects structural pressure during development, pushes evidence-based refactors when necessary, and synchronizes and verifies system state before a task completes.
 
-This repository is the product, architecture, and execution contract skeleton for the ArchContext MVP, and includes the contracts, local runtime, surfaces, and cloud governance scaffold.
+This repository is the product, architecture, and execution contract skeleton for the ArchContext MVP, and includes the contracts, local runtime, surfaces, and cloud scaffold.
 
 ## Product Shape
 
 - Local Core is the product center: one `archctx` install ships CLI, `archctxd`, MCP stdio adapter, local RPC schema, local SQLite migrations, CodeGraph adapter compatibility, and runtime provenance.
-- GitHub App is optional governance. It handles installation metadata, PR lifecycle events, Challenge, Attestation verification, and Check delivery. It does not clone repositories, read PR files, run review, or host an LLM provider.
-- Developer and organization results are separate: `ArchContext / Developer Review` is developer-attested; `ArchContext / Organization Runner` is customer-runner-attested and is the only context intended for organization required checks.
 
 ## ChangeSet & Ledger Integrity
 
@@ -34,8 +32,8 @@ ArchContext Practice Assets v1 has two deliberately separate inputs:
   `--allow-network`. They are cached as external, unverified, advisory-only
   resources and cannot create complete-stage enforcement.
 
-Local Core does not need GitHub App, ArchContext Cloud, an LLM provider, or
-Context7 to run practice matching, checkpoint, complete, or MCP. By default
+Local Core does not need ArchContext Cloud, an LLM provider, or Context7 to
+run practice matching, checkpoint, complete, or MCP. By default
 there is no source body, diff, prompt, model output, secret, or unredacted path
 sent to a documentation provider. See `docs/runbooks/practice-assets-v1.md` for
 repo practice authoring, enforcement promotion, waiver, hook, Context7 pinning,

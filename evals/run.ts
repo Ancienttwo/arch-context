@@ -1589,7 +1589,7 @@ Architecture Drift Precision remains a narrow statistical precision gate. It doe
 
 This eval measures the **retrieval engine's in-memory lexical baseline** through \`runRetrievalEval\`, using constraint-tagged documents and an explicit top-k budget. It does not measure end-to-end \`context-compiler\` output or the SQLite FTS5 backend. The compiler now combines ledger/CodeGraph context and practice guidance, then applies context budgets; those paths require their own integration evidence. Embedding remains default-off under ADR-0033.
 
-The six other §25.3 targets (schema precision, stale interception, path-escape, changeset atomic recovery, attestation replay, SaaS code-route count) are deterministic and are checked separately by \`bun run verify\`; this evaluator does not establish their result.
+The five other §25.3 targets (schema precision, stale interception, path-escape, changeset atomic recovery, SaaS code-route count) are deterministic and are checked separately by \`bun run verify\`; this evaluator does not establish their result.
 
 ## Target 1 — Unjustified Compatibility detection Recall
 

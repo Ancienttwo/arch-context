@@ -28,7 +28,7 @@ import {
 const DEFAULT_OUTPUT = "docs/verification/fg6-npm-release-dry-run.json";
 const DEFAULT_ARTIFACT_DIR = "_ops/npm/fg6-release-dry-run";
 const RELEASE_PACKAGE_NAME = "archctx";
-const HOME_URL = "https://archcontext.repoharness.com";
+const HOME_URL = "https://github.com/Ancienttwo/arch-context";
 const REGISTRY = "https://registry.npmjs.org/";
 const RELEASE_ASSET_FILES = [
   "assets/catalog.yaml",
@@ -323,7 +323,7 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   if (pkg.name !== RELEASE_PACKAGE_NAME) failures.push("package name must be archctx");
   if (pkg.private !== false) failures.push("release package must be publishable");
   if (pkg.license !== "Apache-2.0") failures.push("release package license must be Apache-2.0");
-  if (pkg.homepage !== HOME_URL) failures.push("homepage must be archcontext.repoharness.com");
+  if (pkg.homepage !== HOME_URL) failures.push("homepage must be the arch-context repository");
   if (pkg.packageManager !== null) failures.push("release package must not declare packageManager runtime");
   if (readRecord(pkg.engines).node !== ARCHCONTEXT_NODE_RANGE) {
     failures.push(`engines.node must equal ${ARCHCONTEXT_NODE_RANGE}`);

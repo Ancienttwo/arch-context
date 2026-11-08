@@ -11,7 +11,7 @@ describe("local core quickstart runbook", () => {
       "## Start In A Repository",
       "## Connect A Local Agent Host",
       "## Stop The Local Daemon",
-      "## Optional Governance",
+      "## Optional LLM Advisory",
       "## Verification"
     ]) {
       expect(DOC).toContain(section);
@@ -37,10 +37,8 @@ describe("local core quickstart runbook", () => {
 
     expect(DOC).toContain("Checkout development path");
     expect(DOC).toContain("generated `archctx` package");
-    expect(DOC).toContain("No GitHub App, Cloud account, subscription, or LLM provider is required for Local Core.");
-    expect(DOC).toContain("Local Core remains usable without installing it.");
+    expect(DOC).toContain("No Cloud account, subscription, or LLM provider is required for Local Core.");
     expect(DOC).toContain("Local Core commands do not require provider keys");
-    expect(DOC).not.toContain("install GitHub App before");
     expect(DOC).not.toContain("OPENAI_API_KEY=");
     expect(DOC).not.toContain("ANTHROPIC_API_KEY=");
   });

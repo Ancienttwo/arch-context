@@ -55,15 +55,12 @@
       "@archcontext/surfaces/mcp-local": ["./packages/surfaces/mcp-local/src/index.ts"],
       "@archcontext/surfaces/renderer": ["./packages/surfaces/renderer/src/index.ts"],
       "@archcontext/cloud": ["./packages/cloud/src/index.ts"],
-      "@archcontext/cloud/attestation": ["./packages/cloud/attestation/src/index.ts"],
       "@archcontext/cloud/cloud-db": ["./packages/cloud/cloud-db/src/index.ts"],
       "@archcontext/cloud/control-plane": ["./packages/cloud/control-plane/src/index.ts"],
       "@archcontext/cloud/control-plane-client": ["./packages/cloud/control-plane-client/src/index.ts"],
-      "@archcontext/cloud/github-app": ["./packages/cloud/github-app/src/index.ts"],
       "@archcontext/cloud/hardening": ["./packages/cloud/hardening/src/index.ts"],
       "@archcontext/cloud/mcp-cloud-metadata": ["./packages/cloud/mcp-cloud-metadata/src/index.ts"],
-      "@archcontext/cloud/notifications": ["./packages/cloud/notifications/src/index.ts"],
-      "@archcontext/cloud/runner": ["./packages/cloud/runner/src/index.ts"]
+      "@archcontext/cloud/notifications": ["./packages/cloud/notifications/src/index.ts"]
     },
     "strict": true,
     "target": "ES2024",

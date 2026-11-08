@@ -6,13 +6,11 @@
 
 ArchContext 是嵌入 Agentic Coding Runtime 的软件架构控制循环。它在任务前编译架构上下文，在开发中检测结构压力，在必要时推动有证据的重构，并在任务完成前同步与验证系统状态。
 
-当前仓库是 ArchContext MVP 的产品、架构与执行契约骨架，并包含 contracts、local runtime、surfaces 和 cloud governance scaffold。
+当前仓库是 ArchContext MVP 的产品、架构与执行契约骨架，并包含 contracts、local runtime、surfaces 和 cloud scaffold。
 
 ## 产品形态
 
 - Local Core 是产品的核心：一次 `archctx` 安装即可提供 CLI、`archctxd`、MCP stdio adapter、本地 RPC schema、本地 SQLite migrations、CodeGraph adapter 兼容性，以及运行时溯源。
-- GitHub App 是可选的治理层，负责安装元数据、PR 生命周期事件、Challenge、Attestation 验证与 Check 投递；它不克隆仓库、不读取 PR 文件、不执行 review，也不承载 LLM provider。
-- 开发者与组织两条结果线彼此独立：`ArchContext / Developer Review` 由开发者 attest；`ArchContext / Organization Runner` 由客户侧 runner attest，是唯一适用于组织 required checks 的 context。
 
 ## ChangeSet 与 Ledger 完整性
 
@@ -32,7 +30,7 @@ ArchContext Practice Assets v1 刻意区分两类输入：
   `archctx docs resolve|pin|fetch` 命令加 `--allow-network` 获取。它们作为外部、
   未经核验、仅供参考的资源被缓存，不能构成 complete 阶段的强制项。
 
-Local Core 运行 practice matching、checkpoint、complete 或 MCP 都不需要 GitHub App、
+Local Core 运行 practice matching、checkpoint、complete 或 MCP 都不需要
 ArchContext Cloud、LLM provider 或 Context7。默认情况下不会有源码正文、diff、prompt、
 模型输出、secret 或未脱敏路径被发往任何 documentation provider。repo practice 撰写、
 enforcement 升级、waiver、hook、Context7 pinning、source 更新、rollout 与 rollback

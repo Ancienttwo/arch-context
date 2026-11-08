@@ -25,40 +25,6 @@ test("architecture history decoders reject malformed results and cached states",
   expect(decodeArchitectureHistoryState({ nodes: [], edges: [], structure: [{ id: "component.one.a", kind: "component", name: "A" }] })).toBeUndefined();
 });
 import {
-  DEVELOPER_REVIEW_CHECK_NAME,
-  DEFAULT_GOVERNANCE_FEATURE_FLAGS,
-  GITHUB_APP_PERMISSION_MANIFEST,
-  GOVERNANCE_CHECK_NAMES,
-  GOVERNANCE_REASON_CATALOG,
-  ORGANIZATION_RUNNER_CHECK_NAME,
-  RUNNER_IDENTITY_STATUS_TRANSITIONS,
-  attestationV2Digest,
-  assertCanTransitionChallenge,
-  assertCanTransitionRunnerIdentityStatus,
-  assertGovernanceFeatureFlagsAllow,
-  assertRunnerIdentity,
-  canTransitionChallenge,
-  canTransitionCheckDelivery,
-  canTransitionRunnerIdentityStatus,
-  canonicalAttestationV2,
-  checkNameForRequiredTrust,
-  createAttestationV2,
-  createRunnerIdentity,
-  evaluateGovernanceFeatureFlags,
-  normalizeGovernanceFeatureFlags,
-  requiredTrustForCheckName,
-  runnerIdentityEffectiveScope,
-  runnerIdentityKeyStatus,
-  runnerIdentityMatchesScope,
-  satisfiesRequiredTrust,
-  transitionRunnerIdentityStatus,
-  transitionReviewChallengeStatus,
-  unsignedAttestationV2,
-  type RunnerIdentity,
-  type ReviewChallengeStatus,
-  type ReviewChallengeV2
-} from "../src/github-governance";
-import {
   CALLER_PROVIDED_ATTESTATION_FIELDS,
   LLM_ADVISORY_FORBIDDEN_FIELDS,
   assertNoCallerProvidedAttestationFields,
@@ -236,15 +202,7 @@ const schemaByFixture: Record<string, string> = {
   "structurizr-mapping": "schemas/integrations/structurizr-mapping.schema.json",
   "adapter-fidelity": "schemas/integrations/adapter-fidelity.schema.json",
   "chatgpt-ga-tool": "schemas/integrations/chatgpt-ga-tool.schema.json",
-  "attestation": "schemas/cloud/attestation.schema.json",
-  "review-challenge-v2": "schemas/cloud/review-challenge-v2.schema.json",
-  "attestation-v2": "schemas/cloud/attestation-v2.schema.json",
-  "runner-identity": "schemas/cloud/runner-identity.schema.json",
-  "device-identity": "schemas/cloud/device-identity.schema.json",
-  "governance-key-status": "schemas/cloud/governance-key-status.schema.json",
-  "check-delivery": "schemas/cloud/check-delivery.schema.json",
   "cloud-egress-envelope": "schemas/cloud/cloud-egress-envelope.schema.json",
-  "org-runner-identity": "schemas/cloud/org-runner-identity.schema.json",
   "entitlement": "schemas/cloud/entitlement.schema.json"
 };
 
@@ -1492,63 +1450,6 @@ describe("JSON schema contracts", () => {
     expect(validateJsonSchema(schema as any, { ...fixture, mode: "enforce" } as Json).valid).toBe(false);
   });
 
-  test("runner identity scope schema keeps repository and organization shapes disjoint", () => {
-    const schema = readJson("schemas/cloud/runner-identity.schema.json");
-    const fixture = readJson("packages/contracts/fixtures/valid/runner-identity.json") as Record<string, Json>;
-    expect(validateJsonSchema(schema as any, {
-      ...fixture,
-      scope: { kind: "repository", repositoryIds: [20001] }
-    }).valid).toBe(true);
-    expect(validateJsonSchema(schema as any, {
-      ...fixture,
-      repositoryIds: [],
-      scope: { kind: "organization" }
-    }).valid).toBe(true);
-    expect(validateJsonSchema(schema as any, {
-      ...fixture,
-      repositoryIds: [],
-      scope: { kind: "organization", repositoryIds: [20001] }
-    }).valid).toBe(false);
-    expect(validateJsonSchema(schema as any, {
-      ...fixture,
-      scope: { kind: "repository" }
-    }).valid).toBe(false);
-  });
-
-  test("Attestation v2 schema requires workflow run metadata for organization execution only", () => {
-    const schema = readJson("schemas/cloud/attestation-v2.schema.json");
-    const fixture = readJson("packages/contracts/fixtures/valid/attestation-v2.json") as Record<string, Json>;
-    const organizationExecution = {
-      trustLevel: "organization",
-      source: "organization-runner-checkout",
-      principalId: "runner_0001",
-      publicKeyId: "key_runner_0001",
-      runnerId: "runner_0001",
-      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
-      runId: "1234567890",
-      runAttempt: 1
-    };
-
-    expect(validateJsonSchema(schema as any, {
-      ...fixture,
-      execution: organizationExecution
-    } as Json).valid).toBe(true);
-    expect(validateJsonSchema(schema as any, {
-      ...fixture,
-      execution: {
-        ...organizationExecution,
-        runId: undefined
-      }
-    } as unknown as Json).valid).toBe(false);
-    expect(validateJsonSchema(schema as any, {
-      ...fixture,
-      execution: {
-        ...(fixture.execution as Record<string, Json>),
-        runnerId: "runner_0001"
-      }
-    } as Json).valid).toBe(false);
-  });
-
   test("LLM Advisory contract rejects conclusion and Attestation-shaping fields", () => {
     expect(LLM_ADVISORY_FORBIDDEN_FIELDS).toEqual([
       "result",
@@ -1828,16 +1729,8 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.structurizr-mapping/v1": "structurizr-mapping",
     "archcontext.adapter-fidelity/v1": "adapter-fidelity",
     "archcontext.chatgpt-ga-tool/v1": "chatgpt-ga-tool",
-    "archcontext.attestation/v1": "attestation",
-    "archcontext.review-challenge/v2": "review-challenge-v2",
-    "archcontext.attestation/v2": "attestation-v2",
-    "archcontext.runner-identity/v1": "runner-identity",
-    "archcontext.device-identity/v1": "device-identity",
-    "archcontext.governance-key-status/v1": "governance-key-status",
-    "archcontext.check-delivery/v1": "check-delivery",
     "archcontext.hook-debt-checkpoint/v1": "hook-debt-checkpoint",
     "archcontext.cloud-egress/v1": "cloud-egress-envelope",
-    "archcontext.org-runner-identity/v1": "org-runner-identity",
     "archcontext.entitlement/v1": "entitlement",
     "archcontext.native-context-export/v1": "native-context-export"
   };
@@ -1900,202 +1793,7 @@ describe("contract utilities", () => {
   });
 });
 
-describe("GitHub governance contracts", () => {
-  test("freezes the GitHub App permission manifest", () => {
-    expect(GITHUB_APP_PERMISSION_MANIFEST.schemaVersion).toBe("archcontext.github-app-permission-manifest/v1");
-    expect(GITHUB_APP_PERMISSION_MANIFEST.repositoryPermissions).toEqual({
-      metadata: "read",
-      pull_requests: "read",
-      checks: "write",
-      statuses: "write",
-      contents: "none"
-    });
-    expect(GITHUB_APP_PERMISSION_MANIFEST.forbiddenByDefault).toEqual([
-      "actions",
-      "administration",
-      "deployments",
-      "issues",
-      "members",
-      "secrets",
-      "workflows"
-    ]);
-    expect(GITHUB_APP_PERMISSION_MANIFEST.conditionalPermissions.commit_statuses).toEqual({
-      default: "none",
-      implemented: "write",
-      decisionGate: "FG2-02 / FG2-EG6",
-      reason: "GitHub ruleset expected-source App binding requires statuses:write; runtime still publishes Checks, not commit statuses."
-    });
-    expect(GITHUB_APP_PERMISSION_MANIFEST.subscribedEvents).toEqual([
-      "installation",
-      "installation_repositories",
-      "pull_request.opened",
-      "pull_request.reopened",
-      "pull_request.synchronize",
-      "pull_request.closed",
-      "check_run.rerequested"
-    ]);
-  });
-
-  test("freezes separate Developer and Organization check contexts", () => {
-    expect(GOVERNANCE_CHECK_NAMES).toEqual([
-      "ArchContext / Developer Review",
-      "ArchContext / Organization Runner"
-    ]);
-    expect(DEVELOPER_REVIEW_CHECK_NAME).not.toBe(ORGANIZATION_RUNNER_CHECK_NAME);
-
-    const schema = readJson("schemas/cloud/check-delivery.schema.json") as any;
-    expect(schema.properties.checkName.enum).toEqual([...GOVERNANCE_CHECK_NAMES]);
-    const legacy = readJson("packages/contracts/fixtures/invalid/check-delivery-legacy-check-name.json");
-    expect(validateJsonSchema(schema, legacy).valid).toBe(false);
-    const exactLegacyName = ["ArchContext", "Architecture Review"].join(" / ");
-    const validDelivery = readJson("packages/contracts/fixtures/valid/check-delivery.json") as Record<string, Json>;
-    expect(validateJsonSchema(schema, { ...validDelivery, checkName: exactLegacyName }).valid).toBe(false);
-  });
-
-  test("requiredTrust rejects developer evidence for organization policy", () => {
-    expect(satisfiesRequiredTrust("developer", "developer")).toBe(true);
-    expect(satisfiesRequiredTrust("organization", "developer")).toBe(true);
-    expect(satisfiesRequiredTrust("organization", "organization")).toBe(true);
-    expect(satisfiesRequiredTrust("developer", "organization")).toBe(false);
-  });
-
-  test("feature flags gate Developer Check Organization Check and requiredTrust separately", () => {
-    expect(DEFAULT_GOVERNANCE_FEATURE_FLAGS).toEqual({
-      schemaVersion: "archcontext.governance-feature-flags/v1",
-      developerCheck: true,
-      organizationCheck: true,
-      requiredTrust: true
-    });
-    expect(checkNameForRequiredTrust("developer")).toBe(DEVELOPER_REVIEW_CHECK_NAME);
-    expect(checkNameForRequiredTrust("organization")).toBe(ORGANIZATION_RUNNER_CHECK_NAME);
-    expect(requiredTrustForCheckName(DEVELOPER_REVIEW_CHECK_NAME)).toBe("developer");
-    expect(requiredTrustForCheckName(ORGANIZATION_RUNNER_CHECK_NAME)).toBe("organization");
-
-    const enabled = evaluateGovernanceFeatureFlags({ requiredTrust: "organization" });
-    expect(enabled).toMatchObject({
-      allowed: true,
-      reason: "enabled",
-      checkName: ORGANIZATION_RUNNER_CHECK_NAME
-    });
-    expect(enabled.metadataDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
-    expect(evaluateGovernanceFeatureFlags({
-      requiredTrust: "developer",
-      flags: { developerCheck: false }
-    })).toMatchObject({
-      allowed: false,
-      reason: "developer-check-disabled",
-      disabledFlag: "developerCheck"
-    });
-    expect(evaluateGovernanceFeatureFlags({
-      requiredTrust: "organization",
-      flags: { organizationCheck: false }
-    })).toMatchObject({
-      allowed: false,
-      reason: "organization-check-disabled",
-      disabledFlag: "organizationCheck"
-    });
-    expect(evaluateGovernanceFeatureFlags({
-      requiredTrust: "organization",
-      flags: { requiredTrust: false }
-    })).toMatchObject({
-      allowed: false,
-      reason: "required-trust-disabled",
-      disabledFlag: "requiredTrust"
-    });
-    expect(normalizeGovernanceFeatureFlags({ developerCheck: false }).organizationCheck).toBe(true);
-    expect(() => normalizeGovernanceFeatureFlags({ developerCheck: "false" as unknown as boolean })).toThrow("governance-feature-flag-developerCheck-invalid");
-    expect(() => assertGovernanceFeatureFlagsAllow({
-      requiredTrust: "organization",
-      flags: { requiredTrust: false }
-    })).toThrow("governance-feature-disabled: required-trust-disabled");
-  });
-
-  test("RunnerIdentity domain normalizes repository scope and enforces workflow binding", () => {
-    const identity = createRunnerIdentity({
-      runnerId: "runner_0001",
-      installationId: 10001,
-      repositoryIds: [20002, 20002, 20001],
-      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
-      publicKeyId: "key_runner_0001",
-      publicKeyFingerprint: "sha256:7777777777777777777777777777777777777777777777777777777777777777",
-      status: "active",
-      createdAt: "2026-06-20T09:00:00Z"
-    });
-
-    expect(identity.repositoryIds).toEqual([20001, 20002]);
-    expect(runnerIdentityEffectiveScope(identity)).toEqual({ kind: "repository", repositoryIds: [20001, 20002] });
-    expect(runnerIdentityMatchesScope(identity, {
-      installationId: 10001,
-      repositoryId: 20002,
-      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main"
-    })).toBe(true);
-    expect(runnerIdentityMatchesScope(identity, { installationId: 10001, repositoryId: 99999 })).toBe(false);
-    expect(runnerIdentityMatchesScope(identity, { installationId: 99999, repositoryId: 20002 })).toBe(false);
-    expect(runnerIdentityMatchesScope(identity, {
-      installationId: 10001,
-      repositoryId: 20002,
-      workflowRef: "owner/repo/.github/workflows/other.yml@refs/heads/main"
-    })).toBe(false);
-    expect(() => assertRunnerIdentity({ ...identity, scope: { kind: "repository", repositoryIds: [99999] } })).toThrow("runner-identity-scope-repositoryIds-mismatch");
-    expect(() => assertRunnerIdentity({ ...identity, repositoryIds: [] })).toThrow("runner-identity-repositoryIds-empty");
-    expect(() => assertRunnerIdentity({ ...identity, workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@main" })).toThrow("runner-identity-workflowRef-invalid");
-  });
-
-  test("RunnerIdentity supports installation-level organization scope", () => {
-    const identity = createRunnerIdentity({
-      runnerId: "runner_org_0001",
-      installationId: 10001,
-      scope: { kind: "organization" },
-      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
-      publicKeyId: "key_runner_org_0001",
-      publicKeyFingerprint: "sha256:8888888888888888888888888888888888888888888888888888888888888888",
-      status: "active",
-      createdAt: "2026-06-20T09:00:00Z"
-    });
-
-    expect(identity.repositoryIds).toEqual([]);
-    expect(runnerIdentityEffectiveScope(identity)).toEqual({ kind: "organization" });
-    expect(runnerIdentityMatchesScope(identity, { installationId: 10001, repositoryId: 20002 })).toBe(true);
-    expect(runnerIdentityMatchesScope(identity, { installationId: 10001, repositoryId: 99999 })).toBe(true);
-    expect(runnerIdentityMatchesScope(identity, { installationId: 99999, repositoryId: 20002 })).toBe(false);
-    expect(() => assertRunnerIdentity({ ...identity, repositoryIds: [20002] })).toThrow("runner-identity-organization-scope-repositoryIds-must-be-empty");
-  });
-
-  test("RunnerIdentity status transitions and key status are explicit", () => {
-    expect(RUNNER_IDENTITY_STATUS_TRANSITIONS).toEqual({
-      active: ["rotating", "revoked"],
-      rotating: ["active", "revoked"],
-      revoked: []
-    });
-    const active = readJson("packages/contracts/fixtures/valid/runner-identity.json") as unknown as RunnerIdentity;
-    expect(canTransitionRunnerIdentityStatus("active", "rotating")).toBe(true);
-    expect(canTransitionRunnerIdentityStatus("rotating", "active")).toBe(true);
-    expect(canTransitionRunnerIdentityStatus("revoked", "active")).toBe(false);
-    expect(() => assertCanTransitionRunnerIdentityStatus("revoked", "active")).toThrow("runner-identity-transition-invalid: revoked->active");
-
-    const rotating = transitionRunnerIdentityStatus(active, "rotating", "2026-06-20T09:05:00Z");
-    expect(rotating.status).toBe("rotating");
-    expect(rotating.rotatedAt).toBe("2026-06-20T09:05:00Z");
-    expect(rotating.revokedAt).toBeNull();
-    const rotatedActive = transitionRunnerIdentityStatus(rotating, "active", "2026-06-20T09:06:00Z");
-    expect(rotatedActive.status).toBe("active");
-    expect(rotatedActive.rotatedAt).toBe("2026-06-20T09:06:00Z");
-    const revoked = transitionRunnerIdentityStatus(rotatedActive, "revoked", "2026-06-20T09:07:00Z");
-    expect(revoked.status).toBe("revoked");
-    expect(revoked.revokedAt).toBe("2026-06-20T09:07:00Z");
-    expect(runnerIdentityKeyStatus(revoked)).toEqual({
-      schemaVersion: "archcontext.governance-key-status/v1",
-      publicKeyId: "key_runner_0001",
-      ownerKind: "runner",
-      ownerId: "runner_0001",
-      fingerprint: "sha256:7777777777777777777777777777777777777777777777777777777777777777",
-      status: "revoked",
-      createdAt: "2026-06-20T09:00:00Z",
-      rotatedAt: "2026-06-20T09:06:00Z",
-      revokedAt: "2026-06-20T09:07:00Z"
-    });
-  });
-
+describe("review guard and cloud egress contracts", () => {
   test("freezes caller-provided Attestation field denylist for Agent CLI and MCP inputs", () => {
     expect(CALLER_PROVIDED_ATTESTATION_FIELDS).toEqual([
       "result",
@@ -2138,64 +1836,6 @@ describe("GitHub governance contracts", () => {
       "agent-caller-provided-attestation-field-forbidden: result,reviewDigest,policyDigest,modelDigest,signature,practiceViolations,practiceCheckResultDigest"
     );
     expect(() => assertNoCallerProvidedAttestationFields({ challengeId: "chal_1", taskSessionId: "task_1" }, "agent")).not.toThrow();
-  });
-
-  test("Attestation v2 canonical signing payload excludes signature value", () => {
-    const schema = readJson("schemas/cloud/attestation-v2.schema.json") as any;
-    const fixture = readJson("packages/contracts/fixtures/valid/attestation-v2.json") as any;
-    const { schemaVersion: _schemaVersion, attestationId: _attestationId, signature: _signature, ...input } = fixture;
-    const signedA = createAttestationV2({
-      ...input,
-      signature: { algorithm: "ed25519", value: "signature_a" }
-    });
-    const signedB = createAttestationV2({
-      ...input,
-      signature: { algorithm: "ed25519", value: "signature_b" }
-    });
-
-    expect(validateJsonSchema(schema, signedA as unknown as Json).valid).toBe(true);
-    expect(JSON.parse(canonicalAttestationV2(signedA))).toEqual(unsignedAttestationV2(signedA));
-    expect(canonicalAttestationV2(signedA)).toBe(canonicalAttestationV2(signedB));
-    expect(attestationV2Digest(signedA)).toBe(attestationV2Digest(signedB));
-  });
-
-  test("challenge and check delivery state machines reject illegal backward moves", () => {
-    expect(canTransitionChallenge("PENDING", "LEASED")).toBe(true);
-    expect(canTransitionChallenge("LEASED", "PENDING")).toBe(false);
-    expect(canTransitionChallenge("VERIFIED", "REJECTED")).toBe(false);
-    expect(() => assertCanTransitionChallenge("LEASED", "PENDING")).toThrow("challenge-transition-invalid: LEASED->PENDING");
-    expect(() => assertCanTransitionChallenge("VERIFIED", "REJECTED")).toThrow("challenge-transition-invalid: VERIFIED->REJECTED");
-    expect(() => assertCanTransitionChallenge("PENDING" as ReviewChallengeStatus, "PENDING")).toThrow("challenge-transition-invalid: PENDING->PENDING");
-
-    expect(canTransitionCheckDelivery("PENDING", "RETRYING")).toBe(true);
-    expect(canTransitionCheckDelivery("RETRYING", "PUBLISHED")).toBe(true);
-    expect(canTransitionCheckDelivery("RETRYING", "DEAD_LETTER")).toBe(true);
-    expect(canTransitionCheckDelivery("DEAD_LETTER", "PENDING")).toBe(true);
-    expect(canTransitionCheckDelivery("PUBLISHED", "RETRYING")).toBe(false);
-    expect(canTransitionCheckDelivery("PUBLISHED", "DEAD_LETTER")).toBe(false);
-  });
-
-  test("ReviewChallenge v2 transition returns a new value only for legal moves", () => {
-    const challenge = readJson("packages/contracts/fixtures/valid/review-challenge-v2.json") as unknown as ReviewChallengeV2;
-    const leased = transitionReviewChallengeStatus(challenge, "LEASED");
-    expect(leased).toEqual({ ...challenge, status: "LEASED" });
-    expect(challenge.status).toBe("PENDING");
-    expect(transitionReviewChallengeStatus(leased, "SUBMITTED").status).toBe("SUBMITTED");
-    expect(() => transitionReviewChallengeStatus(leased, "PENDING")).toThrow("challenge-transition-invalid: LEASED->PENDING");
-    expect(() => transitionReviewChallengeStatus({ ...challenge, status: "VERIFIED" }, "EXPIRED")).toThrow("challenge-transition-invalid: VERIFIED->EXPIRED");
-    expect(canTransitionChallenge("PENDING", "NOT_A_STATUS" as ReviewChallengeStatus)).toBe(false);
-    expect(() => assertCanTransitionChallenge("NOT_A_STATUS" as ReviewChallengeStatus, "LEASED")).toThrow("challenge-status-invalid: NOT_A_STATUS");
-  });
-
-  test("reason catalog has retryability and user action for every reason code", () => {
-    for (const [reason, entry] of Object.entries(GOVERNANCE_REASON_CATALOG)) {
-      expect(typeof entry.retryable, reason).toBe("boolean");
-      expect(entry.action.length, reason).toBeGreaterThan(0);
-    }
-    expect(GOVERNANCE_REASON_CATALOG.TRUST_LEVEL_MISMATCH.retryable).toBe(false);
-    expect(GOVERNANCE_REASON_CATALOG.CHALLENGE_EXPIRED.retryable).toBe(true);
-    expect(GOVERNANCE_REASON_CATALOG.ATTESTATION_SCHEMA_UNSUPPORTED.action).toBe("rerun-with-attestation-v2");
-    expect(GOVERNANCE_REASON_CATALOG.RUNNER_REVOKED.action).toBe("register-replacement-runner-key");
   });
 
   test("cloud egress envelope schema rejects private content keys", () => {

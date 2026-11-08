@@ -62,8 +62,7 @@ describe("RPC method table encoded wire contract", () => {
 describe("RPC method table wire contract", () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-rpc-methods-"));
   const calls: Array<{ method: string; params: unknown[]; bound: boolean }> = [];
-  const payload = { marker: "wire-response" };
-  const envelope = okEnvelope("wire.fixture", payload);
+  const envelope = okEnvelope("wire.fixture", { marker: "wire-response" });
   let running = false;
   const target: Record<string, any> = {
     start: async () => { running = true; },
@@ -76,8 +75,7 @@ describe("RPC method table wire contract", () => {
   for (const sample of cases) {
     target[sample.method] = function (...params: unknown[]) {
       calls.push({ method: sample.method, params, bound: this === target });
-      const result = sample.response === "data" ? payload : envelope;
-      return sample.method === "runSignedDeveloperReviewAttestation" ? Promise.resolve(result) : result;
+      return envelope;
     };
   }
   const rpc = new ArchctxRuntimeRpcServer(target as unknown as ConstructorParameters<typeof ArchctxRuntimeRpcServer>[0], {
@@ -105,7 +103,7 @@ describe("RPC method table wire contract", () => {
       const result = await Reflect.apply(client[method], client, sample.args);
       // The wire represents omission as null; decoded handlers receive undefined.
       expect(calls.at(-1)).toEqual({ method, params: sample.params.map(value => value === null ? undefined : value), bound: true });
-      expect(result).toEqual(sample.response === "data" ? payload : envelope);
+      expect(result).toEqual(envelope);
       expect(sample.timeout).toBe(runtimeRpcMethod(method)!.timeout);
     });
   }
@@ -116,7 +114,7 @@ describe("RPC method table wire contract", () => {
 
   test("retired, unregistered and prototype names never dispatch a handler", async () => {
     const count = calls.length;
-    for (const method of ["checkpoint", "notAnRpcMethod", "__proto__", "constructor", "toString"]) {
+    for (const method of ["checkpoint", "startDeveloperReviewRun", "notAnRpcMethod", "__proto__", "constructor", "toString"]) {
       const response = await fetch(`${connection.url}rpc`, {
         method: "POST",
         headers: { Authorization: `Bearer ${connection.token}`, "Content-Type": "application/json" },
@@ -129,16 +127,5 @@ describe("RPC method table wire contract", () => {
       expect(body.error).toMatchObject({reasonCode:"rpc-method-invalid",action:"upgrade-client"});
     }
     expect(calls.length).toBe(count);
-  });
-
-  test("raw review results retain their failure unwrapping", async () => {
-    const previous = target.startDeveloperReviewRun;
-    target.startDeveloperReviewRun = () => { throw new Error("fixture.raw-failure"); };
-    try {
-      const sample = baseline.cases.find(entry => entry.method === "startDeveloperReviewRun")!;
-      await expect(Reflect.apply(client.startDeveloperReviewRun, client, sample.args)).rejects.toMatchObject({code:"AC_UNCLASSIFIED_FAILURE",reasonCode:"failure-unclassified"});
-    } finally {
-      target.startDeveloperReviewRun = previous;
-    }
   });
 });

@@ -8,9 +8,7 @@
  * `RuntimeAgentJobClaimRpcInput`, ...) — that stays each handler's job.
  *
  * Invalid input throws `RuntimeRpcInputInvalidError`, a typed subclass of `Error` whose message
- * keeps the `runtime-rpc-input-invalid: <context> <detail>` text the developer-review decoders
- * (`decodeStartDeveloperReviewRunParams` and friends in developer-review-codec.ts, which import and
- * throw the same class) already used. `rpc-server.ts`'s dispatch catch maps this type to
+ * reads `runtime-rpc-input-invalid: <context> <detail>`. `rpc-server.ts`'s dispatch catch maps this type to
  * `errorEnvelope(method, "AC_SCHEMA_INVALID", error.message)` — HTTP 200 with a structured
  * `{ code, message, severity, retryable, action }` error, the same shape every handler's own
  * validation already answers with. Because that mapping exists at the server, every decoder below
@@ -21,7 +19,7 @@
  * that carve-out is gone now that the server maps decode failures to the same structured shape those
  * handlers already produced.)
  *
- * `params` itself is checked before any of these run: every general (`envelopeMethod`) table entry
+ * `params` itself is checked before any of these run: every `envelopeMethod` table entry
  * rejects a non-array `params` container up front (see `envelopeMethod` in rpc-methods.ts). Indexing
  * a string or a plain object as if it were an array silently produces plausible-looking-but-wrong
  * values instead of failing (`"/tmp/x"[0]` is the character `"/"`, not the first real argument).

@@ -9,8 +9,6 @@ export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, Runt
 import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
 import { PracticeCheckpointService } from "./practice-checkpoint";
 export type { RuntimeDocsInput, RuntimeResourceReadResult } from "./external-documentation";
-import { DeveloperReviewSessionService, type DeveloperReviewDigestBundle, type DeveloperReviewSession, type DeveloperReviewAttestation } from "./developer-review-run";
-export type { DeveloperReviewDigestBundle, DeveloperReviewSession, DeveloperReviewAttestation } from "./developer-review-run";
 import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
 import { ExplorerProjectionService } from "./explorer-projection-service";
 export type { ExplorerServerOptions, ExplorerServerStatus } from "./explorer-server";
@@ -32,15 +30,13 @@ export { runDocsAnchorsCommand } from "./docs-anchors";
 export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
 export { runConstraintCheckCommand } from "./constraints-check";
 export { runFlowSelectorCheckCommand } from "./flow-selector-check";
-import { DeveloperReviewRunService, type DeveloperReviewRunStatus, type DeveloperReviewRunManifest, type DeveloperReviewRun, type DeveloperReviewRunPreparation, type DeveloperReviewRunCleanup, type DeveloperReviewRunCleanupRequest, type DeveloperReviewRunRecovery } from "./developer-review-run";
-export type { DeveloperReviewRunStatus, DeveloperReviewRunManifest, DeveloperReviewRun, DeveloperReviewRunPreparation, DeveloperReviewRunCleanup, DeveloperReviewRunCleanupRequest, DeveloperReviewRunRecovery } from "./developer-review-run";
 import { RecommendationsService, recommendationArtifactsFromEvents, type RuntimeRecommendationInput, type RuntimeRefactorScanInput, type RuntimeRefactorRecordInput } from "./recommendations";
 export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./recommendations";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { ChangeSetAuthorityService, runtimeWorktreeDigest } from "./changeset-authority";
 export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
-export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDeveloperReviewRunStateDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, type DaemonControlListing, listDaemonControlStates, liveDaemonLockOwnerPid, recoverStaleDaemonControlFiles } from "./daemon-control";
+export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, type DaemonControlListing, listDaemonControlStates, liveDaemonLockOwnerPid, recoverStaleDaemonControlFiles } from "./daemon-control";
 export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 export * from "./rpc-client";
 export * from "./rpc-protocol";
@@ -82,9 +78,9 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
-import { findRepositoryRoot, listGitVisibleFiles, readHeadSha, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, listGitVisibleFiles, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobQueueScope, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
@@ -141,7 +137,6 @@ export interface RuntimeDeps {
   localStore?: RuntimeLocalStore;
   changeSetEngine?: ChangeSetEngine;
   externalDocumentation?: ExternalDocumentationPort;
-  devicePrivateKeySigner?: DevicePrivateKeySignerPort;
   architectureLedger?: Partial<Pick<RuntimeArchitectureLedgerModes, "rolloutMode" | "readMode" | "writeMode">>;
   localStorePath?: string;
   clock?: () => string;
@@ -275,7 +270,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly practiceCheckpoints: PracticeCheckpointService;
   private readonly externalDocumentation: ExternalDocumentationPort;
   private readonly externalDocumentationInjected: boolean;
-  private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
   private readonly architectureLedger: RuntimeArchitectureLedgerModes;
   private readonly investigationTransport: CommandInvestigationRunnerTransport;
   private readonly githubIssueExecutor: GithubIssueExecutorPort;
@@ -286,8 +280,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly agentJobs: AgentJobService;
   private readonly auditService: AuditService;
   private readonly projectionApplies: ProjectionApplyService;
-  private readonly developerReviewSessions: DeveloperReviewSessionService;
-  private readonly developerReviewRuns: DeveloperReviewRunService;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
   private readonly sessions = new Map<string, RepositorySession>();
@@ -344,7 +336,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         }
       }
     });
-    this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
     this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
     this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
     this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
@@ -460,7 +451,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       changeSetEngine: this.changeSetEngine,
       architectureLedger: this.architectureLedger
     });
-    this.developerReviewRuns = new DeveloperReviewRunService(() => this.assertRunning(), this.clock);
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
       enabled: process.env[CONTEXT7_ENABLED_ENV] === "1",
       mode: process.env[CONTEXT7_MODE_ENV] === "prepare-unknowns" ? "prepare-unknowns" : "manual",
@@ -488,18 +478,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       runtimeArchitectureLedgerContextPort: (root) => this.runtimeArchitectureLedgerContextPort(root)
     });
     this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded", this.architectureLedger);
-    this.developerReviewSessions = new DeveloperReviewSessionService({
-      assertRunning: () => this.assertRunning(),
-      clock: this.clock,
-      modelStore: this.modelStore,
-      codeFacts: this.codeFacts,
-      localStore: this.localStore,
-      devicePrivateKeySigner: this.devicePrivateKeySigner,
-      composition: this.composition,
-      codeFactsDigest,
-      computeDeveloperReviewDigestBundle: (input) => this.computeDeveloperReviewDigestBundle(input),
-      runDeveloperReviewSession: (input) => this.runDeveloperReviewSession(input)
-    });
     } catch (error) { throw publicOperationFailure(error); }
   }
 
@@ -1135,104 +1113,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     if (!expectedWorktreeDigest) throw new FailureError(domain === "ledger" ? "AC_PRECONDITION_FAILED" : "AC_REFACTOR_STALE", domain === "ledger" ? "ledger-worktree-claim-required" : "worktree-claim-required");
     const current = computeWorktreeDigest(root, listGitVisibleFiles(root));
     if (current !== expectedWorktreeDigest) throw new FailureError(domain === "ledger" ? "AC_PRECONDITION_FAILED" : "AC_REFACTOR_STALE", domain === "ledger" ? "ledger-worktree-claim-changed" : "worktree-claim-changed", {expectedWorktreeDigest, actualWorktreeDigest:current});
-  }
-
-  prepareDeveloperReviewWorktree(input: {
-    repositoryRoot: string;
-    challenge: ReviewChallengeV2;
-    expectedHeadTreeOid?: string;
-    tempRoot?: string;
-  }): DetachedReviewWorktreePreparation {
-    try {
-    return this.developerReviewRuns.prepareDeveloperReviewWorktree(input);
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  startDeveloperReviewRun(input: {
-    repositoryRoot: string;
-    challenge: ReviewChallengeV2;
-    expectedHeadTreeOid?: string;
-    /** In-process callers only; the production RPC contract does not accept a temp root. */
-    tempRoot?: string;
-  }): DeveloperReviewRunPreparation {
-    try {
-    return this.developerReviewRuns.startDeveloperReviewRun(input);
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  async withDeveloperReviewRun<T>(input: {
-    repositoryRoot: string;
-    challenge: ReviewChallengeV2;
-    expectedHeadTreeOid?: string;
-    /** In-process callers only; the production RPC contract does not accept a temp root. */
-    tempRoot?: string;
-  }, run: (developerReviewRun: DeveloperReviewRun) => Promise<T> | T): Promise<T> {
-    try {
-    return await this.developerReviewRuns.withDeveloperReviewRun(input, run);
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  cleanupOwnedDeveloperReviewRun(run: DeveloperReviewRunManifest): DeveloperReviewRunCleanup {
-    try {
-    return this.developerReviewRuns.cleanupOwnedDeveloperReviewRun(run);
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  cleanupDeveloperReviewRun(input: DeveloperReviewRunCleanupRequest): DeveloperReviewRunCleanup {
-    try {
-    return this.developerReviewRuns.cleanupDeveloperReviewRun(input);
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  recoverDeveloperReviewRuns(input: {
-    repositoryRoot: string;
-    force?: boolean;
-  }): DeveloperReviewRunRecovery {
-    try {
-    return this.developerReviewRuns.recoverDeveloperReviewRuns(input);
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  async computeDeveloperReviewDigestBundle(input: {
-    challenge: ReviewChallengeV2;
-    worktree: DetachedReviewWorktree;
-    codeFactsSnapshot?: CodeFactsSnapshot;
-    sparseScope?: string[];
-  }): Promise<DeveloperReviewDigestBundle> {
-    try {
-    return await this.developerReviewSessions.computeDeveloperReviewDigestBundle(input);
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  async runDeveloperReviewSession(input: {
-    challenge: ReviewChallengeV2;
-    worktree: DetachedReviewWorktree;
-    taskSessionId?: string;
-    posture?: CompleteTaskInput["posture"];
-    compatibilityContract?: CompleteTaskInput["compatibilityContract"];
-    compatibilityPathIntroduced?: boolean;
-    cleanupRequired?: number;
-    cleanupCompleted?: number;
-  }): Promise<DeveloperReviewSession> {
-    try {
-    return await this.developerReviewSessions.runDeveloperReviewSession(input);
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  async runSignedDeveloperReviewAttestation(input: {
-    challenge: ReviewChallengeV2;
-    worktree: DetachedReviewWorktree;
-    keyRef: string;
-    principalId: string;
-    publicKeyId: string;
-    taskSessionId?: string;
-    mergeBaseSha?: string;
-    startedAt?: string;
-    completedAt?: string;
-  }): Promise<DeveloperReviewAttestation> {
-    try {
-    return await this.developerReviewSessions.runSignedDeveloperReviewAttestation(input);
-    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async repoAdd(root: string, name?: string): Promise<JsonEnvelope> {

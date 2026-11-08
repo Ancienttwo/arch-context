@@ -8,7 +8,6 @@ appliesTo:
   - module.architecture-context.cloud
   - component.architecture-context.cloud.control-plane
   - component.architecture-context.surfaces.cli
-  - component.architecture-context.surfaces.github-review-state
   - module.architecture-context.tooling
 supersedes:
   - adr.0015.github-app-without-contents-permission

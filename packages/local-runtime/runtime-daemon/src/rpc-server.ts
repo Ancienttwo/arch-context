@@ -351,9 +351,9 @@ export class ArchctxRuntimeRpcServer {
         if (error instanceof ChangeSetRecoveryUnresolvedError) return publicOperationErrorEnvelope("runtime-rpc", error);
         // A root that is not a Git worktree has no Git-visible files to bind: typed, not a 500.
         if (error instanceof GitVisibleFilesUnavailableError) return publicOperationErrorEnvelope("runtime-rpc", error);
-        // A malformed positional argument (rpc-argument-codec.ts's decoders, reused by the
-        // developer-review decoders) is a typed schema failure, not a 500: same structured shape
-        // every handler's own input validation already answers with.
+        // A malformed positional argument (rpc-argument-codec.ts's decoders) is a typed schema
+        // failure, not a 500: same structured shape every handler's own input validation already
+        // answers with.
         if (error instanceof RuntimeRpcInputInvalidError) return publicFailureEnvelope("runtime-rpc", "AC_SCHEMA_INVALID", "rpc-input-invalid");
         throw error;
       });

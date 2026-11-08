@@ -1,8 +1,8 @@
 # Local Core Quickstart
 
-This quickstart is the first-run path for the local ArchContext product. It covers one ordinary Git repository or one Git repository that contains workspaces. It does not cover GitHub App governance, cloud accounts, subscriptions, organization runners, or managed review.
+This quickstart is the first-run path for the local ArchContext product. It covers one ordinary Git repository or one Git repository that contains workspaces. It does not cover cloud accounts, subscriptions, or managed review.
 
-No GitHub App, Cloud account, subscription, or LLM provider is required for Local Core.
+No Cloud account, subscription, or LLM provider is required for Local Core.
 
 ## Prerequisites
 
@@ -87,11 +87,9 @@ archctx daemon stop --workspace-id <storageWorkspaceId from daemon list>
 
 `daemon list` reads only the control files under the state root (`ARCHCONTEXT_STATE_DIR`, or the OS user-data root), so it also shows daemons whose worktree is gone: each entry reports `root`, `rootExists`, `pid`, `pidAlive` and, when a live process holds the lock without a connection file, `lockOwnerPid`. `daemon stop` accepts at most one of `--state-dir` or `--workspace-id`; without either it stops the daemon of the current repository. Neither option reads the worktree, but the shell's own working directory must still exist: Node.js cannot start in a deleted directory, so `cd` somewhere else first.
 
-## Optional Governance
+## Optional LLM Advisory
 
-GitHub App governance is optional and separate from this quickstart. It is used later for PR challenge, attestation verification, and Check delivery. Local Core remains usable without installing it.
-
-LLM advisory is also optional and separate. Local Core commands do not require provider keys such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or other model credentials.
+LLM advisory is optional and separate. Local Core commands do not require provider keys such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or other model credentials.
 
 ## Optional Audit
 

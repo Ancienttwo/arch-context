@@ -4,7 +4,7 @@ kind: component
 name: "Control Plane"
 status: active
 parent: module.architecture-context.cloud
-summary: "Implements the hosted control plane: GitHub OAuth and device authorization, review challenges and attestations, device and runner keys, billing webhooks, notifications, and the settings console."
+summary: "Implements the hosted control plane: GitHub OAuth and device authorization, entitlements and the Stripe webhook, MCP and ChatGPT metadata, notifications, and the settings console."
 source:
   include:
     - "packages/cloud/control-plane/src/**"

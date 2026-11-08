@@ -21,7 +21,7 @@ const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const rootManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const coreManifest = JSON.parse(readFileSync(join(root, "packages/core/package.json"), "utf8"));
 const releasePackageName = "archctx";
-const releaseHomeUrl = "https://archcontext.repoharness.com";
+const releaseHomeUrl = "https://github.com/Ancienttwo/arch-context";
 const releaseAssetFiles = [
   "assets/catalog.yaml",
   "assets/practices/s6-expanded.yaml",
