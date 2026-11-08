@@ -74,8 +74,8 @@ async function withCaptureFixture(run: (root: string, fixtureDigest: string, pro
   try {
     const fixturePath = "docs/security/captures/metadata-only.har.json";
     const productionPath = "docs/security/captures/production-redacted.har.json";
-    await write(root, fixturePath, JSON.stringify(capture("https://archcontext.test/attestations/verify")));
-    await write(root, productionPath, JSON.stringify(capture("https://archcontext.dev/attestations/verify")));
+    await write(root, fixturePath, JSON.stringify(capture("https://archcontext.test/notifications/events")));
+    await write(root, productionPath, JSON.stringify(capture("https://archcontext.dev/notifications/events")));
     await run(root, await digestFile(join(root, fixturePath)), await digestFile(join(root, productionPath)));
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -108,17 +108,18 @@ function capture(url: string) {
             headers: [{ name: "authorization", value: "Bearer [REDACTED]" }],
             postData: {
               text: JSON.stringify({
+                schemaVersion: "archcontext.notification-event/v1",
+                eventId: "evt_1",
                 repositoryNumericId: 1001,
-                worktreeDigest: `sha256:${"1".repeat(64)}`,
-                trustLevel: "organization",
-                accepted: true
+                payloadDigest: `sha256:${"1".repeat(64)}`,
+                result: "pass"
               })
             }
           },
           response: {
             status: 200,
             headers: [{ name: "content-type", value: "application/json" }],
-            content: { text: JSON.stringify({ accepted: true, attestationId: "att_1" }) }
+            content: { text: JSON.stringify({ accepted: true, eventId: "evt_1" }) }
           }
         }
       ]
