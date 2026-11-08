@@ -1,7 +1,7 @@
 # archctx / archctx-contracts 0.11.4 preparation
 
 Baseline: `origin/main@522a960f`, the merge of #496.
-This records a release candidate, not publication. Both registry latest versions were read back as 0.11.3 during preparation on 2026-11-07.
+Published from the merged release-candidate commit `7c263033`, the merge of #497. Both registry versions went live on 2026-11-08; the tag and GitHub Release were created the same day after the readback below.
 
 ## Changes
 
@@ -22,10 +22,20 @@ Version 0.11.4 carries the 0.11.3 product code plus the additive `layerEdges` fi
 ## Evidence and remaining gates
 
 - [x] Version authorities synchronized across the root and package manifests, `product-version.ts`, the contracts fixtures, the practice catalog manifest (`catalogDigest` regenerated from `loadPracticeCatalog`), the review action default, and the example workflows.
-- [ ] Release-candidate PR head: hosted full/matrix Verify before merge. Governance Verify produces the deterministic readback evidence in its run.
-- [ ] Rebuild both package tarballs from accepted main and read back version, contents and digests, including the new schema file.
-- [ ] Publish interactively with npm web authentication; wait for both registry versions and read back version, dist-tag and integrity.
-- [ ] Create the tag and GitHub Release only for the published commit.
+- [x] Release-candidate PR head: hosted full/matrix Verify before merge. Governance Verify produces the deterministic readback evidence in its run.
+- [x] Rebuild both package tarballs from accepted main and read back version, contents and digests, including the new schema file.
+- [x] Publish interactively with npm web authentication; wait for both registry versions and read back version, dist-tag and integrity.
+- [x] Create the tag and GitHub Release only for the published commit.
+
+## Publication record
+
+- Published commit: `7c263033daa4ff16fb1b48812b2d515fa0c71c61` (merge of #497). Hosted Verify on it: 30 check runs, none failed or cancelled, including all three Windows shards.
+- The annotated tag `v0.11.4` sits on that commit, and the GitHub Release `v0.11.4` resolves to the same SHA.
+- Registry: `archctx@0.11.4` shasum `b55518e524f95187dca7e48bdbc15ba660428127`, `archctx-contracts@0.11.4` shasum `48f9d57e6ad7979f027daf61773dab4b2ee11b9a`; both dist-tags are `latest`.
+- Byte identity: the registry archives match the tarballs built in the release worktree, sha256 `cfeca33f…597bd7` and `ac97c2a1…0063903` respectively.
+- New payload file: `schemas/runtime/dependency-constraint-evaluation.schema.json` is present in the released `archctx` archive and byte-identical to the source. `schemas/runtime/` goes from 56 files in 0.11.1 to 57.
+- Release assets: both `.tgz` files plus `SHA256SUMS` are attached, and a download of the release verifies against that manifest.
+- Clean-room install of the built tarball reports `archctx --version` as 0.11.4, and the packaged schema accepts the installed `constraints check --json` output. `archctx-contracts` clean-room import smoke passed.
 
 Publication procedure: `docs/runbooks/npm-release.md`.
 
