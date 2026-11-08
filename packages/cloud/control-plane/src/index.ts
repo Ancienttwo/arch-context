@@ -114,7 +114,7 @@ const PRIVATE_CONTENT_VALUE_PATTERNS = [
 const CLOUD_PRIVACY_ALLOWED_FIELDS: Record<CloudPrivacySurface, Set<string>> = {
   log: new Set(["requestId", "routeId", "installationId", "repositoryId", "status", "reasonCode", "latencyMs", "attempt", "runtimeVersion"]),
   trace: new Set(["requestId", "routeId", "spanId", "parentSpanId", "installationId", "repositoryId", "status", "reasonCode", "latencyMs", "attempt", "runtimeVersion"]),
-  queue: new Set(["schemaVersion", "kind", "id", "accountId", "eventId", "deliveryId", "headSha", "status", "attempt", "attemptCount", "nextAttemptAt", "lastErrorCode", "payloadDigest"]),
+  queue: new Set(["schemaVersion", "kind", "id", "accountId", "eventId", "deliveryId", "status", "attempt", "attemptCount", "nextAttemptAt", "lastErrorCode", "payloadDigest"]),
   error: new Set(["errorCode", "reasonCode", "code", "status", "statusCode", "retryable", "requestId", "routeId"])
 };
 

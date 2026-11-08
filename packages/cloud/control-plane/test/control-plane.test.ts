@@ -34,7 +34,7 @@ describe("control plane", () => {
     const graphKey = ["code", "Graph"].join("");
     const bait = {
       requestId: "req_1",
-      routeId: "github.webhook",
+      routeId: "stripe.webhook",
       installationId: 123,
       repositoryId: 987,
       pullRequestNumber: 42,
@@ -58,7 +58,7 @@ describe("control plane", () => {
     const log = cp.projectLogRecord(bait);
     expect(log).toEqual({
       requestId: "req_1",
-      routeId: "github.webhook",
+      routeId: "stripe.webhook",
       installationId: 123,
       repositoryId: 987,
       status: "failed",

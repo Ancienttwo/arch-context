@@ -3,7 +3,7 @@
 > **Status**: Active
 > **Last Updated**: 2026-09-24
 > **Owner**: Planner
-> **Full PRD**: `plans/prds/20260619-2039-archcontext.prd.md`
+> **Full PRD**: `docs/prds/20260619-2039-archcontext.prd.md`
 > **Architecture Ledger PRD**: `plans/prds/Deep Research Report on ArchContext.md`
 
 ## Product Outcome

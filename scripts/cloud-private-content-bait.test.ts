@@ -17,7 +17,7 @@ describe("cloud private content bait", () => {
 
     const commonTelemetry = {
       requestId: "req_bait",
-      routeId: "github.webhook",
+      routeId: "stripe.webhook",
       installationId: 123,
       repositoryId: 987,
       pullRequestNumber: 42,
