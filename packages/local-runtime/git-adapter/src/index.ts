@@ -1,10 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
 import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
 import { matchesGlob } from "@archcontext/core/projection-engine";
-import { digestJson, FailureError, type Json, type ReviewCheckoutGitPort, type DetachedReviewWorktreeVerification } from "@archcontext/contracts";
+import { digestJson, FailureError, type Json } from "@archcontext/contracts";
 import { isGitRevisionArgument, readGitBlobTree, readGitBlobs } from "./blob-reader";
 export * from "./blob-reader";
 
@@ -231,27 +230,6 @@ export function computeGitChangeFingerprint(input: GitChangeFingerprintInput): s
 }
 
 
-export interface DetachedReviewWorktree {
-  schemaVersion: "archcontext.detached-review-worktree/v1";
-  sourceRoot: string;
-  worktreeRoot: string;
-  temporaryRoot: string;
-  headSha: string;
-  headTreeOid: string;
-  detached: true;
-  clean: true;
-}
-
-
-export interface DetachedReviewWorktreePreparation extends DetachedReviewWorktreeVerification {
-  worktree?: DetachedReviewWorktree;
-}
-
-export function readHeadTreeOid(root: string, ref = "HEAD"): string {
-  assertGitRevisionArgument(ref);
-  return runGit(root, ["rev-parse", `${ref}^{tree}`]).trim();
-}
-
 export function readTrackedTreeEntries(root: string, ref = "HEAD"): GitTrackedTreeEntry[] {
   assertGitRevisionArgument(ref);
   return readGitBlobTree(root, ref, { maxBytes: GIT_CAT_FILE_MAX_BYTES, sizes: false, trees: false })
@@ -370,120 +348,9 @@ function expandWorkspaceEntry(root: string, entry: string): string[] {
     .sort();
 }
 
-export function isDetachedHead(root: string): boolean {
-  return runGit(root, ["rev-parse", "--abbrev-ref", "HEAD"]).trim() === "HEAD";
-}
-
 export function isTrackedWorktreeClean(root: string): boolean {
   return gitSucceeds(root, ["diff", "--quiet", "--ignore-submodules=none", "--"])
     && gitSucceeds(root, ["diff", "--cached", "--quiet", "--ignore-submodules=none", "--"]);
-}
-
-export function verifyDetachedReviewWorktree(input: {
-  worktreeRoot: string;
-  expectedHeadSha: string;
-  expectedHeadTreeOid?: string;
-}): DetachedReviewWorktreeVerification {
-  const observed = readDetachedWorktreeObserved(input.worktreeRoot);
-  const base = {
-    schemaVersion: "archcontext.detached-review-worktree-verification/v1" as const,
-    expected: {
-      headSha: input.expectedHeadSha,
-      headTreeOid: input.expectedHeadTreeOid
-    },
-    observed
-  };
-
-  if (!observed.headSha || !observed.headTreeOid) return { ...base, accepted: false, reasonCode: "HEAD_UNAVAILABLE" };
-  if (observed.headSha !== input.expectedHeadSha) return { ...base, accepted: false, reasonCode: "HEAD_SHA_MISMATCH" };
-  if (input.expectedHeadTreeOid && observed.headTreeOid !== input.expectedHeadTreeOid) {
-    return { ...base, accepted: false, reasonCode: "TREE_OID_MISMATCH" };
-  }
-  if (observed.detached !== true) return { ...base, accepted: false, reasonCode: "WORKTREE_NOT_DETACHED" };
-  if (observed.clean !== true) return { ...base, accepted: false, reasonCode: "WORKTREE_NOT_CLEAN" };
-  return { ...base, accepted: true };
-}
-
-export function prepareDetachedReviewWorktree(input: {
-  sourceRoot: string;
-  headSha: string;
-  expectedHeadTreeOid?: string;
-  tempRoot?: string;
-}): DetachedReviewWorktreePreparation {
-  const sourceRoot = findRepositoryRoot(input.sourceRoot);
-  // `headSha` is later handed to `git worktree add` even when the caller supplies the tree OID, so
-  // an option-shaped value must be refused here rather than only by `readCommitTreeOid`.
-  const expectedHeadTreeOid = isGitRevisionArgument(input.headSha)
-    ? input.expectedHeadTreeOid ?? readCommitTreeOid(sourceRoot, input.headSha)
-    : undefined;
-  if (!expectedHeadTreeOid) {
-    return {
-      schemaVersion: "archcontext.detached-review-worktree-verification/v1",
-      accepted: false,
-      reasonCode: "HEAD_UNAVAILABLE",
-      expected: { headSha: input.headSha, headTreeOid: input.expectedHeadTreeOid },
-      observed: {}
-    };
-  }
-
-  const parent = input.tempRoot ? resolve(input.tempRoot) : tmpdir();
-  mkdirSync(parent, { recursive: true });
-  const temporaryRoot = mkdtempSync(join(parent, "archctx-review-worktree-"));
-  const worktreeRoot = join(temporaryRoot, "worktree");
-  try {
-    runGit(sourceRoot, ["worktree", "add", "--detach", worktreeRoot, input.headSha]);
-    const verification = verifyDetachedReviewWorktree({
-      worktreeRoot,
-      expectedHeadSha: input.headSha,
-      expectedHeadTreeOid
-    });
-    if (!verification.accepted) {
-      removeDetachedReviewWorktree({ sourceRoot, worktreeRoot, temporaryRoot });
-      return verification;
-    }
-    const observedHeadSha = verification.observed.headSha;
-    const observedHeadTreeOid = verification.observed.headTreeOid;
-    if (!observedHeadSha || !observedHeadTreeOid) throw new Error("detached-worktree-verification-invariant");
-    return {
-      ...verification,
-      worktree: {
-        schemaVersion: "archcontext.detached-review-worktree/v1",
-        sourceRoot,
-        worktreeRoot,
-        temporaryRoot,
-        headSha: observedHeadSha,
-        headTreeOid: observedHeadTreeOid,
-        detached: true,
-        clean: true
-      }
-    };
-  } catch (error) {
-    removePathWithRetry(temporaryRoot);
-    if (isGitWorktreeError(error)) {
-      return {
-        schemaVersion: "archcontext.detached-review-worktree-verification/v1",
-        accepted: false,
-        reasonCode: "HEAD_UNAVAILABLE",
-        expected: { headSha: input.headSha, headTreeOid: input.expectedHeadTreeOid },
-        observed: {}
-      };
-    }
-    throw error;
-  }
-}
-
-export function removeDetachedReviewWorktree(worktree: Pick<DetachedReviewWorktree, "sourceRoot" | "worktreeRoot" | "temporaryRoot">): void {
-  try {
-    runGit(worktree.sourceRoot, ["worktree", "remove", "--force", worktree.worktreeRoot]);
-  } catch {
-    removePathWithRetry(worktree.worktreeRoot);
-  } finally {
-    removePathWithRetry(worktree.temporaryRoot || dirname(worktree.worktreeRoot));
-  }
-}
-
-export function removePathWithRetry(path: string): void {
-  rmSync(path, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
 }
 
 /** Same counting rule as the projection engine's footprint scan: a trailing newline is a terminator, not a line. */
@@ -492,16 +359,6 @@ function countLines(content: Buffer): number {
   let newlines = 0;
   for (const byte of content) if (byte === 0x0a) newlines += 1;
   return content[content.length - 1] === 0x0a ? newlines : newlines + 1;
-}
-
-function readCommitTreeOid(root: string, headSha: string): string | undefined {
-  if (!isGitRevisionArgument(headSha)) return undefined;
-  if (!gitSucceeds(root, ["cat-file", "-e", `${headSha}^{commit}`])) return undefined;
-  try {
-    return readHeadTreeOid(root, headSha);
-  } catch {
-    return undefined;
-  }
 }
 
 function parseNameStatusZ(output: string): GitPathChange[] {
@@ -566,21 +423,8 @@ function dedupeGitPathChanges(changes: GitPathChange[]): GitPathChange[] {
     .map((change) => [`${change.rawStatus}\0${change.previousPath ?? ""}\0${change.path}`, change])).values()];
 }
 
-function readDetachedWorktreeObserved(worktreeRoot: string): DetachedReviewWorktreeVerification["observed"] {
-  try {
-    return {
-      headSha: runGit(worktreeRoot, ["rev-parse", "HEAD"]).trim(),
-      headTreeOid: readHeadTreeOid(worktreeRoot),
-      detached: isDetachedHead(worktreeRoot),
-      clean: isTrackedWorktreeClean(worktreeRoot)
-    };
-  } catch {
-    return {};
-  }
-}
-
 /**
- * Revisions reach these helpers from hook flags, RPC input, and review challenges. Git reads a
+ * Revisions reach these helpers from hook flags and RPC input. Git reads a
  * leading `-` as an option wherever a revision is expected (`--output=<path>` writes a file), and
  * Git ref names can never start with `-` or contain whitespace or NUL, so such a value is refused
  * before any Git process starts.
@@ -603,25 +447,4 @@ function gitSucceeds(root: string, args: string[]): boolean {
     stdio: ["ignore", "ignore", "ignore"]
   });
   return result.status === 0;
-}
-
-function isGitWorktreeError(error: unknown): boolean {
-  return error instanceof Error && /git|Command failed/.test(error.message);
-}
-
-/** Local Git observation provider injected by runner composition. */
-export function createReviewCheckoutGitPort(): ReviewCheckoutGitPort {
-  return {
-    findRepositoryRoot,
-    readOriginUrl(root) {
-      try {
-        return execFileSync("git", ["config", "--get", "remote.origin.url"], {
-          cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]
-        }).trim();
-      } catch {
-        return null;
-      }
-    },
-    verifyDetachedWorktree: verifyDetachedReviewWorktree
-  };
 }

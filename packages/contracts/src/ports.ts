@@ -799,40 +799,6 @@ export interface ChatGptGaToolContract {
   disclosure: string;
 }
 
-export type DetachedReviewWorktreeReason =
-  | "HEAD_UNAVAILABLE"
-  | "HEAD_SHA_MISMATCH"
-  | "TREE_OID_MISMATCH"
-  | "WORKTREE_NOT_DETACHED"
-  | "WORKTREE_NOT_CLEAN";
-
-export interface DetachedReviewWorktreeVerification {
-  schemaVersion: "archcontext.detached-review-worktree-verification/v1";
-  accepted: boolean;
-  reasonCode?: DetachedReviewWorktreeReason;
-  expected: {
-    headSha: string;
-    headTreeOid?: string;
-  };
-  observed: {
-    headSha?: string;
-    headTreeOid?: string;
-    detached?: boolean;
-    clean?: boolean;
-  };
-}
-
-
-export interface ReviewCheckoutGitPort {
-  findRepositoryRoot(start: string): string;
-  readOriginUrl(root: string): string | null;
-  verifyDetachedWorktree(input: {
-    worktreeRoot: string;
-    expectedHeadSha: string;
-    expectedHeadTreeOid?: string;
-  }): DetachedReviewWorktreeVerification;
-}
-
 export interface NonLocalEgressChannel {
   channel: "context7" | "agent-audit" | "github-issue-publishing" | "npm-update-check" | "projection-publishing" | "codegraph-telemetry";
   destination: string;
