@@ -14,7 +14,6 @@ const scanRoots = [
   "packages/surfaces/renderer",
   "packages/cloud/control-plane",
   "packages/cloud/mcp-cloud-metadata",
-  "packages/cloud/github-app",
   "packages/cloud/cloud-db"
 ];
 const forbidden = [
