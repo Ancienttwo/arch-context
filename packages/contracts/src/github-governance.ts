@@ -21,8 +21,6 @@ export type ReviewChallengeStatus = "PENDING" | "LEASED" | "SUBMITTED" | "VERIFI
 export type CheckDeliveryStatus = "PENDING" | "PUBLISHED" | "RETRYING" | "DEAD_LETTER";
 export type AttestationResult = "pass" | "fail" | "error";
 export type GitHubAppPermissionLevel = "none" | "read" | "write";
-export type CallerProvidedAttestationField = (typeof CALLER_PROVIDED_ATTESTATION_FIELDS)[number];
-export type LlmAdvisoryForbiddenField = (typeof LLM_ADVISORY_FORBIDDEN_FIELDS)[number];
 export type RunnerIdentityStatus = "active" | "rotating" | "revoked";
 export type RunnerIdentityScope =
   | { kind: "repository"; repositoryIds: number[] }
@@ -67,26 +65,6 @@ export interface DevicePrivateKeySignerPort {
   signWithDevicePrivateKey(input: { keyRef: string; payload: string | Uint8Array }): string;
 }
 
-export const CALLER_PROVIDED_ATTESTATION_FIELDS = [
-  "result",
-  "reviewDigest",
-  "policyDigest",
-  "modelDigest",
-  "signature",
-  "practiceEnforcement",
-  "practiceViolations",
-  "waiversApplied",
-  "actionsRequired",
-  "practiceCatalogDigest",
-  "practicePolicyDigest",
-  "practiceCheckResultDigest"
-] as const;
-export const LLM_ADVISORY_FORBIDDEN_FIELDS = [
-  ...CALLER_PROVIDED_ATTESTATION_FIELDS,
-  "conclusion",
-  "checkConclusion",
-  "attestationResult"
-] as const;
 
 export const GITHUB_APP_PERMISSION_MANIFEST = {
   schemaVersion: "archcontext.github-app-permission-manifest/v1",
@@ -147,28 +125,6 @@ export const RUNNER_IDENTITY_STATUS_TRANSITIONS: Record<RunnerIdentityStatus, re
   rotating: ["active", "revoked"],
   revoked: []
 } as const;
-
-export function findCallerProvidedAttestationFields(value: unknown): CallerProvidedAttestationField[] {
-  const found = new Set<CallerProvidedAttestationField>();
-  collectCallerProvidedAttestationFields(value, found);
-  return CALLER_PROVIDED_ATTESTATION_FIELDS.filter((field) => found.has(field));
-}
-
-export function assertNoCallerProvidedAttestationFields(value: unknown, boundary = "review request"): void {
-  const fields = findCallerProvidedAttestationFields(value);
-  if (fields.length > 0) throw new Error(`${boundary}-caller-provided-attestation-field-forbidden: ${fields.join(",")}`);
-}
-
-export function findLlmAdvisoryForbiddenFields(value: unknown): LlmAdvisoryForbiddenField[] {
-  const found = new Set<LlmAdvisoryForbiddenField>();
-  collectForbiddenFields(value, found, LLM_ADVISORY_FORBIDDEN_FIELDS);
-  return LLM_ADVISORY_FORBIDDEN_FIELDS.filter((field) => found.has(field));
-}
-
-export function assertNoLlmAdvisoryConclusionFields(value: unknown): void {
-  const fields = findLlmAdvisoryForbiddenFields(value);
-  if (fields.length > 0) throw new Error(`llm-advisory-conclusion-field-forbidden: ${fields.join(",")}`);
-}
 
 export function createAttestationV2(input: CreateAttestationV2Input): AttestationV2 {
   return {
@@ -244,24 +200,6 @@ function attestationV2Id(input: Omit<CreateAttestationV2Input, "attestationId">)
     signature: { algorithm: input.signature?.algorithm ?? "ed25519", value: "" }
   } as unknown as Json);
   return `att_${digest.slice("sha256:".length, "sha256:".length + 16)}`;
-}
-
-function collectCallerProvidedAttestationFields(value: unknown, found: Set<CallerProvidedAttestationField>): void {
-  collectForbiddenFields(value, found, CALLER_PROVIDED_ATTESTATION_FIELDS);
-}
-
-function collectForbiddenFields<T extends string>(value: unknown, found: Set<T>, forbiddenFields: readonly T[]): void {
-  if (!value || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const item of value) collectForbiddenFields(item, found, forbiddenFields);
-    return;
-  }
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if ((forbiddenFields as readonly string[]).includes(key)) {
-      found.add(key as T);
-    }
-    collectForbiddenFields(child, found, forbiddenFields);
-  }
 }
 
 export type GovernanceReasonCode =
@@ -433,18 +371,6 @@ export interface CheckDelivery {
   lastErrorCode?: GovernanceReasonCode | null;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface CloudEgressEnvelope {
-  schemaVersion: "archcontext.cloud-egress/v1";
-  requestId: string;
-  category: "github.metadata" | "github.pull-head" | "github.check-list-for-ref" | "github.check-create" | "github.check-update";
-  method: "GET" | "POST" | "PATCH";
-  host: "api.github.com";
-  pathTemplate: string;
-  statusCode: number;
-  latencyMs: number;
-  recordedAt: string;
 }
 
 export interface RepositoryMetadata {
