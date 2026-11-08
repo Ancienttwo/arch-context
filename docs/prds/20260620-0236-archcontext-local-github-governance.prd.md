@@ -1,26 +1,28 @@
 # ArchContext Follow-up PRD：本地产品封装、GitHub 治理与客户控制 Runner
 
-> **Status**: Approved
+> **Status**: Superseded in part by ADR-0053
 > **Execution Phase**: Accepted for FG0 Contract Execution
 > **Slug**: archcontext-local-github-governance  
 > **Created**: 2026-06-20  
-> **Updated**: 2026-06-28
+> **Updated**: 2026-11-08
 > **Version**: v1.0 Draft  
-> **Source PRD**: `plans/prds/20260619-2039-archcontext.prd.md`  
+> **Source PRD**: `docs/prds/20260619-2039-archcontext.prd.md`  
 > **Source Spec**: `docs/spec.md`  
-> **Related ADRs**: ADR-0003、0005、0006、0015、0016、0024、0027  
+> **Related ADRs**: ADR-0003、0005、0006、0053；ADR-0015、0016、0024、0027 已被 ADR-0053 取代  
 > **Product Stage**: Beta 前契约修订与真实垂直链路  
 > **Document Language**: 简体中文  
 
 > **核心结论：ArchContext 本地 Runtime 是产品核心；GitHub App 是可选治理桥梁；客户控制 Runner 是自动执行和较高信任证明的载体。GitHub App 与 SaaS 不配置 LLM Provider，也不读取代码执行 Review。**
 
+> **ADR-0053 之后的现状（2026-11-08）**：GitHub App 治理桥梁、Developer Review、Organization Runner 及其签名证明已退役，代码移除见 #501 和 #502，将随 `archctx` / `archctx-contracts` 0.12.0 发布。全文只作为历史记录保留，不再约束实现。延续至今的只有方向：Local Core 是产品核心，本地是一个产品、一个版本。当前的产品要求以 `docs/spec.md` 为准，安装方式、包名和命令以 README 与 `docs/runbooks/` 为准。架构评审只在本地运行，不再向 Pull Request 发布 ArchContext Check。
+
 ---
 
 ## AI Quick-Read Card
 
-- Product boundary: local ArchContext runtime stays primary; GitHub App and customer Runner are optional governance surfaces.
-- Trust boundary: GitHub App / SaaS do not read source code or run LLM review; higher-trust execution happens on customer-controlled Runner.
-- Execution state: approved for FG0 contract execution, with later FG phases gated by acceptance-ledger evidence.
+- Product boundary: the local ArchContext runtime is the product. ADR-0053 retired the GitHub App, Developer Review and Organization Runner; architecture review runs locally only.
+- Historical only: this whole PRD. Do not implement from it. Current requirements live in `docs/spec.md`; install, package and command details live in the README and `docs/runbooks/`.
+- What carried forward is the direction only: Local Core is the product, shipped as one local product and one version.
 
 ## Problem
 

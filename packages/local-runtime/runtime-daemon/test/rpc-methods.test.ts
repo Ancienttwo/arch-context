@@ -16,9 +16,9 @@ const projectionCases = [
   { method: "mcpProjection", input: { action: "run", request: {} }, timeout: "long" }
 ].flatMap(({ method, input, timeout }) => {
   const args: unknown[] = ["/rpc/fixture/repo", input];
-  if (method !== "mcpProjection") return [{ method, variant: "projection", args, params: args, timeout, response: "envelope" }];
+  if (method !== "mcpProjection") return [{ method, variant: "projection", args, params: args, timeout }];
   return [false, true].map((approved) => ({
-    method, variant: approved ? "projection-approved" : "projection", args: [...args, approved], params: [...args, approved], timeout, response: "envelope"
+    method, variant: approved ? "projection-approved" : "projection", args: [...args, approved], params: [...args, approved], timeout
   }));
 });
 const cases = [...baseline.cases, ...projectionCases, {
@@ -26,8 +26,7 @@ const cases = [...baseline.cases, ...projectionCases, {
   variant: "committed-journal-export",
   args: ["/rpc/fixture/repo", "changeset_journal.fixture"],
   params: ["/rpc/fixture/repo", "changeset_journal.fixture"],
-  timeout: "short",
-  response: "envelope"
+  timeout: "short"
 }, {
   method: "acceptCommittedChange",
   variant: "approved-yaml-journal-chain",
@@ -43,8 +42,7 @@ const cases = [...baseline.cases, ...projectionCases, {
     expectedWorktreeDigest: `sha256:${"a".repeat(64)}`,
     acceptancePlanId: `sha256:${"b".repeat(64)}`
   }],
-  timeout: "long",
-  response: "envelope"
+  timeout: "long"
 }];
 
 describe("RPC method table encoded wire contract", () => {

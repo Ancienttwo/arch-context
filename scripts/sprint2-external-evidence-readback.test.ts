@@ -93,21 +93,22 @@ function capture() {
         {
           request: {
             method: "POST",
-            url: "https://archcontext.dev/attestations/verify",
+            url: "https://archcontext.dev/notifications/events",
             headers: [{ name: "authorization", value: "Bearer [REDACTED]" }],
             postData: {
               text: JSON.stringify({
+                schemaVersion: "archcontext.notification-event/v1",
+                eventId: "evt_1",
                 repositoryNumericId: 1001,
-                worktreeDigest: `sha256:${"1".repeat(64)}`,
-                trustLevel: "organization",
-                accepted: true
+                payloadDigest: `sha256:${"1".repeat(64)}`,
+                result: "pass"
               })
             }
           },
           response: {
             status: 200,
             headers: [{ name: "content-type", value: "application/json" }],
-            content: { text: JSON.stringify({ accepted: true, attestationId: "att_1" }) }
+            content: { text: JSON.stringify({ accepted: true, eventId: "evt_1" }) }
           }
         }
       ]

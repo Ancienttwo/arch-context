@@ -21,6 +21,8 @@ supersedes:
 > **Status**: Accepted by the owner on #478 on 2026-11-05 (decision https://github.com/Ancienttwo/arch-context/pull/478#issuecomment-6640095044). Follow-up issues implement the removal. The acceptance commit moved ADR-0015, ADR-0016, ADR-0024 and ADR-0027 to `superseded` with `supersededBy: adr.0053.retire-github-app-governance-bridge`, and applied the ADR-0003, ADR-0017 and ADR-0035 amendments below.
 >
 > **Origin**: PR #478 (owner decision https://github.com/Ancienttwo/arch-context/pull/478#issuecomment-6636922610)
+>
+> **Implementation**: Rollout step 3 landed in #501 (merge `cbc5761a`, 2026-11-08) and the residue cleanup that followed it. It ships as `archctx` and `archctx-contracts` 0.12.0. Step 1 was re-checked on 2026-11-08: `/rulesets` and `/rules/branches/main` return `[]`, and `main` has no branch protection. For step 2, no `archcontext-staging` check run appeared on the #501 head. Steps 4 to 6 remain owner actions.
 
 ## Context
 
@@ -116,6 +118,19 @@ Rollback:
 - After step 4: also re-provision the secrets and redeploy the Worker against the existing D1.
 - After step 5: a new App registration gets a new App ID and a new private key, and any ruleset expected-source binding must be recreated.
 - After step 6: D1 is re-created empty from `deploy/sql`; the old rows cannot be recovered.
+
+## Decided during implementation
+
+These follow from the decision above. The ADR did not name them explicitly.
+
+- `POST /github/webhook` is removed with the App, because only App webhooks used it. `packages/cloud/control-plane/src/routes.ts` keeps 12 routes.
+- `docs/api/control-plane-openapi.yaml` is deleted rather than trimmed, because it documented only retired routes. `CONTROL_PLANE_ROUTES` in `routes.ts` is the route table of record.
+- The control-plane alert evaluation (`evaluateControlPlaneAlerts`) and `docs/runbooks/control-plane-incidents.md` are removed. Every alert kind served the retired webhook, verification, Check delivery or key path, and no kept caller remained.
+- The control-plane privacy allowlists drop the pull request and challenge fields (`pullRequestNumber`, `headShaPrefix`, `headSha`, `challengeId`, `attestationId`, `checkDeliveryId`, `checkRunId`, `checkName`). This makes the privacy surface stricter.
+- `packages/cloud/hardening` `secureDefaults()` drops `githubContentsPermission`, so `archctx doctor` no longer reports it in 0.12.0.
+- Contracts also drop the `developer-review-*` failure policies, `AC_ATTESTATION_REJECTED`, `CloudMetadataPort.submitAttestation`, `ReviewCheckoutGitPort` and `DetachedReviewWorktreeVerification`, and the git adapter drops its detached review worktree helpers. Only retired code used them.
+- `appliesTo` no longer names `component.architecture-context.surfaces.github-review-state`, because the model retired that component and validation rejects references to unknown nodes.
+- The follow-up PRD (`docs/prds/20260620-0236-archcontext-local-github-governance.prd.md`) is marked superseded in part and kept as history only. The full PRD names its superseded governance sections. Both stay in the repository.
 
 ## Follow-up not decided here
 

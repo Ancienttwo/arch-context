@@ -38,7 +38,6 @@ export function secureDefaults() {
   return {
     tunnelEnabledByDefault: false,
     cloudContentUpload: "deny",
-    githubContentsPermission: "none",
     thirdPartyTelemetry: "disabled-by-default",
     defaultEgress: "local-only",
     applyChangeSetRequiresApproval: true
