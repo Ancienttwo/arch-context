@@ -38,7 +38,7 @@ describe("cloud private content bait", () => {
       assertNoBait(projected, baitNeedles);
       for (const key of Object.keys(baitPayload)) expect(projected).not.toHaveProperty(key);
     }
-    expect(log).toHaveProperty("headShaPrefix", "abcdef123456");
+    expect(log).not.toHaveProperty("headShaPrefix");
     expect(JSON.stringify(log)).not.toContain("abcdef1234567890");
 
     const notificationSchema = readJson("schemas/runtime/notification-event.schema.json");

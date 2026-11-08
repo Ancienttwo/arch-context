@@ -24,12 +24,10 @@ describe("@archcontext/cloud/hardening", () => {
     expect(secureDefaults()).toMatchObject({
       tunnelEnabledByDefault: false,
       cloudContentUpload: "deny",
-      githubContentsPermission: "none",
       thirdPartyTelemetry: "disabled-by-default",
       defaultEgress: "local-only",
       applyChangeSetRequiresApproval: true
     });
-    // ADR-0053 removed hardening.privacyRouteDigest with the governance route table.
     expect(diagnostics(localEgressStatus({}))).not.toHaveProperty("privacyRouteDigest");
     expect(diagnostics(localEgressStatus({})).egress.ok).toBe(true);
     expect(isSupportedNodeVersion("v22.21.1")).toBe(false);
@@ -126,7 +124,6 @@ describe("@archcontext/cloud/hardening", () => {
 
   test("runs Sprint 2 representative eval across impact and entitlement", () => {
     const report = sprint2RepresentativeEval();
-    // ADR-0053 removed the three trust-level cases along with Developer and Organization attestation.
     expect(report).toMatchObject({
       status: "passed",
       threshold: 1,
@@ -147,15 +144,15 @@ describe("@archcontext/cloud/hardening", () => {
           {
             request: {
               method: "POST",
-              url: "https://api.archcontext.dev/attestations/verify",
+              url: "https://api.archcontext.dev/notifications/events",
               headers: [{ name: "authorization", value: "Bearer [REDACTED]" }],
               postData: {
                 text: JSON.stringify({
-                  attestationId: "att_1",
-                  headSha: "abc",
-                  worktreeDigest: `sha256:${"1".repeat(64)}`,
-                  reviewDigest: `sha256:${"2".repeat(64)}`,
-                  trustLevel: "organization",
+                  schemaVersion: "archcontext.notification-event/v1",
+                  eventId: "evt_1",
+                  commitSha: "abc",
+                  payloadDigest: `sha256:${"1".repeat(64)}`,
+                  result: "pass",
                   repositoryNumericId: 1001
                 })
               }
