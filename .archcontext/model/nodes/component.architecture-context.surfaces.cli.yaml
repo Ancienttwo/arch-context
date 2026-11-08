@@ -4,8 +4,6 @@ name: "CLI"
 parent: "module.architecture-context.surfaces"
 schemaVersion: "archcontext.node/v2"
 source:
-  exclude:
-    - "packages/surfaces/cli/src/github-review-state.ts"
   include:
     - "packages/surfaces/cli/src/**"
     - "packages/surfaces/cli/bin/**"
