@@ -14,15 +14,15 @@
 
 > **核心结论：ArchContext 本地 Runtime 是产品核心；GitHub App 是可选治理桥梁；客户控制 Runner 是自动执行和较高信任证明的载体。GitHub App 与 SaaS 不配置 LLM Provider，也不读取代码执行 Review。**
 
-> **ADR-0053 之后的现状（2026-11-08）**：GitHub App 治理桥梁、Developer Review、Organization Runner 及其签名证明已退役，代码移除见 #501，发布于 `archctx` / `archctx-contracts` 0.12.0。本文中仍然有效的只有本地产品封装部分（§1、§2.1、§2.3、§5.2、§6 与 Local Core 相关的验收）。以下章节只作为历史记录保留，不再约束实现：§2.2、§2.4、§5.3–5.4、§8–§11、§12.1、§13 中除 `accounts` 和 `subscriptions` 以外的 API 与 D1 表、§17.3、§17.5，以及其余描述 Review Challenge、Attestation、Check 投递或 Runner 的内容。架构评审只在本地运行，不再向 Pull Request 发布 ArchContext Check。
+> **ADR-0053 之后的现状（2026-11-08）**：GitHub App 治理桥梁、Developer Review、Organization Runner 及其签名证明已退役，代码移除见 #501 和 #502，将随 `archctx` / `archctx-contracts` 0.12.0 发布。全文只作为历史记录保留，不再约束实现。延续至今的只有方向：Local Core 是产品核心，本地是一个产品、一个版本。当前的产品要求以 `docs/spec.md` 为准，安装方式、包名和命令以 README 与 `docs/runbooks/` 为准。架构评审只在本地运行，不再向 Pull Request 发布 ArchContext Check。
 
 ---
 
 ## AI Quick-Read Card
 
 - Product boundary: the local ArchContext runtime is the product. ADR-0053 retired the GitHub App, Developer Review and Organization Runner; architecture review runs locally only.
-- Still in force: the local product packaging sections (§1, §2.1, §2.3, §5.2, §6 and the Local Core acceptance).
-- Historical only: the GitHub App, Review Challenge, Attestation, Check delivery, Runner and governance D1 sections. Do not implement from them.
+- Historical only: this whole PRD. Do not implement from it. Current requirements live in `docs/spec.md`; install, package and command details live in the README and `docs/runbooks/`.
+- What carried forward is the direction only: Local Core is the product, shipped as one local product and one version.
 
 ## Problem
 

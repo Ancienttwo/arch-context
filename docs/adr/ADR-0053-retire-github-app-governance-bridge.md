@@ -130,7 +130,7 @@ These follow from the decision above. The ADR did not name them explicitly.
 - `packages/cloud/hardening` `secureDefaults()` drops `githubContentsPermission`, so `archctx doctor` no longer reports it in 0.12.0.
 - Contracts also drop the `developer-review-*` failure policies, `AC_ATTESTATION_REJECTED`, `CloudMetadataPort.submitAttestation`, `ReviewCheckoutGitPort` and `DetachedReviewWorktreeVerification`, and the git adapter drops its detached review worktree helpers. Only retired code used them.
 - `appliesTo` no longer names `component.architecture-context.surfaces.github-review-state`, because the model retired that component and validation rejects references to unknown nodes.
-- The follow-up PRD (`docs/prds/20260620-0236-archcontext-local-github-governance.prd.md`) and the governance sections of the full PRD are marked superseded in part. They stay as history.
+- The follow-up PRD (`docs/prds/20260620-0236-archcontext-local-github-governance.prd.md`) is marked superseded in part and kept as history only. The full PRD names its superseded governance sections. Both stay in the repository.
 
 ## Follow-up not decided here
 
