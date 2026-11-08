@@ -22,7 +22,7 @@ supersedes:
 >
 > **Origin**: PR #478 (owner decision https://github.com/Ancienttwo/arch-context/pull/478#issuecomment-6636922610)
 >
-> **Implementation**: Rollout step 3 landed in #501 (merge `cbc5761a`, 2026-11-08) and the residue cleanup that followed it. It ships as `archctx` and `archctx-contracts` 0.12.0. Step 1 was re-checked on 2026-11-08: `/rulesets` and `/rules/branches/main` return `[]`, and `main` has no branch protection. For step 2, no `archcontext-staging` check run appeared on the #501 head. Steps 4 to 6 remain owner actions.
+> **Implementation**: Rollout step 3 landed in #501 (merge `cbc5761a`, 2026-11-08) and the residue cleanup that followed it. It ships as `archctx` and `archctx-contracts` 0.12.0. Step 1 was re-checked on 2026-11-08: `/rulesets` and `/rules/branches/main` return `[]`, and `main` has no branch protection. For step 2, the `archcontext-staging` App posted one check run on the #496 and #499 heads and none on the #501 head or later. 0.12.0 was published on 2026-11-09 from `478fc5c1` (tag `v0.12.0`). Step 4 ran on 2026-11-09: the Worker `archcontext-fg2-staging` was deleted along with its secrets, and the `archcontext.repoharness.com` custom domain no longer exists. Only three secrets were ever set: `ARCHCONTEXT_READBACK_SECRET` was absent. Step 5: the local key copies `_ops/env/fg2-staging.env` and `_ops/env/fg2-staging.github-app.private-key.pem` were deleted. Deleting the App registration (ID `4102781`) and its private key is pending; GitHub only allows it from the App settings page. Step 6 ran on 2026-11-09: the D1 database `archcontext-control-plane-staging` (`27f60a8d-e93a-4e7a-b7cc-035f4f842b26`) was deleted without an export. It had served no queries in the previous 24 hours.
 
 ## Context
 
