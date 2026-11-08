@@ -11,4 +11,4 @@ Use this skill before delivering task completion or PR review output.
 
 ## Rule
 
-Review details remain local. Attestation, when used, contains only minimal proof metadata.
+Review details remain local.

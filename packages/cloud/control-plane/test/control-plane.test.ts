@@ -189,8 +189,19 @@ describe("control plane", () => {
     expect(() => cp.mapStripeEvent({ id: "evt_1", type: "invoice.payment_failed", accountId: account.id })).toThrow("duplicate");
     cp.revokeDevice("device_1");
     expect(cp.revokedDevices.has("device_1")).toBe(true);
+    cp.setNotificationProvider({
+      schemaVersion: "archcontext.notification-provider/v1",
+      id: "notification-provider.account-delete",
+      provider: "webhook",
+      enabled: true,
+      target: "https://notify.example",
+      secretRef: "secret://account-delete",
+      retry: { maxAttempts: 3, backoffSeconds: 30 }
+    }, { accountId: account.id });
+    expect(cp.listNotificationProviders({ accountId: account.id }).map((config) => config.id)).toContain("notification-provider.account-delete");
     cp.deleteAccount(account.id);
     expect(cp.exportAccount(account.id).account).toBeUndefined();
+    expect(cp.listNotificationProviders({ accountId: account.id }).map((config) => config.id)).not.toContain("notification-provider.account-delete");
   });
 
   test("annual billing remains per-person and covers all private repositories", () => {
