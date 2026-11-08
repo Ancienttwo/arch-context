@@ -109,7 +109,6 @@ export function sprint2LaunchGateReport() {
   return {
     status: "sprint-2-deterministic-evidence",
     multiRepoPrivacy: "landscape numeric repository IDs only",
-    organizationAttestation: "runner identity + installation + trustLevel tests",
     annualBilling: "$99 annual interval + per-person entitlement tests",
     singleRepoRegression: "bun test",
     securityFindings: {

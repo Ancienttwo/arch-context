@@ -1,10 +1,8 @@
 /**
- * The routes `packages/cloud/control-plane` serves for surfaces that stay deferred: OAuth, device
- * authorization, entitlements, billing webhooks, MCP metadata, ChatGPT and notifications.
- *
- * ADR-0053 moved these here from `@archcontext/contracts` `CONTROL_PLANE_ROUTES` when it retired the
- * GitHub App governance bridge. The challenge, attestation, runner-key and check-delivery routes are
- * gone with that bridge and must not be re-added.
+ * The control-plane route table: OAuth, device authorization, entitlements, the Stripe webhook,
+ * MCP metadata, ChatGPT and notifications. `routeDigest()` digests this list, and the compatibility
+ * policy (`docs/api/control-plane-compatibility-policy.md`) treats removing or renaming an entry as
+ * a breaking change.
  */
 export const CONTROL_PLANE_ROUTES = [
   "GET /oauth/github/start",
@@ -12,7 +10,6 @@ export const CONTROL_PLANE_ROUTES = [
   "POST /device/authorize",
   "POST /device/complete",
   "GET /entitlements/:repository",
-  "POST /github/webhook",
   "POST /stripe/webhook",
   "GET /mcp/metadata",
   "GET /chatgpt/directory",

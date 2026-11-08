@@ -39,8 +39,6 @@ export interface ControlPlaneView {
   prices: BillingPrices;
   /** Billing portal navigation target; null renders a disabled placeholder. */
   billingPortalUrl: string | null;
-  /** GitHub App install/reconfigure URL; null renders a disabled placeholder. */
-  githubAppInstallUrl: string | null;
   /** Days a revoked-network local runtime keeps working offline. */
   offlineGraceDays: number;
   /** Authorized local runtimes + tunnels. */
@@ -113,7 +111,6 @@ export function buildControlPlaneView(input: {
   displayName?: string;
   githubLogin?: string;
   billingPortalUrl?: string | null;
-  githubAppInstallUrl?: string | null;
   offlineGraceDays?: number;
   devices?: DeviceRow[];
   providers?: NotificationProviderConfig[];
@@ -124,7 +121,6 @@ export function buildControlPlaneView(input: {
     displayName: input.displayName ?? input.account.githubUserId,
     githubLogin: input.githubLogin ?? input.account.githubUserId,
     billingPortalUrl: input.billingPortalUrl ?? null,
-    githubAppInstallUrl: input.githubAppInstallUrl ?? null,
     offlineGraceDays: input.offlineGraceDays ?? 7,
     devices: input.devices ?? [],
     providers: input.providers ?? []
@@ -172,7 +168,7 @@ function accountPanel(view: ControlPlaneView): string {
     <div class="grid-2">
       <div class="card">
         ${statusBadge("public", "ok")}
-        <p class="lede lede--tight">Public repositories are free, forever — full local runtime and GitHub Check.</p>
+        <p class="lede lede--tight">Public repositories are free, forever — full local runtime.</p>
       </div>
       <div class="card">
         ${statusBadge("private", account.plan === "pro" ? "ok" : "warn")}
@@ -309,47 +305,6 @@ function notificationsPanel(view: ControlPlaneView): string {
   </section>`;
 }
 
-function githubAppPanel(view: ControlPlaneView): string {
-  const install = view.githubAppInstallUrl
-    ? `<a class="btn btn--primary" href="${escapeHtml(view.githubAppInstallUrl)}">Install or reconfigure</a>`
-    : `<button class="btn btn--primary" type="button" disabled>Install URL unavailable</button>`;
-  return `
-  <section class="panel hidden" data-panel="github-app" role="tabpanel" aria-labelledby="tab-github-app">
-    <header class="panel__head">
-      <h2 class="h2">GitHub App</h2>
-      <p class="lede">Install ArchContext on selected repositories to receive PR events and publish Review Checks.</p>
-    </header>
-
-    <div class="card">
-      <span class="eyebrow">Installation</span>
-      <p class="lede lede--tight">Choose only the repositories you want governed. ArchContext does not read code to run Review; the local runtime signs the result and the SaaS verifies metadata.</p>
-      <div class="actions">${install}</div>
-    </div>
-
-    <div class="card">
-      <span class="eyebrow">Repository permissions</span>
-      <dl class="rows">
-        <div class="row"><dt>Metadata: Read</dt><dd>Identify selected repositories and installation state.</dd></div>
-        <div class="row"><dt>Pull Requests: Read</dt><dd>Receive PR events and read head/base commit metadata.</dd></div>
-        <div class="row"><dt>Checks: Write</dt><dd>Create and update ArchContext Review Checks.</dd></div>
-        <div class="row"><dt>Commit Statuses: Write</dt><dd>Required only for GitHub ruleset expected-source binding; ArchContext still publishes Review through Checks.</dd></div>
-        <div class="row"><dt>Contents: None</dt><dd>Not requested.</dd></div>
-      </dl>
-    </div>
-
-    <div class="card">
-      <span class="eyebrow">Data retention</span>
-      <dl class="rows">
-        <div class="row"><dt>Raw webhook body</dt><dd>0 days.</dd></div>
-        <div class="row"><dt>Webhook delivery projection</dt><dd>30 days.</dd></div>
-        <div class="row"><dt>Unfinished challenge</dt><dd>7 days.</dd></div>
-        <div class="row"><dt>Check delivery metadata</dt><dd>90 days.</dd></div>
-        <div class="row"><dt>Verified attestation metadata</dt><dd>1 year or account deletion.</dd></div>
-      </dl>
-    </div>
-  </section>`;
-}
-
 function privacyPanel(): string {
   // Privacy promise. NOTE: the supporting line deliberately avoids the
   // privacy-audit forbidden literals; it lists what the SaaS never receives in
@@ -364,7 +319,7 @@ function privacyPanel(): string {
       <span class="notice__dot" aria-hidden="true"></span>
       <div class="notice__body">
         <strong>Zero code leaves your machine.</strong>
-        The SaaS verifies minimal fields only — it never receives your code, diffs, symbols, the dependency graph, model bodies, or detailed findings. The GitHub App holds no Contents permission and there are no content-upload routes, guarded by a CI privacy contract test.
+        The SaaS keeps minimal account fields only — it never receives your code, diffs, symbols, the dependency graph, model bodies, or detailed findings. There are no content-upload routes, guarded by a CI privacy contract test.
       </div>
     </div>
 
@@ -642,7 +597,6 @@ export function renderControlPlaneHtml(view: ControlPlaneView): string {
     "{{prices.monthly.label}}",
     "{{prices.annual.label}}",
     "{{billingPortalUrl}}",
-    "{{githubAppInstallUrl}}",
     "{{offlineGraceDays}}",
     "{{devices[].id|label|kind|lastSeen|status}}",
     "{{providers[].id|provider|enabled|target|secretRef}}"
@@ -674,7 +628,6 @@ export function renderControlPlaneHtml(view: ControlPlaneView): string {
         <button class="tab" type="button" role="tab" id="tab-billing" data-tab="billing">Billing</button>
         <button class="tab" type="button" role="tab" id="tab-devices" data-tab="devices">Devices &amp; tunnels</button>
         <button class="tab" type="button" role="tab" id="tab-notifications" data-tab="notifications">Notifications</button>
-        <button class="tab" type="button" role="tab" id="tab-github-app" data-tab="github-app">GitHub App</button>
         <button class="tab" type="button" role="tab" id="tab-privacy" data-tab="privacy">Privacy &amp; data</button>
       </nav>
     </div>
@@ -685,7 +638,6 @@ export function renderControlPlaneHtml(view: ControlPlaneView): string {
     ${billingPanel(view)}
     ${devicesPanel(view)}
     ${notificationsPanel(view)}
-    ${githubAppPanel(view)}
     ${privacyPanel()}
   </main>
 
