@@ -1,6 +1,6 @@
 # Control Plane API Compatibility Policy
 
-This policy applies to the control-plane API that `packages/cloud/control-plane` serves, documented in `docs/api/control-plane-openapi.yaml`.
+This policy applies to the control-plane API that `packages/cloud/control-plane` serves. `CONTROL_PLANE_ROUTES` in `packages/cloud/control-plane/src/routes.ts` is the route table of record.
 
 ## Versioning
 
@@ -48,6 +48,6 @@ The Control Plane must not store or return:
 
 Compatibility evidence must include:
 
-- OpenAPI route coverage for the affected route;
+- route-table coverage for the affected route in `packages/cloud/control-plane/test/control-plane.test.ts`;
 - request `schemaVersion` coverage when a body is accepted;
 - privacy-route audit and package-boundary verification.

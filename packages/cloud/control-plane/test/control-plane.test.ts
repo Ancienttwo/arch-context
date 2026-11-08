@@ -20,13 +20,12 @@ describe("control plane", () => {
   });
 
   test("publishes the Control Plane compatibility policy against the served route table", () => {
-    const openApi = readFileSync("docs/api/control-plane-openapi.yaml", "utf8");
     const policy = readFileSync("docs/api/control-plane-compatibility-policy.md", "utf8");
     expect(policy).toContain("`CONTROL_PLANE_ROUTES` in `packages/cloud/control-plane/src/routes.ts`");
     expect(policy).toContain("schemas/cloud/cloud-egress-envelope.schema.json");
     expect(policy).toContain("Breaking Changes");
     expect(policy).toContain("Privacy Contract");
-    expect(JSON.stringify([openApi, policy])).not.toMatch(/upload|blob|embedding|unredacted bearer token/i);
+    expect(policy).not.toMatch(/upload|blob|embedding|unredacted bearer token/i);
   });
 
   test("projects log trace queue and error surfaces before storage", () => {
@@ -62,8 +61,6 @@ describe("control plane", () => {
       routeId: "github.webhook",
       installationId: 123,
       repositoryId: 987,
-      pullRequestNumber: 42,
-      headShaPrefix: "abcdef123456",
       status: "failed",
       reasonCode: "PAYLOAD_PRIVACY_VIOLATION",
       latencyMs: 12,
