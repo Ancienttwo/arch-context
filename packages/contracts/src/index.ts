@@ -5,6 +5,7 @@ export * from "./architecture-debt";
 export * from "./docs-anchors";
 export * from "./external-docs";
 export * from "./github-governance";
+export * from "./review-guards";
 export * from "./ledger";
 export * from "./native-context";
 export * from "./ref-impact";

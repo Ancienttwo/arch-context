@@ -32,15 +32,11 @@ import {
   GOVERNANCE_REASON_CATALOG,
   ORGANIZATION_RUNNER_CHECK_NAME,
   RUNNER_IDENTITY_STATUS_TRANSITIONS,
-  CALLER_PROVIDED_ATTESTATION_FIELDS,
-  LLM_ADVISORY_FORBIDDEN_FIELDS,
   attestationV2Digest,
   assertCanTransitionChallenge,
   assertCanTransitionRunnerIdentityStatus,
   assertGovernanceFeatureFlagsAllow,
-  assertNoLlmAdvisoryConclusionFields,
   assertRunnerIdentity,
-  assertNoCallerProvidedAttestationFields,
   canTransitionChallenge,
   canTransitionCheckDelivery,
   canTransitionRunnerIdentityStatus,
@@ -49,8 +45,6 @@ import {
   createAttestationV2,
   createRunnerIdentity,
   evaluateGovernanceFeatureFlags,
-  findCallerProvidedAttestationFields,
-  findLlmAdvisoryForbiddenFields,
   normalizeGovernanceFeatureFlags,
   requiredTrustForCheckName,
   runnerIdentityEffectiveScope,
@@ -64,6 +58,14 @@ import {
   type ReviewChallengeStatus,
   type ReviewChallengeV2
 } from "../src/github-governance";
+import {
+  CALLER_PROVIDED_ATTESTATION_FIELDS,
+  LLM_ADVISORY_FORBIDDEN_FIELDS,
+  assertNoCallerProvidedAttestationFields,
+  assertNoLlmAdvisoryConclusionFields,
+  findCallerProvidedAttestationFields,
+  findLlmAdvisoryForbiddenFields
+} from "../src/review-guards";
 import {
   LEDGER_AUTHORITY_MATRIX,
   RECOMMENDATION_STATUSES,
