@@ -4,16 +4,15 @@ import { join } from "node:path";
 
 /**
  * Guards the local-runtime SCC fix (scc.cd1c0fb7a216355a): the daemon facade (`./index`) used to be
- * the only place several RPC argument/result types lived, which made `rpc-methods.ts` and
- * `developer-review-codec.ts` import back from the facade that composes them, closing a cycle.
- * Those types now live in `rpc-types.ts` (and the developer-review types in
- * `developer-review-codec.ts` itself, next to their decoders), so no file needs `./index` for a
- * type, and the six contract files only ever look at contracts, core, git-adapter, or each other.
+ * the only place several RPC argument/result types lived, which made `rpc-methods.ts` import back
+ * from the facade that composes it, closing a cycle. Those types now live in `rpc-types.ts`, so no
+ * file needs `./index` for a type, and the five contract files only ever look at contracts, core,
+ * git-adapter, or each other.
  */
 
 const SRC_DIR = join(import.meta.dir, "../src");
 
-const CONTRACT_FILES = ["rpc-methods.ts", "rpc-types.ts", "rpc-protocol.ts", "developer-review-codec.ts", "rpc-argument-codec.ts", "rpc-client.ts"];
+const CONTRACT_FILES = ["rpc-methods.ts", "rpc-types.ts", "rpc-protocol.ts", "rpc-argument-codec.ts", "rpc-client.ts"];
 
 function importSpecifiers(source: string): string[] {
   const specifiers: string[] = [];

@@ -24,14 +24,8 @@ import { createStartedDaemon } from "../src/index";
 
 const ctx = "unitTest";
 
-const DEV_REVIEW_METHODS = new Set<string>([
-  "startDeveloperReviewRun",
-  "runSignedDeveloperReviewAttestation",
-  "cleanupDeveloperReviewRun",
-  "recoverDeveloperReviewRuns"
-]);
-const GENERAL_METHODS = (Object.keys(RUNTIME_RPC_METHODS) as RuntimeRpcMethodName[]).filter((m) => !DEV_REVIEW_METHODS.has(m));
-// The only general (envelopeMethod) entries with no positional params at all — the "one wrong-type
+const METHODS = Object.keys(RUNTIME_RPC_METHODS) as RuntimeRpcMethodName[];
+// The only table entries with no positional params at all — the "one wrong-type
 // argument" half of the table-driven test below does not apply to these; the "non-array params
 // container" half still does.
 const ZERO_ARG_METHODS = new Set<string>(["repoList", "landscapeStatus", "stopExplorer", "revokeExplorerToken", "explorerStatus"]);
@@ -231,11 +225,11 @@ describe("RPC method table: invalid positional input is a structured AC_SCHEMA_I
     assertSchemaInvalid(await rpcCall("repoList", "not-an-array"), "repoList params must be an array");
   });
 
-  // Table-driven over every general (envelopeMethod) table entry: one wrong-type positional
+  // Table-driven over every table entry: one wrong-type positional
   // argument (an array is wrong for every slot kind — string, optional string, optional number,
   // and object — so it works uniformly at slot 0 without needing a per-method value table) plus
   // the non-array params container, for all 61 entries.
-  for (const method of GENERAL_METHODS) {
+  for (const method of METHODS) {
     if (!ZERO_ARG_METHODS.has(method)) {
       test(`${method} rejects a wrong-type value at its first positional slot as AC_SCHEMA_INVALID`, async () => {
         assertSchemaInvalid(await rpcCall(method, [["wrong-type-sentinel"]]));
@@ -252,8 +246,7 @@ describe("RPC method table: invalid positional input is a structured AC_SCHEMA_I
 // for a *well-formed* object that is nonetheless incomplete — the decoder only checks "is this a
 // plain object", so `{}` (or any other plain object) always reaches the handler, which is free to
 // answer whatever structured code its own logic decides. Also verifies valid input still succeeds,
-// and what a real `RuntimeRpcClient` caller actually receives for both an envelopeMethod entry and
-// a developer-review dataMethod entry.
+// and what a real `RuntimeRpcClient` caller actually receives for an envelopeMethod entry.
 describe("RPC method table: well-formed objects still reach the handler's own validation unchanged", () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "archctx-rpc-argument-codec-realdaemon-state-"));
   const root = mkdtempSync(join(tmpdir(), "archctx-rpc-argument-codec-realdaemon-repo-"));
@@ -337,11 +330,5 @@ describe("RPC method table: well-formed objects still reach the handler's own va
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
     expect(result.error).toMatchObject({ reasonCode: "rpc-input-invalid", action: "repair-model", details: {} });
-  });
-
-  test("client behavior: a developer-review dataMethod throws the typed validation failure", async () => {
-    await expect(client.startDeveloperReviewRun("not-an-object" as never)).rejects.toMatchObject({
-      name: "FailureError", code: "AC_SCHEMA_INVALID", reasonCode: "rpc-input-invalid", action: "repair-model", details: {}
-    });
   });
 });

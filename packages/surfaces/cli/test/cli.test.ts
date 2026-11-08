@@ -1,6 +1,6 @@
 import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync as nodeRmSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -16,10 +16,7 @@ import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-fact
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, grantAuditConsent, readAuditConsent, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { DevicePrivateKeyStore, InMemoryCredentialSecretStore } from "@archcontext/cloud/control-plane-client";
-import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
 import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, architectureDocsProjectionManifestDigests, architectureDocsProjectionManifestSourceStamps, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
-import { createFixtureGithubConnectionReader } from "./github-connection-fixture";
 import { createDaemonSetupKeepalive } from "./daemon-setup-keepalive";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { CLI_COMMAND_FLAGS, resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
@@ -1578,10 +1575,6 @@ function gitOut(root: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function readFileMode(path: string): number {
-  return statSync(path).mode & 0o777;
-}
-
 async function withEnv<T>(patch: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
   const previous = new Map<string, string | undefined>();
   for (const key of Object.keys(patch)) {
@@ -1598,15 +1591,6 @@ async function withEnv<T>(patch: Record<string, string | undefined>, run: () => 
       else process.env[key] = value;
     }
   }
-}
-
-function expectSafeGithubReviewOutput(data: unknown, challenge: { nonce: string }, signatureValue?: string): void {
-  const serialized = JSON.stringify(data);
-  expect(serialized).not.toContain(challenge.nonce);
-  expect(serialized).not.toContain("keychain://");
-  expect(serialized).not.toContain("PRIVATE KEY");
-  expect(serialized).not.toContain("fixed-review-verifier");
-  if (signatureValue) expect(serialized).not.toContain(signatureValue);
 }
 
 describe("archctx CLI", () => {
@@ -1800,7 +1784,7 @@ describe("archctx CLI", () => {
           effectiveValue: "1"
         }
       });
-      expect((doctor.data as any).hardening.privacyRouteDigest).toMatch(/^sha256:/);
+      expect((doctor.data as any).hardening).not.toHaveProperty("privacyRouteDigest");
       const paths = await runTestCli("paths", [], root);
       expect(paths.ok).toBe(true);
       expect((paths.data as any).repositoryTruthDir).toBe(join(realpathSync.native(root), ".archcontext"));
@@ -3056,7 +3040,7 @@ describe("archctx CLI", () => {
       expect(spec, `${command} ${subcommand}`).toBeDefined();
       return new Set([...spec!.value, ...spec!.boolean]);
     };
-    const handlers: Record<string, string> = { jobs: "runJobsCommand", practices: "runPracticesCommand", recommendations: "runRecommendationsCommand", ledger: "runLedgerCommand", github: "runGithubCommand", agents: "runAgentsCommand" };
+    const handlers: Record<string, string> = { jobs: "runJobsCommand", practices: "runPracticesCommand", recommendations: "runRecommendationsCommand", ledger: "runLedgerCommand", agents: "runAgentsCommand" };
     for (const [command, handler] of Object.entries(handlers)) {
       for (const [subcommands, block] of subcommandBlocks(functionBody(source, handler))) {
         for (const subcommand of subcommands) {
@@ -4377,325 +4361,11 @@ describe("archctx CLI", () => {
     }
   });
 
-  test("github connect fails closed without creating credentials or claiming a connection", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-"));
-    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
-    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
-    try {
-      const connect = await runCli("github", ["connect"], root);
-      expect(connect.ok).toBe(false);
-      expect((connect as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
-      // github connect reads no --account-id; the argument check refuses it before the handler (#322).
-      expect((await runCli("github", ["connect", "--account-id", "acct_42"], root) as any).error.code).toBe("AC_SCHEMA_INVALID");
-      const connectionPath = join(testRuntimePaths(root).workspaceStateDir, "github-connection.json");
-      expect(existsSync(connectionPath)).toBe(false);
-      const processConnect = await runCliProcessRaw(root, "github", "connect");
-      expect(processConnect.code).not.toBe(0);
-      expect(JSON.parse(processConnect.stdout).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
-      expect(existsSync(connectionPath)).toBe(false);
-      const status = await runCli("github", ["status"], root);
-      expect((status.data as any).connected).toBe(false);
-
-      mkdirSync(dirname(connectionPath), { recursive: true });
-      const legacy = JSON.stringify({
-        schemaVersion: "archcontext.github-connection/v1", status: "connected",
-        accountId: "acct_42", githubUserId: "42", refreshTokenRef: "keychain://archcontext/acct_42/github-refresh"
-      });
-      writeFileSync(connectionPath, legacy);
-      const legacyStatus = await runCli("github", ["status"], root);
-      expect((legacyStatus.data as any).connected).toBe(false);
-      expect(JSON.stringify(legacyStatus.data)).not.toContain("acct_42");
-      const processStatus = await runCliProcess(root, "github", "status");
-      expect(processStatus.data.connected).toBe(false);
-      const review = await runCli("github", ["review", "claim"], root);
-      expect(review.ok).toBe(false);
-      expect((review as any).error.code).toBe("AC_RUNTIME_UNAVAILABLE");
-      expect(readFileSync(connectionPath, "utf8")).toBe(legacy);
-      const disconnect = await runCli("github", ["disconnect"], root);
-      expect(disconnect.ok).toBe(true);
-      expect((disconnect.data as any).localRecordRemoved).toBe(true);
-      expect((disconnect.data as any).remoteRevoked).toBe(false);
-      expect(existsSync(connectionPath)).toBe(false);
-    } finally {
-      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
-      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
-      removeTempRoot(root);
-    }
+  test("github is not a command: it answers the command list, which omits it", async () => {
+    const result = await runCli("github", ["connect"], tmpdir()) as any;
+    expect(result).toMatchObject({ ok: true, requestId: "help" });
+    expect(result.data.commands).not.toContain("github");
   });
-
-  test("github disconnect preserves a verified connection when it cannot revoke it", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-disconnect-"));
-    const store = new DevicePrivateKeyStore(new InMemoryCredentialSecretStore());
-    const deps = { githubConnectionReader: createFixtureGithubConnectionReader(store, {
-      accountId: "acct_active", githubUserId: "42", publicKeyId: "key_active"
-    }) };
-    try {
-      const disconnected = await runCli("github", ["disconnect"], root, deps);
-      expect(disconnected.ok).toBe(true);
-      expect(disconnected.data).toMatchObject({ connected: true, remoteRevoked: false });
-      const status = await runCli("github", ["status"], root, deps);
-      expect(status.data).toMatchObject({ connected: true });
-    } finally {
-      removeTempRoot(root);
-    }
-  });
-
-  test("github verify-head fetches typed pull head metadata and rejects mismatched Challenge identity without gh", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-head-"));
-    const challenge = createReviewChallengeV2({
-      challengeId: "chal_cli_verify_head",
-      installationId: 10001,
-      repositoryId: 20002,
-      pullRequestNumber: 42,
-      headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      baseSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      nonce: "nonce_cli_verify_head_secret",
-      requiredTrust: "developer",
-      policyProfileId: "policy.default",
-      createdAt: "2026-06-20T09:00:00Z",
-      expiresAt: "2026-06-20T09:15:00Z"
-    });
-    const requests: unknown[] = [];
-    try {
-      const accepted = await runCli("github", [
-        "verify-head",
-        "--challenge-json", JSON.stringify(challenge)
-      ], root, {
-        githubGovernancePort: {
-          async getPullHeadMetadata(input) {
-            requests.push(input);
-            return {
-              ...input,
-              headSha: challenge.headSha,
-              baseSha: challenge.baseSha
-            };
-          }
-        }
-      });
-
-      expect(accepted.ok).toBe(true);
-      expect(accepted.requestId).toBe("github.verify-head");
-      expect((accepted.data as any)).toMatchObject({
-        accepted: true,
-        challengeId: challenge.challengeId,
-        ghCli: "not-used",
-        expected: {
-          installationId: challenge.installationId,
-          repositoryId: challenge.repositoryId,
-          pullRequestNumber: challenge.pullRequestNumber,
-          headSha: challenge.headSha,
-          baseSha: challenge.baseSha
-        }
-      });
-      expect(requests).toEqual([{
-        installationId: challenge.installationId,
-        repositoryId: challenge.repositoryId,
-        pullRequestNumber: challenge.pullRequestNumber
-      }]);
-      expect(JSON.stringify(accepted.data)).not.toContain(challenge.nonce);
-      expect(JSON.stringify(accepted.data)).not.toContain("PRIVATE KEY");
-
-      const rejected = await runCli("github", [
-        "verify-head",
-        "--challenge-json", JSON.stringify(challenge)
-      ], root, {
-        githubGovernancePort: {
-          async getPullHeadMetadata(input) {
-            return {
-              ...input,
-              headSha: "cccccccccccccccccccccccccccccccccccccccc",
-              baseSha: challenge.baseSha
-            };
-          }
-        }
-      });
-      expect(rejected.ok).toBe(true);
-      expect((rejected.data as any)).toMatchObject({
-        accepted: false,
-        reasonCode: "HEAD_SHA_MISMATCH",
-        ghCli: "not-used"
-      });
-
-      const noPort = await runCli("github", [
-        "verify-head",
-        "--challenge-json", JSON.stringify(challenge)
-      ], root);
-      expect(noPort.ok).toBe(false);
-      expect((noPort as any).error?.code).toBe("AC_RUNTIME_UNAVAILABLE");
-
-      const invalidChallenge = await runCli("github", [
-        "verify-head",
-        "--challenge-json", "{}"
-      ], root, {
-        githubGovernancePort: {
-          async getPullHeadMetadata() {
-            throw new Error("should-not-fetch-invalid-challenge");
-          }
-        }
-      });
-      expect(invalidChallenge.ok).toBe(false);
-      expect((invalidChallenge as any).error?.code).toBe("AC_SCHEMA_INVALID");
-    } finally {
-      removeTempRoot(root);
-    }
-  });
-
-  test("github review claim run submit status retry and cancel use daemon-owned signing without leaking secrets", async () => {
-    const root = createInitializedGitRepo();
-    const credentials = new InMemoryCredentialSecretStore();
-    const devicePrivateKeyStore = new DevicePrivateKeyStore(credentials);
-    const provider = new MockCodeGraphProvider();
-    const headSha = gitOut(root, "rev-parse", "HEAD");
-    const baseSha = headSha;
-    const challenge = createReviewChallengeV2({
-      challengeId: "chal_cli_developer_review",
-      installationId: 10001,
-      repositoryId: 20002,
-      pullRequestNumber: 42,
-      headSha,
-      baseSha,
-      nonce: "nonce_cli_developer_review_secret",
-      requiredTrust: "developer",
-      policyProfileId: "policy.default",
-      createdAt: "2026-06-20T09:00:00Z",
-      expiresAt: "2026-06-20T09:15:00Z"
-    });
-    const submissions: any[] = [];
-    const challengeFetches: number[] = [];
-    const deps = {
-      codeFacts: new CodeGraphAdapter(provider),
-      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
-      devicePrivateKeyStore,
-      githubConnectionReader: createFixtureGithubConnectionReader(devicePrivateKeyStore, {
-        accountId: "acct_review", githubUserId: "42", publicKeyId: "key_device_review"
-      }),
-      githubGovernancePort: {
-        async getPullHeadMetadata(input: any) {
-          return { ...input, headSha, baseSha };
-        }
-      },
-      githubReviewChallengePort: {
-        fetchReviewChallenge(input: { pullRequestNumber: number }) {
-          challengeFetches.push(input.pullRequestNumber);
-          return challenge;
-        }
-      },
-      githubReviewSubmissionPort: {
-        async submitDeveloperReview(input: any) {
-          submissions.push(input);
-          return {
-            accepted: true,
-            attestationDigest: input.attestationDigest,
-            delivery: "metadata-only"
-          };
-        }
-      }
-    };
-    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
-    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
-    try {
-      const claim = await runCli("github", [
-        "review",
-        "claim",
-        "--challenge-json", JSON.stringify(challenge),
-        "--now", "2026-06-20T09:01:00Z"
-      ], root, deps);
-      expect(claim.ok).toBe(true);
-      expect(claim.requestId).toBe("github.review.claim");
-      expect((claim.data as any).status).toBe("claimed");
-      expect((claim.data as any).challenge.status).toBe("LEASED");
-      expectSafeGithubReviewOutput(claim.data, challenge);
-
-      const statePath = join(testRuntimePaths(root).workspaceStateDir, "github-developer-review-pr-42.json");
-      expect(existsSync(statePath)).toBe(true);
-      if (process.platform !== "win32") expect(readFileMode(statePath) & 0o077).toBe(0);
-      const persistedClaim = readFileSync(statePath, "utf8");
-      expect(persistedClaim).not.toContain(challenge.nonce);
-      expect(persistedClaim).not.toContain("fixed-review-verifier");
-      expect(persistedClaim).not.toContain("PRIVATE KEY");
-      expect(persistedClaim).not.toContain("keychain://archcontext/device/acct_review/key_device_review");
-
-      const missingChallengeSource = await runCli("github", ["review", "run", "--pr", "42"], root, { ...deps, githubReviewChallengePort: undefined });
-      expect(missingChallengeSource.ok).toBe(false);
-      expect((missingChallengeSource as any).error.message).toContain("configured Challenge fetch port");
-      expect(readFileSync(statePath, "utf8")).toBe(persistedClaim);
-
-      const run = await runCli("github", [
-        "review",
-        "run",
-        "--pr", "42",
-        "--now", "2026-06-20T09:02:00Z",
-        "--started-at", "2026-06-20T09:01:30Z",
-        "--completed-at", "2026-06-20T09:02:00Z"
-      ], root, deps);
-      expect(run.ok).toBe(true);
-      expect(run.requestId).toBe("github.review.run");
-      expect((run.data as any).status).toBe("ran");
-      expect((run.data as any).review.reviewDigest).toMatch(/^sha256:/);
-      expect((run.data as any).attestationDigest).toMatch(/^sha256:/);
-      expect((run.data as any).cleanup.cleaned).toBe(true);
-      expect(provider.indexedRoots).toHaveLength(1);
-      expect(existsSync(provider.indexedRoots[0])).toBe(false);
-      expectSafeGithubReviewOutput(run.data, challenge);
-
-      const status = await runCli("github", ["review", "status", "--pr", "42"], root, deps);
-      expect(status.ok).toBe(true);
-      expect((status.data as any).status).toBe("ran");
-      expectSafeGithubReviewOutput(status.data, challenge);
-
-      const submit = await runCli("github", ["review", "submit", "--pr", "42", "--now", "2026-06-20T09:03:00Z"], root, deps);
-      expect(submit.ok).toBe(true);
-      expect((submit.data as any).status).toBe("submitted");
-      expect((submit.data as any).submission).toMatchObject({ accepted: true, delivery: "metadata-only" });
-      expect(submissions).toHaveLength(1);
-      expect(submissions[0].challenge.challengeId).toBe(challenge.challengeId);
-      expect(submissions[0].attestation.nonce).toBe(challenge.nonce);
-      expectSafeGithubReviewOutput(submit.data, challenge, submissions[0].attestation.signature.value);
-      const persistedSubmission = readFileSync(statePath, "utf8");
-      expect(persistedSubmission).not.toContain(challenge.nonce);
-      expect(persistedSubmission).not.toContain(submissions[0].attestation.signature.value);
-      expect(JSON.parse(persistedSubmission)).not.toHaveProperty("attestation");
-      expect(JSON.parse(persistedSubmission)).not.toHaveProperty("submission");
-      expect(JSON.parse(persistedSubmission).submissionDigest).toMatch(/^sha256:/);
-
-      const cancel = await runCli("github", ["review", "cancel", "--pr", "42", "--now", "2026-06-20T09:04:00Z"], root, deps);
-      expect(cancel.ok).toBe(true);
-      expect((cancel.data as any).status).toBe("cancelled");
-      expectSafeGithubReviewOutput(cancel.data, challenge, submissions[0].attestation.signature.value);
-
-      const retryBlocked = await runCli("github", ["review", "retry", "--pr", "42", "--now", "2026-06-20T09:05:00Z"], root, deps);
-      expect(retryBlocked.ok).toBe(false);
-      expect((retryBlocked as any).error?.message).toContain("--force");
-
-      const retry = await runCli("github", ["review", "retry", "--pr", "42", "--force", "--now", "2026-06-20T09:05:00Z"], root, deps);
-      expect(retry.ok).toBe(true);
-      expect(retry.requestId).toBe("github.review.submit");
-      expect((retry.data as any).status).toBe("submitted");
-      expect(submissions).toHaveLength(2);
-      expect(challengeFetches).toEqual([42, 42, 42]);
-      expectSafeGithubReviewOutput(retry.data, challenge, submissions[1].attestation.signature.value);
-
-      let echoedSignature = "";
-      const rejectedEcho = await runCli("github", ["review", "submit", "--pr", "42", "--now", "2026-06-20T09:06:00Z"], root, {
-        ...deps,
-        githubReviewSubmissionPort: {
-          submitDeveloperReview(input) {
-            echoedSignature = input.attestation.signature.value;
-            return { echo: echoedSignature };
-          }
-        }
-      });
-      expect((rejectedEcho.data as any).status).toBe("failed");
-      expect((rejectedEcho.data as any).reasonCode).toBe("github-review-secret-material-forbidden");
-      expect(JSON.stringify(rejectedEcho)).not.toContain(echoedSignature);
-      expect(readFileSync(statePath, "utf8")).not.toContain(echoedSignature);
-      expect(readFileSync(statePath, "utf8")).not.toContain(challenge.nonce);
-    } finally {
-      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
-      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("foreground daemon subprocess shares runtime state across independent CLI processes", async () => {
     const root = gitTempRoot("archctx-cli-foreground-");

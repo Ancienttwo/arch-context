@@ -24,10 +24,6 @@ export function defaultDaemonControlDir(root = process.cwd()): string {
   return runtimeStatePaths(root).workspaceStateDir;
 }
 
-export function defaultDeveloperReviewRunStateDir(root = process.cwd()): string {
-  return runtimeStatePaths(root).developerReviewRunStateDir;
-}
-
 export function defaultDaemonConnectionPath(root = process.cwd()): string {
   return runtimeStatePaths(root).daemonConnectionPath;
 }

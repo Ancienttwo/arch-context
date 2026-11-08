@@ -375,7 +375,7 @@ export function defaultArchContextLoopTranscript(): ToolLoopTranscript {
           },
           {
             kind: "note",
-            text: "signed review emitted · attestation bound to dccf0a6 · egress none",
+            text: "local review recorded · bound to dccf0a6 · egress none",
           },
         ],
       },

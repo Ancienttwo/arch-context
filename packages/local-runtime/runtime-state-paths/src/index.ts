@@ -28,7 +28,6 @@ export interface RuntimeStatePaths {
   daemonConnectionPath: string;
   daemonLockPath: string;
   daemonLogPath: string;
-  developerReviewRunStateDir: string;
   legacyControlDir: string;
   legacyLocalStorePath: string;
 }
@@ -73,7 +72,6 @@ export function runtimeStatePaths(root = process.cwd(), env: Record<string, stri
     sharedCacheDir: join(repositoryStateDir, "shared", "cache"),
     localStorePath: env[ARCHCONTEXT_LOCAL_STORE_PATH_ENV] ?? join(workspaceStateDir, "runtime.sqlite"),
     ...daemonControlPaths(workspaceStateDir),
-    developerReviewRunStateDir: join(workspaceStateDir, "developer-review-runs"),
     legacyControlDir,
     legacyLocalStorePath: join(legacyControlDir, "runtime.sqlite")
   };
