@@ -28,10 +28,6 @@ export interface ProductVersionManifest {
   schemas: {
     schemaSetVersion: typeof ARCHCONTEXT_SCHEMA_SET_VERSION;
     contractsPackageVersion: typeof ARCHCONTEXT_PRODUCT_VERSION;
-    reviewChallenge: "archcontext.review-challenge/v2";
-    attestation: "archcontext.attestation/v2";
-    deviceIdentity: "archcontext.device-identity/v1";
-    runnerIdentity: "archcontext.runner-identity/v1";
   };
   runtime: {
     localRpc: {
@@ -87,10 +83,6 @@ export function productVersionManifest(): ProductVersionManifest {
     schemas: {
       schemaSetVersion: ARCHCONTEXT_SCHEMA_SET_VERSION,
       contractsPackageVersion: ARCHCONTEXT_PRODUCT_VERSION,
-      reviewChallenge: "archcontext.review-challenge/v2",
-      attestation: "archcontext.attestation/v2",
-      deviceIdentity: "archcontext.device-identity/v1",
-      runnerIdentity: "archcontext.runner-identity/v1"
     },
     runtime: {
       localRpc: {

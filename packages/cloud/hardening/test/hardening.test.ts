@@ -29,7 +29,8 @@ describe("@archcontext/cloud/hardening", () => {
       defaultEgress: "local-only",
       applyChangeSetRequiresApproval: true
     });
-    expect(diagnostics(localEgressStatus({})).privacyRouteDigest).toMatch(/^sha256:/);
+    // ADR-0053 removed hardening.privacyRouteDigest with the governance route table.
+    expect(diagnostics(localEgressStatus({}))).not.toHaveProperty("privacyRouteDigest");
     expect(diagnostics(localEgressStatus({})).egress.ok).toBe(true);
     expect(isSupportedNodeVersion("v22.21.1")).toBe(false);
     expect(isSupportedNodeVersion("v22.22.0")).toBe(true);
@@ -162,17 +163,18 @@ describe("@archcontext/cloud/hardening", () => {
     });
   });
 
-  test("runs Sprint 2 representative eval across impact, trust, and entitlement", () => {
+  test("runs Sprint 2 representative eval across impact and entitlement", () => {
     const report = sprint2RepresentativeEval();
+    // ADR-0053 removed the three trust-level cases along with Developer and Organization attestation.
     expect(report).toMatchObject({
       status: "passed",
       threshold: 1,
       score: 1,
-      passed: 8,
-      total: 8
+      passed: 5,
+      total: 5
     });
     expect(report.cases.map((item) => item.category)).toEqual(
-      expect.arrayContaining(["cross-repo-impact", "trust-level", "annual-entitlement"])
+      expect.arrayContaining(["cross-repo-impact", "annual-entitlement"])
     );
     expect(report.cases.every((item) => item.passed)).toBe(true);
   });

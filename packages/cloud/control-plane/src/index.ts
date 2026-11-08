@@ -10,12 +10,11 @@ import {
   type OrgRunnerIdentity,
   type ReviewChallenge
 } from "@archcontext/cloud/attestation";
+import { CONTROL_PLANE_ROUTES } from "./routes";
 import {
-  CONTROL_PLANE_ROUTES,
   DEFAULT_GOVERNANCE_FEATURE_FLAGS,
   GOVERNANCE_REASON_CATALOG,
   assertGovernanceFeatureFlagsAllow,
-  controlPlaneRouteDigest,
   canTransitionCheckDelivery,
   createRunnerIdentity,
   digestJson,
@@ -62,7 +61,7 @@ import {
   type TransactionalSqlDatabase
 } from "@archcontext/cloud/cloud-db";
 
-export { CONTROL_PLANE_ROUTES };
+export { CONTROL_PLANE_ROUTES } from "./routes";
 
 export const WORKER_LIMITS = {
   maxBodyBytes: 64 * 1024,
@@ -2744,7 +2743,7 @@ export class ControlPlane {
 }
 
 export function routeDigest(): string {
-  return controlPlaneRouteDigest();
+  return digestJson([...CONTROL_PLANE_ROUTES]);
 }
 
 export function projectCloudPrivacySurface(surface: CloudPrivacySurface, input: Record<string, unknown>): Record<string, string | number | boolean> {

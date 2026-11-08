@@ -1,8 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { crossRepoImpact, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
-import { attestationLabel, deviceIntegritySignals } from "@archcontext/cloud/attestation";
-import { ARCHCONTEXT_NODE_RANGE, controlPlaneRouteDigest, productVersionManifest, type LocalEgressReport } from "@archcontext/contracts";
+import { ARCHCONTEXT_NODE_RANGE, productVersionManifest, type LocalEgressReport } from "@archcontext/contracts";
 import { describeEntitlementScope, isOfflineEntitlementActive, type OfflineEntitlement } from "@archcontext/cloud/control-plane-client";
 
 export const NODE_SUPPORT_MATRIX = [
@@ -22,7 +21,6 @@ export function diagnostics(egress: LocalEgressReport) {
     node: process.version,
     supportedNode: isSupportedNodeVersion(process.version),
     codeGraphVersion: productVersionManifest().runtime.codeGraph.requiredVersion,
-    privacyRouteDigest: controlPlaneRouteDigest(),
     secureDefaults: secureDefaults(),
     egress
   };
@@ -122,7 +120,7 @@ export function sprint2LaunchGateReport() {
       readback: "scripts/security-scan-manifest.mjs readback",
       productionScan: "pending"
     },
-    evals: ["cross-repo-impact", "trust-level", "annual-entitlement"],
+    evals: ["cross-repo-impact", "annual-entitlement"],
     representativeEval: "docs/verification/s2-representative-eval.md",
     packetCapture: {
       verifier: "scripts/privacy-packet-capture-audit.mjs",
@@ -136,7 +134,7 @@ export function sprint2LaunchGateReport() {
 
 export interface Sprint2EvalCase {
   id: string;
-  category: "cross-repo-impact" | "trust-level" | "annual-entitlement";
+  category: "cross-repo-impact" | "annual-entitlement";
   expected: unknown;
   actual: unknown;
   passed: boolean;
@@ -154,7 +152,6 @@ export interface Sprint2RepresentativeEval {
 export function sprint2RepresentativeEval(): Sprint2RepresentativeEval {
   const cases = [
     ...crossRepoImpactEvalCases(),
-    ...trustLevelEvalCases(),
     ...annualEntitlementEvalCases()
   ];
   const passed = cases.filter((item) => item.passed).length;
@@ -201,15 +198,6 @@ function crossRepoImpactEvalCases(): Sprint2EvalCase[] {
   return [
     evalCase("s2.eval.cross-repo-impact.api", "cross-repo-impact", ["relation.web-calls-api", "relation.worker-subscribes-api"], crossRepoImpact(relations, "repo.api").map((item) => item.id)),
     evalCase("s2.eval.cross-repo-impact.noise", "cross-repo-impact", [], crossRepoImpact(relations, "repo.docs").map((item) => item.id))
-  ];
-}
-
-function trustLevelEvalCases(): Sprint2EvalCase[] {
-  const organizationSignals = deviceIntegritySignals({ trustLevel: "organization", runnerControlled: true });
-  return [
-    evalCase("s2.eval.trust-level.organization-label", "trust-level", "Organization-attested", attestationLabel("organization")),
-    evalCase("s2.eval.trust-level.developer-label", "trust-level", "Developer-attested", attestationLabel("developer")),
-    evalCase("s2.eval.trust-level.honest-limitation", "trust-level", true, organizationSignals.signals.includes("customer-controlled-runner") && organizationSignals.limitation.includes("does not prove"))
   ];
 }
 

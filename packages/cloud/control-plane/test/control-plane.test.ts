@@ -16,10 +16,15 @@ describe("control plane", () => {
     expect(WORKER_LIMITS.maxBodyBytes).toBeLessThanOrEqual(64 * 1024);
     expect(WORKER_LIMITS.maxClockSkewMs).toBe(5 * 60 * 1000);
     expect(routeDigest()).toMatch(/^sha256:/);
-    expect(CONTROL_PLANE_ROUTES).toContain("POST /v1/challenges");
-    expect(CONTROL_PLANE_ROUTES).toContain("POST /v1/challenges/:challenge/attestations");
-    expect(CONTROL_PLANE_ROUTES).toContain("POST /v1/device-keys");
-    expect(CONTROL_PLANE_ROUTES).toContain("POST /v1/runner-keys/:runner/rotate");
+    // ADR-0053 retired the governance bridge: its challenge, attestation, key and delivery routes
+    // are gone, and the deferred surfaces that remain are the only ones served here.
+    for (const retired of ["POST /v1/challenges", "POST /v1/challenges/:challenge/attestations",
+      "POST /v1/device-keys", "POST /v1/runner-keys/:runner/rotate", "POST /attestations/verify",
+      "POST /org-runners", "GET /v1/challenges"]) {
+      expect(CONTROL_PLANE_ROUTES as readonly string[]).not.toContain(retired);
+    }
+    expect(CONTROL_PLANE_ROUTES).toContain("GET /oauth/github/start");
+    expect(CONTROL_PLANE_ROUTES).toContain("POST /stripe/webhook");
     const cp = new ControlPlane();
     expect(cp.buildQueueMessage({ kind: "github.pr", id: "d1" })).toEqual({ kind: "github.pr", id: "d1" });
     expect(cp.redactLog("token_secret123 access_secret456")).not.toContain("secret123");
