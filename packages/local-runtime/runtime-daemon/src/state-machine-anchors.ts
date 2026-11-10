@@ -49,9 +49,10 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
       const measured = (digest: string): StateMachineAnchor => ({ ...base,
         status: source.confirmedDigest === undefined ? "anchor-unconfirmed" : source.confirmedDigest === digest ? "confirmed" : "anchor-changed", digest });
       if (!scope.files.has(source.path)) return { ...base, status: "anchor-missing-path" };
-      const file = fileAt(source.path);
-      if (source.symbol === undefined) return measured(file.digest);
+      if (source.symbol === undefined) return measured(fileAt(source.path).digest);
+      // Without the reader a symbol anchor is a coverage gap; its file is not read.
       if (opened!.availability === "unavailable") return { ...base, status: "unchecked", reason: opened!.reasonCode };
+      const file = fileAt(source.path);
       const reader = opened!.reader;
       if (!file.parsed) {
         file.declarations = reader.supportsPath(source.path) ? reader.declarationsInSource(source.path, file.content) : undefined;

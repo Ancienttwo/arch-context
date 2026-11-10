@@ -7223,11 +7223,15 @@ test("CLI state-machines check reads the model without runtime state and refuses
     mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
     mkdirSync(join(root, "src"));
     writeFileSync(join(root, "src/job.ts"), "export function finish(): void {}\r\n");
+    // Without the symbol reader a symbol-only anchor is unchecked, and its file is never read.
+    writeFileSync(join(root, "src/locked.ts"), "export function lock(): void {}\n");
+    if (process.platform !== "win32") chmodSync(join(root, "src/locked.ts"), 0o000);
     writeFileSync(join(root, ".archcontext/model/state-machines/job.yaml"), stableYaml({
       schemaVersion: "archcontext.state-machine/v1", id: "state-machine.jobs.job", capabilityId: "capability.jobs", name: "Job",
       regions: [{ id: "job", label: "Job", initial: "queued", states: [{ id: "queued", label: "Queued" }, { id: "done", label: "Done", terminal: true }], source: { kind: "code", path: "src/job.ts" } }],
       events: [{ id: "finish", label: "Finish", source: { kind: "code", path: "src/job.ts", symbol: "finish" }, steps: [{ when: { job: ["queued"] }, then: { job: "done" } }] },
-        { id: "drop", label: "Drop", source: { kind: "code", path: "src/gone.ts" }, steps: [{ when: { job: ["queued"] }, then: { job: "done" } }] }],
+        { id: "drop", label: "Drop", source: { kind: "code", path: "src/gone.ts" }, steps: [{ when: { job: ["queued"] }, then: { job: "done" } }] },
+        { id: "lock", label: "Lock", source: { kind: "code", path: "src/locked.ts", symbol: "lock" }, steps: [{ when: { job: ["queued"] }, then: { job: "done" } }] }],
       rules: []
     }));
     // SM-S23: every anchor with its status; the file digest reads CRLF as LF; no index leaves the symbol unchecked.
@@ -7235,7 +7239,8 @@ test("CLI state-machines check reads the model without runtime state and refuses
     expect((anchored.data as any).machines[0].anchors).toEqual([
       { owner: "region", ownerId: "job", path: "src/job.ts", status: "anchor-unconfirmed", digest: `sha256:${createHash("sha256").update("export function finish(): void {}\n").digest("hex")}` },
       { owner: "event", ownerId: "finish", path: "src/job.ts", symbol: "finish", status: "unchecked", reason: "index-missing" },
-      { owner: "event", ownerId: "drop", path: "src/gone.ts", status: "anchor-missing-path" }
+      { owner: "event", ownerId: "drop", path: "src/gone.ts", status: "anchor-missing-path" },
+      { owner: "event", ownerId: "lock", path: "src/locked.ts", symbol: "lock", status: "unchecked", reason: "index-missing" }
     ]);
     for (const args of [["check", "--all"], ["list"], []]) {
       expect(await runTestCli("state-machines", args, root)).toMatchObject({ ok: false, requestId: "state-machines.check", error: { code: "AC_SCHEMA_INVALID", reasonCode: "cli-input-invalid" } });
