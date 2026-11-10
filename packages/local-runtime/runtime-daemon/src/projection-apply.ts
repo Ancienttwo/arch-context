@@ -1,6 +1,7 @@
 import { publicFailureEnvelope, publicOperationFailure, publicOperationErrorEnvelope } from "./public-operation-failure";
 import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, digestCapabilitySourceFootprints, loadArchitectureDocumentationInputs, measureCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
@@ -213,6 +214,7 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
   const provenance = codeGraphInputs.provenance;
   const projection = renderArchitectureDocumentationProjection({
     model: loaded.model,
+    stateMachines: loadStateMachinesFromArchContext(root, loaded.model.nodes),
     profile: REPO_HARNESS_PROJECTION_PROFILE,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
