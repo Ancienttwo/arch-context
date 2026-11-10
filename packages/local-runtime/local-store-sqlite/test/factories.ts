@@ -1,3 +1,4 @@
+import { canTransitionAgentJobStatus } from "@archcontext/core/agent-orchestrator";
 import { canonicalRepositoryRoot, type CrossRepoRelation, type Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/changeset-engine";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -25,7 +26,7 @@ import {
   type ArchitectureLedgerSnapshotInput,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import { canonicalProjectionReadPlanV1, digestJson, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
+import { FailureError, canonicalProjectionReadPlanV1, digestJson, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
 import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, assertChangeSetModelTransition, type ChangeSetModelTransitionV1, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, committedChangeSetFileOperation, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type CommittedChangeSetForTaskSession, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueScope, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
@@ -325,6 +326,10 @@ export class TestLocalStore implements RuntimeLocalStore {
   async retryRuntimeAgentJob(input: RuntimeAgentJobRetryInput): Promise<RuntimeAgentJobRecord> {
     const record = this.requiredRuntimeAgentJobInScope(input, input.jobId);
     const maxed = record.attemptCount >= record.maxAttempts;
+    // Mirrors the store: the dead-letter rewrite is the one failed -> failed self write.
+    if (maxed ? record.job.status !== "failed" : !canTransitionAgentJobStatus(record.job.status, "queued")) {
+      throw new FailureError("AC_PRECONDITION_FAILED", "job-transition-invalid", { jobId: input.jobId });
+    }
     const updated = {
       ...record,
       job: testRuntimeAgentJobWithStatus(record.job, maxed ? "failed" : "queued", input.now),
@@ -340,6 +345,9 @@ export class TestLocalStore implements RuntimeLocalStore {
 
   async cancelRuntimeAgentJob(input: RuntimeAgentJobCancelInput): Promise<RuntimeAgentJobRecord> {
     const record = this.requiredRuntimeAgentJobInScope(input, input.jobId);
+    if (!canTransitionAgentJobStatus(record.job.status, input.status)) {
+      throw new FailureError("AC_PRECONDITION_FAILED", "job-transition-invalid", { jobId: input.jobId });
+    }
     const updated = {
       ...record,
       job: testRuntimeAgentJobWithStatus(record.job, input.status, input.now),

@@ -1,4 +1,5 @@
 import { FailureError } from "@archcontext/contracts";
+import { AGENT_JOB_STATE_TRANSITIONS } from "@archcontext/core/agent-orchestrator";
 import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { isProcessAlive } from "../../process-liveness/src/index";
@@ -2135,7 +2136,8 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         input.jobId,
         `status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
           leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = ?`,
-        ["failed", stableJson(failed), input.now, input.reason ?? "max-attempts-exhausted", input.now]
+        ["failed", stableJson(failed), input.now, input.reason ?? "max-attempts-exhausted", input.now],
+        ["failed"]
       );
     } else {
       const queued = runtimeAgentJobWithPatch(record.job, { status: "queued", updatedAt: input.now });
@@ -2145,7 +2147,8 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         input.jobId,
         `status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
           leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = NULL`,
-        ["queued", stableJson(queued), input.now, input.reason ?? null]
+        ["queued", stableJson(queued), input.now, input.reason ?? null],
+        agentJobStatusesAccepting("queued")
       );
     }
     return requireRuntimeAgentJobInScope(db, input, input.jobId);
@@ -2161,7 +2164,8 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       input.jobId,
       `status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
         leased_at = NULL, lease_expires_at = NULL, last_error = ?, superseded_by_job_id = COALESCE(?, superseded_by_job_id)`,
-      [input.status, stableJson(job), input.now, input.reason ?? null, input.supersededByJobId ?? null]
+      [input.status, stableJson(job), input.now, input.reason ?? null, input.supersededByJobId ?? null],
+      agentJobStatusesAccepting(input.status)
     );
     return requireRuntimeAgentJobInScope(db, input, input.jobId);
   }
@@ -7713,21 +7717,34 @@ function requireRuntimeAgentJobInScope(db: SqliteDatabase, scope: ArchitectureLe
   return record;
 }
 
-/** Companion writer for `runtimeAgentJobInScope`: the scope predicate is part of the `UPDATE`. */
+/** Statuses whose `AGENT_JOB_STATE_TRANSITIONS` entry lists `to`. */
+function agentJobStatusesAccepting(to: AgentJobV1["status"]): AgentJobV1["status"][] {
+  return (Object.keys(AGENT_JOB_STATE_TRANSITIONS) as AgentJobV1["status"][])
+    .filter((from) => AGENT_JOB_STATE_TRANSITIONS[from].includes(to));
+}
+
+/**
+ * Companion writer for `runtimeAgentJobInScope`: the scope predicate is part of the `UPDATE`.
+ * With `fromStatuses`, the current-status test is part of the `UPDATE` too and a refused write throws.
+ */
 function updateRuntimeAgentJobInScope(
   db: SqliteDatabase,
   scope: ArchitectureLedgerScope,
   jobId: string,
   assignments: string,
-  params: unknown[]
+  params: unknown[],
+  fromStatuses?: readonly string[]
 ): void {
-  db.prepare(
+  const statusTest = fromStatuses ? `AND status IN (${fromStatuses.map(() => "?").join(", ")})` : "";
+  const result = db.prepare(
     `UPDATE runtime_job_queue
       SET ${assignments}
       WHERE job_id = ?
         AND storage_repository_id = ?
-        AND storage_workspace_id = ?`
-  ).run(...params, jobId, scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId);
+        AND storage_workspace_id = ?
+        ${statusTest}`
+  ).run(...params, jobId, scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId, ...(fromStatuses ?? [])) as { changes: number };
+  if (fromStatuses && result.changes === 0) throw new FailureError("AC_PRECONDITION_FAILED", "job-transition-invalid", { jobId });
 }
 
 function runtimeAgentJobScope(job: AgentJobV1): ArchitectureLedgerScope {

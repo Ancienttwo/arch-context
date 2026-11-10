@@ -229,6 +229,7 @@ Object.assign(policies, {
   "refactor-decision-approval-required": {"code": "AC_USER_CONFIRMATION_REQUIRED","message": "Refactor decision approval required.","facts": {"recommendationId": "id"}},
   "jobs-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Jobs input invalid.","facts": {"field":"optional:jobsField"}},
   "job-running-required": {"code": "AC_PRECONDITION_FAILED","message": "Job running required.","facts": {"jobId": "id"}},
+  "job-transition-invalid": {"code": "AC_PRECONDITION_FAILED","message": "Job transition invalid.","facts": {"jobId": "id"}},
   "job-context-stale": {"code": "AC_CONTEXT_STALE","message": "Job context stale.","facts": {"jobId": "id","expectedHeadSha": "head","actualHeadSha": "head","expectedWorktreeDigest": "sha256","actualWorktreeDigest": "sha256"}},
   "audit-disabled": {"code": "AC_CAPABILITY_UNSUPPORTED","message": "Audit disabled.","facts": {}},
   "audit-active": {"code": "AC_PRECONDITION_FAILED","message": "Audit active.","facts": {}},
