@@ -1,3 +1,4 @@
+import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import { FailureError } from "@archcontext/contracts";
 import { exportChangeSetReceipt } from "./changeset-receipt";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
@@ -1639,6 +1640,7 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
   const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
+    stateMachines: loadStateMachinesFromArchContext(root, loaded.model.nodes),
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
