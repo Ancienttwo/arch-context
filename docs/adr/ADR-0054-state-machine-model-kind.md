@@ -2,7 +2,7 @@
 schemaVersion: archcontext.adr/v1
 id: adr.0054.state-machine-model-kind
 title: State Machine Model Kind and Statechart Projection
-status: proposed
+status: accepted
 decidedAt: 2026-11-10
 appliesTo:
   - module.architecture-context.contracts
