@@ -19,7 +19,10 @@ import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import stateMachineSchema from "../../../../schemas/repo/architecture-state-machine.schema.json";
 
 export const STATE_MACHINES_MODEL_DIRECTORY = ".archcontext/model/state-machines";
-/** The failure details keep whole issues inside the closed failure budget; the rest are counted. */
+/**
+ * The failure-envelope budget (at most 256 bytes per detail string, 8192 per envelope) holds whole
+ * issues only; the failure counts the rest, and `archctx validate --json` lists every issue.
+ */
 const FAILURE_ISSUE_LIMIT = 16;
 const FAILURE_ISSUE_MAX_BYTES = 256;
 
@@ -61,9 +64,8 @@ export function loadStateMachinesFromArchContext(root: string, nodes: readonly N
     for (const issue of machineIssues) issues.push(`${machinePaths[index]}: ${issue.field}: ${issue.invariant}`);
   });
   if (issues.length > 0) {
-    const reported = issues.filter((issue) => Buffer.byteLength(issue) <= FAILURE_ISSUE_MAX_BYTES).slice(0, FAILURE_ISSUE_LIMIT);
-    const omittedCount = issues.length - reported.length;
-    throw new FailureError("AC_SCHEMA_INVALID", "state-machine-model-invalid", { issues: reported, ...(omittedCount > 0 ? { omittedCount } : {}) });
+    const reported = issues.sort(compareStrings).filter((issue) => Buffer.byteLength(issue) <= FAILURE_ISSUE_MAX_BYTES).slice(0, FAILURE_ISSUE_LIMIT);
+    throw new FailureError("AC_SCHEMA_INVALID", "state-machine-model-invalid", { issues: reported, issueCount: issues.length, omittedCount: issues.length - reported.length });
   }
   return machines;
 }

@@ -58,6 +58,22 @@ describe("loadStateMachinesFromArchContext", () => {
     ]);
   });
 
+  test("the failure keeps whole issues inside its budget and counts the rest", () => {
+    const loadDetails = (machines: Record<string, unknown>) => {
+      let thrown: unknown;
+      withMachines(machines, (root) => {
+        try { loadStateMachinesFromArchContext(root, nodes); } catch (error) { thrown = error; }
+      });
+      return (thrown as FailureError).details;
+    };
+    expect(loadDetails({ [`${"a".repeat(230)}.yaml`]: { ...example(), capabilityId: "capability.missing" } })).toEqual({ issues: [], issueCount: 1, omittedCount: 1 });
+    const machine = example();
+    machine.rules = Array.from({ length: 18 }, () => ({ ...machine.rules[1] }));
+    const details = loadDetails({ "order.yaml": machine });
+    expect(details).toMatchObject({ issueCount: 17, omittedCount: 1 });
+    expect(details.issues).toHaveLength(16);
+  });
+
   test("each issue names its own file when two machines share an id", () => {
     const first: any = example();
     first.regions[0].initial = "closed";

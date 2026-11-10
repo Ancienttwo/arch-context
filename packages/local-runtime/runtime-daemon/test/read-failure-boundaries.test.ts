@@ -250,7 +250,11 @@ test("state-machines check refuses a non-Git directory and returns the invalid m
     writeFileSync(join(root, ".archcontext/model/state-machines/order.yaml"), "schemaVersion: archcontext.state-machine/v1\n");
     const invalid = runStateMachineCheckCommand(root);
     assertSafe(invalid, "AC_SCHEMA_INVALID", "state-machine-model-invalid", "state-machines.check");
-    expect(invalid.error?.details).toEqual({ issues: ["id", "capabilityId", "name", "regions", "events", "rules"].map((field) => `.archcontext/model/state-machines/order.yaml: $.${field}: required`) });
+    expect(invalid.error?.details).toEqual({
+      issues: ["capabilityId", "events", "id", "name", "regions", "rules"].map((field) => `.archcontext/model/state-machines/order.yaml: $.${field}: required`),
+      issueCount: 6,
+      omittedCount: 0
+    });
   } finally {
     rmSync(outside, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
