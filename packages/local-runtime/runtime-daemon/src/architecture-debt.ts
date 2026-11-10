@@ -6,12 +6,14 @@ import {
 import { resolveOwnership } from "@archcontext/core/module-statistics";
 import { ancestorChain, loadNativeModelFromArchContext, nativeNodeSource, type NativeModel } from "@archcontext/core/projection-engine";
 import { evaluateArchitectureDebt, type ArchitectureDebtEvidence } from "@archcontext/core/review-engine";
+import { checkStateMachines, loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, type RepositoryCodeFactsInspectionOptions } from "@archcontext/local-runtime/codegraph-adapter";
 import { selectedProducerFailure, selectedProducerFailureEnvelope } from "./producer-failure";
 export { selectedProducerFailure, selectedProducerFailureEnvelope } from "./producer-failure";
 import { readArchitectureDebtCodeFacts } from "./architecture-debt-code-facts";
 import { runDocsAnchorsCommand } from "./docs-anchors";
+import { stateMachineAnchors } from "./state-machine-anchors";
 import type { DocsAnchorsReportV1 } from "@archcontext/contracts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -19,7 +21,7 @@ import { join } from "node:path";
 export interface ArchitectureDebtReadInput { changedPaths?: string[] }
 
 /**
- * Edit-time debt (#328's measured >3s falsifier): ownership and human citation checks only.
+ * Edit-time debt (#328's measured >3s falsifier): ownership, human citation and state machine anchor checks only.
  * This function does not open a runtime session, sync CodeGraph, render or write any state.
  * Unmeasured dependency/flow/practice checks remain explicit gaps, never a clean full verdict.
  */
@@ -97,8 +99,25 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
   }
   return { model, evidence: {
     scope: { kind: repository ? "repository" : "changed-paths", changedPaths, capabilityIds },
-    ownership, anchors: anchors.data as unknown as DocsAnchorsReportV1, scopedNodeIds, capabilityByNodeId
+    ownership, anchors: anchors.data as unknown as DocsAnchorsReportV1, stateMachines: stateMachineEvidence(root, model, visible, repository ? undefined : changedPaths),
+    scopedNodeIds, capabilityByNodeId
   } };
+}
+
+/**
+ * The repository read checks every rule and anchor without the protection run. A changed-paths
+ * read checks only the anchors on changed paths: a rule result depends only on the model, and a
+ * changed model file already widens the read to the repository.
+ */
+function stateMachineEvidence(root: string, model: NativeModel, files: ReadonlySet<string>, changedPaths: string[] | undefined): NonNullable<ArchitectureDebtEvidence["stateMachines"]> {
+  const machines = loadStateMachinesFromArchContext(root, model.nodes as unknown as Array<Record<string, Json>>);
+  const anchors = stateMachineAnchors(root, machines, { files, ...(changedPaths === undefined ? {} : { paths: new Set(changedPaths) }) });
+  if (changedPaths === undefined) {
+    const rules = new Map(checkStateMachines(machines, { protection: false }).machines.map(machine => [machine.id, machine]));
+    return { machines: machines.map((machine, index) => ({ ...rules.get(machine.id)!, anchors: anchors[index]! })) };
+  }
+  return { machines: machines.flatMap((machine, index) => anchors[index]!.length === 0 ? []
+    : [{ id: machine.id, capabilityId: machine.capabilityId, rules: [], breaks: [], anchors: anchors[index]! }]) };
 }
 
 export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtReadInput = {}, codeFactsOptions: RepositoryCodeFactsInspectionOptions = {}): JsonEnvelope {

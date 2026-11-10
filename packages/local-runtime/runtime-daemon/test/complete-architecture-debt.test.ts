@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { architectureDebtReportIssues, stableYaml } from "@archcontext/contracts";
@@ -6,6 +8,8 @@ import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-fact
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import { createStartedTestDaemon, tempRepo, removeTempRepo } from "./runtime-test-fixtures";
 import { readArchitectureDebt } from "../src/architecture-debt";
+import { runStateMachineCheckCommand } from "../src/state-machine-check";
+import { indexCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
 
 function write(root: string, path: string, value: string) {
   mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -71,6 +75,69 @@ test("complete measures debt without a projection manifest, preserves checkpoint
     expect(repaired.actionsRequired).toEqual([]);
   } finally { await daemon.stop(); Bun.gc(true); removeTempRepo(root); }
 });
+
+const JOB = "export class Store {\n  finish(): number {\n    return 1;\n  }\n}\n";
+function jobMachine(digests: { file?: string; symbol?: string } = {}) {
+  return stableYaml({
+    schemaVersion: "archcontext.state-machine/v1", id: "state-machine.architecture.context.job", capabilityId: "capability.architecture.context", name: "Job",
+    regions: [
+      { id: "job", label: "Job", initial: "queued", states: [{ id: "queued", label: "Queued" }, { id: "done", label: "Done" }],
+        source: { kind: "code", path: "src/job.ts", ...(digests.file ? { confirmedDigest: digests.file } : {}) } },
+      { id: "lock", label: "Lock", initial: "free", states: [{ id: "free", label: "Free" }] }
+    ],
+    events: [
+      { id: "finish", label: "Finish", source: { kind: "code", path: "src/job.ts", symbol: "Store.finish", ...(digests.symbol ? { confirmedDigest: digests.symbol } : {}) },
+        steps: [{ when: { job: ["queued"] }, then: { job: "done" } }] },
+      { id: "reopen", label: "Reopen", source: { kind: "environment" }, steps: [{ when: { job: ["done"] }, then: { job: "queued" } }] }
+    ],
+    rules: [
+      { id: "never-done", label: "Never done", never: { job: ["done"], lock: ["free"] } },
+      { id: "done-stays", label: "Done stays", final: { job: ["done"] }, finding: { tracking: "https://example.com/issues/1" } },
+      { id: "lock-stays", label: "Lock stays", final: { lock: ["free"] }, finding: { tracking: "https://example.com/issues/2" } }
+    ]
+  });
+}
+
+test("state machine debt: complete reports rules, and anchors go stale until the digest is confirmed (SM-S17 to SM-S20, SM-S23)", async () => {
+  const root = tempRepo();
+  const daemon = await createStartedTestDaemon();
+  const machinePath = ".archcontext/model/state-machines/job.yaml";
+  const stale = (paths: string[]) => readArchitectureDebt(root, { changedPaths: paths }).items.filter(item => item.kind === "state-machine-stale")
+    .map((item): unknown[] => [item.reasonCode, item.paths, item.details.ownerId, item.details.symbol ?? null]);
+  try {
+    await daemon.init(root, "Debt"); ownedModel(root);
+    write(root, "src/job.ts", JOB);
+    write(root, machinePath, jobMachine());
+    const review = (await daemon.completeTask(root)).data as any;
+    expect(review.debt.items.filter((item: any) => item.kind === "state-machine-rule").map((item: any) => [item.reasonCode, item.details.ruleId]).sort())
+      .toEqual([["finding-resolved", "lock-stays"], ["rule-broken", "never-done"]]);
+    expect(architectureDebtReportIssues(review.debt)).toEqual([]);
+
+    indexCodeGraphFixture(root);
+    // Bun on macOS uses the system SQLite, which refuses a read-only open unless a connection holds the index.
+    const holder = new Database(join(root, ".codegraph", "codegraph.db"));
+    try {
+      holder.query("SELECT count(*) FROM sqlite_master").get();
+      const check = runStateMachineCheckCommand(root);
+      const anchors = (check.data as any).machines[0].anchors;
+      expect(anchors.map((anchor: any) => [anchor.owner, anchor.ownerId, anchor.status])).toEqual([["region", "job", "anchor-unconfirmed"], ["event", "finish", "anchor-unconfirmed"]]);
+      expect(anchors[0].digest).toBe(`sha256:${createHash("sha256").update(JOB).digest("hex")}`);
+      expect(anchors[1].digest).toBe(`sha256:${createHash("sha256").update(JOB.split("\n").slice(1, 4).join("\n")).digest("hex")}`);
+      expect(publishedSchemaIssues("runtime/state-machine-check.schema.json", check.data)).toEqual([]);
+      expect(stale(["src/job.ts"])).toHaveLength(2);
+
+      // The test writes the reported digests where a ChangeSet would.
+      write(root, machinePath, jobMachine({ file: anchors[0].digest, symbol: anchors[1].digest }));
+      expect(stale(["src/job.ts"])).toEqual([]);
+
+      write(root, "src/job.ts", `${JOB}export const later = 2;\n`);
+      expect(stale(["src/job.ts"])).toEqual([["anchor-changed", ["src/job.ts"], "job", null]]);
+
+      write(root, "src/job.ts", JOB.replace("return 1;", "return 2;"));
+      expect(stale(["src/job.ts"]).filter(entry => entry[3] !== null)).toEqual([["anchor-changed", ["src/job.ts"], "finish", "Store.finish"]]);
+    } finally { holder.close(); }
+  } finally { await daemon.stop(); Bun.gc(true); removeTempRepo(root); }
+}, 120_000);
 
 test("invalid models keep the schema gate and never publish a fabricated clean debt report", async () => {
   const root = tempRepo();

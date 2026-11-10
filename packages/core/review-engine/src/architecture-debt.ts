@@ -10,7 +10,8 @@ import {
   type Json,
   type PracticeEnforcementEvaluationV1,
   type ProjectionArchitectureDebtCoverageReasonCode,
-  type ProjectionArchitectureDebtV1
+  type ProjectionArchitectureDebtV1,
+  type StateMachineCheckMachineV1
 } from "@archcontext/contracts";
 
 /** The one undeclared-dependency classification, shared by projection and task debt. */
@@ -34,6 +35,11 @@ export interface ArchitectureDebtEvidence {
   anchors?: DocsAnchorsReportV1;
   dependencies?: ProjectionArchitectureDebtV1;
   flows?: ArchitectureFlowSelectorCheckV1;
+  /**
+   * The machines in scope with their anchors. The reader scopes it: a changed-paths read carries
+   * only the anchors on changed paths and no rule check (empty `rules` and `breaks`).
+   */
+  stateMachines?: { machines: Pick<StateMachineCheckMachineV1, "id" | "capabilityId" | "rules" | "breaks" | "anchors">[] };
   practices?: PracticeEnforcementEvaluationV1;
   /** Producer failures name why a measurement is unavailable; never replace it with empty data. */
   unavailable?: Partial<Record<ArchitectureDebtCheckV1["check"], string[]>>;
@@ -122,6 +128,29 @@ export function evaluateArchitectureDebt(input: ArchitectureDebtEvidence): Archi
         reasonCode: selector.status, action: "archctx flows check --json",
         details: { modelField: "source.entrypoints.symbols.sinks", entrypointId: selector.entrypointId, sinkId: selector.sinkId,
           sourceSymbol: selector.sourceSymbol, sinkSymbol: selector.sinkSymbol } });
+    }
+  }
+
+  const machines = input.stateMachines?.machines ?? [];
+  check("state-machines", input.stateMachines !== undefined,
+    machines.flatMap(machine => machine.anchors.flatMap(anchor => anchor.status === "unchecked" ? [anchor.reason!] : [])));
+  for (const machine of machines) {
+    const subject = { nodeIds: [machine.capabilityId], capabilityIds: [machine.capabilityId], action: "archctx state-machines check --json" };
+    for (const rule of machine.rules) {
+      // `finding-open` is a recorded, tracked break, not debt.
+      if (rule.status !== "broken" && rule.status !== "finding-resolved") continue;
+      add({ kind: "state-machine-rule", ...subject, paths: [], reasonCode: rule.status === "broken" ? "rule-broken" : "finding-resolved",
+        details: { stateMachineId: machine.id, ruleId: rule.id } });
+    }
+    for (const entry of machine.breaks) add({ kind: "state-machine-rule", ...subject, paths: [], reasonCode: entry.kind,
+      details: { stateMachineId: machine.id,
+        ...(entry.kind === "unreachable-state" ? { region: entry.region, state: entry.state } : {}),
+        ...(entry.kind === "dead-step" ? { event: entry.event, step: entry.step } : {}) } });
+    for (const anchor of machine.anchors) {
+      // An unchecked anchor is a coverage gap, never an item.
+      if (anchor.status === "confirmed" || anchor.status === "unchecked") continue;
+      add({ kind: "state-machine-stale", ...subject, paths: [anchor.path], reasonCode: anchor.status,
+        details: { stateMachineId: machine.id, owner: anchor.owner, ownerId: anchor.ownerId, ...(anchor.symbol === undefined ? {} : { symbol: anchor.symbol }) } });
     }
   }
 

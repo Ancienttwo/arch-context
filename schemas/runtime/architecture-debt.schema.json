@@ -71,8 +71,8 @@
     },
     "checks": {
       "type": "array",
-      "minItems": 5,
-      "maxItems": 5,
+      "minItems": 6,
+      "maxItems": 6,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -88,6 +88,7 @@
               "anchors",
               "dependencies",
               "flows",
+              "state-machines",
               "practices"
             ]
           },
@@ -137,7 +138,9 @@
               "undeclared-dependency",
               "flow-proof-failed",
               "stale-anchor",
-              "practice-regression"
+              "practice-regression",
+              "state-machine-rule",
+              "state-machine-stale"
             ]
           },
           "nodeIds": {

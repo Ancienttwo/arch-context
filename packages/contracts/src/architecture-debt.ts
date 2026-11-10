@@ -2,9 +2,9 @@ import { digestJson, type ArchContextError, type Json } from "./schema";
 
 /** Measured architecture work, distinct from generated-file freshness and source byte stamps. */
 export const ARCHITECTURE_DEBT_SCHEMA_VERSION = "archcontext.architecture-debt/v1" as const;
-export const ARCHITECTURE_DEBT_KINDS = ["unowned-path", "ambiguous-owner", "undeclared-dependency", "flow-proof-failed", "stale-anchor", "practice-regression"] as const;
+export const ARCHITECTURE_DEBT_KINDS = ["unowned-path", "ambiguous-owner", "undeclared-dependency", "flow-proof-failed", "stale-anchor", "practice-regression", "state-machine-rule", "state-machine-stale"] as const;
 export type ArchitectureDebtKind = typeof ARCHITECTURE_DEBT_KINDS[number];
-export const ARCHITECTURE_DEBT_CHECKS = ["ownership", "anchors", "dependencies", "flows", "practices"] as const;
+export const ARCHITECTURE_DEBT_CHECKS = ["ownership", "anchors", "dependencies", "flows", "state-machines", "practices"] as const;
 export type ArchitectureDebtCheck = typeof ARCHITECTURE_DEBT_CHECKS[number];
 
 export interface ArchitectureDebtItemV1 {

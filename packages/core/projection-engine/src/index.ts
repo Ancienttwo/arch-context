@@ -1052,8 +1052,12 @@ export function digestArchitectureDocumentationSourceTree(root: string, model: N
  * depend on the platform that computed them. The latin1 round trip rewrites only `\r\n` pairs and
  * leaves every other byte as is.
  */
-function sourceFileContentDigest(absolute: string): string {
-  const bytes = readFileSync(absolute);
+export function sourceFileContentDigest(absolute: string): string {
+  return sourceContentDigest(readFileSync(absolute));
+}
+
+/** The digest of `sourceFileContentDigest` over bytes the caller already read. */
+export function sourceContentDigest(bytes: Buffer): string {
   const normalized = bytes.includes(0x0d) ? Buffer.from(bytes.toString("latin1").replaceAll("\r\n", "\n"), "latin1") : bytes;
   return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }

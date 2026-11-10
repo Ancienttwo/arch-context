@@ -148,6 +148,22 @@ test("a logic-only edit owes no task and the process writes no worktree or runti
   expect(after.items).toEqual([]);
   expect(after.coverage).toBe("partial");
   expect(after.checks).toContainEqual({ check:"dependencies",coverage:"unknown",reasonCodes:["deferred-to-complete","not-evaluated"] });
+  // SM-S22: a model with no state machine still reports the check, complete and without items.
+  expect(after.checks.map(check => check.check)).toEqual(["ownership","anchors","dependencies","flows","state-machines","practices"]);
+  expect(after.checks).toContainEqual({ check:"state-machines",coverage:"complete",reasonCodes:[] });
+});
+
+test("without a CodeGraph index a symbol anchor is a coverage gap, and a file anchor on the changed path is still debt (SM-S21)", async () => {
+  const { root } = fixture();
+  write(root,".archcontext/model/state-machines/value.yaml",stableYaml({ schemaVersion:"archcontext.state-machine/v1", id:"state-machine.a.value", capabilityId:"capability.a", name:"Value",
+    regions:[{ id:"value", label:"Value", initial:"new", states:[{ id:"new", label:"New" },{ id:"set", label:"Set", terminal:true }], source:{ kind:"code", path:"src/a/main.ts" } }],
+    events:[{ id:"assign", label:"Assign", source:{ kind:"code", path:"src/a/main.ts", symbol:"value" }, steps:[{ when:{ value:["new"] }, then:{ value:"set" } }] }], rules:[] }));
+  git(root,"add","-A"); git(root,"commit","-qm","machine");
+  const report = await read(root,["src/a/main.ts"]);
+  expect(report.checks).toContainEqual({ check:"state-machines",coverage:"partial",reasonCodes:["index-missing"] });
+  expect(report.items.map(item => [item.kind,item.reasonCode,item.paths,item.details])).toEqual([
+    ["state-machine-stale","anchor-unconfirmed",["src/a/main.ts"],{ stateMachineId:"state-machine.a.value", owner:"region", ownerId:"value" }]
+  ]);
 });
 
 test("a shortened source reports the human citation in another capability and its repair removes that debt", async () => {

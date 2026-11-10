@@ -5,8 +5,8 @@ more paths; omit it to inspect the repository. The reader does not start a daemo
 documents, sync CodeGraph or write model/runtime state. It requires Git and an adopted model.
 Invalid paths and missing authority return typed error envelopes.
 
-The `archcontext.architecture-debt/v1` payload reports measured ownership and human citation
-problems, the affected paths/nodes/capabilities, the producer's reason, and an action. Source
+The `archcontext.architecture-debt/v1` payload reports measured ownership, human citation and
+state machine problems, the affected paths/nodes/capabilities, the producer's reason, and an action. Source
 byte stamps are not an input. A logic-only edit with no measured problem owes no task.
 
 Ownership uses the existing parent-chain measurement used by dependency and refactor checks.
@@ -52,6 +52,26 @@ report. Invalid flags fail closed in argument preflight; former hook checkpoint 
 tool, digest, budget, path and changed flags are rejected. Neither result accesses runtime/state.
 `hook enqueue` is the separate explicit daemon queue writer. Current hook metadata advertises
 these as separate enqueue/read entrypoints. Historical egress fixtures remain historical.
+
+## State machines
+
+The `state-machines` check sits between `flows` and `practices`, so every report has six
+checks. A model with no state machine reports it with `complete` coverage and no item. The two
+kinds name `archctx state-machines check --json` as their action; `docs/runbooks/state-machines.md`
+explains the report and how to confirm a machine.
+
+- `state-machine-rule`: a declared rule is `broken` (`rule-broken`), a rule that holds still
+  carries a finding (`finding-resolved`), or the model has an `unreachable-state`, a
+  `dead-step` or a `deadlock`. A rule with an open finding is not debt.
+- `state-machine-stale`: an anchor is not `confirmed`; the reason code is the anchor status and
+  `paths` is the anchor path. An `unchecked` symbol anchor is a coverage gap with the reader's
+  reason (`index-missing`, `index-open-failed`), never an item.
+
+The repository scope, which `complete` uses, checks every rule and every anchor; it never runs
+the protection run. A changed-paths read checks only the anchors on the changed paths and no
+rule, because a rule depends only on the model and a changed model file already widens the read
+to the repository. Each changed file is read and parsed once. With ten machines that each anchor
+a symbol on one changed file, the check adds at most 250 ms to the edit-time read.
 
 ## Performance and remaining RFC work
 

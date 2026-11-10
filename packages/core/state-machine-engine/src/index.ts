@@ -7,7 +7,7 @@ import {
   validateJsonSchema,
   type Json,
   type StateMachineBreak,
-  type StateMachineCheckReportV1,
+  type StateMachineRuleCheckV1,
   type StateMachineGlobalState,
   type StateMachineGuard,
   type StateMachineMachineReport,
@@ -273,7 +273,7 @@ export function stateMachineRuleProtection(machine: StateMachineV1): Map<string,
 }
 
 /** The `archcontext.state-machine-check/v1` report, machines sorted by id. Without `protection` no rule carries `protectedBy`. */
-export function checkStateMachines(machines: readonly StateMachineV1[], options: { protection: boolean }): StateMachineCheckReportV1 {
+export function checkStateMachines(machines: readonly StateMachineV1[], options: { protection: boolean }): StateMachineRuleCheckV1 {
   return {
     schemaVersion: STATE_MACHINE_CHECK_SCHEMA_VERSION,
     machines: [...machines].sort((left, right) => compareStrings(left.id, right.id)).map((machine) => {

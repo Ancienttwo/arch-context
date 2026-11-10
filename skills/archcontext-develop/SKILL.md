@@ -19,6 +19,8 @@ Use this skill for ordinary feature work in an ArchContext-enabled repository.
   change it. Only an explicit practice checkpoint advances that baseline.
 - For the explicit practice writer, treat `added/upgraded` as new practice issues and
   `removed/downgraded` as resolved practice issues. `requiresProof` remains a proof task.
+- A `state-machine-stale` item means that an anchored declaration changed. Read the change, update
+  the machine if its behaviour changed, then write the reported digest through a ChangeSet.
 - A stale practice writer result requires a fresh prepare; do not pass its session, digest or
   budget inputs to the debt reader, which rejects them.
 

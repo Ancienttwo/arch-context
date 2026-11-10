@@ -297,6 +297,7 @@ function assertCleanReviewDebt(data, command) {
     { check: "anchors", coverage: "complete", reasonCodes: [] },
     { check: "dependencies", coverage: "complete", reasonCodes: [] },
     { check: "flows", coverage: "complete", reasonCodes: [] },
+    { check: "state-machines", coverage: "complete", reasonCodes: [] },
     { check: "practices", coverage: "unknown", reasonCodes: ["not-enabled", "not-evaluated"] }
   ], `${command} must measure every enabled check; unavailable or stale code facts are not accepted`);
 }
