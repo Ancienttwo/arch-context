@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { REVIEW_FAIL_ON_CATEGORIES, digestJson, runtimeTopologyModelIssues, stableYaml, stateMachineModelIssues, validateJsonSchema, type Json, type ModelStorePort, type ModelValidationResult, type StateMachineV1, type WorkspaceRef } from "@archcontext/contracts";
+import { REVIEW_FAIL_ON_CATEGORIES, digestJson, runtimeTopologyModelIssues, stableYaml, stateMachineModelIssuesByMachine, validateJsonSchema, type Json, type ModelStorePort, type ModelValidationResult, type StateMachineV1, type WorkspaceRef } from "@archcontext/contracts";
 import { manifestDecisionDiagnostics, parseJsonOrStableYaml, readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 export * from "./architecture-history";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
@@ -314,7 +314,7 @@ export class YamlModelStore implements ModelStorePort {
     const topologyRecords: { nodes: Record<string, Json>[]; relations: Record<string, Json>[] } = { nodes: [], relations: [] };
     const topologyRecordPaths = new Map<string, string>();
     const stateMachines: StateMachineV1[] = [];
-    const stateMachinePaths = new Map<string, string>();
+    const stateMachinePaths: string[] = [];
     for (const file of files) {
       if (file.path.startsWith(".archcontext/model/") && /\.ya?ml$/.test(file.path)) {
         try {
@@ -337,9 +337,8 @@ export class YamlModelStore implements ModelStorePort {
             const { issues } = validateJsonSchema(stateMachineSchema as Parameters<typeof validateJsonSchema>[0], value);
             for (const issue of issues) errors.push(`${file.path}: ${issue.path}: ${issue.message}`);
             if (issues.length === 0) {
-              const machine = value as unknown as StateMachineV1;
-              stateMachines.push(machine);
-              stateMachinePaths.set(machine.id, file.path);
+              stateMachines.push(value as unknown as StateMachineV1);
+              stateMachinePaths.push(file.path);
             }
             continue;
           }
@@ -360,9 +359,9 @@ export class YamlModelStore implements ModelStorePort {
     for (const issue of runtimeTopologyModelIssues(topologyRecords)) {
       errors.push(`${topologyRecordPaths.get(issue.entityId) ?? issue.entityId}: ${issue.field}: ${issue.invariant}`);
     }
-    for (const issue of stateMachineModelIssues({ nodes: topologyRecords.nodes, stateMachines })) {
-      errors.push(`${stateMachinePaths.get(issue.entityId)}: ${issue.field}: ${issue.invariant}`);
-    }
+    stateMachineModelIssuesByMachine({ nodes: topologyRecords.nodes, stateMachines }).forEach((machineIssues, index) => {
+      for (const issue of machineIssues) errors.push(`${stateMachinePaths[index]}: ${issue.field}: ${issue.invariant}`);
+    });
     const adr = validateAdrAppliesTo(files);
     const constraints = readDependencyConstraints(files);
     const reviewPolicy = readReviewPolicy(files);

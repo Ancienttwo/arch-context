@@ -157,15 +157,17 @@ type NodeRecord = Readonly<Record<string, Json | undefined>>;
  * loader and the YAML model store both call this one function on schema-valid machines, so
  * `archctx validate` and `archctx state-machines check` cannot disagree.
  *
- * A lookup that meets a duplicate id uses the first declaration. A region that the machine does
- * not declare is reported once; its states are not checked. Issues come out sorted by entity id,
- * then field and invariant.
+ * The result is aligned with `stateMachines`: entry `i` holds the issues of machine `i`, so a
+ * caller can name the file of each issue even when two machines share an id. A repeated machine
+ * id is reported on every machine after the first. A lookup that meets a duplicate id inside a
+ * machine uses the first declaration. A region that the machine does not declare is reported
+ * once; its states are not checked. Each entry is sorted by field, then invariant.
  */
-export function stateMachineModelIssues(model: { nodes: readonly NodeRecord[]; stateMachines: readonly StateMachineV1[] }): StateMachineIssue[] {
-  const issues: StateMachineIssue[] = [];
+export function stateMachineModelIssuesByMachine(model: { nodes: readonly NodeRecord[]; stateMachines: readonly StateMachineV1[] }): StateMachineIssue[][] {
   const capabilities = new Set(model.nodes.filter((node) => node.kind === "capability" && typeof node.id === "string").map((node) => node.id as string));
   const machineIds = new Set<string>();
-  for (const machine of model.stateMachines) {
+  return model.stateMachines.map((machine) => {
+    const issues: StateMachineIssue[] = [];
     const report = (field: string, invariant: StateMachineInvariant) => issues.push({ entityId: machine.id, field, invariant });
     if (machineIds.has(machine.id)) report("id", "state-machine-id-duplicate");
     machineIds.add(machine.id);
@@ -220,8 +222,17 @@ export function stateMachineModelIssues(model: { nodes: readonly NodeRecord[]; s
       if (rule.never) checkStates(`rules[${ruleIndex}].never`, rule.never);
       else checkStates(`rules[${ruleIndex}].final`, rule.final);
     });
-  }
-  return issues.sort((left, right) => compare(left.entityId, right.entityId) || compare(left.field, right.field) || compare(left.invariant, right.invariant));
+    return issues.sort(compareIssues);
+  });
+}
+
+/** Every issue of `stateMachineModelIssuesByMachine` in one list, sorted by entity id, then field and invariant. */
+export function stateMachineModelIssues(model: { nodes: readonly NodeRecord[]; stateMachines: readonly StateMachineV1[] }): StateMachineIssue[] {
+  return stateMachineModelIssuesByMachine(model).flat().sort(compareIssues);
+}
+
+function compareIssues(left: StateMachineIssue, right: StateMachineIssue): number {
+  return compare(left.entityId, right.entityId) || compare(left.field, right.field) || compare(left.invariant, right.invariant);
 }
 
 function compare(left: string, right: string): number {

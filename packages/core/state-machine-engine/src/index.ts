@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import {
   FailureError,
   STATE_MACHINE_CHECK_SCHEMA_VERSION,
-  stateMachineModelIssues,
+  stateMachineModelIssuesByMachine,
   validateJsonSchema,
   type Json,
   type StateMachineBreak,
@@ -28,7 +28,7 @@ type NodeRecord = Readonly<Record<string, Json | undefined>>;
 /**
  * Reads the direct `*.yaml` and `*.yml` children of `.archcontext/model/state-machines/` in file
  * name order, validates each against the schema and then the whole set against
- * `stateMachineModelIssues`. Any issue fails closed with `state-machine-model-invalid`; every
+ * `stateMachineModelIssuesByMachine`. Any issue fails closed with `state-machine-model-invalid`; every
  * reader takes the returned value and does not validate it again.
  */
 export function loadStateMachinesFromArchContext(root: string, nodes: readonly NodeRecord[]): StateMachineV1[] {
@@ -40,7 +40,7 @@ export function loadStateMachinesFromArchContext(root: string, nodes: readonly N
     .sort(compareStrings);
   const issues: string[] = [];
   const machines: StateMachineV1[] = [];
-  const pathById = new Map<string, string>();
+  const machinePaths: string[] = [];
   for (const name of files) {
     const path = `${STATE_MACHINES_MODEL_DIRECTORY}/${name}`;
     let value: Json;
@@ -55,11 +55,11 @@ export function loadStateMachinesFromArchContext(root: string, nodes: readonly N
     if (schemaIssues.length > 0) continue;
     const machine = value as unknown as StateMachineV1;
     machines.push(machine);
-    pathById.set(machine.id, path);
+    machinePaths.push(path);
   }
-  for (const issue of stateMachineModelIssues({ nodes, stateMachines: machines })) {
-    issues.push(`${pathById.get(issue.entityId)}: ${issue.field}: ${issue.invariant}`);
-  }
+  stateMachineModelIssuesByMachine({ nodes, stateMachines: machines }).forEach((machineIssues, index) => {
+    for (const issue of machineIssues) issues.push(`${machinePaths[index]}: ${issue.field}: ${issue.invariant}`);
+  });
   if (issues.length > 0) {
     const reported = issues.filter((issue) => Buffer.byteLength(issue) <= FAILURE_ISSUE_MAX_BYTES).slice(0, FAILURE_ISSUE_LIMIT);
     const omittedCount = issues.length - reported.length;

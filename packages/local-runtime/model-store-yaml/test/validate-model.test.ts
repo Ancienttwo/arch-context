@@ -171,6 +171,26 @@ describe("YamlModelStore state machines (#510)", () => {
       .toEqual([`${path}: $.rules[0].final: expected at most 1 properties`]);
   });
 
+  test("each issue names its own file when two machines share an id", async () => {
+    const root = modelRoot();
+    try {
+      const first = machine();
+      first.regions[0].initial = "closed";
+      const second = machine();
+      second.rules[1].id = "paid-before-shipped";
+      mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/model/state-machines/a.yaml"), stableYaml(first), "utf8");
+      writeFileSync(join(root, ".archcontext/model/state-machines/b.yaml"), stableYaml(second), "utf8");
+      expect((await validate(root)).errors).toEqual([
+        ".archcontext/model/state-machines/a.yaml: regions[0].initial: state-machine-initial-unknown",
+        ".archcontext/model/state-machines/b.yaml: id: state-machine-id-duplicate",
+        ".archcontext/model/state-machines/b.yaml: rules[1].id: state-machine-id-duplicate"
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   const cases: Array<[string, (value: any) => void, string]> = [
     ["state-machine-id-duplicate", (value) => { value.rules[1].id = "paid-before-shipped"; }, "rules[1].id"],
     ["state-machine-capability-missing", (value) => { value.capabilityId = "capability.missing"; }, "capabilityId"],
