@@ -46,6 +46,34 @@ describe("loadStateMachinesFromArchContext", () => {
     expect(loadIssues({ ...example(), name: "Order: payment" })).toEqual([`.archcontext/model/state-machines/order.yaml: $.name: does not match ^[^"#;:<>\\\\|\\r\\n]+$`]);
   });
 
+  test("non-canonical source paths and non-URL tracking values are schema violations", () => {
+    const machine: any = example();
+    machine.events[0].source.path = "src//payment.ts";
+    machine.events[1].source.path = ".";
+    machine.rules[0].finding = { tracking: "https://:" };
+    expect(loadIssues(machine)).toEqual([
+      expect.stringContaining("order.yaml: $.events[0].source: expected exactly one matching schema, got 0"),
+      expect.stringContaining("order.yaml: $.events[1].source: expected exactly one matching schema, got 0"),
+      expect.stringContaining("order.yaml: $.rules[0].finding.tracking: does not match ^https://")
+    ]);
+  });
+
+  test("each issue names its own file when two machines share an id", () => {
+    const first: any = example();
+    first.regions[0].initial = "closed";
+    const second: any = example();
+    second.rules[1].id = "paid-before-shipped";
+    let thrown: unknown;
+    withMachines({ "a.yaml": first, "b.yaml": second }, (root) => {
+      try { loadStateMachinesFromArchContext(root, nodes); } catch (error) { thrown = error; }
+    });
+    expect((thrown as FailureError).details.issues).toEqual([
+      ".archcontext/model/state-machines/a.yaml: regions[0].initial: state-machine-initial-unknown",
+      ".archcontext/model/state-machines/b.yaml: id: state-machine-id-duplicate",
+      ".archcontext/model/state-machines/b.yaml: rules[1].id: state-machine-id-duplicate"
+    ]);
+  });
+
   const path = ".archcontext/model/state-machines/order.yaml";
   const cases: Array<[string, (machine: any) => void, string, Array<Record<string, string>>?]> = [
     ["state-machine-id-duplicate", (machine) => { machine.rules[1].id = "paid-before-shipped"; }, "rules[1].id"],

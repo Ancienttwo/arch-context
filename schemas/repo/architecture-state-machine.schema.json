@@ -105,7 +105,7 @@
             "additionalProperties": false,
             "required": ["tracking"],
             "properties": {
-              "tracking": { "type": "string", "pattern": "^https://[^\\s]+$" }
+              "tracking": { "type": "string", "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::[0-9]{1,5})?(?:[/?#][^\\s]*)?$" }
             }
           }
         }
@@ -129,9 +129,9 @@
       "properties": {
         "kind": { "const": "code" },
         "path": {
-          "description": "A repository-relative POSIX path.",
+          "description": "A canonical repository-relative POSIX path: no leading slash, backslash, empty, `.` or `..` segment.",
           "type": "string",
-          "pattern": "^(?!/)(?!.*\\\\)(?!(.*/)?\\.\\.(/|$)).+$"
+          "pattern": "^(?!(?:.*/)?\\.\\.?(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
         },
         "symbol": { "type": "string", "minLength": 1 },
         "confirmedDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
