@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { FailureError, failureIssues, type JsonEnvelope } from "@archcontext/contracts";
@@ -10,6 +10,7 @@ import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { runDocsAnchorsCommand, type DocsAnchorsReadInputs } from "../src/docs-anchors";
 import { runFlowSelectorCheckCommand } from "../src/flow-selector-check";
+import { runStateMachineCheckCommand } from "../src/state-machine-check";
 
 const privateText = "/private/customer/reader Authorization=reader-secret body";
 const repositoryRoot = resolve(import.meta.dir, "../../../..");
@@ -236,4 +237,22 @@ test("D6-B nested debt keeps known anchors metadata and attributes unknown failu
     expect(conversions).toBe(0);
     expect(stdout).not.toContain(privateText);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("state-machines check refuses a non-Git directory and returns the invalid model failure (#510)", () => {
+  const outside = mkdtempSync(join(tmpdir(), "d6-b-not-git-"));
+  const root = fixture();
+  try {
+    const refusal = runStateMachineCheckCommand(outside);
+    assertSafe(refusal, "AC_REPO_NOT_FOUND", "git-worktree-required", "state-machines.check");
+    expect(refusal.error?.details).toEqual({});
+    mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/state-machines/order.yaml"), "schemaVersion: archcontext.state-machine/v1\n");
+    const invalid = runStateMachineCheckCommand(root);
+    assertSafe(invalid, "AC_SCHEMA_INVALID", "state-machine-model-invalid", "state-machines.check");
+    expect(invalid.error?.details).toEqual({ issues: ["id", "capabilityId", "name", "regions", "events", "rules"].map((field) => `.archcontext/model/state-machines/order.yaml: $.${field}: required`) });
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
 });

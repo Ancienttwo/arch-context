@@ -7209,3 +7209,18 @@ async function expectPidGone(pid: number): Promise<void> {
   }
   throw new Error(`Timed out waiting for process exit: ${pid}`);
 }
+
+test("CLI state-machines check reads the model without runtime state and refuses other arguments (#510)", async () => {
+  const root = gitTempRoot("archctx-cli-state-machines-");
+  try {
+    initializeArchContextModel(root, "State Machines");
+    const result = await runTestCli("state-machines", ["check", "--json"], root);
+    expect(result).toMatchObject({ ok: true, requestId: "state-machines.check", data: { schemaVersion: "archcontext.state-machine-check/v1", machines: [] } });
+    expect(existsSync(testStateRoot(root))).toBe(false);
+    for (const args of [["check", "--all"], ["list"], []]) {
+      expect(await runTestCli("state-machines", args, root)).toMatchObject({ ok: false, requestId: "state-machines.check", error: { code: "AC_SCHEMA_INVALID", reasonCode: "cli-input-invalid" } });
+    }
+  } finally {
+    removeTempRoot(root);
+  }
+});
