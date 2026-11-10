@@ -63,6 +63,7 @@ const policies: Record<string, Policy> = {
   "checkpoint-input-invalid": { code: "AC_SCHEMA_INVALID", message: "Checkpoint arguments violate the declared input schema.", fields: ["issueCount"], action: "correct-command-arguments" },
   "cli-input-invalid": { code: "AC_SCHEMA_INVALID", message: "Command arguments violate the declared input contract.", action: "correct-command-arguments" },
   "constraint-model-invalid": { code: "AC_SCHEMA_INVALID", message: "Dependency constraint declarations are invalid.", facts: { issueCount: "uint" }, action: "repair-constraint-declarations" },
+  "state-machine-model-invalid": { code: "AC_SCHEMA_INVALID", message: "State machine declarations are invalid.", facts: { issues: "stateMachineIssues" }, action: "repair-state-machine-declarations" },
   "complete-input-invalid": { code: "AC_SCHEMA_INVALID", message: "Completion input violates the caller authority contract.", action: "correct-command-arguments" },
   "hook-event-invalid": { code: "AC_SCHEMA_INVALID", message: "Hook event violates the declared input contract.", action: "correct-command-arguments" },
   "egress-policy-denied": { code: "AC_POLICY_VIOLATION", message: "Local policy refused this operation." },
@@ -456,6 +457,17 @@ function localFactValue(rule: string, value: unknown): Json {
       if (Object.keys(fields).length !== 2 || typeof path !== "string" || bytes(path) > 256 || path.startsWith("/") || path.includes("\\") || path.split("/").includes("..") || path.length === 0
         || !MODEL_VALIDATION_DIAGNOSTIC_CODES.includes(code as any)) throw new Error("Invalid model diagnostic");
       return { path, code: code as string };
+    });
+  }
+  if (rule === "stateMachineIssues") {
+    // `<path>: <field>: <invariant or schema message>`; the loader counts what does not fit in omittedCount.
+    if (!Array.isArray(value)) throw new Error("State machine issues must be an own list");
+    const length = Object.getOwnPropertyDescriptor(value, "length")?.value;
+    if (!Number.isSafeInteger(length) || length > 16 || Reflect.ownKeys(value).length !== length + 1) throw new Error("State machine issues exceed their closed budget");
+    return Array.from({ length }, (_, index) => {
+      const field = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!field || !("value" in field) || typeof field.value !== "string" || bytes(field.value) > 256) throw new Error("Invalid state machine issue");
+      return field.value;
     });
   }
   if (rule === "diagnosticPaths" || rule === "diagnosticCommands") {

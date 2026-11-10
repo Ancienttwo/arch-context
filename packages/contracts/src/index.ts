@@ -19,6 +19,7 @@ export * from "./product-version";
 export * from "./refactor";
 export * from "./runtime-topology";
 export * from "./schema";
+export * from "./state-machine";
 export * from "./failure";
 export * from "./validator";
 

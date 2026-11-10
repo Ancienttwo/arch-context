@@ -30,6 +30,7 @@
       "@archcontext/core/refactor-decision": ["./packages/core/refactor-decision/src/index.ts"],
       "@archcontext/core/retrieval": ["./packages/core/retrieval/src/index.ts"],
       "@archcontext/core/review-engine": ["./packages/core/review-engine/src/index.ts"],
+      "@archcontext/core/state-machine-engine": ["./packages/core/state-machine-engine/src/index.ts"],
       "@archcontext/local-runtime": ["./packages/local-runtime/src/index.ts"],
       "@archcontext/local-runtime/codegraph-adapter": ["./packages/local-runtime/codegraph-adapter/src/index.ts"],
       "@archcontext/local-runtime/context7-adapter": ["./packages/local-runtime/context7-adapter/src/index.ts"],

@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/repo/architecture-state-machine.schema.json",
+  "title": "ArchitectureStateMachineV1",
+  "description": "One state machine of a capability: parallel regions of states, events whose steps move them, and the rules that no reachable global state may break. Cross-entity rules (unknown regions and states, duplicate ids, the 100000 global state limit) are checked by stateMachineModelIssues.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "capabilityId", "name", "regions", "events", "rules"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.state-machine/v1" },
+    "id": { "type": "string", "pattern": "^state-machine\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+    "capabilityId": { "type": "string", "pattern": "^capability\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+    "name": { "$ref": "#/$defs/label" },
+    "regions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "initial", "states"],
+        "properties": {
+          "id": { "$ref": "#/$defs/localId" },
+          "label": { "$ref": "#/$defs/label" },
+          "initial": { "$ref": "#/$defs/localId" },
+          "states": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "label"],
+              "properties": {
+                "id": { "$ref": "#/$defs/localId" },
+                "label": { "$ref": "#/$defs/label" },
+                "terminal": { "type": "boolean" }
+              }
+            }
+          },
+          "source": { "$ref": "#/$defs/codeSource" }
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "source", "steps"],
+        "properties": {
+          "id": { "$ref": "#/$defs/localId" },
+          "label": { "$ref": "#/$defs/label" },
+          "source": { "oneOf": [{ "$ref": "#/$defs/codeSource" }, { "$ref": "#/$defs/environmentSource" }] },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["when", "then"],
+              "properties": {
+                "when": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "propertyNames": { "$ref": "#/$defs/localId" },
+                  "additionalProperties": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/localId" } }
+                },
+                "then": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "propertyNames": { "$ref": "#/$defs/localId" },
+                  "additionalProperties": { "$ref": "#/$defs/localId" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label"],
+        "oneOf": [{ "required": ["never"] }, { "required": ["final"] }],
+        "properties": {
+          "id": { "$ref": "#/$defs/localId" },
+          "label": { "$ref": "#/$defs/label" },
+          "never": {
+            "type": "object",
+            "minProperties": 2,
+            "propertyNames": { "$ref": "#/$defs/localId" },
+            "additionalProperties": { "$ref": "#/$defs/stateList" }
+          },
+          "final": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 1,
+            "propertyNames": { "$ref": "#/$defs/localId" },
+            "additionalProperties": { "$ref": "#/$defs/stateList" }
+          },
+          "finding": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tracking"],
+            "properties": {
+              "tracking": { "type": "string", "pattern": "^https://[^\\s]+$" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "localId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
+    "label": {
+      "description": "One line of 1 to 80 characters with none of the characters that a statechart label would need to escape.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[^\"#;:<>\\\\|\\r\\n]+$"
+    },
+    "stateList": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/localId" } },
+    "codeSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": { "const": "code" },
+        "path": {
+          "description": "A repository-relative POSIX path.",
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\\\)(?!(.*/)?\\.\\.(/|$)).+$"
+        },
+        "symbol": { "type": "string", "minLength": 1 },
+        "confirmedDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "environmentSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "environment" }
+      }
+    }
+  }
+}
