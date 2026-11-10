@@ -8,8 +8,10 @@ renders; see "Downstream CI" for what that does and does not prove. Design: `doc
 
 ## What one run does
 
-1. Validates `--base`, `--remote` and `--branch` (`archctx/...`, different from the base) before any
-   Git operation that leaves the machine.
+1. Validates `--base`, `--remote`, `--branch` (`archctx/...`, different from the base) and `--base-sha`
+   (exactly 40 lowercase hexadecimal characters) before any Git operation that leaves the machine.
+   A malformed `--base-sha` fails with `AC_SCHEMA_INVALID`. The CLI refuses `--base-sha` together
+   with `--follow` (`AC_SCHEMA_INVALID`).
 2. Takes the writer lock for this remote and base. A live holder gives `result: "busy"`.
 3. Fetches `refs/heads/<base>` from the selected remote's single push URL into a writer-private ref
    and resolves that publication base tip, preserving `FETCH_HEAD`. When that URL exactly matches
@@ -21,7 +23,11 @@ renders; see "Downstream CI" for what that does and does not prove. Design: `doc
    projection (`projection run`, mode `apply`).
 5. Checks that every changed path is a file the apply wrote and a projection-owned output, commits
    them, re-reads the base tip at that push URL (a moved tip is re-evaluated, the stale commit is dropped),
-   pushes with `--force-with-lease`, and calls the publisher.
+   pushes with `--force-with-lease`, and calls the publisher. With `--base-sha` a moved tip is not
+   re-evaluated: the run ends `failed` with `AC_PRECONDITION_FAILED` / `projection-writer-base-moved`
+   (`details.expectedBaseSha`, `details.actualBaseSha`, retryable) and nothing is pushed. The pin is
+   checked when the base is fetched, again after a no-op apply and again before the push, so no
+   commit is pushed or published for a base other than the requested one.
 
 | `result` | Meaning | Envelope |
 |---|---|---|
@@ -65,7 +71,9 @@ renders; see "Downstream CI" for what that does and does not prove. Design: `doc
 
    Or run a one-shot from cron. Concurrent runs are safe: a second run gets `busy`.
 
-Options: `--base` (default `main`), `--remote` (default `origin`), `--branch` (default
+Options: `--base` (default `main`), `--base-sha <sha>` (publish only for that base commit: exactly 40
+lowercase hex characters, stops with `projection-writer-base-moved` when the remote base points
+elsewhere; cannot be combined with `--follow`), `--remote` (default `origin`), `--branch` (default
 `archctx/projection`), `--publisher gh|command|none`, `--publisher-command <executable>`,
 `--accept-observed-major-change`, `--follow`, `--interval <seconds>` (default 300, minimum 30).
 `archctx projection publish --help` prints them.
