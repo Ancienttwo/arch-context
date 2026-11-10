@@ -130,6 +130,29 @@ test("Explorer V2 schemas expose exactly the canonical five-view catalog", () =>
   for (const viewId of EXPLORER_VIEW_IDS) expect(validateJsonSchema(querySchema, { ...query, viewId }).valid).toBe(true);
   expect(validateJsonSchema(querySchema, { ...query, viewId: "external-by-name" }).valid).toBe(false);
 });
+test("state machine schema refuses characters that break statechart tables and code spans in tracking, path and symbol", () => {
+  const schema = readJson("schemas/repo/architecture-state-machine.schema.json") as any;
+  const base = readJson("packages/contracts/fixtures/valid/architecture-state-machine.json") as any;
+  const build = (patch: { tracking?: string; path?: string; symbol?: string }) => {
+    const model = structuredClone(base);
+    model.events[0].source = { kind: "code", path: patch.path ?? "src/payment.ts", symbol: patch.symbol ?? "PaymentService.capture" };
+    model.rules[1].finding = { tracking: patch.tracking ?? "https://github.com/Ancienttwo/arch-context/issues/509" };
+    return model;
+  };
+  // A oneOf reports at the source object, so compare the first issue path by prefix.
+  const refusedPaths = (patch: Parameters<typeof build>[0]) => [
+    ...new Set(validateJsonSchema(schema, build(patch)).issues.map((issue) => issue.path.replace(/\.(path|symbol)$/, "")))
+  ];
+
+  expect(validateJsonSchema(schema, build({ symbol: "SqliteLocalStore.enqueueRuntimeAgentJob", path: "packages/local-runtime/local-store-sqlite/src/index.ts" })).valid).toBe(true);
+  for (const char of ["|", "`"]) {
+    expect(refusedPaths({ tracking: `https://github.com/x/y/issues/1${char}` })).toEqual(["$.rules[1].finding.tracking"]);
+    expect(refusedPaths({ symbol: `A${char}b` })).toEqual(["$.events[0].source"]);
+  }
+  for (const char of ["|", "`", "\r", "\n"]) expect(refusedPaths({ path: `src/a${char}b.ts` })).toEqual(["$.events[0].source"]);
+  expect(refusedPaths({ symbol: "A\nb" })).toEqual(["$.events[0].source"]);
+});
+
 const schemaByFixture: Record<string, string> = {
   "architecture-node": "schemas/repo/architecture-node.schema.json",
   "architecture-node-layered": "schemas/repo/architecture-node.schema.json",
