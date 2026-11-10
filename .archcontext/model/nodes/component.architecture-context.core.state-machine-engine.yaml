@@ -1,0 +1,10 @@
+id: "component.architecture-context.core.state-machine-engine"
+kind: "component"
+name: "State Machine Engine"
+parent: "module.architecture-context.core"
+schemaVersion: "archcontext.node/v2"
+source:
+  include:
+    - "packages/core/state-machine-engine/src/**"
+status: "active"
+summary: "Loads declared state machines and checks their rules, reachability, dead steps and deadlocks over the reachable global states."

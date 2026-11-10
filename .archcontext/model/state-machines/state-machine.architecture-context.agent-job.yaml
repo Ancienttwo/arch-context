@@ -1,0 +1,176 @@
+capabilityId: "capability.architecture.context"
+events:
+  - id: "enqueue"
+    label: "Enqueue evicts or supersedes queued jobs"
+    source:
+      kind: "code"
+      path: "packages/local-runtime/local-store-sqlite/src/index.ts"
+      symbol: "SqliteLocalStore.enqueueRuntimeAgentJob"
+    steps:
+      - then:
+          job: "expired"
+        when:
+          job:
+            - "queued"
+      - then:
+          job: "superseded"
+        when:
+          job:
+            - "queued"
+  - id: "claim"
+    label: "Claim a queued job or an expired lease"
+    source:
+      kind: "code"
+      path: "packages/local-runtime/local-store-sqlite/src/index.ts"
+      symbol: "SqliteLocalStore.claimRuntimeAgentJob"
+    steps:
+      - then:
+          job: "failed"
+        when:
+          job:
+            - "queued"
+            - "running"
+      - then:
+          job: "running"
+        when:
+          job:
+            - "queued"
+            - "running"
+  - id: "complete"
+    label: "Complete a running job"
+    source:
+      kind: "code"
+      path: "packages/local-runtime/local-store-sqlite/src/index.ts"
+      symbol: "SqliteLocalStore.completeRuntimeAgentJob"
+    steps:
+      - then:
+          job: "succeeded"
+        when:
+          job:
+            - "running"
+      - then:
+          job: "failed"
+        when:
+          job:
+            - "running"
+  - id: "retry"
+    label: "Retry a job"
+    source:
+      kind: "code"
+      path: "packages/local-runtime/local-store-sqlite/src/index.ts"
+      symbol: "SqliteLocalStore.retryRuntimeAgentJob"
+    steps:
+      - then:
+          job: "failed"
+        when:
+          job:
+            - "queued"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "cancelled"
+            - "superseded"
+            - "expired"
+      - then:
+          job: "queued"
+        when:
+          job:
+            - "queued"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "cancelled"
+            - "superseded"
+            - "expired"
+  - id: "cancel"
+    label: "Cancel, supersede or expire a job"
+    source:
+      kind: "code"
+      path: "packages/local-runtime/local-store-sqlite/src/index.ts"
+      symbol: "SqliteLocalStore.cancelRuntimeAgentJob"
+    steps:
+      - then:
+          job: "cancelled"
+        when:
+          job:
+            - "queued"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "cancelled"
+            - "superseded"
+            - "expired"
+      - then:
+          job: "superseded"
+        when:
+          job:
+            - "queued"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "cancelled"
+            - "superseded"
+            - "expired"
+      - then:
+          job: "expired"
+        when:
+          job:
+            - "queued"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "cancelled"
+            - "superseded"
+            - "expired"
+  - id: "cancel-stale"
+    label: "Expire queued or running jobs of a stale head"
+    source:
+      kind: "code"
+      path: "packages/local-runtime/local-store-sqlite/src/index.ts"
+      symbol: "SqliteLocalStore.cancelStaleRuntimeAgentJobs"
+    steps:
+      - then:
+          job: "expired"
+        when:
+          job:
+            - "queued"
+            - "running"
+id: "state-machine.architecture-context.agent-job"
+name: "Agent job lifecycle"
+regions:
+  - id: "job"
+    initial: "queued"
+    label: "Job status"
+    states:
+      - id: "queued"
+        label: "Queued"
+      - id: "running"
+        label: "Running"
+      - id: "succeeded"
+        label: "Succeeded"
+        terminal: true
+      - id: "failed"
+        label: "Failed"
+        terminal: true
+      - id: "cancelled"
+        label: "Cancelled"
+        terminal: true
+      - id: "superseded"
+        label: "Superseded"
+        terminal: true
+      - id: "expired"
+        label: "Expired"
+        terminal: true
+rules:
+  - final:
+      job:
+        - "succeeded"
+        - "failed"
+        - "cancelled"
+        - "superseded"
+        - "expired"
+    finding:
+      tracking: "https://github.com/Ancienttwo/arch-context/issues/509"
+    id: "terminal-status-is-final"
+    label: "A terminal job status never changes"
+schemaVersion: "archcontext.state-machine/v1"
