@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { FailureError, failureIssues, type JsonEnvelope } from "@archcontext/contracts";
@@ -10,6 +10,7 @@ import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { runDocsAnchorsCommand, type DocsAnchorsReadInputs } from "../src/docs-anchors";
 import { runFlowSelectorCheckCommand } from "../src/flow-selector-check";
+import { runStateMachineCheckCommand } from "../src/state-machine-check";
 
 const privateText = "/private/customer/reader Authorization=reader-secret body";
 const repositoryRoot = resolve(import.meta.dir, "../../../..");
@@ -236,4 +237,46 @@ test("D6-B nested debt keeps known anchors metadata and attributes unknown failu
     expect(conversions).toBe(0);
     expect(stdout).not.toContain(privateText);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("state-machines check refuses a non-Git directory and returns the invalid model failure (#510)", () => {
+  const outside = mkdtempSync(join(tmpdir(), "d6-b-not-git-"));
+  const root = fixture();
+  try {
+    const refusal = runStateMachineCheckCommand(outside);
+    assertSafe(refusal, "AC_REPO_NOT_FOUND", "git-worktree-required", "state-machines.check");
+    expect(refusal.error?.details).toEqual({});
+    mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/state-machines/order.yaml"), "schemaVersion: archcontext.state-machine/v1\n");
+    const invalid = runStateMachineCheckCommand(root);
+    assertSafe(invalid, "AC_SCHEMA_INVALID", "state-machine-model-invalid", "state-machines.check");
+    expect(invalid.error?.details).toEqual({
+      issues: ["capabilityId", "events", "id", "name", "regions", "rules"].map((field) => `.archcontext/model/state-machines/order.yaml: $.${field}: required`),
+      issueCount: 6,
+      omittedCount: 0
+    });
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("state-machines check keeps an invalid model failure classified when issues carry control characters (#510)", () => {
+  const root = fixture();
+  try {
+    const machine = JSON.parse(readFileSync(join(repositoryRoot, "packages/contracts/fixtures/valid/architecture-state-machine.json"), "utf8"));
+    machine.events[1].steps[0].when = Object.fromEntries(Array.from({ length: 17 }, (_, index) => [`${String.fromCharCode(97 + index)}${"\u0001".repeat(100)}`, ["open"]]));
+    mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/state-machines/order.yaml"), JSON.stringify(machine));
+    const result = runStateMachineCheckCommand(root);
+    assertSafe(result, "AC_SCHEMA_INVALID", "state-machine-model-invalid", "state-machines.check");
+    const details = result.error?.details as { issues: string[]; issueCount: number; omittedCount: number };
+    expect(details.issueCount).toBe(17);
+    expect(details.issues.length).toBeGreaterThan(0);
+    expect(details.issues.length + details.omittedCount).toBe(17);
+    expect(details.issues.every((issue) => issue.includes("\u0001"))).toBe(true);
+    expect(new TextEncoder().encode(JSON.stringify(result, null, 2) + "\n").byteLength).toBeLessThanOrEqual(8192);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

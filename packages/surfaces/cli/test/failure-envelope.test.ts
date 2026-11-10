@@ -71,7 +71,8 @@ test("all registered producer reasons survive selected CLI and MCP adapters", as
       changedFields: ["headSha", "worktreeDigest"], publicConfirmationToken: facts.confirmationToken,
       consentReason: "not-granted", searched: "recorded", decisionStatus: "accepted", disposition: "resolved",
       commandSuggestion: null, context7Kind: "timeout", repoPath: "packages/fixture/package.json", exportsSubpath: "./sub", snapshotLimit: "bytes",
-      modelValidationDiagnostics: [{ path: "docs/adr/ADR-0001-x.md", code: "schema-version-missing" }]
+      modelValidationDiagnostics: [{ path: "docs/adr/ADR-0001-x.md", code: "schema-version-missing" }],
+      stateMachineIssues: [".archcontext/model/state-machines/order.yaml: regions[0].initial: state-machine-initial-unknown"]
     };
     // Dedicated recovery shapes are authorities, not ordinary summary facts.
     const recoveryIds = { requestId: "request.fixture", lookupKey: "sha256:" + "a".repeat(64), applyId: "sha256:" + "b".repeat(64), written: false };

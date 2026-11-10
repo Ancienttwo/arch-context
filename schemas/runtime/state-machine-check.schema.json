@@ -31,7 +31,7 @@
                 "id": { "$ref": "#/$defs/localId" },
                 "kind": { "enum": ["never", "final"] },
                 "status": { "enum": ["holds", "broken", "finding-open", "finding-resolved"] },
-                "tracking": { "type": "string", "pattern": "^https://[^\\s]+$" },
+                "tracking": { "type": "string", "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::[0-9]{1,5})?(?:[/?#][^\\s]*)?$" },
                 "state": { "$ref": "#/$defs/globalState" },
                 "path": { "$ref": "#/$defs/path" },
                 "protectedBy": {

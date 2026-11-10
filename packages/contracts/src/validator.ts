@@ -31,6 +31,9 @@ type JsonSchema = {
   else?: JsonSchema;
   not?: JsonSchema;
   additionalProperties?: boolean | JsonSchema;
+  propertyNames?: JsonSchema;
+  minProperties?: number;
+  maxProperties?: number;
   minItems?: number;
   maxItems?: number;
   uniqueItems?: boolean;
@@ -179,6 +182,10 @@ function visit(
         if (!Object.hasOwn(schema.properties, key)) issues.push({ path: `${path}.${key}`, message: "additional property denied" });
       }
     }
+    const keys = Object.keys(objectValue);
+    if (schema.minProperties !== undefined && keys.length < schema.minProperties) issues.push({ path, message: `expected at least ${schema.minProperties} properties` });
+    if (schema.maxProperties !== undefined && keys.length > schema.maxProperties) issues.push({ path, message: `expected at most ${schema.maxProperties} properties` });
+    if (schema.propertyNames) for (const key of keys) visit(schema.propertyNames, key, `${path}.${key}`, issues, root, resolveSchema);
     if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
       for (const [key, child] of Object.entries(objectValue)) {
         if (!Object.hasOwn(schema.properties ?? {}, key)) visit(schema.additionalProperties, child, `${path}.${key}`, issues, root, resolveSchema);

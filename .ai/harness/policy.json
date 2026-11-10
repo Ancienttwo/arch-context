@@ -386,5 +386,8 @@
     "worktree_guard": "warn-by-default",
     "verification_gate": "contract-and-review",
     "completion_requires_checks": true
+  },
+  "publication": {
+    "acceptance_merge": "on"
   }
 }

@@ -145,6 +145,72 @@ describe("YamlModelStore runtime topology integrity (ADR-0049)", () => {
   });
 });
 
+describe("YamlModelStore state machines (#510)", () => {
+  const path = ".archcontext/model/state-machines/state-machine.checkout.order.yaml";
+  function machine(): any {
+    const value = JSON.parse(readFileSync(join(import.meta.dir, "../../../contracts/fixtures/valid/architecture-state-machine.json"), "utf8"));
+    return { ...value, capabilityId: "capability.architecture.context" };
+  }
+  async function validateMachine(value: Json) {
+    const root = modelRoot();
+    try {
+      mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+      writeFileSync(join(root, path), stableYaml(value), "utf8");
+      return await validate(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  test("a valid state machine validates", async () => {
+    expect(await validateMachine(machine())).toMatchObject({ valid: true, errors: [] });
+  });
+
+  test("a schema violation names the file and the field", async () => {
+    expect((await validateMachine({ ...machine(), rules: [{ id: "one", label: "One", final: { order: ["shipped"], payment: ["unpaid"] } }] })).errors)
+      .toEqual([`${path}: $.rules[0].final: expected at most 1 properties`]);
+  });
+
+  test("each issue names its own file when two machines share an id", async () => {
+    const root = modelRoot();
+    try {
+      const first = machine();
+      first.regions[0].initial = "closed";
+      const second = machine();
+      second.rules[1].id = "paid-before-shipped";
+      mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/model/state-machines/a.yaml"), stableYaml(first), "utf8");
+      writeFileSync(join(root, ".archcontext/model/state-machines/b.yaml"), stableYaml(second), "utf8");
+      expect((await validate(root)).errors).toEqual([
+        ".archcontext/model/state-machines/a.yaml: regions[0].initial: state-machine-initial-unknown",
+        ".archcontext/model/state-machines/b.yaml: id: state-machine-id-duplicate",
+        ".archcontext/model/state-machines/b.yaml: rules[1].id: state-machine-id-duplicate"
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  const cases: Array<[string, (value: any) => void, string]> = [
+    ["state-machine-id-duplicate", (value) => { value.rules[1].id = "paid-before-shipped"; }, "rules[1].id"],
+    ["state-machine-capability-missing", (value) => { value.capabilityId = "capability.missing"; }, "capabilityId"],
+    ["state-machine-initial-unknown", (value) => { value.regions[0].initial = "closed"; }, "regions[0].initial"],
+    ["state-machine-region-unknown", (value) => { value.rules[0].never = { order: ["shipped"], billing: ["unpaid"] }; }, "rules[0].never.billing"],
+    ["state-machine-state-unknown", (value) => { value.events[1].steps[0].then = { order: "delivered" }; }, "events[1].steps[0].then.order"],
+    ["state-machine-step-source-missing", (value) => { value.events[1].steps[0].when = { payment: ["captured"] }; }, "events[1].steps[0].then.order"],
+    ["state-machine-product-too-large", (value) => {
+      value.regions.push({ id: "audit", label: "Audit", initial: "s0", states: Array.from({ length: 11_112 }, (_, index) => ({ id: `s${index}`, label: "S" })) });
+    }, "regions"]
+  ];
+  for (const [invariant, mutate, field] of cases) {
+    test(`${invariant} is listed as path, field and invariant`, async () => {
+      const value = machine();
+      mutate(value);
+      expect((await validateMachine(value)).errors).toEqual([`${path}: ${field}: ${invariant}`]);
+    });
+  }
+});
+
 describe("YamlModelStore ADR appliesTo integrity (#163)", () => {
   test("ADR appliesTo ids that resolve to model nodes validate", async () => {
     const root = modelRoot();
