@@ -4,6 +4,7 @@ import { basename, posix, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { generatedMarkerAttributes, scanDocumentRegions } from "./document-regions";
 import { globLiteralPrefixLength } from "./source-globs";
+import { renderStateMachineSection } from "./state-machine-diagrams";
 export * from "./document-regions";
 export * from "./architecture-history";
 export * from "./source-globs";
@@ -60,7 +61,8 @@ import {
   type ProjectionCoverageV1,
   type ProjectionFreshnessReasonCode,
   type ProjectionMixedTargetV1,
-  type ProjectionTargetV1
+  type ProjectionTargetV1,
+  type StateMachineV1
 } from "@archcontext/contracts";
 import { assertRepoRelativePath, computeWorktreeDigest, parseArchitectureDecisionRecord, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments } from "@archcontext/core/changeset-engine";
@@ -369,6 +371,7 @@ const SOURCE_FOOTPRINT_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 /** Compiles accepted node/relation/flow authority against an exact CodeGraph evidence snapshot. */
 export function renderArchitectureDocumentationProjection(input: {
   model: NativeModel;
+  stateMachines?: readonly StateMachineV1[];
   profile?: ArchitectureProjectionProfile;
   sourceDigest: string;
   provenance: ArchitectureDocumentationProjectionProvenanceV3;
@@ -491,6 +494,7 @@ export function renderArchitectureDocumentationProjection(input: {
       scaleSignalsByNodeId,
       scaleByNodeId,
       semanticCompilationsByNodeId,
+      stateMachines: input.stateMachines ?? [],
       decisions: input.decisions ?? [],
       timeline: input.timeline ?? [],
       layout
@@ -2348,6 +2352,7 @@ function renderTargetGeneratedBody(
     scaleSignalsByNodeId: Map<string, CapabilitySourceScaleSignal>;
     scaleByNodeId: Map<string, ArchitectureCapabilityScaleV1>;
     semanticCompilationsByNodeId: Map<string, SemanticCapabilityDiagramCompilation>;
+    stateMachines: readonly StateMachineV1[];
     decisions: ArchitectureDecisionRecord[];
     timeline: ArchitectureDocumentationTimelineEntry[];
     layout: ArchitectureDocumentationLayout;
@@ -2360,7 +2365,8 @@ function renderTargetGeneratedBody(
       scaleSignal: input.scaleSignalsByNodeId.get(node.id),
       scale: input.scaleByNodeId.get(node.id),
       scaleByNodeId: input.scaleByNodeId,
-      semanticCompilation: input.semanticCompilationsByNodeId.get(node.id)!
+      semanticCompilation: input.semanticCompilationsByNodeId.get(node.id)!,
+      stateMachines: input.stateMachines.filter((machine) => machine.capabilityId === node.id)
     });
   }
   if (target.type === "relation-summary") return renderRelationSummary(model.relations.find((relation) => relation.id === target.scope.id)!, model);
@@ -2435,6 +2441,7 @@ function renderEntitySummary(
     /** The measured scale of every node that declares `source.include`; components read theirs here. */
     scaleByNodeId: ReadonlyMap<string, ArchitectureCapabilityScaleV1>;
     semanticCompilation: SemanticCapabilityDiagramCompilation;
+    stateMachines: readonly StateMachineV1[];
   }
 ): string {
   const source = nativeNodeSource(node);
@@ -2502,7 +2509,8 @@ function renderEntitySummary(
     "",
     "## 2. P2:端到端數據流",
     "",
-    ...renderSemanticP2Section(input.semanticCompilation)
+    ...renderSemanticP2Section(input.semanticCompilation),
+    ...renderStateMachineSection(input.stateMachines)
   ];
   return `${lines.join("\n")}\n`;
 }
