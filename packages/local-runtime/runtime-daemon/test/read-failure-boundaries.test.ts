@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { FailureError, failureIssues, type JsonEnvelope } from "@archcontext/contracts";
@@ -257,6 +257,26 @@ test("state-machines check refuses a non-Git directory and returns the invalid m
     });
   } finally {
     rmSync(outside, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("state-machines check keeps an invalid model failure classified when issues carry control characters (#510)", () => {
+  const root = fixture();
+  try {
+    const machine = JSON.parse(readFileSync(join(repositoryRoot, "packages/contracts/fixtures/valid/architecture-state-machine.json"), "utf8"));
+    machine.events[1].steps[0].when = Object.fromEntries(Array.from({ length: 17 }, (_, index) => [`${String.fromCharCode(97 + index)}${"\u0001".repeat(100)}`, ["open"]]));
+    mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/state-machines/order.yaml"), JSON.stringify(machine));
+    const result = runStateMachineCheckCommand(root);
+    assertSafe(result, "AC_SCHEMA_INVALID", "state-machine-model-invalid", "state-machines.check");
+    const details = result.error?.details as { issues: string[]; issueCount: number; omittedCount: number };
+    expect(details.issueCount).toBe(17);
+    expect(details.issues.length).toBeGreaterThan(0);
+    expect(details.issues.length + details.omittedCount).toBe(17);
+    expect(details.issues.every((issue) => issue.includes("\u0001"))).toBe(true);
+    expect(new TextEncoder().encode(JSON.stringify(result, null, 2) + "\n").byteLength).toBeLessThanOrEqual(8192);
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

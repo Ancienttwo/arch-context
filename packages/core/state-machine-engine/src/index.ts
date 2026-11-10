@@ -20,11 +20,16 @@ import stateMachineSchema from "../../../../schemas/repo/architecture-state-mach
 
 export const STATE_MACHINES_MODEL_DIRECTORY = ".archcontext/model/state-machines";
 /**
- * The failure-envelope budget (at most 256 bytes per detail string, 8192 per envelope) holds whole
- * issues only; the failure counts the rest, and `archctx validate --json` lists every issue.
+ * The failure envelope (`packages/contracts/src/failure.ts`) allows 256 raw bytes per detail
+ * string and 8192 bytes for the whole envelope, compact or pretty-printed. The failure keeps whole
+ * issues only: each within 256 raw bytes, and at most 4096 bytes for the JSON-encoded list, so the
+ * escapes of control characters, the fixed envelope fields, a request id of up to 256 bytes and
+ * the pretty-print indentation of 16 items still fit. The failure counts every omitted issue, and
+ * `archctx validate --json` lists every issue.
  */
 const FAILURE_ISSUE_LIMIT = 16;
 const FAILURE_ISSUE_MAX_BYTES = 256;
+const FAILURE_ISSUES_MAX_JSON_BYTES = 4096;
 
 type NodeRecord = Readonly<Record<string, Json | undefined>>;
 
@@ -64,10 +69,24 @@ export function loadStateMachinesFromArchContext(root: string, nodes: readonly N
     for (const issue of machineIssues) issues.push(`${machinePaths[index]}: ${issue.field}: ${issue.invariant}`);
   });
   if (issues.length > 0) {
-    const reported = issues.sort(compareStrings).filter((issue) => Buffer.byteLength(issue) <= FAILURE_ISSUE_MAX_BYTES).slice(0, FAILURE_ISSUE_LIMIT);
+    const reported = failureIssues(issues.sort(compareStrings));
     throw new FailureError("AC_SCHEMA_INVALID", "state-machine-model-invalid", { issues: reported, issueCount: issues.length, omittedCount: issues.length - reported.length });
   }
   return machines;
+}
+
+/** The sorted issues that fit the failure budget, in order; an issue that does not fit is skipped and counted. */
+function failureIssues(issues: readonly string[]): string[] {
+  const reported: string[] = [];
+  let listBytes = 2;
+  for (const issue of issues) {
+    if (reported.length === FAILURE_ISSUE_LIMIT) break;
+    const encodedBytes = Buffer.byteLength(JSON.stringify(issue)) + (reported.length > 0 ? 1 : 0);
+    if (Buffer.byteLength(issue) > FAILURE_ISSUE_MAX_BYTES || listBytes + encodedBytes > FAILURE_ISSUES_MAX_JSON_BYTES) continue;
+    reported.push(issue);
+    listBytes += encodedBytes;
+  }
+  return reported;
 }
 
 interface CompiledStep {
