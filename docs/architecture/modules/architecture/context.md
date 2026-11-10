@@ -1,6 +1,6 @@
 # architecture/context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" rendererVersion="archcontext.docs-renderer/v6" outputDigest="sha256:c6868d9800053ad3362ea82ddff2584ec1bb7b39bf17591c7fa6ad6a622dc134" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" rendererVersion="archcontext.docs-renderer/v6" outputDigest="sha256:5eafe6d7180df4a6df8371594c077e66e0eab7acfe2d5fb868c160f4144b899b" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture.context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -35,6 +35,7 @@ flowchart LR
   p1_component_architecture_context_core_refactor_decision_d3de1854["Refactor Decision"]:::component
   p1_component_architecture_context_core_retrieval_3cb3b2c1["Retrieval"]:::component
   p1_component_architecture_context_core_review_engine_f590debf["Review Engine"]:::component
+  p1_component_architecture_context_core_state_machine_engine_34cf32ca["State Machine Engine"]:::component
   p1_component_architecture_context_local_runtime_agent_jobs_33e671d3["Agent Job Service"]:::component
   p1_component_architecture_context_local_runtime_architecture_book_ec146b18["Architecture Book Service"]:::component
   p1_component_architecture_context_local_runtime_audit_eaeac660["Architecture Audit Service"]:::component
@@ -109,8 +110,8 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:fc11fc1edec9ad12fd37121944f45b022d992168deb8ed85d95fd3ded188046b`).
-- Semantic nodes: `48`; declared relations: `40`.
+- Proof: `proven` (`sha256:ed8266410f830b6ac1b277d04d2c6f35a33683ce06bea69aaf391d6438f7274e`).
+- Semantic nodes: `49`; declared relations: `40`.
 
 ### 1.2 模組職責表
 
@@ -138,7 +139,7 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **Proof**: `proven` (`sha256:fc11fc1edec9ad12fd37121944f45b022d992168deb8ed85d95fd3ded188046b`); selectors `2/2`.
+> **Proof**: `proven` (`sha256:ed8266410f830b6ac1b277d04d2c6f35a33683ce06bea69aaf391d6438f7274e`); selectors `2/2`.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%
@@ -156,6 +157,53 @@ sequenceDiagram
     Note over p2_trigger_9140ba4a: Return a typed projection failure
   end
 ```
+
+### 2.1 狀態機
+
+#### Agent job lifecycle
+
+- ID:`state-machine.architecture-context.agent-job`
+- 檢查:`7` 個可達全域狀態 / `15` 次轉移
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  state "Queued" as job__queued
+  state "Running" as job__running
+  state "Succeeded" as job__succeeded
+  state "Failed" as job__failed
+  state "Cancelled" as job__cancelled
+  state "Superseded" as job__superseded
+  state "Expired" as job__expired
+  [*] --> job__queued
+  job__queued --> job__expired: Enqueue evicts or supersedes queued jobs / Cancel, supersede or expire a job / Expire queued or running jobs of a stale head
+  job__queued --> job__superseded: Enqueue evicts or supersedes queued jobs / Cancel, supersede or expire a job
+  job__queued --> job__failed: Claim a queued job or an expired lease
+  job__running --> job__failed: Claim a queued job or an expired lease / Complete a running job
+  job__queued --> job__running: Claim a queued job or an expired lease
+  job__running --> job__succeeded: Complete a running job
+  job__failed --> job__queued: Retry a job
+  job__queued --> job__cancelled: Cancel, supersede or expire a job
+  job__running --> job__cancelled: Cancel, supersede or expire a job
+  job__running --> job__expired: Cancel, supersede or expire a job / Expire queued or running jobs of a stale head
+  job__succeeded --> [*]
+  job__cancelled --> [*]
+  job__superseded --> [*]
+  job__expired --> [*]
+```
+
+| 規則 | 類型 | 結果 | 最短路徑 | 守衛 | 追蹤 |
+| --- | --- | --- | --- | --- | --- |
+| `terminal-status-is-final` A terminal job status never changes | `final` | `holds` | — | Enqueue evicts or supersedes queued jobs #1 / Job status、Enqueue evicts or supersedes queued jobs #2 / Job status、Claim a queued job or an expired lease #1 / Job status、Claim a queued job or an expired lease #2 / Job status、Complete a running job #1 / Job status、Complete a running job #2 / Job status、Retry a job #1 / Job status、Retry a job #2 / Job status、Cancel, supersede or expire a job #1 / Job status、Cancel, supersede or expire a job #2 / Job status、Cancel, supersede or expire a job #3 / Job status、Expire queued or running jobs of a stale head / Job status | — |
+
+| 事件 | 來源 |
+| --- | --- |
+| `enqueue` Enqueue evicts or supersedes queued jobs | `packages/local-runtime/local-store-sqlite/src/index.ts#SqliteLocalStore.enqueueRuntimeAgentJob` |
+| `claim` Claim a queued job or an expired lease | `packages/local-runtime/local-store-sqlite/src/index.ts#SqliteLocalStore.claimRuntimeAgentJob` |
+| `complete` Complete a running job | `packages/local-runtime/local-store-sqlite/src/index.ts#SqliteLocalStore.completeRuntimeAgentJob` |
+| `retry` Retry a job | `packages/local-runtime/local-store-sqlite/src/index.ts#SqliteLocalStore.retryRuntimeAgentJob` |
+| `cancel` Cancel, supersede or expire a job | `packages/local-runtime/local-store-sqlite/src/index.ts#SqliteLocalStore.cancelRuntimeAgentJob` |
+| `cancel-stale` Expire queued or running jobs of a stale head | `packages/local-runtime/local-store-sqlite/src/index.ts#SqliteLocalStore.cancelStaleRuntimeAgentJobs` |
 <!-- END ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" -->
 
 ## 3. P3:設計決策與不變量
