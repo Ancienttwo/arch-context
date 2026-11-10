@@ -52,8 +52,8 @@ describe("loadStateMachinesFromArchContext", () => {
     machine.events[1].source.path = ".";
     machine.rules[0].finding = { tracking: "https://:" };
     expect(loadIssues(machine)).toEqual([
-      expect.stringContaining("order.yaml: $.events[0].source: expected exactly one matching schema, got 0"),
-      expect.stringContaining("order.yaml: $.events[1].source: expected exactly one matching schema, got 0"),
+      expect.stringContaining("order.yaml: $.events[0].source.path: does not match ^(?!"),
+      expect.stringContaining("order.yaml: $.events[1].source.path: does not match ^(?!"),
       expect.stringContaining("order.yaml: $.rules[0].finding.tracking: does not match ^https://")
     ]);
   });
