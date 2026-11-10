@@ -276,6 +276,96 @@ test("first run publishes one generated-only commit on the base tip; the same SH
   expect(existsSync(paths.lock)).toBe(false);
 });
 
+test("a pinned base publishes exactly that commit and reuses success only for the matching SHA", async () => {
+  const fixture = writerFixture();
+  const baseSha = git(fixture.dev, "rev-parse", "HEAD");
+  const { apply, calls } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# pinned overview\n" } }));
+  const publisher = recordingPublisher();
+  const options = { cwd: fixture.clone, baseSha, publisher: publisher.publisher, apply, env: fixture.env };
+  const run = runOf(await runProjectionPublishCommand(options));
+  expect(run).toMatchObject({ result: "published", baseSha, pushed: true, iterations: 1 });
+  const tip = originRef(fixture, "refs/heads/archctx/projection")!;
+  expect(git(fixture.origin, "rev-list", "--parents", "-n", "1", tip).split(" ")).toEqual([tip, baseSha]);
+  expect(calls[0]!.request.expected.headSha).toBe(baseSha);
+  expect(runOf(await runProjectionPublishCommand(options))).toMatchObject({ result: "already-processed", baseSha, pushed: false, publishedCommit: tip });
+  expect(calls).toHaveLength(1);
+  expect(publisher.calls).toHaveLength(1);
+});
+
+for (const prior of ["fresh", "cached", "pending"] as const) {
+  test(`a mismatched pinned base stops before apply, commit or ${prior} reuse`, async () => {
+    const fixture = writerFixture();
+    const actualBaseSha = git(fixture.dev, "rev-parse", "HEAD");
+    const { apply, calls } = fakeApply(() => ({ files: { "docs/architecture/overview.md": "# overview\n" } }));
+    let publisherFails = prior === "pending";
+    const publisher = recordingPublisher("gh", () => publisherFails);
+    const options = { cwd: fixture.clone, publisher: publisher.publisher, apply, env: fixture.env };
+    const paths = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env);
+    if (prior !== "fresh") {
+      expect(runOf(await runProjectionPublishCommand(options)).result).toBe(prior === "cached" ? "published" : "failed");
+    }
+    publisherFails = false;
+    const previousHead = existsSync(paths.worktree) ? git(paths.worktree, "rev-parse", "HEAD") : null;
+    const previousTip = originRef(fixture, "refs/heads/archctx/projection");
+    const applyCount = calls.length;
+    const publisherCount = publisher.calls.length;
+    const expectedBaseSha = "0".repeat(40);
+    const result = await runProjectionPublishCommand({ ...options, baseSha: expectedBaseSha });
+    const error = { code: "AC_PRECONDITION_FAILED", reasonCode: "projection-writer-base-moved", retryable: true, details: { expectedBaseSha, actualBaseSha } };
+    expect(result.error).toMatchObject(error);
+    const run = runOf(result);
+    expect(run).toMatchObject({ result: "failed", baseSha: actualBaseSha, iterations: 1, pushed: false, publishedCommit: null, projectionStatus: null, error });
+    expect(calls).toHaveLength(applyCount);
+    expect(publisher.calls).toHaveLength(publisherCount);
+    expect(originRef(fixture, "refs/heads/archctx/projection")).toBe(previousTip);
+    expect(existsSync(paths.worktree) ? git(paths.worktree, "rev-parse", "HEAD") : null).toBe(previousHead);
+    expect(statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env })).lastRun).toEqual(run);
+    expect(runOf(await runProjectionPublishCommand({ ...options, baseSha: actualBaseSha })).result).toBe(prior === "cached" ? "already-processed" : "published");
+  });
+}
+
+for (const projectionStatus of ["applied", "noop"] as const) {
+  for (const movement of ["advance", "delete"] as const) {
+    test(`a pinned ${projectionStatus} run stops at its fence when the base ${movement}s`, async () => {
+      const fixture = writerFixture();
+      const expectedBaseSha = git(fixture.dev, "rev-parse", "HEAD");
+      let actualBaseSha: string | null = null;
+      const { apply, calls } = fakeApply(() => {
+        if (movement === "advance") actualBaseSha = pushBaseCommit(fixture, "export const app = 2;\n");
+        else git(fixture.origin, "update-ref", "-d", "refs/heads/main");
+        return projectionStatus === "noop" ? { status: "noop" } : { files: { "docs/architecture/overview.md": "# stale overview\n" } };
+      });
+      const publisher = recordingPublisher();
+      const result = await runProjectionPublishCommand({ cwd: fixture.clone, baseSha: expectedBaseSha, publisher: publisher.publisher, apply, env: fixture.env });
+      const run = runOf(result);
+      expect(run).toMatchObject({ result: "failed", baseSha: expectedBaseSha, iterations: 1, pushed: false, publishedCommit: null, projectionStatus });
+      if (movement === "advance") {
+        const error = { code: "AC_PRECONDITION_FAILED", reasonCode: "projection-writer-base-moved", retryable: true, details: { expectedBaseSha, actualBaseSha } };
+        expect(result.error).toMatchObject(error);
+        expect(run.error).toMatchObject(error);
+      } else {
+        expect(run.error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "projection-writer-base-missing" });
+      }
+      expect(calls).toHaveLength(1);
+      expect(publisher.calls).toHaveLength(0);
+      expect(originRef(fixture, "refs/heads/archctx/projection")).toBeNull();
+      expect(statusOf(runProjectionPublishStatusCommand({ cwd: fixture.clone, env: fixture.env })).lastSuccessfulSha).toBeNull();
+    });
+  }
+}
+
+test("invalid pinned base SHAs are rejected before any writer state or apply", async () => {
+  const fixture = writerFixture();
+  const { apply, calls } = fakeApply(() => ({ status: "noop" }));
+  for (const baseSha of ["", "abc", "A".repeat(40), "a".repeat(39), "a".repeat(41), "a".repeat(63), "a".repeat(64), "a".repeat(65), `${"a".repeat(40)}\n`]) {
+    const result = await runProjectionPublishCommand({ cwd: fixture.clone, baseSha, publisher: createNoneProjectionPublisher(), apply, env: fixture.env });
+    expect(result, JSON.stringify(baseSha)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", reasonCode: "projection-writer-input-invalid" } });
+  }
+  expect(calls).toHaveLength(0);
+  expect(existsSync(projectionWriterPaths(fixture.clone, "origin", "main", fixture.env).dir)).toBe(false);
+  expect(git(fixture.clone, "for-each-ref", "refs/archctx/projection-writer/")).toBe("");
+});
+
 test("a new base commit force-updates the rolling branch to that base plus exactly one commit", async () => {
   const fixture = writerFixture();
   const { apply } = fakeApply((_worktree, request) => ({ files: { "docs/architecture/overview.md": `# overview for ${request.expected.headSha}\n` } }));
