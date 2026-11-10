@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "archcontext.state-machine-check/v1",
+  "machines": [
+    {
+      "id": "state-machine.checkout.order",
+      "capabilityId": "capability.checkout",
+      "reachableStates": 6,
+      "transitions": 5,
+      "rules": [
+        {
+          "id": "paid-before-shipped",
+          "kind": "never",
+          "status": "broken",
+          "state": {
+            "order": "shipped",
+            "payment": "unpaid"
+          },
+          "path": [
+            {
+              "event": "ship",
+              "step": 1
+            }
+          ]
+        },
+        {
+          "id": "closed-order-stays-closed",
+          "kind": "final",
+          "status": "holds",
+          "protectedBy": [
+            {
+              "event": "ship",
+              "step": 1,
+              "region": "order"
+            },
+            {
+              "event": "cancel",
+              "step": 1,
+              "region": "order"
+            },
+            {
+              "event": "cancel",
+              "step": 2,
+              "region": "order"
+            }
+          ]
+        }
+      ],
+      "breaks": []
+    }
+  ]
+}

@@ -23,7 +23,8 @@
     "./refactor-assessment": "./refactor-assessment/src/index.ts",
     "./refactor-decision": "./refactor-decision/src/index.ts",
     "./retrieval": "./retrieval/src/index.ts",
-    "./review-engine": "./review-engine/src/index.ts"
+    "./review-engine": "./review-engine/src/index.ts",
+    "./state-machine-engine": "./state-machine-engine/src/index.ts"
   },
   "scripts": {
     "test": "bun test"

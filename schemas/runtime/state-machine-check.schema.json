@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/state-machine-check.schema.json",
+  "title": "StateMachineCheckV1",
+  "description": "The data of `archctx state-machines check`: for every declared state machine, the size of its reachable global state space, the result of each declared rule and the built-in breaks. The same model gives the same bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "machines"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.state-machine-check/v1" },
+    "machines": {
+      "description": "Sorted by machine id.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "capabilityId", "reachableStates", "transitions", "rules", "breaks"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^state-machine\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+          "capabilityId": { "type": "string", "pattern": "^capability\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+          "reachableStates": { "type": "integer", "minimum": 1 },
+          "transitions": { "type": "integer", "minimum": 0, "description": "Pairs of a reachable global state and an enabled step that changes it." },
+          "rules": {
+            "description": "In declaration order.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "kind", "status"],
+              "properties": {
+                "id": { "$ref": "#/$defs/localId" },
+                "kind": { "enum": ["never", "final"] },
+                "status": { "enum": ["holds", "broken", "finding-open", "finding-resolved"] },
+                "tracking": { "type": "string", "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::[0-9]{1,5})?(?:[/?#][^\\s]*)?$" },
+                "state": { "$ref": "#/$defs/globalState" },
+                "path": { "$ref": "#/$defs/path" },
+                "protectedBy": {
+                  "description": "The guards whose removal breaks this holding rule, in declaration order of the guards.",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["event", "step", "region"],
+                    "properties": {
+                      "event": { "$ref": "#/$defs/localId" },
+                      "step": { "$ref": "#/$defs/stepIndex" },
+                      "region": { "$ref": "#/$defs/localId" }
+                    }
+                  }
+                }
+              },
+              "allOf": [
+                {
+                  "if": { "properties": { "status": { "enum": ["broken", "finding-open"] } } },
+                  "then": { "required": ["state", "path"], "not": { "required": ["protectedBy"] } },
+                  "else": { "not": { "anyOf": [{ "required": ["state"] }, { "required": ["path"] }] } }
+                },
+                {
+                  "if": { "properties": { "status": { "enum": ["finding-open", "finding-resolved"] } } },
+                  "then": { "required": ["tracking"] },
+                  "else": { "not": { "required": ["tracking"] } }
+                }
+              ]
+            }
+          },
+          "breaks": {
+            "description": "Every unreachable state, then every dead step, each in declaration order, then at most one deadlock.",
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "region", "state"],
+                  "properties": {
+                    "kind": { "const": "unreachable-state" },
+                    "region": { "$ref": "#/$defs/localId" },
+                    "state": { "$ref": "#/$defs/localId" }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "event", "step"],
+                  "properties": {
+                    "kind": { "const": "dead-step" },
+                    "event": { "$ref": "#/$defs/localId" },
+                    "step": { "$ref": "#/$defs/stepIndex" }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "state", "path", "count"],
+                  "properties": {
+                    "kind": { "const": "deadlock" },
+                    "state": { "$ref": "#/$defs/globalState" },
+                    "path": { "$ref": "#/$defs/path" },
+                    "count": { "type": "integer", "minimum": 1, "description": "The number of deadlocked reachable global states." }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "localId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
+    "stepIndex": { "type": "integer", "minimum": 1, "description": "The 1-based index of the step in its event." },
+    "globalState": {
+      "description": "One state per region, keyed by region id in declaration order.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": { "$ref": "#/$defs/localId" }
+    },
+    "path": {
+      "description": "The shortest sequence of fired steps from the initial global state.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event", "step"],
+        "properties": {
+          "event": { "$ref": "#/$defs/localId" },
+          "step": { "$ref": "#/$defs/stepIndex" }
+        }
+      }
+    }
+  }
+}

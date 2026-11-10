@@ -135,6 +135,7 @@ const schemaByFixture: Record<string, string> = {
   "architecture-node-layered": "schemas/repo/architecture-node.schema.json",
   "architecture-node-mount": "schemas/repo/architecture-node.schema.json",
   "architecture-flow": "schemas/repo/architecture-flow.schema.json",
+  "architecture-state-machine": "schemas/repo/architecture-state-machine.schema.json",
   "architecture-relation": "schemas/repo/architecture-relation.schema.json",
   "cross-repo-relation": "schemas/repo/cross-repo-relation.schema.json",
   "landscape": "schemas/repo/landscape.schema.json",
@@ -175,6 +176,7 @@ const schemaByFixture: Record<string, string> = {
   "native-context-export": "schemas/runtime/native-context-export.schema.json",
   "docs-anchors": "schemas/runtime/docs-anchors.schema.json",
   "flow-selector-check": "schemas/runtime/flow-selector-check.schema.json",
+  "state-machine-check": "schemas/runtime/state-machine-check.schema.json",
   "evidence-item": "schemas/runtime/evidence-item.schema.json",
   "evidence-binding": "schemas/runtime/evidence-binding.schema.json",
   "recommendation-run": "schemas/runtime/recommendation-run.schema.json",
@@ -267,6 +269,12 @@ test("JSON schema uniqueItems compares canonical JSON rather than object inserti
     [{ a: 1, b: 2 }, { b: 2, a: 1 }]
   );
   expect(result.valid).toBe(false);
+});
+
+test("JSON schema object keywords bound the property count and check every property name", () => {
+  expect(validateJsonSchema({ type: "object", minProperties: 2 } as any, { a: 1 }).issues).toEqual([{ path: "$", message: "expected at least 2 properties" }]);
+  expect(validateJsonSchema({ type: "object", maxProperties: 1 } as any, { a: 1, b: 2 }).issues).toEqual([{ path: "$", message: "expected at most 1 properties" }]);
+  expect(validateJsonSchema({ type: "object", propertyNames: { pattern: "^[a-z]+$" } } as any, { ok: 1, Bad: 2 }).issues).toEqual([{ path: "$.Bad", message: "does not match ^[a-z]+$" }]);
 });
 
 test("projection result contract denies raw bodies and keeps deterministic result arrays", () => {

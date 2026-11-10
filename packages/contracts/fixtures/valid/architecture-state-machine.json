@@ -1,0 +1,158 @@
+{
+  "schemaVersion": "archcontext.state-machine/v1",
+  "id": "state-machine.checkout.order",
+  "capabilityId": "capability.checkout",
+  "name": "Order and payment",
+  "regions": [
+    {
+      "id": "order",
+      "label": "Order",
+      "initial": "open",
+      "states": [
+        {
+          "id": "open",
+          "label": "Open"
+        },
+        {
+          "id": "shipped",
+          "label": "Shipped",
+          "terminal": true
+        },
+        {
+          "id": "cancelled",
+          "label": "Cancelled",
+          "terminal": true
+        }
+      ]
+    },
+    {
+      "id": "payment",
+      "label": "Payment",
+      "initial": "unpaid",
+      "states": [
+        {
+          "id": "unpaid",
+          "label": "Unpaid"
+        },
+        {
+          "id": "captured",
+          "label": "Captured"
+        },
+        {
+          "id": "refunded",
+          "label": "Refunded"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "capture",
+      "label": "Capture the payment",
+      "source": {
+        "kind": "code",
+        "path": "src/payment.ts",
+        "symbol": "PaymentService.capture"
+      },
+      "steps": [
+        {
+          "when": {
+            "order": [
+              "open"
+            ],
+            "payment": [
+              "unpaid"
+            ]
+          },
+          "then": {
+            "payment": "captured"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ship",
+      "label": "Ship the order",
+      "source": {
+        "kind": "code",
+        "path": "src/order.ts",
+        "symbol": "shipOrder"
+      },
+      "steps": [
+        {
+          "when": {
+            "order": [
+              "open"
+            ]
+          },
+          "then": {
+            "order": "shipped"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cancel",
+      "label": "Cancel the order",
+      "source": {
+        "kind": "code",
+        "path": "src/order.ts",
+        "symbol": "cancelOrder"
+      },
+      "steps": [
+        {
+          "when": {
+            "order": [
+              "open"
+            ],
+            "payment": [
+              "unpaid"
+            ]
+          },
+          "then": {
+            "order": "cancelled"
+          }
+        },
+        {
+          "when": {
+            "order": [
+              "open"
+            ],
+            "payment": [
+              "captured"
+            ]
+          },
+          "then": {
+            "order": "cancelled",
+            "payment": "refunded"
+          }
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "paid-before-shipped",
+      "label": "An order never ships without a captured payment",
+      "never": {
+        "order": [
+          "shipped"
+        ],
+        "payment": [
+          "unpaid",
+          "refunded"
+        ]
+      }
+    },
+    {
+      "id": "closed-order-stays-closed",
+      "label": "A shipped or cancelled order never changes",
+      "final": {
+        "order": [
+          "shipped",
+          "cancelled"
+        ]
+      }
+    }
+  ]
+}

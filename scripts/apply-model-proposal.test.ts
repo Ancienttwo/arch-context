@@ -23,6 +23,11 @@ describe("apply-model-proposal", () => {
     expect(JSON.stringify(receipt)).not.toContain("rationale: Test fixture");
   });
 
+  test("accepts a state machine path", () => {
+    const path = ".archcontext/model/state-machines/state-machine.fixture.yaml";
+    expect(parseModelProposal({ ...proposal, operations: [{ ...proposal.operations[0], path, entityId: "state-machine.fixture" }] }).operations[0].path).toBe(path);
+  });
+
   test("rejects paths outside the architecture model authority", () => {
     expect(() => parseModelProposal({ ...proposal, operations: [{ ...proposal.operations[0], path: "docs/architecture/fixture.md" }] })).toThrow("outside the model authority");
   });
