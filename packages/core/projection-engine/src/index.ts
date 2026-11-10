@@ -1053,7 +1053,11 @@ export function digestArchitectureDocumentationSourceTree(root: string, model: N
  * leaves every other byte as is.
  */
 export function sourceFileContentDigest(absolute: string): string {
-  const bytes = readFileSync(absolute);
+  return sourceContentDigest(readFileSync(absolute));
+}
+
+/** The digest of `sourceFileContentDigest` over bytes the caller already read. */
+export function sourceContentDigest(bytes: Buffer): string {
   const normalized = bytes.includes(0x0d) ? Buffer.from(bytes.toString("latin1").replaceAll("\r\n", "\n"), "latin1") : bytes;
   return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }

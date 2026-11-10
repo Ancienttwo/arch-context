@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { StateMachineAnchor, StateMachineCodeSource, StateMachineV1 } from "@archcontext/contracts";
-import { matchingDeclarations, sourceFileContentDigest, splitSymbol } from "@archcontext/core/projection-engine";
+import { matchingDeclarations, sourceContentDigest, splitSymbol } from "@archcontext/core/projection-engine";
 import { openCodeGraphSymbolReader, type CodeGraphSymbolDeclaration, type CodeGraphSymbolReaderResult } from "@archcontext/local-runtime/codegraph-adapter";
 
 export interface StateMachineAnchorScope {
@@ -13,17 +13,17 @@ export interface StateMachineAnchorScope {
 }
 
 interface AnchorFile {
-  /** The source footprint digest of the file; computed on first use by a file anchor. */
-  digest?: string;
-  /** CRLF read as LF; read on first use by a symbol anchor. */
-  content?: string;
+  /** The source footprint digest of the file. */
+  digest: string;
+  /** CRLF read as LF. */
+  content: string;
   declarations?: CodeGraphSymbolDeclaration[] | undefined;
   parsed: boolean;
 }
 
 /**
  * The status of every `code` source of a region or an event of each machine, aligned with
- * `machines`. Each file is digested, read and parsed at most once, and the CodeGraph symbol reader is opened
+ * `machines`. Each file is read and parsed at most once, and the CodeGraph symbol reader is opened
  * at most once, only when an anchor in scope names a symbol. Nothing here writes a digest.
  */
 export function stateMachineAnchors(root: string, machines: readonly StateMachineV1[], scope: StateMachineAnchorScope): StateMachineAnchor[][] {
@@ -37,7 +37,9 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
     const fileAt = (path: string): AnchorFile => {
       let file = files.get(path);
       if (file === undefined) {
-        file = { parsed: false };
+        // One read feeds both the file digest and the parser, so every anchor on a file describes the same bytes.
+        const bytes = readFileSync(resolve(root, path));
+        file = { digest: sourceContentDigest(bytes), content: bytes.toString("utf8").replace(/\r\n/g, "\n"), parsed: false };
         files.set(path, file);
       }
       return file;
@@ -48,12 +50,11 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
         status: source.confirmedDigest === undefined ? "anchor-unconfirmed" : source.confirmedDigest === digest ? "confirmed" : "anchor-changed", digest });
       if (!scope.files.has(source.path)) return { ...base, status: "anchor-missing-path" };
       const file = fileAt(source.path);
-      if (source.symbol === undefined) return measured(file.digest ??= sourceFileContentDigest(resolve(root, source.path)));
+      if (source.symbol === undefined) return measured(file.digest);
       if (opened!.availability === "unavailable") return { ...base, status: "unchecked", reason: opened!.reasonCode };
       const reader = opened!.reader;
-      const content = file.content ??= readFileSync(resolve(root, source.path), "utf8").replace(/\r\n/g, "\n");
       if (!file.parsed) {
-        file.declarations = reader.supportsPath(source.path) ? reader.declarationsInSource(source.path, content) : undefined;
+        file.declarations = reader.supportsPath(source.path) ? reader.declarationsInSource(source.path, file.content) : undefined;
         file.parsed = true;
       }
       if (file.declarations === undefined) return { ...base, status: "anchor-language-unsupported" };
@@ -62,7 +63,7 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
       if (matches.length === 0) return { ...base, status: "anchor-missing-symbol" };
       if (matches.length > 1) return { ...base, status: "anchor-ambiguous-symbol" };
       const [declaration] = matches;
-      return measured(sha256(Buffer.from(content.split("\n").slice(declaration!.startLine - 1, declaration!.endLine).join("\n"), "utf8")));
+      return measured(sha256(Buffer.from(file.content.split("\n").slice(declaration!.startLine - 1, declaration!.endLine).join("\n"), "utf8")));
     }));
   } finally {
     if (opened?.availability === "ready") opened.reader.close();

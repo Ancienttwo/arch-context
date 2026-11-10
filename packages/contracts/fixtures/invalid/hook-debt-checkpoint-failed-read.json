@@ -31,6 +31,11 @@
         "reasonCodes": []
       },
       {
+        "check": "state-machines",
+        "coverage": "complete",
+        "reasonCodes": []
+      },
+      {
         "check": "practices",
         "coverage": "complete",
         "reasonCodes": []
@@ -38,7 +43,7 @@
     ],
     "items": [],
     "actionsRequired": [],
-    "digest": "sha256:1d40d5a0b5f92e61241f310b1f0c26b342210533455707a93f524d306db88b4e"
+    "digest": "sha256:ceaaaf214aff4c0b05abe367cad2b58e52b25d2aeeb4809ebc0e101d34e66d09"
   },
   "hookLog": {
     "schemaVersion": "archcontext.hook-log/v1",
