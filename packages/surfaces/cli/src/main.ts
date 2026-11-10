@@ -88,7 +88,7 @@ const AUDIT_APPROVE_VALUE_FLAGS = ["--run-id", "--confirm-public-repo", ...AUDIT
 const AUDIT_APPROVE_BOOLEAN_FLAGS = ["--resume", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
 
 /** `projection publish|publish-status|verify-pr` flags (#379); the writer CLI handlers scan against these. */
-const PROJECTION_PUBLISH_VALUE_FLAGS = ["--base", "--branch", "--interval", "--publisher", "--publisher-command", "--remote"] as const;
+const PROJECTION_PUBLISH_VALUE_FLAGS = ["--base", "--base-sha", "--branch", "--interval", "--publisher", "--publisher-command", "--remote"] as const;
 const PROJECTION_PUBLISH_BOOLEAN_FLAGS = ["--accept-observed-major-change", "--follow"] as const;
 const PROJECTION_PUBLISH_STATUS_VALUE_FLAGS = ["--base", "--remote"] as const;
 const PROJECTION_VERIFY_PR_VALUE_FLAGS = ["--base"] as const;
@@ -371,10 +371,11 @@ const CLI_PROJECTION_FRESHNESS_HELP = {
 
 /** `projection publish --help` (#379); above the entry block for the same TDZ reason as the audit constants. */
 const CLI_PROJECTION_PUBLISH_HELP = {
-  usage: "archctx projection publish [--base <branch>] [--remote <name>] [--branch <archctx/...>] [--publisher gh|command|none] [--publisher-command <executable>] [--accept-observed-major-change] [--follow [--interval <seconds>]] [--json]",
+  usage: "archctx projection publish [--base <branch>] [--base-sha <sha>] [--remote <name>] [--branch <archctx/...>] [--publisher gh|command|none] [--publisher-command <executable>] [--accept-observed-major-change] [--follow [--interval <seconds>]] [--json]",
   description: "Projection writer mode. Fetches the remote base tip, resets a writer-owned worktree to it, applies the projection through that worktree's archctxd, and pushes the result as exactly one commit on top of the base tip to a rolling archctx/* branch, then opens or updates its pull request. Only paths the apply wrote that are projection-owned outputs may change; anything else fails before a commit. One run per remote and base at a time (busy otherwise); the same base SHA is a no-op once published or up to date; a base that moves during the run is re-evaluated and the stale commit is never pushed.",
   options: {
     "--base <branch>": "The branch the projection is computed for (default: main).",
+    "--base-sha <sha>": "Publish only for this base commit (40 lowercase hex characters), ending with projection-writer-base-moved when the remote base points elsewhere.",
     "--remote <name>": "The remote to fetch the base from and push the rolling branch to (default: origin).",
     "--branch <archctx/...>": "The rolling branch (default: archctx/projection). It must start with archctx/ and differ from --base; the writer never pushes to any other ref.",
     "--publisher gh|command|none": "gh (default): the operator's own gh lists, then edits or creates the pull request. command: run --publisher-command. none: push only.",
@@ -1765,6 +1766,7 @@ type ProjectionWriterCliAction = "publish" | "publish-status" | "verify-pr";
 interface ProjectionPublishCliInput {
   remote?: string;
   base?: string;
+  baseSha?: string;
   branch?: string;
   publisher: ProjectionPublisherPort;
   acceptObservedMajorChange: boolean;
@@ -1813,6 +1815,8 @@ function parseProjectionPublishCliInput(args: string[], cwd: string): { ok: true
   const publisherKind = readFlag(args, "--publisher") ?? "gh";
   const publisherCommand = readFlag(args, "--publisher-command");
   const follow = args.includes("--follow");
+  const baseSha = readFlag(args, "--base-sha");
+  if (baseSha !== undefined && follow) return invalid("projection publish --base-sha cannot be used with --follow");
   const intervalFlag = readFlag(args, "--interval");
   if (intervalFlag !== undefined && !follow) return invalid("projection publish --interval requires --follow");
   const intervalSeconds = intervalFlag === undefined ? PROJECTION_PUBLISH_DEFAULT_INTERVAL_SECONDS : Number(intervalFlag);
@@ -1836,6 +1840,7 @@ function parseProjectionPublishCliInput(args: string[], cwd: string): { ok: true
     input: {
       remote: readFlag(args, "--remote"),
       base: readFlag(args, "--base"),
+      baseSha,
       branch: readFlag(args, "--branch"),
       publisher,
       acceptObservedMajorChange: args.includes("--accept-observed-major-change"),
@@ -1855,6 +1860,7 @@ function runProjectionPublishOnce(input: ProjectionPublishCliInput, cwd: string,
     cwd,
     remote: input.remote,
     base: input.base,
+    baseSha: input.baseSha,
     branch: input.branch,
     publisher: input.publisher,
     acceptObservedMajorChange: input.acceptObservedMajorChange,

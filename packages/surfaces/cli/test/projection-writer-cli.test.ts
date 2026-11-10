@@ -372,6 +372,54 @@ test("projection publish pushes a generated-only commit for a stamp-only source 
   }
 }, TEST_TIMEOUT_MS);
 
+test("projection publish --base-sha pins a one-shot publish and refuses stale, malformed or follow inputs", async () => {
+  const daemon = await startDaemon();
+  const fixture = await projectedOrigin(daemon);
+  const unreachable = new Proxy({}, { get: () => () => { throw new Error("refused pin reached the runtime"); } }) as any;
+  try {
+    writeFileSync(join(fixture.dev, "app/src/index.ts"), "export const app = 2;\n", "utf8");
+    git(fixture.dev, "commit", "-qam", "change source for pinned publish");
+    git(fixture.dev, "push", "-q", "origin", "main");
+    const baseSha = git(fixture.dev, "rev-parse", "HEAD");
+    const expectedBaseSha = "0".repeat(40);
+    const refused = await runCli("projection", ["publish", "--base-sha", expectedBaseSha, "--publisher", "none"], fixture.clone, { runtimeClient: unreachable });
+    expect(refused).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "projection-writer-base-moved", retryable: true, details: { expectedBaseSha, actualBaseSha: baseSha } }, data: { result: "failed", pushed: false, iterations: 1 } });
+    expectSchema(refused.data, RUN_SCHEMA);
+    expect(git(fixture.origin, "for-each-ref", "refs/heads/archctx/")).toBe("");
+
+    const failedStatus = dataOf<ProjectionPublishStatusV1>(await runCli("projection", ["publish-status"], fixture.clone), "projection.publish-status", STATUS_SCHEMA);
+    expect(failedStatus.lastRun).toEqual(refused.data);
+
+    const run = dataOf<ProjectionPublishRunV1>(
+      await runCli("projection", ["publish", "--base-sha", baseSha, "--publisher", "none", "--json"], fixture.clone, { runtimeClient: daemon }),
+      "projection.publish", RUN_SCHEMA
+    );
+    expect(run).toMatchObject({ result: "published", baseSha, pushed: true, iterations: 1 });
+    const tip = git(fixture.origin, "rev-parse", "refs/heads/archctx/projection");
+    expect(git(fixture.origin, "rev-list", "--parents", "-n", "1", tip).split(" ")).toEqual([tip, baseSha]);
+    const status = dataOf<ProjectionPublishStatusV1>(await runCli("projection", ["publish-status"], fixture.clone), "projection.publish-status", STATUS_SCHEMA);
+    expect(status.lastRun?.baseSha).toBe(baseSha);
+
+    for (const value of ["abc", "A".repeat(40), "a".repeat(41), "a".repeat(64)]) {
+      expect(await runCli("projection", ["publish", "--base-sha", value, "--publisher", "none"], fixture.clone, { runtimeClient: unreachable }))
+        .toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", reasonCode: "projection-writer-input-invalid" } });
+    }
+    expect(await runCli("projection", ["publish", "--base-sha", baseSha, "--follow"], fixture.clone, { runtimeClient: unreachable }))
+      .toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", reasonCode: "cli-input-invalid", message: "projection publish --base-sha cannot be used with --follow" } });
+    for (const subcommand of ["publish-status", "verify-pr"]) {
+      expect(await runCli("projection", [subcommand, "--base-sha", baseSha], fixture.clone, { runtimeClient: unreachable }))
+        .toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", message: `projection ${subcommand} does not recognize the flag --base-sha` } });
+    }
+    const help = await runCli("projection", ["publish", "--help"], fixture.clone, { runtimeClient: unreachable });
+    expect((help.data as any).usage).toContain("[--base-sha <sha>]");
+    expect((help.data as any).options["--base-sha <sha>"]).toContain("projection-writer-base-moved");
+    expect(git(fixture.origin, "rev-parse", "refs/heads/archctx/projection")).toBe(tip);
+  } finally {
+    await daemon.stop();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, TEST_TIMEOUT_MS);
+
 test("projection publish, publish-status and verify-pr refuse bad arguments before any Git or network work", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "archctx-writer-cli-args-"));
   const unreachable = new Proxy({}, { get: () => () => { throw new Error("argument errors reached the runtime"); } }) as any;
