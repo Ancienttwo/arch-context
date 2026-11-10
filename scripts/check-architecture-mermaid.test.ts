@@ -10,7 +10,7 @@ import {
   renderArchitectureDocumentationProjection,
   type NativeModel
 } from "../packages/core/projection-engine/src/index";
-import type { StateMachineV1 } from "@archcontext/contracts";
+import { stateMachineModelIssues, type StateMachineV1 } from "@archcontext/contracts";
 import { extractMermaidBlocks } from "./verify-architecture-mermaid.mjs";
 
 const repositoryRoot = resolve(import.meta.dir, "..");
@@ -122,7 +122,7 @@ test("generated topology, layered and capability diagrams pass the syntax check"
   });
 }, 60_000);
 
-test("rendered parallel and flat statecharts parse with the pinned Mermaid (SM-S14)", () => {
+test("rendered flat, parallel and formerly colliding statechart IDs parse with pinned Mermaid (SM-S14)", () => {
   const machine: StateMachineV1 = {
     schemaVersion: "archcontext.state-machine/v1", id: "state-machine.checkout.order", capabilityId: "capability.checkout", name: "Order and payment",
     regions: [
@@ -144,18 +144,34 @@ test("rendered parallel and flat statecharts parse with the pinned Mermaid (SM-S
     regions: [{ id: "job-status", label: "Job status", initial: "not-started", states: [{ id: "not-started", label: "Not started" }, { id: "unused", label: "Unused" }] }],
     events: [{ id: "wait", label: "Wait", source: { kind: "environment" }, steps: [{ when: { "job-status": ["not-started"] }, then: { "job-status": "not-started" } }] }], rules: []
   };
+  // Cover a state colliding with its own container, a sibling's container, and a hyphenated one.
+  const collisions = ["region", "payment", "payment-status"].map((target, index): StateMachineV1 => ({
+    schemaVersion: "archcontext.state-machine/v1", id: `state-machine.checkout.collision-${index}`, capabilityId: "capability.checkout", name: `Collision ${target}`,
+    regions: [
+      { id: "region", label: "Business region", initial: target, states: [{ id: target, label: "Payment zone", terminal: true }] },
+      { id: target === "region" ? "other" : target, label: "Payment", initial: "ready", states: [{ id: "ready", label: "Ready", terminal: true }] }
+    ],
+    events: [{ id: "wait", label: "Wait", source: { kind: "environment" }, steps: [{ when: { region: [target] }, then: { region: target } }] }], rules: []
+  }));
+  const model: NativeModel = { nodes: [{ id: "capability.checkout", kind: "capability", name: "Checkout" }], relations: [] };
+  const stateMachines = [machine, flat, ...collisions];
+  expect(stateMachineModelIssues({ nodes: model.nodes, stateMachines })).toEqual([]);
   const digest = `sha256:${"7".repeat(64)}`;
   const plan = renderArchitectureDocumentationProjection({
-    model: { nodes: [{ id: "capability.checkout", kind: "capability", name: "Checkout" }], relations: [] },
-    stateMachines: [machine, flat], sourceDigest: digest,
+    model, stateMachines, sourceDigest: digest,
     provenance: architectureDocumentationProjectionProvenance({ sourceTreeDigest: digest, modelDigest: digest, rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION, generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" } }),
     sourceFootprints: [], sourceScaleSignals: [], importGraphs: [], selectorEvidence: []
   });
   const capability = plan.files.find((file) => file.target.type === "entity-summary")!;
-  expect(extractMermaidBlocks(capability.body).filter((block: { body: string }) => block.body.startsWith("stateDiagram-v2"))).toHaveLength(2);
+  const blocks = extractMermaidBlocks(capability.body).filter((block: { body: string }) => block.body.startsWith("stateDiagram-v2"));
+  expect(blocks).toHaveLength(5);
+  for (const block of blocks) {
+    const ids = [...block.body.matchAll(/^\s*state "[^"]+" as (\w+)/gm)].map((match) => match[1]);
+    expect(new Set(ids).size).toBe(ids.length);
+  }
   withRoot({ [capability.path]: capability.body }, (root) => {
     const { status, report } = check("--root", root, "--render-page", join(root, "render"));
-    expect(report.blocks).toHaveLength(2);
+    expect(report.blocks).toHaveLength(5);
     expect(report.errorCount).toBe(0);
     expect(status).toBe(0);
   });

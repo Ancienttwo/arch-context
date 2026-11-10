@@ -980,13 +980,13 @@ describe("state-machine capability section (#511)", () => {
       "### 2.1 狀態機", "", "#### Order and payment", "",
       "- ID:`state-machine.checkout.order`", "- 檢查:`6` 個可達全域狀態 / `5` 次轉移", "",
       "```mermaid", "stateDiagram-v2", "  direction LR",
-      '  state "Order" as region__order {',
+      '  state "Order" as region___order {',
       '    state "Open" as order__open', '    state "Shipped" as order__shipped', '    state "Cancelled" as order__cancelled',
       "    [*] --> order__open",
       "    order__open --> order__shipped: Ship the order",
       "    order__open --> order__cancelled: Cancel the order [when Payment is Unpaid] / Cancel the order [when Payment is Captured]",
       "    order__shipped --> [*]", "    order__cancelled --> [*]", "  }",
-      '  state "Payment" as region__payment {',
+      '  state "Payment" as region___payment {',
       '    state "Unpaid" as payment__unpaid', '    state "Captured" as payment__captured', '    state "Refunded" as payment__refunded',
       "    [*] --> payment__unpaid",
       "    payment__unpaid --> payment__captured: Capture the payment [when Order is Open]",
@@ -1067,7 +1067,7 @@ describe("state-machine capability section (#511)", () => {
     machine.events[1]!.steps[0]!.when = { "audit-log": ["ready", "full"], payment: ["unpaid", "captured"], order: ["open", "cancelled"] };
     const section = machineSection([machine]);
     expect(section).toContain("order__cancelled --> order__shipped: Ship the order [when Payment is Unpaid or Captured] [when Audit log is Ready or Full]");
-    expect(section).toContain('as region__audit_log {');
+    expect(section).toContain('as region___audit_log {');
   });
 
   test("SM-S16 absent and unrelated machines preserve every output byte; machine ordering is deterministic", () => {

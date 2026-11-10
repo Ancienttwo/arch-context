@@ -24,7 +24,8 @@ export function renderStateMachineSection(machines: readonly StateMachineV1[]): 
     for (const region of machine.regions) {
       const composite = machine.regions.length > 1;
       const indent = composite ? "    " : "  ";
-      if (composite) lines.push(`  state "${region.label}" as region__${region.id.replaceAll("-", "_")} {`);
+      // Local IDs normalize to single underscores only; three keeps containers disjoint from states.
+      if (composite) lines.push(`  state "${region.label}" as region___${region.id.replaceAll("-", "_")} {`);
       for (const state of region.states) lines.push(`${indent}state "${state.label}" as ${stateId(region.id, state.id)}`);
       lines.push(`${indent}[*] --> ${stateId(region.id, region.initial)}`);
       const arrows = new Map<string, string[]>();
