@@ -18,7 +18,7 @@ import {
   type CapabilitySourceScaleSignal,
   type NativeModel
 } from "../src/index";
-import { digestJson, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
+import { digestJson, type Json, type ProjectionTargetV1, type StateMachineV1 } from "@archcontext/contracts";
 import { fixtureSourceFiles } from "./fixture-source-files";
 
 /** The region markers of a target that owns a marked region; every entity summary does. */
@@ -935,5 +935,156 @@ describe("canonical body digest sticky key", () => {
     expect(run4.drift.diffs).toEqual([]);
     expect(run4.files.map((file) => file.body)).toEqual(run3.files.map((file) => file.body));
     expect(run4.manifest.body).toBe(run3.manifest.body);
+  });
+});
+
+const checkoutMachine: StateMachineV1 = {
+  schemaVersion: "archcontext.state-machine/v1",
+  id: "state-machine.checkout.order",
+  capabilityId: "capability.docs.projection",
+  name: "Order and payment",
+  regions: [
+    { id: "order", label: "Order", initial: "open", states: [
+      { id: "open", label: "Open" }, { id: "shipped", label: "Shipped", terminal: true }, { id: "cancelled", label: "Cancelled", terminal: true }
+    ] },
+    { id: "payment", label: "Payment", initial: "unpaid", states: [
+      { id: "unpaid", label: "Unpaid" }, { id: "captured", label: "Captured" }, { id: "refunded", label: "Refunded" }
+    ] }
+  ],
+  events: [
+    { id: "capture", label: "Capture the payment", source: { kind: "code", path: "src/payment.ts", symbol: "PaymentService.capture" }, steps: [
+      { when: { order: ["open"], payment: ["unpaid"] }, then: { payment: "captured" } }
+    ] },
+    { id: "ship", label: "Ship the order", source: { kind: "code", path: "src/order.ts", symbol: "shipOrder" }, steps: [
+      { when: { order: ["open"] }, then: { order: "shipped" } }
+    ] },
+    { id: "cancel", label: "Cancel the order", source: { kind: "code", path: "src/order.ts", symbol: "cancelOrder" }, steps: [
+      { when: { payment: ["unpaid"], order: ["open"] }, then: { order: "cancelled" } },
+      { when: { payment: ["captured"], order: ["open"] }, then: { order: "cancelled", payment: "refunded" } }
+    ] }
+  ],
+  rules: [
+    { id: "paid-before-shipped", label: "An order never ships without a captured payment", never: { order: ["shipped"], payment: ["unpaid"] } },
+    { id: "closed-order-stays-closed", label: "A shipped or cancelled order never changes", final: { order: ["shipped", "cancelled"] } }
+  ]
+};
+
+function machineSection(machines: StateMachineV1[]): string {
+  const body = entityFile(render({ stateMachines: machines }), "capability.docs.projection").body;
+  return body.slice(body.indexOf("### 2.1 狀態機"), body.indexOf("<!-- END ARCHCONTEXT:generated")).trimEnd();
+}
+
+describe("state-machine capability section (#511)", () => {
+  test("SM-S11 renders the checkout example exactly, including merged arrows and protection", () => {
+    expect(machineSection([checkoutMachine])).toBe([
+      "### 2.1 狀態機", "", "#### Order and payment", "",
+      "- ID:`state-machine.checkout.order`", "- 檢查:`6` 個可達全域狀態 / `5` 次轉移", "",
+      "```mermaid", "stateDiagram-v2", "  direction LR",
+      '  state "Order" as region__order {',
+      '    state "Open" as order__open', '    state "Shipped" as order__shipped', '    state "Cancelled" as order__cancelled',
+      "    [*] --> order__open",
+      "    order__open --> order__shipped: Ship the order",
+      "    order__open --> order__cancelled: Cancel the order [when Payment is Unpaid] / Cancel the order [when Payment is Captured]",
+      "    order__shipped --> [*]", "    order__cancelled --> [*]", "  }",
+      '  state "Payment" as region__payment {',
+      '    state "Unpaid" as payment__unpaid', '    state "Captured" as payment__captured', '    state "Refunded" as payment__refunded',
+      "    [*] --> payment__unpaid",
+      "    payment__unpaid --> payment__captured: Capture the payment [when Order is Open]",
+      "    payment__captured --> payment__refunded: Cancel the order [when Order is Open]", "  }",
+      "  classDef broken fill:#7f1d1d,color:#ffffff,stroke:#fecaca,stroke-width:2px",
+      "  class order__shipped,payment__unpaid broken", "```", "",
+      "| 規則 | 類型 | 結果 | 最短路徑 | 守衛 | 追蹤 |", "| --- | --- | --- | --- | --- | --- |",
+      "| `paid-before-shipped` An order never ships without a captured payment | `never` | `broken` | Ship the order | — | — |",
+      "| `closed-order-stays-closed` A shipped or cancelled order never changes | `final` | `holds` | — | Ship the order / Order、Cancel the order #1 / Order、Cancel the order #2 / Order | — |", "",
+      "| 事件 | 來源 |", "| --- | --- |",
+      "| `capture` Capture the payment | `src/payment.ts#PaymentService.capture` |",
+      "| `ship` Ship the order | `src/order.ts#shipOrder` |",
+      "| `cancel` Cancel the order | `src/order.ts#cancelOrder` |"
+    ].join("\n"));
+  });
+
+  const flatMachine: StateMachineV1 = {
+    schemaVersion: "archcontext.state-machine/v1", id: "state-machine.job.lifecycle", capabilityId: "capability.docs.projection", name: "Job lifecycle",
+    regions: [{ id: "job-status", label: "Job status", initial: "not-started", states: [
+      { id: "not-started", label: "Not started" }, { id: "done", label: "Done", terminal: true }, { id: "unused", label: "Unused" }
+    ] }],
+    events: [{ id: "run", label: "Run", source: { kind: "environment" }, steps: [
+      { when: { "job-status": ["not-started", "done"] }, then: { "job-status": "done" } },
+      { when: { "job-status": ["unused"] }, then: { "job-status": "done" } }
+    ] }],
+    rules: [{ id: "done-stays-done", label: "Done stays done", final: { "job-status": ["done"] } }]
+  };
+
+  test("SM-S12/S13 renders flat regions, hyphenated ids, unreachable states and dead steps", () => {
+    const section = machineSection([flatMachine]);
+    expect(section).toContain('  state "Not started" as job_status__not_started');
+    expect(section).toContain("  [*] --> job_status__not_started");
+    expect(section).toContain("  job_status__not_started --> job_status__done: Run");
+    expect(section).toContain("  job_status__done --> [*]");
+    expect(section).not.toContain("as region__");
+    expect(section).not.toContain("job_status__done --> job_status__done");
+    expect(section).not.toContain("classDef broken");
+    expect(section).toContain("  class job_status__unused unreachable");
+    expect(section).toContain("| `done-stays-done` Done stays done | `final` | `holds` | — | 無 | — |");
+    expect(section).toContain("| `job-status.unused` | `unreachable-state` | `broken` | — | — | — |");
+    expect(section).toContain("| `run#2` | `dead-step` | `broken` | — | — | — |");
+    expect(section).toContain("| `run` Run | environment |");
+  });
+
+  test("SM-S13 marks every deadlocked region and reports the shortest path with step numbers", () => {
+    const machine = structuredClone(checkoutMachine);
+    machine.events = [machine.events[0]!, { ...machine.events[1]!, steps: [
+      { when: { order: ["open"], payment: ["captured"] }, then: { order: "shipped" } },
+      { when: { order: ["open"], payment: ["refunded"] }, then: { order: "cancelled" } }
+    ] }];
+    machine.regions[0]!.states.forEach((state) => { state.terminal = false; });
+    machine.rules = [];
+    const section = machineSection([machine]);
+    expect(section).toContain("  class order__shipped,payment__captured broken");
+    expect(section).toContain("| `order=shipped、payment=captured` | `deadlock` | `broken` | Capture the payment → Ship the order #1 | — | — |");
+    expect(section.indexOf("`order.cancelled` | `unreachable-state`")).toBeLessThan(section.indexOf("`ship#2` | `dead-step`"));
+    expect(section.indexOf("`ship#2` | `dead-step`")).toBeLessThan(section.indexOf("`order=shipped、payment=captured`"));
+  });
+
+  test("initial deadlocks and finding statuses use report state and tracking, without code digests", () => {
+    const machine = structuredClone(checkoutMachine);
+    machine.events = [{ id: "wait", label: "Wait", source: { kind: "code", path: "src/wait.ts", confirmedDigest: stampDigest }, steps: [
+      { when: { order: ["open"], payment: ["unpaid"] }, then: { order: "open" } }
+    ] }];
+    machine.rules[0] = { id: "initial-state-forbidden", label: "Initial state forbidden", never: { order: ["open"], payment: ["unpaid"] }, finding: { tracking: "https://example.test/issues/1" } };
+    machine.rules[1]!.finding = { tracking: "https://example.test/issues/2" };
+    const section = machineSection([machine]);
+    expect(section).toContain("`finding-open` | 初始狀態 | — | https://example.test/issues/1");
+    expect(section).toContain("`finding-resolved` | — | 無 | https://example.test/issues/2");
+    expect(section).toContain("| `order=open、payment=unpaid` | `deadlock` | `broken` | 初始狀態 | — | — |");
+    expect(section).toContain("| `wait` Wait | `src/wait.ts` |");
+    expect(section).not.toContain("sha256:");
+  });
+
+  test("guards follow region declaration order and list all accepted state labels", () => {
+    const machine = structuredClone(checkoutMachine);
+    machine.regions.push({ id: "audit-log", label: "Audit log", initial: "ready", states: [{ id: "ready", label: "Ready" }, { id: "full", label: "Full" }] });
+    machine.events[1]!.steps[0]!.when = { "audit-log": ["ready", "full"], payment: ["unpaid", "captured"], order: ["open", "cancelled"] };
+    const section = machineSection([machine]);
+    expect(section).toContain("order__cancelled --> order__shipped: Ship the order [when Payment is Unpaid or Captured] [when Audit log is Ready or Full]");
+    expect(section).toContain('as region__audit_log {');
+  });
+
+  test("SM-S16 absent and unrelated machines preserve every output byte; machine ordering is deterministic", () => {
+    const base = render();
+    for (const stateMachines of [[], [{ ...checkoutMachine, capabilityId: "capability.other" }]]) {
+      const output = render({ stateMachines });
+      expect(output.files.map(({ path, body }) => ({ path, body }))).toEqual(base.files.map(({ path, body }) => ({ path, body })));
+      expect(output.manifest.body).toBe(base.manifest.body);
+    }
+    const machines = [flatMachine, checkoutMachine];
+    const section = machineSection(machines);
+    expect(section).toBe(machineSection([...machines].reverse()));
+    expect(section.indexOf("#### Order and payment")).toBeLessThan(section.indexOf("#### Job lifecycle"));
+    const withMachine = render({ stateMachines: machines });
+    expect(entityFile(withMachine, "module.no-source").body).toBe(entityFile(base, "module.no-source").body);
+    const settled = render({ stateMachines: machines, existingFiles: [...withMachine.files, withMachine.manifest] });
+    expect(settled.drift.ok).toBe(true);
+    expect(settled.files.map((file) => file.body)).toEqual(withMachine.files.map((file) => file.body));
   });
 });

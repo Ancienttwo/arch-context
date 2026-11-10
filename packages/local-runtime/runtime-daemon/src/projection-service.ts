@@ -14,6 +14,7 @@ import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV1, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
@@ -249,6 +250,7 @@ function measureArchitectureDocsProjectionInputs(root: string, profile: Architec
   return {
     profile,
     loaded,
+    stateMachines: loadStateMachinesFromArchContext(root, loaded.model.nodes),
     sourceDigest,
     codeGraphInputs,
     sourceFootprints: digestCapabilitySourceFootprints(root, loaded.model, codeGraphInputs.footprints),
@@ -298,6 +300,7 @@ function renderArchitectureDocsProjectionFromInputs(
   const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
+    stateMachines: inputs.stateMachines,
     profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,

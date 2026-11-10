@@ -1,5 +1,5 @@
 import { normalizeExistingPath, createGitRepo, createInitializedGitRepo, gitOut, rmSync, tempRepo, removeTempRepo, sleep, readText, createStartedTestDaemon } from "./runtime-test-fixtures";
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { verify } from "node:crypto";
 import { once } from "node:events";
@@ -7,7 +7,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV2, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -19,6 +19,8 @@ import { ChangeSetEngine, type ApplyOptions, type ChangeSetDraft } from "@archco
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
 import { createNodeGithubIssueExecutor, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueExecutorPort, type GithubIssuePreflightDraft } from "../src/github-issue-executor";
 import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceFootprintDigests, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, type ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
+import * as projectionEngine from "@archcontext/core/projection-engine";
+import { buildArchitectureDocsProjection, currentProjectionExpectedSnapshot, runArchitectureDocsProjectionCommand, runProjectionProtocolCommand } from "../src/projection-service";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, runtimeDefaultClock } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
@@ -3238,3 +3240,84 @@ test("a failed pending snapshot read retains the rollback failure and gates stat
     expect(f.trace.filter(entry => entry.event === "startup-recovery")).toHaveLength(1);
   } finally { await f.cleanup(); }
 });
+
+test("SM-S15 projection plan, apply readback proof and completion drift render the same statechart bytes", async () => {
+  const root = createInitializedGitRepo();
+  let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+  const renderSpy = spyOn(projectionEngine, "renderArchitectureDocumentationProjection");
+  try {
+    const nodePath = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
+    const capabilityNode = loadNativeModelFromArchContext(root).nodes.find((node) => node.kind === "capability")!;
+    const node = { ...capabilityNode, extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } } };
+    writeFileSync(nodePath, JSON.stringify(node), "utf8");
+    const relationPath = join(root, ".archcontext/model/relations/relation.statechart-journal.yaml");
+    mkdirSync(dirname(relationPath), { recursive: true });
+    writeFileSync(relationPath, JSON.stringify({ schemaVersion: "archcontext.relation/v1", id: "relation.statechart-journal", kind: "writes", source: node.id, target: node.id, intent: "Persist lifecycle events" }), "utf8");
+    const flowPath = join(root, ".archcontext/model/flows/flow.statechart-fixture.yaml");
+    mkdirSync(dirname(flowPath), { recursive: true });
+    writeFileSync(flowPath, JSON.stringify({ schemaVersion: "archcontext.flow/v1", id: "flow.statechart-fixture", capabilityId: node.id, name: "Statechart fixture", applicability: "not-applicable", rationale: "This fixture checks model-only statechart projection transport." }), "utf8");
+    const machine: StateMachineV1 = {
+      schemaVersion: "archcontext.state-machine/v1", id: "state-machine.architecture-context.job", capabilityId: "capability.architecture.context", name: "Job lifecycle",
+      regions: [{ id: "status", label: "Status", initial: "queued", states: [{ id: "queued", label: "Queued" }, { id: "done", label: "Done", terminal: true }] }],
+      events: [{ id: "finish", label: "Finish", source: { kind: "environment" }, steps: [{ when: { status: ["queued"] }, then: { status: "done" } }] }],
+      rules: [{ id: "done-is-final", label: "Done is final", final: { status: ["done"] } }]
+    };
+    const machinePath = `.archcontext/model/state-machines/${machine.id}.yaml`;
+    mkdirSync(dirname(join(root, machinePath)), { recursive: true });
+    writeFileSync(join(root, machinePath), JSON.stringify(machine), "utf8");
+    // A real index is required by the apply readback proof, even for a model-only fixture.
+    execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    daemon = await createStartedTestDaemon();
+    const baseline = await runArchitectureDocsProjectionCommand({ action: "apply", profile: "repo-harness/v1", approved: true }, root, daemon);
+    expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
+
+    // A semantic edit creates an accepted apply receipt, so readback runs the production proof.
+    writeFileSync(nodePath, JSON.stringify({ ...node, summary: "Architecture context with a declared job lifecycle." }), "utf8");
+    const planned = buildArchitectureDocsProjection(undefined, root, "repo-harness/v1");
+    const capability = planned.plan.files.find((file) => file.target.type === "entity-summary" && file.target.scope.id === machine.capabilityId)!;
+    expect(capability.body).toContain("### 2.1 狀態機");
+    expect(capability.body).toContain("status__queued --> status__done: Finish");
+    const request: ProjectionRequestV1 = {
+      schemaVersion: "archcontext.projection-request/v1", requestId: "projection_request.statechart", profile: "repo-harness/v1", mode: "apply", targets: ["architecture-docs"], changedPaths: [machinePath],
+      expected: currentProjectionExpectedSnapshot(root, loadNativeModelFromArchContext(root)), acceptObservedMajorChange: true
+    };
+    const applied = await runProjectionProtocolCommand({ action: "run", request }, root, daemon);
+    expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    const result = applied.data as unknown as ProjectionResultV2;
+    expect(result.status, JSON.stringify(applied)).toBe("applied");
+    expect(readText(join(root, capability.path))).toBe(capability.body);
+    const inspection = await daemon.inspectProjectionApplyReceipt(root, result.applyReceipt!.lookupKey);
+    expect(inspection.ok, JSON.stringify(inspection)).toBe(true);
+    const receipt = (inspection.data as unknown as { receipt: ProjectionApplyReceiptV1 }).receipt;
+    const beforeProof = renderSpy.mock.results.length;
+    const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt)!;
+    const readback = await daemon.readbackProjectionApply(root, readbackRequest);
+    expect(readback.ok, JSON.stringify(readback)).toBe(true);
+    expect(renderSpy.mock.results.length).toBe(beforeProof + 1);
+    const proofRender = renderSpy.mock.results.at(-1)!.value as ReturnType<typeof renderArchitectureDocumentationProjection>;
+    expect(proofRender.files.find((file) => file.path === capability.path)!.body).toBe(capability.body);
+    expect(proofRender.drift.ok).toBe(true);
+
+    const beforeCompletion = renderSpy.mock.results.length;
+    const completed = await daemon.completeTask(root, { taskSessionId: "task_statechart_projection", task: "Verify the statechart projection" });
+    expect(completed.ok, JSON.stringify(completed)).toBe(true);
+    expect((completed.data as any).extensions.projectionDriftGate).toBeUndefined();
+    expect(renderSpy.mock.results.length).toBe(beforeCompletion + 1);
+    const driftRender = renderSpy.mock.results.at(-1)!.value as ReturnType<typeof renderArchitectureDocumentationProjection>;
+    expect(driftRender.files.find((file) => file.path === capability.path)!.body).toBe(capability.body);
+    expect(driftRender.drift.ok).toBe(true);
+    expect(readText(join(root, capability.path))).toBe(capability.body);
+
+    // A model-only machine edit must invalidate both consumers of the applied document.
+    machine.events[0]!.label = "Complete the job";
+    writeFileSync(join(root, machinePath), JSON.stringify(machine), "utf8");
+    const changed = await daemon.completeTask(root, { taskSessionId: "task_statechart_changed" });
+    expect((changed.data as any).extensions.projectionDriftGate.reasonCodes).toContain("projection-generated-region-stale");
+    const refused = await daemon.readbackProjectionApply(root, readbackRequest);
+    expect(refused.ok).toBe(false);
+  } finally {
+    renderSpy.mockRestore();
+    await daemon?.stop();
+    removeTempRepo(root);
+  }
+}, process.platform === "win32" ? 240_000 : 120_000);
