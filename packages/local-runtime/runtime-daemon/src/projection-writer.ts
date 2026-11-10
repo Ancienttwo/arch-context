@@ -112,6 +112,7 @@ export interface ProjectionPublishOptions {
   cwd: string;
   remote?: string;
   base?: string;
+  baseSha?: string;
   branch?: string;
   publisher: ProjectionPublisherPort;
   apply: ProjectionWriterApplyPort;
@@ -193,7 +194,7 @@ export async function runProjectionPublishCommand(options: ProjectionPublishOpti
   } catch {
     return errorEnvelope(PROJECTION_PUBLISH_REQUEST_ID, "AC_REPO_NOT_FOUND", `projection publish requires a Git worktree at ${options.cwd}`, "git-worktree-required");
   }
-  const invalid = projectionWriterTargetIssue(repositoryRoot, { remote, base, branch });
+  const invalid = projectionWriterTargetIssue(repositoryRoot, { remote, base, branch, baseSha: options.baseSha });
   if (invalid) return errorEnvelope(PROJECTION_PUBLISH_REQUEST_ID, "AC_SCHEMA_INVALID", invalid, "projection-writer-input-invalid");
   try {
     assertLocalEgressAllowed("projection-publishing", env);
@@ -297,6 +298,10 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
   });
   const failed = (failure: ProjectionWriterFailure, fields: Partial<ProjectionPublishRunV1> = {}, extra: Partial<LockedRunOutcome> = {}) =>
     finish("failed", { ...fields, error: writerError(failure) }, extra);
+  const baseMovedFailure = (expectedBaseSha: string, actualBaseSha: string) => {
+    const failure = knownFailure("AC_PRECONDITION_FAILED", "projection-writer-base-moved", { expectedBaseSha, actualBaseSha });
+    return new ProjectionWriterFailure(failure.code, failure.reasonCode, failure.message, failure.details, failure);
+  };
 
   try {
     const pushRemote = projectionWriterPushUrl(repositoryRoot, remote);
@@ -309,6 +314,9 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
         `+refs/heads/${base}:${paths.baseRef}`,
         ...(tracksPublication ? [`+refs/heads/${base}:refs/remotes/${remote}/${base}`] : [])], env);
       baseSha = git(repositoryRoot, ["rev-parse", "--verify", `${paths.baseRef}^{commit}`]).trim();
+      if (options.baseSha !== undefined && baseSha !== options.baseSha) {
+        return failed(baseMovedFailure(options.baseSha, baseSha));
+      }
 
       const successMatches = state.lastSuccessfulBranch === branch && state.lastSuccessfulSha === baseSha;
       const pending = state.publisherPending?.branch === branch && state.publisherPending.baseSha === baseSha
@@ -384,6 +392,9 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
         if (tip === null) {
           return failed(new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-base-missing", `${remote} has no branch ${base}`), { projectionStatus });
         }
+        if (options.baseSha !== undefined && tip !== options.baseSha) {
+          return failed(baseMovedFailure(options.baseSha, tip), { projectionStatus });
+        }
         if (tip !== baseSha) continue;
         return finish("up-to-date", { projectionStatus });
       }
@@ -411,6 +422,9 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
       const tip = lsRemoteBranch(repositoryRoot, pushRemote, base, env);
       if (tip === null) {
         return failed(new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-base-missing", `${remote} has no branch ${base}`), { projectionStatus, files: changed });
+      }
+      if (options.baseSha !== undefined && tip !== options.baseSha) {
+        return failed(baseMovedFailure(options.baseSha, tip), { projectionStatus, files: changed });
       }
       if (tip !== baseSha) continue;
 
@@ -1060,7 +1074,10 @@ function stringEnv(env: Env): Record<string, string> {
 // ---------------------------------------------------------------------------------------------
 
 /** The writer's push target is checked before any Git operation that leaves the machine. */
-function projectionWriterTargetIssue(repositoryRoot: string, input: { remote: string; base: string; branch: string }): string | undefined {
+function projectionWriterTargetIssue(repositoryRoot: string, input: { remote: string; base: string; branch: string; baseSha?: string }): string | undefined {
+  if (input.baseSha !== undefined && (input.baseSha.length !== 40 || /[^0-9a-f]/.test(input.baseSha))) {
+    return "projection publish --base-sha must be 40 lowercase hexadecimal characters";
+  }
   const issue = refNameIssue(repositoryRoot, "--base", input.base) ?? refNameIssue(repositoryRoot, "--branch", input.branch) ?? remoteNameIssue(input.remote);
   if (issue) return issue;
   if (!input.branch.startsWith(PROJECTION_WRITER_BRANCH_PREFIX)) return `projection publish --branch must start with ${PROJECTION_WRITER_BRANCH_PREFIX}; the writer never pushes to any other ref`;
