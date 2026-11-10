@@ -22,7 +22,7 @@ import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarke
 import { completeRuntimeStateRecovery, defaultArchContextStateRoot, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { listWorkspaceStateDirs } from "@archcontext/local-runtime/runtime-state-paths";
-import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, runStateMachineCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
 import { inspectRepositoryCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
 import { RuntimeRpcTransportError, RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
@@ -239,6 +239,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "history": { value: ["--ref", "--format", "--offset", "--limit"], boolean: [] },
   "review": { value: ["--head-sha", "--posture", "--task", "--task-session-id"], boolean: [] },
   "state": { value: ["--expected-target-fingerprint", "--expected-worktree-digest"], boolean: ["--accept-external-projection", "--dry-run", "--from-git", "--write"] },
+  "state-machines": { value: [], boolean: [] },
   "status": { value: [], boolean: [] },
   "sync": { value: ["--changed"], boolean: [] },
   "tunnel": { value: [], boolean: ["--revoke"] },
@@ -488,8 +489,10 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
     return runCapabilitiesCommand();
   }
   const readerStage = command === "docs" && args[0] === "anchors" ? "docs-anchors"
-    : command === "flows" ? "flows-check" : undefined;
-  const readerRequestId = readerStage === "docs-anchors" ? "docs.anchors" : readerStage === "flows-check" ? "flows.check" : undefined;
+    : command === "flows" ? "flows-check"
+    : command === "state-machines" ? "state-machines-check" : undefined;
+  const readerRequestId = readerStage === "docs-anchors" ? "docs.anchors" : readerStage === "flows-check" ? "flows.check"
+    : readerStage === "state-machines-check" ? "state-machines.check" : undefined;
   const selectedRequestId = readerRequestId ?? command;
   const selected = readerStage !== undefined || ["debt", "checkpoint", "complete", "review"].includes(command)
     || (command === "practices" && args[0] === "checkpoint")
@@ -578,6 +581,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return await runProjectionProtocolCommand(args, cwd, runtime, deps);
     case "flows":
       return runFlowsCommand(args, cwd);
+    case "state-machines":
+      return runStateMachinesCommand(args, cwd);
     case "repo": {
       const subcommand = args[0] ?? "list";
       if (subcommand === "add") {
@@ -851,7 +856,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "impact", "history", "tunnel", "flows", "deps", "constraints", "debt"],
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "impact", "history", "tunnel", "flows", "state-machines", "deps", "constraints", "debt"],
           examples: CLI_HELP_EXAMPLES
         }
       };
@@ -944,6 +949,13 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
       statuses: "Each selector reports proven, no-direct-call, only-references, false-builtin-call, ambiguous-symbol, evidence-missing or evidence-truncated. Only proven binds a flow step.",
       writes: "Default: runs codegraph sync and writes the .codegraph index. With --no-sync: no checkout or index writes; disposable private snapshots are created outside the checkout and removed after reading. Neither mode starts a daemon or task session.",
       noSync: "Requires a complete existing index matching the source population. Missing, stale, partial, unsupported-layout or over-limit snapshots fail closed with AC_CODE_FACTS_UNAVAILABLE."
+    });
+  case "state-machines":
+    return okEnvelope("state-machines", {
+      command: "archctx state-machines check [--json]",
+      description: "Check every state machine declared under .archcontext/model/state-machines/: each never and final rule, unreachable states, dead steps and deadlocks.",
+      result: "Each broken rule carries its shortest path from the initial state; each holding rule lists the guards that protect it. A rule with a finding reports finding-open or finding-resolved.",
+      writes: "None. Reads the model only; starts no daemon or task session and needs no CodeGraph index."
     });
   case "docs":
     if (subcommand === "anchors") return okEnvelope("help", CLI_DOCS_ANCHORS_HELP as unknown as Json);
@@ -1920,6 +1932,16 @@ function runFlowsCommand(args: string[], cwd: string): JsonEnvelope {
     return failureEnvelope("flows.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
   }
   return runFlowSelectorCheckCommand(cwd, { noSync: args.includes("--no-sync") });
+}
+
+/** Stateless model read; no daemon, store or code facts. */
+function runStateMachinesCommand(args: string[], cwd: string): JsonEnvelope {
+  const formatAt = args.indexOf("--format");
+  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
+  if (args[0] !== "check" || unexpected.length > 0) {
+    return failureEnvelope("state-machines.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
+  }
+  return runStateMachineCheckCommand(cwd);
 }
 
 function acceptedArchitectureChange(args: string[]): AcceptedArchitectureChangeReferenceV1 | undefined {
@@ -3893,7 +3915,7 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
   return 1;
 }
 
-const CLI_HELP_EXAMPLES = ["archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection freshness --changed-path src/app.ts --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
+const CLI_HELP_EXAMPLES = ["archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection freshness --changed-path src/app.ts --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx state-machines check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
 
 const CLI_RESOLVE_HELP = {
   command: "archctx resolve (--path <repo-relative path> | --paths-from <file> | --paths-from -)",

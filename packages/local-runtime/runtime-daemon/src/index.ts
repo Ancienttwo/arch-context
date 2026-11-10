@@ -30,6 +30,7 @@ export { runDocsAnchorsCommand } from "./docs-anchors";
 export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
 export { runConstraintCheckCommand } from "./constraints-check";
 export { runFlowSelectorCheckCommand } from "./flow-selector-check";
+export { runStateMachineCheckCommand } from "./state-machine-check";
 import { RecommendationsService, recommendationArtifactsFromEvents, type RuntimeRecommendationInput, type RuntimeRefactorScanInput, type RuntimeRefactorRecordInput } from "./recommendations";
 export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./recommendations";
 import type { RuntimeDaemonClient } from "./rpc-protocol";

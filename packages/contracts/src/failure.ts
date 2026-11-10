@@ -8,7 +8,7 @@ import { ERROR_CATALOG, canonicalize, isRepoRelativePosixPath, type ArchContextE
 
 /** Only selected entrypoints support transport failures; the legacy AC-only envelope is unchanged. */
 export type FailureCode = ArchContextErrorCode | "RPC_TIMEOUT" | "RPC_ABORTED";
-export const FAILURE_STAGES = Object.freeze(["debt", "complete", "practice-checkpoint", "cli", "mcp", "hook-checkpoint", "failure-metadata", "public-operation", "native-export", "docs-anchors", "flows-check"] as const);
+export const FAILURE_STAGES = Object.freeze(["debt", "complete", "practice-checkpoint", "cli", "mcp", "hook-checkpoint", "failure-metadata", "public-operation", "native-export", "docs-anchors", "flows-check", "state-machines-check"] as const);
 export type FailureStage = typeof FAILURE_STAGES[number];
 const ERROR_CLASSES = Object.freeze(["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "URIError", "EvalError", "AggregateError", "NonError"]);
 export interface StrictFailure<C extends FailureCode = FailureCode> {

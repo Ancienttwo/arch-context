@@ -51,7 +51,7 @@ export function loadStateMachinesFromArchContext(root: string, nodes: readonly N
       continue;
     }
     const schemaIssues = validateJsonSchema(stateMachineSchema as Parameters<typeof validateJsonSchema>[0], value).issues;
-    for (const issue of schemaIssues) issues.push(`${path}: ${schemaField(issue.path)}: ${issue.message}`);
+    for (const issue of schemaIssues) issues.push(`${path}: ${issue.path}: ${issue.message}`);
     if (schemaIssues.length > 0) continue;
     const machine = value as unknown as StateMachineV1;
     machines.push(machine);
@@ -66,11 +66,6 @@ export function loadStateMachinesFromArchContext(root: string, nodes: readonly N
     throw new FailureError("AC_SCHEMA_INVALID", "state-machine-model-invalid", { issues: reported, ...(omittedCount > 0 ? { omittedCount } : {}) });
   }
   return machines;
-}
-
-/** `$.regions[0].id` → `regions[0].id`, the field form of `stateMachineModelIssues`. */
-function schemaField(path: string): string {
-  return path === "$" ? "$" : path.slice(2);
 }
 
 interface CompiledStep {
