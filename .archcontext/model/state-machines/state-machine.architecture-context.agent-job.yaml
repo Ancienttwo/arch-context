@@ -59,7 +59,7 @@ events:
   - id: "retry"
     label: "Retry a job"
     source:
-      confirmedDigest: "sha256:fd5e7da7ce2b28ed044e4f3f31b7a0a073c90c06227f5f2fca566fb6ba15a7d4"
+      confirmedDigest: "sha256:501311343bc1ca148678b557ba5ab27e347172117353d3db1647f04f42959085"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.retryRuntimeAgentJob"
@@ -68,28 +68,16 @@ events:
           job: "failed"
         when:
           job:
-            - "queued"
-            - "running"
-            - "succeeded"
             - "failed"
-            - "cancelled"
-            - "superseded"
-            - "expired"
       - then:
           job: "queued"
         when:
           job:
-            - "queued"
-            - "running"
-            - "succeeded"
             - "failed"
-            - "cancelled"
-            - "superseded"
-            - "expired"
   - id: "cancel"
     label: "Cancel, supersede or expire a job"
     source:
-      confirmedDigest: "sha256:12868d6763486acf49f289d3ef1176e8e1fab67ff295966a316e20ea0bebe379"
+      confirmedDigest: "sha256:387cdd31c6ba10716866d1f35b3873c98475b835259cf0699dd5dbc974e20de6"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.cancelRuntimeAgentJob"
@@ -100,33 +88,17 @@ events:
           job:
             - "queued"
             - "running"
-            - "succeeded"
-            - "failed"
-            - "cancelled"
-            - "superseded"
-            - "expired"
       - then:
           job: "superseded"
         when:
           job:
             - "queued"
-            - "running"
-            - "succeeded"
-            - "failed"
-            - "cancelled"
-            - "superseded"
-            - "expired"
       - then:
           job: "expired"
         when:
           job:
             - "queued"
             - "running"
-            - "succeeded"
-            - "failed"
-            - "cancelled"
-            - "superseded"
-            - "expired"
   - id: "cancel-stale"
     label: "Expire queued or running jobs of a stale head"
     source:
@@ -157,7 +129,6 @@ regions:
         terminal: true
       - id: "failed"
         label: "Failed"
-        terminal: true
       - id: "cancelled"
         label: "Cancelled"
         terminal: true
@@ -171,12 +142,9 @@ rules:
   - final:
       job:
         - "succeeded"
-        - "failed"
         - "cancelled"
         - "superseded"
         - "expired"
-    finding:
-      tracking: "https://github.com/Ancienttwo/arch-context/issues/509"
     id: "terminal-status-is-final"
     label: "A terminal job status never changes"
 schemaVersion: "archcontext.state-machine/v1"

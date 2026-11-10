@@ -558,7 +558,7 @@ export const AGENT_JOB_STATE_TRANSITIONS: Record<AgentJobStatus, AgentJobStatus[
   queued: ["running", "cancelled", "superseded", "expired"],
   running: ["succeeded", "failed", "cancelled", "expired"],
   succeeded: [],
-  failed: [],
+  failed: ["queued"],
   cancelled: [],
   superseded: [],
   expired: []

@@ -7,6 +7,7 @@ import {
   type Json
 } from "@archcontext/contracts";
 import {
+  AGENT_JOB_STATE_TRANSITIONS,
   DEFAULT_AGENT_ORCHESTRATION_POLICY,
   INVESTIGATION_REPORT_PROPOSAL_PLAN_SCHEMA_VERSION,
   buildInvestigationContextBundleFromLedgerQuery,
@@ -241,6 +242,7 @@ describe("@archcontext/core/agent-orchestrator", () => {
     expect(() => transitionAgentJobStatus(succeeded, { status: "running", now })).toThrow(
       "agent-job-invalid-transition: succeeded->running"
     );
+    expect(AGENT_JOB_STATE_TRANSITIONS.failed).toEqual(["queued"]);
   });
 
   test("runs through a provider-neutral port and rejects direct-mutation reports", async () => {

@@ -296,6 +296,8 @@ describe("daemon agent jobs", () => {
         now: "2026-06-25T02:40:05.000Z"
       });
       expect(complete.ok).toBe(true);
+      await expect(daemon.jobsCancel(owner, { jobId, status: "cancelled", now: "2026-06-25T02:40:05.500Z" }))
+        .rejects.toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "job-transition-invalid", details: { jobId } });
       const retry = await daemon.jobsRetry(owner, { jobId, reason: "owner-retry", now: "2026-06-25T02:40:06.000Z" });
       expect(retry.ok).toBe(true);
       const cancel = await daemon.jobsCancel(owner, { jobId, reason: "owner-cancel", now: "2026-06-25T02:40:07.000Z" });

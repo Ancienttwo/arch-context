@@ -1578,6 +1578,42 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
+  test("runtime job retry and cancel refuse a status the transition table does not allow", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-transition-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const job = runtimeAgentJob("transition", { queuedAt: "2026-06-25T01:50:00.000Z" });
+      await store.enqueueRuntimeAgentJob({ job, analysisKind: "architecture-delta", maxAttempts: 1 });
+      const invalid = { code: "AC_PRECONDITION_FAILED", reasonCode: "job-transition-invalid", details: { jobId: job.jobId } };
+      const retry = (now: string) => store.retryRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, jobId: job.jobId, now });
+      const cancel = (status: "cancelled" | "superseded" | "expired", now: string) =>
+        store.cancelRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, jobId: job.jobId, status, now });
+      const statusOf = async () => (await store.listRuntimeAgentJobs(ARCHITECTURE_LEDGER_SCOPE))[0]?.job.status;
+
+      await expect(retry("2026-06-25T01:50:01.000Z")).rejects.toMatchObject(invalid);
+      await store.claimRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, workerId: "worker.transition", leaseMs: 30_000, now: "2026-06-25T01:50:02.000Z" });
+      await expect(retry("2026-06-25T01:50:03.000Z")).rejects.toMatchObject(invalid);
+      await expect(cancel("superseded", "2026-06-25T01:50:04.000Z")).rejects.toMatchObject(invalid);
+      expect(await statusOf()).toBe("running");
+
+      await store.completeRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, jobId: job.jobId, workerId: "worker.transition", status: "failed", now: "2026-06-25T01:50:05.000Z" });
+      await expect(cancel("cancelled", "2026-06-25T01:50:06.000Z")).rejects.toMatchObject(invalid);
+      // Attempts are exhausted: the dead-letter branch rewrites failed with dead_lettered_at.
+      await expect(retry("2026-06-25T01:50:07.000Z")).resolves.toMatchObject({ job: { status: "failed" }, deadLetteredAt: "2026-06-25T01:50:07.000Z" });
+
+      const succeeded = runtimeAgentJob("transition-done", { queuedAt: "2026-06-25T01:51:00.000Z" });
+      await store.enqueueRuntimeAgentJob({ job: succeeded, analysisKind: "architecture-delta", maxAttempts: 1 });
+      await store.claimRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, workerId: "worker.transition", leaseMs: 30_000, now: "2026-06-25T01:51:01.000Z" });
+      await store.completeRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, jobId: succeeded.jobId, workerId: "worker.transition", status: "succeeded", now: "2026-06-25T01:51:02.000Z" });
+      await expect(store.retryRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, jobId: succeeded.jobId, now: "2026-06-25T01:51:03.000Z" }))
+        .rejects.toMatchObject({ ...invalid, details: { jobId: succeeded.jobId } });
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
   test("runtime job queue rejects duplicate completion of terminal jobs", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-duplicate-complete-"));
     const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
