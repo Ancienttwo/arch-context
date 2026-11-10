@@ -139,18 +139,15 @@ test("state machine schema refuses characters that break statechart tables and c
     model.rules[1].finding = { tracking: patch.tracking ?? "https://github.com/Ancienttwo/arch-context/issues/509" };
     return model;
   };
-  // A oneOf reports at the source object, so compare the first issue path by prefix.
-  const refusedPaths = (patch: Parameters<typeof build>[0]) => [
-    ...new Set(validateJsonSchema(schema, build(patch)).issues.map((issue) => issue.path.replace(/\.(path|symbol)$/, "")))
-  ];
+  const refusedPaths = (patch: Parameters<typeof build>[0]) => validateJsonSchema(schema, build(patch)).issues.map((issue) => issue.path);
 
   expect(validateJsonSchema(schema, build({ symbol: "SqliteLocalStore.enqueueRuntimeAgentJob", path: "packages/local-runtime/local-store-sqlite/src/index.ts" })).valid).toBe(true);
   for (const char of ["|", "`"]) {
     expect(refusedPaths({ tracking: `https://github.com/x/y/issues/1${char}` })).toEqual(["$.rules[1].finding.tracking"]);
-    expect(refusedPaths({ symbol: `A${char}b` })).toEqual(["$.events[0].source"]);
+    expect(refusedPaths({ symbol: `A${char}b` })).toEqual(["$.events[0].source.symbol"]);
   }
-  for (const char of ["|", "`", "\r", "\n"]) expect(refusedPaths({ path: `src/a${char}b.ts` })).toEqual(["$.events[0].source"]);
-  expect(refusedPaths({ symbol: "A\nb" })).toEqual(["$.events[0].source"]);
+  for (const char of ["|", "`", "\r", "\n"]) expect(refusedPaths({ path: `src/a${char}b.ts` })).toEqual(["$.events[0].source.path"]);
+  expect(refusedPaths({ symbol: "A\nb" })).toEqual(["$.events[0].source.symbol"]);
 });
 
 const schemaByFixture: Record<string, string> = {
