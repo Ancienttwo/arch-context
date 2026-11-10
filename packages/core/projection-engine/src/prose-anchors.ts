@@ -488,7 +488,7 @@ function resolveCitedPath(parsed: Extract<ParsedCitation, { form: "path" }>, nod
   return { status: "resolved", path: matches[0]!, kind: "file" };
 }
 
-function splitSymbol(symbol: string): { name: string; container?: string } {
+export function splitSymbol(symbol: string): { name: string; container?: string } {
   const segments = symbol.split(".");
   return segments.length > 1
     ? { name: segments[segments.length - 1]!, container: segments[segments.length - 2]! }
@@ -496,7 +496,7 @@ function splitSymbol(symbol: string): { name: string; container?: string } {
 }
 
 /** `Type.name` matches only declarations whose qualified name has `Type` as a segment. */
-function matchingDeclarations(declarations: ProseAnchorDeclaration[], container: string | undefined): ProseAnchorDeclaration[] {
+export function matchingDeclarations(declarations: ProseAnchorDeclaration[], container: string | undefined): ProseAnchorDeclaration[] {
   if (container === undefined) return declarations;
   return declarations.filter((declaration) => declaration.qualifiedName.split(/::|\.|#|\//).includes(container));
 }

@@ -45,7 +45,32 @@
           ]
         }
       ],
-      "breaks": []
+      "breaks": [],
+      "anchors": [
+        {
+          "owner": "event",
+          "ownerId": "capture",
+          "path": "src/payment.ts",
+          "symbol": "PaymentService.capture",
+          "status": "anchor-unconfirmed",
+          "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "owner": "event",
+          "ownerId": "ship",
+          "path": "src/order.ts",
+          "symbol": "shipOrder",
+          "status": "anchor-unconfirmed",
+          "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "owner": "event",
+          "ownerId": "cancel",
+          "path": "src/order.ts",
+          "symbol": "cancelOrder",
+          "status": "anchor-missing-symbol"
+        }
+      ]
     }
   ]
 }

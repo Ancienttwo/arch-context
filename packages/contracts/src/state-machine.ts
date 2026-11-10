@@ -143,11 +143,46 @@ export interface StateMachineMachineReport {
   breaks: StateMachineBreak[];
 }
 
+/** The model-only result of `checkStateMachines`: rules and breaks, no code read. */
+export interface StateMachineRuleCheckV1 {
+  schemaVersion: typeof STATE_MACHINE_CHECK_SCHEMA_VERSION;
+  /** Sorted by machine id. */
+  machines: StateMachineMachineReport[];
+}
+
+export type StateMachineAnchorStatus =
+  | "anchor-missing-path"
+  | "anchor-language-unsupported"
+  | "anchor-missing-symbol"
+  | "anchor-ambiguous-symbol"
+  | "unchecked"
+  | "anchor-unconfirmed"
+  | "anchor-changed"
+  | "confirmed";
+
+/** The status of one `code` source of a region or an event, measured against the current file. */
+export interface StateMachineAnchor {
+  owner: "region" | "event";
+  ownerId: string;
+  path: string;
+  symbol?: string;
+  status: StateMachineAnchorStatus;
+  /** Present for `anchor-unconfirmed`, `anchor-changed` and `confirmed`. */
+  digest?: string;
+  /** Present for `unchecked`: the reason code of the unavailable symbol reader. */
+  reason?: "index-missing" | "index-open-failed";
+}
+
+export interface StateMachineCheckMachineV1 extends StateMachineMachineReport {
+  /** Every code anchor, regions first, then events, each in declaration order. */
+  anchors: StateMachineAnchor[];
+}
+
 /** `schemas/runtime/state-machine-check.schema.json`, the data of `archctx state-machines check`. */
 export interface StateMachineCheckReportV1 {
   schemaVersion: typeof STATE_MACHINE_CHECK_SCHEMA_VERSION;
   /** Sorted by machine id. */
-  machines: StateMachineMachineReport[];
+  machines: StateMachineCheckMachineV1[];
 }
 
 type NodeRecord = Readonly<Record<string, Json | undefined>>;

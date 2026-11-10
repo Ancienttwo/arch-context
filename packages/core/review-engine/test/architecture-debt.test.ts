@@ -13,7 +13,7 @@ const flows: ArchitectureFlowSelectorCheckV1 = { schemaVersion: "archcontext.flo
 const practices = { schemaVersion: "archcontext.practice-enforcement-evaluation/v1", results: [], violations: [], nonBlockingViolations: [], waiversApplied: [], actionsRequired: [] } as unknown as PracticeEnforcementEvaluationV1;
 function clean(): ArchitectureDebtEvidence {
   return { scope: { kind: "changed-paths", changedPaths: ["src/a.ts"], capabilityIds: ["capability.a"] },
-    ownership: [], anchors, dependencies: { coverage: "complete", coverageReasonCodes: [], items: [] }, flows, practices,
+    ownership: [], anchors, dependencies: { coverage: "complete", coverageReasonCodes: [], items: [] }, flows, stateMachines: { machines: [] }, practices,
     scopedNodeIds: ["capability.a"], capabilityByNodeId: new Map([["capability.a", "capability.a"]]) };
 }
 
@@ -95,6 +95,32 @@ test("debt ids are stable across input ordering and import count changes", () =>
   input.dependencies.items[0]!.importEdgeCount = 2;
   expect(evaluateArchitectureDebt(input).items[0]!.id).toBe(first.items[0]!.id);
   expect(architectureDebtReportIssues({ ...first, actionsRequired: [] })).toContain("actionsRequired must name the measured debt actions");
+});
+
+test("state machine debt: broken and resolved rules, built-in breaks and stale anchors; unchecked anchors are a gap (SM-S20, SM-S21)", () => {
+  const digest = `sha256:${"d".repeat(64)}`;
+  const report = evaluateArchitectureDebt({ ...clean(), stateMachines: { machines: [{ id: "state-machine.a.job", capabilityId: "capability.a",
+    rules: [{ id: "broken", kind: "never", status: "broken", state: { job: "done" }, path: [] }, { id: "open", kind: "never", status: "finding-open", tracking: "https://example.com/1", state: { job: "done" }, path: [] },
+      { id: "resolved", kind: "final", status: "finding-resolved", tracking: "https://example.com/2" }, { id: "holds", kind: "final", status: "holds" }],
+    breaks: [{ kind: "unreachable-state", region: "job", state: "lost" }, { kind: "dead-step", event: "retry", step: 2 }, { kind: "deadlock", state: { job: "stuck" }, path: [], count: 1 }],
+    anchors: [{ owner: "region", ownerId: "job", path: "src/job.ts", status: "anchor-changed", digest },
+      { owner: "event", ownerId: "claim", path: "src/job.ts", symbol: "Store.claim", status: "confirmed", digest },
+      { owner: "event", ownerId: "retry", path: "src/retry.ts", symbol: "Store.retry", status: "unchecked", reason: "index-missing" },
+      { owner: "event", ownerId: "done", path: "src/gone.ts", symbol: "done", status: "anchor-missing-path" }] }] } });
+  const machineCheck = report.checks.find(check => check.check === "state-machines")!;
+  expect(machineCheck).toEqual({ check: "state-machines", coverage: "partial", reasonCodes: ["index-missing"] });
+  expect(report.items.map(item => [item.kind, item.reasonCode, item.paths, item.details]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))).toEqual([
+    ["state-machine-rule", "dead-step", [], { stateMachineId: "state-machine.a.job", event: "retry", step: 2 }],
+    ["state-machine-rule", "deadlock", [], { stateMachineId: "state-machine.a.job" }],
+    ["state-machine-rule", "finding-resolved", [], { stateMachineId: "state-machine.a.job", ruleId: "resolved" }],
+    ["state-machine-rule", "rule-broken", [], { stateMachineId: "state-machine.a.job", ruleId: "broken" }],
+    ["state-machine-rule", "unreachable-state", [], { stateMachineId: "state-machine.a.job", region: "job", state: "lost" }],
+    ["state-machine-stale", "anchor-changed", ["src/job.ts"], { stateMachineId: "state-machine.a.job", owner: "region", ownerId: "job" }],
+    ["state-machine-stale", "anchor-missing-path", ["src/gone.ts"], { stateMachineId: "state-machine.a.job", owner: "event", ownerId: "done", symbol: "done" }]
+  ]);
+  expect(report.items.every(item => item.action === "archctx state-machines check --json" && item.nodeIds[0] === "capability.a" && item.capabilityIds[0] === "capability.a")).toBe(true);
+  expect(architectureDebtReportIssues(report)).toEqual([]);
+  expect(publishedSchemaIssues("runtime/architecture-debt.schema.json", report)).toEqual([]);
 });
 
 const gateInput = { taskSessionId: "task.debt", posture: "normal" as const, headSha: "abc", currentHeadSha: "abc",
