@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadCapabilitySourceFootprintDigests, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
@@ -7218,6 +7219,24 @@ test("CLI state-machines check reads the model without runtime state and refuses
     const result = await runTestCli("state-machines", ["check", "--json"], root);
     expect(result).toMatchObject({ ok: true, requestId: "state-machines.check", data: { schemaVersion: "archcontext.state-machine-check/v1", machines: [] } });
     expect(existsSync(testStateRoot(root))).toBe(false);
+    writeFileSync(join(root, ".archcontext/model/nodes/capability.jobs.yaml"), stableYaml({ schemaVersion: "archcontext.node/v2", id: "capability.jobs", kind: "capability", name: "Jobs", status: "active", summary: "Runs jobs." }));
+    mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src/job.ts"), "export function finish(): void {}\r\n");
+    writeFileSync(join(root, ".archcontext/model/state-machines/job.yaml"), stableYaml({
+      schemaVersion: "archcontext.state-machine/v1", id: "state-machine.jobs.job", capabilityId: "capability.jobs", name: "Job",
+      regions: [{ id: "job", label: "Job", initial: "queued", states: [{ id: "queued", label: "Queued" }, { id: "done", label: "Done", terminal: true }], source: { kind: "code", path: "src/job.ts" } }],
+      events: [{ id: "finish", label: "Finish", source: { kind: "code", path: "src/job.ts", symbol: "finish" }, steps: [{ when: { job: ["queued"] }, then: { job: "done" } }] },
+        { id: "drop", label: "Drop", source: { kind: "code", path: "src/gone.ts" }, steps: [{ when: { job: ["queued"] }, then: { job: "done" } }] }],
+      rules: []
+    }));
+    // SM-S23: every anchor with its status; the file digest reads CRLF as LF; no index leaves the symbol unchecked.
+    const anchored = await runTestCli("state-machines", ["check", "--json"], root);
+    expect((anchored.data as any).machines[0].anchors).toEqual([
+      { owner: "region", ownerId: "job", path: "src/job.ts", status: "anchor-unconfirmed", digest: `sha256:${createHash("sha256").update("export function finish(): void {}\n").digest("hex")}` },
+      { owner: "event", ownerId: "finish", path: "src/job.ts", symbol: "finish", status: "unchecked", reason: "index-missing" },
+      { owner: "event", ownerId: "drop", path: "src/gone.ts", status: "anchor-missing-path" }
+    ]);
     for (const args of [["check", "--all"], ["list"], []]) {
       expect(await runTestCli("state-machines", args, root)).toMatchObject({ ok: false, requestId: "state-machines.check", error: { code: "AC_SCHEMA_INVALID", reasonCode: "cli-input-invalid" } });
     }

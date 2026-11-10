@@ -55,6 +55,11 @@
             ]
           },
           {
+            "check": "state-machines",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
             "check": "practices",
             "coverage": "unknown",
             "reasonCodes": [
@@ -65,7 +70,7 @@
         ],
         "items": [],
         "actionsRequired": [],
-        "digest": "sha256:2515d496ecedd922616b913b5362c64b82a96376fd2498792e46e1d34ae8bc15"
+        "digest": "sha256:8cd3312ebe1706208898191a061e05f055aa2a47df9482d998b7362c2acae695"
       }
     },
     {
@@ -116,6 +121,11 @@
             ]
           },
           {
+            "check": "state-machines",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
             "check": "practices",
             "coverage": "unknown",
             "reasonCodes": [
@@ -144,7 +154,7 @@
         "actionsRequired": [
           "archctx plan --id changeset.<id> --operations-file <ownership-operations.json>"
         ],
-        "digest": "sha256:accc9fd61a426882185c86c0981496391343b916b1eeef3d3dced31647a6667e"
+        "digest": "sha256:38afb95555481e2ec4a8204b63a92822da86212c40dc4d83d98ec69f691cfc37"
       }
     },
     {
@@ -193,6 +203,11 @@
               "deferred-to-complete",
               "not-evaluated"
             ]
+          },
+          {
+            "check": "state-machines",
+            "coverage": "complete",
+            "reasonCodes": []
           },
           {
             "check": "practices",
@@ -250,7 +265,7 @@
         "actionsRequired": [
           "archctx docs anchors --json"
         ],
-        "digest": "sha256:669b0a2951df249ea477914528c01c2d1dfa9f2ce149885d996cbbcec8465019"
+        "digest": "sha256:f557e05615484dae8b0bab7ee34f034d81b9e50f9f59a5d791aa24961074e7dc"
       }
     },
     {
@@ -305,6 +320,11 @@
             ]
           },
           {
+            "check": "state-machines",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
             "check": "practices",
             "coverage": "unknown",
             "reasonCodes": [
@@ -360,7 +380,7 @@
         "actionsRequired": [
           "archctx docs anchors --json"
         ],
-        "digest": "sha256:dd603ee48a203d2ca824720eea0478c24dc5ebc27320c86e84bba83cf15c7e4a"
+        "digest": "sha256:7f9375d5cec81277c37cd5de8dba4a02d7a6ac264204b950238e7c5fba0920c1"
       }
     },
     {
@@ -416,6 +436,11 @@
             ]
           },
           {
+            "check": "state-machines",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
             "check": "practices",
             "coverage": "unknown",
             "reasonCodes": [
@@ -426,7 +451,7 @@
         ],
         "items": [],
         "actionsRequired": [],
-        "digest": "sha256:45600795f56bfe92713ee601857fd72351bdd62c928845d5f77bff5dc228fb3d"
+        "digest": "sha256:67edf82bea4322032d72434a3d822267d75a17874a9d2876bdd7560f861b60ed"
       }
     },
     {
@@ -484,6 +509,11 @@
             ]
           },
           {
+            "check": "state-machines",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
             "check": "practices",
             "coverage": "unknown",
             "reasonCodes": [
@@ -516,7 +546,7 @@
         "actionsRequired": [
           "archctx docs anchors --json"
         ],
-        "digest": "sha256:a585fef9d466e486f547a943c4cbdfe29f4293b22b918e6503ee3dd26dbb6153"
+        "digest": "sha256:38a173147d191f896553884d635de522be07e2b3a1f3eff068d5b53558211201"
       }
     },
     {
@@ -572,6 +602,11 @@
             ]
           },
           {
+            "check": "state-machines",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
             "check": "practices",
             "coverage": "unknown",
             "reasonCodes": [
@@ -604,7 +639,7 @@
         "actionsRequired": [
           "archctx docs anchors --json"
         ],
-        "digest": "sha256:b0b0f1549b7c55017c0b38c9ec65eb41f5760018d3213b44bdfc291d686a29c8"
+        "digest": "sha256:dabffeb7b6f2d459e0c3679b9a71b76889aadfa4c0ce81a942209532c6361623"
       }
     }
   ]

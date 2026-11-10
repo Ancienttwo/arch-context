@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/state-machine-check.schema.json",
   "title": "StateMachineCheckV1",
-  "description": "The data of `archctx state-machines check`: for every declared state machine, the size of its reachable global state space, the result of each declared rule and the built-in breaks. The same model gives the same bytes.",
+  "description": "The data of `archctx state-machines check`: for every declared state machine, the size of its reachable global state space, the result of each declared rule, the built-in breaks and the status of each code anchor. The same model gives the same bytes.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "machines"],
@@ -14,7 +14,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "capabilityId", "reachableStates", "transitions", "rules", "breaks"],
+        "required": ["id", "capabilityId", "reachableStates", "transitions", "rules", "breaks", "anchors"],
         "properties": {
           "id": { "type": "string", "pattern": "^state-machine\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
           "capabilityId": { "type": "string", "pattern": "^capability\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
@@ -98,6 +98,36 @@
                     "path": { "$ref": "#/$defs/path" },
                     "count": { "type": "integer", "minimum": 1, "description": "The number of deadlocked reachable global states." }
                   }
+                }
+              ]
+            }
+          },
+          "anchors": {
+            "description": "Every code source of a region or an event, regions first, then events, each in declaration order, with its status against the current file.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["owner", "ownerId", "path", "status"],
+              "properties": {
+                "owner": { "enum": ["region", "event"] },
+                "ownerId": { "$ref": "#/$defs/localId" },
+                "path": { "type": "string", "minLength": 1 },
+                "symbol": { "type": "string", "minLength": 1 },
+                "status": { "enum": ["anchor-missing-path", "anchor-language-unsupported", "anchor-missing-symbol", "anchor-ambiguous-symbol", "unchecked", "anchor-unconfirmed", "anchor-changed", "confirmed"] },
+                "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "The file content, or the lines of the one matching declaration, with CRLF read as LF." },
+                "reason": { "enum": ["index-missing", "index-open-failed"], "description": "Why the symbol reader is unavailable." }
+              },
+              "allOf": [
+                {
+                  "if": { "properties": { "status": { "enum": ["anchor-unconfirmed", "anchor-changed", "confirmed"] } } },
+                  "then": { "required": ["digest"] },
+                  "else": { "not": { "required": ["digest"] } }
+                },
+                {
+                  "if": { "properties": { "status": { "const": "unchecked" } } },
+                  "then": { "required": ["reason", "symbol"] },
+                  "else": { "not": { "required": ["reason"] } }
                 }
               ]
             }

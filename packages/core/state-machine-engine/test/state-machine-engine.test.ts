@@ -113,7 +113,10 @@ describe("loadStateMachinesFromArchContext", () => {
 
 describe("checkStateMachine", () => {
   test("the example gives the issue report, with the guards that protect the holding rule", () => {
-    expect(checkStateMachines([example()], { protection: true })).toEqual(JSON.parse(readFileSync(join(fixtures, "state-machine-check.json"), "utf8")));
+    // The published report adds the anchors that the runtime measures; the pure check reads no code.
+    const published = JSON.parse(readFileSync(join(fixtures, "state-machine-check.json"), "utf8"));
+    const withoutAnchors = { ...published, machines: published.machines.map(({ anchors: _anchors, ...machine }: Record<string, unknown>) => machine) };
+    expect(checkStateMachines([example()], { protection: true })).toEqual(withoutAnchors);
   });
 
   test("without protection no rule carries protectedBy", () => {
