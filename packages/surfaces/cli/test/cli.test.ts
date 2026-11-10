@@ -6033,6 +6033,7 @@ describe("archctx CLI", () => {
         ".archcontext/model/nodes/",
         ".archcontext/model/relations/",
         ".archcontext/model/flows/",
+        ".archcontext/model/state-machines/",
         ".archcontext/decisions/",
         ".archcontext/policies/",
         ".archcontext/practices/",
@@ -6051,10 +6052,10 @@ describe("archctx CLI", () => {
           reasonCode: "architecture-model-ignored",
           action: "commit-architecture-model",
           details: {
-            pathCount: 9,
+            pathCount: 10,
             paths: ignoredPaths.slice(0, 8),
             commands: [`git check-ignore --verbose --no-index -- ${ignoredPaths.slice(0, 8).join(" ")}`],
-            omittedPathCount: 1
+            omittedPathCount: 2
           }
         });
       };

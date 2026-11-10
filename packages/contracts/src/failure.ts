@@ -756,7 +756,7 @@ export function knownFailure<C extends FailureCode>(code: C, reasonCode: string,
     return { code, message: policy.message, severity, retryable, action, reasonCode, details: projectionRecoveryDetailsSnapshot(reasonCode, details) };
   }
   const safeDetails = detailsFor(policy, details);
-  const extendedFacts = Object.values(policy.facts ?? {}).some(rule => rule === "publicConfirmationToken" || rule === "commandSuggestion" || rule === "diagnosticCommands");
+  const extendedFacts = Object.values(policy.facts ?? {}).some(rule => ["publicConfirmationToken", "commandSuggestion", "diagnosticCommands"].includes(rule.replace(/^optional:/, "")));
   if (budgetIssues(safeDetails, 0, extendedFacts ? 1024 : 256).length || bytes(JSON.stringify(safeDetails)) > 8192 || bytes(policy.message) > 1024) throw new Error("Failure metadata exceeds its UTF-8 budget");
   return { code, message: policy.message, severity, retryable, action, reasonCode, details: safeDetails };
 }
@@ -857,7 +857,7 @@ export function failureIssues(value: unknown): string[] {
     if ((prototype !== Object.prototype && prototype !== null) || keys.length !== fields.length || Object.keys(value).length !== fields.length || keys.some(key => typeof key !== "string" || !fields.includes(key))) return ["failure must match its closed registered contract"];
     const data = Object.fromEntries(fields.map(key => [key, ownData(value, key)]));
     const policy = typeof data.reasonCode === "string" ? policies[data.reasonCode] : undefined;
-    const extendedFacts = policy !== undefined && policy.code === data.code && Object.values(policy.facts ?? {}).some(rule => rule === "publicConfirmationToken" || rule === "commandSuggestion" || rule === "diagnosticCommands");
+    const extendedFacts = policy !== undefined && policy.code === data.code && Object.values(policy.facts ?? {}).some(rule => ["publicConfirmationToken", "commandSuggestion", "diagnosticCommands"].includes(rule.replace(/^optional:/, "")));
     data.details = policy?.journalRecovery && policy.code === data.code ? changeSetRecoveryDetailsSnapshot(data.details) : policy?.recovery && policy.code === data.code ? projectionRecoveryDetailsSnapshot(data.reasonCode as string, data.details) : jsonDataSnapshot(data.details, 0, extendedFacts ? 1024 : 256);
     if (typeof data.message !== "string" || bytes(data.message) > 1024 || bytes(JSON.stringify(data.details)) > (policy?.recovery || policy?.journalRecovery ? PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES : 8192)) return ["failure exceeds byte/shape budget"];
     const expected = failureFromData(data);
