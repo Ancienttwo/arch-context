@@ -115,10 +115,28 @@
                 "path": { "type": "string", "minLength": 1 },
                 "symbol": { "type": "string", "minLength": 1 },
                 "status": { "enum": ["anchor-missing-path", "anchor-language-unsupported", "anchor-missing-symbol", "anchor-ambiguous-symbol", "unchecked", "anchor-unconfirmed", "anchor-changed", "confirmed"] },
-                "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "The file content, or the lines of the one matching declaration, with CRLF read as LF." },
-                "reason": { "enum": ["index-missing", "index-open-failed"], "description": "Why the symbol reader is unavailable." }
+                "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "The file content, or a JSON array of the lines of the one matching declaration and of each direct callee, with CRLF read as LF." },
+                "callees": {
+                  "description": "The direct callees that the digest of a symbol anchor covers, in digest order.",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["path", "qualifiedName"],
+                    "properties": {
+                      "path": { "type": "string", "minLength": 1 },
+                      "qualifiedName": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                },
+                "reason": { "enum": ["index-missing", "index-open-failed", "index-stale"], "description": "Why the symbol reader is unavailable, or that the index does not hold the current content of the anchor's file or of a callee's file." }
               },
               "allOf": [
+                {
+                  "if": { "required": ["symbol", "digest"] },
+                  "then": { "required": ["callees"] },
+                  "else": { "not": { "required": ["callees"] } }
+                },
                 {
                   "if": { "properties": { "status": { "enum": ["anchor-unconfirmed", "anchor-changed", "confirmed"] } } },
                   "then": { "required": ["digest"] },

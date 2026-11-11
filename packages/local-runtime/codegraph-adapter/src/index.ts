@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
+import { codeGraphChildEnv } from "./child-env";
 import { readSnapshotQueries, type SnapshotQueryRequest, type SnapshotQueryReader } from "./snapshot-query";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { parseJsonOrStableYaml, repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
@@ -178,6 +179,7 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
     try {
       return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
         cwd: this.workspaceRoot,
+        env: codeGraphChildEnv(),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
         maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
@@ -1034,8 +1036,7 @@ function readProjectionCodeGraphStatus(
   envOverrides?: Record<string, string>
 ): CodeGraphProjectionStatusV1 {
   if (codeGraphIndexBuildInProgress(root)) throw new CodeGraphIndexBuildInProgressError();
-  // `codegraph status` runs `git status` in the checkout; without GIT_OPTIONAL_LOCKS=0, git refreshes and rewrites .git/index.
-  const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout, { ...envOverrides, GIT_OPTIONAL_LOCKS: "0" });
+  const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout, envOverrides);
   try {
     return JSON.parse(output) as CodeGraphProjectionStatusV1;
   } catch (error) {
@@ -1151,7 +1152,7 @@ function runProjectionCodeGraph(
   try {
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd: root,
-      ...(envOverrides ? { env: { ...process.env, ...envOverrides } } : {}),
+      env: codeGraphChildEnv(envOverrides),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
@@ -1623,7 +1624,30 @@ export interface CodeGraphSymbolReader {
   declarationsInSource(path: string, content: string): CodeGraphSymbolDeclaration[] | undefined;
   /** Declarations named `name` in the CodeGraph index. */
   declarationsNamed(name: string): CodeGraphSymbolDeclaration[];
+  /**
+   * The declarations that the index holds for `path`, or `undefined` when the index does not hold
+   * `bytes` as the file's content. The test is CodeGraph's own change test: the SHA-256 of the
+   * UTF-8 text equals the recorded content hash.
+   */
+  indexedDeclarations(path: string, bytes: Uint8Array): CodeGraphIndexedDeclaration[] | undefined;
+  /**
+   * The resolved targets of the `calls` and `references` edges from each id, read in one batch and
+   * keyed by source id. A reference that CodeGraph left unresolved has no target and is absent.
+   */
+  callees(ids: readonly string[]): Map<string, CodeGraphCallee[]>;
   close(): void;
+}
+
+/** A declaration as the CodeGraph index records it. */
+export interface CodeGraphIndexedDeclaration extends CodeGraphSymbolDeclaration {
+  id: string;
+  kind: string;
+  path: string;
+}
+
+export interface CodeGraphCallee extends CodeGraphIndexedDeclaration {
+  /** The kinds of the declarations that contain this one, by `contains` edges. */
+  containerKinds: string[];
 }
 
 export type CodeGraphSymbolReaderResult =
@@ -1667,9 +1691,40 @@ export function openCodeGraphSymbolReader(
         }
       },
       declarationsNamed: (name) => declarations(graph.getNodesByName(name).filter((node) => node.name === name)),
+      indexedDeclarations: (path, bytes) => {
+        const record = graph.getFile(path);
+        const text = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("utf8");
+        if (record === null || record.contentHash !== createHash("sha256").update(text).digest("hex")) return undefined;
+        return graph.getNodesInFile(path).filter((node) => !NON_DECLARATION_KINDS.has(node.kind)).map(indexedDeclaration);
+      },
+      callees: (ids) => {
+        const edges = graph.getOutgoingEdgesFrom(ids, ["calls", "references"]);
+        const targetIds = [...new Set(edges.map((edge) => edge.target))];
+        const targets = graph.getNodesByIds(targetIds);
+        const containment = graph.getIncomingEdgesTo(targetIds, ["contains"]);
+        const containers = graph.getNodesByIds([...new Set(containment.map((edge) => edge.source))]);
+        const containerKinds = new Map<string, string[]>();
+        for (const edge of containment) {
+          const container = containers.get(edge.source);
+          if (container !== undefined) containerKinds.set(edge.target, [...containerKinds.get(edge.target) ?? [], container.kind]);
+        }
+        const bySource = new Map<string, Map<string, CodeGraphCallee>>();
+        for (const edge of edges) {
+          const target = targets.get(edge.target);
+          if (target === undefined) continue;
+          let entries = bySource.get(edge.source);
+          if (entries === undefined) bySource.set(edge.source, entries = new Map());
+          entries.set(target.id, { ...indexedDeclaration(target), containerKinds: containerKinds.get(target.id) ?? [] });
+        }
+        return new Map([...bySource].map(([source, entries]) => [source, [...entries.values()]]));
+      },
       close: () => graph.close()
     }
   };
+}
+
+function indexedDeclaration(node: CodeGraphNode): CodeGraphIndexedDeclaration {
+  return { id: node.id, kind: node.kind, path: node.filePath, name: node.name, qualifiedName: node.qualifiedName, startLine: node.startLine, endLine: node.endLine };
 }
 
 /**
@@ -2054,7 +2109,7 @@ function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[], 
   try {
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd: workspaceRoot,
-      ...(envOverrides ? { env: { ...process.env, ...envOverrides } } : {}),
+      env: codeGraphChildEnv(envOverrides),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer,

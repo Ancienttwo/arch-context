@@ -163,8 +163,18 @@ export interface StateMachineAnchor {
   status: StateMachineAnchorStatus;
   /** Present for `anchor-unconfirmed`, `anchor-changed` and `confirmed`. */
   digest?: string;
-  /** Present for `unchecked`: the reason code of the unavailable symbol reader. */
-  reason?: "index-missing" | "index-open-failed";
+  /** Present for a symbol anchor with a digest: the direct callees that the digest covers, in digest order. */
+  callees?: StateMachineAnchorCallee[];
+  /**
+   * Present for `unchecked`: the symbol reader is unavailable, or the index does not hold the
+   * current content of the anchor's file or of a callee's file.
+   */
+  reason?: "index-missing" | "index-open-failed" | "index-stale";
+}
+
+export interface StateMachineAnchorCallee {
+  path: string;
+  qualifiedName: string;
 }
 
 export interface StateMachineCheckMachineV1 extends StateMachineMachineReport {
