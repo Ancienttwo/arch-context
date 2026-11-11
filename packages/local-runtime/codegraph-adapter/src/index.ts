@@ -1034,7 +1034,8 @@ function readProjectionCodeGraphStatus(
   envOverrides?: Record<string, string>
 ): CodeGraphProjectionStatusV1 {
   if (codeGraphIndexBuildInProgress(root)) throw new CodeGraphIndexBuildInProgressError();
-  const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout, envOverrides);
+  // `codegraph status` runs `git status` in the checkout; without GIT_OPTIONAL_LOCKS=0, git refreshes and rewrites .git/index.
+  const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout, { ...envOverrides, GIT_OPTIONAL_LOCKS: "0" });
   try {
     return JSON.parse(output) as CodeGraphProjectionStatusV1;
   } catch (error) {
