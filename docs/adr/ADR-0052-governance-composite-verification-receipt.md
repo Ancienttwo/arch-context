@@ -2,11 +2,12 @@
 schemaVersion: archcontext.adr/v1
 id: adr.0052.governance-composite-verification-receipt
 title: Governance Composite Verification Receipt
-status: accepted
+status: superseded
 decidedAt: 2026-11-03
 appliesTo:
   - module.architecture-context.tooling
 supersedes: []
+supersededBy: adr.0055.governance-receipt-spans-run-attempts
 ---
 
 # ADR-0052: Governance Composite Verification Receipt

@@ -11,6 +11,8 @@ const PACKAGE_JSON = readFileSync("package.json", "utf8");
 const WORKFLOW = readFileSync(".github/workflows/verify.yml", "utf8");
 const VERIFY_GOVERNANCE = readFileSync("scripts/verify-governance.mjs", "utf8");
 const ADR_INDEX = readFileSync("docs/adr/README.md", "utf8");
+const ADR_SUPERSEDED = readFileSync("docs/adr/ADR-0052-governance-composite-verification-receipt.md", "utf8");
+const ADR_0055 = readFileSync("docs/adr/ADR-0055-governance-receipt-spans-run-attempts.md", "utf8");
 const SCRIPT_SURFACE_POLICY = readFileSync("docs/adr/ADR-0051-script-surface-policy.md", "utf8");
 const ROOT_PACKAGE = JSON.parse(PACKAGE_JSON) as { scripts?: Record<string, string> };
 const LINUX_SPLIT_JOBS = ["verify-linux-pre", "verify-linux-shards", "verify-linux-post"];
@@ -151,6 +153,25 @@ describe("governance verify workflow", () => {
     expect(manualJobs.filter(([, job]: any) => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(4);
     const shardCount = readConfig().splitTargets.find((row: any) => row.os === "ubuntu-latest" && row["node-version"] === "22.22.x").shards;
     expect(manualJobs.map(([id]) => id === "verify-linux-shards" ? shardCount : 1).reduce((sum, count) => sum + count, 0)).toBe(shardCount + 3);
+  });
+
+  test("ADR-0055 supersedes ADR-0052 and states the run-scoped receipt rule", () => {
+    expect(ADR_INDEX).toContain("ADR-0055 | Governance Receipt Spans the Run Attempts of One SHA");
+    expect(ADR_INDEX.indexOf("| ADR-0055 |")).toBeGreaterThan(ADR_INDEX.indexOf("| ADR-0054 |"));
+    expect(ADR_SUPERSEDED).toContain("status: superseded");
+    expect(ADR_SUPERSEDED).toContain("supersededBy: adr.0055.governance-receipt-spans-run-attempts");
+    // ADR-0052 keeps its own body; only its frontmatter moved.
+    expect(ADR_SUPERSEDED).toContain('Only "Re-run all jobs" can produce a Governance receipt.');
+    expect(ADR_0055).toContain("status: accepted");
+    expect(ADR_0055).toContain("  - adr.0052.governance-composite-verification-receipt");
+    for (const statement of [
+      "a receipt spans the attempts of one run on one SHA",
+      "the **latest attempt that ran it**",
+      "run ID and `GITHUB_SHA`",
+      "`overwrite: true`",
+      "one report per planned shard"
+    ]) expect(ADR_0055).toContain(statement);
+    expect(ADR_0055).not.toContain("one run attempt");
   });
 
   test("keeps the script surface policy discoverable and enforceable", () => {

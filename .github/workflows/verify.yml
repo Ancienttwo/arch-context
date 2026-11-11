@@ -206,9 +206,10 @@ jobs:
         name: Upload run-bound discovery plan
         uses: actions/upload-artifact@v6
         with:
-          name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}-attempt-${{ github.run_attempt }}
+          name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}
           path: ${{ runner.temp }}/verify-plan/plan.json
           if-no-files-found: error
+          overwrite: true
 
   verify-split-tests:
     if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
@@ -248,7 +249,7 @@ jobs:
         name: Download run-bound discovery plan
         uses: actions/download-artifact@v6
         with:
-          name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}-attempt-${{ github.run_attempt }}
+          name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}
           path: ${{ runner.temp }}/verify-plan
       - &split-shard
         name: Execute assigned full files with all real assertions
@@ -258,9 +259,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: verify-shard-${{ matrix.os }}-node-${{ matrix.node-version }}-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          name: verify-shard-${{ matrix.os }}-node-${{ matrix.node-version }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/verify-evidence
           if-no-files-found: error
+          overwrite: true
 
   verify-split-post:
     if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
@@ -296,13 +298,13 @@ jobs:
       - name: Download run-bound discovery plan
         uses: actions/download-artifact@v6
         with:
-          name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}-attempt-${{ github.run_attempt }}
+          name: verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}
           path: ${{ runner.temp }}/verify-plan
       - &split-reports-download
         name: Download every shard inventory
         uses: actions/download-artifact@v6
         with:
-          pattern: verify-shard-${{ matrix.os }}-node-${{ matrix.node-version }}-*-attempt-${{ github.run_attempt }}
+          pattern: verify-shard-${{ matrix.os }}-node-${{ matrix.node-version }}-*
           path: ${{ runner.temp }}/verify-reports
       - &split-coverage
         name: Prove each discovered file executed exactly once
@@ -311,7 +313,7 @@ jobs:
         name: Verify post-gates in original order with fresh local fixtures
         run: bun run verify:post
 
-  # Governance's full-verification receipt (ADR-0052): the split steps above, as dedicated Linux jobs
+  # Governance's full-verification receipt (ADR-0055): the split steps above, as dedicated Linux jobs
   # outside the lane-gated generic matrix, so they run on every event and never wait on another OS.
   verify-linux-pre:
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / pre"

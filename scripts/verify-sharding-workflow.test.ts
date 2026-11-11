@@ -8,14 +8,14 @@ import {
   changedPaths, classifyPaths, discoverTestFiles, executeShard, expectedWorkers, globToRegExp, jobVerdicts, laneTargets,
   NODE_TARGETS, OS_TARGETS, partitionFiles, readConfig, readScope, runnerMinutes, targetName, validateConfig, validateCoverage,
   collectJobVerdicts, governanceReceiptPending, governanceSourceHead, hostedJobs, RECEIPT_READ_ATTEMPTS,
-  readGovernanceReceipt, RECEIPT_GATE_STEPS, validateGovernancePrerequisite
+  readGovernanceReceipt, RECEIPT_GATE_STEPS, receiptJobs, validateGovernancePrerequisite, latestAttemptPerName
 } from "./verify-ci.mjs";
 
-const identity = { runId: 123, attempt: 1, checkoutSha: "a".repeat(40) };
+const identity = { runId: 123, checkoutSha: "a".repeat(40) };
 
 /** The hosted-read identity environment a Governance receipt read needs. */
 const governedEnv = (context: { sourceHeadSha: string }) => ({ GITHUB_REPOSITORY: "Ancienttwo/arch-context",
-  GITHUB_RUN_ID: String(identity.runId), GITHUB_RUN_ATTEMPT: String(identity.attempt),
+  GITHUB_RUN_ID: String(identity.runId), GITHUB_RUN_ATTEMPT: "1",
   GITHUB_SHA: context.sourceHeadSha });
 const LINUX_PRE = "Verify execution: ubuntu-latest / Node 22.22.x / pre";
 const LINUX_POST = "Verify execution: ubuntu-latest / Node 22.22.x / post";
@@ -24,7 +24,7 @@ const linuxShard = (shard: number) => `Verify execution: ubuntu-latest / Node 22
 function governanceFixture(eventName = "pull_request") {
   const config = readConfig();
   const sourceHeadSha = eventName === "pull_request" ? "b".repeat(40) : identity.checkoutSha;
-  const run = { id: identity.runId, run_attempt: identity.attempt, head_sha: sourceHeadSha, event: eventName, path: ".github/workflows/verify.yml" };
+  const run = { id: identity.runId, run_attempt: 1, head_sha: sourceHeadSha, event: eventName, path: ".github/workflows/verify.yml" };
   const names = expectedWorkers(config, "ubuntu-latest", "22.22.x");
   const jobs = names.map((name, index) => ({ id: 17 + index, name, status: "completed", conclusion: "success", run_id: run.id,
     run_attempt: run.run_attempt, head_sha: sourceHeadSha,
@@ -34,7 +34,14 @@ function governanceFixture(eventName = "pull_request") {
     prerequisiteResult: "success", prerequisiteCheckoutSha: identity.checkoutSha } };
 }
 
-test("Governance binds every Linux split job of the current attempt and both checkouts while distinguishing PR merge/source SHAs", () => {
+/** The same receipt after a "Re-run failed jobs" of `rerun` put those jobs, and their dependents, in attempt 2. */
+function rerunFixture(rerun: (name: string) => boolean) {
+  const fixture: any = governanceFixture("push");
+  const second = fixture.jobs.filter((job: any) => rerun(job.name)).map((job: any, index: number) => ({ ...structuredClone(job), id: 90 + index, run_attempt: 2 }));
+  return { ...fixture, run: { ...fixture.run, run_attempt: 2 }, jobs: [...fixture.jobs, ...second] };
+}
+
+test("Governance binds every Linux split job of the run across its attempts and both checkouts while distinguishing PR merge/source SHAs", () => {
   for (const event of ["pull_request", "push", "workflow_dispatch"]) {
     const { config, run, jobs, context } = governanceFixture(event);
     expect(jobs.map(job => job.name)).toEqual([LINUX_PRE, linuxShard(1), linuxShard(2), linuxShard(3), LINUX_POST]);
@@ -46,7 +53,7 @@ test("Governance binds every Linux split job of the current attempt and both che
 test("Governance rejects green booleans with missing, stale, duplicate, cancelled, skipped or mismatched provider evidence", () => {
   const mutations: ((fixture: any) => void)[] = [
     f => f.jobs = [],
-    f => f.run.id++, f => f.run.run_attempt++, f => f.run.head_sha = "c".repeat(40),
+    f => f.run.id++, f => f.run.head_sha = "c".repeat(40),
     f => f.run.path = ".github/workflows/other.yml", f => f.run.event = "push",
     f => f.context.eventName = "pull_request_target", f => f.context.sourceHeadSha = "",
     f => f.context.actualCheckoutSha = "b".repeat(40),
@@ -55,7 +62,7 @@ test("Governance rejects green booleans with missing, stale, duplicate, cancelle
   for (const conclusion of ["failure", "skipped", "cancelled", "timed_out", "neutral", null]) mutations.push(f => f.context.prerequisiteResult = conclusion);
   for (let job = 0; job < governanceFixture().jobs.length; job++) {
     mutations.push(f => f.jobs.push(structuredClone(f.jobs[job])), f => f.jobs[job].id = undefined, f => f.jobs[job].name = "unrelated worker",
-      f => f.jobs[job].run_id++, f => f.jobs[job].run_attempt++, f => f.jobs[job].head_sha = "c".repeat(40),
+      f => f.jobs[job].run_id++, f => f.jobs[job].head_sha = "c".repeat(40),
       f => f.jobs[job].status = "in_progress", f => f.jobs[job].steps = []);
     for (const conclusion of ["failure", "skipped", "cancelled", "timed_out", "neutral", null]) mutations.push(f => f.jobs[job].conclusion = conclusion);
     for (let step = 0; step < governanceFixture().jobs[job].steps.length; step++) {
@@ -86,6 +93,64 @@ test("Governance fails closed by name for each invalid composite receipt branch"
   reject(f => f.config.splitTargets.find((row: any) => row.os === "ubuntu-latest").shards = 4, `missing/duplicate prerequisite job: ${linuxShard(4)}`);
 });
 
+test("ADR-0055: a partial rerun keeps the receipt when its rerun jobs pass in the new attempt", () => {
+  // "Re-run failed jobs" on shard 1 reruns that job and its dependent post job, so those two names
+  // carry an attempt-2 record and the other three keep their attempt-1 record.
+  const rerun = (name: string) => name === linuxShard(1) || name === LINUX_POST;
+  const { config, run, jobs, context } = rerunFixture(rerun);
+  expect(run.run_attempt).toBe(2);
+  for (const name of [linuxShard(1), LINUX_POST]) {
+    expect(jobs.filter((job: any) => job.name === name).map((job: any) => job.run_attempt).sort()).toEqual([1, 2]);
+  }
+  expect(latestAttemptPerName(jobs, [LINUX_PRE, linuxShard(1), linuxShard(2), linuxShard(3), LINUX_POST]).get(linuxShard(1))?.run_attempt).toBe(2);
+  expect(validateGovernancePrerequisite(config, identity, run, jobs, context).map(job => job.run_attempt)).toEqual([1, 2, 1, 1, 2]);
+});
+
+test("ADR-0055: the latest attempt per job name wins, so a failed or unsettled rerun still fails the receipt", () => {
+  const rerun = (name: string) => name === linuxShard(2);
+  // The rerun shard 2 fails while its attempt-1 record succeeded: the later attempt is the one that counts.
+  const failedRerun = rerunFixture(rerun);
+  failedRerun.jobs.find((job: any) => job.name === linuxShard(2) && job.run_attempt === 2).conclusion = "failure";
+  expect(() => validateGovernancePrerequisite(failedRerun.config, identity, failedRerun.run, failedRerun.jobs, failedRerun.context))
+    .toThrow(`prerequisite job was not successful: ${linuxShard(2)}`);
+
+  // A rerun that has not settled yet is nonterminal, never the earlier green attempt.
+  const inFlightRerun = rerunFixture(rerun);
+  const runningJob = inFlightRerun.jobs.find((job: any) => job.name === linuxShard(2) && job.run_attempt === 2);
+  runningJob.status = "in_progress";
+  runningJob.conclusion = null;
+  expect(governanceReceiptPending(inFlightRerun.config, inFlightRerun.jobs)).toEqual([{ job: linuxShard(2), reason: "incomplete", status: "in_progress", conclusion: null }]);
+  expect(() => validateGovernancePrerequisite(inFlightRerun.config, identity, inFlightRerun.run, inFlightRerun.jobs, inFlightRerun.context))
+    .toThrow(`prerequisite job is incomplete: ${linuxShard(2)}`);
+
+  // A name that two jobs of one attempt claim has no single latest record and fails closed by name.
+  const duplicated = rerunFixture(name => name === linuxShard(3));
+  duplicated.jobs.push({ ...structuredClone(duplicated.jobs.find((job: any) => job.name === linuxShard(3) && job.run_attempt === 2)), id: 500 });
+  expect(() => validateGovernancePrerequisite(duplicated.config, identity, duplicated.run, duplicated.jobs, duplicated.context))
+    .toThrow(`missing/duplicate prerequisite job: ${linuxShard(3)}`);
+});
+
+test("ADR-0055: the receipt readback spans every attempt of the run and refuses a run-level mismatch", async () => {
+  const env = { GITHUB_REPOSITORY: "Ancienttwo/arch-context", GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "2", GITHUB_SHA: identity.checkoutSha };
+  const { run, jobs } = rerunFixture(name => name === linuxShard(1));
+  const firstAttempt = jobs.filter((job: any) => job.run_attempt === 1);
+  const secondAttempt = jobs.filter((job: any) => job.run_attempt === 2);
+  const paths: string[] = [];
+  const read = async (path: string) => {
+    paths.push(path);
+    if (!path.includes("/jobs?")) return run;
+    const batch = path.includes("/attempts/1/") ? firstAttempt : secondAttempt;
+    return { total_count: batch.length, jobs: batch };
+  };
+  expect(await receiptJobs(env, read)).toEqual({ run, jobs: [...firstAttempt, ...secondAttempt] });
+  expect(paths.filter(path => path.includes("/jobs?"))).toEqual([
+    "repos/Ancienttwo/arch-context/actions/runs/123/attempts/1/jobs?per_page=100&page=1",
+    "repos/Ancienttwo/arch-context/actions/runs/123/attempts/2/jobs?per_page=100&page=1"
+  ]);
+  await expect(receiptJobs(env, async () => ({ ...run, id: 124 }))).rejects.toThrow();
+  await expect(receiptJobs({ ...env, GITHUB_RUN_ID: "not-a-run" }, read)).rejects.toThrow();
+});
+
 test("Governance reads the immutable PR event source head and rejects missing or malformed authority", () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-governance-event-"));
   const path = join(root, "event.json");
@@ -103,7 +168,7 @@ test("Governance reads the immutable PR event source head and rejects missing or
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("hosted readback uses only this attempt's provider jobs and refuses API/pagination failures without artifacts", async () => {
+test("hosted readback uses the current attempt's provider jobs and refuses API/pagination failures without artifacts", async () => {
   const env = { GITHUB_REPOSITORY: "Ancienttwo/arch-context", GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha };
   const { run, jobs } = governanceFixture();
   const paths: string[] = [];
@@ -112,9 +177,7 @@ test("hosted readback uses only this attempt's provider jobs and refuses API/pag
   });
   expect(valid).toEqual({ run, jobs });
   expect(paths).toEqual(["repos/Ancienttwo/arch-context/actions/runs/123", "repos/Ancienttwo/arch-context/actions/runs/123/attempts/1/jobs?per_page=100&page=1"]);
-  for (const changed of [{ ...run, id: 122 }, { ...run, run_attempt: 2 }]) {
-    await expect(hostedJobs(env, async () => changed)).rejects.toThrow();
-  }
+  await expect(hostedJobs(env, async () => ({ ...run, id: 122 }))).rejects.toThrow();
   await expect(hostedJobs(env, async () => { throw new Error("provider read failed"); })).rejects.toThrow("provider read failed");
   for (const mode of ["missing-page", "duplicate-id", "overcount", "invalid-count"]) {
     await expect(hostedJobs(env, async (path: string) => {
@@ -203,7 +266,15 @@ test("the actual plan/shard/coverage commands transfer only run-bound metadata b
       command("shard", { ...baseEnv, VERIFY_SHARD_INDEX: String(index), VERIFY_EVIDENCE: evidence });
     }
     expect(command("coverage").stdout).toContain("1 Bun-discovered files exactly once across 3 isolated shards");
-    expect(() => command("coverage", { ...baseEnv, GITHUB_RUN_ATTEMPT: "2" })).toThrow();
+    // ADR-0055: a rerun shard runs in a new attempt on a fresh runner, reusing the run's plan and
+    // replacing its own report (the artifact name carries no attempt and its upload overwrites).
+    for (let index = 0; index < 3; index++) {
+      const evidence = join(runner, "verify-reports", `artifact-${index}`);
+      rmSync(evidence, { recursive: true, force: true });
+      command("shard", { ...baseEnv, GITHUB_RUN_ATTEMPT: "2", VERIFY_SHARD_INDEX: String(index), VERIFY_EVIDENCE: evidence });
+    }
+    expect(command("coverage", { ...baseEnv, GITHUB_RUN_ATTEMPT: "2" }).stdout).toContain("1 Bun-discovered files exactly once across 3 isolated shards");
+    expect(() => command("coverage", { ...baseEnv, GITHUB_RUN_ID: "124" })).toThrow();
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -213,7 +284,7 @@ test("coverage rejects duplicates, omissions, failed runs and stale/cross-target
   for (const mutate of [
     (r: any[]) => r.push(r[0]), (r: any[]) => r[1].files = ["a.test.ts"],
     (r: any[]) => r[0].files = [], (r: any[]) => r[0].exitCode = 1,
-    (r: any[]) => r[0].subject.attempt++, (r: any[]) => r[0].subject.checkoutSha = "b".repeat(40),
+    (r: any[]) => r[0].subject.runId++, (r: any[]) => r[0].subject.checkoutSha = "b".repeat(40),
     (r: any[]) => r[0].target = "foreign"
   ]) {
     const changed = structuredClone(reports); mutate(changed);
@@ -581,7 +652,7 @@ test("#492: a prerequisite job that never settles fails closed with its observed
 test("#492: lane verdicts re-read a nonterminal worker but still reject a settled failure", async () => {
   const config = readConfig();
   const targets = laneTargets("linux");
-  const run = { id: identity.runId, run_attempt: identity.attempt, head_sha: identity.checkoutSha };
+  const run = { id: identity.runId, run_attempt: 1, head_sha: identity.checkoutSha };
   const names = expectedWorkers(config, "ubuntu-latest", "22.22.x");
   const green = names.map((name, index) => ({ id: 40 + index, name, status: "completed", conclusion: "success",
     run_id: run.id, run_attempt: run.run_attempt, head_sha: run.head_sha }));
@@ -635,7 +706,7 @@ test("#492: the cost job carries no lane, so only the verdict loop resolves one"
   expect(() => laneTargets(undefined as any)).toThrow(/Unknown verify lane/);
 
   // The guard that matters: resolving this lane's verdicts must never happen for `cost`.
-  const run = { id: identity.runId, run_attempt: identity.attempt, head_sha: identity.checkoutSha };
+  const run = { id: identity.runId, run_attempt: 1, head_sha: identity.checkoutSha };
   const jobs: any[] = [];
   const env = { GITHUB_REPOSITORY: "Ancienttwo/arch-context", GITHUB_RUN_ID: String(identity.runId),
     GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha };
