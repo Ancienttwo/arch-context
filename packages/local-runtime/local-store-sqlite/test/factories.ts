@@ -1,4 +1,4 @@
-import { canTransitionAgentJobStatus } from "@archcontext/core/agent-orchestrator";
+import { AGENT_JOB_STATE_TRANSITIONS, canTransitionAgentJobStatus } from "@archcontext/core/agent-orchestrator";
 import { canonicalRepositoryRoot, type CrossRepoRelation, type Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/changeset-engine";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -1591,7 +1591,9 @@ function testRuntimeAgentJobQueueStats(records: RuntimeAgentJobRecord[], now: st
     queuedDepth: countsByStatus.queued,
     runningDepth: countsByStatus.running,
     activeDepth: countsByStatus.queued + countsByStatus.running,
-    terminalDepth: countsByStatus.succeeded + countsByStatus.failed + countsByStatus.cancelled + countsByStatus.superseded + countsByStatus.expired,
+    terminalDepth: RUNTIME_AGENT_JOB_STATUSES
+      .filter((status) => AGENT_JOB_STATE_TRANSITIONS[status].length === 0)
+      .reduce((sum, status) => sum + countsByStatus[status], 0),
     totalJobCount: records.length,
     ...(oldestQueuedAt === undefined ? {} : { oldestQueuedAt, oldestQueuedAgeMs: Math.max(0, Date.parse(now) - Date.parse(oldestQueuedAt)) }),
     coalescedJobCount,

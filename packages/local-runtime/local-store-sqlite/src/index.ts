@@ -1313,7 +1313,6 @@ export interface LandscapeRebuildResult {
 }
 
 export type RuntimeAgentJobStatus = AgentJobV1["status"];
-export type RuntimeAgentJobTerminalStatus = Extract<RuntimeAgentJobStatus, "succeeded" | "failed" | "cancelled" | "superseded" | "expired">;
 export const RUNTIME_AGENT_JOB_STATUSES: RuntimeAgentJobStatus[] = ["queued", "running", "succeeded", "failed", "cancelled", "superseded", "expired"];
 
 export interface RuntimeAgentJobRecord {
@@ -7615,8 +7614,7 @@ function runtimeAgentJobQueueStatsFromRecords(records: RuntimeAgentJobRecord[], 
   for (const record of records) countsByStatus[record.job.status] += 1;
   const queued = records.filter((record) => record.job.status === "queued");
   const runningDepth = countsByStatus.running;
-  const terminalDepth = RUNTIME_AGENT_JOB_STATUSES
-    .filter((status) => status !== "queued" && status !== "running")
+  const terminalDepth = terminalRuntimeAgentJobStatuses()
     .reduce((sum, status) => sum + countsByStatus[status], 0);
   const oldestQueuedAt = queued
     .map((record) => record.job.queuedAt)
@@ -7721,6 +7719,11 @@ function requireRuntimeAgentJobInScope(db: SqliteDatabase, scope: ArchitectureLe
 function agentJobStatusesAccepting(to: AgentJobV1["status"]): AgentJobV1["status"][] {
   return (Object.keys(AGENT_JOB_STATE_TRANSITIONS) as AgentJobV1["status"][])
     .filter((from) => AGENT_JOB_STATE_TRANSITIONS[from].includes(to));
+}
+
+/** Statuses whose `AGENT_JOB_STATE_TRANSITIONS` entry is empty: no transition leaves them, so they are terminal. */
+function terminalRuntimeAgentJobStatuses(): RuntimeAgentJobStatus[] {
+  return RUNTIME_AGENT_JOB_STATUSES.filter((status) => AGENT_JOB_STATE_TRANSITIONS[status].length === 0);
 }
 
 /**

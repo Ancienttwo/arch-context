@@ -1,6 +1,6 @@
 # archctx / archctx-contracts 0.13.0 preparation
 
-Baseline: `origin/main@a8ebbeef`, the archimap refresh for the state machine model kind (#528).
+Baseline: `origin/main@3de93034`, the merge of #530, the 0.13.0 release preparation after the archimap refresh for the state machine model kind (#528).
 
 ## Changes
 
@@ -8,6 +8,7 @@ Baseline: `origin/main@a8ebbeef`, the archimap refresh for the state machine mod
 - **#504: pinned projection publication.** `archctx projection publish --base-sha <sha>` publishes only for one checked base commit and ends with `projection-writer-base-moved` when the remote base points elsewhere. #521 documents the flag and the failure in `docs/runbooks/projection-writer.md`.
 - **#518: schema refusals.** `architecture-state-machine.schema.json` refuses the characters that break a rendered table (`|`, a backtick, a line break) in a rule `tracking` URL, a code-source `path` and a `symbol`, and selects the event `source` branch by `kind` so a refusal names the field that is wrong.
 - **#509: agent job transitions.** A job status UPDATE applies only when the current status lists the target in `AGENT_JOB_STATE_TRANSITIONS`; a refused write fails `AC_PRECONDITION_FAILED` / `job-transition-invalid`. `failed -> queued` joins the table so that `archctx jobs retry` works on a failed job.
+- **#525: job queue stats.** `terminalDepth` in `queueStatsRuntimeAgentJobs` is derived from `AGENT_JOB_STATE_TRANSITIONS`, so it counts only the statuses whose entry there is empty (`succeeded`, `cancelled`, `superseded`, `expired`). A retryable `failed` job still appears in `countsByStatus` and in `totalJobCount`. The local-store type `RuntimeAgentJobTerminalStatus`, which had no user, is removed.
 - **#514, #521, #513, #524, #528: repository only.** The publication policy accepts its own merge evidence, the projection-writer runbook gains `--base-sha`, ADR-0054 is proposed, and the generated architecture outputs and the archimap are refreshed. No product behavior change.
 
 ## Release notes
@@ -27,6 +28,8 @@ Use this section as the GitHub Release notes file.
 > - The `state-machines-check` failure stage in `FAILURE_STAGES`, so a classified failure from the check carries it, and the `state-machines.check` request id in the CLI envelope.
 > - Two new schemas: `schemas/repo/architecture-state-machine.schema.json` and `schemas/runtime/state-machine-check.schema.json`.
 > - `archctx-contracts` exports the state machine contract: `STATE_MACHINE_SCHEMA_VERSION`, `STATE_MACHINE_CHECK_SCHEMA_VERSION`, `STATE_MACHINE_PRODUCT_LIMIT`, `stateMachineModelIssues`, `stateMachineModelIssuesByMachine` and the types `StateMachineV1`, `StateMachineRegion`, `StateMachineState`, `StateMachineStep`, `StateMachineEvent`, `StateMachineCodeSource`, `StateMachineEnvironmentSource`, `StateMachineRule`, `StateMachineNeverRule`, `StateMachineFinalRule`, `StateMachineFinding`, `StateMachineInvariant`, `StateMachineIssue`, `StateMachineGlobalState`, `StateMachinePathStep`, `StateMachineGuard`, `StateMachineRuleStatus`, `StateMachineRuleResult`, `StateMachineBreak`, `StateMachineMachineReport`, `StateMachineRuleCheckV1`, `StateMachineAnchorStatus`, `StateMachineAnchor`, `StateMachineCheckMachineV1` and `StateMachineCheckReportV1`. `ARCHITECTURE_DEBT_CHECKS` gains `state-machines` and `ARCHITECTURE_DEBT_KINDS` gains `state-machine-rule` and `state-machine-stale` in place, so both stay `v1`. The JSON Schema validator now supports `propertyNames`, `minProperties` and `maxProperties`.
+>
+> `jobs` queue stats `terminalDepth` no longer counts `failed` jobs, which can be retried.
 >
 > Unchanged: every CLI command and flag that existed in 0.12.0, the existing reason codes, the projection manifest schema, both projection profiles, RPC v2, the SQLite migrations and the renderer versions (`archcontext.docs-renderer/v6`, `archcontext.agent-context-renderer/v1`). CodeGraph stays at 1.6.2, Bun at 1.4.3, and Node at `>=22.22 <26`.
 
