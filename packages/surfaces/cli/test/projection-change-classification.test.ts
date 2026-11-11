@@ -325,7 +325,7 @@ test("check and plan classify a source-only edit as unchanged, then output, sema
     const output = await checkAndPlan(fixture, "output");
     expect(output.status).toBe("planned");
     expectOnly(output, { [CATALOG_DOC]: "output-change/update" });
-    expect(byPath(output).get(CATALOG_DOC)).toMatchObject({ reasonCodes: ["rendered-output-changed"] });
+    expect(byPath(output).get(CATALOG_DOC)).toMatchObject({ affectedCapabilityIds: [CATALOG], reasonCodes: ["rendered-output-changed"] });
     const beforeOutput = docsSnapshot(root);
     expect((await fixture.run(fixture.request("apply", "projection_request.output_apply"))).status).toBe("applied");
     expect(writtenDocs(beforeOutput, docsSnapshot(root))).toEqual([CATALOG_DOC]);

@@ -298,7 +298,7 @@ Each entry is `{ targetId, path, affectedCapabilityIds, outputChanged, semanticC
 - Global documents (index, decisions index, changelog, diagrams, relation summaries) depend on the whole model, so any model change marks them `semantic-change`, also when their rendered bytes do not change, and they may over-report. Source-only edits never touch them. Module documents never compare the model digest.
 - `proofChanged`: the `flowProofFingerprint` (`flow-proof-changed`) or the `selectorEvidenceDigest` (`selector-evidence-changed`) of a capability a module document documents moved. Targets that are not module documents render no flow proof, so for them it is always `false`.
 - `null` means unknown, never `false`. Without a committed v4 manifest (missing, unreadable or of an unrecognized schema) every comparison is `null` and the code is `baseline-missing`. A committed manifest without a row for a current target, when no semantic change explains the missing row, or an orphan no row records, makes `semanticChanged` (or every comparison) `null` with `target-row-missing`.
-- `affectedCapabilityIds` are the documented capabilities whose change affects the target: a semantic or proof change, or a block. The list is empty when the target is unchanged.
+- `affectedCapabilityIds` are the documented capabilities whose change affects the target: a semantic or proof change, a block, or a module document that renders differently (attributed to every capability it documents, through the footprint owners). The list is empty when the target is unchanged.
 
 `classification` follows one precedence rule, from the strongest reason down:
 

@@ -122,7 +122,16 @@ test("a changed rendered output is output-change and its plannedAction is the fi
   const input = unchangedInput();
   input.renderedTargets[ENTITY_B] = entityRow(ENTITY_B, B, digest("9"));
   input.files = [MANIFEST_WRITE, write(PATH[ENTITY_B], "update")];
-  expect(summary(classify(input).get(ENTITY_B))).toEqual({ classification: "output-change", plannedAction: "update", reasonCodes: ["rendered-output-changed"], affectedCapabilityIds: [] });
+  expect(summary(classify(input).get(ENTITY_B))).toEqual({ classification: "output-change", plannedAction: "update", reasonCodes: ["rendered-output-changed"], affectedCapabilityIds: [B] });
+});
+
+test("an output change of a module document that documents no capability is attributed to none", () => {
+  const input = unchangedInput();
+  const loose = { ...entityRow(ENTITY_C, "module.loose"), scope: { kind: "entity" as const, id: "module.loose", entityKind: "module" } };
+  input.committed = manifest(undefined, { ...baseRows(), [ENTITY_C]: loose });
+  input.renderedTargets = { ...baseRows(), [ENTITY_C]: { ...loose, outputDigest: digest("9") } };
+  input.files = [MANIFEST_WRITE, write(PATH[ENTITY_C], "update")];
+  expect(summary(classify(input).get(ENTITY_C))).toEqual({ classification: "output-change", plannedAction: "update", reasonCodes: ["rendered-output-changed"], affectedCapabilityIds: [] });
 });
 
 test("a write whose rendered output equals the committed row (marker or bytes only) is output-change, never unchanged", () => {

@@ -103,6 +103,7 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
     const row = entry.current ?? entry.committed;
     let semanticChanged: boolean | null = null;
     let proofChanged: boolean | null = null;
+    let documentedByEntity: string[] = [];
     if (committed === undefined) {
       reasons.add("baseline-missing");
     } else if (row === undefined) {
@@ -117,6 +118,7 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
       const documented = entity ? capabilityIds.filter((id) => nodeIds.some((nodeId) => membersById.get(id)!.has(nodeId))) : capabilityIds;
       const semanticIds = documented.filter((id) => semanticChangedIds.has(id));
       const proofIds = entity ? documented.filter((id) => proofReasonsById.has(id)) : [];
+      if (entity) documentedByEntity = documented;
       const wholeModelChanged = !entity && modelChanged;
       semanticChanged = semanticIds.length > 0 || wholeModelChanged;
       proofChanged = proofIds.length > 0;
@@ -134,7 +136,12 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
       }
     }
     if (entry.current === undefined) reasons.add("target-removed");
-    if (entry.current !== undefined && entry.committed !== undefined && entry.current.outputDigest !== entry.committed.outputDigest) reasons.add("rendered-output-changed");
+    if (entry.current !== undefined && entry.committed !== undefined && entry.current.outputDigest !== entry.committed.outputDigest) {
+      reasons.add("rendered-output-changed");
+      // A module document renders differently because something it documents changed, so the change
+      // is attributed to the capabilities it documents through the footprint owners (ADR-0056 §4).
+      for (const id of documentedByEntity) affected.add(id);
+    }
 
     const rejection = rejectedByPath.get(entry.path);
     if (rejection !== undefined) {
