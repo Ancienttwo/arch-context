@@ -45,22 +45,22 @@ function capability(capabilityId: string, members: string[], overrides: Partial<
   };
 }
 
-function entityRow(targetId: keyof typeof PATH, nodeId: string, stamps: Record<string, string>, outputDigest = digest("1")): ArchitectureDocsProjectionManifestTargetV4 {
-  return { type: "entity-summary", scope: { kind: "entity", id: nodeId, entityKind: "capability" }, path: PATH[targetId], ownership: "mixed", format: "markdown", outputDigest, sourceStamps: stamps };
+function entityRow(targetId: keyof typeof PATH, nodeId: string, outputDigest = digest("1")): ArchitectureDocsProjectionManifestTargetV4 {
+  return { type: "entity-summary", scope: { kind: "entity", id: nodeId, entityKind: "capability" }, path: PATH[targetId], ownership: "mixed", format: "markdown", outputDigest };
 }
 
 function baseRows(): Record<string, ArchitectureDocsProjectionManifestTargetV4> {
   return {
     [INDEX]: { type: "architecture-index", scope: { kind: "repository" }, path: PATH[INDEX], ownership: "mixed", format: "markdown", outputDigest: digest("2") },
     [MERMAID]: { type: "diagram-mermaid", scope: { kind: "diagram", id: "architecture" }, path: PATH[MERMAID], ownership: "generated", format: "mermaid", outputDigest: digest("3") },
-    [ENTITY_A]: entityRow(ENTITY_A, A, { [A]: digest("4"), [`${A}.child`]: digest("5") }),
-    [ENTITY_B]: entityRow(ENTITY_B, B, { [B]: digest("6") }, digest("7"))
+    [ENTITY_A]: entityRow(ENTITY_A, A),
+    [ENTITY_B]: entityRow(ENTITY_B, B, digest("7"))
   };
 }
 
 function manifest(capabilities = [capability(A, [`${A}.child`]), capability(B, [])], targets = baseRows()): ArchitectureDocsProjectionManifestV4 {
   return {
-    schemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+    schemaVersion: "archcontext.architecture-docs-projection-manifest/v4",
     rendererVersion: "archcontext.docs-renderer/v6",
     profile: "repo-harness/v1",
     layoutVersion: "archcontext.docs-layout/v1",
@@ -82,7 +82,9 @@ function unchangedInput(): ProjectionTargetChangeInput {
     files: [],
     rejected: [],
     orphans: [],
-    blockedTargets: []
+    blockedTargets: [],
+    // A's child declares a footprint that A's document covers.
+    footprintOwners: new Map([[A, A], [`${A}.child`, A], [B, B]])
   };
 }
 
@@ -112,24 +114,15 @@ test("the committed state rendered again classifies every target unchanged", () 
   const changes = classify(unchangedInput());
   expect([...changes.keys()].sort()).toEqual([ENTITY_A, ENTITY_B, INDEX, MERMAID].sort());
   for (const entry of changes.values()) {
-    expect(entry).toMatchObject({ classification: "unchanged", plannedAction: "none", reasonCodes: [], affectedCapabilityIds: [], stampChanged: false, outputChanged: false, semanticChanged: false, proofChanged: false });
+    expect(entry).toMatchObject({ classification: "unchanged", plannedAction: "none", reasonCodes: [], affectedCapabilityIds: [], outputChanged: false, semanticChanged: false, proofChanged: false });
   }
-});
-
-test("a source edit that moves only a stamp is stamp-only, writes no document and names its capability", () => {
-  const input = unchangedInput();
-  input.renderedTargets[ENTITY_A] = entityRow(ENTITY_A, A, { [A]: digest("4"), [`${A}.child`]: digest("9") });
-  input.files = [MANIFEST_WRITE];
-  const changes = classify(input);
-  expect(summary(changes.get(ENTITY_A))).toEqual({ classification: "stamp-only", plannedAction: "none", reasonCodes: ["source-stamp-changed"], affectedCapabilityIds: [A] });
-  for (const targetId of [ENTITY_B, INDEX, MERMAID]) expect(changes.get(targetId)!.classification).toBe("unchanged");
 });
 
 test("a changed rendered output is output-change and its plannedAction is the files[] action", () => {
   const input = unchangedInput();
-  input.renderedTargets[ENTITY_B] = entityRow(ENTITY_B, B, { [B]: digest("8") }, digest("9"));
+  input.renderedTargets[ENTITY_B] = entityRow(ENTITY_B, B, digest("9"));
   input.files = [MANIFEST_WRITE, write(PATH[ENTITY_B], "update")];
-  expect(summary(classify(input).get(ENTITY_B))).toEqual({ classification: "output-change", plannedAction: "update", reasonCodes: ["rendered-output-changed", "source-stamp-changed"], affectedCapabilityIds: [B] });
+  expect(summary(classify(input).get(ENTITY_B))).toEqual({ classification: "output-change", plannedAction: "update", reasonCodes: ["rendered-output-changed"], affectedCapabilityIds: [] });
 });
 
 test("a write whose rendered output equals the committed row (marker or bytes only) is output-change, never unchanged", () => {
@@ -165,21 +158,21 @@ test("a proof change with no bytes to write is proof-change on the capability's 
   }
 });
 
-test("precedence: proof outranks semantic, output and stamp changes on one target", () => {
+test("precedence: proof outranks semantic and output changes on one target", () => {
   const input = unchangedInput();
   input.capabilities = input.capabilities.map((entry) => entry.capabilityId === A ? { ...entry, semanticFingerprint: digest("8"), flowProofFingerprint: digest("9") } : entry);
-  input.renderedTargets[ENTITY_A] = entityRow(ENTITY_A, A, { [A]: digest("9"), [`${A}.child`]: digest("5") }, digest("9"));
+  input.renderedTargets[ENTITY_A] = entityRow(ENTITY_A, A, digest("9"));
   input.files = [MANIFEST_WRITE, write(PATH[ENTITY_A], "update")];
   const entry = classify(input).get(ENTITY_A)!;
-  expect(entry).toMatchObject({ stampChanged: true, outputChanged: true, semanticChanged: true, proofChanged: true, classification: "proof-change", plannedAction: "update" });
-  expect(entry.reasonCodes).toEqual(["flow-proof-changed", "rendered-output-changed", "semantic-fingerprint-changed", "source-stamp-changed"]);
+  expect(entry).toMatchObject({ outputChanged: true, semanticChanged: true, proofChanged: true, classification: "proof-change", plannedAction: "update" });
+  expect(entry.reasonCodes).toEqual(["flow-proof-changed", "rendered-output-changed", "semantic-fingerprint-changed"]);
 });
 
 test("without a committed manifest every target is baseline-missing, never unchanged", () => {
   const input = { ...unchangedInput(), committed: undefined, files: [write(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, "create"), write(PATH[MERMAID], "update")] };
   const changes = classify(input);
   for (const entry of changes.values()) {
-    expect(entry).toMatchObject({ classification: "baseline-missing", stampChanged: null, semanticChanged: null, proofChanged: null, affectedCapabilityIds: [] });
+    expect(entry).toMatchObject({ classification: "baseline-missing", semanticChanged: null, proofChanged: null, affectedCapabilityIds: [] });
     expect(entry.reasonCodes).toContain("baseline-missing");
   }
   expect(changes.get(MERMAID)).toMatchObject({ plannedAction: "update", outputChanged: true, reasonCodes: ["baseline-missing", "file-bytes-changed"] });
@@ -191,7 +184,7 @@ test("a committed manifest without a row for a target it should describe is base
   const { [INDEX]: _index, ...rows } = baseRows();
   input.committed = manifest(undefined, rows);
   const changes = classify(input);
-  expect(changes.get(INDEX)).toMatchObject({ classification: "baseline-missing", stampChanged: null, semanticChanged: false, proofChanged: false, reasonCodes: ["target-row-missing"] });
+  expect(changes.get(INDEX)).toMatchObject({ classification: "baseline-missing", semanticChanged: null, proofChanged: false, reasonCodes: ["target-row-missing"] });
   expect(changes.get(ENTITY_A)!.classification).toBe("unchanged");
 });
 
@@ -202,7 +195,7 @@ test("a known proof change outranks a missing committed row: proof-change with t
   input.capabilities = input.capabilities.map((entry) => entry.capabilityId === A ? { ...entry, flowProofFingerprint: digest("9") } : entry);
   input.files = [MANIFEST_WRITE, write(PATH[ENTITY_A], "create")];
   const entry = classify(input).get(ENTITY_A)!;
-  expect(entry).toMatchObject({ classification: "proof-change", stampChanged: null, semanticChanged: false, proofChanged: true, plannedAction: "create" });
+  expect(entry).toMatchObject({ classification: "proof-change", semanticChanged: null, proofChanged: true, plannedAction: "create" });
   expect(entry.reasonCodes).toEqual(["file-bytes-changed", "flow-proof-changed", "target-row-missing"]);
   expect(entry.affectedCapabilityIds).toEqual([A]);
 });
@@ -215,8 +208,7 @@ test("a missing committed row explained by a semantic change is semantic-change,
   input.files = [MANIFEST_WRITE, write(PATH[ENTITY_A], "create")];
   const entry = classify(input).get(ENTITY_A)!;
   expect(entry).toMatchObject({ classification: "semantic-change", semanticChanged: true, proofChanged: false, plannedAction: "create" });
-  expect(entry.stampChanged).toBe(true);
-  expect(entry.reasonCodes).toEqual(["semantic-fingerprint-changed", "source-stamp-changed", "target-added"]);
+  expect(entry.reasonCodes).toEqual(["semantic-fingerprint-changed", "target-added"]);
 });
 
 test("an added capability's document is a semantic create, and a removed one's orphan is a semantic delete", () => {
@@ -224,12 +216,12 @@ test("an added capability's document is a semantic create, and a removed one's o
   input.capabilities = [...input.capabilities.filter((entry) => entry.capabilityId !== B), (({ selectorEvidenceDigest: _s, ...entry }) => entry)(capability(C, []))];
   input.selectorEvidenceDigests = { [A]: digest("c"), [C]: digest("c") };
   const { [ENTITY_B]: _beta, ...rows } = baseRows();
-  input.renderedTargets = { ...rows, [ENTITY_C]: entityRow(ENTITY_C, C, { [C]: digest("4") }) };
+  input.renderedTargets = { ...rows, [ENTITY_C]: entityRow(ENTITY_C, C) };
   input.orphans = [{ path: PATH[ENTITY_B], targetId: ENTITY_B, disposition: "delete" }];
   input.files = [MANIFEST_WRITE, write(PATH[ENTITY_B], "delete"), write(PATH[ENTITY_C], "create"), write(PATH[INDEX], "update")];
   const changes = classify(input);
-  expect(summary(changes.get(ENTITY_C))).toEqual({ classification: "semantic-change", plannedAction: "create", reasonCodes: ["semantic-fingerprint-changed", "source-stamp-changed", "target-added"], affectedCapabilityIds: [C] });
-  expect(summary(changes.get(ENTITY_B))).toEqual({ classification: "semantic-change", plannedAction: "delete", reasonCodes: ["semantic-fingerprint-changed", "source-stamp-changed", "target-removed"], affectedCapabilityIds: [B] });
+  expect(summary(changes.get(ENTITY_C))).toEqual({ classification: "semantic-change", plannedAction: "create", reasonCodes: ["semantic-fingerprint-changed", "target-added"], affectedCapabilityIds: [C] });
+  expect(summary(changes.get(ENTITY_B))).toEqual({ classification: "semantic-change", plannedAction: "delete", reasonCodes: ["semantic-fingerprint-changed", "target-removed"], affectedCapabilityIds: [B] });
   expect(summary(changes.get(INDEX))).toEqual({ classification: "semantic-change", plannedAction: "update", reasonCodes: ["file-bytes-changed", "semantic-fingerprint-changed"], affectedCapabilityIds: [B, C] });
   expect(changes.get(ENTITY_A)!.classification).toBe("unchanged");
 });
@@ -241,7 +233,7 @@ test("an orphan that needs human review is blocked and never deleted", () => {
   input.capabilities = input.capabilities.filter((entry) => entry.capabilityId !== B);
   input.orphans = [{ path: PATH[ENTITY_B], targetId: ENTITY_B, disposition: "human-review" }];
   input.files = [MANIFEST_WRITE];
-  expect(classify(input).get(ENTITY_B)).toMatchObject({ classification: "blocked", plannedAction: "none", outputChanged: true, reasonCodes: ["orphan-review-required", "semantic-fingerprint-changed", "source-stamp-changed", "target-removed"] });
+  expect(classify(input).get(ENTITY_B)).toMatchObject({ classification: "blocked", plannedAction: "none", outputChanged: true, reasonCodes: ["orphan-review-required", "semantic-fingerprint-changed", "target-removed"] });
 });
 
 test("an orphan the committed manifest has no row for is blocked or baseline-missing, never unchanged", () => {
@@ -262,22 +254,21 @@ test("an orphan the committed manifest has no row for is blocked or baseline-mis
 test("a carried-forward target is blocked with its coverage reasons and keeps its comparisons", () => {
   const input = unchangedInput();
   input.capabilities = input.capabilities.map((entry) => entry.capabilityId === A ? { ...entry, flowProofFingerprint: digest("9"), proofStatus: { p1: "proven", p2: "unprovable" } } : entry);
-  input.renderedTargets[ENTITY_A] = entityRow(ENTITY_A, A, { [A]: digest("9"), [`${A}.child`]: digest("5") }, digest("9"));
-  input.renderedTargets[ENTITY_B] = entityRow(ENTITY_B, B, { [B]: digest("9") }, digest("7"));
+  input.renderedTargets[ENTITY_A] = entityRow(ENTITY_A, A, digest("9"));
+  input.renderedTargets[ENTITY_B] = entityRow(ENTITY_B, B, digest("7"));
   input.blockedTargets = [{ targetId: ENTITY_A, path: PATH[ENTITY_A], capabilityIds: [A], reasonCodes: ["unprovable-required-flow", "verified-flow-proof-changed"] }];
   input.files = [MANIFEST_WRITE];
   const changes = classify(input);
   expect(changes.get(ENTITY_A)).toMatchObject({
     classification: "blocked",
     plannedAction: "none",
-    stampChanged: true,
     outputChanged: true,
     proofChanged: true,
     semanticChanged: false,
     affectedCapabilityIds: [A],
-    reasonCodes: ["flow-proof-changed", "rendered-output-changed", "source-stamp-changed", "unprovable-required-flow", "verified-flow-proof-changed"]
+    reasonCodes: ["flow-proof-changed", "rendered-output-changed", "unprovable-required-flow", "verified-flow-proof-changed"]
   });
-  expect(summary(changes.get(ENTITY_B))).toEqual({ classification: "stamp-only", plannedAction: "none", reasonCodes: ["source-stamp-changed"], affectedCapabilityIds: [B] });
+  expect(summary(changes.get(ENTITY_B))).toEqual({ classification: "unchanged", plannedAction: "none", reasonCodes: [], affectedCapabilityIds: [] });
 });
 
 test("a target rejected for adoption or ownership repair is blocked and not a planned write", () => {
@@ -311,13 +302,4 @@ test("a model change outside every capability marks the global documents semanti
   // With a capability change as well, the global documents name both reasons.
   input.capabilities = input.capabilities.map((entry) => entry.capabilityId === A ? { ...entry, semanticFingerprint: digest("8") } : entry);
   expect(summary(classify(input).get(INDEX))).toEqual({ classification: "semantic-change", plannedAction: "none", reasonCodes: ["model-digest-changed", "semantic-fingerprint-changed"], affectedCapabilityIds: [A] });
-});
-
-test("a source-only edit leaves the global documents unchanged, the model digest included", () => {
-  const input = unchangedInput();
-  input.renderedTargets[ENTITY_A] = entityRow(ENTITY_A, A, { [A]: digest("4"), [`${A}.child`]: digest("9") });
-  input.files = [MANIFEST_WRITE];
-  const changes = classify(input);
-  for (const targetId of [INDEX, MERMAID]) expect(summary(changes.get(targetId))).toEqual({ classification: "unchanged", plannedAction: "none", reasonCodes: [], affectedCapabilityIds: [] });
-  expect(changes.get(ENTITY_A)!.classification).toBe("stamp-only");
 });
