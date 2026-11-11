@@ -1030,7 +1030,7 @@ describe("committed change acceptance v2", () => {
     });
   }, TIMEOUT * 2);
 
-  test("a proof-only model change is accepted while evidence holds, and refused once source evidence moved", async () => {
+  test("a proof-only model change is accepted while evidence holds, also after a source edit the proof never reads (ADR-0056 §5)", async () => {
     const toModule = (root: string) => editNode(root, "component.child", { kind: "module" });
     await withFixture(async (fixture) => {
       const kind = await change(fixture, "changeset.kind", [toModule(fixture.root)]);
@@ -1040,12 +1040,11 @@ describe("committed change acceptance v2", () => {
     }, { capabilityASource: true });
     await withFixture(async (fixture) => {
       const kind = await change(fixture, "changeset.kind", [toModule(fixture.root)]);
+      // A member source edit leaves the selector evidence digest and the renderer unchanged, so the
+      // journaled model still explains the proof change; member stamps no longer take part.
       writeFileSync(join(fixture.root, "README.md"), "# acceptance fixture, source changed\n", "utf8");
-      await expectRefused(fixture, [kind], /proof-change-unexplained/, {capabilityId:CAPABILITY_A});
-      // A journaled rewrite of the capability's flow no longer explains an evidence change.
-      const flowPath = ".archcontext/model/flows/flow.hook-adapters.yaml";
-      const flowRewrite = await change(fixture, "changeset.flow-noop", [noopRewrite(fixture.root, flowPath)]);
-      await expectRefused(fixture, [kind, flowRewrite], /proof-change-unexplained/, {capabilityId:CAPABILITY_A});
+      const { approved } = await accept(fixture, [kind]);
+      expect(approved.ok, JSON.stringify(approved)).toBe(true);
     }, { capabilityASource: true });
   }, TIMEOUT * 2);
 
