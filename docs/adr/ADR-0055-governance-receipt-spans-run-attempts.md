@@ -39,7 +39,7 @@ The receipt is bound to the run and its checkout SHA. It is not bound to an atte
 
 The Linux full verification runs as the split form only: one pre job, N test shard jobs and one post job on ubuntu-latest / Node 22.22.x. The post job contains the coverage proof. The receipt is valid only if all of the following hold. A failure of any one makes the receipt invalid:
 
-- `hostedJobs` reads the jobs of every attempt of the run, from the first up to the current one. The provider's run-scoped `/jobs` endpoint returns only the current attempt's jobs, so a partial rerun would otherwise hide the earlier attempts.
+- `receiptJobs` reads the jobs of every attempt of the run, from the first up to the current one, and `readAttemptJobs` asserts that each record really comes from the attempt it was read under. The provider's run-scoped `/jobs` endpoint returns only the current attempt's jobs, so a partial rerun would otherwise hide the earlier attempts. `hostedJobs` stays as it is on main: it reads the current attempt only, and serves the collector, the cost reporter and `jobVerdicts`.
 - Each expected job (section 3) is represented by the **latest attempt that ran it**. That record has `status: completed` and `conclusion: success`, and its `run_id` and `head_sha` equal the run's. A later attempt of the same job name supersedes an earlier one, so a job that was rerun and failed fails the receipt even when its earlier attempt succeeded.
 - A name that no attempt ran, or that two jobs of one attempt both claim, fails the receipt by name. A duplicate within one attempt is never resolved by picking one record.
 - Each expected job's latest attempt contains exactly one completed, successful step for each of its gate steps:
@@ -78,7 +78,7 @@ The composite form ADR-0052 introduced stays exactly as it was written, except f
 
 - Local `bun run verify` and local `bun run verify:governance` (full verify plus the 23 inspections) stay byte-for-byte the same. `verify:pre` and `verify:post` remain exact projections of `verify`.
 - The other 23 Governance inspections, their order and their ledger condition (`GOVERNANCE_COMMANDS.slice(1)`).
-- The job-evidence and runner-cost readers: `jobVerdicts`, `runnerMinutes` and `hostedJobs` keep their code. Job evidence for the Linux target checks the split names because `expectedWorkers` returns them.
+- The job-evidence and runner-cost readers: `jobVerdicts`, `runnerMinutes` and `hostedJobs` keep their main behavior. `hostedJobs` reads only the current attempt and still checks `GITHUB_RUN_ATTEMPT` against the provider's `run.run_attempt`, so the `ubuntu-latest / Node 22.22.x` collector behind the required check is untouched. Job evidence for the Linux target checks the split names because `expectedWorkers` returns them. Only the Governance receipt reads across attempts, through `receiptJobs`.
 - `governanceSourceHead`, and the run, workflow path, event and source-head checks in `validateGovernancePrerequisite`.
 - The network-isolated first-experience readback and the platform IPC readback. They stay in the Linux pre job with their artifact names unchanged.
 

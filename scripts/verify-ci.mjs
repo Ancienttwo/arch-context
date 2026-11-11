@@ -344,16 +344,23 @@ async function readAttemptJobs(repository, runId, attempt, env, read) {
     assert(response.jobs.length, "GitHub jobs pagination is incomplete");
   }
   assert.equal(new Set(jobs.map(job => job.id)).size, jobs.length, "GitHub jobs pagination contains duplicates");
+  // The latest-attempt rule compares `run_attempt` with `>`, so a record whose attempt is not the
+  // endpoint's own would silently lose to an older green one. Check that provider fact once, here.
+  for (const job of jobs) assert.equal(job.run_attempt, attempt, `job ${job.id} is not from attempt ${attempt}`);
   return jobs;
 }
 
 export async function hostedJobs(env = process.env, read = githubRead) {
   const repository = env.GITHUB_REPOSITORY;
   assert.match(repository ?? "", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
-  const identity = subject(env);
+  // ADR-0055 keeps this function's main behavior: it reads the current attempt only, so the
+  // collector path behind the required check is untouched by the run-scoped receipt.
+  const identity = { ...subject(env), attempt: Number(env.GITHUB_RUN_ATTEMPT) };
+  assert(Number.isSafeInteger(identity.attempt) && identity.attempt > 0);
   const run = await read(`repos/${repository}/actions/runs/${identity.runId}`, env);
   assert.equal(run.id, identity.runId);
-  return { run, jobs: await readAttemptJobs(repository, identity.runId, run.run_attempt, env, read) };
+  assert.equal(run.run_attempt, identity.attempt);
+  return { run, jobs: await readAttemptJobs(repository, identity.runId, identity.attempt, env, read) };
 }
 
 /**

@@ -130,6 +130,20 @@ test("ADR-0055: the latest attempt per job name wins, so a failed or unsettled r
     .toThrow(`missing/duplicate prerequisite job: ${linuxShard(3)}`);
 });
 
+test("ADR-0055: the live rerun shape, where the new attempt relists every job with a new id, also passes", () => {
+  // Live run 42973691799 attempt 2 relists all 35 jobs: carried jobs are not dropped, they reappear
+  // under attempt 2 with new ids. The receipt must read that shape the same way as a partial one.
+  const fixture: any = governanceFixture("push");
+  const carried = fixture.jobs.map((job: any, index: number) => ({ ...structuredClone(job), id: 300 + index, run_attempt: 2 }));
+  const live = { ...fixture, run: { ...fixture.run, run_attempt: 2 }, jobs: carried };
+  expect(validateGovernancePrerequisite(live.config, identity, live.run, live.jobs, live.context).map((job: any) => job.run_attempt)).toEqual([2, 2, 2, 2, 2]);
+  expect(governanceReceiptPending(live.config, live.jobs)).toEqual([]);
+  // Job ids are disjoint across the two attempts, so the cross-attempt duplicate-id guard stays quiet.
+  expect(governanceReceiptPending(live.config, [...fixture.jobs, ...carried])).toEqual([]);
+  expect(() => validateGovernancePrerequisite(live.config, identity, live.run, [...live.jobs, { ...carried[1], id: 900 }], live.context))
+    .toThrow(`missing/duplicate prerequisite job: ${linuxShard(1)}`);
+});
+
 test("ADR-0055: the receipt readback spans every attempt of the run and refuses a run-level mismatch", async () => {
   const env = { GITHUB_REPOSITORY: "Ancienttwo/arch-context", GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "2", GITHUB_SHA: identity.checkoutSha };
   const { run, jobs } = rerunFixture(name => name === linuxShard(1));
@@ -149,6 +163,15 @@ test("ADR-0055: the receipt readback spans every attempt of the run and refuses 
   ]);
   await expect(receiptJobs(env, async () => ({ ...run, id: 124 }))).rejects.toThrow();
   await expect(receiptJobs({ ...env, GITHUB_RUN_ID: "not-a-run" }, read)).rejects.toThrow();
+
+  // ADR-0055: the latest-attempt rule compares `run_attempt` with `>`, so a record read under
+  // attempt n that claims another attempt must be refused at the boundary, never ranked.
+  const foreign = async (path: string) => {
+    if (!path.includes("/jobs?")) return run;
+    const batch = (path.includes("/attempts/1/") ? firstAttempt : secondAttempt).map((job: any) => ({ ...job, run_attempt: 1 }));
+    return { total_count: batch.length, jobs: batch };
+  };
+  await expect(receiptJobs(env, foreign)).rejects.toThrow("is not from attempt");
 });
 
 test("Governance reads the immutable PR event source head and rejects missing or malformed authority", () => {
@@ -178,6 +201,9 @@ test("hosted readback uses the current attempt's provider jobs and refuses API/p
   expect(valid).toEqual({ run, jobs });
   expect(paths).toEqual(["repos/Ancienttwo/arch-context/actions/runs/123", "repos/Ancienttwo/arch-context/actions/runs/123/attempts/1/jobs?per_page=100&page=1"]);
   await expect(hostedJobs(env, async () => ({ ...run, id: 122 }))).rejects.toThrow();
+  // ADR-0055: hostedJobs keeps its main behavior and still requires this attempt, so the collector
+  // behind `ubuntu-latest / Node 22.22.x` is unchanged by the run-scoped receipt.
+  await expect(hostedJobs(env, async () => ({ ...run, run_attempt: 2 }))).rejects.toThrow();
   await expect(hostedJobs(env, async () => { throw new Error("provider read failed"); })).rejects.toThrow("provider read failed");
   for (const mode of ["missing-page", "duplicate-id", "overcount", "invalid-count"]) {
     await expect(hostedJobs(env, async (path: string) => {
