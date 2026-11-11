@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
+import { codeGraphChildEnv } from "./child-env";
 import { readSnapshotQueries, type SnapshotQueryRequest, type SnapshotQueryReader } from "./snapshot-query";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { parseJsonOrStableYaml, repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
@@ -178,6 +179,7 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
     try {
       return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
         cwd: this.workspaceRoot,
+        env: codeGraphChildEnv(),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
         maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
@@ -1034,8 +1036,7 @@ function readProjectionCodeGraphStatus(
   envOverrides?: Record<string, string>
 ): CodeGraphProjectionStatusV1 {
   if (codeGraphIndexBuildInProgress(root)) throw new CodeGraphIndexBuildInProgressError();
-  // `codegraph status` runs `git status` in the checkout; without GIT_OPTIONAL_LOCKS=0, git refreshes and rewrites .git/index.
-  const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout, { ...envOverrides, GIT_OPTIONAL_LOCKS: "0" });
+  const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout, envOverrides);
   try {
     return JSON.parse(output) as CodeGraphProjectionStatusV1;
   } catch (error) {
@@ -1151,7 +1152,7 @@ function runProjectionCodeGraph(
   try {
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd: root,
-      ...(envOverrides ? { env: { ...process.env, ...envOverrides } } : {}),
+      env: codeGraphChildEnv(envOverrides),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
@@ -2108,7 +2109,7 @@ function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[], 
   try {
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd: workspaceRoot,
-      ...(envOverrides ? { env: { ...process.env, ...envOverrides } } : {}),
+      env: codeGraphChildEnv(envOverrides),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer,

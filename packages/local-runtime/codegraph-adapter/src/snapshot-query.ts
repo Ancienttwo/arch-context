@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import { FailureError } from "@archcontext/contracts";
+import { codeGraphChildEnv } from "./child-env";
 import type { Node, Edge, CodeGraph } from "@colbymchenry/codegraph";
 
 type FileRecord = ReturnType<CodeGraph["getFiles"]>[number];
@@ -218,7 +219,7 @@ export function readSnapshotQueries(
     const normalized = normalizedRequest(request);
     const input = JSON.stringify(normalized);
     if (Buffer.byteLength(input) > MAX_REQUEST_BYTES) unavailable();
-    const env: NodeJS.ProcessEnv = { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" };
+    const env = codeGraphChildEnv({ DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" });
     // A host's injected Node preload/options must not change the pinned query process.
     delete env.NODE_OPTIONS;
     const child = spawnSync(runtime.node, ["--input-type=commonjs", "-e", QUERY_SCRIPT, runtime.sdk, root], {

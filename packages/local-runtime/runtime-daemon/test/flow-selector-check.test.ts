@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,9 +90,13 @@ test("default flow check still syncs stale code facts", async () => {
     Bun.gc(true);
     writeFileSync(join(root, "src/render.ts"), 'export function render() { return "changed"; }\n');
     expect(runFlowSelectorCheckCommand(root, { noSync: true }).ok).toBe(false);
+    // A clean tracked file whose stat no longer matches the index: any git refresh rewrites .git/index.
+    utimesSync(join(root, "src/main.ts"), 1_700_000_000, 1_700_000_000);
+    const gitIndex = readFileSync(join(root, ".git/index")).toString("hex");
     const cli = fileURLToPath(new URL("../../../surfaces/cli/src/main.ts", import.meta.url));
     const synced = JSON.parse(execFileSync(process.execPath, [cli, "flows", "check", "--json"], { cwd: root, encoding: "utf8" }));
     expect(synced.ok).toBe(true);
+    expect(readFileSync(join(root, ".git/index")).toString("hex")).toBe(gitIndex);
     expect(runFlowSelectorCheckCommand(root, { noSync: true }).ok).toBe(true);
   } finally {
     Bun.gc(true);
