@@ -39,7 +39,7 @@ import {
   codeGraphIndexAvailable,
   repositoryImportPairs
 } from "@archcontext/local-runtime/codegraph-adapter";
-import { normalizePackageExports, readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
+import { listGitVisibleFiles, normalizePackageExports, readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import type { RefactorDecisionSetV1 } from "./refactor-decisions";
 import { planRefactorRunWithRecording, previousRecommendationsFromAuthority, type RefactorRunRecordingV1 } from "./refactor-recording";
@@ -293,7 +293,7 @@ export function evaluateWorktreeDependencyConstraints(input: {
   const edgeLimit = input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
   let imports: ReturnType<typeof repositoryImportPairs>;
   try {
-    imports = repositoryImportPairs(input.root, CODEGRAPH_BINARY, edgeLimit, input.worktreeDigest);
+    imports = repositoryImportPairs(input.root, CODEGRAPH_BINARY, edgeLimit, input.worktreeDigest, new Set(listGitVisibleFiles(input.root)));
   } catch {
     imports = {
       pairs: [],
@@ -503,7 +503,7 @@ interface RefactorScanCodeFactsV1 {
  */
 function readCodeFacts(root: string, worktreeDigest: string, edgeLimit: number): RefactorScanCodeFactsV1 {
   const indexed = codeGraphIndexAvailable(root);
-  const imports = repositoryImportPairs(root, CODEGRAPH_BINARY, edgeLimit, worktreeDigest);
+  const imports = repositoryImportPairs(root, CODEGRAPH_BINARY, edgeLimit, worktreeDigest, new Set(listGitVisibleFiles(root)));
   const attestation = indexed ? attestCodeGraphBinary(root) : { version: "", binaryDigest: "" };
   return {
     pairs: imports.pairs,

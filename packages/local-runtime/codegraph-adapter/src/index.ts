@@ -1872,7 +1872,9 @@ export function repositoryImportPairs(
   root: string,
   binary: string,
   limit: number,
-  worktreeDigest: string
+  worktreeDigest: string,
+  /** The Git-visible files that `worktreeDigest` was computed over, as one set. */
+  gitVisibleFiles: ReadonlySet<string>
 ): RepositoryImportPairsV1 {
   if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
   if (!codeGraphIndexAvailable(root)) {
@@ -1891,7 +1893,7 @@ export function repositoryImportPairs(
   const pending = status.pendingChanges;
   const clean = status.initialized && pending !== undefined && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
   return {
-    pairs: importPairsOf(new Set(listGitVisibleFiles(root)), nodes.imports),
+    pairs: importPairsOf(gitVisibleFiles, nodes.imports),
     truncated: nodes.truncated,
     availability: clean ? "ready" : "unavailable",
     indexedWorktreeDigest: clean ? worktreeDigest : null,

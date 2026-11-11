@@ -66,9 +66,10 @@ function readCapabilityDependenciesUnchecked(root: string, request: CapabilityDe
     }
   }
   const headSha = readHeadSha(root);
-  const worktreeDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
+  const sourceFiles = listGitVisibleFiles(root);
+  const worktreeDigest = computeWorktreeDigest(root, sourceFiles);
   const files = readTrackedTreeEntries(root).filter((entry) => entry.type === "blob").map((entry) => entry.path);
-  const imports = readImports(root, importNodeLimit, worktreeDigest);
+  const imports = readImports(root, importNodeLimit, worktreeDigest, new Set(sourceFiles));
   const matrix = measureCapabilityDependencies({
     nodes: model.nodes,
     relations: model.relations,
@@ -125,9 +126,9 @@ function loadModel(root: string): NativeModel {
 }
 
 /** A failed index read is the `unavailable` answer, never a guessed edge set. */
-function readImports(root: string, limit: number, worktreeDigest: string): ReturnType<typeof repositoryImportPairs> {
+function readImports(root: string, limit: number, worktreeDigest: string, gitVisibleFiles: ReadonlySet<string>): ReturnType<typeof repositoryImportPairs> {
   try {
-    return repositoryImportPairs(root, CODEGRAPH_BINARY, limit, worktreeDigest);
+    return repositoryImportPairs(root, CODEGRAPH_BINARY, limit, worktreeDigest, gitVisibleFiles);
   } catch {
     return {
       pairs: [],
