@@ -1633,7 +1633,7 @@ export interface CodeGraphSymbolReader {
    * The resolved targets of the `calls` and `references` edges from each id, read in one batch and
    * keyed by source id. A reference that CodeGraph left unresolved has no target and is absent.
    */
-  callees(ids: readonly string[]): Map<string, CodeGraphIndexedDeclaration[]>;
+  callees(ids: readonly string[]): Map<string, CodeGraphCallee[]>;
   close(): void;
 }
 
@@ -1642,6 +1642,11 @@ export interface CodeGraphIndexedDeclaration extends CodeGraphSymbolDeclaration 
   id: string;
   kind: string;
   path: string;
+}
+
+export interface CodeGraphCallee extends CodeGraphIndexedDeclaration {
+  /** The kinds of the declarations that contain this one, by `contains` edges. */
+  containerKinds: string[];
 }
 
 export type CodeGraphSymbolReaderResult =
@@ -1693,14 +1698,22 @@ export function openCodeGraphSymbolReader(
       },
       callees: (ids) => {
         const edges = graph.getOutgoingEdgesFrom(ids, ["calls", "references"]);
-        const targets = graph.getNodesByIds([...new Set(edges.map((edge) => edge.target))]);
-        const bySource = new Map<string, Map<string, CodeGraphIndexedDeclaration>>();
+        const targetIds = [...new Set(edges.map((edge) => edge.target))];
+        const targets = graph.getNodesByIds(targetIds);
+        const containment = graph.getIncomingEdgesTo(targetIds, ["contains"]);
+        const containers = graph.getNodesByIds([...new Set(containment.map((edge) => edge.source))]);
+        const containerKinds = new Map<string, string[]>();
+        for (const edge of containment) {
+          const container = containers.get(edge.source);
+          if (container !== undefined) containerKinds.set(edge.target, [...containerKinds.get(edge.target) ?? [], container.kind]);
+        }
+        const bySource = new Map<string, Map<string, CodeGraphCallee>>();
         for (const edge of edges) {
           const target = targets.get(edge.target);
           if (target === undefined) continue;
           let entries = bySource.get(edge.source);
           if (entries === undefined) bySource.set(edge.source, entries = new Map());
-          entries.set(target.id, indexedDeclaration(target));
+          entries.set(target.id, { ...indexedDeclaration(target), containerKinds: containerKinds.get(target.id) ?? [] });
         }
         return new Map([...bySource].map(([source, entries]) => [source, [...entries.values()]]));
       },

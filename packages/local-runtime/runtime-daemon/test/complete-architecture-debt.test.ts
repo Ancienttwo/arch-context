@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { architectureDebtReportIssues, stableYaml } from "@archcontext/contracts";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -76,8 +76,8 @@ test("complete measures debt without a projection manifest, preserves checkpoint
   } finally { await daemon.stop(); Bun.gc(true); removeTempRepo(root); }
 });
 
-const RULES = "export interface Shape {\n  size: number;\n}\nexport function measure(shape: Shape): number {\n  return shape.size;\n}\nexport function decide(shape: Shape, by: (shape: Shape) => number): number {\n  return by(shape);\n}\n";
-const JOB = "import { decide, measure, type Shape } from \"./rules\";\nexport class Store {\n  finish(shape: Shape): number {\n    return decide(shape, measure);\n  }\n}\n";
+const RULES = "export interface Shape {\n  size: number;\n}\nexport type Port = {\n  send: (value: number) => number;\n};\nexport function measure(shape: Shape): number {\n  return shape.size;\n}\nexport function scale(value: number): number {\n  return value * 2;\n}\nexport function decide(shape: Shape, by: (shape: Shape) => number): number {\n  return by(shape);\n}\n";
+const JOB = "import { decide, measure, scale, type Port, type Shape } from \"./rules\";\nexport class Store {\n  finish(shape: Shape, port: Port): number {\n    const inner = () => scale(1);\n    return decide(shape, measure) + inner() + port.send(1);\n  }\n}\n";
 function jobMachine(digests: { file?: string; symbol?: string } = {}) {
   return stableYaml({
     schemaVersion: "archcontext.state-machine/v1", id: "state-machine.architecture.context.job", capabilityId: "capability.architecture.context", name: "Job",
@@ -127,10 +127,10 @@ test("state machine debt: complete reports rules, and anchors go stale until the
       const anchors = (check.data as any).machines[0].anchors;
       expect(anchors.map((anchor: any) => [anchor.owner, anchor.ownerId, anchor.status])).toEqual([["region", "job", "anchor-unconfirmed"], ["event", "finish", "anchor-unconfirmed"]]);
       expect(anchors[0].digest).toBe(`sha256:${createHash("sha256").update(JOB).digest("hex")}`);
-      // A call and a value reference are callees; the interface is not.
-      expect(anchors[1].callees.map((callee: any) => [callee.path, callee.qualifiedName])).toEqual([["src/rules.ts", "decide"], ["src/rules.ts", "measure"]]);
+      // A call, a value reference and a call from a nested declaration are callees; an interface, a type alias and its member are not.
+      expect(anchors[1].callees.map((callee: any) => [callee.path, callee.qualifiedName])).toEqual([["src/rules.ts", "decide"], ["src/rules.ts", "measure"], ["src/rules.ts", "scale"]]);
       const lines = (text: string, from: number, to: number) => text.split("\n").slice(from - 1, to).join("\n");
-      expect(anchors[1].digest).toBe(`sha256:${createHash("sha256").update(JSON.stringify([lines(JOB, 3, 5), lines(RULES, 7, 9), lines(RULES, 4, 6)])).digest("hex")}`);
+      expect(anchors[1].digest).toBe(`sha256:${createHash("sha256").update(JSON.stringify([lines(JOB, 3, 6), lines(RULES, 13, 15), lines(RULES, 7, 9), lines(RULES, 10, 12)])).digest("hex")}`);
       expect(publishedSchemaIssues("runtime/state-machine-check.schema.json", check.data)).toEqual([]);
       expect(stale(["src/job.ts"])).toHaveLength(2);
 
@@ -138,20 +138,29 @@ test("state machine debt: complete reports rules, and anchors go stale until the
       write(root, machinePath, jobMachine({ file: anchors[0].digest, symbol: anchors[1].digest }));
       expect(stale(["src/job.ts"])).toEqual([]);
 
+      // A fresh anchor file with a stale callee file fails closed too.
+      write(root, "src/rules.ts", RULES.replace("value * 2", "value * 4"));
+      expect(readArchitectureDebt(root, { changedPaths: ["src/rules.ts"] }).coverageReasonCodes).toContain("state-machines:index-stale");
+      write(root, "src/rules.ts", RULES);
+
       write(root, "src/job.ts", `${JOB}export const later = 2;\n`);
       expect(stale(["src/job.ts"])).toEqual([["anchor-changed", ["src/job.ts"], "job", null]]);
       // The index no longer holds the anchored file, so the symbol anchor is not measured until a sync.
       expect((runStateMachineCheckCommand(root).data as any).machines[0].anchors[1]).toMatchObject({ status: "unchecked", reason: "index-stale" });
 
-      write(root, "src/job.ts", JOB.replace("measure);", "measure) + 1;"));
+      write(root, "src/job.ts", JOB.replace("port.send(1)", "port.send(2)"));
       syncCodeGraphFixture(root);
       expect(stale(["src/job.ts"]).filter(entry => entry[3] !== null)).toEqual([["anchor-changed", ["src/job.ts"], "finish", "Store.finish"]]);
 
       // A callee edit in another file selects the anchor through that path; the item keeps the anchor's path.
       write(root, "src/job.ts", JOB);
-      write(root, "src/rules.ts", RULES.replace("return shape.size;", "return shape.size * 2;"));
+      write(root, "src/rules.ts", RULES.replace("value * 2", "value * 3"));
       syncCodeGraphFixture(root);
       expect(stale(["src/rules.ts"])).toEqual([["anchor-changed", ["src/job.ts"], "finish", "Store.finish"]]);
+
+      // A deleted callee file still selects the anchor, which the index cannot measure until a sync.
+      rmSync(join(root, "src/rules.ts"));
+      expect(readArchitectureDebt(root, { changedPaths: ["src/rules.ts"] }).coverageReasonCodes).toContain("state-machines:index-stale");
     } finally { holder.close(); }
   } finally { await daemon.stop(); Bun.gc(true); removeTempRepo(root); }
 }, 120_000);

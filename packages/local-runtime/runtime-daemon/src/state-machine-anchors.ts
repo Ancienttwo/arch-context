@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { StateMachineAnchor, StateMachineCodeSource, StateMachineV1 } from "@archcontext/contracts";
 import { matchingDeclarations, sourceContentDigest, splitSymbol } from "@archcontext/core/projection-engine";
-import { openCodeGraphSymbolReader, type CodeGraphIndexedDeclaration, type CodeGraphSymbolReaderResult } from "@archcontext/local-runtime/codegraph-adapter";
+import { openCodeGraphSymbolReader, type CodeGraphCallee, type CodeGraphIndexedDeclaration, type CodeGraphSymbolReaderResult } from "@archcontext/local-runtime/codegraph-adapter";
 
 export interface StateMachineAnchorScope {
   /** The Git-visible files of this invocation. */
@@ -31,6 +31,8 @@ interface CodeAnchor {
 
 /** Edge targets that carry behaviour. Types, interfaces, classes and modules are not callees (ADR-0054 §7). */
 const CALLEE_KINDS: ReadonlySet<string> = new Set(["function", "method", "property", "constant", "variable"]);
+/** A member of these is a signature with no body, so it is not a callee either. */
+const SIGNATURE_CONTAINER_KINDS: ReadonlySet<string> = new Set(["type_alias", "interface"]);
 
 /**
  * The status of every `code` source of a region or an event of each machine, aligned with
@@ -66,6 +68,8 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
     // changed path can select an anchor through its callees.
     const outcome = new Map<CodeAnchor, Pick<StateMachineAnchor, "status" | "reason">>();
     const declarations = new Map<CodeAnchor, CodeGraphIndexedDeclaration>();
+    // A declaration nested in the anchored one is part of its body, so its edges are the same hop.
+    const bodies = new Map<CodeAnchor, CodeGraphIndexedDeclaration[]>();
     for (const anchor of reader === undefined ? [] : symbolAnchors) {
       const { path, symbol } = anchor.source;
       if (!reader!.supportsPath(path)) { outcome.set(anchor, { status: "anchor-language-unsupported" }); continue; }
@@ -74,13 +78,20 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
       const { name, container } = splitSymbol(symbol!);
       const matches = held.filter((declaration) => declaration.name === name && matchingDeclarations([declaration], container).length > 0);
       if (matches.length !== 1) { outcome.set(anchor, { status: matches.length === 0 ? "anchor-missing-symbol" : "anchor-ambiguous-symbol" }); continue; }
-      declarations.set(anchor, matches[0]!);
+      const declaration = matches[0]!;
+      declarations.set(anchor, declaration);
+      bodies.set(anchor, held.filter((entry) => within(entry, declaration)));
     }
-    const edges = reader === undefined || declarations.size === 0 ? new Map<string, CodeGraphIndexedDeclaration[]>()
-      : reader.callees([...new Set([...declarations.values()].map((declaration) => declaration.id))]);
-    const callees = new Map([...declarations].map(([anchor, declaration]) => [anchor, (edges.get(declaration.id) ?? [])
-      .filter((target) => CALLEE_KINDS.has(target.kind) && scope.files.has(target.path) && !within(target, declaration))
-      .sort(digestOrder)]));
+    const edges = reader === undefined || declarations.size === 0 ? new Map<string, CodeGraphCallee[]>()
+      : reader.callees([...new Set([...bodies.values()].flat().map((entry) => entry.id))]);
+    // Before the Git-visible filter, so that a deleted callee file still selects its anchors.
+    const indexedCallees = new Map([...declarations].map(([anchor, declaration]) => {
+      const targets = new Map(bodies.get(anchor)!.flatMap((entry) => edges.get(entry.id) ?? []).map((target) => [target.id, target]));
+      return [anchor, [...targets.values()]
+        .filter((target) => CALLEE_KINDS.has(target.kind) && !target.containerKinds.some((kind) => SIGNATURE_CONTAINER_KINDS.has(kind))
+          && !within(target, declaration))
+        .sort(digestOrder)] as const;
+    }));
 
     const symbolAnchorSet = new Set(symbolAnchors);
     const selected = (anchor: CodeAnchor): boolean => {
@@ -88,7 +99,7 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
       if (!symbolAnchorSet.has(anchor)) return false;
       // Without the index, or with a stale anchor file, the callees are unknown: fail closed.
       if (reader === undefined || outcome.get(anchor)?.reason === "index-stale") return true;
-      return callees.get(anchor)?.some((callee) => scope.paths!.has(callee.path)) ?? false;
+      return indexedCallees.get(anchor)?.some((callee) => scope.paths!.has(callee.path)) ?? false;
     };
 
     return anchors.map((entries) => entries.filter(selected).map((anchor): StateMachineAnchor => {
@@ -104,7 +115,12 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
       if (opened!.availability === "unavailable") return { ...base, status: "unchecked", reason: opened!.reasonCode };
       const settled = outcome.get(anchor);
       if (settled !== undefined) return { ...base, ...settled };
-      const covered = callees.get(anchor)!;
+      const indexedTargets = indexedCallees.get(anchor)!;
+      // A callee whose file is gone is one the index still holds but the worktree no longer has.
+      if (indexedTargets.some((callee) => !scope.files.has(callee.path) && !existsSync(resolve(root, callee.path)))) {
+        return { ...base, status: "unchecked", reason: "index-stale" };
+      }
+      const covered = indexedTargets.filter((callee) => scope.files.has(callee.path));
       if (covered.some((callee) => indexedAt(callee.path) === undefined)) return { ...base, status: "unchecked", reason: "index-stale" };
       const declaration = declarations.get(anchor)!;
       const texts = [declaration, ...covered].map((entry) => fileAt(entry.path).lines.slice(entry.startLine - 1, entry.endLine).join("\n"));

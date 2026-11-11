@@ -255,9 +255,11 @@ someone last confirmed that the machine matches it.
   The declaration is matched the way prose anchors match a symbol, among the declarations that the
   CodeGraph index holds for the file.
 - A callee is a declaration that the index records as the target of a `calls` or `references` edge
-  from the anchored declaration, when the target is a function, method, property, constant or
+  from the anchored declaration or from a declaration nested in it (a local function or a named
+  closure is part of its body), when the target is a function, method, property, constant or
   variable, lies in a Git-visible file and lies outside the anchored declaration. The walk is one
-  hop. Types, interfaces, classes and modules are not callees, and neither is code outside the
+  hop from the body. Types, interfaces, classes and modules are not callees, and neither is a
+  member of a type alias or an interface, which is a signature with no body, nor code outside the
   repository.
 - The digest of a symbol anchor is `sha256:` over the UTF-8 bytes of a JSON array of strings: the
   lines of the anchored declaration, then the lines of each callee, each with CRLF read as LF.
@@ -273,8 +275,8 @@ The declaration and its callees come from the read-only CodeGraph handle that th
 its own process. The check runs no CodeGraph command, copies no snapshot and never syncs the index.
 It uses the index only for a file that the index holds at its current content, by CodeGraph's own
 change test: the SHA-256 of the file's UTF-8 text equals the recorded content hash. When the index
-does not hold the anchor's file or a callee's file at its current content, the anchor is
-`unchecked` with reason `index-stale`. `complete` syncs the index before it reads debt; a
+does not hold the anchor's file or a callee's file at its current content, or a callee's file
+no longer exists, the anchor is `unchecked` with reason `index-stale`. `complete` syncs the index before it reads debt; a
 checkpoint reads the index as it is.
 
 This changes what a checkpoint shows right after an edit. Under 0.13.0 an edited anchored
@@ -324,7 +326,8 @@ In the repository scope the check covers every machine: the rule check and every
 uses that scope, and a changed `.archcontext/` path already widens a checkpoint to it. In a
 changed-paths scope the check evaluates an anchor when its own path changed or when the index
 records a callee of it in a changed path. It finds those anchors by inverting the callee sets of
-all symbol anchors, read in one batch from the same handle. When the callees of a symbol anchor
+all symbol anchors, read in one batch from the same handle before the Git-visible filter, so a
+deleted callee file still selects its anchors. When the callees of a symbol anchor
 cannot be read, because there is no usable index or the index does not hold the anchor's file at
 its current content, the anchor is evaluated as `unchecked`. It runs no rule check there, because
 a rule result depends only on the model. A debt item keeps the anchor's path, so a checkpoint and
