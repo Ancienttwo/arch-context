@@ -256,10 +256,14 @@ async function withIsolationFixture(prefix: string, crlf: boolean, scenario: (fi
   }
 }
 
-/** The renderer's flow loses its call evidence and the catalog's sources move; no model edit. */
+/**
+ * The renderer's flow loses its call evidence and the catalog grows into the next file and line
+ * buckets, which its document prints; no model edit. A source edit that renders no differently
+ * would leave nothing else to write (ADR-0056), and isolation would then block the whole run.
+ */
 function blockRendererAndMoveCatalog(root: string): void {
   write(root, "src/renderer/main.ts", REFERENCE_ONLY);
-  write(root, "src/catalog/list.ts", "export const entries: string[] = [\"first\"];\n");
+  write(root, "src/catalog/more.ts", `${Array.from({ length: 12 }, (_, index) => `export const entry${index} = ${index};`).join("\n")}\n`);
 }
 
 async function isolationScenario(prefix: string, crlf: boolean): Promise<void> {
@@ -283,7 +287,7 @@ async function isolationScenario(prefix: string, crlf: boolean): Promise<void> {
       expect(planned.coverage!.blockedTargets.map((target) => target.targetId)).toEqual([entityTargetId(baseManifest, RENDERER)]);
       expect(planned.coverage!.appliedTargetIds).toContain(entityTargetId(baseManifest, CATALOG));
       expect(planned.coverage!.appliedTargetIds).not.toContain(entityTargetId(baseManifest, RENDERER));
-      expect(planned.files.map((file) => file.path)).toEqual([MANIFEST]);
+      expect(planned.files.map((file) => file.path)).toEqual([MANIFEST, CATALOG_DOC]);
       expect(planned.humanActions).toEqual([]);
       expect(planned.refreshSignals).toEqual([]);
     }
@@ -297,17 +301,17 @@ async function isolationScenario(prefix: string, crlf: boolean): Promise<void> {
     expect(docsSnapshot(root)).toEqual(committed);
     rmSync(join(root, "src/catalog/extra.ts"));
 
-    // The apply writes the catalog's stamp and carries the renderer forward, byte for byte. The
+    // The apply writes the catalog's document and carries the renderer forward, byte for byte. The
     // flag cannot accept an unprovable proof; the run still applies the rest, without a receipt.
     const applied = projectionResult(await run(request("apply", "projection_request.isolation_apply", { acceptObservedMajorChange: true })));
     expect(applied.status).toBe("applied-partial");
     expect(applied.coverage!.blockedTargets.map((target) => target.path)).toEqual([RENDERER_DOC]);
     expect(applied.applyReceipt).toBeUndefined();
     expect(applied.majorChangeAcceptance).toBeUndefined();
-    expect(applied.files.map((file) => file.path)).toEqual([MANIFEST]);
+    expect(applied.files.map((file) => file.path)).toEqual([MANIFEST, CATALOG_DOC]);
     const after = docsSnapshot(root);
     expect(after[RENDERER_DOC]).toBe(committed[RENDERER_DOC]!);
-    expect(after[CATALOG_DOC]).toBe(committed[CATALOG_DOC]!);
+    expect(after[CATALOG_DOC]).not.toBe(committed[CATALOG_DOC]!);
     const manifest = after[MANIFEST]!;
     expect(manifest).not.toBe(baseManifest);
     expect(manifest.includes("\r\n")).toBe(crlf);
@@ -370,7 +374,7 @@ test.each(["edited", "deleted"] as const)("a partial apply refuses a carried-for
     writeFileSync(rendererPath, committed[RENDERER_DOC]!, "utf8");
     const applied = projectionResult(await run(request("apply", `projection_request.isolation_carried_${drift}_restored`)));
     expect(applied.status).toBe("applied-partial");
-    expect(applied.files.map((file) => file.path)).toEqual([MANIFEST]);
+    expect(applied.files.map((file) => file.path)).toEqual([MANIFEST, CATALOG_DOC]);
     expect(docsSnapshot(root)[RENDERER_DOC]).toBe(committed[RENDERER_DOC]!);
   });
 }, TEST_TIMEOUT_MS);
@@ -410,7 +414,8 @@ test("a partial apply deletes an intact whole-file orphan beside the carried-for
     expect(planned.coverage!.blockedTargets.map((target) => target.path)).toEqual([RENDERER_DOC]);
     const expectedFiles = [
       { path: MANIFEST, action: "update" as const },
-      { path: LEGACY_PATH, action: "delete" as const }
+      { path: LEGACY_PATH, action: "delete" as const },
+      { path: CATALOG_DOC, action: "update" as const }
     ];
     expect(planned.files.map(({ path, action }) => ({ path, action }))).toEqual(expectedFiles);
 
