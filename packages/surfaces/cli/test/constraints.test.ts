@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
@@ -28,6 +28,8 @@ function snapshot(): string {
   return JSON.stringify({ head: git("rev-parse", "HEAD"), index: readFileSync(join(root, ".git/index")).toString("hex"), files: files.map(path => [path, readFileSync(join(root, path), "utf8")]), state: readdirSync(state) });
 }
 function run(args = ["check", "--json"]) {
+  // A clean tracked file whose stat no longer matches the index: any git refresh rewrites .git/index.
+  utimesSync(join(root, "src/effects/b.ts"), 1_700_000_000, 1_700_000_000);
   const before = snapshot();
   const result = spawnSync("bun", [cli, "constraints", ...args], { cwd: root, env, encoding: "utf8", timeout: 60_000 });
   expect(result.error).toBeUndefined();

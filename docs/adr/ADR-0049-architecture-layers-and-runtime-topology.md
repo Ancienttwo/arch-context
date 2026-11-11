@@ -121,30 +121,37 @@ every committed output.
 
 The topology summary page covers them.
 
-### 6. Topology freshness comes from the nodes' `source.include` (phase 2)
+### 6. Topology configuration files are listed, not tracked
+
+> Amended by [#549](https://github.com/Ancienttwo/arch-context/issues/549) on 2026-11-12. ADR-0056 §7 removed the topology stamps this section first defined.
 
 The topology is model-authored. An agent reads compose, Kubernetes or other configuration and
 writes the topology into the model through a normal ChangeSet; archctx validates and renders it.
 archctx never parses that configuration and never infers topology from it.
 
-Topology nodes list the configuration files they describe in `source.include` (for example
-`compose.yaml` or `k8s/*.yaml`). Source footprints already cover such files: a footprint selects
-from the Git-visible file list (`git ls-files`), not from what CodeGraph indexes, and digests the
-bytes of every selected file.
+A topology node may list the configuration files it describes in `source.include` (for example
+`compose.yaml` or `k8s/*.yaml`). The list tells a reader which files to read when they check the
+topology.
 
-- A topology node's footprint is stamped on both topology rows (`diagram-runtime-topology` and
-  `runtime-topology-summary`), never on an ancestor's entity-summary row. A namespace's parent
-  chain holds only namespaces and a process may have no documented ancestor, so the ancestor walk
-  could not place these footprints (`projection-footprint-uncovered` in phase 1).
-- The manifest contract allows `sourceStamps` on the topology rows, never `scale`. Both topology
-  rows carry one identical stamp set, and a node is stamped on topology rows or on one
-  entity-summary row, never both.
-- A change to one of those files changes the stamp, so `projection check` classifies both topology
-  targets with `source-stamp-changed`, and `projection freshness` reports the node stale. The
-  rendered bytes do not change; re-projecting re-stamps the rows after the agent has updated the
-  model.
-- The summary page lists every topology node's source anchors. A topology node with no
-  `source.include` is shown as model-authored with no source anchor; nothing is stamped for it.
+- The summary page lists every topology node's `source.include` patterns. A node without them is
+  shown as model-authored with no source anchor.
+- No command reports a change to a listed file. Topology rows carry no stamps (ADR-0056 §7), a
+  topology node has no confirmed digest, and no architecture debt kind covers it. The change that
+  edits a listed file is the one that keeps the topology in step with it.
+
+There is no replacement signal, for three reasons:
+
+- No model that projects a topology lists a configuration file. On 2026-11-12 aimpact-inc/repo-harness
+  had 14 topology nodes, none with `source.include` now or in its history, and this repository had none.
+- The stamp signal never confirmed anything. Re-projecting, including the rolling writer's own
+  publish, re-stamped the rows whether or not anyone had read the change.
+- A confirmed digest (ADR-0054 §7) on a configuration file can only cover the whole file, because no
+  symbol reader parses YAML. Every edit to the file, such as an image tag or an environment value,
+  would become debt, and every debt item blocks `complete` until a ChangeSet writes a new digest.
+
+A later decision may add confirmed-digest anchors for topology nodes once a repository lists
+configuration files and asks for the signal. It would extend ADR-0054 §7 and §8 and would not
+change the projection.
 
 ### 7. Mermaid check tool
 
@@ -179,7 +186,7 @@ mermaid-cli.
 - No explicit layer stack order. Layers sort by name.
 - No live process discovery (`ps`, `/proc`, container runtime APIs).
 - No configuration parser. archctx does not read compose or Kubernetes manifests in any phase. A
-  configuration file is only a source anchor whose bytes are digested.
+  configuration file is only a path that the model lists.
 - No cross-repository landscape views.
 
 ## Consequences
