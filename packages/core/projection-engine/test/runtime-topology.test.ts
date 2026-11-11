@@ -7,7 +7,6 @@ import {
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   architectureDocumentationProjectionProvenance,
   architectureProjectionFootprintOwners,
-  architectureProjectionStampedNodeIds,
   exportDocumentationLikeC4Model,
   exportDocumentationStructurizrWorkspace,
   exportRuntimeTopologyMermaid,
@@ -44,7 +43,6 @@ const render = (model: NativeModel) => renderArchitectureDocumentationProjection
   model,
   provenance,
   sourceDigest,
-  sourceFootprints: [],
   sourceScaleSignals: [],
   importGraphs: [],
   selectorEvidence: []
@@ -183,7 +181,7 @@ describe("runtime topology view (ADR-0049)", () => {
     expect(second.manifest.body).toBe(first.manifest.body);
   });
 
-  test("a topology model without source.include adds both whole-model targets with no source stamps", () => {
+  test("a topology model without source.include adds both whole-model targets", () => {
     const plan = render(topology());
     const diagram = plan.files.find((file) => file.target.type === "diagram-runtime-topology")!;
     const summary = plan.files.find((file) => file.target.type === "runtime-topology-summary")!;
@@ -194,12 +192,6 @@ describe("runtime topology view (ADR-0049)", () => {
     for (const file of [diagram, summary]) {
       expect(file.target.ownership).toBe("generated");
       expect(file.target.scope).toEqual({ kind: "diagram", id: "runtime-topology" });
-      expect(file.sourceStamps).toBeUndefined();
-      // With no source.include the topology is model-authored with no source anchor: the rows carry
-      // no stamp, so freshness never reports these targets as verified by anything.
-      const row = plan.renderedTargets[file.target.targetId]!;
-      expect(row.sourceStamps).toBeUndefined();
-      expect(row.scale).toBeUndefined();
     }
     // Topology nodes get no entity summary; the topology summary covers them.
     const entityIds = plan.targets.filter((target) => target.type === "entity-summary").map((target) => target.scope.id);
@@ -286,7 +278,7 @@ describe("runtime topology view (ADR-0049)", () => {
     expect(exportDocumentationLikeC4Model(withoutTopology).files[0]!.content).toContain("  element external_system\n}");
   });
 
-  test("a topology node's source.include is stamped on both topology rows, never on an ancestor", () => {
+  test("a topology node's source.include is documented by both topology targets, never by an ancestor", () => {
     const model = topology();
     const anchored = (nodes: Record<string, { parent?: string; include: string[] }>): NativeModel => ({
       ...model,
@@ -308,41 +300,18 @@ describe("runtime topology view (ADR-0049)", () => {
       ["process.shop.cron", "runtime-topology"],
       ["process.shop.worker", "runtime-topology"]
     ]);
-    expect(architectureProjectionStampedNodeIds(declared)).toEqual(["namespace.shop.pod", "process.shop.cron", "process.shop.worker"]);
 
-    const footprint = (digit: string) => `sha256:${digit.repeat(64)}`;
-    const renderStamped = (cronDigest: string) => renderArchitectureDocumentationProjection({
+    const plan = renderArchitectureDocumentationProjection({
       model: declared,
       provenance,
       sourceDigest,
-      sourceFootprints: [
-        { nodeId: "namespace.shop.pod", fileCount: 2, digest: footprint("a") },
-        { nodeId: "process.shop.cron", fileCount: 1, digest: cronDigest },
-        { nodeId: "process.shop.worker", fileCount: 1, digest: cronDigest }
-      ],
       sourceScaleSignals: [],
       importGraphs: [],
       selectorEvidence: []
     });
-    const plan = renderStamped(footprint("b"));
-    const stamps = { "namespace.shop.pod": footprint("a"), "process.shop.cron": footprint("b"), "process.shop.worker": footprint("b") };
-    for (const type of ["diagram-runtime-topology", "runtime-topology-summary"]) {
-      const file = plan.files.find((entry) => entry.target.type === type)!;
-      expect(file.sourceStamps).toEqual(stamps);
-      expect(plan.renderedTargets[file.target.targetId]!.sourceStamps).toEqual(stamps);
-      expect(plan.renderedTargets[file.target.targetId]!.scale).toBeUndefined();
-    }
-    for (const target of plan.targets.filter((entry) => entry.type === "entity-summary")) {
-      expect(plan.renderedTargets[target.targetId]!.sourceStamps).toBeUndefined();
-    }
     const summary = plan.files.find((file) => file.target.type === "runtime-topology-summary")!.body;
     expect(summary).toContain("| `namespace.shop.pod` Shop pod | `k8s/*.yaml` |");
     expect(summary).toContain("| `process.shop.cron` Cron | `compose.yaml` |");
     expect(summary).toContain("| `process.shop.api-server` API server | model-authored, no source anchor |");
-
-    // A moved configuration file changes the stamp only: the rendered bytes stay the same.
-    const moved = renderStamped(footprint("c"));
-    expect(moved.files.map(({ path, body }) => ({ path, body }))).toEqual(plan.files.map(({ path, body }) => ({ path, body })));
-    expect(moved.manifest.body).not.toBe(plan.manifest.body);
   });
 });

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "archcontext.projection-result/v2",
+  "schemaVersion": "archcontext.projection-result/v3",
   "requestId": "projection_request.repo_main",
   "status": "applied",
   "inputSnapshot": {
@@ -43,5 +43,5 @@
   ],
   "humanActions": [],
   "refreshSignals": [],
-  "receiptDigest": "sha256:b080eaee9ba5c2d617b00a91e5848162f6c65eb53a367849f390237bac574a3e"
+  "receiptDigest": "sha256:2f8e73315a0ff9c678d496bf78438b47dc5a8a25eb757eda3d15718f58dd2b8c"
 }

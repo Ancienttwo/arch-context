@@ -290,7 +290,6 @@ function signalInput(
 function digestSet(model: string, source: string, proofValue: string, projection: string): ArchitectureDigestSetV2 {
   return {
     modelDigest: digest(model),
-    sourceTreeDigest: digest(source),
     flowProofDigest: digest(proofValue),
     projectionDigest: digest(projection)
   };

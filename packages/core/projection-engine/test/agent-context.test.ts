@@ -154,7 +154,6 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
       model: withLegacyContracts,
       sourceDigest,
       provenance,
-      sourceFootprints: [],
       sourceScaleSignals: [],
       importGraphs: [],
       selectorEvidence: []

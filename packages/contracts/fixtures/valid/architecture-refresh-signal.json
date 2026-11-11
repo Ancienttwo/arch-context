@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "archcontext.architecture-refresh-signal/v1",
+  "schemaVersion": "archcontext.architecture-refresh-signal/v2",
   "signalId": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
   "idempotencyKey": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
   "mode": "refresh-required",
@@ -21,13 +21,11 @@
   "refreshTargets": ["architecture-contract-context", "architecture-readiness", "capability-context", "capability-index"],
   "baseDigests": {
     "modelDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
-    "sourceTreeDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
     "flowProofDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
     "projectionDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
   },
   "resultingDigests": {
     "modelDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
-    "sourceTreeDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
     "flowProofDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "projectionDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   },

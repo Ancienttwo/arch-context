@@ -36,10 +36,10 @@ test("each minimum floor refuses an older engine and malformed version families"
 
 test("future manifests refuse even without floors; old documented rebaseline versions remain distinguishable", () => {
   expect(architectureDocsProjectionCompatibilityIssues({ minimumRendererVersion: "archcontext.docs-renderer/v6" }, engine).length).toBeGreaterThan(0);
-  for (const version of ["archcontext.architecture-docs-projection-manifest/v4", "archcontext.architecture-docs-projection-manifest/v999"]) {
+  for (const version of ["archcontext.architecture-docs-projection-manifest/v5", "archcontext.architecture-docs-projection-manifest/v999"]) {
     expect(architectureDocsProjectionCompatibilityIssues({ ...fixture(), schemaVersion: version }, engine).length).toBeGreaterThan(0);
   }
-  for (const version of ["archcontext.architecture-docs-projection-manifest/v1", "archcontext.architecture-docs-projection-manifest/v2"]) {
+  for (const version of ["archcontext.architecture-docs-projection-manifest/v1", "archcontext.architecture-docs-projection-manifest/v2", "archcontext.architecture-docs-projection-manifest/v3"]) {
     expect(architectureDocsProjectionCompatibilityIssues({ schemaVersion: version }, engine)).toEqual([]);
   }
 });
