@@ -1052,7 +1052,7 @@ export function digestArchitectureDocumentationSourceTree(root: string, model: N
  * depend on the platform that computed them. The latin1 round trip rewrites only `\r\n` pairs and
  * leaves every other byte as is.
  */
-export function sourceFileContentDigest(absolute: string): string {
+function sourceFileContentDigest(absolute: string): string {
   return sourceContentDigest(readFileSync(absolute));
 }
 

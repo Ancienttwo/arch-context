@@ -1672,6 +1672,18 @@ export function openCodeGraphSymbolReader(
 }
 
 /**
+ * `reader.declarationsInSource` over the content that `contents` returns, each path parsed at most
+ * once. `undefined` for a path whose language CodeGraph has no parser for, or that it cannot parse.
+ */
+export function memoizedSourceDeclarations(reader: CodeGraphSymbolReader, contents: (path: string) => string): (path: string) => CodeGraphSymbolDeclaration[] | undefined {
+  const parsed = new Map<string, CodeGraphSymbolDeclaration[] | undefined>();
+  return (path) => {
+    if (!parsed.has(path)) parsed.set(path, reader.supportsPath(path) ? reader.declarationsInSource(path, contents(path)) : undefined);
+    return parsed.get(path);
+  };
+}
+
+/**
  * Measures import facts and exact node-v2 entrypoint→sink selectors. CodeGraph proves only the
  * declared binding: it never chooses seed symbols, labels, order, branches or outcomes.
  *

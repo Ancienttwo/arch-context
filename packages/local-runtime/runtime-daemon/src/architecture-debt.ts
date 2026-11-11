@@ -110,11 +110,10 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
  * changed model file already widens the read to the repository.
  */
 function stateMachineEvidence(root: string, model: NativeModel, files: ReadonlySet<string>, changedPaths: string[] | undefined): NonNullable<ArchitectureDebtEvidence["stateMachines"]> {
-  const machines = loadStateMachinesFromArchContext(root, model.nodes as unknown as Array<Record<string, Json>>);
+  const machines = loadStateMachinesFromArchContext(root, model.nodes);
   const anchors = stateMachineAnchors(root, machines, { files, ...(changedPaths === undefined ? {} : { paths: new Set(changedPaths) }) });
   if (changedPaths === undefined) {
-    const rules = new Map(checkStateMachines(machines, { protection: false }).machines.map(machine => [machine.id, machine]));
-    return { machines: machines.map((machine, index) => ({ ...rules.get(machine.id)!, anchors: anchors[index]! })) };
+    return { machines: checkStateMachines(machines, { protection: false }).map((machine, index) => ({ ...machine, anchors: anchors[index]! })) };
   }
   return { machines: machines.flatMap((machine, index) => anchors[index]!.length === 0 ? []
     : [{ id: machine.id, capabilityId: machine.capabilityId, rules: [], breaks: [], anchors: anchors[index]! }]) };

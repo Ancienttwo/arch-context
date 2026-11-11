@@ -1,11 +1,11 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { REVIEW_FAIL_ON_CATEGORIES, digestJson, runtimeTopologyModelIssues, stableYaml, stateMachineModelIssuesByMachine, validateJsonSchema, type Json, type ModelStorePort, type ModelValidationResult, type StateMachineV1, type WorkspaceRef } from "@archcontext/contracts";
+import { REVIEW_FAIL_ON_CATEGORIES, digestJson, runtimeTopologyModelIssues, stableYaml, validateJsonSchema, type Json, type ModelStorePort, type ModelValidationResult, type WorkspaceRef } from "@archcontext/contracts";
 import { manifestDecisionDiagnostics, parseJsonOrStableYaml, readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 export * from "./architecture-history";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
+import { isStateMachineModelPath, stateMachinesFromModelFiles } from "@archcontext/core/state-machine-engine";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
-import stateMachineSchema from "../../../../schemas/repo/architecture-state-machine.schema.json";
 export * from "./native-context";
 export { IMPACT_LIMITS, readRefImpact, type RefImpactOptions } from "./ref-impact";
 
@@ -313,8 +313,7 @@ export class YamlModelStore implements ModelStorePort {
     // Parsed node and relation records with their paths, for the cross-entity topology rules.
     const topologyRecords: { nodes: Record<string, Json>[]; relations: Record<string, Json>[] } = { nodes: [], relations: [] };
     const topologyRecordPaths = new Map<string, string>();
-    const stateMachines: StateMachineV1[] = [];
-    const stateMachinePaths: string[] = [];
+    const stateMachineFiles: { path: string; value: Json }[] = [];
     for (const file of files) {
       if (file.path.startsWith(".archcontext/model/") && /\.ya?ml$/.test(file.path)) {
         try {
@@ -333,13 +332,8 @@ export class YamlModelStore implements ModelStorePort {
             }
             continue;
           }
-          if (file.path.startsWith(".archcontext/model/state-machines/")) {
-            const { issues } = validateJsonSchema(stateMachineSchema as Parameters<typeof validateJsonSchema>[0], value);
-            for (const issue of issues) errors.push(`${file.path}: ${issue.path}: ${issue.message}`);
-            if (issues.length === 0) {
-              stateMachines.push(value as unknown as StateMachineV1);
-              stateMachinePaths.push(file.path);
-            }
+          if (isStateMachineModelPath(file.path)) {
+            stateMachineFiles.push({ path: file.path, value });
             continue;
           }
         } catch (error) {
@@ -359,9 +353,7 @@ export class YamlModelStore implements ModelStorePort {
     for (const issue of runtimeTopologyModelIssues(topologyRecords)) {
       errors.push(`${topologyRecordPaths.get(issue.entityId) ?? issue.entityId}: ${issue.field}: ${issue.invariant}`);
     }
-    stateMachineModelIssuesByMachine({ nodes: topologyRecords.nodes, stateMachines }).forEach((machineIssues, index) => {
-      for (const issue of machineIssues) errors.push(`${stateMachinePaths[index]}: ${issue.field}: ${issue.invariant}`);
-    });
+    errors.push(...stateMachinesFromModelFiles(stateMachineFiles, topologyRecords.nodes).issues);
     const adr = validateAdrAppliesTo(files);
     const constraints = readDependencyConstraints(files);
     const reviewPolicy = readReviewPolicy(files);

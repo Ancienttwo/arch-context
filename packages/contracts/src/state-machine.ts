@@ -134,6 +134,7 @@ export type StateMachineBreak =
   | { kind: "dead-step"; event: string; step: number }
   | { kind: "deadlock"; state: StateMachineGlobalState; path: StateMachinePathStep[]; count: number };
 
+/** The built-in check of one machine by the model alone: rules and breaks, no code read. */
 export interface StateMachineMachineReport {
   id: string;
   capabilityId: string;
@@ -141,13 +142,6 @@ export interface StateMachineMachineReport {
   transitions: number;
   rules: StateMachineRuleResult[];
   breaks: StateMachineBreak[];
-}
-
-/** The model-only result of `checkStateMachines`: rules and breaks, no code read. */
-export interface StateMachineRuleCheckV1 {
-  schemaVersion: typeof STATE_MACHINE_CHECK_SCHEMA_VERSION;
-  /** Sorted by machine id. */
-  machines: StateMachineMachineReport[];
 }
 
 export type StateMachineAnchorStatus =
@@ -189,8 +183,9 @@ type NodeRecord = Readonly<Record<string, Json | undefined>>;
 
 /**
  * Cross-entity rules of the state machine model that the per-file schema cannot state. The
- * loader and the YAML model store both call this one function on schema-valid machines, so
- * `archctx validate` and `archctx state-machines check` cannot disagree.
+ * loader and the YAML model store both run it on schema-valid machines through
+ * `stateMachinesFromModelFiles`, so `archctx validate` and `archctx state-machines check` cannot
+ * disagree.
  *
  * The result is aligned with `stateMachines`: entry `i` holds the issues of machine `i`, so a
  * caller can name the file of each issue even when two machines share an id. A repeated machine

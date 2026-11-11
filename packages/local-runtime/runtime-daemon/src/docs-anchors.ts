@@ -15,7 +15,7 @@ import {
   type ProseAnchorSymbols,
   type ProseAnchorTree
 } from "@archcontext/core/projection-engine";
-import { openCodeGraphSymbolReader, type CodeGraphSymbolDeclaration, type CodeGraphSymbolReader } from "@archcontext/local-runtime/codegraph-adapter";
+import { memoizedSourceDeclarations, openCodeGraphSymbolReader, type CodeGraphSymbolReader } from "@archcontext/local-runtime/codegraph-adapter";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { committedArchitectureDocsProfile } from "./projection-service";
 import { selectedProducerFailureEnvelope } from "./producer-failure";
@@ -139,11 +139,7 @@ const SOURCE_SEARCH_EXCLUDED_PREFIXES = [".archcontext/"];
 function proseAnchorSymbols(reader: CodeGraphSymbolReader, files: readonly string[], contents: (path: string) => string): ProseAnchorSymbols {
   const sourceFiles = files.filter((file) => !SOURCE_SEARCH_EXCLUDED_PREFIXES.some((prefix) => file.startsWith(prefix)) && reader.supportsPath(file));
   const appears = new Map<string, boolean>();
-  const parsed = new Map<string, CodeGraphSymbolDeclaration[] | undefined>();
-  const declarationsIn = (path: string) => {
-    if (!parsed.has(path)) parsed.set(path, reader.supportsPath(path) ? reader.declarationsInSource(path, contents(path)) : undefined);
-    return parsed.get(path);
-  };
+  const declarationsIn = memoizedSourceDeclarations(reader, contents);
   return {
     // A file CodeGraph cannot parse is unsupported, so its symbol checks are unchecked, not missing.
     supportsPath: (path) => declarationsIn(path) !== undefined,
