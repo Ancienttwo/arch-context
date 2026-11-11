@@ -10,6 +10,15 @@ export function indexCodeGraphFixture(root: string): void {
   });
 }
 
+/** Brings an indexed fixture up to its current files, as `complete` does before it reads debt. */
+export function syncCodeGraphFixture(root: string): void {
+  const invocation = packagedCodeGraphCliInvocation();
+  execFileSync(invocation.command, [...invocation.argsPrefix, "sync", root], {
+    cwd: root, stdio: "pipe", timeout: 60_000,
+    env: { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" }
+  });
+}
+
 export function incompleteCodeGraphFixture(root: string): void {
   const runtime = codeGraphSnapshotRuntime();
   execFileSync(runtime.node, ["-e", 'const {CodeGraph}=require(process.argv[1]); const graph=CodeGraph.initSync(process.argv[2]); graph.close();', runtime.sdk, root], {

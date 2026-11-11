@@ -106,8 +106,9 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
 
 /**
  * The repository read checks every rule and anchor without the protection run. A changed-paths
- * read checks only the anchors on changed paths: a rule result depends only on the model, and a
- * changed model file already widens the read to the repository.
+ * read checks no rule and only the anchors on changed paths or with a callee on them: a rule
+ * result depends only on the model, and a changed model file already widens the read to the
+ * repository.
  */
 function stateMachineEvidence(root: string, model: NativeModel, files: ReadonlySet<string>, changedPaths: string[] | undefined): NonNullable<ArchitectureDebtEvidence["stateMachines"]> {
   const machines = loadStateMachinesFromArchContext(root, model.nodes);

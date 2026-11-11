@@ -3,7 +3,7 @@ events:
   - id: "enqueue"
     label: "Enqueue evicts or supersedes queued jobs"
     source:
-      confirmedDigest: "sha256:51eba8ae544823a3590c45ad4ba860e3dc0fb170dc54675a95cb1acdcc07a853"
+      confirmedDigest: "sha256:231542088cac40cbec0977bc28bc5f7c22922fa91c4b66cf94d51b5c9298a701"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.enqueueRuntimeAgentJob"
@@ -21,7 +21,7 @@ events:
   - id: "claim"
     label: "Claim a queued job or an expired lease"
     source:
-      confirmedDigest: "sha256:758170a1cc5c91f54c28102919fc447c1e62f8de461e50b90f0059f67618c49b"
+      confirmedDigest: "sha256:d0cedeb8f2e5d3543b0f610e0abc34980e9be38d28feecfdae7a87ecdfb319a7"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.claimRuntimeAgentJob"
@@ -41,7 +41,7 @@ events:
   - id: "complete"
     label: "Complete a running job"
     source:
-      confirmedDigest: "sha256:16a6240d52b047c50e3539b4774008661e36ae6b961fc5beb4063e8f7c5f9d9e"
+      confirmedDigest: "sha256:78b24a2bd65de66dd0a3ace3d180ca25c555a0779d912ab6abd99c763a2bbe11"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.completeRuntimeAgentJob"
@@ -59,7 +59,7 @@ events:
   - id: "retry"
     label: "Retry a job"
     source:
-      confirmedDigest: "sha256:501311343bc1ca148678b557ba5ab27e347172117353d3db1647f04f42959085"
+      confirmedDigest: "sha256:bcce99966cfe4f8f648610d9689297dbbcd3698d70d7173030d9be2fe4cb8afb"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.retryRuntimeAgentJob"
@@ -77,7 +77,7 @@ events:
   - id: "cancel"
     label: "Cancel, supersede or expire a job"
     source:
-      confirmedDigest: "sha256:387cdd31c6ba10716866d1f35b3873c98475b835259cf0699dd5dbc974e20de6"
+      confirmedDigest: "sha256:24d4c1cc56e0f93f869254a7eeb9e1c6d8bf1282586a5432b6206c9dd8a2d62b"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.cancelRuntimeAgentJob"
@@ -102,7 +102,7 @@ events:
   - id: "cancel-stale"
     label: "Expire queued or running jobs of a stale head"
     source:
-      confirmedDigest: "sha256:a379a6c7b82257ff8fdd0e7fe033dc868ada3124aeaa93bc8c001b882f746c49"
+      confirmedDigest: "sha256:c7ff440ac3a21e6de7b1eb2fe5399e550c2adba610b052f6c5b904c716105de8"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.cancelStaleRuntimeAgentJobs"
