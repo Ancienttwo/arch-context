@@ -2,7 +2,7 @@
 schemaVersion: archcontext.adr/v1
 id: adr.0056.render-equivalent-freshness-history-target
 title: Render-Equivalent Projection Freshness and the Complete Projection Manifest
-status: proposed
+status: accepted
 decidedAt: 2026-11-11
 appliesTo:
   - module.architecture-context.contracts
@@ -17,7 +17,7 @@ supersedes: []
 
 # ADR-0056: Render-Equivalent Projection Freshness and the Complete Projection Manifest
 
-> **Status**: Proposed. The owner set the direction on 2026-11-11: projection freshness means "the committed documents would render differently" ([#535](https://github.com/Ancienttwo/arch-context/issues/535)), and `docs/architecture/history.md` becomes an engine-owned manifest target ([#536](https://github.com/Ancienttwo/arch-context/issues/536)). On the same day the owner decided that the model-designated agent-context contract files also become manifest rows, so the manifest lists every projection output.
+> **Status**: Accepted by the owner on [#541](https://github.com/Ancienttwo/arch-context/issues/541) on 2026-11-11 (decision https://github.com/Ancienttwo/arch-context/issues/541#issuecomment-6799854742). The owner set the direction on 2026-11-11: projection freshness means "the committed documents would render differently" ([#535](https://github.com/Ancienttwo/arch-context/issues/535)), and `docs/architecture/history.md` becomes an engine-owned manifest target ([#536](https://github.com/Ancienttwo/arch-context/issues/536)). On the same day the owner decided that the model-designated agent-context contract files also become manifest rows, so the manifest lists every projection output.
 > **Amends**: [ADR-0043](ADR-0043-agent-context-provider.md) Consequences (agent-context stays outside the docs drift pipeline only for the `default` profile); [ADR-0047](ADR-0047-projection-manifest-v3.md) §2, §3 and §7, and its consequence about agent-context markers; [ADR-0048](ADR-0048-projection-writer-rolling-pr.md) §5; [ADR-0049](ADR-0049-architecture-layers-and-runtime-topology.md) §6; the Projected row of [ADR-0050](ADR-0050-architecture-ledger-authority-matrix.md).
 > **Freshness contract history**: [#259](https://github.com/Ancienttwo/arch-context/issues/259), [#327](https://github.com/Ancienttwo/arch-context/issues/327).
 
