@@ -276,8 +276,8 @@ its own process. The check runs no CodeGraph command, copies no snapshot and nev
 It uses the index only for a file that the index holds at its current content, by CodeGraph's own
 change test: the SHA-256 of the file's UTF-8 text equals the recorded content hash. When the index
 does not hold the anchor's file or a callee's file at its current content, or a callee's file
-no longer exists, the anchor is `unchecked` with reason `index-stale`. `complete` syncs the index before it reads debt; a
-checkpoint reads the index as it is.
+no longer exists, the anchor is `unchecked` with reason `index-stale`. `complete` syncs the index
+before it reads debt; a checkpoint reads the index as it is.
 
 This changes what a checkpoint shows right after an edit. Under 0.13.0 an edited anchored
 function showed `anchor-changed` at a checkpoint even when the index was behind, because the check
