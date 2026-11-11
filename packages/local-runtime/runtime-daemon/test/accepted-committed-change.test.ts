@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, serializeArchitectureDocsProjectionManifest, stableYaml, validateJsonSchema, type Json } from "@archcontext/contracts";
-import type { ArchitectureFlowV1, ArchitectureSemanticStateV1 } from "@archcontext/contracts";
+import type { ArchitectureFlowV1, ArchitectureProjectionProofEvidenceV2, ArchitectureSemanticStateV1 } from "@archcontext/contracts";
 import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type ArchitectureSelectorEvidenceV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
 import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
@@ -138,7 +138,7 @@ describe("committed change acceptance helpers", () => {
     expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence: structuredClone(evidence) })).not.toThrow();
     // A selector evidence change or a compiler (renderer) change between baseline and acceptance is
     // not credited to the journals.
-    for (const currentEvidence of [
+    for (const currentEvidence of <ArchitectureProjectionProofEvidenceV2[]>[
       { ...evidence, selectorEvidenceDigests: { "capability.a": digest("c") } },
       { ...evidence, selectorEvidenceDigests: {} },
       { ...evidence, rendererVersion: "renderer-v2" }

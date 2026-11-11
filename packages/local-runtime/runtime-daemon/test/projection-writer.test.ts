@@ -154,7 +154,7 @@ function fakeApply(write: (worktree: string, request: ProjectionRequestV1, call:
     }
     const reported = plan.reported ?? Object.keys(plan.files ?? {});
     return okEnvelope("projection.run", {
-      schemaVersion: "archcontext.projection-result/v2",
+      schemaVersion: "archcontext.projection-result/v3",
       requestId: request.requestId,
       status: plan.status ?? (reported.length > 0 ? "applied" : "noop"),
       files: reported.map((path) => ({ path, action: "update" })),

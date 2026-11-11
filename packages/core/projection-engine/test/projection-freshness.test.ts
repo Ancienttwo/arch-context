@@ -230,7 +230,7 @@ describe("render-equivalent projection freshness (ADR-0056 §1)", () => {
       const next = render(root, { existingFiles: committed(applied) });
       const targetId = "projection_target.entity.capability-app-core";
       expect(next.freshness.reasonCodes).toEqual(["projection-output-changed"]);
-      expect(next.freshness.staleTargets).toEqual([{
+      expect<unknown>(next.freshness.staleTargets).toEqual([{
         targetId,
         path: applied.renderedTargets[targetId]!.path,
         committedOutputDigest: applied.renderedTargets[targetId]!.outputDigest,
@@ -247,7 +247,7 @@ describe("render-equivalent projection freshness (ADR-0056 §1)", () => {
       const withoutTooling: NativeModel = { ...memberModel, nodes: memberModel.nodes.filter((node) => node.id !== toolingId) };
       const next = render(root, { profile: "default", model: withoutTooling, existingFiles: committed(applied) });
       const removed = next.freshness.staleTargets.find((target) => target.targetId === "projection_target.entity.module-app-tooling");
-      expect(removed).toEqual({
+      expect<unknown>(removed).toEqual({
         targetId: "projection_target.entity.module-app-tooling",
         path: applied.renderedTargets["projection_target.entity.module-app-tooling"]!.path,
         committedOutputDigest: applied.renderedTargets["projection_target.entity.module-app-tooling"]!.outputDigest,
