@@ -1614,6 +1614,36 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
+  test("runtime job queue stats count a succeeded job as terminal depth and a retryable failed job as not", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-terminal-depth-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const failedJob = runtimeAgentJob("terminal-failed", { queuedAt: "2026-06-25T01:52:00.000Z" });
+      const succeededJob = runtimeAgentJob("terminal-succeeded", { queuedAt: "2026-06-25T01:52:01.000Z" });
+      await store.enqueueRuntimeAgentJob({ job: failedJob, analysisKind: "architecture-delta", coalesceKey: "terminal-failed" });
+      await store.enqueueRuntimeAgentJob({ job: succeededJob, analysisKind: "architecture-delta", coalesceKey: "terminal-succeeded" });
+      const statsAt = async (now: string) => store.queueStatsRuntimeAgentJobs({ ...ARCHITECTURE_LEDGER_SCOPE, now });
+
+      await store.claimRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, jobId: failedJob.jobId, workerId: "worker.terminal", leaseMs: 30_000, now: "2026-06-25T01:52:02.000Z" });
+      await store.completeRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, jobId: failedJob.jobId, workerId: "worker.terminal", status: "failed", now: "2026-06-25T01:52:03.000Z", error: "fixture-failure" });
+      const afterFailure = await statsAt("2026-06-25T01:52:04.000Z");
+      expect(afterFailure.countsByStatus.failed).toBe(1);
+      expect(afterFailure.totalJobCount).toBe(2);
+      expect(afterFailure.terminalDepth).toBe(0);
+
+      await store.claimRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, jobId: succeededJob.jobId, workerId: "worker.terminal", leaseMs: 30_000, now: "2026-06-25T01:52:05.000Z" });
+      await store.completeRuntimeAgentJob({ ...ARCHITECTURE_LEDGER_SCOPE, jobId: succeededJob.jobId, workerId: "worker.terminal", status: "succeeded", now: "2026-06-25T01:52:06.000Z" });
+      const afterSuccess = await statsAt("2026-06-25T01:52:07.000Z");
+      expect(afterSuccess.countsByStatus.failed).toBe(1);
+      expect(afterSuccess.countsByStatus.succeeded).toBe(1);
+      expect(afterSuccess.terminalDepth).toBe(1);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
   test("runtime job queue rejects duplicate completion of terminal jobs", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-duplicate-complete-"));
     const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
