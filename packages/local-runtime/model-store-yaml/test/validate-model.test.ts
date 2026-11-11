@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { REVIEW_FAIL_ON_CATEGORIES, digestJson, stableYaml, type Json } from "@archcontext/contracts";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { CONSTRAINT_RULE_TYPES, readDependencyConstraints, readReviewPolicy } from "@archcontext/core/architecture-domain";
+import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "../src/index";
 
 const NODE_PATH = ".archcontext/model/nodes/module.api.yaml";
@@ -169,6 +170,18 @@ describe("YamlModelStore state machines (#510)", () => {
   test("a schema violation names the file and the field", async () => {
     expect((await validateMachine({ ...machine(), rules: [{ id: "one", label: "One", final: { order: ["shipped"], payment: ["unpaid"] } }] })).errors)
       .toEqual([`${path}: $.rules[0].final: expected at most 1 properties`]);
+  });
+
+  test("a YAML file in a subdirectory is not a state machine, as for the loader", async () => {
+    const root = modelRoot();
+    try {
+      mkdirSync(join(root, ".archcontext/model/state-machines/sub"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/model/state-machines/sub/nested.yaml"), "schemaVersion: archcontext.state-machine/v1\n", "utf8");
+      expect(await validate(root)).toMatchObject({ valid: true, errors: [] });
+      expect(loadStateMachinesFromArchContext(root, [])).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("each issue names its own file when two machines share an id", async () => {

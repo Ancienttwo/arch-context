@@ -10,6 +10,9 @@ import { ERROR_CATALOG, canonicalize, isRepoRelativePosixPath, type ArchContextE
 export type FailureCode = ArchContextErrorCode | "RPC_TIMEOUT" | "RPC_ABORTED";
 export const FAILURE_STAGES = Object.freeze(["debt", "complete", "practice-checkpoint", "cli", "mcp", "hook-checkpoint", "failure-metadata", "public-operation", "native-export", "docs-anchors", "flows-check", "state-machines-check"] as const);
 export type FailureStage = typeof FAILURE_STAGES[number];
+/** The `issues` fact of `state-machine-model-invalid` holds at most this many issues, each of at most this many UTF-8 bytes. */
+export const STATE_MACHINE_FAILURE_ISSUE_LIMIT = 16;
+export const STATE_MACHINE_FAILURE_ISSUE_MAX_BYTES = 256;
 const ERROR_CLASSES = Object.freeze(["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "URIError", "EvalError", "AggregateError", "NonError"]);
 export interface StrictFailure<C extends FailureCode = FailureCode> {
   code: C;
@@ -465,10 +468,10 @@ function localFactValue(rule: string, value: unknown): Json {
     // `<path>: <field>: <invariant or schema message>`; issueCount and omittedCount count what does not fit.
     if (!Array.isArray(value)) throw new Error("State machine issues must be an own list");
     const length = Object.getOwnPropertyDescriptor(value, "length")?.value;
-    if (!Number.isSafeInteger(length) || length > 16 || Reflect.ownKeys(value).length !== length + 1) throw new Error("State machine issues exceed their closed budget");
+    if (!Number.isSafeInteger(length) || length > STATE_MACHINE_FAILURE_ISSUE_LIMIT || Reflect.ownKeys(value).length !== length + 1) throw new Error("State machine issues exceed their closed budget");
     return Array.from({ length }, (_, index) => {
       const field = Object.getOwnPropertyDescriptor(value, String(index));
-      if (!field || !("value" in field) || typeof field.value !== "string" || bytes(field.value) > 256) throw new Error("Invalid state machine issue");
+      if (!field || !("value" in field) || typeof field.value !== "string" || bytes(field.value) > STATE_MACHINE_FAILURE_ISSUE_MAX_BYTES) throw new Error("Invalid state machine issue");
       return field.value;
     });
   }
@@ -729,6 +732,11 @@ function budgetIssues(value: unknown, depth = 0, maxStringBytes = 256): string[]
   return value === null || typeof value === "boolean" ? [] : ["detail value is not JSON"];
 }
 type Attributes = Partial<Pick<StrictFailure, "action" | "severity" | "retryable">>;
+/** A policy with one of these facts, optional or not, allows 1024 bytes for each detail string; any other policy allows 256. */
+function hasExtendedFacts(policy: Policy): boolean {
+  return Object.values(policy.facts ?? {}).some(rule => ["publicConfirmationToken", "commandSuggestion", "diagnosticCommands"].includes(rule.replace(/^optional:/, "")));
+}
+
 export function knownFailure<C extends FailureCode>(code: C, reasonCode: string, details: unknown = {}, attributes: Attributes = {}): StrictFailure<C> {
   // TypeScript types do not protect this runtime boundary. Do not coerce policy keys.
   if (typeof code !== "string" || typeof reasonCode !== "string") throw new Error("Failure code/reason must be primitive strings");
@@ -758,7 +766,7 @@ export function knownFailure<C extends FailureCode>(code: C, reasonCode: string,
     return { code, message: policy.message, severity, retryable, action, reasonCode, details: projectionRecoveryDetailsSnapshot(reasonCode, details) };
   }
   const safeDetails = detailsFor(policy, details);
-  const extendedFacts = Object.values(policy.facts ?? {}).some(rule => ["publicConfirmationToken", "commandSuggestion", "diagnosticCommands"].includes(rule.replace(/^optional:/, "")));
+  const extendedFacts = hasExtendedFacts(policy);
   if (budgetIssues(safeDetails, 0, extendedFacts ? 1024 : 256).length || bytes(JSON.stringify(safeDetails)) > 8192 || bytes(policy.message) > 1024) throw new Error("Failure metadata exceeds its UTF-8 budget");
   return { code, message: policy.message, severity, retryable, action, reasonCode, details: safeDetails };
 }
@@ -859,7 +867,7 @@ export function failureIssues(value: unknown): string[] {
     if ((prototype !== Object.prototype && prototype !== null) || keys.length !== fields.length || Object.keys(value).length !== fields.length || keys.some(key => typeof key !== "string" || !fields.includes(key))) return ["failure must match its closed registered contract"];
     const data = Object.fromEntries(fields.map(key => [key, ownData(value, key)]));
     const policy = typeof data.reasonCode === "string" ? policies[data.reasonCode] : undefined;
-    const extendedFacts = policy !== undefined && policy.code === data.code && Object.values(policy.facts ?? {}).some(rule => ["publicConfirmationToken", "commandSuggestion", "diagnosticCommands"].includes(rule.replace(/^optional:/, "")));
+    const extendedFacts = policy !== undefined && policy.code === data.code && hasExtendedFacts(policy);
     data.details = policy?.journalRecovery && policy.code === data.code ? changeSetRecoveryDetailsSnapshot(data.details) : policy?.recovery && policy.code === data.code ? projectionRecoveryDetailsSnapshot(data.reasonCode as string, data.details) : jsonDataSnapshot(data.details, 0, extendedFacts ? 1024 : 256);
     if (typeof data.message !== "string" || bytes(data.message) > 1024 || bytes(JSON.stringify(data.details)) > (policy?.recovery || policy?.journalRecovery ? PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES : 8192)) return ["failure exceeds byte/shape budget"];
     const expected = failureFromData(data);
