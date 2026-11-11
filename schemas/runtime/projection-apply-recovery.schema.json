@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion"],
   "properties": {
-    "schemaVersion": { "enum": ["archcontext.projection-apply-recovery-intent/v1", "archcontext.projection-apply-recovery-proof/v1", "archcontext.projection-apply-recovery-result/v1"] },
+    "schemaVersion": { "enum": ["archcontext.projection-apply-recovery-intent/v1", "archcontext.projection-apply-recovery-proof/v2", "archcontext.projection-apply-recovery-result/v2"] },
     "requestId": {},
     "profile": {},
     "acceptedChange": {},
@@ -25,11 +25,11 @@
       "then": { "$ref": "#/$defs/intent" }
     },
     {
-      "if": { "properties": { "schemaVersion": { "const": "archcontext.projection-apply-recovery-proof/v1" } }, "required": ["schemaVersion"] },
+      "if": { "properties": { "schemaVersion": { "const": "archcontext.projection-apply-recovery-proof/v2" } }, "required": ["schemaVersion"] },
       "then": { "$ref": "#/$defs/proof" }
     },
     {
-      "if": { "properties": { "schemaVersion": { "const": "archcontext.projection-apply-recovery-result/v1" } }, "required": ["schemaVersion"] },
+      "if": { "properties": { "schemaVersion": { "const": "archcontext.projection-apply-recovery-result/v2" } }, "required": ["schemaVersion"] },
       "then": { "$ref": "#/$defs/result" }
     }
   ],
@@ -54,10 +54,9 @@
     "digestSet": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["modelDigest", "sourceTreeDigest", "flowProofDigest", "projectionDigest"],
+      "required": ["modelDigest", "flowProofDigest", "projectionDigest"],
       "properties": {
         "modelDigest": { "$ref": "#/$defs/digest" },
-        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
         "flowProofDigest": { "$ref": "#/$defs/digest" },
         "projectionDigest": { "$ref": "#/$defs/digest" }
       }
@@ -152,7 +151,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "requestId", "requestDigest", "proofDigest", "deliveryStatus", "receipt", "acceptedChange", "expectedResultingDigests", "current"],
       "properties": {
-        "schemaVersion": { "const": "archcontext.projection-apply-recovery-proof/v1" },
+        "schemaVersion": { "const": "archcontext.projection-apply-recovery-proof/v2" },
         "requestId": { "type": "string", "pattern": "^[a-zA-Z0-9_.:-]+$", "minLength": 1 },
         "requestDigest": { "$ref": "#/$defs/digest" },
         "proofDigest": { "$ref": "#/$defs/digest" },
@@ -178,7 +177,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "signalId", "idempotencyKey", "mode", "repository", "worktree", "cause", "reasonCodes", "affectedNodeIds", "refreshTargets", "baseDigests", "resultingDigests", "projectionReceiptDigest"],
       "properties": {
-        "schemaVersion": { "const": "archcontext.architecture-refresh-signal/v1" },
+        "schemaVersion": { "const": "archcontext.architecture-refresh-signal/v2" },
         "signalId": { "$ref": "#/$defs/digest" },
         "idempotencyKey": { "$ref": "#/$defs/digest" },
         "mode": { "enum": ["human-action-required", "refresh-required"] },
@@ -200,7 +199,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "proof", "refreshSignals"],
       "properties": {
-        "schemaVersion": { "const": "archcontext.projection-apply-recovery-result/v1" },
+        "schemaVersion": { "const": "archcontext.projection-apply-recovery-result/v2" },
         "proof": { "$ref": "#/$defs/proof" },
         "refreshSignals": { "type": "array", "items": { "$ref": "#/$defs/refreshSignal" } }
       }

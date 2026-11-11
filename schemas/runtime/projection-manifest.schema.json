@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/projection-manifest.schema.json",
-  "title": "ArchitectureDocsProjectionManifestV3",
-  "description": "The committed docs/architecture/.projection-manifest.json the architecture documentation projection writes (#264, #327). Version v3 records no global digest of all owned sources: header lines change only on a protocol upgrade, semanticBaseline.modelDigest is the one Git-visible anchor, and every other value belongs to one capability or one target row, so changes to different capabilities rewrite disjoint lines. A v1 or v2 manifest is not valid against this schema and is refused with projection-manifest-upgrade-required. Sorted/unique orders, one stamp per node, scale/sourceStamps pairing, the 1-2-5 bucket ladder and the byte layout are enforced by architectureDocsProjectionManifestIssues and serializeArchitectureDocsProjectionManifest.",
+  "title": "ArchitectureDocsProjectionManifestV4",
+  "description": "The committed docs/architecture/.projection-manifest.json the architecture documentation projection writes (#264, #327, ADR-0056). Version v4 records no digest of raw source: a target row holds only what the render produced, and its outputDigest is the target's freshness identity, so a source edit that changes no output, no proof evidence and no header line leaves the file byte-identical. Header lines change only on a protocol upgrade, semanticBaseline.modelDigest is the one Git-visible anchor, and every other value belongs to one capability or one target row, so changes to different capabilities rewrite disjoint lines. A v1, v2 or v3 manifest is not valid against this schema and is refused with projection-manifest-upgrade-required. Sorted/unique orders and the byte layout are enforced by architectureDocsProjectionManifestIssues and serializeArchitectureDocsProjectionManifest.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": "archcontext.architecture-docs-projection-manifest/v3"
+      "const": "archcontext.architecture-docs-projection-manifest/v4"
     },
     "rendererVersion": {
       "type": "string",
@@ -208,41 +208,6 @@
         }
       }
     },
-    "scaleBucket": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "lower",
-        "upper"
-      ],
-      "description": "The half-open 1-2-5 magnitude range [lower, upper) that contains a measured count; {lower: 0, upper: 1} holds only zero.",
-      "properties": {
-        "lower": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "upper": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "scale": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "fileCountBucket",
-        "lineCountBucket"
-      ],
-      "properties": {
-        "fileCountBucket": {
-          "$ref": "#/$defs/scaleBucket"
-        },
-        "lineCountBucket": {
-          "$ref": "#/$defs/scaleBucket"
-        }
-      }
-    },
     "target": {
       "type": "object",
       "additionalProperties": false,
@@ -329,73 +294,8 @@
         },
         "outputDigest": {
           "$ref": "#/$defs/digest"
-        },
-        "sourceStamps": {
-          "type": "object",
-          "description": "entity-summary and runtime topology targets only: the content digest of every declared source footprint this target documents, by node id. A footprint belongs to its node's nearest ancestor-or-self with an entity-summary target, so it is stamped on exactly one entity-summary row; a runtime topology node's footprint is stamped on every runtime topology row instead, and those rows carry identical stamps (ADR-0049).",
-          "additionalProperties": {
-            "$ref": "#/$defs/digest"
-          }
-        },
-        "scale": {
-          "$ref": "#/$defs/scale",
-          "description": "Present exactly when sourceStamps stamps the target's own node."
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "required": [
-              "scale"
-            ]
-          },
-          "then": {
-            "required": [
-              "sourceStamps"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "not": {
-                  "enum": [
-                    "entity-summary",
-                    "diagram-runtime-topology",
-                    "runtime-topology-summary"
-                  ]
-                }
-              }
-            }
-          },
-          "then": {
-            "not": {
-              "required": [
-                "sourceStamps"
-              ]
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "not": {
-                  "const": "entity-summary"
-                }
-              }
-            }
-          },
-          "then": {
-            "not": {
-              "required": [
-                "scale"
-              ]
-            }
-          }
-        }
-      ]
+      }
     }
   }
 }

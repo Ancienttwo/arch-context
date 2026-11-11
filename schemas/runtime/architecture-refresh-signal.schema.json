@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/architecture-refresh-signal.schema.json",
-  "title": "ArchitectureRefreshSignalV1",
+  "title": "ArchitectureRefreshSignalV2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "signalId", "idempotencyKey", "mode", "repository", "worktree", "cause", "reasonCodes", "affectedNodeIds", "refreshTargets", "baseDigests", "resultingDigests", "projectionReceiptDigest"],
   "properties": {
-    "schemaVersion": { "const": "archcontext.architecture-refresh-signal/v1" },
+    "schemaVersion": { "const": "archcontext.architecture-refresh-signal/v2" },
     "signalId": { "$ref": "#/$defs/digest" },
     "idempotencyKey": { "$ref": "#/$defs/digest" },
     "mode": { "enum": ["human-action-required", "refresh-required"] },
@@ -103,10 +103,9 @@
     "digestSet": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["modelDigest", "sourceTreeDigest", "flowProofDigest", "projectionDigest"],
+      "required": ["modelDigest", "flowProofDigest", "projectionDigest"],
       "properties": {
         "modelDigest": { "$ref": "#/$defs/digest" },
-        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
         "flowProofDigest": { "$ref": "#/$defs/digest" },
         "projectionDigest": { "$ref": "#/$defs/digest" }
       }
