@@ -81,3 +81,4 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0053 | Retire the GitHub App Governance Bridge |
 | ADR-0054 | State Machine Model Kind and Statechart Projection |
 | ADR-0055 | Governance Receipt Spans the Run Attempts of One SHA |
+| ADR-0056 | Render-Equivalent Projection Freshness and the Complete Projection Manifest |
