@@ -17,7 +17,7 @@ import { preparedFixture } from "./prepared-fixture";
 
 /**
  * #327 finding 2 end to end, on a real CodeGraph index: `projection run` `check` and `plan` classify
- * every target (stamp-only, output, semantic, proof, blocked, baseline-missing), and the targets
+ * every target (unchanged, output, semantic, proof, blocked, baseline-missing), and the targets
  * whose `plannedAction` is not `none` are exactly the documents the result's `files[]` and the
  * following apply write. The projection manifest is never a change target.
  */
@@ -285,7 +285,7 @@ async function checkAndPlan(fixture: Fixture, label: string): Promise<Projection
   return checked;
 }
 
-/** A source-only edit: the catalog stamp moves, no rendered byte does. */
+/** A source-only edit inside the catalog footprint: no rendered byte moves, so nothing changes. */
 async function sourceOnlyScenario(fixture: Fixture, crlf: boolean): Promise<void> {
   const { root } = fixture;
   const baseline = await checkAndPlan(fixture, "baseline");
@@ -297,36 +297,35 @@ async function sourceOnlyScenario(fixture: Fixture, crlf: boolean): Promise<void
 
   write(root, "src/catalog/list.ts", "export const entries: string[] = [\"first\"];\n");
   const checked = await checkAndPlan(fixture, "source_only");
-  expect(checked.status).toBe("planned");
-  expect(checked.files.map((file) => file.path)).toEqual([MANIFEST]);
-  expectOnly(checked, { [CATALOG_DOC]: "stamp-only/none" });
+  expect(checked.status).toBe("noop");
+  expect(checked.files).toEqual([]);
+  expectOnly(checked, {});
   expect(byPath(checked).get(CATALOG_DOC)).toMatchObject({
-    affectedCapabilityIds: [CATALOG], stampChanged: true, outputChanged: false, semanticChanged: false, proofChanged: false, reasonCodes: ["source-stamp-changed"]
+    outputChanged: false, semanticChanged: false, proofChanged: false, reasonCodes: []
   });
 
   const before = docsSnapshot(root);
   const applied = await fixture.run(fixture.request("apply", "projection_request.source_only_apply"));
-  expect(applied.status).toBe("applied");
+  expect(applied.status).toBe("noop");
   expect(applied.changes).toBeUndefined();
   const after = docsSnapshot(root);
   expect(writtenDocs(before, after)).toEqual([]);
-  expect(after[MANIFEST]).not.toBe(before[MANIFEST]);
+  expect(after[MANIFEST]).toBe(before[MANIFEST]);
   expect(after[MANIFEST]!.includes("\r\n")).toBe(crlf);
-  expectOnly(await checkAndPlan(fixture, "source_only_after"), {});
   commitAll(root, "catalog source edit");
 }
 
-test("check and plan classify a source-only edit as stamp-only, then output, semantic, proof and baseline cases (#327)", async () => {
+test("check and plan classify a source-only edit as unchanged, then output, semantic, proof and baseline cases (#327)", async () => {
   await withFixture("archctx-classification-", false, async (fixture) => {
     const { root } = fixture;
     await sourceOnlyScenario(fixture, false);
 
-    // Output change: a second catalog file moves the printed scale buckets and the stamp.
+    // Output change: a second catalog file moves the printed scale buckets.
     write(root, "src/catalog/more.ts", `${Array.from({ length: 12 }, (_, index) => `export const entry${index} = ${index};`).join("\n")}\n`);
     const output = await checkAndPlan(fixture, "output");
     expect(output.status).toBe("planned");
     expectOnly(output, { [CATALOG_DOC]: "output-change/update" });
-    expect(byPath(output).get(CATALOG_DOC)).toMatchObject({ affectedCapabilityIds: [CATALOG], reasonCodes: ["rendered-output-changed", "source-stamp-changed"] });
+    expect(byPath(output).get(CATALOG_DOC)).toMatchObject({ reasonCodes: ["rendered-output-changed"] });
     const beforeOutput = docsSnapshot(root);
     expect((await fixture.run(fixture.request("apply", "projection_request.output_apply"))).status).toBe("applied");
     expect(writtenDocs(beforeOutput, docsSnapshot(root))).toEqual([CATALOG_DOC]);
@@ -339,7 +338,7 @@ test("check and plan classify a source-only edit as stamp-only, then output, sem
     expect(semantic.files.map((file) => file.path)).toEqual([MANIFEST]);
     const semanticChanges = byPath(semantic);
     expect(semanticChanges.get(CATALOG_DOC)).toMatchObject({
-      classification: "semantic-change", plannedAction: "none", semanticChanged: true, outputChanged: false, stampChanged: false, proofChanged: false, affectedCapabilityIds: [CATALOG], reasonCodes: ["semantic-fingerprint-changed"]
+      classification: "semantic-change", plannedAction: "none", semanticChanged: true, outputChanged: false, proofChanged: false, affectedCapabilityIds: [CATALOG], reasonCodes: ["semantic-fingerprint-changed"]
     });
     // The unaffected capability's document stays unchanged: only the catalog moved.
     for (const entry of semantic.changes!) {
@@ -355,7 +354,7 @@ test("check and plan classify a source-only edit as stamp-only, then output, sem
     expect(missing.files.map(({ path, action }) => ({ path, action }))).toEqual([{ path: MANIFEST, action: "create" }]);
     expect(missing.changes!.length).toBeGreaterThan(0);
     for (const entry of missing.changes!) {
-      expect(entry).toMatchObject({ classification: "baseline-missing", plannedAction: "none", stampChanged: null, semanticChanged: null, proofChanged: null, reasonCodes: ["baseline-missing"] });
+      expect(entry).toMatchObject({ classification: "baseline-missing", plannedAction: "none", semanticChanged: null, proofChanged: null, reasonCodes: ["baseline-missing"] });
     }
     git(root, "checkout", "--", MANIFEST);
 
@@ -368,25 +367,25 @@ test("check and plan classify a source-only edit as stamp-only, then output, sem
     const rowMissing = await checkAndPlan(fixture, "row_missing");
     expect(rowMissing.files.map((file) => file.path)).toEqual([MANIFEST]);
     expectOnly(rowMissing, { [CATALOG_DOC]: "baseline-missing/none" });
-    expect(byPath(rowMissing).get(CATALOG_DOC)).toMatchObject({ stampChanged: null, semanticChanged: false, proofChanged: false, reasonCodes: ["target-row-missing"] });
+    expect(byPath(rowMissing).get(CATALOG_DOC)).toMatchObject({ semanticChanged: null, proofChanged: false, reasonCodes: ["target-row-missing"] });
     git(root, "checkout", "--", MANIFEST);
 
-    // A proof change without a semantic change: only the renderer's document, ahead of its stamp and output.
+    // A proof change without a semantic change: only the renderer's document, ahead of its output.
     write(root, "src/renderer/main.ts", REFERENCE_ONLY);
     const proof = await checkAndPlan(fixture, "proof");
     expect(proof.status).toBe("human-action-required");
     expectOnly(proof, { [RENDERER_DOC]: "proof-change/update" });
     expect(byPath(proof).get(RENDERER_DOC)).toMatchObject({
-      affectedCapabilityIds: [RENDERER], stampChanged: true, outputChanged: true, semanticChanged: false, proofChanged: true,
+      affectedCapabilityIds: [RENDERER], outputChanged: true, semanticChanged: false, proofChanged: true,
       // The cited selector lost its call site, so its proof-relevant evidence moved with the proof.
-      reasonCodes: ["flow-proof-changed", "rendered-output-changed", "selector-evidence-changed", "source-stamp-changed"]
+      reasonCodes: ["flow-proof-changed", "rendered-output-changed", "selector-evidence-changed"]
     });
     write(root, "src/renderer/main.ts", DIRECT_CALL);
     expectOnly(await checkAndPlan(fixture, "proof_restored"), {});
   });
 }, TEST_TIMEOUT_MS);
 
-test("a CRLF checkout classifies a source-only edit as stamp-only and writes only the manifest (#327)", async () => {
+test("a CRLF checkout classifies a source-only edit as unchanged and writes nothing (#327)", async () => {
   await withFixture("archctx-classification-crlf-", true, async (fixture) => {
     await sourceOnlyScenario(fixture, true);
   });
@@ -396,13 +395,13 @@ test("partial, added, removed and review-orphan targets are classified, and plan
   await withFixture("archctx-classification-targets-", false, async (fixture) => {
     const { root } = fixture;
 
-    // Phase 1 isolation: the carried-forward renderer is blocked, the moved catalog is stamp-only.
+    // Phase 1 isolation: the carried-forward renderer is blocked, the grown catalog is an output change.
     write(root, "src/renderer/main.ts", REFERENCE_ONLY);
-    write(root, "src/catalog/list.ts", "export const entries: string[] = [\"first\"];\n");
+    write(root, "src/catalog/more.ts", `${Array.from({ length: 12 }, (_, index) => `export const entry${index} = ${index};`).join("\n")}\n`);
     const partial = await checkAndPlan(fixture, "partial");
     expect(partial.status).toBe("planned-partial");
-    expect(partial.files.map((file) => file.path)).toEqual([MANIFEST]);
-    expectOnly(partial, { [RENDERER_DOC]: "blocked/none", [CATALOG_DOC]: "stamp-only/none" });
+    expect(partial.files.map((file) => file.path).sort()).toEqual([MANIFEST, CATALOG_DOC].sort());
+    expectOnly(partial, { [RENDERER_DOC]: "blocked/none", [CATALOG_DOC]: "output-change/update" });
     const blocked = byPath(partial).get(RENDERER_DOC)!;
     expect(blocked).toMatchObject({ affectedCapabilityIds: [RENDERER], proofChanged: true, semanticChanged: false });
     expect(blocked.reasonCodes).toEqual(expect.arrayContaining(partial.coverage!.blockedTargets[0]!.reasonCodes));
@@ -410,10 +409,10 @@ test("partial, added, removed and review-orphan targets are classified, and plan
       .toEqual(partial.coverage!.blockedTargets.map((target) => target.path));
     const beforePartial = docsSnapshot(root);
     expect((await fixture.run(fixture.request("apply", "projection_request.partial_apply"))).status).toBe("applied-partial");
-    expect(writtenDocs(beforePartial, docsSnapshot(root))).toEqual([]);
+    expect(writtenDocs(beforePartial, docsSnapshot(root))).toEqual([CATALOG_DOC]);
     write(root, "src/renderer/main.ts", DIRECT_CALL);
     expectOnly(await checkAndPlan(fixture, "partial_restored"), {});
-    commitAll(root, "catalog source edit, renderer restored");
+    commitAll(root, "catalog grows, renderer restored");
 
     // An added capability's document is created and a removed one's intact document is deleted.
     removeStaticCapability(root, CATALOG, "catalog");

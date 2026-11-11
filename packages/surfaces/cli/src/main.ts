@@ -1725,7 +1725,8 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, runtime
     if (unexpected.length > 0) return errorEnvelope("projection.snapshot", "AC_SCHEMA_INVALID", "projection snapshot accepts only --json");
     return runProjectionSnapshotCommand(cwd);
   }
-  // `freshness` is read-only and answered in-process: no code facts, no render, no daemon (#327).
+  // `freshness` runs check's projection build in-process, with no daemon and no repository write
+  // (ADR-0056 §2).
   if (action === "freshness") return runProjectionFreshnessCliCommand(args.slice(1), cwd);
   if (!["run", "recover", "readback"].includes(action)) return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>, snapshot|freshness [--json], or publish|publish-status|verify-pr");
   const raw = readFlag(args, "--request-json");

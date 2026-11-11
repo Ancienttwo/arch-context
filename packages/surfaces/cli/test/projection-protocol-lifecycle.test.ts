@@ -946,7 +946,7 @@ for (const lineEnding of ["lf", "crlf"] as const) {
       expect(checked.changes).toEqual(planned.changes);
       for (const entry of planned.changes!) {
         expect(entry, entry.path).toMatchObject(v5Paths.includes(entry.path)
-          ? { classification: "output-change", plannedAction: "update", stampChanged: false, semanticChanged: false, proofChanged: false, reasonCodes: ["file-bytes-changed"] }
+          ? { classification: "output-change", plannedAction: "update", semanticChanged: false, proofChanged: false, reasonCodes: ["file-bytes-changed"] }
           : { classification: "unchanged", plannedAction: "none" });
       }
       expect(planned.changes!.filter((entry) => entry.plannedAction !== "none").map((entry) => entry.path)).toEqual(v5Paths);

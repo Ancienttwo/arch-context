@@ -8,7 +8,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { architectureDocumentationProjectionWorktreeDigest, loadCapabilitySourceFootprintDigests, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { CodeGraphAdapter, codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
@@ -17,7 +17,7 @@ import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-fact
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, grantAuditConsent, readAuditConsent, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, architectureDocsProjectionManifestDigests, architectureDocsProjectionManifestSourceStamps, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { createDaemonSetupKeepalive } from "./daemon-setup-keepalive";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { CLI_COMMAND_FLAGS, resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
@@ -210,7 +210,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     const result = await cli("projection", ["run", "--request-json", JSON.stringify(request)]);
     expect(result.ok, JSON.stringify(result)).toBe(true);
     const projection = result.data as unknown as ProjectionResultV3;
-    expect(projection.schemaVersion).toBe("archcontext.projection-result/v2");
+    expect(projection.schemaVersion).toBe("archcontext.projection-result/v3");
     expect(projection.requestId).toBe(request.requestId);
     expect(projection.inputSnapshot).not.toBe(projection.outputSnapshot);
     expect(projectionResultInvariantIssues(projection)).toEqual([]);
@@ -218,7 +218,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     expect(projection.freshness).toEqual({
       ok: false,
       reasonCodes: ["projection-manifest-missing"],
-      staleNodes: []
+      staleTargets: []
     });
 
     const stale = await cli("projection", ["run", "--request-json", JSON.stringify({
@@ -254,7 +254,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
 
-test("CLI projection check reports per-node freshness read-only, from content stamps (#259)", async () => {
+test("CLI check, complete and projection freshness report the same stale targets; a source-only edit stays fresh (#259)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-freshness-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
   initializeArchContextModel(root, "Projection Freshness App");
@@ -266,7 +266,18 @@ test("CLI projection check reports per-node freshness read-only, from content st
   });
   const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
   const nodeId = "capability.runtime-harness.hook-adapters";
+  const nodePath = join(root, `.archcontext/model/nodes/${nodeId}.yaml`);
   const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  const noRuntime = new Proxy({}, {
+    get(_target, property) {
+      if (property === "then") return undefined;
+      throw new Error(`projection freshness reached the runtime: ${String(property)}`);
+    }
+  }) as unknown as RuntimeDaemonClient;
+  const commit = (message: string) => {
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", message);
+  };
   const run = async (mode: ProjectionRequestV1["mode"], requestId: string) => {
     const result = await cli("projection", ["run", "--request-json", JSON.stringify({
       schemaVersion: "archcontext.projection-request/v1",
@@ -283,49 +294,60 @@ test("CLI projection check reports per-node freshness read-only, from content st
     expect(validateJsonSchema(JSON.parse(readFileSync(resolve(import.meta.dir, "../../../../schemas/runtime/projection-result.schema.json"), "utf8")), projection as any).issues).toEqual([]);
     return projection;
   };
-  const applyDocs = async () => {
-    const applied = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
-    expect(applied.ok, JSON.stringify(applied)).toBe(true);
-    git(root, "add", "-A");
-    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "project architecture documentation");
+  const freshnessCommand = async () => {
+    const result = await runCli("projection", ["freshness", "--json"], root, { runtimeClient: noRuntime });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    return (result as JsonEnvelope).data as unknown as { profile: string | null; freshness: NonNullable<ProjectionResultV3["freshness"]> };
+  };
+  const completeGate = async (task: string) => {
+    const completed = await cli("complete", ["--task", task]);
+    expect((completed.data as any).extensions.projectionFreshnessChecksSkipped, JSON.stringify(completed)).toBeUndefined();
+    return (completed.data as any).extensions.projectionFreshnessGate;
   };
   try {
     seedProjectionProtocolFixture(root);
-    await applyDocs();
-    const stamped = (Object.values(JSON.parse(readFileSync(manifestPath, "utf8")).targets) as any[])
-      .find((target) => target.type === "entity-summary" && target.scope.id === nodeId).sourceStamps[nodeId];
-    expect(stamped).toMatch(/^sha256:[a-f0-9]{64}$/);
+    const applied = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    commit("project architecture documentation");
+    const fresh = { ok: true, reasonCodes: [], staleTargets: [] };
 
-    expect((await run("check", "projection_request.freshness_clean")).freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
+    // A committed edit inside the node's footprint that keeps its scale bucket renders no document differently.
+    writeFileSync(join(root, "README.md"), "# projection fixture with hook routing notes\n", "utf8");
+    commit("change the declared footprint");
+    expect((await run("check", "projection_request.freshness_source_only")).freshness).toEqual(fresh);
+    expect(await freshnessCommand()).toEqual({ profile: "repo-harness/v1", freshness: fresh });
+    expect(await completeGate("finish after a source-only edit")).toBeUndefined();
 
-    // A committed change inside the node's footprint makes exactly that node stale.
-    writeFileSync(join(root, "README.md"), "# projection fixture\n\nNew hook routing notes.\n", "utf8");
-    git(root, "add", "-A");
-    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "change the declared footprint");
+    // A committed model edit that the node's document prints, without re-projecting.
+    const committedRows = JSON.parse(readFileSync(manifestPath, "utf8")).targets as Record<string, { type: string; scope: { id?: string }; outputDigest: `sha256:${string}` }>;
+    const nodeTargetId = Object.entries(committedRows).find(([, row]) => row.type === "entity-summary" && row.scope.id === nodeId)?.[0];
+    if (!nodeTargetId) throw new Error("the fixture manifest has no row for the capability document");
+    writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("Routes runtime hook events.", "Routes and validates runtime hook events."), "utf8");
+    commit("change the capability summary");
     const manifestBefore = readFileSync(manifestPath, "utf8");
-    const stale = await run("check", "projection_request.freshness_stale");
-    const currentDigest = loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
-      .find((entry) => entry.nodeId === nodeId)!.digest as `sha256:${string}`;
-    expect(stale.freshness).toEqual({
-      ok: false,
-      reasonCodes: ["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"],
-      staleNodes: [{ nodeId, stampedDigest: stamped, currentDigest }]
-    });
+    const checked = (await run("check", "projection_request.freshness_stale")).freshness!;
+    expect(checked.ok).toBe(false);
+    expect(checked.reasonCodes).toEqual(["projection-output-changed"]);
+    expect(checked.staleTargets.map((target) => target.targetId)).toContain(nodeTargetId);
+    for (const target of checked.staleTargets) {
+      expect(target.committedOutputDigest, target.targetId).toBe(committedRows[target.targetId]?.outputDigest ?? null);
+      expect(target.renderedOutputDigest, target.targetId).not.toBe(target.committedOutputDigest);
+    }
     // `check` is read-only: the committed projection and the worktree are untouched.
     expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
     expect(gitOut(root, "status", "--porcelain")).toBe("");
+    // One evaluator over one render: projection freshness and the complete gate give check's answer.
+    expect((await freshnessCommand()).freshness).toEqual(checked);
+    const gate = await completeGate("finish after a model edit");
+    expect({ ok: gate.ok, reasonCodes: gate.reasonCodes, staleTargets: gate.staleTargets }).toEqual(checked);
 
     // Only `check` carries the field.
     expect((await run("plan", "projection_request.freshness_plan")).freshness).toBeUndefined();
-
-    // Re-projecting re-stamps the node and the next check is fresh again.
-    await applyDocs();
-    expect((await run("check", "projection_request.freshness_restamped")).freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
   } finally {
     await daemon.stop();
     removeTempRoot(root);
   }
-}, CLI_DOCS_TEST_TIMEOUT_MS);
+}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
 test("CLI projection check under repo-harness/v1 is fresh after apply when a member node declares a footprint (#290)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-member-freshness-"));
@@ -361,8 +383,7 @@ test("CLI projection check under repo-harness/v1 is fresh after apply when a mem
   };
   try {
     seedProjectionProtocolFixture(root);
-    // A member node with its own footprint. repo-harness/v1 writes no document for it, so its
-    // stamp is on the row of its capability (#327).
+    // A member node with its own footprint. repo-harness/v1 writes no document for it.
     writeFileSync(join(root, `.archcontext/model/nodes/${componentId}.yaml`), stableYaml({
       schemaVersion: "archcontext.node/v2",
       id: componentId,
@@ -379,22 +400,8 @@ test("CLI projection check under repo-harness/v1 is fresh after apply when a mem
     const applied = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
     expect(applied.ok, JSON.stringify(applied)).toBe(true);
     commit("project architecture documentation");
-    const rows = Object.values(JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).targets) as any[];
-    const stampedRows = rows.filter((target) => target.sourceStamps !== undefined);
-    expect(stampedRows.map((target) => target.scope.id)).toEqual([capabilityId]);
-    expect(Object.keys(stampedRows[0].sourceStamps).sort()).toEqual([capabilityId, componentId].sort());
-    const memberStamp: string = stampedRows[0].sourceStamps[componentId];
 
-    expect(await check("projection_request.member_freshness_clean")).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
-
-    // The member's footprint is outside the capability's footprint, but its stamp is on the
-    // capability row: the member is named, and the declared source tree digest moves too.
-    writeFileSync(join(root, "src/engine/index.ts"), "export const engine = 2;\n", "utf8");
-    commit("change the member footprint");
-    const stale = (await check("projection_request.member_freshness_stale"))!;
-    expect(stale.ok).toBe(false);
-    expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"]);
-    expect(stale.staleNodes).toEqual([expect.objectContaining({ nodeId: componentId, stampedDigest: memberStamp })]);
+    expect(await check("projection_request.member_freshness_clean")).toEqual({ ok: true, reasonCodes: [], staleTargets: [] });
   } finally {
     await daemon.stop();
     removeTempRoot(root);
@@ -608,8 +615,8 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
 
     // The shape 0.7.x committed: a v2 manifest (only its schemaVersion is ever read) and whole-file
     // outputs wrapped in renderer v5 markers.
-    const v3 = JSON.parse(readFileSync(manifestPath, "utf8"));
-    const wholeFilePaths = (Object.entries(v3.targets) as Array<[string, any]>)
+    const projected = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const wholeFilePaths = (Object.entries(projected.targets) as Array<[string, any]>)
       .filter(([, row]) => row.ownership === "generated")
       .map(([targetId, row]) => {
         const body = readFileSync(join(root, row.path), "utf8");
@@ -623,7 +630,7 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
       })
       .sort();
     expect(wholeFilePaths.length).toBeGreaterThan(0);
-    writeFileSync(manifestPath, `${JSON.stringify({ ...v3, schemaVersion: "archcontext.architecture-docs-projection-manifest/v2", rendererVersion: "archcontext.docs-renderer/v5" }, null, 2)}\n`, "utf8");
+    writeFileSync(manifestPath, `${JSON.stringify({ ...projected, schemaVersion: "archcontext.architecture-docs-projection-manifest/v2", rendererVersion: "archcontext.docs-renderer/v5" }, null, 2)}\n`, "utf8");
     commit("the 0.7.x projection");
     const markedBodies = wholeFilePaths.map((path) => readFileSync(join(root, path), "utf8"));
 
@@ -639,7 +646,7 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
       details: {
         manifestPath: "docs/architecture/.projection-manifest.json",
         foundSchemaVersion: "archcontext.architecture-docs-projection-manifest/v2",
-        supportedSchemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+        supportedSchemaVersion: "archcontext.architecture-docs-projection-manifest/v4",
         upgradeCommand: "archctx docs apply --approved --profile <default|repo-harness/v1>",
         migrationGuide: "docs/runbooks/architecture-documentation-projections.md"
       }
@@ -671,8 +678,8 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
     expect(rebaselined.ok, JSON.stringify(rebaselined)).toBe(true);
     commit("re-baseline the projection");
     const rebaselinedManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    expect(rebaselinedManifest.schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v3");
-    // A downstream consumer can resolve every generated path from the migrated v3 `targets`.
+    expect(rebaselinedManifest.schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v4");
+    // A downstream consumer can resolve every generated path from the migrated v4 `targets`.
     const targetPaths = Object.values(rebaselinedManifest.targets as Record<string, { path: string }>).map((row) => row.path);
     expect(targetPaths.length).toBeGreaterThan(0);
     for (const path of targetPaths) expect(existsSync(join(root, path))).toBe(true);
@@ -685,7 +692,7 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
     expect(clean.ok).toBe(true);
     expect((clean.data as any).ok).toBe(true);
     expect(await check("projection_request.rebaselined")).toEqual(projectedHere);
-    expect(projectedHere.freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
+    expect(projectedHere.freshness).toEqual({ ok: true, reasonCodes: [], staleTargets: [] });
   } finally {
     await daemon.stop();
     removeTempRoot(root);
@@ -749,7 +756,6 @@ test("CLI projection check never starts a runtime, writes runtime state or needs
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
   initializeArchContextModel(root, "Projection Daemonless Check App");
   declareOptionalCodeFacts(root);
-  const nodeId = "capability.runtime-harness.hook-adapters";
   const checkStateRoot = join(dirname(root), `.archctx-check-state-${basename(root)}`);
   const checkRequest = (requestId: string): string => JSON.stringify({
     schemaVersion: "archcontext.projection-request/v1",
@@ -776,9 +782,6 @@ test("CLI projection check never starts a runtime, writes runtime state or needs
     }
     git(root, "add", "-A");
     git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "project architecture documentation");
-    writeFileSync(join(root, "README.md"), "# projection fixture\n\nChanged after projection.\n", "utf8");
-    git(root, "add", "-A");
-    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "change the declared footprint");
 
     const worktreeBefore = gitOut(root, "status", "--porcelain", "--ignored");
 
@@ -805,8 +808,7 @@ test("CLI projection check never starts a runtime, writes runtime state or needs
     const inProcessResult = (inProcess as JsonEnvelope).data as unknown as ProjectionResultV3;
     expect(projectionResultInvariantIssues(inProcessResult)).toEqual([]);
     expect(inProcessResult.priorCommittedApplies).toBeUndefined();
-    expect(inProcessResult.freshness?.ok).toBe(false);
-    expect(inProcessResult.freshness?.staleNodes.map((entry) => entry.nodeId)).toEqual([nodeId]);
+    expect(inProcessResult.freshness).toEqual({ ok: true, reasonCodes: [], staleTargets: [] });
 
     // Real process with no runtime client injected: no daemon is discovered or started.
     const processOutput = execFileSync("bun", [CLI_ENTRY, "projection", "run", "--request-json", checkRequest("projection_request.daemonless_process"), "--json"], {
@@ -884,12 +886,11 @@ test("CLI projection snapshot returns the expected snapshot a request is checked
   }
 }, CLI_PROCESS_TIMEOUT_MS * 2);
 
-test("CLI projection freshness answers check's staleNodes from stamps alone, without code facts, a runtime or writes (#327)", async () => {
+test("CLI projection freshness answers check's freshness without a runtime or repository writes (#327)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-freshness-command-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
   initializeArchContextModel(root, "Projection Freshness Command App");
   declareOptionalCodeFacts(root);
-  const nodeId = "capability.runtime-harness.hook-adapters";
   const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
   const stateRoot = join(dirname(root), `.archctx-freshness-state-${basename(root)}`);
   const commit = (message: string) => {
@@ -910,8 +911,6 @@ test("CLI projection freshness answers check's staleNodes from stamps alone, wit
     expect((result as JsonEnvelope).requestId).toBe("projection.freshness");
     return (result as JsonEnvelope).data as unknown as {
       profile: string | null;
-      changedPaths: string[];
-      evaluatedNodeIds: string[];
       freshness: NonNullable<ProjectionResultV3["freshness"]>;
     };
   };
@@ -934,9 +933,7 @@ test("CLI projection freshness answers check's staleNodes from stamps alone, wit
     const unprojected = await freshness("--json");
     expect(unprojected).toEqual({
       profile: null,
-      changedPaths: [],
-      evaluatedNodeIds: [],
-      freshness: { ok: false, reasonCodes: ["projection-manifest-missing"], staleNodes: [] }
+      freshness: { ok: false, reasonCodes: ["projection-manifest-missing"], staleTargets: [] }
     });
     expect(unprojected.freshness).toEqual(await checkFreshness("projection_request.freshness_command_unprojected"));
 
@@ -953,50 +950,14 @@ test("CLI projection freshness answers check's staleNodes from stamps alone, wit
       await daemon.stop();
     }
     commit("project architecture documentation");
-    const stamped = architectureDocsProjectionManifestSourceStamps(JSON.parse(readFileSync(manifestPath, "utf8")))[nodeId] as `sha256:${string}`;
-    expect(stamped).toMatch(/^sha256:[0-9a-f]{64}$/);
 
-    // Fresh tree: no CodeGraph index exists in this repository, and the answer equals check's.
-    expect(existsSync(join(root, ".codegraph"))).toBe(false);
+    // The committed fixed point: the answer equals check's.
     const fresh = await freshness("--json");
     expect(fresh).toEqual({
       profile: "repo-harness/v1",
-      changedPaths: [],
-      evaluatedNodeIds: [nodeId],
-      freshness: { ok: true, reasonCodes: [], staleNodes: [] }
+      freshness: { ok: true, reasonCodes: [], staleTargets: [] }
     });
     expect(fresh.freshness).toEqual(await checkFreshness("projection_request.freshness_command_fresh"));
-
-    // A committed edit inside the footprint makes exactly that node stale, with check's staleNodes.
-    writeFileSync(join(root, "README.md"), "# projection fixture\n\nNew hook routing notes.\n", "utf8");
-    commit("change the declared footprint");
-    const currentDigest = loadCapabilitySourceFootprintDigests(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
-      .find((entry) => entry.nodeId === nodeId)!.digest as `sha256:${string}`;
-    const stale = await freshness();
-    const checked = await checkFreshness("projection_request.freshness_command_stale");
-    expect(stale.freshness).toEqual({
-      ok: false,
-      reasonCodes: ["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"],
-      staleNodes: [{ nodeId, stampedDigest: stamped, currentDigest }]
-    });
-    expect(stale.freshness.staleNodes).toEqual(checked.staleNodes);
-    expect(stale.freshness).toEqual(checked);
-
-    // --changed-path that the footprint selects: only that node is probed, with the same staleNodes.
-    const matching = await freshness("--changed-path", "src/unrelated.ts", "--changed-path", "README.md", "--changed-path", "README.md", "--json");
-    expect(matching).toEqual({
-      profile: "repo-harness/v1",
-      changedPaths: ["README.md", "src/unrelated.ts"],
-      evaluatedNodeIds: [nodeId],
-      freshness: { ok: false, reasonCodes: ["projection-source-changed-since-stamp"], staleNodes: checked.staleNodes }
-    });
-    // --changed-path that no footprint selects: nothing is probed or hashed.
-    expect(await freshness("--changed-path", "src/unrelated.ts")).toEqual({
-      profile: "repo-harness/v1",
-      changedPaths: ["src/unrelated.ts"],
-      evaluatedNodeIds: [],
-      freshness: { ok: true, reasonCodes: [], staleNodes: [] }
-    });
     expect(runtimeAccesses).toBe(0);
 
     // A real process with no runtime client: same answer, no runtime state, repository untouched.
@@ -1008,7 +969,7 @@ test("CLI projection freshness answers check's staleNodes from stamps alone, wit
       env: { ...process.env, ARCHCONTEXT_STATE_DIR: stateRoot },
       timeout: CLI_PROCESS_TIMEOUT_MS
     });
-    expect(JSON.parse(processOutput).data).toEqual(stale);
+    expect(JSON.parse(processOutput).data).toEqual(fresh);
     expect(existsSync(stateRoot)).toBe(false);
     expect(gitOut(root, "status", "--porcelain", "--ignored")).toBe(worktreeBefore);
     expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
@@ -1018,100 +979,7 @@ test("CLI projection freshness answers check's staleNodes from stamps alone, wit
   }
 }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
-test("CLI projection freshness widens to the whole tree when a --changed-path is under .archcontext/ (#327)", async () => {
-  const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-freshness-widen-"));
-  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
-  initializeArchContextModel(root, "Projection Freshness Widen App");
-  declareOptionalCodeFacts(root);
-  const nodeId = "capability.runtime-harness.hook-adapters";
-  const nodePath = ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml";
-  const noRuntime = new Proxy({}, {
-    get(_target, property) {
-      if (property === "then") return undefined;
-      throw new Error(`projection freshness reached the runtime: ${String(property)}`);
-    }
-  }) as unknown as RuntimeDaemonClient;
-  const freshness = async (...args: string[]) => {
-    const result = await runCli("projection", ["freshness", ...args], root, { runtimeClient: noRuntime });
-    expect(result.ok, JSON.stringify(result)).toBe(true);
-    return (result as JsonEnvelope).data as unknown as {
-      profile: string | null;
-      changedPaths: string[];
-      evaluatedNodeIds: string[];
-      scope?: string;
-      scopeReason?: string;
-      freshness: NonNullable<ProjectionResultV3["freshness"]>;
-    };
-  };
-  try {
-    seedProjectionProtocolFixture(root);
-    const daemon = await createStartedDaemon({
-      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
-      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
-      localStore: new TestLocalStore()
-    });
-    try {
-      const applied = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root, { runtimeClient: daemon });
-      expect(applied.ok, JSON.stringify(applied)).toBe(true);
-    } finally {
-      await daemon.stop();
-    }
-    git(root, "add", "-A");
-    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "project architecture documentation");
-
-    // A path outside the model still narrows: no widening fields, nothing probed.
-    expect(await freshness("--changed-path", "src/unrelated.ts")).toEqual({
-      profile: "repo-harness/v1",
-      changedPaths: ["src/unrelated.ts"],
-      evaluatedNodeIds: [],
-      freshness: { ok: true, reasonCodes: [], staleNodes: [] }
-    });
-    // A model path on an unchanged model widens to the tree and agrees with the unscoped run.
-    const cleanUnscoped = await freshness("--json");
-    expect(cleanUnscoped.freshness).toEqual({ ok: true, reasonCodes: [], staleNodes: [] });
-    expect(await freshness("--changed-path", nodePath)).toEqual({
-      profile: "repo-harness/v1",
-      changedPaths: [nodePath],
-      evaluatedNodeIds: [nodeId],
-      scope: "tree",
-      scopeReason: "model-path-changed",
-      freshness: cleanUnscoped.freshness
-    });
-
-    // Narrow the node's include: its footprint (and so its digest) changes, but the only changed path
-    // is the model file, which no footprint glob selects.
-    const nodeYaml = readFileSync(join(root, nodePath), "utf8");
-    expect(nodeYaml).toContain("README.md");
-    writeFileSync(join(root, nodePath), nodeYaml.replace("README.md", "docs/nothing-here.md"), "utf8");
-    git(root, "add", "-A");
-    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "narrow the footprint");
-    const unscoped = await freshness("--json");
-    expect(unscoped.freshness.ok).toBe(false);
-    expect(unscoped.freshness.staleNodes.map((entry) => entry.nodeId)).toEqual([nodeId]);
-    const widened = await freshness("--changed-path", nodePath, "--changed-path", "src/unrelated.ts");
-    expect(widened).toEqual({
-      profile: "repo-harness/v1",
-      changedPaths: [nodePath, "src/unrelated.ts"],
-      evaluatedNodeIds: unscoped.evaluatedNodeIds,
-      scope: "tree",
-      scopeReason: "model-path-changed",
-      freshness: unscoped.freshness
-    });
-    expect(widened.freshness.reasonCodes).toContain("projection-source-tree-digest-mismatch");
-    // The bare directory name widens too; a path outside the model keeps narrowing.
-    expect(await freshness("--changed-path", ".archcontext")).toMatchObject({ scope: "tree", scopeReason: "model-path-changed", freshness: unscoped.freshness });
-    expect(await freshness("--changed-path", "src/unrelated.ts")).toEqual({
-      profile: "repo-harness/v1",
-      changedPaths: ["src/unrelated.ts"],
-      evaluatedNodeIds: [],
-      freshness: { ok: true, reasonCodes: [], staleNodes: [] }
-    });
-  } finally {
-    removeTempRoot(root);
-  }
-}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
-
-test("CLI projection freshness refuses non-Git roots, paths outside the worktree and unknown flags before reading anything (#327)", async () => {
+test("CLI projection freshness refuses non-Git roots, the removed --changed-path and unknown flags before reading anything (#327)", async () => {
   const noRuntime = new Proxy({}, {
     get(_target, property) {
       if (property === "then") return undefined;
@@ -1133,23 +1001,9 @@ test("CLI projection freshness refuses non-Git roots, paths outside the worktree
     initializeArchContextModel(root, "Projection Freshness Refusals App");
     seedProjectionProtocolFixture(root);
     const freshness = (...args: string[]) => runCli("projection", ["freshness", ...args], root, { runtimeClient: noRuntime });
-    for (const outside of ["/etc/passwd", resolve(root, "README.md"), "../README.md", "src/../../README.md", "src\\app.ts", "C:/repo/a.ts"]) {
-      expect(await freshness("--changed-path", outside), outside).toMatchObject({
-        ok: false,
-        requestId: "projection.freshness",
-        error: { code: "AC_SCHEMA_INVALID", reasonCode: "changed-path-outside-worktree", details: { omittedCount: 1 } }
-      });
-    }
-    for (const unnormalized of ["./README.md", "src//app.ts", "src/", "src/./app.ts", "."]) {
-      expect(await freshness("--changed-path", unnormalized), unnormalized).toMatchObject({
-        ok: false,
-        error: { code: "AC_SCHEMA_INVALID", reasonCode: "changed-path-not-normalized" }
-      });
-    }
-    // The flag table refuses unknown flags and a missing value before the handler runs.
+    // The flag table refuses unknown flags before the handler runs; --changed-path is no longer a flag.
     expect(await freshness("--bogus")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
-    expect(await freshness("--changed-path")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
-    expect(await freshness("--changed-path", "--json")).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+    expect(await freshness("--changed-path", "README.md")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
     expect(await freshness("--request-json", "{}")).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
     expect(await freshness("extra")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
     expect(await freshness("--format")).toMatchObject({ ok: false, requestId: "projection.freshness", error: { code: "AC_SCHEMA_INVALID" } });
@@ -1167,8 +1021,9 @@ test("CLI projection freshness refuses non-Git roots, paths outside the worktree
     });
     expect(humanOutput.startsWith("OK projection.freshness\n")).toBe(true);
     const help = await freshness("--help");
-    expect(help).toMatchObject({ ok: true, data: { capability: "projection-freshness-v1" } });
-    expect(ARCHCTX_FEATURES).toContain("projection-freshness-v1");
+    expect(help).toMatchObject({ ok: true, data: { capability: "projection-freshness-v2" } });
+    expect(ARCHCTX_FEATURES).toContain("projection-freshness-v2");
+    expect(ARCHCTX_FEATURES).not.toContain("projection-freshness-v1");
     // No refusal wrote anything.
     expect(gitOut(root, "status", "--porcelain", "--ignored")).toBe("");
   } finally {
@@ -5932,13 +5787,12 @@ describe("archctx CLI", () => {
       expect((second.data as any).runtimeSnapshot).toMatchObject({ codeGraphStatus: options.codeGraphReady ? "ready" : "unavailable" });
       const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
       // The provenance is runtime-only (#327): the manifest commits its header fields and the model
-      // anchor, and the declared source tree digest is computed from the rows.
+      // anchor, and records no source tree digest (ADR-0056).
       const provenance = (second.data as any).provenance;
       expect(manifest).not.toHaveProperty("provenance");
       expect({ rendererVersion: manifest.rendererVersion, layoutVersion: manifest.layoutVersion, generatedFrom: manifest.generatedFrom })
         .toEqual({ rendererVersion: provenance.rendererVersion, layoutVersion: provenance.layoutVersion, generatedFrom: provenance.generatedFrom });
       expect(manifest.semanticBaseline.modelDigest).toBe(provenance.modelDigest);
-      expect(architectureDocsProjectionManifestDigests(manifest).sourceTreeDigest).toBe(provenance.sourceTreeDigest);
       const completed = await runTestCli("complete", ["--task", "verify adopted documentation"], root);
       expect(completed.ok).toBe(true);
       expect((completed.data as any).findings.some((finding: any) => finding.id === "projection-drift")).toBe(false);
