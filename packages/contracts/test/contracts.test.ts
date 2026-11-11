@@ -59,11 +59,11 @@ import {
   architectureDocsProjectionManifestSchemaVersion,
   architectureDocsProjectionManifestSemanticState,
   architectureProjectionOutputsDigest,
-  architectureSourceStampsDigest,
+  architectureSourceTreeDigest,
   isArchitectureScaleBucket,
   isSupersededArchitectureDocsProjectionManifestSchemaVersion,
   serializeArchitectureDocsProjectionManifest,
-  type ArchitectureDocsProjectionManifestV3
+  type ArchitectureDocsProjectionManifestV4
 } from "../src/projection-manifest";
 import {
   ARCHCTX_FEATURES,
@@ -89,15 +89,15 @@ import {
   projectionResultReceiptDigest,
   projectionResultInvariantIssues,
   projectionResultRequestModeIssues,
-  type ArchitectureRefreshSignalV1,
-  type ProjectionApplyRecoveryProofV1,
+  type ArchitectureRefreshSignalV2,
+  type ProjectionApplyRecoveryProofV2,
   type ProjectionApplyReceiptV1,
   type ProjectionApplyRecoveryIntentV1,
-  type ProjectionApplyRecoveryResultV1,
+  type ProjectionApplyRecoveryResultV2,
   type ProjectionArchitectureDebtV1,
-  type ProjectionFreshnessV1,
+  type ProjectionFreshnessV2,
   type ProjectionRequestV1,
-  type ProjectionResultV2
+  type ProjectionResultV3
 } from "../src/projection";
 import { DOCS_ANCHOR_FINDING_KINDS, DOCS_ANCHOR_UNCHECKED_REASON_CODES, docsAnchorsReportIssues, type DocsAnchorsReportV1 } from "../src/docs-anchors";
 
@@ -299,7 +299,7 @@ test("JSON schema object keywords bound the property count and check every prope
 
 test("projection result contract denies raw bodies and keeps deterministic result arrays", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
   expect(projectionResultInvariantIssues(valid)).toEqual([]);
   const withRawBody = {
     ...valid,
@@ -381,9 +381,9 @@ test("projection result contract denies raw bodies and keeps deterministic resul
 });
 
 test("projection result receipt binds refresh signals without a circular hash", () => {
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
-  const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV1;
-  const unboundSignal: ArchitectureRefreshSignalV1 = {
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
+  const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV2;
+  const unboundSignal: ArchitectureRefreshSignalV2 = {
     ...fixture,
     repository: { repositoryId: valid.outputSnapshot.repositoryId },
     worktree: {
@@ -396,7 +396,7 @@ test("projection result receipt binds refresh signals without a circular hash", 
   const { receiptDigest: _fixtureReceipt, ...basePayload } = valid;
   const payload = { ...basePayload, refreshSignals: [unboundSignal] };
   const receiptDigest = projectionResultReceiptDigest(payload);
-  const result: ProjectionResultV2 = {
+  const result: ProjectionResultV3 = {
     ...payload,
     refreshSignals: [{ ...unboundSignal, projectionReceiptDigest: receiptDigest }],
     receiptDigest
@@ -417,8 +417,8 @@ test("projection result keeps its embedded refresh signal schema synchronized", 
 
 test("plan previews are bounded, action-typed and never ride a committed apply (#264)", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const fixture = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
-  const withFiles = (files: ProjectionResultV2["files"], extra: Partial<ProjectionResultV2> = {}): ProjectionResultV2 => {
+  const fixture = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
+  const withFiles = (files: ProjectionResultV3["files"], extra: Partial<ProjectionResultV3> = {}): ProjectionResultV3 => {
     const { receiptDigest: _receipt, ...payload } = { ...fixture, status: "planned" as const, ...extra, files };
     return { ...payload, receiptDigest: projectionResultReceiptDigest(payload) };
   };
@@ -454,7 +454,7 @@ test("plan previews are bounded, action-typed and never ride a committed apply (
 
   // Bound to its request mode, a preview is rejected on every non-plan result, whatever its status.
   // A check or plan result always carries changes (#327); the mode check reads only its presence.
-  const modeBound = (result: ProjectionResultV2, mode: string): ProjectionResultV2 => mode === "check" || mode === "plan" ? { ...result, changes: [] } : result;
+  const modeBound = (result: ProjectionResultV3, mode: string): ProjectionResultV3 => mode === "check" || mode === "plan" ? { ...result, changes: [] } : result;
   expect(projectionResultRequestModeIssues(modeBound(valid, "plan"), "plan")).toEqual([]);
   for (const mode of ["check", "apply", "adopt"] as const) {
     expect(projectionResultRequestModeIssues(modeBound(valid, mode), mode)).toEqual([`files[].preview is only allowed on a plan result, never when mode=${mode}`]);
@@ -465,8 +465,8 @@ test("plan previews are bounded, action-typed and never ride a committed apply (
 
 test("refresh signals carry a per-capability change breakdown (#264)", () => {
   const schema = readJson("schemas/runtime/architecture-refresh-signal.schema.json");
-  const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV1;
-  const capabilities: NonNullable<ArchitectureRefreshSignalV1["capabilities"]> = [
+  const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV2;
+  const capabilities: NonNullable<ArchitectureRefreshSignalV2["capabilities"]> = [
     { capabilityId: "capability.a", reasonCodes: ["node-renamed", "responsibility-changed"], changedFacets: ["names", "responsibilities"], proofStatusBefore: { p1: "proven", p2: "proven" }, proofStatusAfter: { p1: "proven", p2: "unprovable" } },
     { capabilityId: "capability.b", reasonCodes: ["node-added"], changedFacets: [], proofStatusBefore: null, proofStatusAfter: { p1: "proven", p2: "not-applicable" } }
   ];
@@ -599,10 +599,10 @@ test("the projection manifest contract matches the schema and the writer's curre
 });
 
 test("the projection manifest's global digests are computed from its rows (#327)", () => {
-  const manifest = readJson("packages/contracts/fixtures/valid/projection-manifest.json") as unknown as ArchitectureDocsProjectionManifestV3;
+  const manifest = readJson("packages/contracts/fixtures/valid/projection-manifest.json") as unknown as ArchitectureDocsProjectionManifestV4;
   const digests = architectureDocsProjectionManifestDigests(manifest);
   expect(digests.modelDigest).toBe(manifest.semanticBaseline.modelDigest as any);
-  expect(digests.sourceTreeDigest).toBe(architectureSourceStampsDigest({ "capability.example.billing": `sha256:${"6".repeat(64)}` }));
+  expect(digests.sourceTreeDigest).toBe(architectureSourceTreeDigest({ "capability.example.billing": `sha256:${"6".repeat(64)}` }));
   expect(digests.flowProofDigest).toBe(architectureDocsProjectionManifestSemanticState(manifest).flowProofFingerprint as any);
   expect(digests.projectionDigest).toBe(architectureProjectionOutputsDigest({
     rendererVersion: manifest.rendererVersion,
@@ -711,7 +711,7 @@ test("projection apply recovery schemas require one exact intent, proof, or resu
     current: { ...proof.current, snapshot: { ...proof.current.snapshot, generatedFrom: { ...proof.current.snapshot.generatedFrom, codeGraphStatus: "unavailable" } } }
   } as unknown as Json).valid).toBe(false);
   const digest = `sha256:${"a".repeat(64)}` as const;
-  const delivered: ProjectionApplyRecoveryResultV1 = {
+  const delivered: ProjectionApplyRecoveryResultV2 = {
     schemaVersion: "archcontext.projection-apply-recovery-result/v1",
     proof,
     refreshSignals: []
@@ -740,7 +740,7 @@ test("projection apply recovery schemas require one exact intent, proof, or resu
   } as any)).toContain("already-delivered recovery result cannot repeat refreshSignals");
 });
 
-function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): ProjectionApplyRecoveryProofV1 {
+function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): ProjectionApplyRecoveryProofV2 {
   const digest = `sha256:${"a".repeat(64)}` as const;
   const snapshot = {
     repositoryId: "repo.example",
@@ -802,10 +802,10 @@ function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): Projecti
 }
 
 test("refresh-required signals bind the exact accepted ChangeSet event and taxonomy", () => {
-  const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV1;
+  const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV2;
   expect(architectureRefreshSignalInvariantIssues(fixture)).toEqual([]);
   const { acceptedChange: _acceptedChange, ...unaccepted } = fixture;
-  expect(architectureRefreshSignalInvariantIssues(unaccepted as ArchitectureRefreshSignalV1))
+  expect(architectureRefreshSignalInvariantIssues(unaccepted as ArchitectureRefreshSignalV2))
     .toContain("signal.refresh-required requires acceptedChange");
   expect(architectureRefreshSignalInvariantIssues({
     ...fixture,
@@ -815,7 +815,7 @@ test("refresh-required signals bind the exact accepted ChangeSet event and taxon
 
 test("prior committed applies stay bound to the request, the digest and a both-or-neither recovery identity", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
   const entry = {
     applyId: `sha256:${"a".repeat(64)}` as const,
     lookupKey: `sha256:${"b".repeat(64)}` as const,
@@ -830,12 +830,12 @@ test("prior committed applies stay bound to the request, the digest and a both-o
   const withPrior = (priorCommittedApplies: unknown[]) => {
     const { receiptDigest: _receiptDigest, ...payload } = valid;
     const withoutReceipt = { ...payload, priorCommittedApplies };
-    const receiptDigest = projectionResultReceiptDigest(withoutReceipt as unknown as Omit<ProjectionResultV2, "receiptDigest">);
+    const receiptDigest = projectionResultReceiptDigest(withoutReceipt as unknown as Omit<ProjectionResultV3, "receiptDigest">);
     return {
       ...withoutReceipt,
       refreshSignals: withoutReceipt.refreshSignals.map((signal) => ({ ...signal, projectionReceiptDigest: receiptDigest })),
       receiptDigest
-    } as unknown as ProjectionResultV2;
+    } as unknown as ProjectionResultV3;
   };
 
   const accepted = withPrior([entry]);
@@ -866,14 +866,14 @@ test("prior committed applies stay bound to the request, the digest and a both-o
 
 test("orphaned-document-review human actions name exactly one reviewable path (#268)", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
   const requestPayloadDigest = `sha256:${"e".repeat(64)}` as const;
-  const review = (path: string | undefined, reasonCode: ProjectionResultV2["humanActions"][number]["reasonCode"] = "orphaned-document-review") =>
+  const review = (path: string | undefined, reasonCode: ProjectionResultV3["humanActions"][number]["reasonCode"] = "orphaned-document-review") =>
     ({ reasonCode, affectedNodeIds: [], ...(path === undefined ? {} : { path }), requestPayloadDigest });
-  const withActions = (humanActions: ProjectionResultV2["humanActions"], files = valid.files) => {
+  const withActions = (humanActions: ProjectionResultV3["humanActions"], files = valid.files) => {
     const { receiptDigest: _receiptDigest, ...payload } = valid;
     const withoutReceipt = { ...payload, status: "human-action-required" as const, humanActions, files };
-    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV3;
   };
   const modulePath = "docs/architecture/modules/runtime-harness/automation-budget.md";
   const accepted = withActions([review(modulePath)]);
@@ -898,7 +898,7 @@ test("orphaned-document-review human actions name exactly one reviewable path (#
 
 test("a replayed result keeps the committed receipt digest and needs a committed apply (#265)", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
   const applyReceipt = {
     schemaVersion: "archcontext.projection-apply-identity/v1" as const,
     applyId: `sha256:${"a".repeat(64)}` as const,
@@ -912,31 +912,31 @@ test("a replayed result keeps the committed receipt digest and needs a committed
   };
   const { receiptDigest: _fixtureReceipt, ...payload } = valid;
   const committedPayload = { ...payload, applyReceipt };
-  const committed: ProjectionResultV2 = { ...committedPayload, receiptDigest: projectionResultReceiptDigest(committedPayload) };
-  const replayed: ProjectionResultV2 = { ...committed, replayed: true, written: false };
+  const committed: ProjectionResultV3 = { ...committedPayload, receiptDigest: projectionResultReceiptDigest(committedPayload) };
+  const replayed: ProjectionResultV3 = { ...committed, replayed: true, written: false };
   expect(projectionResultReceiptDigest({ ...committedPayload, replayed: true, written: false })).toBe(committed.receiptDigest);
   expect(projectionResultReceiptDigest({ ...committedPayload, replayed: true, written: true })).toBe(committed.receiptDigest);
   expect(projectionResultInvariantIssues(replayed)).toEqual([]);
   expect(validateJsonSchema(schema as any, replayed as any).valid).toBe(true);
-  const restored: ProjectionResultV2 = { ...committed, replayed: true, written: true };
+  const restored: ProjectionResultV3 = { ...committed, replayed: true, written: true };
   expect(projectionResultInvariantIssues(restored)).toEqual([]);
   expect(validateJsonSchema(schema as any, restored as any).valid).toBe(true);
 
   // A replay always says whether it wrote, and only a replay carries `written` (#325).
-  const unsaid: ProjectionResultV2 = { ...committed, replayed: true };
+  const unsaid: ProjectionResultV3 = { ...committed, replayed: true };
   expect(projectionResultInvariantIssues(unsaid)).toContain("written must be present exactly when replayed is present");
   expect(validateJsonSchema(schema as any, unsaid as any).valid).toBe(false);
-  const writtenOnly: ProjectionResultV2 = { ...committed, written: false };
+  const writtenOnly: ProjectionResultV3 = { ...committed, written: false };
   expect(projectionResultInvariantIssues(writtenOnly)).toContain("written must be present exactly when replayed is present");
   expect(validateJsonSchema(schema as any, writtenOnly as any).valid).toBe(false);
   expect(projectionResultInvariantIssues({ ...replayed, written: "no" } as any)).toContain("written must be a boolean when present");
   expect(validateJsonSchema(schema as any, { ...replayed, written: "no" } as any).valid).toBe(false);
 
-  const withoutReceipt: ProjectionResultV2 = { ...valid, replayed: true, written: false };
+  const withoutReceipt: ProjectionResultV3 = { ...valid, replayed: true, written: false };
   expect(projectionResultInvariantIssues(withoutReceipt)).toContain("replayed is only allowed on a committed apply result with applyReceipt");
   expect(validateJsonSchema(schema as any, withoutReceipt as any).valid).toBe(false);
   const planned = { ...committedPayload, status: "planned" as const };
-  const plannedReplay: ProjectionResultV2 = { ...planned, receiptDigest: projectionResultReceiptDigest(planned), replayed: true, written: false };
+  const plannedReplay: ProjectionResultV3 = { ...planned, receiptDigest: projectionResultReceiptDigest(planned), replayed: true, written: false };
   expect(projectionResultInvariantIssues(plannedReplay)).toContain("replayed is only allowed on a committed apply result with applyReceipt");
   expect(validateJsonSchema(schema as any, plannedReplay as any).valid).toBe(false);
   expect(validateJsonSchema(schema as any, { ...replayed, replayed: false } as any).valid).toBe(false);
@@ -944,12 +944,12 @@ test("a replayed result keeps the committed receipt digest and needs a committed
 
 test("a declined acceptObservedMajorChange is explicit and replaces the unresolved major change (#275)", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
   const requestPayloadDigest = `sha256:${"e".repeat(64)}` as const;
-  const result = (status: ProjectionResultV2["status"], humanActions: ProjectionResultV2["humanActions"], majorChangeAcceptance: unknown = "declined-unprovable-proof") => {
+  const result = (status: ProjectionResultV3["status"], humanActions: ProjectionResultV3["humanActions"], majorChangeAcceptance: unknown = "declined-unprovable-proof") => {
     const { receiptDigest: _receiptDigest, ...payload } = valid;
-    const withoutReceipt = { ...payload, status, humanActions, majorChangeAcceptance } as Omit<ProjectionResultV2, "receiptDigest">;
-    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+    const withoutReceipt = { ...payload, status, humanActions, majorChangeAcceptance } as Omit<ProjectionResultV3, "receiptDigest">;
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV3;
   };
   const unprovable = { reasonCode: "unprovable-required-flow" as const, affectedNodeIds: ["capability.api"], requestPayloadDigest };
   const declined = result("human-action-required", [unprovable]);
@@ -972,8 +972,8 @@ test("a declined acceptObservedMajorChange is explicit and replaces the unresolv
 
 test("a partial projection carries coverage, never counts as acceptance and never writes a carried-forward target (#327)", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
-  const coverage: NonNullable<ProjectionResultV2["coverage"]> = {
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
+  const coverage: NonNullable<ProjectionResultV3["coverage"]> = {
     complete: false,
     blockedCapabilityIds: ["capability.web"],
     blockedTargets: [{ targetId: "projection_target.entity.capability.web", path: "docs/architecture/modules/web.md", capabilityIds: ["capability.web"], reasonCodes: ["unprovable-required-flow", "verified-flow-proof-changed"] }],
@@ -981,8 +981,8 @@ test("a partial projection carries coverage, never counts as acceptance and neve
   };
   const result = (extra: Record<string, unknown>) => {
     const { receiptDigest: _receiptDigest, ...payload } = valid;
-    const withoutReceipt = { ...payload, ...extra } as Omit<ProjectionResultV2, "receiptDigest">;
-    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+    const withoutReceipt = { ...payload, ...extra } as Omit<ProjectionResultV3, "receiptDigest">;
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV3;
   };
   for (const status of ["planned-partial", "applied-partial"] as const) {
     const partial = result({ status, coverage });
@@ -1007,7 +1007,7 @@ test("a partial projection carries coverage, never counts as acceptance and neve
   const complete = result({ status: "planned-partial", coverage: { ...coverage, complete: true } });
   expect(projectionResultInvariantIssues(complete)).toContain("coverage.complete must be false; a result that covers every target omits coverage");
   expect(validateJsonSchema(schema as any, complete as any).valid).toBe(false);
-  const applyReceipt = { schemaVersion: "archcontext.projection-apply-identity/v1" } as unknown as ProjectionResultV2["applyReceipt"];
+  const applyReceipt = { schemaVersion: "archcontext.projection-apply-identity/v1" } as unknown as ProjectionResultV3["applyReceipt"];
   const receipted = result({ status: "applied-partial", coverage, applyReceipt });
   expect(projectionResultInvariantIssues(receipted)).toContain("applied-partial status never carries applyReceipt");
   expect(validateJsonSchema(schema as any, receipted as any).valid).toBe(false);
@@ -1076,8 +1076,8 @@ test("the Node engine range is enforced from its one constant, as a distinct non
 
 test("check freshness is schema-valid, receipt-bound and internally consistent (#259)", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
-  const stale: ProjectionFreshnessV1 = {
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
+  const stale: ProjectionFreshnessV2 = {
     ok: false,
     reasonCodes: ["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"],
     staleNodes: [
@@ -1085,7 +1085,7 @@ test("check freshness is schema-valid, receipt-bound and internally consistent (
       { nodeId: "capability.b", stampedDigest: `sha256:${"3".repeat(64)}`, currentDigest: `sha256:${"4".repeat(64)}` }
     ]
   };
-  const fresh: ProjectionFreshnessV1 = { ok: true, reasonCodes: [], staleNodes: [] };
+  const fresh: ProjectionFreshnessV2 = { ok: true, reasonCodes: [], staleNodes: [] };
   for (const freshness of [stale, fresh]) {
     expect(projectionFreshnessIssues(freshness)).toEqual([]);
     expect(validateJsonSchema(schema as any, { ...valid, freshness } as any).issues).toEqual([]);
@@ -1113,7 +1113,7 @@ test("check freshness is schema-valid, receipt-bound and internally consistent (
 
 test("check and plan architecture debt is schema-valid, receipt-bound, mode-bound and internally consistent (#326)", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
   const debt: ProjectionArchitectureDebtV1 = {
     coverage: "complete",
     coverageReasonCodes: [],
@@ -1133,7 +1133,7 @@ test("check and plan architecture debt is schema-valid, receipt-bound, mode-boun
   expect(projectionResultReceiptDigest({ ...payload, architectureDebt: debt })).not.toBe(projectionResultReceiptDigest(payload));
   const signed = (architectureDebt: ProjectionArchitectureDebtV1) => {
     const withoutReceipt = { ...payload, architectureDebt };
-    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV2;
+    return { ...withoutReceipt, receiptDigest: projectionResultReceiptDigest(withoutReceipt) } as ProjectionResultV3;
   };
   expect(projectionResultInvariantIssues(signed(debt))).toEqual([]);
   // Debt never rides on a committed apply, and is bound to check and plan requests.

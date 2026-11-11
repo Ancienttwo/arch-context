@@ -12,7 +12,7 @@ import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import { classifyProjectionTargetChanges } from "./projection-target-changes";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV1, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionFreshnessV1, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV1, Sha256Digest } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV2, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV2, ProjectionApplyRecoveryResultV2, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -193,7 +193,7 @@ function withProjectionMetadata(
   provenance: ArchitectureDocumentationProjectionProvenanceV3,
   runtimeSnapshot: ArchitectureDocumentationProjectionRuntimeSnapshot,
   majorChange: ArchitectureMajorChangeClassificationV1,
-  refreshSignals: ArchitectureRefreshSignalV1[],
+  refreshSignals: ArchitectureRefreshSignalV2[],
   receiptDigest: string
 ): JsonEnvelope {
   if (!envelope.ok) return envelope;
@@ -470,7 +470,7 @@ async function applyProjectionProtocolFixedPoint(
     files: committedFiles,
     refreshSignals: committedSignals
   }, priorCommittedApplies);
-  let recoveryBinding: ProjectionApplyRecoveryBindingV1 | undefined;
+  let recoveryBinding: ProjectionApplyRecoveryBindingV2 | undefined;
   if (applyIdentity) {
     try {
       recoveryBinding = createProjectionApplyRecoveryBinding(request, fixedPoint, appliedResult);
@@ -558,7 +558,7 @@ async function applyProjectionProtocolFixedPoint(
 
 /**
  * Stable cross-repository projection protocol. Unlike the human-oriented `docs` surface, this
- * command accepts one ProjectionRequestV1 and returns one ProjectionResultV2. The request snapshot
+ * command accepts one ProjectionRequestV1 and returns one ProjectionResultV3. The request snapshot
  * is checked before any ChangeSet is planned, and every successful response is validated against
  * the contracts package before it crosses the process boundary.
  */
@@ -707,7 +707,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
 }
 
 /** `check` and `plan` without a human action: nothing to write, a complete plan, or a partial one. */
-function projectionPlannedStatus(projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionResultV2["status"] {
+function projectionPlannedStatus(projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionResultV3["status"] {
   if (projection.plan.isolation) return "planned-partial";
   return projection.plan.drift.ok ? "noop" : "planned";
 }
@@ -769,7 +769,7 @@ function runProjectionCheckInvocationUnchecked(rawRequest: unknown, cwd: string)
 
 /**
  * A repeated apply or adopt whose requestId already committed an accepted apply. The same request
- * (requestId and request digest) gets the committed ProjectionResultV2 back, marked `replayed`,
+ * (requestId and request digest) gets the committed ProjectionResultV3 back, marked `replayed`,
  * without applying again; a different request under that requestId is refused with
  * AC_PROJECTION_APPLY_COMMITTED and the committed lookup key (#265). The key is the caller's
  * requestId and request digest, never the accepted-change ids a provider may have generated.
@@ -1020,7 +1020,7 @@ export function projectionFailureEnvelope(requestId: string, error: unknown): Js
  * `complete` gate and `projection freshness` use. It reads repository files only — no daemon call,
  * no runtime state.
  */
-function projectionCheckFreshness(root: string, projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionFreshnessV1 {
+function projectionCheckFreshness(root: string, projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionFreshnessV2 {
   return projectionFreshnessContract(evaluateProjectionFreshness({
     model: projection.loaded.model,
     profile: projection.plan.profile,
@@ -1095,7 +1095,7 @@ async function recoverProjectionApplyIntent(
   const consumption = recovered.data as {
     found?: boolean;
     receipt?: ProjectionApplyReceiptV1;
-    proof?: ProjectionApplyRecoveryProofV1;
+    proof?: ProjectionApplyRecoveryProofV2;
     refreshSignalsDelivered?: boolean;
   };
   if (consumption.found !== true || !consumption.receipt || !consumption.proof) {
@@ -1111,15 +1111,15 @@ async function recoverProjectionApplyIntent(
 function createProjectionApplyRecoveryBinding(
   request: ProjectionRequestV1,
   projection: ReturnType<typeof buildArchitectureDocsProjection>,
-  result: ProjectionResultV2
-): ProjectionApplyRecoveryBindingV1 {
+  result: ProjectionResultV3
+): ProjectionApplyRecoveryBindingV2 {
   const provenance = projection.plan.provenance;
   return {
     schemaVersion: "archcontext.projection-apply-recovery-binding/v1",
     targets: [...request.targets],
     changedPaths: [...request.changedPaths],
     originalExpectedSnapshot: { ...request.expected },
-    expectedResultingDigests: projection.plan.architectureDigests as ProjectionApplyRecoveryBindingV1["expectedResultingDigests"],
+    expectedResultingDigests: projection.plan.architectureDigests as ProjectionApplyRecoveryBindingV2["expectedResultingDigests"],
     rendererVersion: provenance.rendererVersion,
     layoutVersion: provenance.layoutVersion,
     generatedFrom: projectionProtocolGeneratedFrom(provenance, projection.runtimeSnapshot),
@@ -1137,7 +1137,7 @@ function projectionOwnedOutputDigest(projection: ReturnType<typeof buildArchitec
   } as unknown as Json) as Sha256Digest;
 }
 
-function projectionApplyRecoveryResultEnvelope(result: ProjectionApplyRecoveryResultV1): JsonEnvelope {
+function projectionApplyRecoveryResultEnvelope(result: ProjectionApplyRecoveryResultV2): JsonEnvelope {
   const issues = projectionApplyRecoveryResultInvariantIssues(result);
   return issues.length === 0
     ? okEnvelope("projection.recover", result as unknown as Json)
@@ -1340,7 +1340,7 @@ class ProjectionExpectedSnapshotMismatchError extends FailureError<"AC_PRECONDIT
 function projectionProtocolHumanStatus(
   request: ProjectionRequestV1,
   projection: ReturnType<typeof buildArchitectureDocsProjection>
-): ProjectionResultV2["status"] | null {
+): ProjectionResultV3["status"] | null {
   const humanSignal = projection.plan.refreshSignals.some((signal) => signal.mode === "human-action-required");
   const adoption = projection.plan.rejected.some((diff) => diff.reasonCode === "projection-adoption-required");
   const otherRejection = projection.plan.rejected.some((diff) => diff.reasonCode !== "projection-adoption-required");
@@ -1371,7 +1371,7 @@ function projectionDeletableOrphans(projection: ReturnType<typeof buildArchitect
  */
 function projectionOrphanDeleteOperations(projection: ReturnType<typeof buildArchitectureDocsProjection>): Array<{
   operation: { path: string; expectedHash: string; delete: true };
-  result: ProjectionResultV2["files"][number];
+  result: ProjectionResultV3["files"][number];
 }> {
   const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.onDisk]));
   return projectionDeletableOrphans(projection).map((orphan) => {
@@ -1388,10 +1388,10 @@ function projectionOrphanDeleteOperations(projection: ReturnType<typeof buildArc
 function projectionProtocolEnvelope(
   request: ProjectionRequestV1,
   input: ReturnType<typeof buildArchitectureDocsProjection>,
-  status: ProjectionResultV2["status"],
+  status: ProjectionResultV3["status"],
   output: ReturnType<typeof buildArchitectureDocsProjection>,
   priorCommittedApplies: ProjectionPriorCommittedApplyV1[],
-  freshness?: ProjectionFreshnessV1,
+  freshness?: ProjectionFreshnessV2,
   declinedUnprovableNodeIds?: string[]
 ): JsonEnvelope {
   return projectionProtocolResultEnvelope(projectionProtocolResult(request, input, status, output, undefined, undefined, priorCommittedApplies, freshness, declinedUnprovableNodeIds));
@@ -1400,24 +1400,24 @@ function projectionProtocolEnvelope(
 function projectionProtocolResult(
   request: ProjectionRequestV1,
   input: ReturnType<typeof buildArchitectureDocsProjection>,
-  status: ProjectionResultV2["status"],
+  status: ProjectionResultV3["status"],
   output: ReturnType<typeof buildArchitectureDocsProjection> = input,
   applyReceipt?: ProjectionApplyIdentityV1,
   overrides?: {
-    files: ProjectionResultV2["files"];
-    refreshSignals: ArchitectureRefreshSignalV1[];
+    files: ProjectionResultV3["files"];
+    refreshSignals: ArchitectureRefreshSignalV2[];
   },
   priorCommittedApplies: ProjectionPriorCommittedApplyV1[] = [],
-  freshness?: ProjectionFreshnessV1,
+  freshness?: ProjectionFreshnessV2,
   declinedUnprovableNodeIds?: string[]
-): ProjectionResultV2 {
+): ProjectionResultV3 {
   const inputSnapshot = projectionProtocolSnapshot(request, input);
   const outputSnapshot = projectionProtocolSnapshot(request, output);
   const plannedFiles = overrides?.files ?? projectionProtocolFiles(input);
   const files = request.mode === "plan" ? withProjectionPlanPreviews(input, plannedFiles) : plannedFiles;
   const affectedNodeIds = projectionProtocolAffectedNodes(input);
   const requestPayloadDigest = digestJson(request as unknown as Json) as Sha256Digest;
-  const humanActions: ProjectionResultV2["humanActions"] = [];
+  const humanActions: ProjectionResultV3["humanActions"] = [];
   if (status === "adoption-required") {
     humanActions.push({ reasonCode: "adoption-required", affectedNodeIds, requestPayloadDigest });
   } else if (status === "human-action-required") {
@@ -1449,7 +1449,7 @@ function projectionProtocolResult(
   // Classification is reported, never acted on: it reads the input render and the files this
   // result reports, and changes no status, file or gate (#327).
   const changes = request.mode === "check" || request.mode === "plan" ? projectionTargetChanges(input, plannedFiles) : undefined;
-  const withoutReceipt: Omit<ProjectionResultV2, "receiptDigest"> = {
+  const withoutReceipt: Omit<ProjectionResultV3, "receiptDigest"> = {
     schemaVersion: "archcontext.projection-result/v2",
     requestId: request.requestId,
     status,
@@ -1468,7 +1468,7 @@ function projectionProtocolResult(
     ...(status === "planned-partial" || status === "applied-partial" ? { coverage: projectionCoverage(input) } : {})
   };
   const receiptDigest = projectionResultReceiptDigest(withoutReceipt);
-  const result: ProjectionResultV2 = {
+  const result: ProjectionResultV3 = {
     ...withoutReceipt,
     refreshSignals: refreshSignals.map((signal) => ({ ...signal, projectionReceiptDigest: receiptDigest })),
     receiptDigest
@@ -1487,8 +1487,8 @@ function projectionProtocolResult(
  */
 function projectionTargetChanges(
   projection: ReturnType<typeof buildArchitectureDocsProjection>,
-  files: ProjectionResultV2["files"]
-): ProjectionTargetChangeV1[] {
+  files: ProjectionResultV3["files"]
+): ProjectionTargetChangeV2[] {
   return classifyProjectionTargetChanges({
     committed: projection.plan.committedManifest,
     renderedTargets: projection.plan.renderedTargets,
@@ -1514,7 +1514,7 @@ function projectionCoverage(projection: ReturnType<typeof buildArchitectureDocsP
   };
 }
 
-function projectionProtocolResultEnvelope(result: ProjectionResultV2): JsonEnvelope {
+function projectionProtocolResultEnvelope(result: ProjectionResultV3): JsonEnvelope {
   const issues = projectionResultInvariantIssues(result);
   return issues.length === 0
     ? okEnvelope("projection.run", result as unknown as Json)
@@ -1522,11 +1522,11 @@ function projectionProtocolResultEnvelope(result: ProjectionResultV2): JsonEnvel
 }
 
 function projectionResultDelivery(
-  source: ProjectionResultV2,
-  status: ProjectionResultV2["status"],
-  refreshSignals: ArchitectureRefreshSignalV1[],
+  source: ProjectionResultV3,
+  status: ProjectionResultV3["status"],
+  refreshSignals: ArchitectureRefreshSignalV2[],
   requestId = source.requestId
-): ProjectionResultV2 {
+): ProjectionResultV3 {
   const { receiptDigest: _receiptDigest, ...payload } = source;
   const withoutReceipt = { ...payload, requestId, status, refreshSignals };
   const receiptDigest = projectionResultReceiptDigest(withoutReceipt);
@@ -1570,9 +1570,9 @@ function projectionProtocolSnapshot(
  */
 function projectionProtocolFiles(
   projection: ReturnType<typeof buildArchitectureDocsProjection>
-): ProjectionResultV2["files"] {
+): ProjectionResultV3["files"] {
   if (projection.plan.drift.ok) return [];
-  const rejected = projection.plan.rejected.flatMap<ProjectionResultV2["files"][number]>((diff) => {
+  const rejected = projection.plan.rejected.flatMap<ProjectionResultV3["files"][number]>((diff) => {
     const expected = projectionDigestOrNull(diff.expectedDigest);
     const actual = projectionDigestOrNull(diff.actualDigest);
     return expected && actual && expected !== actual
@@ -1596,9 +1596,9 @@ function projectionWriteFileResults(
   renderInput: readonly ProjectionOwnedFile[],
   files: readonly { path: string; body: string }[],
   orphanDeletes: ReturnType<typeof projectionOrphanDeleteOperations>
-): ProjectionResultV2["files"] {
+): ProjectionResultV3["files"] {
   const readByPath = new Map(renderInput.map((file) => [file.path, file.onDisk]));
-  const writes = projectionFilesBoundToRenderInput(renderInput, files).flatMap<ProjectionResultV2["files"][number]>((write) => {
+  const writes = projectionFilesBoundToRenderInput(renderInput, files).flatMap<ProjectionResultV3["files"][number]>((write) => {
     const onDisk = readByPath.get(write.path);
     if (onDisk === write.body) return [];
     const outputDigest = digestJson({ path: write.path, body: write.body } as unknown as Json) as Sha256Digest;
@@ -1619,12 +1619,12 @@ function projectionWriteFileResults(
  */
 function withProjectionPlanPreviews(
   projection: ReturnType<typeof buildArchitectureDocsProjection>,
-  files: ProjectionResultV2["files"]
-): ProjectionResultV2["files"] {
+  files: ProjectionResultV3["files"]
+): ProjectionResultV3["files"] {
   const rendered = new Map(projection.files.map((file) => [file.path, file.body]));
   const current = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
   const rejected = new Set(projection.plan.rejected.map((diff) => diff.path));
-  const previewable = files.filter((file): file is ProjectionResultV2["files"][number] & { action: "create" | "delete" | "update" } =>
+  const previewable = files.filter((file): file is ProjectionResultV3["files"][number] & { action: "create" | "delete" | "update" } =>
     file.action !== "unchanged" && !rejected.has(file.path));
   const previews = architectureProjectionFilePreviews(previewable.map((file) => ({
     path: file.path,

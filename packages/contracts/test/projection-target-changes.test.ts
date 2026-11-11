@@ -13,8 +13,8 @@ import {
   projectionResultRequestModeIssues,
   projectionTargetChangeClassification,
   projectionTargetChangesIssues,
-  type ProjectionResultV2,
-  type ProjectionTargetChangeV1
+  type ProjectionResultV3,
+  type ProjectionTargetChangeV2
 } from "../src/projection";
 
 /**
@@ -34,8 +34,8 @@ const CATALOG = "docs/architecture/modules/flows/catalog.md";
 const RENDERER = "docs/architecture/modules/flows/renderer.md";
 const MANIFEST = "docs/architecture/.projection-manifest.json";
 
-function change(path: string, fields: Partial<ProjectionTargetChangeV1>): ProjectionTargetChangeV1 {
-  const base: Omit<ProjectionTargetChangeV1, "classification"> = {
+function change(path: string, fields: Partial<ProjectionTargetChangeV2>): ProjectionTargetChangeV2 {
+  const base: Omit<ProjectionTargetChangeV2, "classification"> = {
     targetId: `projection_target.${path.replace(/[^a-z]+/g, "_")}`,
     path,
     affectedCapabilityIds: [],
@@ -50,17 +50,17 @@ function change(path: string, fields: Partial<ProjectionTargetChangeV1>): Projec
   return { ...merged, classification: fields.classification ?? projectionTargetChangeClassification(merged) };
 }
 
-function signed(result: Omit<ProjectionResultV2, "receiptDigest"> & { receiptDigest?: unknown }): ProjectionResultV2 {
+function signed(result: Omit<ProjectionResultV3, "receiptDigest"> & { receiptDigest?: unknown }): ProjectionResultV3 {
   const { receiptDigest: _receiptDigest, ...payload } = result;
-  return { ...payload, receiptDigest: projectionResultReceiptDigest(payload) } as ProjectionResultV2;
+  return { ...payload, receiptDigest: projectionResultReceiptDigest(payload) } as ProjectionResultV3;
 }
 
-const fixture = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
-const files: ProjectionResultV2["files"] = [
+const fixture = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV3;
+const files: ProjectionResultV3["files"] = [
   { path: MANIFEST, action: "update", preimageDigest: digest("1"), outputDigest: digest("2") },
   { path: CATALOG, action: "update", preimageDigest: digest("3"), outputDigest: digest("4") }
 ];
-const changes: ProjectionTargetChangeV1[] = [
+const changes: ProjectionTargetChangeV2[] = [
   change(INDEX, {}),
   change(CATALOG, {
     affectedCapabilityIds: ["capability.flows.catalog"],
@@ -89,7 +89,7 @@ test("a check or plan result carries schema-valid, receipt-bound per-target chan
 });
 
 test("classification follows one precedence: blocked > proof (known) > baseline-missing > semantic > output > stamp-only > unchanged (#327)", () => {
-  const flags = (fields: Partial<ProjectionTargetChangeV1>) => projectionTargetChangeClassification(change(CATALOG, fields));
+  const flags = (fields: Partial<ProjectionTargetChangeV2>) => projectionTargetChangeClassification(change(CATALOG, fields));
   expect(flags({})).toBe("unchanged");
   expect(flags({ stampChanged: true, reasonCodes: ["source-stamp-changed"] })).toBe("stamp-only");
   expect(flags({ stampChanged: true, outputChanged: true, reasonCodes: ["rendered-output-changed", "source-stamp-changed"] })).toBe("output-change");
@@ -124,7 +124,7 @@ test("classification follows one precedence: blocked > proof (known) > baseline-
 });
 
 test("the change invariants refuse inconsistent entries (#327)", () => {
-  const issues = (entries: ProjectionTargetChangeV1[], resultFiles = files) => projectionTargetChangesIssues(entries, resultFiles);
+  const issues = (entries: ProjectionTargetChangeV2[], resultFiles = files) => projectionTargetChangesIssues(entries, resultFiles);
   expect(issues(changes)).toEqual([]);
   expect(issues([...changes].reverse())).toContain("changes.path must be sorted and unique");
   // The classification is derived, never chosen.
@@ -172,12 +172,12 @@ test("the change invariants refuse inconsistent entries (#327)", () => {
 });
 
 test("every non-manifest files[] action has a change of its path, and no change names the manifest (#327)", () => {
-  const issues = (entries: ProjectionTargetChangeV1[], resultFiles = files) => projectionTargetChangesIssues(entries, resultFiles);
+  const issues = (entries: ProjectionTargetChangeV2[], resultFiles = files) => projectionTargetChangesIssues(entries, resultFiles);
   // Dropping the change of a planned write leaves its files[] action unexplained.
   expect(issues([changes[0]!, changes[2]!])).toContain(`changes must name the files[] update of ${CATALOG}; only the projection manifest has none`);
   // Also a rejected path, and a create or a delete.
   for (const action of ["create", "delete"] as const) {
-    const extra: ProjectionResultV2["files"][number] = action === "create"
+    const extra: ProjectionResultV3["files"][number] = action === "create"
       ? { path: RENDERER, action, preimageDigest: null, outputDigest: digest("5") }
       : { path: RENDERER, action, preimageDigest: digest("5"), outputDigest: null };
     expect(issues([changes[0]!, changes[1]!], [...files, extra])).toContain(`changes must name the files[] ${action} of ${RENDERER}; only the projection manifest has none`);

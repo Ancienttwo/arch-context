@@ -136,7 +136,7 @@ function originRef(fixture: WriterFixture, ref: string): string | null {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-/** A fake apply: writes owned outputs into the worktree and reports them like ProjectionResultV2. */
+/** A fake apply: writes owned outputs into the worktree and reports them like ProjectionResultV3. */
 function fakeApply(write: (worktree: string, request: ProjectionRequestV1, call: number) => { status?: string; files?: Record<string, string | null>; reported?: string[]; humanActions?: unknown[] } | JsonEnvelope) {
   const calls: { worktree: string; request: ProjectionRequestV1 }[] = [];
   const apply: ProjectionWriterApplyPort = async (worktree, request) => {

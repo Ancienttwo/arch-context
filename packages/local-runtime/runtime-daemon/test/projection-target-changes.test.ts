@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import {
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
   projectionTargetChangesIssues,
-  type ArchitectureDocsProjectionManifestCapabilityV3,
-  type ArchitectureDocsProjectionManifestTargetV3,
-  type ArchitectureDocsProjectionManifestV3,
+  type ArchitectureDocsProjectionManifestCapabilityV4,
+  type ArchitectureDocsProjectionManifestTargetV4,
+  type ArchitectureDocsProjectionManifestV4,
   type ProjectionFileResultV1,
-  type ProjectionTargetChangeV1
+  type ProjectionTargetChangeV2
 } from "@archcontext/contracts";
 import { classifyProjectionTargetChanges, type ProjectionTargetChangeInput } from "../src/projection-target-changes";
 
@@ -32,24 +32,24 @@ const PATH = {
   [ENTITY_C]: "docs/architecture/modules/flows/gamma.md"
 } as const;
 
-function capability(capabilityId: string, members: string[], overrides: Partial<ArchitectureDocsProjectionManifestCapabilityV3> = {}): ArchitectureDocsProjectionManifestCapabilityV3 {
+function capability(capabilityId: string, members: string[], overrides: Partial<ArchitectureDocsProjectionManifestCapabilityV4> = {}): ArchitectureDocsProjectionManifestCapabilityV4 {
   return {
     capabilityId,
     memberNodeIds: [capabilityId, ...members].sort(),
     semanticFingerprint: digest("a"),
     flowProofFingerprint: digest("b"),
     proofStatus: { p1: "proven", p2: "proven" },
-    facets: {} as ArchitectureDocsProjectionManifestCapabilityV3["facets"],
+    facets: {} as ArchitectureDocsProjectionManifestCapabilityV4["facets"],
     selectorEvidenceDigest: digest("c"),
     ...overrides
   };
 }
 
-function entityRow(targetId: keyof typeof PATH, nodeId: string, stamps: Record<string, string>, outputDigest = digest("1")): ArchitectureDocsProjectionManifestTargetV3 {
+function entityRow(targetId: keyof typeof PATH, nodeId: string, stamps: Record<string, string>, outputDigest = digest("1")): ArchitectureDocsProjectionManifestTargetV4 {
   return { type: "entity-summary", scope: { kind: "entity", id: nodeId, entityKind: "capability" }, path: PATH[targetId], ownership: "mixed", format: "markdown", outputDigest, sourceStamps: stamps };
 }
 
-function baseRows(): Record<string, ArchitectureDocsProjectionManifestTargetV3> {
+function baseRows(): Record<string, ArchitectureDocsProjectionManifestTargetV4> {
   return {
     [INDEX]: { type: "architecture-index", scope: { kind: "repository" }, path: PATH[INDEX], ownership: "mixed", format: "markdown", outputDigest: digest("2") },
     [MERMAID]: { type: "diagram-mermaid", scope: { kind: "diagram", id: "architecture" }, path: PATH[MERMAID], ownership: "generated", format: "mermaid", outputDigest: digest("3") },
@@ -58,7 +58,7 @@ function baseRows(): Record<string, ArchitectureDocsProjectionManifestTargetV3> 
   };
 }
 
-function manifest(capabilities = [capability(A, [`${A}.child`]), capability(B, [])], targets = baseRows()): ArchitectureDocsProjectionManifestV3 {
+function manifest(capabilities = [capability(A, [`${A}.child`]), capability(B, [])], targets = baseRows()): ArchitectureDocsProjectionManifestV4 {
   return {
     schemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
     rendererVersion: "archcontext.docs-renderer/v6",
@@ -96,7 +96,7 @@ function write(path: string, action: "create" | "update" | "delete"): Projection
 
 const MANIFEST_WRITE = write(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, "update");
 
-function classify(input: ProjectionTargetChangeInput): Map<string, ProjectionTargetChangeV1> {
+function classify(input: ProjectionTargetChangeInput): Map<string, ProjectionTargetChangeV2> {
   const changes = classifyProjectionTargetChanges(input);
   expect(projectionTargetChangesIssues(changes, input.files)).toEqual([]);
   // Every planned doc write or delete is one change, and the manifest is never a target.
@@ -106,7 +106,7 @@ function classify(input: ProjectionTargetChangeInput): Map<string, ProjectionTar
   return new Map(changes.map((entry) => [entry.targetId, entry]));
 }
 
-const summary = (entry: ProjectionTargetChangeV1 | undefined) => entry && ({ classification: entry.classification, plannedAction: entry.plannedAction, reasonCodes: entry.reasonCodes, affectedCapabilityIds: entry.affectedCapabilityIds });
+const summary = (entry: ProjectionTargetChangeV2 | undefined) => entry && ({ classification: entry.classification, plannedAction: entry.plannedAction, reasonCodes: entry.reasonCodes, affectedCapabilityIds: entry.affectedCapabilityIds });
 
 test("the committed state rendered again classifies every target unchanged", () => {
   const changes = classify(unchangedInput());

@@ -6,7 +6,7 @@ import {
   type NativeModel,
   type SemanticCapabilityDiagramCompilation
 } from "../src/index";
-import { architectureRefreshSignalInvariantIssues, type AcceptedArchitectureChangeReferenceV1, type ArchitectureDigestSetV1, type ArchitectureMajorChangeReasonCode } from "@archcontext/contracts";
+import { architectureRefreshSignalInvariantIssues, type AcceptedArchitectureChangeReferenceV1, type ArchitectureDigestSetV2, type ArchitectureMajorChangeReasonCode } from "@archcontext/contracts";
 
 describe("AXR4 architecture major-change classifier", () => {
   test("maps every closed semantic facet to its reason code", () => {
@@ -287,7 +287,7 @@ function signalInput(
   };
 }
 
-function digestSet(model: string, source: string, proofValue: string, projection: string): ArchitectureDigestSetV1 {
+function digestSet(model: string, source: string, proofValue: string, projection: string): ArchitectureDigestSetV2 {
   return {
     modelDigest: digest(model),
     sourceTreeDigest: digest(source),

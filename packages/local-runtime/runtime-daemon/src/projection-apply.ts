@@ -1,5 +1,5 @@
 import { publicFailureEnvelope, publicOperationFailure, publicOperationErrorEnvelope } from "./public-operation-failure";
-import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1 } from "@archcontext/contracts";
+import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV2 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, digestCapabilitySourceFootprints, loadArchitectureDocumentationInputs, measureCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
@@ -197,8 +197,8 @@ export class ProjectionApplyService {
 
 type RuntimeProjectionRecoveryFixedPoint = {
   projection: ReturnType<typeof renderArchitectureDocumentationProjection>;
-  snapshot: ProjectionApplyRecoveryProofV1["current"]["snapshot"];
-  ownedOutputDigest: ProjectionApplyRecoveryProofV1["current"]["ownedOutputDigest"];
+  snapshot: ProjectionApplyRecoveryProofV2["current"]["snapshot"];
+  ownedOutputDigest: ProjectionApplyRecoveryProofV2["current"]["ownedOutputDigest"];
 };
 
 /** Rebuilds recovery semantics from repository authority while the daemon owns the writer. */
@@ -246,7 +246,7 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
     rendererVersion: projection.provenance.rendererVersion,
     layoutVersion: projection.provenance.layoutVersion,
     generatedFrom: projectionProtocolGeneratedFrom(projection.provenance, codeGraphInputs.runtimeSnapshot)
-  } as ProjectionApplyRecoveryProofV1["current"]["snapshot"];
+  } as ProjectionApplyRecoveryProofV2["current"]["snapshot"];
   return {
     projection,
     snapshot,
@@ -293,7 +293,7 @@ function runtimeProjectionRecoveryFixedPointIssues(
   return issues;
 }
 
-function runtimeProjectionRecoveryCurrent(fixedPoint: RuntimeProjectionRecoveryFixedPoint): ProjectionApplyRecoveryProofV1["current"] {
+function runtimeProjectionRecoveryCurrent(fixedPoint: RuntimeProjectionRecoveryFixedPoint): ProjectionApplyRecoveryProofV2["current"] {
   return {
     snapshot: fixedPoint.snapshot,
     resultingDigests: fixedPoint.projection.architectureDigests,
@@ -307,19 +307,19 @@ function runtimeProjectionRecoveryCurrent(fixedPoint: RuntimeProjectionRecoveryF
       majorChange: fixedPoint.projection.majorChange,
       refreshSignalIds: fixedPoint.projection.refreshSignals.map((signal) => signal.signalId)
     } as unknown as Json)
-  } as ProjectionApplyRecoveryProofV1["current"];
+  } as ProjectionApplyRecoveryProofV2["current"];
 }
 
 function createRuntimeProjectionRecoveryProof(
   intent: ProjectionApplyRecoveryIntentV1,
   receipt: ProjectionApplyReceiptV1,
   fixedPoint: RuntimeProjectionRecoveryFixedPoint
-): ProjectionApplyRecoveryProofV1 {
+): ProjectionApplyRecoveryProofV2 {
   const current = runtimeProjectionRecoveryCurrent(fixedPoint);
   const payload = {
     schemaVersion: "archcontext.projection-apply-recovery-proof/v1" as const,
     requestId: intent.requestId,
-    requestDigest: digestJson(intent as unknown as Json) as ProjectionApplyRecoveryProofV1["requestDigest"],
+    requestDigest: digestJson(intent as unknown as Json) as ProjectionApplyRecoveryProofV2["requestDigest"],
     receipt: {
       lookupKey: receipt.identity.lookupKey,
       applyId: receipt.identity.applyId,

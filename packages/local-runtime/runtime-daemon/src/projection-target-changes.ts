@@ -1,21 +1,21 @@
 import {
   projectionTargetChangeClassification,
   type ArchitectureCapabilitySemanticStateV1,
-  type ArchitectureDocsProjectionManifestTargetV3,
-  type ArchitectureDocsProjectionManifestV3,
+  type ArchitectureDocsProjectionManifestTargetV4,
+  type ArchitectureDocsProjectionManifestV4,
   type ProjectionCoverageBlockedTargetV1,
   type ProjectionFileResultV1,
   type ProjectionTargetChangePlannedAction,
   type ProjectionTargetChangeReasonCode,
-  type ProjectionTargetChangeV1
+  type ProjectionTargetChangeV2
 } from "@archcontext/contracts";
 
 /** What one `check` or `plan` render knows, and the result's own write decision. */
 export interface ProjectionTargetChangeInput {
   /** The committed current-format manifest the render classified against; undefined without one. */
-  committed: ArchitectureDocsProjectionManifestV3 | undefined;
+  committed: ArchitectureDocsProjectionManifestV4 | undefined;
   /** Every current target's row as the complete render produced it, carried-forward targets included. */
-  renderedTargets: Record<string, ArchitectureDocsProjectionManifestTargetV3>;
+  renderedTargets: Record<string, ArchitectureDocsProjectionManifestTargetV4>;
   /** The digest of the current model (`provenance.modelDigest`), which the committed `semanticBaseline.modelDigest` anchors. */
   modelDigest: string;
   /** The current semantic state of every capability. */
@@ -45,7 +45,7 @@ const REJECTION_REASONS: Readonly<Record<string, ProjectionTargetChangeReasonCod
  * reads the `files[]` action even where a rejection blocks the write. Nothing here changes what a
  * run writes or reports as its status.
  */
-export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInput): ProjectionTargetChangeV1[] {
+export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInput): ProjectionTargetChangeV2[] {
   const committed = input.committed;
   const committedRows = committed?.targets ?? {};
   const baseById = new Map((committed?.semanticBaseline.capabilities ?? []).map((capability) => [capability.capabilityId, capability]));
@@ -78,7 +78,7 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
   // One entry per path. A committed row describes a current target only at the same path; a row
   // whose path no current target renders is a removed target, and an orphan no row records is a
   // removed target without a committed row.
-  const entries: Array<{ targetId: string; path: string; current?: ArchitectureDocsProjectionManifestTargetV3; committed?: ArchitectureDocsProjectionManifestTargetV3 }> = [];
+  const entries: Array<{ targetId: string; path: string; current?: ArchitectureDocsProjectionManifestTargetV4; committed?: ArchitectureDocsProjectionManifestTargetV4 }> = [];
   for (const [targetId, row] of Object.entries(input.renderedTargets)) {
     const committedRow = committedRows[targetId];
     entries.push({ targetId, path: row.path, current: row, ...(committedRow?.path === row.path ? { committed: committedRow } : {}) });
@@ -95,7 +95,7 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
     covered.add(orphan.path);
   }
 
-  return entries.map((entry): ProjectionTargetChangeV1 => {
+  return entries.map((entry): ProjectionTargetChangeV2 => {
     const reasons = new Set<ProjectionTargetChangeReasonCode>();
     const affected = new Set<string>();
     const row = entry.current ?? entry.committed;

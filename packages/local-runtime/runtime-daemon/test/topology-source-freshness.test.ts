@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, stableYaml, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, stableYaml, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext, REPO_HARNESS_PROJECTION_PROFILE } from "@archcontext/core/projection-engine";
 import { listGitVisibleFiles, readHeadSha } from "@archcontext/local-runtime/git-adapter";
@@ -60,10 +60,10 @@ function checkRequest(): ProjectionRequestV1 {
   };
 }
 
-function projectionResult(envelope: JsonEnvelope): ProjectionResultV2 {
+function projectionResult(envelope: JsonEnvelope): ProjectionResultV3 {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
   expect(publishedSchemaIssues("runtime/projection-result.schema.json", envelope.data)).toEqual([]);
-  return envelope.data as unknown as ProjectionResultV2;
+  return envelope.data as unknown as ProjectionResultV3;
 }
 
 beforeAll(() => {

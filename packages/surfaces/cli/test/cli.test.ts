@@ -17,7 +17,7 @@ import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-fact
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, grantAuditConsent, readAuditConsent, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, architectureDocsProjectionManifestDigests, architectureDocsProjectionManifestSourceStamps, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, architectureDocsProjectionManifestDigests, architectureDocsProjectionManifestSourceStamps, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { createDaemonSetupKeepalive } from "./daemon-setup-keepalive";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { CLI_COMMAND_FLAGS, resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
@@ -175,7 +175,7 @@ function projectionProtocolExpectedSnapshot(root: string): ProjectionRequestV1["
   };
 }
 
-test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-valid ProjectionResultV2", async () => {
+test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-valid ProjectionResultV3", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-projection-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
   initializeArchContextModel(root, "Projection App");
@@ -209,7 +209,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     writeFileSync(join(root, ".ai/harness/journal/post-edit/pending/change.json"), "{}\n", "utf8");
     const result = await cli("projection", ["run", "--request-json", JSON.stringify(request)]);
     expect(result.ok, JSON.stringify(result)).toBe(true);
-    const projection = result.data as unknown as ProjectionResultV2;
+    const projection = result.data as unknown as ProjectionResultV3;
     expect(projection.schemaVersion).toBe("archcontext.projection-result/v2");
     expect(projection.requestId).toBe(request.requestId);
     expect(projection.inputSnapshot).not.toBe(projection.outputSnapshot);
@@ -278,7 +278,7 @@ test("CLI projection check reports per-node freshness read-only, from content st
       expected: projectionProtocolExpectedSnapshot(root)
     } satisfies ProjectionRequestV1)]);
     expect(result.ok, JSON.stringify(result)).toBe(true);
-    const projection = result.data as unknown as ProjectionResultV2;
+    const projection = result.data as unknown as ProjectionResultV3;
     expect(projectionResultInvariantIssues(projection)).toEqual([]);
     expect(validateJsonSchema(JSON.parse(readFileSync(resolve(import.meta.dir, "../../../../schemas/runtime/projection-result.schema.json"), "utf8")), projection as any).issues).toEqual([]);
     return projection;
@@ -355,7 +355,7 @@ test("CLI projection check under repo-harness/v1 is fresh after apply when a mem
       expected: projectionProtocolExpectedSnapshot(root)
     } satisfies ProjectionRequestV1)]);
     expect(result.ok, JSON.stringify(result)).toBe(true);
-    const projection = result.data as unknown as ProjectionResultV2;
+    const projection = result.data as unknown as ProjectionResultV3;
     expect(projectionResultInvariantIssues(projection)).toEqual([]);
     return projection.freshness;
   };
@@ -599,7 +599,7 @@ test("a 0.7.x tree re-baselines once its v5-marked whole-file outputs are remove
         expected: projectionProtocolExpectedSnapshot(root)
       } satisfies ProjectionRequestV1)]);
       expect(result.ok, JSON.stringify(result)).toBe(true);
-      const projection = result.data as unknown as ProjectionResultV2;
+      const projection = result.data as unknown as ProjectionResultV3;
       return { status: projection.status, freshness: projection.freshness, humanActions: projection.humanActions.map((action) => action.reasonCode) };
     };
     // What a check reports on a tree this release projected itself; the re-baselined tree must
@@ -802,7 +802,7 @@ test("CLI projection check never starts a runtime, writes runtime state or needs
     }
     expect(inProcess.ok, JSON.stringify(inProcess)).toBe(true);
     expect(runtimeAccesses).toBe(0);
-    const inProcessResult = (inProcess as JsonEnvelope).data as unknown as ProjectionResultV2;
+    const inProcessResult = (inProcess as JsonEnvelope).data as unknown as ProjectionResultV3;
     expect(projectionResultInvariantIssues(inProcessResult)).toEqual([]);
     expect(inProcessResult.priorCommittedApplies).toBeUndefined();
     expect(inProcessResult.freshness?.ok).toBe(false);
@@ -912,7 +912,7 @@ test("CLI projection freshness answers check's staleNodes from stamps alone, wit
       profile: string | null;
       changedPaths: string[];
       evaluatedNodeIds: string[];
-      freshness: NonNullable<ProjectionResultV2["freshness"]>;
+      freshness: NonNullable<ProjectionResultV3["freshness"]>;
     };
   };
   const checkFreshness = async (requestId: string) => {
@@ -926,7 +926,7 @@ test("CLI projection freshness answers check's staleNodes from stamps alone, wit
       expected: projectionProtocolExpectedSnapshot(root)
     } satisfies ProjectionRequestV1)], root, { runtimeClient: noRuntime });
     expect(result.ok, JSON.stringify(result)).toBe(true);
-    return ((result as JsonEnvelope).data as unknown as ProjectionResultV2).freshness!;
+    return ((result as JsonEnvelope).data as unknown as ProjectionResultV3).freshness!;
   };
   try {
     seedProjectionProtocolFixture(root);
@@ -1040,7 +1040,7 @@ test("CLI projection freshness widens to the whole tree when a --changed-path is
       evaluatedNodeIds: string[];
       scope?: string;
       scopeReason?: string;
-      freshness: NonNullable<ProjectionResultV2["freshness"]>;
+      freshness: NonNullable<ProjectionResultV3["freshness"]>;
     };
   };
   try {
@@ -1484,7 +1484,7 @@ test("CLI ledger accept-committed previews, approves, and drives an accepted pro
     const request = projectionRequest(acceptedChange, "projection_request.accept_committed");
     const run = await cli("projection", ["run", "--request-json", JSON.stringify(request)]);
     expect(run.ok, JSON.stringify(run)).toBe(true);
-    const result = run.data as unknown as ProjectionResultV2;
+    const result = run.data as unknown as ProjectionResultV3;
     expect(result.status).toBe("applied");
     expect(result.refreshSignals).toHaveLength(1);
     expect(result.refreshSignals[0]).toMatchObject({ mode: "refresh-required", cause: "accepted-semantic-delta", acceptedChange });
@@ -5964,8 +5964,8 @@ describe("archctx CLI", () => {
       };
       const unresolvedProtocol = await runTestCli("projection", ["run", "--request-json", JSON.stringify(protocolRequest)], root);
       expect(unresolvedProtocol.ok, JSON.stringify(unresolvedProtocol)).toBe(true);
-      expect((unresolvedProtocol.data as ProjectionResultV2).status).toBe("human-action-required");
-      expect((unresolvedProtocol.data as ProjectionResultV2).refreshSignals[0]?.mode).toBe("human-action-required");
+      expect((unresolvedProtocol.data as ProjectionResultV3).status).toBe("human-action-required");
+      expect((unresolvedProtocol.data as ProjectionResultV3).refreshSignals[0]?.mode).toBe("human-action-required");
 
       const acceptedChange = {
         changeSetId: "changeset.hook-adapters-major",
@@ -5979,8 +5979,8 @@ describe("archctx CLI", () => {
         acceptedChange
       })], root);
       expect(acceptedProtocol.ok).toBe(true);
-      expect((acceptedProtocol.data as ProjectionResultV2).status).toBe("planned");
-      expect((acceptedProtocol.data as ProjectionResultV2).refreshSignals[0]).toMatchObject({
+      expect((acceptedProtocol.data as ProjectionResultV3).status).toBe("planned");
+      expect((acceptedProtocol.data as ProjectionResultV3).refreshSignals[0]).toMatchObject({
         mode: "refresh-required",
         acceptedChange
       });
@@ -6225,8 +6225,8 @@ describe("archctx CLI", () => {
         expected
       } satisfies ProjectionRequestV1)], root);
       expect(unresolved.ok, JSON.stringify(unresolved)).toBe(true);
-      expect((unresolved.data as ProjectionResultV2).status).toBe("adoption-required");
-      const unresolvedSignal = (unresolved.data as ProjectionResultV2).refreshSignals.find((signal) => signal.mode === "human-action-required");
+      expect((unresolved.data as ProjectionResultV3).status).toBe("adoption-required");
+      const unresolvedSignal = (unresolved.data as ProjectionResultV3).refreshSignals.find((signal) => signal.mode === "human-action-required");
       expect(unresolvedSignal).toBeDefined();
       if (!unresolvedSignal) throw new Error("fixture did not produce an unresolved semantic change");
       const acceptedChange = {
@@ -6265,16 +6265,16 @@ describe("archctx CLI", () => {
       try {
         const adopted = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: daemon });
         expect(adopted.ok, JSON.stringify(adopted)).toBe(true);
-        expect(adopted.data as ProjectionResultV2).toMatchObject({
+        expect(adopted.data as ProjectionResultV3).toMatchObject({
           status: "applied",
           refreshSignals: [{ mode: "refresh-required", acceptedChange }],
           applyReceipt: { acceptedChange }
         });
-        expect(projectionResultInvariantIssues(adopted.data as ProjectionResultV2)).toEqual([]);
+        expect(projectionResultInvariantIssues(adopted.data as ProjectionResultV3)).toEqual([]);
         const adoptedBody = readFileSync(join(root, modulePath), "utf8");
         expect(adoptedBody).toStartWith("# runtime-harness/hook-adapters\n<!-- BEGIN ARCHCONTEXT:generated");
         expect(adoptedBody).toEndWith("## 3. P3 Decisions\nhuman decision  \n\n## 4. History\nhuman history\n");
-        const receipt = await daemon.inspectProjectionApplyReceipt(root, (adopted.data as ProjectionResultV2).applyReceipt!.lookupKey);
+        const receipt = await daemon.inspectProjectionApplyReceipt(root, (adopted.data as ProjectionResultV3).applyReceipt!.lookupKey);
         expect(receipt).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
       } finally {
         await daemon.stop();
@@ -6336,7 +6336,7 @@ describe("archctx CLI", () => {
         // The writer-time guard refuses before any write (#325).
         error: { code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-accepted-change-committed", details: { requestId: request.requestId, written: false } }
       });
-      const original = applied.data as ProjectionResultV2;
+      const original = applied.data as ProjectionResultV3;
       const before = await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey);
       expect(before).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
       const read = (value: ProjectionRequestV1) => runCli("projection", ["readback", "--request-json", JSON.stringify(value)], root, { runtimeClient: client });
@@ -6422,7 +6422,7 @@ describe("archctx CLI", () => {
           (process.stderr as { write: unknown }).write = originalWrite;
         }
         expect(raced.ok).toBe(true);
-        expect((raced.data as ProjectionResultV2)).toMatchObject({
+        expect((raced.data as ProjectionResultV3)).toMatchObject({
           status: "applied-reconcile-required",
           refreshSignals: [],
           applyReceipt: { acceptedChange }
@@ -6435,7 +6435,7 @@ describe("archctx CLI", () => {
 
         const postRacePlan = await runCli("docs", ["plan", "--profile", "repo-harness/v1"], root, { runtimeClient: racingClient });
         expect(postRacePlan.ok, JSON.stringify(postRacePlan)).toBe(true);
-        const receiptInspection = await daemon.inspectProjectionApplyReceipt(root, (raced.data as ProjectionResultV2).applyReceipt!.lookupKey);
+        const receiptInspection = await daemon.inspectProjectionApplyReceipt(root, (raced.data as ProjectionResultV3).applyReceipt!.lookupKey);
         expect(receiptInspection).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "pending" } });
         // The same request replays the committed result without applying again (#265). Its refresh
         // signals were never delivered, so the replay still reports reconcile-required.
@@ -6456,7 +6456,7 @@ describe("archctx CLI", () => {
         expect((ordinaryRetry as any).error).toMatchObject({
           code: "AC_PROJECTION_APPLY_COMMITTED",
           reasonCode: "projection-accepted-change-committed",
-          details: { requestId: firstApplyRequest.requestId, lookupKey: (raced.data as ProjectionResultV2).applyReceipt!.lookupKey }
+          details: { requestId: firstApplyRequest.requestId, lookupKey: (raced.data as ProjectionResultV3).applyReceipt!.lookupKey }
         });
         expect(applyCalls).toBe(1);
         expect(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).toBe(committedManifest);
@@ -6517,9 +6517,9 @@ describe("archctx CLI", () => {
       expect(applied.ok, JSON.stringify(applied)).toBe(true);
       expect(existsSync(generatedPath)).toBe(generatedState === "present");
       expect(architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))).toBe(applyRequest.expected.worktreeDigest);
-      expect((applied.data as ProjectionResultV2)).toMatchObject({
+      expect((applied.data as ProjectionResultV3)).toMatchObject({
         status: "applied",
-        refreshSignals: [{ signalId: (currentPlan.data as ProjectionResultV2).refreshSignals[0]!.signalId, acceptedChange }],
+        refreshSignals: [{ signalId: (currentPlan.data as ProjectionResultV3).refreshSignals[0]!.signalId, acceptedChange }],
         applyReceipt: { acceptedChange }
       });
     } finally {
@@ -6571,7 +6571,7 @@ describe("archctx CLI", () => {
       const applied = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: racingClient });
       expect(injected).toBe(true);
       expect(applied.ok, JSON.stringify(applied)).toBe(true);
-      expect(applied.data as ProjectionResultV2).toMatchObject({
+      expect(applied.data as ProjectionResultV3).toMatchObject({
         status: "applied",
         refreshSignals: [{ signalId: (signalPlan.data as any).refreshSignals[0].signalId, acceptedChange }],
         applyReceipt: { acceptedChange }

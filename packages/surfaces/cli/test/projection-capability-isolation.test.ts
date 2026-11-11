@@ -11,7 +11,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { runCli } from "../src/main";
 import { preparedFixture } from "./prepared-fixture";
 
@@ -136,9 +136,9 @@ function docsSnapshot(root: string): Record<string, string> {
   return files;
 }
 
-function projectionResult(envelope: { ok: boolean; data?: unknown }): ProjectionResultV2 {
+function projectionResult(envelope: { ok: boolean; data?: unknown }): ProjectionResultV3 {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
-  const result = envelope.data as unknown as ProjectionResultV2;
+  const result = envelope.data as unknown as ProjectionResultV3;
   expect(projectionResultInvariantIssues(result)).toEqual([]);
   expect(validateJsonSchema(RESULT_SCHEMA, result as any).issues).toEqual([]);
   return result;

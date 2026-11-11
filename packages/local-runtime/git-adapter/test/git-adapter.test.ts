@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evaluateArchitectureProjectionFreshness, loadCapabilitySourceFootprintDigests, type NativeModel } from "@archcontext/core/projection-engine";
-import { architectureSourceStampsDigest } from "@archcontext/contracts";
+import { architectureSourceTreeDigest } from "@archcontext/contracts";
 import {
   computeGitChangeFingerprint,
   readCommitChangeMetadata,
@@ -350,7 +350,7 @@ describe("projection source files (#257)", () => {
     try {
       const stamped = footprint(root);
       expect(stamped.fileCount).toBe(1);
-      const manifest = { status: "present" as const, nodes: [{ nodeId, sourceFootprintDigest: stamped.digest }], sourceTreeDigest: architectureSourceStampsDigest({ [nodeId]: stamped.digest }) };
+      const manifest = { status: "present" as const, nodes: [{ nodeId, sourceFootprintDigest: stamped.digest }], sourceTreeDigest: architectureSourceTreeDigest({ [nodeId]: stamped.digest }) };
 
       // Build output and logs matched by `app/**` but gitignored: same digest, still fresh.
       mkdirSync(join(root, "app/dist"), { recursive: true });

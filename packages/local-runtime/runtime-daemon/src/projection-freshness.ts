@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { posix, resolve } from "node:path";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, type ProjectionFreshnessV1, type Sha256Digest } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, type ProjectionFreshnessV2, type Sha256Digest } from "@archcontext/contracts";
 import {
   assertArchitectureDocsProjectionManifestAccepted,
   architectureProjectionStampedNodeIds,
@@ -54,8 +54,8 @@ export function evaluateProjectionFreshness(input: {
     : evaluateArchitectureProjectionFreshness({ model, profile, manifest, sourceFootprints, nodeIds: scope.nodeIds });
 }
 
-/** The `ProjectionFreshnessV1` contract shape of an evaluation, as `check` and `projection freshness` report it. */
-export function projectionFreshnessContract(evaluation: ArchitectureProjectionFreshnessEvaluation): ProjectionFreshnessV1 {
+/** The `ProjectionFreshnessV2` contract shape of an evaluation, as `check` and `projection freshness` report it. */
+export function projectionFreshnessContract(evaluation: ArchitectureProjectionFreshnessEvaluation): ProjectionFreshnessV2 {
   return {
     ok: evaluation.ok,
     reasonCodes: [...evaluation.reasonCodes].sort(),

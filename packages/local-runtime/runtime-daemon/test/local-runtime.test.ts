@@ -7,7 +7,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV2, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -3283,7 +3283,7 @@ test("SM-S15 projection plan, apply readback proof and completion drift render t
     };
     const applied = await runProjectionProtocolCommand({ action: "run", request }, root, daemon);
     expect(applied.ok, JSON.stringify(applied)).toBe(true);
-    const result = applied.data as unknown as ProjectionResultV2;
+    const result = applied.data as unknown as ProjectionResultV3;
     expect(result.status, JSON.stringify(applied)).toBe("applied");
     expect(readText(join(root, capability.path))).toBe(capability.body);
     const inspection = await daemon.inspectProjectionApplyReceipt(root, result.applyReceipt!.lookupKey);

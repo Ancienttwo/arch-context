@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { architectureDocsProjectionCompatibilityIssues, architectureDocsProjectionManifestIssues, serializeArchitectureDocsProjectionManifest, validateJsonSchema, type ArchitectureDocsProjectionManifestV3 } from "../src";
+import { architectureDocsProjectionCompatibilityIssues, architectureDocsProjectionManifestIssues, serializeArchitectureDocsProjectionManifest, validateJsonSchema, type ArchitectureDocsProjectionManifestV4 } from "../src";
 
 const fixture = () => JSON.parse(readFileSync(new URL("../fixtures/valid/projection-manifest.json", import.meta.url), "utf8"));
 const schema = JSON.parse(readFileSync(new URL("../../../schemas/runtime/projection-manifest.schema.json", import.meta.url), "utf8"));
 const engine = { rendererVersion: "archcontext.docs-renderer/v6", protocolVersion: "archcontext.projection-request/v1" };
 
 test("optional manifest floors are compatible with exact or newer engines and preserve serialization", () => {
-  const value: ArchitectureDocsProjectionManifestV3 = fixture();
+  const value: ArchitectureDocsProjectionManifestV4 = fixture();
   const withoutFloors = serializeArchitectureDocsProjectionManifest(value);
   expect(architectureDocsProjectionCompatibilityIssues(value, engine)).toEqual([]);
   value.minimumRendererVersion = "archcontext.docs-renderer/v6";

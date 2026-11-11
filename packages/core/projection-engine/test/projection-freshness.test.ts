@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { architectureDocsProjectionManifestIssues, architectureSourceStampsDigest } from "@archcontext/contracts";
+import { architectureDocsProjectionManifestIssues, architectureSourceTreeDigest } from "@archcontext/contracts";
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
@@ -72,7 +72,7 @@ function stamped(stamps: Record<string, string>): ArchitectureProjectionManifest
   return {
     status: "present",
     nodes: model.nodes.flatMap((node) => stamps[node.id] === undefined ? [] : [{ nodeId: node.id, sourceFootprintDigest: stamps[node.id]! }]),
-    sourceTreeDigest: architectureSourceStampsDigest(stamps)
+    sourceTreeDigest: architectureSourceTreeDigest(stamps)
   };
 }
 
@@ -249,7 +249,7 @@ describe("architecture projection freshness", () => {
 
   test("dirty source is stale through the source tree digest the committed stamps imply", () => {
     const manifest = stamped(freshStamps);
-    const committedTree = architectureSourceStampsDigest(freshStamps);
+    const committedTree = architectureSourceTreeDigest(freshStamps);
     const fresh = evaluateArchitectureProjectionSnapshotFreshness({
       model,
       manifest,
@@ -430,7 +430,7 @@ describe("projection manifest source-footprint stamps", () => {
           { nodeId: "capability.docs.projection", sourceFootprintDigest: docsDigest },
           { nodeId: "capability.review.gate", sourceFootprintDigest: reviewDigest }
         ],
-        sourceTreeDigest: architectureSourceStampsDigest(freshStamps)
+        sourceTreeDigest: architectureSourceTreeDigest(freshStamps)
       });
       expect(loadArchitectureProjectionManifestStamps(root)).toMatchObject({ sourceTreeDigest: plan.architectureDigests.sourceTreeDigest });
 

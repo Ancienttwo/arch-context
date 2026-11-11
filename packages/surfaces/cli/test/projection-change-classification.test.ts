@@ -11,7 +11,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { digestJson, projectionResultInvariantIssues, projectionResultRequestModeIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2, type ProjectionTargetChangeV1 } from "@archcontext/contracts";
+import { digestJson, projectionResultInvariantIssues, projectionResultRequestModeIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV3, type ProjectionTargetChangeV2 } from "@archcontext/contracts";
 import { runCli } from "../src/main";
 import { preparedFixture } from "./prepared-fixture";
 
@@ -163,9 +163,9 @@ function manifestRowPaths(root: string): string[] {
  * are exactly the result's files[] without the projection manifest and the paths rejected for
  * adoption or ownership repair, with the same action.
  */
-function projectionResult(envelope: { ok: boolean; data?: unknown }, mode: "check" | "plan"): ProjectionResultV2 {
+function projectionResult(envelope: { ok: boolean; data?: unknown }, mode: "check" | "plan"): ProjectionResultV3 {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
-  const result = envelope.data as unknown as ProjectionResultV2;
+  const result = envelope.data as unknown as ProjectionResultV3;
   expect(projectionResultInvariantIssues(result)).toEqual([]);
   expect(projectionResultRequestModeIssues(result, mode)).toEqual([]);
   expect(validateJsonSchema(RESULT_SCHEMA, result as any).issues).toEqual([]);
@@ -177,25 +177,25 @@ function projectionResult(envelope: { ok: boolean; data?: unknown }, mode: "chec
 }
 
 /** `path action` of every change with a planned action. */
-function plannedActions(result: ProjectionResultV2): string[] {
+function plannedActions(result: ProjectionResultV3): string[] {
   return result.changes!.filter((entry) => entry.plannedAction !== "none").map((entry) => `${entry.path} ${entry.plannedAction}`);
 }
 
 /** `path action` of every files[] entry but the projection manifest. */
-function fileActions(result: ProjectionResultV2): string[] {
+function fileActions(result: ProjectionResultV3): string[] {
   return result.files.filter((file) => file.path !== MANIFEST).map((file) => `${file.path} ${file.action}`);
 }
 
-function byPath(result: ProjectionResultV2): Map<string, ProjectionTargetChangeV1> {
+function byPath(result: ProjectionResultV3): Map<string, ProjectionTargetChangeV2> {
   return new Map(result.changes!.map((entry) => [entry.path, entry]));
 }
 
-function classifications(result: ProjectionResultV2): Record<string, string> {
+function classifications(result: ProjectionResultV3): Record<string, string> {
   return Object.fromEntries(result.changes!.map((entry) => [entry.path, `${entry.classification}/${entry.plannedAction}`]));
 }
 
 /** Every change classified `unchanged` except the listed paths. */
-function expectOnly(result: ProjectionResultV2, expected: Record<string, string>): void {
+function expectOnly(result: ProjectionResultV3, expected: Record<string, string>): void {
   const actual = classifications(result);
   for (const [path, value] of Object.entries(actual)) expect(`${path} ${value}`).toBe(`${path} ${expected[path] ?? "unchanged/none"}`);
   for (const path of Object.keys(expected)) expect(actual[path], path).toBeDefined();
@@ -213,7 +213,7 @@ interface Fixture {
   root: string;
   cli: (command: string, args: string[]) => ReturnType<typeof runCli>;
   request: (mode: ProjectionRequestV1["mode"], requestId: string, extra?: Partial<ProjectionRequestV1>) => ProjectionRequestV1;
-  run: (value: unknown) => Promise<ProjectionResultV2>;
+  run: (value: unknown) => Promise<ProjectionResultV3>;
   runRaw: (value: unknown) => ReturnType<typeof runCli>;
 }
 
@@ -261,7 +261,7 @@ async function withFixture(prefix: string, crlf: boolean, scenario: (fixture: Fi
   const run = async (value: unknown) => {
     const envelope = await runRaw(value);
     expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
-    return envelope.data as unknown as ProjectionResultV2;
+    return envelope.data as unknown as ProjectionResultV3;
   };
   try {
     await baselineFixture.copyTo(root);
@@ -277,7 +277,7 @@ async function withFixture(prefix: string, crlf: boolean, scenario: (fixture: Fi
 }
 
 /** `check` and `plan` on the same tree: both results, which must report the same changes. */
-async function checkAndPlan(fixture: Fixture, label: string): Promise<ProjectionResultV2> {
+async function checkAndPlan(fixture: Fixture, label: string): Promise<ProjectionResultV3> {
   const checked = projectionResult(await fixture.runRaw(fixture.request("check", `projection_request.${label}_check`)), "check");
   const planned = projectionResult(await fixture.runRaw(fixture.request("plan", `projection_request.${label}_plan`)), "plan");
   expect(planned.changes).toEqual(checked.changes);
