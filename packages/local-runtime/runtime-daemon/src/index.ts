@@ -813,7 +813,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     let projectionFreshness: CompleteTaskProjectionFreshnessInput | undefined;
     let architectureDebt: CompleteTaskInput["architectureDebt"];
     try {
-      ({ projectionDrift, projectionFreshness } = completeTaskProjectionGate(session.workspace.root));
+      ({ projectionDrift, projectionFreshness } = completeTaskProjectionDrift(session.workspace.root));
       if (model.valid || !existsSync(resolve(session.workspace.root, ".archcontext/manifest.yaml"))) {
         architectureDebt = readCompleteTaskArchitectureDebt(session.workspace.root, practiceEnforcement);
       }
@@ -1628,9 +1628,10 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
  * The projection half of the `complete` gate (ADR-0056 §2): one build over the committed profile,
  * with no isolation and no accepted change, yields both drift and freshness. It reads no Git
  * history. A repository with no projection manifest has no projection to verify or keep fresh, so
- * both inputs are absent rather than a blocking finding.
+ * both inputs are absent rather than a blocking finding. The flow
+ * `flow.architecture-context.projection-render` names this function as its daemon source symbol.
  */
-function completeTaskProjectionGate(root: string): { projectionDrift?: CompleteTaskProjectionDriftInput; projectionFreshness?: CompleteTaskProjectionFreshnessInput } {
+function completeTaskProjectionDrift(root: string): { projectionDrift?: CompleteTaskProjectionDriftInput; projectionFreshness?: CompleteTaskProjectionFreshnessInput } {
   if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return {};
   const profile = loadArchitectureDocumentationProfile(root);
   const loaded = loadArchitectureDocumentationInputs(root, profile);
