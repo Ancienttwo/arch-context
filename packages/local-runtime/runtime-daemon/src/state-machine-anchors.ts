@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { StateMachineAnchor, StateMachineCodeSource, StateMachineV1 } from "@archcontext/contracts";
 import { matchingDeclarations, sourceContentDigest, splitSymbol } from "@archcontext/core/projection-engine";
-import { openCodeGraphSymbolReader, type CodeGraphSymbolDeclaration, type CodeGraphSymbolReaderResult } from "@archcontext/local-runtime/codegraph-adapter";
+import { memoizedSourceDeclarations, openCodeGraphSymbolReader, type CodeGraphSymbolReaderResult } from "@archcontext/local-runtime/codegraph-adapter";
 
 export interface StateMachineAnchorScope {
   /** The Git-visible files of this invocation. */
@@ -17,8 +17,6 @@ interface AnchorFile {
   digest: string;
   /** CRLF read as LF. */
   content: string;
-  declarations?: CodeGraphSymbolDeclaration[] | undefined;
-  parsed: boolean;
 }
 
 /**
@@ -39,11 +37,12 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
       if (file === undefined) {
         // One read feeds both the file digest and the parser, so every anchor on a file describes the same bytes.
         const bytes = readFileSync(resolve(root, path));
-        file = { digest: sourceContentDigest(bytes), content: bytes.toString("utf8").replace(/\r\n/g, "\n"), parsed: false };
+        file = { digest: sourceContentDigest(bytes), content: bytes.toString("utf8").replace(/\r\n/g, "\n") };
         files.set(path, file);
       }
       return file;
     };
+    const declarationsIn = opened?.availability === "ready" ? memoizedSourceDeclarations(opened.reader, (path) => fileAt(path).content) : undefined;
     return anchors.map((entries) => entries.map(({ owner, ownerId, source }): StateMachineAnchor => {
       const base = { owner, ownerId, path: source.path, ...(source.symbol === undefined ? {} : { symbol: source.symbol }) };
       const measured = (digest: string): StateMachineAnchor => ({ ...base,
@@ -53,14 +52,10 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
       // Without the reader a symbol anchor is a coverage gap; its file is not read.
       if (opened!.availability === "unavailable") return { ...base, status: "unchecked", reason: opened!.reasonCode };
       const file = fileAt(source.path);
-      const reader = opened!.reader;
-      if (!file.parsed) {
-        file.declarations = reader.supportsPath(source.path) ? reader.declarationsInSource(source.path, file.content) : undefined;
-        file.parsed = true;
-      }
-      if (file.declarations === undefined) return { ...base, status: "anchor-language-unsupported" };
+      const declarations = declarationsIn!(source.path);
+      if (declarations === undefined) return { ...base, status: "anchor-language-unsupported" };
       const { name, container } = splitSymbol(source.symbol);
-      const matches = matchingDeclarations(file.declarations.filter((declaration) => declaration.name === name), container);
+      const matches = matchingDeclarations(declarations.filter((declaration) => declaration.name === name), container);
       if (matches.length === 0) return { ...base, status: "anchor-missing-symbol" };
       if (matches.length > 1) return { ...base, status: "anchor-ambiguous-symbol" };
       const [declaration] = matches;

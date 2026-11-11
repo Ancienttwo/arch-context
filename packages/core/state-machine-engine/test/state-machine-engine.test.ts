@@ -115,12 +115,12 @@ describe("checkStateMachine", () => {
   test("the example gives the issue report, with the guards that protect the holding rule", () => {
     // The published report adds the anchors that the runtime measures; the pure check reads no code.
     const published = JSON.parse(readFileSync(join(fixtures, "state-machine-check.json"), "utf8"));
-    const withoutAnchors = { ...published, machines: published.machines.map(({ anchors: _anchors, ...machine }: Record<string, unknown>) => machine) };
+    const withoutAnchors = published.machines.map(({ anchors: _anchors, ...machine }: Record<string, unknown>) => machine);
     expect(checkStateMachines([example()], { protection: true })).toEqual(withoutAnchors);
   });
 
   test("without protection no rule carries protectedBy", () => {
-    const [report] = checkStateMachines([example()], { protection: false }).machines;
+    const [report] = checkStateMachines([example()], { protection: false });
     expect(report.rules.map((rule) => "protectedBy" in rule)).toEqual([false, false]);
   });
 

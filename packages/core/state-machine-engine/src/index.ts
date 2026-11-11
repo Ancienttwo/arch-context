@@ -2,12 +2,12 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   FailureError,
-  STATE_MACHINE_CHECK_SCHEMA_VERSION,
+  STATE_MACHINE_FAILURE_ISSUE_LIMIT,
+  STATE_MACHINE_FAILURE_ISSUE_MAX_BYTES,
   stateMachineModelIssuesByMachine,
   validateJsonSchema,
   type Json,
   type StateMachineBreak,
-  type StateMachineRuleCheckV1,
   type StateMachineGlobalState,
   type StateMachineGuard,
   type StateMachineMachineReport,
@@ -20,59 +20,76 @@ import stateMachineSchema from "../../../../schemas/repo/architecture-state-mach
 
 export const STATE_MACHINES_MODEL_DIRECTORY = ".archcontext/model/state-machines";
 /**
- * The failure envelope (`packages/contracts/src/failure.ts`) allows 256 raw bytes per detail
- * string and 8192 bytes for the whole envelope, compact or pretty-printed. The failure keeps whole
- * issues only: each within 256 raw bytes, and at most 4096 bytes for the JSON-encoded list, so the
- * escapes of control characters, the fixed envelope fields, a request id of up to 256 bytes and
- * the pretty-print indentation of 16 items still fit. The failure counts every omitted issue, and
+ * The failure envelope (`packages/contracts/src/failure.ts`) allows
+ * `STATE_MACHINE_FAILURE_ISSUE_MAX_BYTES` raw bytes per issue and 8192 bytes for the whole
+ * envelope, compact or pretty-printed. The failure keeps whole issues only, and at most 4096 bytes
+ * for the JSON-encoded list, so the escapes of control characters, the fixed envelope fields, a
+ * request id of up to 256 bytes and the pretty-print indentation of
+ * `STATE_MACHINE_FAILURE_ISSUE_LIMIT` items still fit. The failure counts every omitted issue, and
  * `archctx validate --json` lists every issue.
  */
-const FAILURE_ISSUE_LIMIT = 16;
-const FAILURE_ISSUE_MAX_BYTES = 256;
 const FAILURE_ISSUES_MAX_JSON_BYTES = 4096;
 
-type NodeRecord = Readonly<Record<string, Json | undefined>>;
+/** The node records that the shared validator reads. */
+type ModelNodes = Parameters<typeof stateMachineModelIssuesByMachine>[0]["nodes"];
+
+/** Only a direct `*.yaml` or `*.yml` child of `.archcontext/model/state-machines/` declares a state machine. */
+export function isStateMachineModelPath(path: string): boolean {
+  return path.startsWith(`${STATE_MACHINES_MODEL_DIRECTORY}/`) && /^[^/]*\.ya?ml$/.test(path.slice(STATE_MACHINES_MODEL_DIRECTORY.length + 1));
+}
 
 /**
- * Reads the direct `*.yaml` and `*.yml` children of `.archcontext/model/state-machines/` in file
- * name order, validates each against the schema and then the whole set against
- * `stateMachineModelIssuesByMachine`. Any issue fails closed with `state-machine-model-invalid`; every
- * reader takes the returned value and does not validate it again.
+ * The state machines among parsed state machine files, in the order of `files`, and every issue
+ * of the set as `<path>: <field>: <schema message or invariant>`: each file against the schema,
+ * then the schema-valid files together against `stateMachineModelIssuesByMachine`. The loader and
+ * the YAML model store both read through this function, so they report the same issues.
  */
-export function loadStateMachinesFromArchContext(root: string, nodes: readonly NodeRecord[]): StateMachineV1[] {
-  const directory = resolve(root, STATE_MACHINES_MODEL_DIRECTORY);
-  if (!existsSync(directory)) return [];
-  const files = readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.ya?ml$/.test(entry.name))
-    .map((entry) => entry.name)
-    .sort(compareStrings);
+export function stateMachinesFromModelFiles(files: readonly { path: string; value: Json }[], nodes: ModelNodes): { machines: StateMachineV1[]; issues: string[] } {
   const issues: string[] = [];
   const machines: StateMachineV1[] = [];
   const machinePaths: string[] = [];
-  for (const name of files) {
-    const path = `${STATE_MACHINES_MODEL_DIRECTORY}/${name}`;
-    let value: Json;
-    try {
-      value = parseJsonOrStableYaml(readFileSync(resolve(directory, name), "utf8"), path);
-    } catch (error) {
-      issues.push(`${path}: $: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
-    }
+  for (const { path, value } of files) {
     const schemaIssues = validateJsonSchema(stateMachineSchema as Parameters<typeof validateJsonSchema>[0], value).issues;
     for (const issue of schemaIssues) issues.push(`${path}: ${issue.path}: ${issue.message}`);
     if (schemaIssues.length > 0) continue;
-    const machine = value as unknown as StateMachineV1;
-    machines.push(machine);
+    machines.push(value as unknown as StateMachineV1);
     machinePaths.push(path);
   }
   stateMachineModelIssuesByMachine({ nodes, stateMachines: machines }).forEach((machineIssues, index) => {
     for (const issue of machineIssues) issues.push(`${machinePaths[index]}: ${issue.field}: ${issue.invariant}`);
   });
+  return { machines, issues };
+}
+
+/**
+ * Reads the state machine files of `root` in file name order through
+ * `stateMachinesFromModelFiles`. Any issue fails closed with `state-machine-model-invalid`; every
+ * reader takes the returned value and does not validate it again.
+ */
+export function loadStateMachinesFromArchContext(root: string, nodes: ModelNodes): StateMachineV1[] {
+  const directory = resolve(root, STATE_MACHINES_MODEL_DIRECTORY);
+  if (!existsSync(directory)) return [];
+  const paths = readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => `${STATE_MACHINES_MODEL_DIRECTORY}/${entry.name}`)
+    .filter(isStateMachineModelPath)
+    .sort();
+  const issues: string[] = [];
+  const files: { path: string; value: Json }[] = [];
+  for (const path of paths) {
+    try {
+      files.push({ path, value: parseJsonOrStableYaml(readFileSync(resolve(root, path), "utf8"), path) });
+    } catch (error) {
+      issues.push(`${path}: $: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const read = stateMachinesFromModelFiles(files, nodes);
+  issues.push(...read.issues);
   if (issues.length > 0) {
-    const reported = failureIssues(issues.sort(compareStrings));
+    const reported = failureIssues(issues.sort());
     throw new FailureError("AC_SCHEMA_INVALID", "state-machine-model-invalid", { issues: reported, issueCount: issues.length, omittedCount: issues.length - reported.length });
   }
-  return machines;
+  return read.machines;
 }
 
 /** The sorted issues that fit the failure budget, in order; an issue that does not fit is skipped and counted. */
@@ -80,9 +97,9 @@ function failureIssues(issues: readonly string[]): string[] {
   const reported: string[] = [];
   let listBytes = 2;
   for (const issue of issues) {
-    if (reported.length === FAILURE_ISSUE_LIMIT) break;
+    if (reported.length === STATE_MACHINE_FAILURE_ISSUE_LIMIT) break;
     const encodedBytes = Buffer.byteLength(JSON.stringify(issue)) + (reported.length > 0 ? 1 : 0);
-    if (Buffer.byteLength(issue) > FAILURE_ISSUE_MAX_BYTES || listBytes + encodedBytes > FAILURE_ISSUES_MAX_JSON_BYTES) continue;
+    if (Buffer.byteLength(issue) > STATE_MACHINE_FAILURE_ISSUE_MAX_BYTES || listBytes + encodedBytes > FAILURE_ISSUES_MAX_JSON_BYTES) continue;
     reported.push(issue);
     listBytes += encodedBytes;
   }
@@ -96,16 +113,23 @@ interface CompiledStep {
   then: Array<{ region: number; state: number }>;
 }
 
-interface Exploration {
-  machine: StateMachineV1;
+interface Compiled {
+  /** The index of each region by id. */
+  regionIndex: Map<string, number>;
+  /** Per region, the index of each state by id. */
+  stateIndex: Array<Map<string, number>>;
   steps: CompiledStep[];
+}
+
+interface Exploration extends Compiled {
+  machine: StateMachineV1;
   /** Reachable global states in breadth-first order; each is one state index per region. */
   states: number[][];
   /** For each reachable state, the index of its parent and the step that reached it first. */
   parents: Array<{ parent: number; step: number } | undefined>;
 }
 
-function compile(machine: StateMachineV1): { stateIndex: Array<Map<string, number>>; steps: CompiledStep[] } {
+function compile(machine: StateMachineV1): Compiled {
   const regionIndex = new Map(machine.regions.map((region, index) => [region.id, index]));
   const stateIndex = machine.regions.map((region) => new Map(region.states.map((state, index) => [state.id, index])));
   const steps = machine.events.flatMap((event) => event.steps.map((step, index): CompiledStep => ({
@@ -120,7 +144,7 @@ function compile(machine: StateMachineV1): { stateIndex: Array<Map<string, numbe
       return { region: r, state: stateIndex[r].get(state)! };
     })
   })));
-  return { stateIndex, steps };
+  return { regionIndex, stateIndex, steps };
 }
 
 function enabled(step: CompiledStep, state: readonly number[]): boolean {
@@ -139,7 +163,8 @@ function changes(step: CompiledStep, state: readonly number[]): boolean {
 
 /** Breadth-first from the initial global state, steps in declaration order: the first path found to a state is a shortest one. */
 function explore(machine: StateMachineV1): Exploration {
-  const { stateIndex, steps } = compile(machine);
+  const compiled = compile(machine);
+  const { stateIndex, steps } = compiled;
   const initial = machine.regions.map((region, index) => stateIndex[index].get(region.initial)!);
   const states: number[][] = [initial];
   const parents: Exploration["parents"] = [undefined];
@@ -156,7 +181,7 @@ function explore(machine: StateMachineV1): Exploration {
       parents.push({ parent: cursor, step: stepIndex });
     });
   }
-  return { machine, steps, states, parents };
+  return { machine, ...compiled, states, parents };
 }
 
 function globalState(exploration: Exploration, index: number): StateMachineGlobalState {
@@ -175,11 +200,10 @@ function pathTo(exploration: Exploration, index: number): StateMachinePathStep[]
 
 /** The first violation of each rule in search order, or undefined when the rule holds. */
 function ruleViolations(exploration: Exploration): Array<{ state: number; step?: number } | undefined> {
-  const { machine, steps, states } = exploration;
-  const regionIndex = new Map(machine.regions.map((region, index) => [region.id, index]));
+  const { machine, regionIndex, stateIndex, steps, states } = exploration;
   const listed = (entries: Record<string, string[]>) => Object.entries(entries).map(([region, ids]) => {
     const r = regionIndex.get(region)!;
-    return { region: r, states: new Set(ids.map((id) => machine.regions[r].states.findIndex((state) => state.id === id))) };
+    return { region: r, states: new Set(ids.map((id) => stateIndex[r].get(id)!)) };
   });
   return machine.rules.map((rule) => {
     if (rule.never) {
@@ -272,23 +296,16 @@ export function stateMachineRuleProtection(machine: StateMachineV1): Map<string,
   return protection;
 }
 
-/** The `archcontext.state-machine-check/v1` report, machines sorted by id. Without `protection` no rule carries `protectedBy`. */
-export function checkStateMachines(machines: readonly StateMachineV1[], options: { protection: boolean }): StateMachineRuleCheckV1 {
-  return {
-    schemaVersion: STATE_MACHINE_CHECK_SCHEMA_VERSION,
-    machines: [...machines].sort((left, right) => compareStrings(left.id, right.id)).map((machine) => {
-      const report = checkStateMachine(machine);
-      if (!options.protection) return report;
-      const protection = stateMachineRuleProtection(machine);
-      for (const rule of report.rules) {
-        const protectedBy = protection.get(rule.id);
-        if (protectedBy) rule.protectedBy = protectedBy;
-      }
-      return report;
-    })
-  };
-}
-
-function compareStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+/** The built-in check of each machine, aligned with `machines`. Without `protection` no rule carries `protectedBy`. */
+export function checkStateMachines(machines: readonly StateMachineV1[], options: { protection: boolean }): StateMachineMachineReport[] {
+  return machines.map((machine) => {
+    const report = checkStateMachine(machine);
+    if (!options.protection) return report;
+    const protection = stateMachineRuleProtection(machine);
+    for (const rule of report.rules) {
+      const protectedBy = protection.get(rule.id);
+      if (protectedBy) rule.protectedBy = protectedBy;
+    }
+    return report;
+  });
 }

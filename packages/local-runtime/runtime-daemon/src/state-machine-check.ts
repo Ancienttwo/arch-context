@@ -1,4 +1,4 @@
-import { FailureError, okEnvelope, type Json, type JsonEnvelope, type StateMachineCheckReportV1 } from "@archcontext/contracts";
+import { FailureError, STATE_MACHINE_CHECK_SCHEMA_VERSION, okEnvelope, type Json, type JsonEnvelope, type StateMachineCheckReportV1 } from "@archcontext/contracts";
 import { loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { checkStateMachines, loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
@@ -17,11 +17,14 @@ export function runStateMachineCheckCommand(cwd: string): JsonEnvelope {
     try { root = findRepositoryRoot(cwd); }
     catch { throw new FailureError("AC_REPO_NOT_FOUND", "git-worktree-required"); }
     const { nodes } = loadNativeModelFromArchContext(root);
-    const machines = loadStateMachinesFromArchContext(root, nodes as unknown as Array<Record<string, Json>>);
+    // The report lists the machines by id.
+    const machines = loadStateMachinesFromArchContext(root, nodes).sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
     const checked = checkStateMachines(machines, { protection: true });
-    const indexById = new Map(machines.map((machine, index) => [machine.id, index]));
-    const measured = stateMachineAnchors(root, machines, { files: new Set(listGitVisibleFiles(root)) });
-    const report: StateMachineCheckReportV1 = { ...checked, machines: checked.machines.map((machine) => ({ ...machine, anchors: measured[indexById.get(machine.id)!]! })) };
+    const anchors = stateMachineAnchors(root, machines, { files: new Set(listGitVisibleFiles(root)) });
+    const report: StateMachineCheckReportV1 = {
+      schemaVersion: STATE_MACHINE_CHECK_SCHEMA_VERSION,
+      machines: checked.map((machine, index) => ({ ...machine, anchors: anchors[index]! }))
+    };
     return okEnvelope("state-machines.check", report as unknown as Json);
   } catch (error) {
     return selectedProducerFailureEnvelope("state-machines.check", error, "state-machines-check");

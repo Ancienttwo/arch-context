@@ -7249,3 +7249,26 @@ test("CLI state-machines check reads the model without runtime state and refuses
     removeTempRoot(root);
   }
 });
+
+test("CLI state-machines check lists the machines by id, each with its own anchors", async () => {
+  const root = gitTempRoot("archctx-cli-state-machines-order-");
+  try {
+    initializeArchContextModel(root, "State Machines");
+    writeFileSync(join(root, ".archcontext/model/nodes/capability.jobs.yaml"), stableYaml({ schemaVersion: "archcontext.node/v2", id: "capability.jobs", kind: "capability", name: "Jobs", status: "active", summary: "Runs jobs." }));
+    mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+    // The file name order is the reverse of the id order.
+    for (const [file, name] of [["a.yaml", "zeta"], ["b.yaml", "alpha"]]) {
+      writeFileSync(join(root, ".archcontext/model/state-machines", file), stableYaml({
+        schemaVersion: "archcontext.state-machine/v1", id: `state-machine.jobs.${name}`, capabilityId: "capability.jobs", name: "Job",
+        regions: [{ id: "job", label: "Job", initial: "queued", states: [{ id: "queued", label: "Queued" }, { id: "done", label: "Done", terminal: true }], source: { kind: "code", path: `src/${name}.ts` } }],
+        events: [{ id: "finish", label: "Finish", source: { kind: "environment" }, steps: [{ when: { job: ["queued"] }, then: { job: "done" } }] }],
+        rules: []
+      }));
+    }
+    const result = await runTestCli("state-machines", ["check", "--json"], root);
+    expect((result.data as any).machines.map((machine: any) => [machine.id, machine.anchors.map((anchor: any) => anchor.path)]))
+      .toEqual([["state-machine.jobs.alpha", ["src/alpha.ts"]], ["state-machine.jobs.zeta", ["src/zeta.ts"]]]);
+  } finally {
+    removeTempRoot(root);
+  }
+});

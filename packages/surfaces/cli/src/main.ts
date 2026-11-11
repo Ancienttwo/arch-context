@@ -954,9 +954,9 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
   case "state-machines":
     return okEnvelope("state-machines", {
       command: "archctx state-machines check [--json]",
-      description: "Check every state machine declared under .archcontext/model/state-machines/: each never and final rule, unreachable states, dead steps and deadlocks.",
-      result: "Each broken rule carries its shortest path from the initial state; each holding rule lists the guards that protect it. A rule with a finding reports finding-open or finding-resolved.",
-      writes: "None. Reads the model only; starts no daemon or task session and needs no CodeGraph index."
+      description: "Check every state machine declared under .archcontext/model/state-machines/: each never and final rule, unreachable states, dead steps and deadlocks, and the code anchor of every region and event source.",
+      result: "Each broken rule carries its shortest path from the initial state; each holding rule lists the guards that protect it. A rule with a finding reports finding-open or finding-resolved. Each anchor reports its status against the current file.",
+      writes: "None. Reads the model and the files that a source names; starts no daemon or task session. An anchor that names a symbol reads the CodeGraph index read-only and reports unchecked when no index is available."
     });
   case "docs":
     if (subcommand === "anchors") return okEnvelope("help", CLI_DOCS_ANCHORS_HELP as unknown as Json);
@@ -1921,32 +1921,27 @@ function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function runConstraintsCommand(args: string[], cwd: string): JsonEnvelope {
+/** `check [--json] [--format <value>]` plus the listed boolean flags; any other argument is refused. */
+function isCheckInvocation(args: string[], booleanFlags: readonly string[] = []): boolean {
   const formatAt = args.indexOf("--format");
-  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
-  if (args[0] !== "check" || unexpected.length > 0) {
-    return failureEnvelope("constraints.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
-  }
+  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && !booleanFlags.includes(arg) && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
+  return args[0] === "check" && unexpected.length === 0;
+}
+
+function runConstraintsCommand(args: string[], cwd: string): JsonEnvelope {
+  if (!isCheckInvocation(args)) return failureEnvelope("constraints.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
   return runConstraintCheckCommand(cwd);
 }
 
 /** In-process flow proofs; only the explicit no-sync mode preserves the checkout index. */
 function runFlowsCommand(args: string[], cwd: string): JsonEnvelope {
-  const formatAt = args.indexOf("--format");
-  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && arg !== "--no-sync" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
-  if (args[0] !== "check" || unexpected.length > 0) {
-    return failureEnvelope("flows.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
-  }
+  if (!isCheckInvocation(args, ["--no-sync"])) return failureEnvelope("flows.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
   return runFlowSelectorCheckCommand(cwd, { noSync: args.includes("--no-sync") });
 }
 
-/** Stateless model read; no daemon, store or code facts. */
+/** Stateless read of the model and of the files that a source names; no daemon or store. */
 function runStateMachinesCommand(args: string[], cwd: string): JsonEnvelope {
-  const formatAt = args.indexOf("--format");
-  const unexpected = args.slice(1).filter((arg, index) => arg !== "--json" && (formatAt < 0 || (index + 1 !== formatAt && index !== formatAt)));
-  if (args[0] !== "check" || unexpected.length > 0) {
-    return failureEnvelope("state-machines.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
-  }
+  if (!isCheckInvocation(args)) return failureEnvelope("state-machines.check", knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
   return runStateMachineCheckCommand(cwd);
 }
 
