@@ -29,6 +29,8 @@ export interface ProjectionTargetChangeInput {
   orphans: readonly { path: string; targetId: string; disposition: "delete" | "human-review" }[];
   /** Phase 1 isolation's carried-forward targets (`coverage.blockedTargets`), the blocking authority. */
   blockedTargets: readonly ProjectionCoverageBlockedTargetV1[];
+  /** `architectureProjectionFootprintOwners`: each declared node's documenting target scope id. */
+  footprintOwners: ReadonlyMap<string, string>;
 }
 
 const REJECTION_REASONS: Readonly<Record<string, ProjectionTargetChangeReasonCode>> = {
@@ -39,7 +41,7 @@ const REJECTION_REASONS: Readonly<Record<string, ProjectionTargetChangeReasonCod
 /**
  * Classifies every target of a `check` or `plan` result (#327 finding 2): the union of the current
  * targets, the committed manifest's rows and the orphans, one entry per path, sorted by path. Each
- * comparison reads values the render already holds (row stamps and output digests, the model
+ * comparison reads values the render already holds (row output digests, the model
  * digest, per-capability semantic and flow-proof fingerprints, selector-evidence digests);
  * `plannedAction` is the result's `files[]` action, never a second comparison, and `outputChanged`
  * reads the `files[]` action even where a rejection blocks the write. Nothing here changes what a
@@ -99,7 +101,6 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
     const reasons = new Set<ProjectionTargetChangeReasonCode>();
     const affected = new Set<string>();
     const row = entry.current ?? entry.committed;
-    let stampChanged: boolean | null = null;
     let semanticChanged: boolean | null = null;
     let proofChanged: boolean | null = null;
     if (committed === undefined) {
@@ -107,12 +108,12 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
     } else if (row === undefined) {
       reasons.add("target-row-missing");
     } else {
-      // An entity summary documents the capabilities its node and its stamped nodes belong to; any
-      // other target (index, decisions, changelog, diagrams, relation summaries) describes the
-      // whole model and renders no flow proof.
+      // An entity summary documents the capabilities its node, and the nodes whose footprint it
+      // documents, belong to; any other target (index, decisions, changelog, diagrams, relation
+      // summaries) describes the whole model and renders no flow proof.
       const entity = row.type === "entity-summary";
-      const nodeIds = [row.scope.id, ...Object.keys(entry.current?.sourceStamps ?? {}), ...Object.keys(entry.committed?.sourceStamps ?? {})]
-        .filter((nodeId): nodeId is string => typeof nodeId === "string");
+      const scopeId = row.scope.id;
+      const nodeIds = scopeId === undefined ? [] : [scopeId, ...[...input.footprintOwners].filter(([, owner]) => owner === scopeId).map(([nodeId]) => nodeId)];
       const documented = entity ? capabilityIds.filter((id) => nodeIds.some((nodeId) => membersById.get(id)!.has(nodeId))) : capabilityIds;
       const semanticIds = documented.filter((id) => semanticChangedIds.has(id));
       const proofIds = entity ? documented.filter((id) => proofReasonsById.has(id)) : [];
@@ -124,14 +125,12 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
       for (const id of proofIds) for (const reason of proofReasonsById.get(id)!) reasons.add(reason);
       for (const id of [...semanticIds, ...proofIds]) affected.add(id);
       if (entry.current !== undefined && entry.committed === undefined && !semanticChanged) {
-        // No row and no semantic change to explain its absence: the baseline does not describe it.
+        // No row and no semantic change to explain its absence: the baseline does not describe it,
+        // so its semantic comparison is unknown.
+        semanticChanged = null;
         reasons.add("target-row-missing");
-      } else {
-        const changedStampNodes = changedStampNodeIds(entry.current?.sourceStamps, entry.committed?.sourceStamps);
-        stampChanged = changedStampNodes.length > 0;
-        if (stampChanged) reasons.add("source-stamp-changed");
-        for (const id of documented) if (changedStampNodes.some((nodeId) => membersById.get(id)!.has(nodeId))) affected.add(id);
-        if (entry.current !== undefined && entry.committed === undefined) reasons.add("target-added");
+      } else if (entry.current !== undefined && entry.committed === undefined) {
+        reasons.add("target-added");
       }
     }
     if (entry.current === undefined) reasons.add("target-removed");
@@ -160,13 +159,12 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
     const outputChanged = ["file-bytes-changed", "rendered-output-changed", "target-added", "target-removed"]
       .some((reason) => reasons.has(reason as ProjectionTargetChangeReasonCode));
     const reasonCodes = [...reasons].sort(compareStrings);
-    const comparisons = { reasonCodes, stampChanged, outputChanged, semanticChanged, proofChanged };
+    const comparisons = { reasonCodes, outputChanged, semanticChanged, proofChanged };
     const classification = projectionTargetChangeClassification(comparisons);
     return {
       targetId: entry.targetId,
       path: entry.path,
       affectedCapabilityIds: [...affected].sort(compareStrings),
-      stampChanged,
       outputChanged,
       semanticChanged,
       proofChanged,
@@ -175,13 +173,6 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
       reasonCodes
     };
   }).sort((left, right) => compareStrings(left.path, right.path));
-}
-
-/** The node ids whose stamp differs between the two rows, an absent row or stamp counting as none. */
-function changedStampNodeIds(current: Record<string, string> | undefined, committed: Record<string, string> | undefined): string[] {
-  const now = current ?? {};
-  const before = committed ?? {};
-  return [...new Set([...Object.keys(now), ...Object.keys(before)])].filter((nodeId) => now[nodeId] !== before[nodeId]).sort(compareStrings);
 }
 
 function compareStrings(left: string, right: string): number {

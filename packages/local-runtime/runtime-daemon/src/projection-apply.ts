@@ -1,8 +1,8 @@
 import { publicFailureEnvelope, publicOperationFailure, publicOperationErrorEnvelope } from "./public-operation-failure";
-import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, digestJson, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV2 } from "@archcontext/contracts";
+import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION, digestJson, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV2 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, digestCapabilitySourceFootprints, loadArchitectureDocumentationInputs, measureCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadArchitectureDocumentationInputs, measureCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
@@ -219,8 +219,7 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     docsLanguage: loaded.docsLanguage,
-    sourceFootprints: digestCapabilitySourceFootprints(root, loaded.model, codeGraphInputs.footprints),
-    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, codeGraphInputs.footprints),
+    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.footprints),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
@@ -317,7 +316,7 @@ function createRuntimeProjectionRecoveryProof(
 ): ProjectionApplyRecoveryProofV2 {
   const current = runtimeProjectionRecoveryCurrent(fixedPoint);
   const payload = {
-    schemaVersion: "archcontext.projection-apply-recovery-proof/v1" as const,
+    schemaVersion: PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION,
     requestId: intent.requestId,
     requestDigest: digestJson(intent as unknown as Json) as ProjectionApplyRecoveryProofV2["requestDigest"],
     receipt: {

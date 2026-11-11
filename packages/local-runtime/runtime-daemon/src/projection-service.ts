@@ -7,13 +7,13 @@ import { GitVisibleFilesUnavailableError, findRepositoryRoot, ignoredRepositoryP
 import { architectureModelIgnoreProbePaths } from "@archcontext/local-runtime/model-store-yaml";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
-import { ProjectionFreshnessChangedPathError, evaluateProjectionFreshness, measureProjectionFreshness, projectionFreshnessContract } from "./projection-freshness";
+import { projectionFreshnessContract } from "./projection-freshness";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import { classifyProjectionTargetChanges } from "./projection-target-changes";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV1, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV2, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV2, ProjectionApplyRecoveryResultV2, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, digestCapabilitySourceFootprints, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -230,7 +230,7 @@ export function buildArchitectureDocsProjection(
 
 /**
  * A docs projection ChangeSet is named after the projection-owned output bytes it writes, the
- * manifest included, so equal ids mean equal writes and a stamp-only apply gets its own id.
+ * manifest included, so equal ids mean equal writes.
  */
 function docsProjectionChangeSetId(projection: ReturnType<typeof buildArchitectureDocsProjection>): string {
   return `changeset.docs-projection-${projectionOwnedOutputDigest(projection).replace(/^sha256:/, "").slice(0, 16)}`;
@@ -238,8 +238,8 @@ function docsProjectionChangeSetId(projection: ReturnType<typeof buildArchitectu
 
 /**
  * Everything a projection build reads from the repository before it renders: the model, decisions
- * and existing documents, the CodeGraph snapshot, and the footprint digests and scale signals of
- * that snapshot's footprints. The render is a function of these, the existing documents it is
+ * and existing documents, the CodeGraph snapshot, and the scale signals of that snapshot's
+ * footprints. The render is a function of these, the existing documents it is
  * given and the accepted change.
  */
 function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile) {
@@ -253,8 +253,7 @@ function measureArchitectureDocsProjectionInputs(root: string, profile: Architec
     stateMachines: loadStateMachinesFromArchContext(root, loaded.model.nodes),
     sourceDigest,
     codeGraphInputs,
-    sourceFootprints: digestCapabilitySourceFootprints(root, loaded.model, codeGraphInputs.footprints),
-    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, codeGraphInputs.footprints)
+    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.footprints)
   };
 }
 
@@ -295,7 +294,7 @@ function renderArchitectureDocsProjectionFromInputs(
   acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined,
   options: ArchitectureDocsRenderOptions = {}
 ) {
-  const { profile, sourceDigest, codeGraphInputs, sourceFootprints } = inputs;
+  const { profile, sourceDigest, codeGraphInputs } = inputs;
   const loaded = { ...inputs.loaded, existingFiles };
   const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
@@ -305,7 +304,6 @@ function renderArchitectureDocsProjectionFromInputs(
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     docsLanguage: loaded.docsLanguage,
-    sourceFootprints,
     sourceScaleSignals: inputs.sourceScaleSignals,
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
@@ -328,9 +326,6 @@ function renderArchitectureDocsProjectionFromInputs(
     plan,
     importEvidence: { root, sourceFiles: codeGraphInputs.sourceFiles, population: codeGraphInputs.importPopulation },
     runtimeSnapshot: codeGraphInputs.runtimeSnapshot,
-    sourceFootprints,
-    /** The declared source tree digest this render measured. */
-    currentSourceTreeDigest: codeGraphInputs.provenance.sourceTreeDigest,
     manifest: plan.manifest,
     files: [...plan.files, plan.manifest],
     /** This render's measured per-capability proof evidence, which committed acceptance compares with the manifest's. */
@@ -742,7 +737,7 @@ function runProjectionCheckCommandUnchecked(request: ProjectionRequestV1, root: 
     if (error instanceof ProjectionExpectedSnapshotMismatchError) return publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-snapshot-mismatch", {field: error.field});
     return publicOperationErrorEnvelope("projection.run", error);
   }
-  const freshness = projectionCheckFreshness(root, projection);
+  const freshness = projectionFreshnessContract(projection.plan.freshness);
   const status = projectionProtocolHumanStatus(request, projection) ?? projectionPlannedStatus(projection);
   const result = projectionProtocolEnvelope(request, projection, status, projection, [], freshness);
   return result.ok ? result : publicFailureEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection-result-invalid");
@@ -1014,22 +1009,6 @@ export function projectionFailureEnvelope(requestId: string, error: unknown): Js
   return publicOperationErrorEnvelope(requestId, error);
 }
 
-/**
- * `check`'s read-only freshness answer: the committed manifest's per-node stamps against the
- * footprints this run measured, through the shared evaluator (`evaluateProjectionFreshness`) the
- * `complete` gate and `projection freshness` use. It reads repository files only — no daemon call,
- * no runtime state.
- */
-function projectionCheckFreshness(root: string, projection: ReturnType<typeof buildArchitectureDocsProjection>): ProjectionFreshnessV2 {
-  return projectionFreshnessContract(evaluateProjectionFreshness({
-    model: projection.loaded.model,
-    profile: projection.plan.profile,
-    manifest: loadArchitectureProjectionManifestStamps(root),
-    sourceFootprints: projection.sourceFootprints,
-    scope: { kind: "tree", currentSourceTreeDigest: projection.currentSourceTreeDigest }
-  }));
-}
-
 /** Strict decoder for the daemon reply; an unreadable answer must fail the run, never omit the field. */
 function parseProjectionPriorCommittedApplies(value: unknown, requestId: string): ProjectionPriorCommittedApplyV1[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("prior committed apply reply must be an object");
@@ -1115,7 +1094,7 @@ function createProjectionApplyRecoveryBinding(
 ): ProjectionApplyRecoveryBindingV2 {
   const provenance = projection.plan.provenance;
   return {
-    schemaVersion: "archcontext.projection-apply-recovery-binding/v1",
+    schemaVersion: PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION,
     targets: [...request.targets],
     changedPaths: [...request.changedPaths],
     originalExpectedSnapshot: { ...request.expected },
@@ -1268,21 +1247,20 @@ function runProjectionSnapshotCommandUnchecked(cwd: string): JsonEnvelope {
 }
 
 /**
- * `projection freshness` (#327): which stamped documents describe code that moved since they were
- * verified, from the committed manifest, the model and the Git-visible files only. It answers with
- * the evaluator `check` uses, so on the same tree its `staleNodes` equal `check`'s, but it needs no
- * code facts, renders nothing, starts no daemon, opens no local store and writes nothing.
- * `changedPaths` limits the probe to the stamped nodes whose footprint selects one of the paths,
- * unless one is under `.archcontext/`: the model decides every footprint and stamp, so that run
- * evaluates the whole tree and reports `scope: "tree"`, `scopeReason: "model-path-changed"`. A
- * root that is not a Git worktree fails with `AC_REPO_NOT_FOUND` (`git-worktree-required`).
+ * `projection freshness` (ADR-0056 §2): would the committed documents render differently? It runs
+ * the projection build `check` runs, over the committed manifest's profile, and reports that
+ * render's `freshness`, so on the same tree it equals `check`'s and the `complete` gate's. It may
+ * sync CodeGraph, as `flows check` does, but starts no daemon, opens no local store and writes no
+ * repository file. Without a current-format manifest there is no profile to render and nothing to
+ * compare, and `profile` is null. A root that is not a Git worktree fails with `AC_REPO_NOT_FOUND`
+ * (`git-worktree-required`).
  */
-export function runProjectionFreshnessCommand(cwd: string, options: { changedPaths?: readonly string[] } = {}): JsonEnvelope {
-  try { return publicOperationResult("projection.freshness", runProjectionFreshnessCommandUnchecked(cwd, options)) as JsonEnvelope; }
+export function runProjectionFreshnessCommand(cwd: string): JsonEnvelope {
+  try { return publicOperationResult("projection.freshness", runProjectionFreshnessCommandUnchecked(cwd)) as JsonEnvelope; }
   catch (error) { return publicOperationErrorEnvelope("projection.freshness", error); }
 }
 
-function runProjectionFreshnessCommandUnchecked(cwd: string, options: { changedPaths?: readonly string[] } = {}): JsonEnvelope {
+function runProjectionFreshnessCommandUnchecked(cwd: string): JsonEnvelope {
   let root: string;
   try {
     root = findRepositoryRoot(cwd);
@@ -1290,21 +1268,17 @@ function runProjectionFreshnessCommandUnchecked(cwd: string, options: { changedP
     return publicFailureEnvelope("projection.freshness", "AC_REPO_NOT_FOUND", "git-worktree-required");
   }
   try {
-    const measured = measureProjectionFreshness(root, options.changedPaths === undefined ? {} : { changedPaths: options.changedPaths });
-    const freshness = projectionFreshnessContract(measured.evaluation);
+    const manifestPath = resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
+    const body = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : undefined;
+    const committed = body === undefined ? undefined : readCommittedArchitectureDocsProjectionManifest(body);
+    const evaluation = committed === undefined
+      ? architectureProjectionFreshnessWithoutBaseline(body)
+      : buildArchitectureDocsProjection(undefined, root, committed.profile).plan.freshness;
+    const freshness = projectionFreshnessContract(evaluation);
     const issues = projectionFreshnessIssues(freshness);
     if (issues.length > 0) throw new Error(`projection-freshness-invalid: ${issues.join("; ")}`);
-    return okEnvelope("projection.freshness", {
-      profile: measured.profile,
-      changedPaths: measured.changedPaths,
-      evaluatedNodeIds: measured.evaluatedNodeIds,
-      ...(measured.scope === undefined ? {} : { scope: measured.scope, scopeReason: measured.scopeReason }),
-      freshness
-    } as unknown as Json);
+    return okEnvelope("projection.freshness", { profile: committed?.profile ?? null, freshness } as unknown as Json);
   } catch (error) {
-    if (error instanceof ProjectionFreshnessChangedPathError) {
-      return errorEnvelope("projection.freshness", error.code, error.message, error.reasonCode, { changedPath: error.changedPath });
-    }
     return publicOperationErrorEnvelope("projection.freshness", error);
   }
 }
@@ -1450,7 +1424,7 @@ function projectionProtocolResult(
   // result reports, and changes no status, file or gate (#327).
   const changes = request.mode === "check" || request.mode === "plan" ? projectionTargetChanges(input, plannedFiles) : undefined;
   const withoutReceipt: Omit<ProjectionResultV3, "receiptDigest"> = {
-    schemaVersion: "archcontext.projection-result/v2",
+    schemaVersion: PROJECTION_RESULT_SCHEMA_VERSION,
     requestId: request.requestId,
     status,
     inputSnapshot,
@@ -1498,7 +1472,8 @@ function projectionTargetChanges(
     files,
     rejected: projection.plan.rejected,
     orphans: projection.plan.orphans,
-    blockedTargets: projection.plan.isolation?.blockedTargets ?? []
+    blockedTargets: projection.plan.isolation?.blockedTargets ?? [],
+    footprintOwners: architectureProjectionFootprintOwners(projection.loaded.model, projection.plan.profile)
   });
 }
 

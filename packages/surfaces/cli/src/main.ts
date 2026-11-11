@@ -211,7 +211,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
       recover: { value: ["--request-json"], boolean: [] },
       readback: { value: ["--request-json"], boolean: [] },
       snapshot: { value: [], boolean: [] },
-      freshness: { value: ["--changed-path"], boolean: [] },
+      freshness: { value: [], boolean: [] },
       publish: { value: PROJECTION_PUBLISH_VALUE_FLAGS, boolean: PROJECTION_PUBLISH_BOOLEAN_FLAGS },
       "publish-status": { value: PROJECTION_PUBLISH_STATUS_VALUE_FLAGS, boolean: [] },
       "verify-pr": { value: PROJECTION_VERIFY_PR_VALUE_FLAGS, boolean: [] }
@@ -358,15 +358,14 @@ const CLI_DOCS_ANCHORS_HELP = {
 
 /** `projection freshness --help`; above the entry block for the same TDZ reason as the audit constants. */
 const CLI_PROJECTION_FRESHNESS_HELP = {
-  usage: "archctx projection freshness [--changed-path <path> ...] [--json]",
-  description: "Read-only per-node freshness of the committed architecture projection: which stamped documents describe source that changed since they were verified. It compares the manifest's footprint stamps with the Git-visible files now, through the evaluator projection check uses, so on the same tree staleNodes equal check's for a repo-harness/v1 manifest, the only profile check renders. It needs no code facts and renders nothing.",
+  usage: "archctx projection freshness [--json]",
+  description: "Render-equivalent freshness of the committed architecture projection: whether any target would render an output other than its committed manifest row, or the manifest itself would change. It runs the projection build that projection check runs, over the committed manifest's profile, so on the same tree it reports check's and complete's answer.",
   options: {
-    "--changed-path <path>": "Repeatable. Probe only the stamped nodes whose source.include selects one of these repository-relative POSIX paths and whose source.exclude does not. The declared source tree digest is not compared in this scope. A path under .archcontext/ widens the run to the whole tree, exactly as without --changed-path, and the output then carries scope: \"tree\" and scopeReason: \"model-path-changed\". Absolute, .. or non-normalized paths fail with AC_SCHEMA_INVALID.",
     "--json": "Accepted for symmetry; output is always JSON.",
     "--help, -h": "Show help without reading the repository."
   },
-  writes: "none; no daemon, no local store, no CodeGraph sync. Outside a Git worktree it fails with AC_REPO_NOT_FOUND (git-worktree-required).",
-  capability: "projection-freshness-v1"
+  writes: "no repository file; no daemon, no local store. It may sync the CodeGraph index, as flows check does. Outside a Git worktree it fails with AC_REPO_NOT_FOUND (git-worktree-required).",
+  capability: "projection-freshness-v2"
 };
 
 /** `projection publish --help` (#379); above the entry block for the same TDZ reason as the audit constants. */
@@ -1743,22 +1742,14 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, runtime
 }
 
 function runProjectionFreshnessCliCommand(args: string[], cwd: string): JsonEnvelope {
-  const changedPaths: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === "--json") continue;
     // Global rendering flag (preflight guarantees it has a value); the process entry reads it, as `flows` does.
     if (arg === "--format") { index += 1; continue; }
-    if (arg === "--changed-path") {
-      const value = args[index + 1];
-      if (value === undefined || value.startsWith("--")) return errorEnvelope("projection.freshness", "AC_SCHEMA_INVALID", "projection freshness --changed-path requires a path");
-      changedPaths.push(value);
-      index += 1;
-      continue;
-    }
     return errorEnvelope("projection.freshness", "AC_SCHEMA_INVALID", `projection freshness does not accept ${arg}; use --help`);
   }
-  return runProjectionFreshnessCommand(cwd, changedPaths.length > 0 ? { changedPaths } : {});
+  return runProjectionFreshnessCommand(cwd);
 }
 
 type ProjectionWriterCliAction = "publish" | "publish-status" | "verify-pr";
@@ -3916,7 +3907,7 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
   return 1;
 }
 
-const CLI_HELP_EXAMPLES = ["archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection freshness --changed-path src/app.ts --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx state-machines check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
+const CLI_HELP_EXAMPLES = ["archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx state-machines check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
 
 const CLI_RESOLVE_HELP = {
   command: "archctx resolve (--path <repo-relative path> | --paths-from <file> | --paths-from -)",

@@ -927,14 +927,14 @@ function previousArchitectureDocsProjectionManifest(body: string | undefined, re
 }
 
 /**
- * Refuses a committed manifest exactly as a projection render refuses it, without rendering: a
+ * Reads a committed manifest exactly as a projection render reads it, without rendering: a
  * superseded one throws `projection-manifest-upgrade-required` and a current-format one that fails
  * its contract throws `projection-manifest-invalid`. A manifest that is not JSON or names no
- * declared `schemaVersion` or floors carries no baseline and passes, as it does for a render. Surfaces
- * that read only the stamps (`projection freshness`) call it so they refuse what `check` refuses.
+ * declared `schemaVersion` or floors carries no baseline and reads as undefined, as for a render.
+ * `projection freshness` reads the committed profile through it.
  */
-export function assertArchitectureDocsProjectionManifestAccepted(body: string): void {
-  previousArchitectureDocsProjectionManifest(body, false);
+export function readCommittedArchitectureDocsProjectionManifest(body: string): ArchitectureDocsProjectionManifestV4 | undefined {
+  return previousArchitectureDocsProjectionManifest(body, false);
 }
 
 /**
@@ -1337,12 +1337,7 @@ function evaluateArchitectureProjectionFreshness(input: {
   renderedTargets: ArchitectureDocsProjectionManifestV4["targets"];
   renderedManifestBody: string;
 }): ArchitectureProjectionFreshnessEvaluation {
-  if (input.committedManifestBody === undefined) {
-    return freshnessEvaluation(["projection-manifest-missing"], `${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} is absent; nothing records what the projection rendered`, []);
-  }
-  if (input.committedManifest === undefined) {
-    return freshnessEvaluation(["projection-manifest-unreadable"], `${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} is not a ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION} manifest`, []);
-  }
+  if (input.committedManifest === undefined) return architectureProjectionFreshnessWithoutBaseline(input.committedManifestBody);
   const committed = input.committedManifest.targets;
   const staleTargets: ProjectionFreshnessStaleTargetV2[] = [];
   for (const targetId of [...new Set([...Object.keys(committed), ...Object.keys(input.renderedTargets)])].sort(compareStrings)) {
@@ -1363,6 +1358,16 @@ function evaluateArchitectureProjectionFreshness(input: {
     return freshnessEvaluation(["projection-manifest-changed"], "every output matches its committed row, but the manifest this render writes differs from the committed bytes", []);
   }
   return freshnessEvaluation([], "every target renders the output its committed row records", []);
+}
+
+/**
+ * Freshness when no current-format committed manifest exists, so nothing can be compared and no
+ * render is needed to answer: the manifest is absent, or its body names no current-format manifest.
+ */
+export function architectureProjectionFreshnessWithoutBaseline(committedManifestBody: string | undefined): ArchitectureProjectionFreshnessEvaluation {
+  return committedManifestBody === undefined
+    ? freshnessEvaluation(["projection-manifest-missing"], `${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} is absent; nothing records what the projection rendered`, [])
+    : freshnessEvaluation(["projection-manifest-unreadable"], `${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH} is not a ${ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION} manifest`, []);
 }
 
 function freshnessEvaluation(
