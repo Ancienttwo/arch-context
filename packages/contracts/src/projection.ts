@@ -9,7 +9,7 @@ export const PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION = "archcontext.pro
 export const PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION = "archcontext.projection-apply-recovery-intent/v1" as const;
 export const PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION = "archcontext.projection-apply-recovery-proof/v2" as const;
 export const PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-recovery-result/v2" as const;
-export const PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-readback-result/v1" as const;
+export const PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-readback-result/v2" as const;
 export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v2" as const;
 export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
 export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v6" as const;
@@ -767,7 +767,7 @@ export interface ProjectionApplyRecoveryResultV2 {
 }
 
 /** Non-consuming receipt retrieval; current state is rebuilt for every response. */
-export interface ProjectionApplyReadbackResultV1 {
+export interface ProjectionApplyReadbackResultV2 {
   schemaVersion: typeof PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION;
   requestId: string;
   requestDigest: Sha256Digest;
@@ -786,7 +786,7 @@ export interface ProjectionApplyAbsenceV1 {
   absenceDigest: Sha256Digest;
 }
 
-export type ProjectionApplyReadbackV1 = ProjectionApplyReadbackResultV1 | ProjectionApplyAbsenceV1;
+export type ProjectionApplyReadbackV1 = ProjectionApplyReadbackResultV2 | ProjectionApplyAbsenceV1;
 
 export interface ArchctxCapabilitiesV1 {
   schemaVersion: typeof ARCHCTX_CAPABILITIES_SCHEMA_VERSION;
@@ -1413,12 +1413,12 @@ export function projectionApplyAbsenceInvariantIssues(input: ProjectionApplyAbse
   return issues;
 }
 
-export function projectionApplyReadbackResultDigest(input: Omit<ProjectionApplyReadbackResultV1, "readbackDigest">): Sha256Digest {
+export function projectionApplyReadbackResultDigest(input: Omit<ProjectionApplyReadbackResultV2, "readbackDigest">): Sha256Digest {
   return digestJson(input as unknown as Json) as Sha256Digest;
 }
 
 export function projectionApplyReadbackResultInvariantIssues(
-  input: ProjectionApplyReadbackResultV1,
+  input: ProjectionApplyReadbackResultV2,
   request?: ProjectionRequestV1
 ): string[] {
   const issues = projectionApplyReceiptInvariantIssues(input.receipt);

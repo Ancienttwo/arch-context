@@ -73,6 +73,7 @@ import {
   projectionApplyAbsenceInvariantIssues,
   projectionApplyLookupKey,
   projectionApplyReadbackRequestFromReceipt,
+  PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION,
   projectionApplyReadbackRequestInvariantIssues,
   projectionApplyRecoveryProofInvariantIssues,
   projectionApplyRecoveryProofDigest,
@@ -604,6 +605,9 @@ test("projection readback schema embeds canonical request and result contracts",
   expect(readback.$defs.repoPath).toEqual(request.$defs.repoPath);
   expect(readback.$defs.recoveryBinding.properties.targets).toEqual(request.properties.targets);
   expect(readback.$defs.recoveryBinding.properties.changedPaths).toEqual(request.properties.changedPaths);
+  // The readback result embeds ArchitectureDigestSetV2, so its version moved with it (ADR-0056 §4).
+  expect(readback.$defs.readbackResult.properties.schemaVersion.const).toBe(PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION);
+  expect(PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION).toBe("archcontext.projection-apply-readback-result/v2");
   const valid = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
   expect(projectionApplyReadbackRequestInvariantIssues(valid)).toContain("readback requires an accepted apply request");
   expect(projectionApplyReadbackRequestInvariantIssues({ ...valid, profile: "wrong" } as any)).toContain("readback request protocol is invalid");

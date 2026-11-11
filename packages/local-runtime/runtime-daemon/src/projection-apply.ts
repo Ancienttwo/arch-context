@@ -1,5 +1,5 @@
 import { publicFailureEnvelope, publicOperationFailure, publicOperationErrorEnvelope } from "./public-operation-failure";
-import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION, digestJson, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV1, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV2 } from "@archcontext/contracts";
+import { PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION, digestJson, okEnvelope, projectionApplyLookupKey, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type Json, type JsonEnvelope, type WorkspaceRef, type ProjectionApplyAbsenceV1, type ProjectionApplyReadbackResultV2, type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV2 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import { REPO_HARNESS_PROJECTION_PROFILE, architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadArchitectureDocumentationInputs, measureCapabilitySourceScaleSignals, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
@@ -122,11 +122,11 @@ export class ProjectionApplyService {
         const body = {
           schemaVersion: PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION,
           requestId: request.requestId,
-          requestDigest: digestJson(request as unknown as Json) as ProjectionApplyReadbackResultV1["requestDigest"],
+          requestDigest: digestJson(request as unknown as Json) as ProjectionApplyReadbackResultV2["requestDigest"],
           receipt,
           current: runtimeProjectionRecoveryCurrent(fixedPoint)
         };
-        const result: ProjectionApplyReadbackResultV1 = { ...body, readbackDigest: projectionApplyReadbackResultDigest(body) };
+        const result: ProjectionApplyReadbackResultV2 = { ...body, readbackDigest: projectionApplyReadbackResultDigest(body) };
         const resultIssues = projectionApplyReadbackResultInvariantIssues(result, request);
         if (session.workspace.repositoryId !== result.current.snapshot.repositoryId
           || session.workspace.headSha !== result.current.snapshot.headSha

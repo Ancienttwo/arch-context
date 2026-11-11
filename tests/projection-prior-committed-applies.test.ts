@@ -11,7 +11,7 @@ import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { digestJson, projectionResultInvariantIssues, stableYaml, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { digestJson, projectionResultInvariantIssues, stableYaml, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { runCli } from "../packages/surfaces/cli/src/main";
 
 const timeout = process.platform === "win32" ? 240_000 : 60_000;
@@ -178,7 +178,7 @@ test("a repeated projection request learns what its own killed attempt already c
     const requestId = "repo-harness.projection.job-prior-committed";
     const first = await runTestCli("projection", ["run", "--request-json", JSON.stringify(projectionRequest(root, requestId))], root, daemon);
     expect(first.ok, JSON.stringify(first)).toBe(true);
-    const firstResult = first.data as ProjectionResultV2;
+    const firstResult = first.data as ProjectionResultV3;
     expect(firstResult.status).toBe("applied");
     expect(firstResult.files.map((file) => file.path)).toContain(MANIFEST_PATH);
     expect(firstResult.priorCommittedApplies).toBeUndefined();
@@ -189,7 +189,7 @@ test("a repeated projection request learns what its own killed attempt already c
     const snapshotsBeforeRetry = snapshotCount(root);
     const retry = await runTestCli("projection", ["run", "--request-json", JSON.stringify(projectionRequest(root, requestId))], root, daemon);
     expect(retry.ok, JSON.stringify(retry)).toBe(true);
-    const retryResult = retry.data as ProjectionResultV2;
+    const retryResult = retry.data as ProjectionResultV3;
     expect(retryResult.status).toBe("noop");
     expect(retryResult.files).toEqual([]);
     expect(projectionResultInvariantIssues(retryResult)).toEqual([]);
@@ -219,7 +219,7 @@ test("a repeated projection request learns what its own killed attempt already c
       "run", "--request-json", JSON.stringify(projectionRequest(root, "repo-harness.projection.job-unrelated"))
     ], root, daemon);
     expect(other.ok, JSON.stringify(other)).toBe(true);
-    const otherResult = other.data as ProjectionResultV2;
+    const otherResult = other.data as ProjectionResultV3;
     expect(otherResult.status).toBe("noop");
     expect(otherResult.priorCommittedApplies).toBeUndefined();
     expect(otherResult.receiptDigest).not.toBe(retryResult.receiptDigest);
@@ -264,7 +264,7 @@ test("a repeated projection request learns what its own killed attempt already c
 
     const afterDuplicate = await runTestCli("projection", ["run", "--request-json", JSON.stringify(projectionRequest(root, requestId))], root, daemon);
     expect(afterDuplicate.ok, JSON.stringify(afterDuplicate)).toBe(true);
-    const afterDuplicateResult = afterDuplicate.data as ProjectionResultV2;
+    const afterDuplicateResult = afterDuplicate.data as ProjectionResultV3;
     expect(projectionResultInvariantIssues(afterDuplicateResult)).toEqual([]);
     expect(afterDuplicateResult.priorCommittedApplies).toHaveLength(1);
     expect(afterDuplicateResult.priorCommittedApplies![0]!.changeSetId).toBe(expectedChangeSetId);
