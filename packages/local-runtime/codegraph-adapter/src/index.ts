@@ -1826,7 +1826,8 @@ export function repositoryImportPairs(
       importNodeLimitExceeded: false
     };
   }
-  const status = readProjectionCodeGraphStatus(codeGraphCliInvocation(binary, root, ""), root, CODEGRAPH_QUERY_TIMEOUT_MS);
+  // `codegraph status` runs `git status` in the checkout; without this it refreshes and rewrites .git/index.
+  const status = readProjectionCodeGraphStatus(codeGraphCliInvocation(binary, root, ""), root, CODEGRAPH_QUERY_TIMEOUT_MS, { GIT_OPTIONAL_LOCKS: "0" });
   const nodes = codeGraphImportPopulation(root, binary, limit, statusImportNodeCount(status));
   const pending = status.pendingChanges;
   const clean = status.initialized && pending !== undefined && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
