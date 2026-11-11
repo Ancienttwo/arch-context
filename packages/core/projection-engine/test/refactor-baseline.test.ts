@@ -97,7 +97,6 @@ function renderScaleLine(fileCount: number, lineCount: number): string {
     model: bucketModel,
     sourceDigest,
     provenance,
-    sourceFootprints: [{ nodeId: "capability.scale", digest: `sha256:${"4".repeat(64)}`, fileCount }],
     sourceScaleSignals: [{ nodeId: "capability.scale", fileCount, lineCount, includePatterns: ["packages/scale/**"], excludePatterns: [] }],
     importGraphs: [],
     selectorEvidence: [],

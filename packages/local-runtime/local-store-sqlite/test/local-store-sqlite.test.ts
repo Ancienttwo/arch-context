@@ -4880,7 +4880,7 @@ function projectionApplyRecoveryReceiptFixture(): ProjectionApplyReceiptV1 {
   return {
     ...receipt,
     recovery: {
-      schemaVersion: "archcontext.projection-apply-recovery-binding/v1",
+      schemaVersion: "archcontext.projection-apply-recovery-binding/v2",
       targets: ["architecture-docs"],
       changedPaths: [".archcontext/model/nodes/capability.example.yaml"],
       originalExpectedSnapshot: {
@@ -4908,7 +4908,7 @@ function projectionApplyRecoveryProofFixture(receipt: ProjectionApplyReceiptV1):
     fixedPointDigest: digestJson({ receipt: receipt.result.receiptDigest, fixedPoint: true }) as `sha256:${string}`
   };
   const payload = {
-    schemaVersion: "archcontext.projection-apply-recovery-proof/v1" as const,
+    schemaVersion: "archcontext.projection-apply-recovery-proof/v2" as const,
     requestId: "projection_request.local_store_recovery",
     requestDigest: digestJson({ receipt: receipt.result.receiptDigest, request: true }) as `sha256:${string}`,
     receipt: {

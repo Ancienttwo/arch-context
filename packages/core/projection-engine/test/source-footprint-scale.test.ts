@@ -53,7 +53,7 @@ function measureBuild(root: string, model: NativeModel, sourceFiles: string[]) {
   return {
     footprints,
     digests: digestCapabilitySourceFootprints(root, model, footprints),
-    scaleSignals: measureCapabilitySourceScaleSignals(root, footprints),
+    scaleSignals: measureCapabilitySourceScaleSignals(root, model, footprints),
     sourceTreeDigest: digestArchitectureDocumentationSourceTree(root, model, footprints)
   };
 }
@@ -98,7 +98,7 @@ describe("source footprints at repository scale (#324)", () => {
     for (const footprint of first.footprints) expect(footprint.files).toHaveLength(42);
   }, 120_000);
 
-  test("100 nodes over 5,000 files resolve, stamp and measure in bounded time", () => {
+  test("100 nodes over 5,000 files resolve, digest and measure in bounded time", () => {
     expect(sourceFiles).toHaveLength(5_000);
     const started = performance.now();
     const measured = measureBuild(root, model, sourceFiles);

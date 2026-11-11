@@ -230,11 +230,11 @@ describe("@archcontext/core/review-engine", () => {
       { compatibilityPathIntroduced: true },
       {
         projectionFreshness: {
-          schemaVersion: "archcontext.projection-freshness/v2" as const,
+          schemaVersion: "archcontext.projection-freshness/v3" as const,
           ok: false,
-          reasonCodes: ["projection-source-stamp-stale"],
-          detail: "module.a footprint changed",
-          staleNodes: [{ nodeId: "module.a", stampedDigest: sha, currentDigest: digestJson({ changed: true }) }]
+          reasonCodes: ["projection-output-changed"],
+          detail: "1 target(s) render differently from the committed manifest: projection_target.entity.module-a",
+          staleTargets: [{ targetId: "projection_target.entity.module-a", path: "docs/architecture/modules/a.md", committedOutputDigest: sha, renderedOutputDigest: digestJson({ changed: true }) }]
         }
       },
       { practiceEnforcement: { ...practiceEnforcement, actionsRequired: [], violations: practiceEnforcement.violations.map((violation) => ({ ...violation, remediation: { ...violation.remediation, action: "none" } })) } }
@@ -372,14 +372,15 @@ describe("@archcontext/core/review-engine", () => {
 
   test("a stale projection blocks complete_task through the stale-context failOn switch", () => {
     const freshness = {
-      schemaVersion: "archcontext.projection-freshness/v2" as const,
+      schemaVersion: "archcontext.projection-freshness/v3" as const,
       ok: false,
-      reasonCodes: ["projection-source-changed-since-stamp"],
-      detail: "1 node(s) changed after their document was verified: capability.docs.projection",
-      staleNodes: [{
-        nodeId: "capability.docs.projection",
-        stampedDigest: `sha256:${"1".repeat(64)}`,
-        currentDigest: `sha256:${"2".repeat(64)}`
+      reasonCodes: ["projection-output-changed"],
+      detail: "1 target(s) render differently from the committed manifest: projection_target.entity.capability-docs-projection",
+      staleTargets: [{
+        targetId: "projection_target.entity.capability-docs-projection",
+        path: "docs/architecture/modules/docs/projection.md",
+        committedOutputDigest: `sha256:${"1".repeat(64)}`,
+        renderedOutputDigest: `sha256:${"2".repeat(64)}`
       }]
     };
     const result = completeTaskGate({
@@ -399,10 +400,10 @@ describe("@archcontext/core/review-engine", () => {
     // `stale-context`; only the message and the gate extension name the trigger source.
     expect(finding.type).toBe("stale-context");
     expect(finding.severity).toBe("error");
-    expect(finding.message).toContain("projection-source-changed-since-stamp");
-    expect(finding.message).toContain("changed after their document was verified: capability.docs.projection");
+    expect(finding.message).toContain("projection-output-changed");
+    expect(finding.message).toContain("render differently from the committed manifest: projection_target.entity.capability-docs-projection");
     expect(finding.message).not.toContain("Task snapshot HEAD");
-    expect(result.extensions.projectionFreshnessGate).toMatchObject({ ok: false, staleNodes: [{ nodeId: "capability.docs.projection" }] });
+    expect(result.extensions.projectionFreshnessGate).toMatchObject({ ok: false, staleTargets: [{ targetId: "projection_target.entity.capability-docs-projection" }] });
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
   });
 
@@ -416,11 +417,11 @@ describe("@archcontext/core/review-engine", () => {
       modelDigest: sha,
       codeFactsDigest: sha,
       projectionFreshness: {
-        schemaVersion: "archcontext.projection-freshness/v2",
+        schemaVersion: "archcontext.projection-freshness/v3",
         ok: true,
         reasonCodes: [],
-        detail: "no declared capability source changed since its documentation was verified",
-        staleNodes: []
+        detail: "every target renders the output its committed row records",
+        staleTargets: []
       }
     });
 
@@ -439,11 +440,11 @@ describe("@archcontext/core/review-engine", () => {
       modelDigest: sha,
       codeFactsDigest: sha,
       projectionFreshness: {
-        schemaVersion: "archcontext.projection-freshness/v2",
+        schemaVersion: "archcontext.projection-freshness/v3",
         ok: false,
-        reasonCodes: ["projection-source-stamp-missing"],
-        detail: "projection manifest records no sourceFootprintDigest for capability.docs.projection; re-run the documentation projection",
-        staleNodes: []
+        reasonCodes: ["projection-manifest-unreadable"],
+        detail: "docs/architecture/.projection-manifest.json is not a archcontext.architecture-docs-projection-manifest/v4 manifest",
+        staleTargets: []
       }
     });
 

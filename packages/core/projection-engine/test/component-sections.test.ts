@@ -91,8 +91,6 @@ function render(overrides: Partial<Parameters<typeof renderArchitectureDocumenta
     profile: REPO_HARNESS_PROJECTION_PROFILE,
     provenance,
     sourceDigest,
-    // The component's footprint is stamped on its capability's row (#327).
-    sourceFootprints: [{ nodeId: cliRoot.id, digest: `sha256:${"5".repeat(64)}`, fileCount: 7 }],
     sourceScaleSignals: scaleSignals,
     importGraphs: [],
     selectorEvidence: [],

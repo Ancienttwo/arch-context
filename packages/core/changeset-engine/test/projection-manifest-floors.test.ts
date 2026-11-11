@@ -10,7 +10,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "archctx-floor-writer-"));
   initializeArchContextModel(root, "Floor writer");
   mkdirSync(dirname(join(root, MANIFEST)), { recursive: true });
-  const writeManifest = (extra = {}) => writeFileSync(join(root, MANIFEST), JSON.stringify({ schemaVersion: "archcontext.architecture-docs-projection-manifest/v3", ...extra }));
+  const writeManifest = (extra = {}) => writeFileSync(join(root, MANIFEST), JSON.stringify({ schemaVersion: "archcontext.architecture-docs-projection-manifest/v4", ...extra }));
   return { root, writeManifest, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 const digest = `sha256:${"a".repeat(64)}`;
@@ -68,7 +68,7 @@ test("a supplied manifest cannot erase compatible floors or publish a future for
       f.writeManifest({ minimumRendererVersion: "archcontext.docs-renderer/v6" });
       const before = readFileSync(join(f.root, MANIFEST), "utf8");
       const engine = new ChangeSetEngine({ modelStore: new YamlModelStore(), projection: { planGeneratedProjection } });
-      const body = JSON.stringify({ schemaVersion: future ? "archcontext.architecture-docs-projection-manifest/v4" : "archcontext.architecture-docs-projection-manifest/v3" });
+      const body = JSON.stringify({ schemaVersion: future ? "archcontext.architecture-docs-projection-manifest/v5" : "archcontext.architecture-docs-projection-manifest/v4" });
       const planned = draft(engine, [{ op: "render_projection", expectedHash: "missing", projectionFiles: [{ path, expectedHash: digestJson({ body: before }), body }] }]);
       await expect(engine.apply(f.root, planned, { approved: true })).rejects.toThrow("Projection manifest incompatible.");
       expect(readFileSync(join(f.root, MANIFEST), "utf8")).toBe(before);
@@ -83,7 +83,7 @@ test("implicit generated manifests use the same normalized destination guard", a
     try {
       f.writeManifest({ minimumRendererVersion: "archcontext.docs-renderer/v6" });
       const before = readFileSync(join(f.root, MANIFEST), "utf8");
-      const engine = new ChangeSetEngine({ modelStore: new YamlModelStore(), projection: { planGeneratedProjection() { return [{ path, expectedHash: digestJson({ body: before }), body: JSON.stringify({ schemaVersion: "archcontext.architecture-docs-projection-manifest/v4" }), operation: "render_projection" as const }]; } } });
+      const engine = new ChangeSetEngine({ modelStore: new YamlModelStore(), projection: { planGeneratedProjection() { return [{ path, expectedHash: digestJson({ body: before }), body: JSON.stringify({ schemaVersion: "archcontext.architecture-docs-projection-manifest/v5" }), operation: "render_projection" as const }]; } } });
       await expect(engine.apply(f.root, draft(engine, []), { approved: true })).rejects.toThrow("Projection manifest incompatible.");
       expect(readFileSync(join(f.root, MANIFEST), "utf8")).toBe(before);
     } finally { f.cleanup(); }

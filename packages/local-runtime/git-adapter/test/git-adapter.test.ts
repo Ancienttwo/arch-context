@@ -3,8 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evaluateArchitectureProjectionFreshness, loadCapabilitySourceFootprintDigests, type NativeModel } from "@archcontext/core/projection-engine";
-import { architectureSourceTreeDigest } from "@archcontext/contracts";
+import { loadCapabilitySourceFootprintDigests, type NativeModel } from "@archcontext/core/projection-engine";
 import {
   computeGitChangeFingerprint,
   readCommitChangeMetadata,
@@ -345,30 +344,24 @@ describe("projection source files (#257)", () => {
     }
   });
 
-  test("an ignored file under source.include never moves the footprint digest; a tracked edit makes the node stale", () => {
+  test("an ignored file under source.include never moves the footprint digest; a tracked edit does", () => {
     const root = createFootprintFixture();
     try {
       const stamped = footprint(root);
       expect(stamped.fileCount).toBe(1);
-      const manifest = { status: "present" as const, nodes: [{ nodeId, sourceFootprintDigest: stamped.digest }], sourceTreeDigest: architectureSourceTreeDigest({ [nodeId]: stamped.digest }) };
 
       // Build output and logs matched by `app/**` but gitignored: same digest, still fresh.
       mkdirSync(join(root, "app/dist"), { recursive: true });
       writeFileSync(join(root, "app/dist/bundle.js"), "console.log('built');\n");
       writeFileSync(join(root, "app/src/build.log"), "built\n");
       expect(footprint(root)).toEqual(stamped);
-      expect(evaluateArchitectureProjectionFreshness({ model, manifest, sourceFootprints: [footprint(root)] }).ok).toBe(true);
 
-      // An edit to a tracked file inside the footprint — uncommitted, then committed — is stale.
+      // An edit to a tracked file inside the footprint — uncommitted, then committed — moves it.
       writeFileSync(join(root, "app/src/index.ts"), "export const app = 2;\n");
       const edited = footprint(root);
       expect(edited.digest).not.toBe(stamped.digest);
       commitAll(root, "edit tracked footprint file");
       expect(footprint(root)).toEqual(edited);
-      const stale = evaluateArchitectureProjectionFreshness({ model, manifest, sourceFootprints: [footprint(root)] });
-      expect(stale.ok).toBe(false);
-      expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp"]);
-      expect(stale.staleNodes).toEqual([{ nodeId, stampedDigest: stamped.digest, currentDigest: edited.digest }]);
     } finally {
       removeTempRoot(root);
     }
