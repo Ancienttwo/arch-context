@@ -450,13 +450,19 @@ describe("capability documentation projection inputs from the code index", () =>
   });
 
   describe("selector proof rules for false built-in edges, references and duplicate symbols (#300)", () => {
-    function evidenceFor(sinkName: string, index: CodeGraphSelectorIndex) {
+    function evidenceFor(sinkName: string, index: CodeGraphSelectorIndex, ignoredFile?: string) {
       const root = mkdtempSync(join(tmpdir(), "archctx-selector-builtin-"));
       try {
+        // Import targets resolve against the Git-visible files, so the fixture is a checkout.
+        execFileSync("git", ["init", "-q"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
         mkdirSync(join(root, ".codegraph"));
         mkdirSync(join(root, "src"));
         writeFileSync(join(root, "src/util.ts"), `export function ${sinkName}() {}\n`);
         writeFileSync(join(root, "src/main.ts"), "// fixture\n");
+        if (ignoredFile) {
+          writeFileSync(join(root, ".gitignore"), `.codegraph/\n${ignoredFile}\n`);
+          writeFileSync(join(root, ignoredFile), "// generated\n");
+        }
         // No footprint is declared, so only the structured selector index is read: no CLI call.
         const inputs = loadCapabilityCodeGraphProjectionInputs(root, builtinSelectorModel(sinkName), {
           binary: join(root, "does-not-exist.js"),
@@ -502,6 +508,16 @@ describe("capability documentation projection inputs from the code index", () =>
           callSites: [{ path: "src/main.ts", line: 6 }]
         });
       }
+    });
+
+    test("ignores a gitignored file at an import candidate path (#548)", () => {
+      // `./util` tries `src/util` before `src/util.ts`; an ignored file there must not shadow the sink.
+      const evidence = evidenceFor("existsSync", builtinSelectorIndex({
+        sinkName: "existsSync",
+        imports: ["node:fs", "./util"],
+        edges: [{ kind: "calls", line: 6 }]
+      }), "src/util");
+      expect(evidence).toMatchObject({ matched: true, callSites: [{ path: "src/main.ts", line: 6 }] });
     });
 
     test("keeps a call to a name that is not a runtime built-in without an import check", () => {

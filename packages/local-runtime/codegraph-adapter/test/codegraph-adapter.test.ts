@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -291,6 +292,8 @@ writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
     const logPath = join(root, "codegraph-query-log.json");
     const shimPath = join(root, "fake-codegraph.js");
     try {
+      // Import targets resolve against the Git-visible files, so the fixture is a checkout.
+      execFileSync("git", ["init", "-q"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
       mkdirSync(join(root, ".codegraph"), { recursive: true });
       mkdirSync(join(root, "src", "web"), { recursive: true });
       mkdirSync(join(root, "src", "domain"), { recursive: true });

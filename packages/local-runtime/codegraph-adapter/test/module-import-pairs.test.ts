@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,6 +64,8 @@ if (argv[0] === "query") {
 
 function seedWorkspace(options: { withIndex?: boolean; pending?: number; withLines?: boolean } & FakeIndexOptions = {}): { root: string; binary: string; log: string } {
   const root = mkdtempSync(join(tmpdir(), "archctx-module-import-pairs-"));
+  // Import targets resolve against the Git-visible files, so the fixture is a checkout.
+  execFileSync("git", ["init", "-q"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   if (options.withIndex !== false) mkdirSync(join(root, ".codegraph"));
   mkdirSync(join(root, "packages/docs/src"), { recursive: true });
   mkdirSync(join(root, "packages/shared"), { recursive: true });

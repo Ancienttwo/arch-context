@@ -121,7 +121,7 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
       ...parseExploreSymbols(output, options.maxSymbols)
     ]).slice(0, options.maxSymbols);
     const fallback = symbols.length > 0 ? symbols : await this.findSymbols({ query, limit: options.maxSymbols });
-    const edges = uniqueEdges(importEdgesFromQueryNodes(this.workspaceRoot, importNodes.length > 0 ? importNodes : queryNodes));
+    const edges = uniqueEdges(importEdgesFromQueryNodes(new Set(listGitVisibleFiles(this.workspaceRoot)), importNodes.length > 0 ? importNodes : queryNodes));
     return {
       task,
       symbols: fallback,
@@ -577,8 +577,8 @@ function importQuery(changedPaths: string[]): string | undefined {
   return uniqueStrings(["import", ...scoped]).join(" ");
 }
 
-function importEdgesFromQueryNodes(workspaceRoot: string, nodes: CodeGraphCliNode[]): NormalizedEdge[] {
-  return resolvedImportPairs(workspaceRoot, nodes).map((pair) => ({
+function importEdgesFromQueryNodes(gitVisibleFiles: ReadonlySet<string>, nodes: CodeGraphCliNode[]): NormalizedEdge[] {
+  return resolvedImportPairs(gitVisibleFiles, nodes).map((pair) => ({
     source: fileSymbolId(pair.from),
     target: fileSymbolId(pair.to),
     kind: "imports" as const,
@@ -587,33 +587,29 @@ function importEdgesFromQueryNodes(workspaceRoot: string, nodes: CodeGraphCliNod
 }
 
 /**
- * Import nodes whose specifier resolved to a file that exists on disk. A specifier the resolver
- * cannot pin to a real file (bare package name, workspace alias, missing target) yields no pair:
+ * Import nodes whose specifier resolved to a Git-visible file. A specifier the resolver cannot pin
+ * to such a file (bare package name, workspace alias, missing or ignored target) yields no pair:
  * the caller gets fewer edges, never a guessed one.
  */
-function resolvedImportPairs(workspaceRoot: string, nodes: CodeGraphCliNode[]): { from: string; to: string }[] {
+function resolvedImportPairs(gitVisibleFiles: ReadonlySet<string>, nodes: CodeGraphCliNode[]): { from: string; to: string }[] {
   return nodes
     .filter((node) => node.kind === "import")
     .flatMap((node) => {
-      const target = resolveImportTarget(workspaceRoot, node.filePath, node.name);
+      const target = resolveImportTarget(gitVisibleFiles, node.filePath, node.name);
       return target ? [{ from: node.filePath, to: target }] : [];
     });
 }
 
-function resolveImportTarget(workspaceRoot: string, fromPath: string, specifier: string): string | undefined {
+/**
+ * Resolves a relative specifier against the Git-visible files (`listGitVisibleFiles`), never the
+ * working tree, so an untracked-but-ignored file cannot change a result between two checkouts of
+ * one commit.
+ */
+function resolveImportTarget(gitVisibleFiles: ReadonlySet<string>, fromPath: string, specifier: string): string | undefined {
   if (!specifier.startsWith(".")) return undefined;
   const base = posix.normalize(posix.join(posix.dirname(fromPath), specifier));
   if (base === "." || base.startsWith("../") || posix.isAbsolute(base)) return undefined;
-  for (const candidate of importTargetCandidates(base)) {
-    const filePath = join(workspaceRoot, ...candidate.split("/"));
-    if (!existsSync(filePath)) continue;
-    try {
-      if (statSync(filePath).isFile()) return candidate;
-    } catch {
-      continue;
-    }
-  }
-  return undefined;
+  return importTargetCandidates(base).find((candidate) => gitVisibleFiles.has(candidate));
 }
 
 function importTargetCandidates(base: string): string[] {
@@ -821,7 +817,7 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
   const footprints = loadCapabilitySourceFootprints(root, model, sourceFiles);
   const sourceTreeDigest = digestArchitectureDocumentationSourceTree(root, model, footprints);
   const modelDigest = digestJson(model as unknown as Json);
-  const prepared = prepareProjectionCodeFacts(root, model, { ...options, sourceTreeDigest, footprints });
+  const prepared = prepareProjectionCodeFacts(root, model, { ...options, sourceTreeDigest, sourceFiles, footprints });
   if (architectureDocumentationProjectionWorktreeDigest(root, model, listGitVisibleFiles(root)) !== worktreeDigest) {
     throw new Error("architecture-docs-projection-worktree-changed-during-codegraph-sync");
   }
@@ -900,6 +896,8 @@ export function prepareProjectionCodeFacts(
   model: NativeModel,
   options: {
     sourceTreeDigest: string;
+    /** The Git-visible files (`listGitVisibleFiles`); read from `root` when omitted. */
+    sourceFiles?: readonly string[];
     /** Footprints resolved over the Git-visible files; resolved from `root` when omitted. */
     footprints?: readonly CapabilitySourceFootprint[];
     binary?: string;
@@ -955,6 +953,7 @@ export function prepareProjectionCodeFacts(
   assertProjectionCodeGraphStatus(postStatus, root, "post-sync");
   assertProjectionCodeGraphClean(postStatus, "post-sync");
   const inputs = loadCapabilityCodeGraphProjectionInputs(root, model, {
+    ...(options.sourceFiles ? { sourceFiles: options.sourceFiles } : {}),
     ...(options.footprints ? { footprints: options.footprints } : {}),
     binary: binaryPath,
     importNodeLimit: options.importNodeLimit,
@@ -1750,6 +1749,8 @@ export function loadCapabilityCodeGraphProjectionInputs(
   root: string,
   model: NativeModel,
   options: {
+    /** The Git-visible files (`listGitVisibleFiles`); read once from `root` when omitted. */
+    sourceFiles?: readonly string[];
     /** Footprints resolved over the Git-visible files; resolved from `root` when omitted. */
     footprints?: readonly CapabilitySourceFootprint[];
     binary?: string;
@@ -1767,10 +1768,12 @@ export function loadCapabilityCodeGraphProjectionInputs(
     importGraphs?: boolean;
   } = {}
 ): CapabilityCodeGraphProjectionInputs {
+  let visibleFiles: readonly string[] | undefined = options.sourceFiles;
+  const sourceFiles = () => visibleFiles ??= listGitVisibleFiles(root);
   const declaresFootprint = options.importGraphs !== false
     && model.nodes.some((node) => (nativeNodeSource(node)?.include ?? []).length > 0);
   const footprints = declaresFootprint
-    ? options.footprints ?? loadCapabilitySourceFootprints(root, model, listGitVisibleFiles(root))
+    ? options.footprints ?? loadCapabilitySourceFootprints(root, model, sourceFiles())
     : [];
   const entrypointNodes = model.nodes
     .map((node) => ({ nodeId: node.id, entrypoints: nativeNodeSource(node)?.entrypoints ?? [] }))
@@ -1781,8 +1784,9 @@ export function loadCapabilityCodeGraphProjectionInputs(
 
   disableCodeGraphTelemetryByDefault();
   const binary = options.binary ?? DEFAULT_CODEGRAPH_BINARY;
+  const importTargets = new Set(sourceFiles());
   const imports = footprints.length > 0
-    ? capabilityImportGraphs(root, binary, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT, options.importNodeCount ?? null,
+    ? capabilityImportGraphs(root, binary, importTargets, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT, options.importNodeCount ?? null,
       options.readOnly ? CODEGRAPH_NO_DOWNLOAD_ENV : undefined)
     : undefined;
   const importGraphs = imports?.importGraphs ?? [];
@@ -1792,7 +1796,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
   let selectorEvidence: ArchitectureSelectorEvidenceV1[];
   try {
     selectorEvidence = entrypointNodes.flatMap((entry) => entry.entrypoints.flatMap((entrypoint) =>
-      entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => exactSelectorEvidence(root, selectorIndex!, {
+      entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => exactSelectorEvidence(importTargets, selectorIndex!, {
         nodeId: entry.nodeId,
         entrypointId: entrypoint.id,
         sourcePath: entrypoint.path,
@@ -1887,7 +1891,7 @@ export function repositoryImportPairs(
   const pending = status.pendingChanges;
   const clean = status.initialized && pending !== undefined && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
   return {
-    pairs: importPairsOf(root, nodes.imports),
+    pairs: importPairsOf(new Set(listGitVisibleFiles(root)), nodes.imports),
     truncated: nodes.truncated,
     availability: clean ? "ready" : "unavailable",
     indexedWorktreeDigest: clean ? worktreeDigest : null,
@@ -1898,11 +1902,11 @@ export function repositoryImportPairs(
 }
 
 /** Import nodes as repo-relative pairs, unresolved specifiers kept as `to: null`, sorted by file then specifier. */
-function importPairsOf(root: string, imports: CodeGraphCliNode[]): RepositoryImportPairV1[] {
+function importPairsOf(gitVisibleFiles: ReadonlySet<string>, imports: CodeGraphCliNode[]): RepositoryImportPairV1[] {
   const pairs = new Map<string, RepositoryImportPairV1>();
   for (const node of imports) {
     if (node.kind !== "import") continue;
-    const to = resolveImportTarget(root, node.filePath, node.name) ?? null;
+    const to = resolveImportTarget(gitVisibleFiles, node.filePath, node.name) ?? null;
     // Keyed on (file, specifier) so three distinct unresolved specifiers stay three records. A
     // specifier imported twice from one file is one edge, located at its first import line.
     const key = JSON.stringify([node.filePath, node.name]);
@@ -1965,6 +1969,7 @@ function codeGraphImportPopulation(
 function capabilityImportGraphs(
   root: string,
   binary: string,
+  gitVisibleFiles: ReadonlySet<string>,
   footprints: readonly CapabilitySourceFootprint[],
   limit: number,
   reportedCount: number | null,
@@ -1972,7 +1977,7 @@ function capabilityImportGraphs(
 ): { importGraphs: CapabilityImportGraph[]; importPopulation: ProjectionImportPopulationV1 } {
   if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
   const nodes = codeGraphImportPopulation(root, binary, limit, reportedCount, envOverrides);
-  const population = importPairsOf(root, nodes.imports);
+  const population = importPairsOf(gitVisibleFiles, nodes.imports);
   // The graphs keep their resolved-only edge set, which the capability projection fixtures pin.
   const resolved = population.flatMap((pair) => pair.to === null ? [] : [{ from: pair.from, to: pair.to }]);
   const importGraphs = footprints.map((footprint) => {
@@ -2029,7 +2034,7 @@ export const RUNTIME_BUILTIN_CALL_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 function exactSelectorEvidence(
-  root: string,
+  gitVisibleFiles: ReadonlySet<string>,
   index: CodeGraphSelectorIndex,
   selector: Omit<ArchitectureSelectorEvidenceV1, "matched" | "truncated" | "callSites">
 ): ArchitectureSelectorEvidenceV1 {
@@ -2048,7 +2053,7 @@ function exactSelectorEvidence(
         : [];
     }));
   const calls = exactEdges.filter(({ edge }) => edge.kind === "calls");
-  const falseBuiltinCalls = calls.length > 0 && isFalseBuiltinCall(root, index, sources[0]!.filePath, selector);
+  const falseBuiltinCalls = calls.length > 0 && isFalseBuiltinCall(gitVisibleFiles, index, sources[0]!.filePath, selector);
   const exactCalls = falseBuiltinCalls ? [] : calls;
   const references = exactCalls.length === 0 ? exactEdges.filter(({ edge }) => edge.kind === "references") : [];
   const sinkIdentities = new Set(exactCalls.map(({ target }) => target.id));
@@ -2085,7 +2090,7 @@ function edgeSites(sourcePath: string, edges: Array<{ edge: CodeGraphEdge }>): A
  * resolved, so a call through a package alias or a re-exporting barrel is not proven this way.
  */
 function isFalseBuiltinCall(
-  root: string,
+  gitVisibleFiles: ReadonlySet<string>,
   index: CodeGraphSelectorIndex,
   indexedSourcePath: string,
   selector: { sourcePath: string; sinkPath: string; sinkSymbol: string }
@@ -2096,7 +2101,7 @@ function isFalseBuiltinCall(
   if (sourcePath === sinkPath) return false;
   return !index.getNodesInFile(indexedSourcePath).some((node) => node.kind === "import"
     // A TypeScript ESM specifier names the emitted `.js` file; try the extensionless form too.
-    && [node.name, node.name.replace(/\.[cm]?js$/, "")].some((specifier) => resolveImportTarget(root, sourcePath, specifier) === sinkPath));
+    && [node.name, node.name.replace(/\.[cm]?js$/, "")].some((specifier) => resolveImportTarget(gitVisibleFiles, sourcePath, specifier) === sinkPath));
 }
 
 function normalizedIndexPath(path: string): string {
