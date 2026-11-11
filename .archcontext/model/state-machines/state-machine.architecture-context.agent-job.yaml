@@ -3,7 +3,7 @@ events:
   - id: "enqueue"
     label: "Enqueue evicts or supersedes queued jobs"
     source:
-      confirmedDigest: "sha256:6069aa178d13b844530b640aa56f1b92bcbcaa08ece9ae5c0ba60d7b6b1a31b6"
+      confirmedDigest: "sha256:231542088cac40cbec0977bc28bc5f7c22922fa91c4b66cf94d51b5c9298a701"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.enqueueRuntimeAgentJob"
@@ -21,7 +21,7 @@ events:
   - id: "claim"
     label: "Claim a queued job or an expired lease"
     source:
-      confirmedDigest: "sha256:3afa459740f7144d6df96cccbb4b62a3ac1606791662f19580b16017647f2760"
+      confirmedDigest: "sha256:d0cedeb8f2e5d3543b0f610e0abc34980e9be38d28feecfdae7a87ecdfb319a7"
       kind: "code"
       path: "packages/local-runtime/local-store-sqlite/src/index.ts"
       symbol: "SqliteLocalStore.claimRuntimeAgentJob"
