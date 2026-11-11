@@ -221,8 +221,9 @@ reaches its fixed point in one step.
 
 Topology rows carry no stamps. A change to a configuration file that a topology node lists no
 longer reports anything, because the topology is model-authored and its render does not read those
-files. This removes the re-verification signal of ADR-0049 §6. Moving that signal to code anchors
-with a confirmed digest (ADR-0054 §7) and to architecture debt is a separate decision.
+files. This removes the re-verification signal of ADR-0049 §6. The signal is dropped;
+[ADR-0049](ADR-0049-architecture-layers-and-runtime-topology.md) §6, as amended by #549, records
+why.
 
 ### 8. The history target
 
@@ -388,8 +389,7 @@ The contracts package takes a breaking minor change in 0.14.0.
 
 - `check` and `complete` do not check `history.md` for freshness against HEAD. Only a run that
   names the target compares the file with the current history.
-- There is no re-verification signal for topology configuration files. It is a follow-up under
-  ADR-0054.
+- There is no re-verification signal for topology configuration files; ADR-0049 §6 records why.
 - The `default` layout does not change. It gains neither the history target nor agent-context
   rows, and `archctx agent-context` keeps writing contract files in a repository whose manifest
   records no `agent-context` row.
