@@ -1622,7 +1622,25 @@ export interface CodeGraphSymbolReader {
   declarationsInSource(path: string, content: string): CodeGraphSymbolDeclaration[] | undefined;
   /** Declarations named `name` in the CodeGraph index. */
   declarationsNamed(name: string): CodeGraphSymbolDeclaration[];
+  /**
+   * The declarations that the index holds for `path`, or `undefined` when the index does not hold
+   * `bytes` as the file's content. The test is CodeGraph's own change test: the SHA-256 of the
+   * UTF-8 text equals the recorded content hash.
+   */
+  indexedDeclarations(path: string, bytes: Uint8Array): CodeGraphIndexedDeclaration[] | undefined;
+  /**
+   * The resolved targets of the `calls` and `references` edges from each id, read in one batch and
+   * keyed by source id. A reference that CodeGraph left unresolved has no target and is absent.
+   */
+  callees(ids: readonly string[]): Map<string, CodeGraphIndexedDeclaration[]>;
   close(): void;
+}
+
+/** A declaration as the CodeGraph index records it. */
+export interface CodeGraphIndexedDeclaration extends CodeGraphSymbolDeclaration {
+  id: string;
+  kind: string;
+  path: string;
 }
 
 export type CodeGraphSymbolReaderResult =
@@ -1666,9 +1684,32 @@ export function openCodeGraphSymbolReader(
         }
       },
       declarationsNamed: (name) => declarations(graph.getNodesByName(name).filter((node) => node.name === name)),
+      indexedDeclarations: (path, bytes) => {
+        const record = graph.getFile(path);
+        const text = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("utf8");
+        if (record === null || record.contentHash !== createHash("sha256").update(text).digest("hex")) return undefined;
+        return graph.getNodesInFile(path).filter((node) => !NON_DECLARATION_KINDS.has(node.kind)).map(indexedDeclaration);
+      },
+      callees: (ids) => {
+        const edges = graph.getOutgoingEdgesFrom(ids, ["calls", "references"]);
+        const targets = graph.getNodesByIds([...new Set(edges.map((edge) => edge.target))]);
+        const bySource = new Map<string, Map<string, CodeGraphIndexedDeclaration>>();
+        for (const edge of edges) {
+          const target = targets.get(edge.target);
+          if (target === undefined) continue;
+          let entries = bySource.get(edge.source);
+          if (entries === undefined) bySource.set(edge.source, entries = new Map());
+          entries.set(target.id, indexedDeclaration(target));
+        }
+        return new Map([...bySource].map(([source, entries]) => [source, [...entries.values()]]));
+      },
       close: () => graph.close()
     }
   };
+}
+
+function indexedDeclaration(node: CodeGraphNode): CodeGraphIndexedDeclaration {
+  return { id: node.id, kind: node.kind, path: node.filePath, name: node.name, qualifiedName: node.qualifiedName, startLine: node.startLine, endLine: node.endLine };
 }
 
 /**

@@ -51,7 +51,8 @@ daemon and writes nothing. For each machine, sorted by id:
 - `breaks`: every `unreachable-state`, every `dead-step` and at most one `deadlock`. Each is an
   error in the model; fix the model.
 - `anchors`: every `code` source of a region or an event, regions first, with its `status` and,
-  when the code was read, its current `digest`.
+  when the code was read, its current `digest`. A symbol anchor with a digest also lists its
+  `callees` (`path`, `qualifiedName`), in the order the digest hashes them.
 
 | Anchor status | Meaning |
 |---|---|
@@ -62,10 +63,18 @@ daemon and writes nothing. For each machine, sorted by id:
 | `anchor-missing-symbol` | No declaration in the file matches the symbol. |
 | `anchor-ambiguous-symbol` | More than one declaration matches; use `Type.name`. |
 | `anchor-language-unsupported` | CodeGraph cannot parse the file; use a file anchor. |
-| `unchecked` | No CodeGraph index could be opened (`reason`); the symbol was not read. |
+| `unchecked` | The symbol was not read: no CodeGraph index could be opened (`index-missing`, `index-open-failed`), or the index does not hold the current content of the anchor's file or of a callee's file (`index-stale`). |
 
-A file anchor's digest covers the whole file; a symbol anchor's digest covers only the lines of
-its one declaration, so an edit elsewhere in the file leaves it `confirmed`. Both read CRLF as LF.
+A file anchor's digest covers the whole file. A symbol anchor's digest covers the lines of its one
+declaration and of each direct callee: a function, method, property, constant or variable in the
+repository that the CodeGraph index records as called or referenced by the declaration. An edit
+elsewhere in the file leaves it `confirmed`; an edit to a callee, in any file, makes it
+`anchor-changed`. Types, interfaces, classes, code outside the repository and references that
+CodeGraph does not resolve are not covered. Both digests read CRLF as LF.
+
+The check reads symbols and callees only from the index and never syncs it. After an edit, a
+symbol anchor on the edited file, or with a callee in it, is `unchecked` with `index-stale` until
+the index is synced; `complete` syncs it first, a checkpoint does not.
 
 ## Record a known break
 
@@ -80,9 +89,15 @@ cannot carry a finding. Never relax or delete a rule to make the check pass.
 `archctx checkpoint` and `complete` report a `state-machine-stale` debt item when an anchor is
 not `confirmed`; `archctx state-machines check --json` lists the anchor and its digest.
 
-1. Read the change to the anchored code (`git diff` of the anchor's path).
+1. Read the change to the anchored code: the anchored declaration and each listed callee
+   (`git diff` of their paths).
 2. If the behaviour changed, change the machine's regions, events, steps or rules to match.
 3. Write the reported `digest` into the anchor's `confirmedDigest`, in the same ChangeSet.
 
 No command and no flag writes `confirmedDigest`; only a reviewed ChangeSet does. A symbol anchor
-needs a CodeGraph index: without one it stays `unchecked` and the debt check is `partial`.
+needs a CodeGraph index that holds the current files: without one it stays `unchecked` and the
+debt check is `partial`. Sync the index (`codegraph sync`) before you read the digest.
+
+Since 0.14.0 a symbol anchor's digest also covers its callees, so every symbol anchor confirmed
+before 0.14.0 reports `anchor-changed` once. Confirm it with the steps above; there is no
+migrator.

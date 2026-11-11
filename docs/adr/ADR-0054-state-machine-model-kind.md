@@ -244,29 +244,68 @@ every other block under `docs/architecture/`.
 
 ### 7. Code anchors keep a machine in step with the code (phase 3)
 
+> **Amended 2026-11-11** ([#539](https://github.com/Ancienttwo/arch-context/issues/539), 0.14.0): a symbol anchor also covers its direct callees in the repository.
+
 A `source` of kind `code` may carry `confirmedDigest`: the digest of the anchored code at the time
 someone last confirmed that the machine matches it.
 
 - An anchor with no `symbol` covers the file. Its digest is `sha256:` over the file content with
   CRLF read as LF, the digest that source stamps already use.
-- An anchor with a `symbol` (`name` or `Type.name`) covers exactly one declaration, matched the way
-  prose anchors match a symbol. Its digest is `sha256:` over the lines of that declaration, with
-  CRLF read as LF.
+- An anchor with a `symbol` (`name` or `Type.name`) covers one declaration and its direct callees.
+  The declaration is matched the way prose anchors match a symbol, among the declarations that the
+  CodeGraph index holds for the file.
+- A callee is a declaration that the index records as the target of a `calls` or `references` edge
+  from the anchored declaration, when the target is a function, method, property, constant or
+  variable, lies in a Git-visible file and lies outside the anchored declaration. The walk is one
+  hop. Types, interfaces, classes and modules are not callees, and neither is code outside the
+  repository.
+- The digest of a symbol anchor is `sha256:` over the UTF-8 bytes of a JSON array of strings: the
+  lines of the anchored declaration, then the lines of each callee, each with CRLF read as LF.
+  Callees are ordered by path, qualified name, kind and start line. Only the text is hashed; the
+  identity of a callee only sets its place in the order.
+
+A reference that CodeGraph does not resolve to a declaration is not covered. Most such references
+name a built-in or a package, and the check does not guess which of the others belong to the
+repository. The report lists the callees of each symbol anchor, so the person who confirms it sees
+what the digest covers and what it leaves out.
+
+The declaration and its callees come from the read-only CodeGraph handle that the check opens in
+its own process. The check runs no CodeGraph command, copies no snapshot and never syncs the index.
+It uses the index only for a file that the index holds at its current content, by CodeGraph's own
+change test: the SHA-256 of the file's UTF-8 text equals the recorded content hash. When the index
+does not hold the anchor's file or a callee's file at its current content, the anchor is
+`unchecked` with reason `index-stale`. `complete` syncs the index before it reads debt; a
+checkpoint reads the index as it is.
+
+This changes what a checkpoint shows right after an edit. Under 0.13.0 an edited anchored
+function showed `anchor-changed` at a checkpoint even when the index was behind, because the check
+parsed the current file. From 0.14.0 it shows `unchecked` with `index-stale` until the index is
+synced, and the debt check is `partial` meanwhile. A checkpoint does not sync the index, so that
+it stays within its edit-time budget.
 
 Anchor status is one of `confirmed`, `anchor-unconfirmed` (no `confirmedDigest`), `anchor-changed`,
 `anchor-missing-path`, `anchor-missing-symbol`, `anchor-ambiguous-symbol`,
-`anchor-language-unsupported` (the symbol reader does not parse the file's language; use a file
-anchor) and `unchecked`.
+`anchor-language-unsupported` (CodeGraph does not parse the file's language; use a file anchor)
+and `unchecked`, with the reason `index-missing`, `index-open-failed` or `index-stale`.
 
-The check report lists every anchor with its status and its current digest. To confirm a machine,
-read the changed code, change the machine if its behaviour changed, and write the reported digest
-into `confirmedDigest`, all in one ChangeSet. No command writes a digest on its own: a one-step
-restamp would turn the check into a formality.
+The check report lists every anchor with its status and its current digest. A symbol anchor with a
+digest also lists its callees (`path`, `qualifiedName`) in digest order. To confirm a machine, read
+the changed code, the anchored declaration and each listed callee, change the machine if its
+behaviour changed, and write the reported digest into `confirmedDigest`, all in one ChangeSet. No
+command writes a digest on its own: a one-step restamp would turn the check into a formality.
 
-A symbol anchor needs the CodeGraph symbol reader that prose anchors use. When the reader is
-unavailable, every symbol anchor is `unchecked` with the reader's reason (`index-missing` or
-`index-open-failed`), and the debt check has `partial` coverage. The check never reports an anchor
-as confirmed or changed without reading the declaration.
+When the index is missing or cannot be opened, every symbol anchor is `unchecked` with that reason
+and the debt check has `partial` coverage, as it has for `index-stale`. The check never reports an
+anchor as confirmed or changed without reading the declaration and its callees from an index that
+holds their current content.
+
+The digest has no version field and no migrator. Each symbol anchor confirmed before 0.14.0
+reports `anchor-changed` once and is confirmed again by hand through the runbook. File anchors keep
+their digest.
+
+Anchor results, callees included, are not an input of any projection render. The capability
+document shows no digest, no anchor status and no callee, so ADR-0056 render equivalence does not
+change.
 
 ### 8. Debt has one new check and two new kinds (phase 3)
 
@@ -283,12 +322,18 @@ so every report then has six checks. A model with no state machine reports `stat
 
 In the repository scope the check covers every machine: the rule check and every anchor. `complete`
 uses that scope, and a changed `.archcontext/` path already widens a checkpoint to it. In a
-changed-paths scope the check evaluates only the anchors whose path changed. It runs no rule
-check there, because a rule result depends only on the model.
+changed-paths scope the check evaluates an anchor when its own path changed or when the index
+records a callee of it in a changed path. It finds those anchors by inverting the callee sets of
+all symbol anchors, read in one batch from the same handle. When the callees of a symbol anchor
+cannot be read, because there is no usable index or the index does not hold the anchor's file at
+its current content, the anchor is evaluated as `unchecked`. It runs no rule check there, because
+a rule result depends only on the model. A debt item keeps the anchor's path, so a checkpoint and
+`complete` give it the same identity.
 
 The debt read is on the edit-time path, where a consumer may allow three seconds for the whole
-checkpoint. It never runs the protection run, and it parses each changed file once. Its budget is
-250 ms added to the edit-time read for ten machines anchored on one changed file.
+checkpoint. It never runs the protection run and parses no file; it reads each anchored or callee
+file at most once. Its budget is 250 ms added to the edit-time read for ten machines anchored on
+one changed file.
 
 ### 9. Command surface, and what does not change
 
@@ -350,5 +395,9 @@ Three phases, each mergeable on its own. Phases 2 and 3 need only phase 1.
   list must learn the two kinds in the same change; repo-harness tracks its readers in
   aimpact-inc/repo-harness#2178.
 - At 10x scale the statechart becomes unreadable first, at about 20 arrows; the fix is to split
-  the machine. Next is the confirmation work: every edit to an anchored declaration needs a
-  ChangeSet, so anchors belong on the functions that perform transitions, not on whole files.
+  the machine. Next is the confirmation work: every edit to an anchored declaration or to one of
+  its callees needs a ChangeSet, and a helper that many anchors call turns all of them stale at
+  once. Anchors belong on the functions that perform transitions, with the deciding logic in
+  helpers they call directly. A deciding value that a callee reads is not covered: here
+  `AGENT_JOB_STATE_TRANSITIONS` is read through `agentJobStatusesAccepting`, and CodeGraph does not
+  resolve that reference.

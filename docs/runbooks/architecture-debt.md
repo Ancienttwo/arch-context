@@ -64,14 +64,17 @@ explains the report and how to confirm a machine.
   carries a finding (`finding-resolved`), or the model has an `unreachable-state`, a
   `dead-step` or a `deadlock`. A rule with an open finding is not debt.
 - `state-machine-stale`: an anchor is not `confirmed`; the reason code is the anchor status and
-  `paths` is the anchor path. An `unchecked` symbol anchor is a coverage gap with the reader's
-  reason (`index-missing`, `index-open-failed`), never an item.
+  `paths` is the anchor path. An `unchecked` symbol anchor is a coverage gap with its reason
+  (`index-missing`, `index-open-failed`, `index-stale`), never an item.
 
 The repository scope, which `complete` uses, checks every rule and every anchor; it never runs
-the protection run. A changed-paths read checks only the anchors on the changed paths and no
-rule, because a rule depends only on the model and a changed model file already widens the read
-to the repository. Each changed file is read and parsed once. With ten machines that each anchor
-a symbol on one changed file, the check adds at most 250 ms to the edit-time read.
+the protection run. A changed-paths read checks the anchors on the changed paths and the symbol
+anchors with a callee on them, and no rule, because a rule depends only on the model and a
+changed model file already widens the read to the repository. It finds the callees in one batch
+from the read-only CodeGraph index. Without an index, every symbol anchor is `unchecked` and the
+check is `partial`. It parses no file and reads each anchored or callee file once. With ten
+machines that each anchor a symbol on one changed file, the check adds at most 250 ms to the
+edit-time read.
 
 ## Performance and remaining RFC work
 

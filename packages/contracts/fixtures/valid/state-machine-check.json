@@ -53,7 +53,10 @@
           "path": "src/payment.ts",
           "symbol": "PaymentService.capture",
           "status": "anchor-unconfirmed",
-          "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "callees": [
+            { "path": "src/payment-gateway.ts", "qualifiedName": "chargeCard" }
+          ]
         },
         {
           "owner": "event",
@@ -61,7 +64,8 @@
           "path": "src/order.ts",
           "symbol": "shipOrder",
           "status": "anchor-unconfirmed",
-          "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+          "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "callees": []
         },
         {
           "owner": "event",
