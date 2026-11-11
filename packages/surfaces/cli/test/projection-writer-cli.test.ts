@@ -173,7 +173,7 @@ test("a committed model and generated history do not create history drift in che
   }
 }, TEST_TIMEOUT_MS);
 
-test("projection publish ends up-to-date for a source-only change and pushes a generated-only commit when an output is stale; publish-status reports it", async () => {
+test("projection publish ends up-to-date for a source-only change and pushes a generated-only commit when the base drifts from its projection; publish-status reports it", async () => {
   const daemon = await startDaemon();
   const fixture = await projectedOrigin(daemon);
   try {

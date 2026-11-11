@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
 import {
@@ -10,6 +11,7 @@ import {
   exportDocumentationLikeC4Model,
   exportDocumentationStructurizrWorkspace,
   exportRuntimeTopologyMermaid,
+  loadCapabilitySourceScaleSignals,
   renderArchitectureDocumentationProjection,
   renderRuntimeTopologySummary,
   resolveArchitectureDocumentationLayout,
@@ -313,5 +315,31 @@ describe("runtime topology view (ADR-0049)", () => {
     expect(summary).toContain("| `namespace.shop.pod` Shop pod | `k8s/*.yaml` |");
     expect(summary).toContain("| `process.shop.cron` Cron | `compose.yaml` |");
     expect(summary).toContain("| `process.shop.api-server` API server | model-authored, no source anchor |");
+  });
+
+  test("editing a file a topology node lists in source.include re-renders no file and no manifest byte (ADR-0056 §7)", () => {
+    const model = topology();
+    const declared: NativeModel = { ...model, nodes: model.nodes.map((node) => node.id === "process.shop.cron" ? { ...node, source: { include: ["compose.yaml"] } } : node) };
+    const root = mkdtempSync(join(tmpdir(), "archctx-topology-include-"));
+    try {
+      const render = (existingFiles?: { path: string; body: string }[]) => renderArchitectureDocumentationProjection({
+        model: declared,
+        provenance,
+        sourceDigest,
+        sourceScaleSignals: loadCapabilitySourceScaleSignals(root, declared, ["compose.yaml"]),
+        importGraphs: [],
+        selectorEvidence: [],
+        ...(existingFiles ? { existingFiles } : {})
+      });
+      writeFileSync(join(root, "compose.yaml"), "services:\n  cron:\n    image: shop:1\n");
+      const applied = render();
+      writeFileSync(join(root, "compose.yaml"), "services:\n  cron:\n    image: shop:2\n    restart: always\n");
+      const next = render([...applied.files, applied.manifest].map(({ path, body }) => ({ path, body })));
+      expect(next.files.map((file) => [file.path, file.body])).toEqual(applied.files.map((file) => [file.path, file.body]));
+      expect(next.manifest.body).toBe(applied.manifest.body);
+      expect(next.freshness.ok).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
