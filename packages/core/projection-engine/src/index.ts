@@ -1903,7 +1903,8 @@ export function exportRuntimeTopologyMermaid(model: NativeModel): ModelExportRes
 /**
  * The runtime topology summary page (ADR-0049): namespaces with their type, the processes in each,
  * every mount stack in order, the `spawns` and `deployed-on` links, and each topology node's source
- * anchors (the `source.include` patterns whose files mark the topology targets stale). It links the
+ * anchors (the `source.include` patterns a reader checks by hand; no command reports a change to
+ * those files, because topology rows carry no source digest, ADR-0056 §7). It links the
  * diagram the way the architecture index links the other diagrams.
  */
 export function renderRuntimeTopologySummary(model: NativeModel, summaryPath: string): string {
@@ -1917,7 +1918,7 @@ export function renderRuntimeTopologySummary(model: NativeModel, summaryPath: st
   const lines = [
     "# Runtime Topology",
     "",
-    "The architecture model declares this topology. No code facts verify it: archctx never reads the configuration it describes. A change to a file a node lists in `source.include` marks this page and its diagram stale.",
+    "The architecture model declares this topology. No code facts verify it: archctx never reads the configuration it describes. Each node lists its `source.include` patterns for a reader to check; no command reports a change to those files.",
     "",
     `- Diagram: [Mermaid](${posix.relative(posix.dirname(summaryPath), RUNTIME_TOPOLOGY_DIAGRAM_PATH)})`,
     "",
