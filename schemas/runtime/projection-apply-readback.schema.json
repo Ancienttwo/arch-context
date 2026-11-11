@@ -1682,7 +1682,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "archcontext.projection-apply-readback-result/v1"
+          "const": "archcontext.projection-apply-readback-result/v2"
         },
         "requestId": {
           "type": "string",

@@ -14,6 +14,8 @@ supersedes: []
 
 # ADR-0047: Projection Manifest v3 and Per-Target Identity
 
+> Amended by [ADR-0056](ADR-0056-render-equivalent-freshness-history-target.md) §2, §3 and §7 on 2026-11-12.
+
 ## Context
 
 The committed projection manifest (`docs/architecture/.projection-manifest.json`, v2) stored

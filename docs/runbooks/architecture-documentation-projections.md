@@ -116,14 +116,14 @@ archctx 0.14.0 changes the committed projection manifest to `archcontext.archite
 
 Release note:
 
-- Version changes: projection manifest v4, `archcontext.projection-result/v3` (`freshness.staleTargets` replaces `staleNodes`; `changes[]` entries lose `stampChanged`, the `stamp-only` classification and `source-stamp-changed`), architecture refresh signal v2 and projection apply recovery binding, proof and result v2 (the digest set loses `sourceTreeDigest`; the proof loses `sourceStamps`). The capabilities `projection-change-classification-v2`, `projection-check-freshness-v2`, `projection-freshness-v2` and `projection-manifest-contract-v4` replace their predecessors.
+- Version changes: projection manifest v4, `archcontext.projection-result/v3` (`freshness.staleTargets` replaces `staleNodes`; `changes[]` entries lose `stampChanged`, the `stamp-only` classification and `source-stamp-changed`), architecture refresh signal v2, projection apply recovery binding, proof and result v2, and projection apply readback result v2 (the digest set loses `sourceTreeDigest`; the proof loses `sourceStamps`). The capabilities `projection-change-classification-v2`, `projection-check-freshness-v2`, `projection-freshness-v2` and `projection-manifest-contract-v4` replace their predecessors.
 - `archctx projection freshness --changed-path` is removed, with the failure codes `changed-path-outside-worktree` and `changed-path-not-normalized`. `projection freshness` now runs the same build as `check` and may sync CodeGraph. `archctx checkpoint --changed-path` is unchanged.
-- Drain every pending apply receipt with `projection recover` before upgrading: a receipt written before the upgrade carries a v1 recovery binding and fails closed afterwards.
+- Drain every pending apply receipt with `projection recover` before upgrading: a receipt written before the upgrade carries a v1 recovery binding and fails closed afterwards. After the upgrade, `projection readback` or a replay of an apply committed before it fails closed with `projection-apply-receipt-invalid`, because the current binding is v2.
 - Upgrade `archctx` and `archctx-contracts` together on every installation that projects the repository.
 
 Do these steps once per repository:
 
-1. Before upgrading, confirm that `projection run` in `check` mode returns `noop` and `archctx docs drift` is clean, and recover every in-flight apply receipt.
+1. Before upgrading, close any open rolling projection pull request, confirm that `projection run` in `check` mode returns `noop` and `archctx docs drift` is clean, and recover every in-flight apply receipt.
 2. Upgrade `archctx` and `archctx-contracts`.
 3. Re-baseline once: `archctx docs apply --approved --profile <default|repo-harness/v1>`, with the profile the old manifest recorded.
 4. Confirm that `archctx docs drift` is clean, `projection run` in `check` mode returns `noop` and `archctx projection freshness --json` reports `ok: true`.
