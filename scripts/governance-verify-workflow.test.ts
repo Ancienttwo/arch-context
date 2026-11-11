@@ -11,6 +11,8 @@ const PACKAGE_JSON = readFileSync("package.json", "utf8");
 const WORKFLOW = readFileSync(".github/workflows/verify.yml", "utf8");
 const VERIFY_GOVERNANCE = readFileSync("scripts/verify-governance.mjs", "utf8");
 const ADR_INDEX = readFileSync("docs/adr/README.md", "utf8");
+const ADR_SUPERSEDED = readFileSync("docs/adr/ADR-0052-governance-composite-verification-receipt.md", "utf8");
+const ADR_0055 = readFileSync("docs/adr/ADR-0055-governance-receipt-spans-run-attempts.md", "utf8");
 const SCRIPT_SURFACE_POLICY = readFileSync("docs/adr/ADR-0051-script-surface-policy.md", "utf8");
 const ROOT_PACKAGE = JSON.parse(PACKAGE_JSON) as { scripts?: Record<string, string> };
 const LINUX_SPLIT_JOBS = ["verify-linux-pre", "verify-linux-shards", "verify-linux-post"];
@@ -151,6 +153,57 @@ describe("governance verify workflow", () => {
     expect(manualJobs.filter(([, job]: any) => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(4);
     const shardCount = readConfig().splitTargets.find((row: any) => row.os === "ubuntu-latest" && row["node-version"] === "22.22.x").shards;
     expect(manualJobs.map(([id]) => id === "verify-linux-shards" ? shardCount : 1).reduce((sum, count) => sum + count, 0)).toBe(shardCount + 3);
+  });
+
+  test("ADR-0055 supersedes ADR-0052 and states the run-scoped receipt rule", () => {
+    expect(ADR_INDEX).toContain("ADR-0055 | Governance Receipt Spans the Run Attempts of One SHA");
+    expect(ADR_INDEX.indexOf("| ADR-0055 |")).toBeGreaterThan(ADR_INDEX.indexOf("| ADR-0054 |"));
+    expect(ADR_SUPERSEDED).toContain("status: superseded");
+    expect(ADR_SUPERSEDED).toContain("supersededBy: adr.0055.governance-receipt-spans-run-attempts");
+    // This PR changes ADR-0052's frontmatter only. This assertion pins one representative sentence of
+    // the body that would be rewritten if the old rule were restated here; it is not a byte-diff.
+    expect(ADR_SUPERSEDED).toContain('Only "Re-run all jobs" can produce a Governance receipt.');
+    expect(ADR_0055).toContain("status: accepted");
+    expect(ADR_0055).toContain("  - adr.0052.governance-composite-verification-receipt");
+    for (const statement of [
+      "a receipt spans the attempts of one run on one SHA",
+      "the **latest attempt that ran it**",
+      "`receiptJobs` reads the jobs of every attempt",
+      "run ID and `GITHUB_SHA`",
+      "`overwrite: true`",
+      "one report per planned shard"
+    ]) expect(ADR_0055).toContain(statement);
+    // ADR-0055 must not claim hostedJobs reads across attempts: it keeps its main behavior.
+    expect(ADR_0055).not.toContain("`hostedJobs` reads the jobs of every attempt");
+    expect(ADR_0055).not.toContain("one run attempt");
+    // Section 4 says the revalidation runbook links this ADR for the receipt rule.
+    expect(readFileSync("docs/runbooks/governance-revalidation.md", "utf8"))
+      .toContain("ADR-0055-governance-receipt-spans-run-attempts.md");
+  });
+
+  test("ADR-0055: the Linux split plan and shard artifacts are run-scoped with overwrite, and the two evidence artifacts stay per attempt", () => {
+    const workflow: any = Bun.YAML.parse(WORKFLOW);
+    const upload = (id: string, name: string) => workflow.jobs[id].steps.find((step: any) => step.name === name).with;
+    const preUpload = upload("verify-linux-pre", "Upload run-bound discovery plan");
+    const shardUpload = upload("verify-linux-shards", "Upload actual file inventory and JUnit");
+    // Attempt-free names: the same artifact is reused by every attempt of the run.
+    expect(preUpload.name).toBe("verify-plan-${{ matrix.os }}-node-${{ matrix.node-version }}");
+    expect(shardUpload.name).toBe("verify-shard-${{ matrix.os }}-node-${{ matrix.node-version }}-${{ matrix.shard }}");
+    expect([preUpload.overwrite, shardUpload.overwrite]).toEqual([true, true]);
+    expect(preUpload.name).not.toContain("attempt");
+    expect(shardUpload.name).not.toContain("attempt");
+    // A rerun shard reuses the run's plan and replaces only its own report, so the downloads carry
+    // no attempt either and the post job still collects exactly one report per planned shard.
+    expect(upload("verify-linux-shards", "Download run-bound discovery plan").name).toBe(preUpload.name);
+    expect(upload("verify-linux-post", "Download run-bound discovery plan").name).toBe(preUpload.name);
+    const reports = upload("verify-linux-post", "Download every shard inventory").pattern;
+    expect(reports).toBe("verify-shard-${{ matrix.os }}-node-${{ matrix.node-version }}-*");
+    expect(reports).not.toContain("attempt");
+    // The three Linux jobs read no run attempt at all; only the receipt in verify-ci.mjs does.
+    for (const id of LINUX_SPLIT_JOBS) expect(JSON.stringify(workflow.jobs[id])).not.toContain("github.run_attempt");
+    // The job-evidence and runner-cost artifacts keep their attempt scope: they report one attempt.
+    expect(upload("verify-collect", "Upload actual job conclusions and runner minutes").name).toBe("verify-job-evidence-attempt-${{ github.run_attempt }}");
+    expect(upload("verify-cost", "Upload measured cost readback").name).toBe("verify-runner-cost-attempt-${{ github.run_attempt }}");
   });
 
   test("keeps the script surface policy discoverable and enforceable", () => {

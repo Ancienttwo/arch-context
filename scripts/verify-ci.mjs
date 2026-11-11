@@ -10,7 +10,7 @@ export const NODE_TARGETS = ["22.22.x", "24.x", "25.x"];
 export const targetName = (os, node) => `${os} / Node ${node}`;
 export const workerName = (os, node, part) => `Verify execution: ${targetName(os, node)} / ${part}`;
 export const GOVERNANCE_TARGET = { os: "ubuntu-latest", "node-version": "22.22.x" };
-// ADR-0052 section 2: renaming a Linux split job or one of these steps changes Governance's receipt.
+// ADR-0055 section 2: renaming a Linux split job or one of these steps changes Governance's receipt.
 export const RECEIPT_GATE_STEPS = {
   pre: ["Verify pre-gates in original order", "Bind verified checkout"],
   shard: ["Execute assigned full files with all real assertions", "Bind verified checkout"],
@@ -94,10 +94,10 @@ export function laneTargets(lane) {
   throw new Error(`Unknown verify lane: ${lane}`);
 }
 
+/** ADR-0055: the subject is run-scoped, so a rerun attempt reuses the plan of the same run and SHA. */
 export function subject(env = process.env) {
-  const value = { runId: Number(env.GITHUB_RUN_ID), attempt: Number(env.GITHUB_RUN_ATTEMPT), checkoutSha: env.GITHUB_SHA };
+  const value = { runId: Number(env.GITHUB_RUN_ID), checkoutSha: env.GITHUB_SHA };
   assert(Number.isSafeInteger(value.runId) && value.runId > 0);
-  assert(Number.isSafeInteger(value.attempt) && value.attempt > 0);
   assert.match(value.checkoutSha ?? "", /^[a-f0-9]{40}$/);
   return value;
 }
@@ -211,14 +211,29 @@ export function expectedWorkers(config, os, node) {
   return [workerName(os, node, "node compat")];
 }
 
-/** Everything a receipt needs to be attributable to one attempt of one workflow run. */
+/** Everything a receipt needs to be attributable to one workflow run on one source head. */
 function assertReceiptIdentity(run, identity, context) {
   assert.equal(run.id, identity.runId, "different prerequisite run");
-  assert.equal(run.run_attempt, identity.attempt, "different prerequisite attempt");
   assert.equal(run.path, ".github/workflows/verify.yml", "different prerequisite workflow");
   assert.equal(run.event, context.eventName, "different prerequisite event");
   assert.match(context.sourceHeadSha ?? "", /^[a-f0-9]{40}$/);
   assert.equal(run.head_sha, context.sourceHeadSha, "different prerequisite source HEAD");
+}
+
+/**
+ * ADR-0055: a receipt spans the attempts of one run on one SHA, so a job name is represented by the
+ * record of the highest attempt that ran it. A name that no attempt ran, or that two jobs of one
+ * attempt claim, has no single record and stays absent here so the receipt fails closed by name.
+ */
+export function latestAttemptPerName(jobs, names) {
+  const latest = new Map();
+  for (const name of names) {
+    const matches = jobs.filter(job => job.name === name);
+    const attempts = matches.map(job => job.run_attempt);
+    if (matches.length === 0 || new Set(attempts).size !== attempts.length) continue;
+    latest.set(name, matches.reduce((best, next) => next.run_attempt > best.run_attempt ? next : best));
+  }
+  return latest;
 }
 
 /**
@@ -228,11 +243,11 @@ function assertReceiptIdentity(run, identity, context) {
  */
 export function governanceReceiptPending(config, jobs) {
   const names = expectedWorkers(config, GOVERNANCE_TARGET.os, GOVERNANCE_TARGET["node-version"]);
+  const latest = latestAttemptPerName(jobs, names);
   const pending = [];
   names.forEach((name, index) => {
-    const matches = jobs.filter(job => job.name === name);
-    if (matches.length !== 1) return;
-    const job = matches[0];
+    const job = latest.get(name);
+    if (!job) return;
     if (!TERMINAL_JOB_STATUSES.has(job.status)) {
       pending.push({ job: name, reason: "incomplete", status: job.status ?? null, conclusion: job.conclusion ?? null });
       return;
@@ -319,22 +334,50 @@ async function githubRead(path, env = process.env) {
   return response.json();
 }
 
-export async function hostedJobs(env = process.env, read = githubRead) {
-  const repository = env.GITHUB_REPOSITORY;
-  assert.match(repository ?? "", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
-  const identity = subject(env);
-  const run = await read(`repos/${repository}/actions/runs/${identity.runId}`, env);
-  assert.equal(run.id, identity.runId);
-  assert.equal(run.run_attempt, identity.attempt);
+async function readAttemptJobs(repository, runId, attempt, env, read) {
   const jobs = [];
   for (let page = 1; ; page++) {
-    const response = await read(`repos/${repository}/actions/runs/${identity.runId}/attempts/${identity.attempt}/jobs?per_page=100&page=${page}`, env);
+    const response = await read(`repos/${repository}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100&page=${page}`, env);
     assert(Number.isSafeInteger(response.total_count) && response.total_count >= 0 && Array.isArray(response.jobs), "invalid GitHub jobs response");
     jobs.push(...response.jobs);
     if (jobs.length >= response.total_count) { assert.equal(jobs.length, response.total_count); break; }
     assert(response.jobs.length, "GitHub jobs pagination is incomplete");
   }
   assert.equal(new Set(jobs.map(job => job.id)).size, jobs.length, "GitHub jobs pagination contains duplicates");
+  // The latest-attempt rule compares `run_attempt` with `>`, so a record whose attempt is not the
+  // endpoint's own would silently lose to an older green one. Check that provider fact once, here.
+  for (const job of jobs) assert.equal(job.run_attempt, attempt, `job ${job.id} is not from attempt ${attempt}`);
+  return jobs;
+}
+
+export async function hostedJobs(env = process.env, read = githubRead) {
+  const repository = env.GITHUB_REPOSITORY;
+  assert.match(repository ?? "", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
+  // ADR-0055 keeps this function's main behavior: it reads the current attempt only, so the
+  // collector path behind the required check is untouched by the run-scoped receipt.
+  const identity = { ...subject(env), attempt: Number(env.GITHUB_RUN_ATTEMPT) };
+  assert(Number.isSafeInteger(identity.attempt) && identity.attempt > 0);
+  const run = await read(`repos/${repository}/actions/runs/${identity.runId}`, env);
+  assert.equal(run.id, identity.runId);
+  assert.equal(run.run_attempt, identity.attempt);
+  return { run, jobs: await readAttemptJobs(repository, identity.runId, identity.attempt, env, read) };
+}
+
+/**
+ * ADR-0055: the Governance receipt spans every attempt of the run, so it reads the jobs of each
+ * attempt from the first up to the current one. The provider's run-scoped `/jobs` endpoint returns
+ * only the current attempt's jobs, so a partial rerun would otherwise hide the earlier attempts.
+ */
+export async function receiptJobs(env = process.env, read = githubRead) {
+  const repository = env.GITHUB_REPOSITORY;
+  assert.match(repository ?? "", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
+  const identity = subject(env);
+  const run = await read(`repos/${repository}/actions/runs/${identity.runId}`, env);
+  assert.equal(run.id, identity.runId);
+  assert(Number.isSafeInteger(run.run_attempt) && run.run_attempt > 0, "invalid provider run attempt");
+  const jobs = [];
+  for (let attempt = 1; attempt <= run.run_attempt; attempt++) jobs.push(...await readAttemptJobs(repository, identity.runId, attempt, env, read));
+  assert.equal(new Set(jobs.map(job => job.id)).size, jobs.length, "GitHub jobs across attempts contain duplicate ids");
   return { run, jobs };
 }
 
@@ -348,7 +391,7 @@ export function governanceSourceHead(env = process.env) {
   return head;
 }
 
-/** ADR-0052 composite receipt: every Linux split job and each of its gate steps succeeded in this run attempt. */
+/** ADR-0055 composite receipt: the latest attempt of every Linux split job, and each of its gate steps, succeeded in this run on this checkout. */
 export function validateGovernancePrerequisite(config, identity, run, jobs, context) {
   assert(["pull_request", "push", "workflow_dispatch"].includes(context.eventName));
   assert.equal(context.prerequisiteResult, "success", "Linux post prerequisite did not succeed");
@@ -357,15 +400,14 @@ export function validateGovernancePrerequisite(config, identity, run, jobs, cont
   assert.equal(context.prerequisiteCheckoutSha, identity.checkoutSha, "Linux post verified a different checkout");
   assertReceiptIdentity(run, identity, context);
   const names = expectedWorkers(config, GOVERNANCE_TARGET.os, GOVERNANCE_TARGET["node-version"]);
+  const latest = latestAttemptPerName(jobs, names);
   return names.map((name, index) => {
-    const matches = jobs.filter(job => job.name === name);
-    assert.equal(matches.length, 1, `missing/duplicate prerequisite job: ${name}`);
-    const job = matches[0];
+    const job = latest.get(name);
+    assert(job, `missing/duplicate prerequisite job: ${name}`);
     assert(Number.isSafeInteger(job.id) && job.id > 0, `missing/invalid prerequisite job id: ${name}`);
     assert.equal(job.status, "completed", `prerequisite job is incomplete: ${name}`);
     assert.equal(job.conclusion, "success", `prerequisite job was not successful: ${name}`);
     assert.equal(job.run_id, run.id, `prerequisite job ran in a different run: ${name}`);
-    assert.equal(job.run_attempt, run.run_attempt, `prerequisite job ran in a different attempt: ${name}`);
     assert.equal(job.head_sha, run.head_sha, `prerequisite job ran on a different head: ${name}`);
     const gates = RECEIPT_GATE_STEPS[index === 0 ? "pre" : index === names.length - 1 ? "post" : "shard"];
     for (const gate of gates) {
@@ -380,9 +422,9 @@ export function validateGovernancePrerequisite(config, identity, run, jobs, cont
 
 /**
  * Read the prerequisite receipt, re-reading only while an expected job or gate step is nonterminal.
- * A settled failure, a missing/duplicate job, or a different run/attempt/head fails immediately: only
- * a job still in flight is worth another read, and the budget is finite so a stuck job still fails
- * closed with its last observed state (issue #492).
+ * A settled failure, a missing/duplicate job, or a different run/head fails immediately: only a job
+ * still in flight is worth another read, and the budget is finite so a stuck job still fails closed
+ * with its last observed state (issue #492).
  */
 export async function readGovernanceReceipt(config, env, identity, context, options = {}) {
   const read = options.read ?? githubRead;
@@ -391,7 +433,7 @@ export async function readGovernanceReceipt(config, env, identity, context, opti
   const delayMs = options.delayMs ?? RECEIPT_READ_DELAY_MS;
   assert(Number.isSafeInteger(attempts) && attempts > 0, "receipt read budget must be positive");
   for (let attempt = 1; ; attempt += 1) {
-    const snapshot = await hostedJobs(env, read);
+    const snapshot = await receiptJobs(env, read);
     assertReceiptIdentity(snapshot.run, identity, context);
     const pending = governanceReceiptPending(config, snapshot.jobs);
     if (pending.length === 0) return { ...snapshot, pending, attempts: attempt };
@@ -431,7 +473,7 @@ export async function main(command, env = process.env) {
     const classification = env.GITHUB_EVENT_NAME === "pull_request" ? classifyPaths(readScope(), changedPaths(process.cwd())) : { lane: "matrix", matrixPaths: [] };
     const { lane } = classification;
     const sameTarget = (a, b) => a.os === b.os && a["node-version"] === b["node-version"];
-    // The Governance target's split runs as dedicated jobs outside the lane-gated generic matrix (ADR-0052).
+    // The Governance target's split runs as dedicated jobs outside the lane-gated generic matrix (ADR-0055).
     const split = config.splitTargets.filter(row => !sameTarget(row, GOVERNANCE_TARGET));
     const compat = laneTargets("matrix").filter(target => !config.splitTargets.some(row => sameTarget(row, target)));
     for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shardMatrix(split) }, compat: { include: compat },
