@@ -19,7 +19,8 @@ export function fixtureSourceFiles(root: string, prefix = ""): string[] {
 
 /**
  * An architecture history with no milestones: the input a repo-harness/v1 render needs while the
- * committed manifest has no architecture-history row (ADR-0056 §8).
+ * committed architecture-history row cannot be carried forward: there is no row, or history.md is
+ * missing or does not match it (`architectureHistoryCarryForwardBlocker`, ADR-0056 §8).
  */
 export const fixtureArchitectureHistory: ArchitectureHistory = {
   schemaVersion: ARCHITECTURE_HISTORY_SCHEMA_VERSION,
