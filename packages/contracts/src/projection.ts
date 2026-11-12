@@ -592,8 +592,8 @@ export interface ProjectionCoverageV1 {
  * One target of a `check` or `plan` result (#327 finding 2): how it changes since the committed
  * projection, and what this run's write does to its file. The entries cover the union of the
  * current layout's targets and the committed manifest's rows (plus orphans the manifest does not
- * record), one per path. The projection manifest is not a target; its write is the `files[]` entry
- * no change names.
+ * record), one per target. Only agent-context targets share a path (ADR-0056 §9). The projection
+ * manifest is not a target; its write is the `files[]` entry no change names.
  *
  * Each comparison is against the committed v4 manifest: `outputChanged` the row's `outputDigest`, or any byte the write changes;
  * `semanticChanged` the `semanticFingerprint` of a capability the target documents (every
@@ -653,7 +653,7 @@ export interface ProjectionResultV3 {
   architectureDebt?: ProjectionArchitectureDebtV1;
   /**
    * Present on every `check` and `plan` result, and on no other: per-target change classification,
-   * sorted by path (#327). It never changes `status` or `files`.
+   * sorted by path, then targetId (#327). It never changes `status` or `files`.
    */
   changes?: ProjectionTargetChangeV2[];
   /**
@@ -969,7 +969,7 @@ export function projectionResultInvariantIssues(input: ProjectionResultV3): stri
     if (committedApply) issues.push("changes is only allowed on a check or plan result, never on a committed apply");
     // A carried-forward target is blocked, by the same reasons its coverage entry names.
     for (const target of input.coverage?.blockedTargets ?? []) {
-      const entry = input.changes.find((candidate) => candidate.path === target.path);
+      const entry = input.changes.find((candidate) => candidate.targetId === target.targetId);
       if (!entry || entry.classification !== "blocked" || target.reasonCodes.some((code) => !entry.reasonCodes.includes(code))) {
         issues.push(`changes must classify the carried-forward target ${target.path} as blocked with its coverage reason codes`);
       }
@@ -1106,9 +1106,20 @@ export function projectionTargetChangeClassification(
  * repair, so that change is blocked by that rejection, and still reports the bytes that entry
  * changes (`outputChanged`). Every `files[]` entry that changes a file has a change of its path,
  * except the projection manifest, which is never a target.
+ *
+ * One entry per target: `targetId` is unique, and entries are ordered by path, then targetId. Only
+ * agent-context targets share a path, because several nodes' regions live in one contract file
+ * (ADR-0056 §9).
  */
 export function projectionTargetChangesIssues(input: readonly ProjectionTargetChangeV2[], files: readonly ProjectionFileResultV1[] = []): string[] {
-  const issues = sortedUniqueIssues("changes.path", input.map((entry) => entry.path));
+  const issues: string[] = new Set(input.map((entry) => entry.targetId)).size === input.length ? [] : ["changes.targetId must be unique"];
+  const order = (entry: ProjectionTargetChangeV2) => `${entry.path}\u0000${entry.targetId}`;
+  if (input.some((entry, index) => index > 0 && order(input[index - 1]!) >= order(entry))) issues.push("changes must be ordered by path, then targetId");
+  const targetIdsByPath = new Map<string, string[]>();
+  for (const entry of input) targetIdsByPath.set(entry.path, [...(targetIdsByPath.get(entry.path) ?? []), entry.targetId]);
+  for (const [path, targetIds] of targetIdsByPath) {
+    if (targetIds.length > 1 && targetIds.some((targetId) => !isAgentContextTargetId(targetId))) issues.push(`changes.path ${path} is shared by targets that are not all agent-context targets`);
+  }
   const fileByPath = new Map(files.map((file) => [file.path, file]));
   const reasons = new Set<string>(PROJECTION_TARGET_CHANGE_REASON_CODES);
   for (const [index, entry] of input.entries()) {
@@ -1153,6 +1164,11 @@ export function projectionTargetChangesIssues(input: readonly ProjectionTargetCh
     issues.push(`changes must name the files[] ${file.action} of ${file.path}; only the projection manifest has none`);
   }
   return issues;
+}
+
+/** The targetId shape of an agent-context target: `projection_target.agent-context.<agents|claude>.<node>`. */
+function isAgentContextTargetId(targetId: unknown): boolean {
+  return typeof targetId === "string" && /^projection_target\.agent-context\.(agents|claude)\.[^.]+$/.test(targetId);
 }
 
 export function projectionFreshnessIssues(input: ProjectionFreshnessV2): string[] {

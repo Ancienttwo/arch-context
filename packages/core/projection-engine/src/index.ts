@@ -3181,6 +3181,34 @@ function agentContextRegionBodyDigest(body: string, region: { contentStart: numb
   return digestJson({ id: nodeId, body: `${body.slice(region.contentStart, region.contentEnd).trimEnd()}\n` } as unknown as Json);
 }
 
+/**
+ * Every agent-context marker in the file is well-formed and paired before any one node's region is
+ * read: each BEGIN names an id and is closed by the END of that id before the next marker, and no
+ * id has two regions. A stray, id-less or unpaired marker therefore fails closed instead of reading
+ * as a missing region that the projection would append.
+ */
+function assertAgentContextMarkers(body: string): void {
+  const marker = /<!-- (BEGIN|END) ARCHCONTEXT AGENT CONTEXT/g;
+  const seen = new Set<string>();
+  let open: string | undefined;
+  for (let match = marker.exec(body); match !== null; match = marker.exec(body)) {
+    const rest = body.slice(match.index);
+    if (match[1] === "BEGIN") {
+      const id = /^<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="([^"]+)"[^>]*-->/.exec(rest)?.[1];
+      if (id === undefined) throw new Error("agent-context-marker-malformed: a BEGIN marker names no id");
+      if (open !== undefined) throw new Error(`agent-context-marker-overlap: ${open}`);
+      if (seen.has(id)) throw new Error(`agent-context-marker-duplicate: ${id}`);
+      seen.add(id);
+      open = id;
+    } else {
+      const id = /^<!-- END ARCHCONTEXT AGENT CONTEXT id="([^"]+)" -->/.exec(rest)?.[1];
+      if (id === undefined || id !== open) throw new Error(`agent-context-marker-malformed: ${id ?? "an END marker names no id"}`);
+      open = undefined;
+    }
+  }
+  if (open !== undefined) throw new Error(`agent-context-marker-malformed: ${open}`);
+}
+
 function findAgentContextRegion(body: string, nodeId: string): {
   start: number;
   end: number;
@@ -3188,6 +3216,7 @@ function findAgentContextRegion(body: string, nodeId: string): {
   contentEnd: number;
   startMarker: string;
 } | undefined {
+  assertAgentContextMarkers(body);
   const startPattern = new RegExp(`<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="${escapeRegExp(nodeId)}"[^>]*-->`);
   const startMatch = startPattern.exec(body);
   const endMarker = agentContextEndMarker(nodeId);

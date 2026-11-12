@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
@@ -68,6 +68,10 @@ test("root creates a missing designated contract only with the exact canonical r
   const model = loadNativeModelFromArchContext(root);
   const files = renderAgentContextProjection({ model, existingFiles: [] }).files.map(file => ({ path: file.path, body: file.body, expectedHash: "missing" }));
   const create: ChangeOperation = { op: "render_agent_context", expectedHash: "missing", projectionFiles: files };
+  const forged: ChangeOperation = { ...create, projectionFiles: files.map(file => ({ ...file, body: `# Forged\n${file.body}` })) };
+  expect(engine.preview(root, plan([forged])).allowed).toBe(false);
+  await expect(engine.apply(root, plan([forged]), { approved: true })).rejects.toThrow();
+  for (const file of files) expect(existsSync(join(root, file.path))).toBe(false);
   expect(engine.preview(root, plan([create])).allowed).toBe(true);
   await engine.apply(root, plan([create]), { approved: true });
   for (const file of files) expect(readFileSync(join(root, file.path), "utf8")).toBe(file.body);

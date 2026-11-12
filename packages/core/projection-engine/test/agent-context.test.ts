@@ -306,7 +306,9 @@ test("root markers reject incomplete, duplicate and digest-valid overlapping reg
   const nestedBody = '# outer\n<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\nHuman region\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n';
   const digest = digestJson({ id: "capability.test.root", body: nestedBody });
   const overlap = `<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.test.root" outputDigest="${digest}" -->\n${nestedBody}${end}\n`;
-  for (const body of [file.body.replace(end, ""), `${file.body}${file.body}`, end, overlap]) {
+  // An id-less or unpaired marker anywhere in the file fails closed, never reads as a missing region (#572 G-F2).
+  const stray = ["# Human\n<!-- BEGIN ARCHCONTEXT AGENT CONTEXT -->\nstray\n", '# Human\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n'];
+  for (const body of [file.body.replace(end, ""), `${file.body}${file.body}`, end, overlap, ...stray]) {
     expect(() => renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body }] })).toThrow("agent-context-marker");
   }
 });

@@ -190,8 +190,11 @@ function fileActions(result: ProjectionResultV3): string[] {
   return result.files.filter((file) => file.path !== MANIFEST).map((file) => `${file.path} ${file.action}`);
 }
 
+/** Keyed by path: each capability of this fixture designates its own contract files, so every path is one target. */
 function byPath(result: ProjectionResultV3): Map<string, ProjectionTargetChangeV2> {
-  return new Map(result.changes!.map((entry) => [entry.path, entry]));
+  const entries = new Map(result.changes!.map((entry) => [entry.path, entry]));
+  expect(entries.size).toBe(result.changes!.length);
+  return entries;
 }
 
 function classifications(result: ProjectionResultV3): Record<string, string> {

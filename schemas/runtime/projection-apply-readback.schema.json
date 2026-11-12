@@ -1330,7 +1330,7 @@
         },
         "changes": {
           "type": "array",
-          "description": "Present on every check and plan result and on no other. One entry per target path, the projection manifest excluded. Canonical wire order is by path; the precedence derivation of classification, the reason-code couplings and the binding of plannedAction to files[] and of blocked targets to coverage are enforced by projectionTargetChangesIssues and projectionResultInvariantIssues.",
+          "description": "Present on every check and plan result and on no other. One entry per target, the projection manifest excluded; targetId is unique, and only agent-context targets share a path (ADR-0056 §9). Canonical wire order is by path, then targetId; the precedence derivation of classification, the reason-code couplings and the binding of plannedAction to files[] and of blocked targets to coverage are enforced by projectionTargetChangesIssues and projectionResultInvariantIssues.",
           "items": {
             "$ref": "#/$defs/targetChange"
           }
