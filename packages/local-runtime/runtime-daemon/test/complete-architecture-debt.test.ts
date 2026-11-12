@@ -158,9 +158,18 @@ test("state machine debt: complete reports rules, and anchors go stale until the
       syncCodeGraphFixture(root);
       expect(stale(["src/rules.ts"])).toEqual([["anchor-changed", ["src/job.ts"], "finish", "Store.finish"]]);
 
+      // A sibling declared on the anchor's last line is not part of its body, so its callee is not the anchor's.
+      write(root, "src/rules.ts", `${RULES}export function spare(): number {\n  return 0;\n}\n`);
+      write(root, "src/job.ts", JOB.replace("scale,", "scale, spare,").replace("port.send(1);\n  }", "port.send(1);\n  } other(): number { return spare(); }"));
+      syncCodeGraphFixture(root);
+      expect((runStateMachineCheckCommand(root).data as any).machines[0].anchors[1].callees.map((callee: any) => callee.qualifiedName)).toEqual(["decide", "measure", "scale"]);
+
       // A deleted callee file still selects the anchor, which the index cannot measure until a sync.
       rmSync(join(root, "src/rules.ts"));
       expect(readArchitectureDebt(root, { changedPaths: ["src/rules.ts"] }).coverageReasonCodes).toContain("state-machines:index-stale");
+      // After the sync the index holds no edge into the deleted file, and the path still selects the anchor.
+      syncCodeGraphFixture(root);
+      expect(stale(["src/rules.ts"])).toEqual([["anchor-changed", ["src/job.ts"], "finish", "Store.finish"]]);
     } finally { holder.close(); }
   } finally { await daemon.stop(); Bun.gc(true); removeTempRepo(root); }
 }, 120_000);

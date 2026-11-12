@@ -255,9 +255,10 @@ someone last confirmed that the machine matches it.
   The declaration is matched the way prose anchors match a symbol, among the declarations that the
   CodeGraph index holds for the file.
 - A callee is a declaration that the index records as the target of a `calls` or `references` edge
-  from the anchored declaration or from a declaration nested in it (a local function or a named
-  closure is part of its body), when the target is a function, method, property, constant or
-  variable, lies in a Git-visible file and lies outside the anchored declaration. The walk is one
+  from the anchored declaration or from a declaration that it contains by the index's `contains`
+  edges, directly or nested (a local function or a named closure is part of its body; a sibling
+  declared on its first or last line is not), when the target is a function, method, property,
+  constant or variable, lies in a Git-visible file and is not part of that body. The walk is one
   hop from the body. Types, interfaces, classes and modules are not callees, and neither is a
   member of a type alias or an interface, which is a signature with no body, nor code outside the
   repository.
@@ -272,7 +273,10 @@ repository. The report lists the callees of each symbol anchor, so the person wh
 what the digest covers and what it leaves out.
 
 The declaration and its callees come from the read-only CodeGraph handle that the check opens in
-its own process. The check runs no CodeGraph command, copies no snapshot and never syncs the index.
+its own process. The anchor read runs no CodeGraph command, copies no snapshot and never syncs the
+index. A checkpoint still runs its readiness gate before the debt read, as it did before the
+anchors: the gate runs `codegraph --version` and `codegraph status`, and §8 counts it in the
+edit-time read.
 It uses the index only for a file that the index holds at its current content, by CodeGraph's own
 change test: the SHA-256 of the file's UTF-8 text equals the recorded content hash. When the index
 does not hold the anchor's file or a callee's file at its current content, or a callee's file
@@ -327,8 +331,10 @@ uses that scope, and a changed `.archcontext/` path already widens a checkpoint 
 changed-paths scope the check evaluates an anchor when its own path changed or when the index
 records a callee of it in a changed path. It finds those anchors by inverting the callee sets of
 all symbol anchors, read in one batch from the same handle before the Git-visible filter, so a
-deleted callee file still selects its anchors. When the callees of a symbol anchor
-cannot be read, because there is no usable index or the index does not hold the anchor's file at
+deleted callee file that the index still holds selects its anchors. Once the index is synced it
+holds no edge into a deleted file, and the check keeps no edge store of its own, so a changed path
+that is not Git-visible (deleted or renamed away) selects every symbol anchor. An anchor whose
+digest did not change still reads `confirmed`. When the callees of a symbol anchor cannot be read, because there is no usable index or the index does not hold the anchor's file at
 its current content, the anchor is evaluated as `unchecked`. It runs no rule check there, because
 a rule result depends only on the model. A debt item keeps the anchor's path, so a checkpoint and
 `complete` give it the same identity.
@@ -336,7 +342,9 @@ a rule result depends only on the model. A debt item keeps the anchor's path, so
 The debt read is on the edit-time path, where a consumer may allow three seconds for the whole
 checkpoint. It never runs the protection run and parses no file; it reads each anchored or callee
 file at most once. Its budget is 250 ms added to the edit-time read for ten machines anchored on
-one changed file.
+one changed file, and it holds when a deleted path selects every symbol anchor. The edit-time read
+already includes the checkpoint's readiness gate, which runs `codegraph status`; the state machine
+check adds no CodeGraph command to it.
 
 ### 9. Command surface, and what does not change
 
