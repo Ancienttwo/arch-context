@@ -7,7 +7,7 @@ import { canonicalRepositoryRoot, repositoryFingerprint } from "@archcontext/cor
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
+import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { ArchctxRuntimeRpcServer, createRuntimeRpcClientFromConnectionFile, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
@@ -411,6 +411,28 @@ async function expectApplyRefusedBeforeWrite(
   expect(prior.ok, JSON.stringify(prior)).toBe(true);
   expect(JSON.stringify(prior.data)).not.toContain(lookup.state.lookupKey!);
 }
+
+test("an accepted apply without a ready CodeGraph index refuses before the write and leaves no receipt (#552)", async () => {
+  await withProtocolFixture("archctx-projection-codegraph-unready-", async ({ root, daemon, request, projectionRun }) => {
+    // Optional code facts let the render itself proceed without an index.
+    declareOptionalCodeFacts(root);
+    commitAll(root, "declare optional code facts");
+    editKeptSummary(root);
+    rmSync(join(root, ".codegraph"), { recursive: true, force: true });
+    const docsBefore = docsSnapshot(root);
+    const lookup = editAfterClassification(daemon, () => {});
+    const requestId = "projection_request.codegraph_unready";
+    const refused = await projectionRun(request("apply", requestId, { acceptObservedMajorChange: true }));
+    expect(lookup.state.lookupKey).toBeString();
+    expect(refused.ok, JSON.stringify(refused)).toBe(false);
+    expect((refused as any).error).toMatchObject({ code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" });
+    expect(docsSnapshot(root)).toEqual(docsBefore);
+    expect(await lookup.inspect(root, lookup.state.lookupKey)).toMatchObject({ ok: true, data: { found: false } });
+    const prior = await daemon.listProjectionPriorCommittedApplies(root, requestId) as any;
+    expect(prior.ok, JSON.stringify(prior)).toBe(true);
+    expect(JSON.stringify(prior.data)).not.toContain(lookup.state.lookupKey!);
+  });
+}, TEST_TIMEOUT_MS);
 
 test("an observed-change apply fails closed when the manifest moves mid-request", async () => {
   await withProtocolFixture("archctx-projection-observed-baseline-", async ({ root, daemon, request, projectionRun }) => {

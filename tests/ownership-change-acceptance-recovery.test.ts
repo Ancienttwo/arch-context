@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
@@ -12,7 +12,7 @@ import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { digestJson, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
+import { digestJson, projectionResultReceiptDigest, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { runCli } from "../packages/surfaces/cli/src/main";
 
 const codegraphCli = join(dirname(createRequire(import.meta.url).resolve("@colbymchenry/codegraph/package.json")), "npm-shim.js");
@@ -351,9 +351,38 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
   }
 }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
+/** The receipt fields an index decides; everything else in a render is the same with or without one. */
+function withoutCodeGraphFields(snapshot: ProjectionResultV3["inputSnapshot"]) {
+  const { codeGraphDigest: _digest, indexedWorktreeDigest: _indexed, generatedFrom: { codeGraphStatus: _status, ...generatedFrom }, ...rest } = snapshot;
+  return { ...rest, generatedFrom };
+}
+
+/**
+ * `projection run` refuses a receipt without a ready CodeGraph index before the write (#552), so the
+ * receipt an unavailable-index apply committed before that gate is recorded here directly: the
+ * receipt being committed takes the CodeGraph fields of a real unavailable-index render of the same
+ * request, and the receipt digest and the fields bound to it are recomputed.
+ */
+function recordAsPreGateReceipt(receipt: ProjectionApplyReceiptV1, unavailable: ProjectionResultV3["inputSnapshot"]): void {
+  const result = receipt.result;
+  for (const snapshot of [result.inputSnapshot, result.outputSnapshot]) {
+    snapshot.codeGraphDigest = unavailable.codeGraphDigest;
+    snapshot.indexedWorktreeDigest = unavailable.indexedWorktreeDigest;
+    snapshot.generatedFrom = unavailable.generatedFrom;
+  }
+  const { receiptDigest: _committed, ...payload } = result;
+  result.receiptDigest = projectionResultReceiptDigest(payload);
+  result.refreshSignals = result.refreshSignals.map((signal) => ({ ...signal, projectionReceiptDigest: result.receiptDigest }));
+  receipt.recovery = { ...receipt.recovery!, generatedFrom: result.outputSnapshot.generatedFrom, receiptDigest: result.receiptDigest };
+}
+
 test("semantic recovery rejects a committed receipt whose approved CodeGraph proof was unavailable", async () => {
-  // Only a project that declares code facts optional can commit a receipt without them.
+  // Only a project that declares code facts optional could commit a receipt without them. The index
+  // is ignored, as in a real repository, so removing it leaves the approved snapshot unchanged.
   const root = createFixture({ codeFacts: "optional" });
+  writeFileSync(join(root, ".gitignore"), ".codegraph/\n", "utf8");
+  git(root, "add", ".gitignore");
+  git(root, "commit", "-m", "ignore the CodeGraph index");
   const paths = runtimePaths(root);
   const daemon = await createStartedDaemon({
     localStorePath: paths.localStorePath,
@@ -361,10 +390,30 @@ test("semantic recovery rejects a committed receipt whose approved CodeGraph pro
     codeGraphProviderFactory: () => new MockCodeGraphProvider()
   });
   try {
-    const { request } = await prepareAcceptedMajorChange(root);
+    const { request } = await prepareAcceptedMajorChange(root, { codeGraphReady: true });
+    const plan = async (requestId: string) => {
+      const planned = await runTestCli("projection", ["run", "--request-json", JSON.stringify({ ...request, mode: "plan", requestId })], root, daemon);
+      expect(planned.ok, JSON.stringify(planned)).toBe(true);
+      return planned.data as ProjectionResultV3;
+    };
+    const aside = `${root}.codegraph-aside`;
+    renameSync(join(root, ".codegraph"), aside);
+    const unavailablePlan = await plan("projection_request.recovery_codegraph_unavailable_plan");
+    renameSync(aside, join(root, ".codegraph"));
+    const readyPlan = await plan("projection_request.recovery_codegraph_ready_plan");
+    expect(unavailablePlan.inputSnapshot).toMatchObject({ indexedWorktreeDigest: null, generatedFrom: { codeGraphStatus: "unavailable" } });
+    expect(readyPlan.inputSnapshot.generatedFrom.codeGraphStatus).toBe("ready");
+    // The index changes no rendered byte or digest of this fixture, only the CodeGraph fields.
+    expect(withoutCodeGraphFields(unavailablePlan.inputSnapshot)).toEqual(withoutCodeGraphFields(readyPlan.inputSnapshot));
+    expect(unavailablePlan.files).toEqual(readyPlan.files);
+    const signalsWithoutReceipt = (result: ProjectionResultV3) => result.refreshSignals.map(({ projectionReceiptDigest: _receipt, ...signal }) => signal);
+    expect(signalsWithoutReceipt(unavailablePlan)).toEqual(signalsWithoutReceipt(readyPlan));
+
     let injected = false;
     const applyUpdate = daemon.applyUpdate.bind(daemon);
     daemon.applyUpdate = async (...args) => {
+      const receipt = (args[1] as { projectionApplyReceipt?: ProjectionApplyReceiptV1 }).projectionApplyReceipt;
+      if (!injected && receipt) recordAsPreGateReceipt(receipt, unavailablePlan.inputSnapshot);
       const applied = await applyUpdate(...args);
       if (!injected && applied.ok) {
         injected = true;
@@ -379,11 +428,15 @@ test("semantic recovery rejects a committed receipt whose approved CodeGraph pro
     const lookupKey = (raced.data as ProjectionResultV3).applyReceipt!.lookupKey;
     const inspection = await daemon.inspectProjectionApplyReceipt(root, lookupKey);
     expect(inspection).toMatchObject({ ok: true, data: { deliveryStatus: "pending", receipt: { recovery: { generatedFrom: { codeGraphStatus: "unavailable" } } } } });
+    // The race only left the receipt pending; restoring it returns the approved snapshot, so only the
+    // CodeGraph proof stands between the receipt and delivery. An unavailable approved proof always
+    // also differs from the ready current provenance, so the approved-status rule is the second issue.
+    writeFileSync(join(root, "README.md"), "# recovery fixture\n", "utf8");
     const rejected = await runTestCli("projection", ["recover", "--request-json", JSON.stringify(
       recoveryIntentFromReceipt((inspection.data as any).receipt, "projection_request.recovery_codegraph_unavailable")
     )], root, racingClient);
     expect(rejected.ok).toBe(false);
-    expect((rejected as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED" });
+    expect((rejected as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "projection-recovery-proof-failed", details: { lookupKey, issueCount: 2 } });
     expect(await daemon.inspectProjectionApplyReceipt(root, lookupKey)).toMatchObject({ ok: true, data: { deliveryStatus: "pending" } });
   } finally {
     await daemon.stop();
@@ -391,4 +444,4 @@ test("semantic recovery rejects a committed receipt whose approved CodeGraph pro
     rmSync(stateRoot(root), { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
-}, timeout);
+}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
