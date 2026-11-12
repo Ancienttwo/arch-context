@@ -3224,13 +3224,14 @@ function parseAgentContextRegions(body: string): Map<string, AgentContextRegion>
   return regions;
 }
 
-/** The BEGIN marker at the start of `text`; throws unless its required attributes are present and well-formed. */
+/** The BEGIN marker at the start of `text`; throws unless its required attributes are present, well-formed and named once. */
 function agentContextBeginMarker(text: string): { id: string; marker: string; outputDigest: string } {
   const marker = /^<!-- BEGIN ARCHCONTEXT AGENT CONTEXT((?: [A-Za-z]+="[^"]*")*) -->/.exec(text);
-  const attributes = new Map([...(marker?.[1] ?? "").matchAll(/ ([A-Za-z]+)="([^"]*)"/g)].map((entry) => [entry[1]!, entry[2]!]));
+  const entries = [...(marker?.[1] ?? "").matchAll(/ ([A-Za-z]+)="([^"]*)"/g)].map((entry) => [entry[1]!, entry[2]!] as const);
+  const attributes = new Map(entries);
   const id = attributes.get("id");
   const outputDigest = attributes.get("outputDigest") ?? "";
-  if (marker === null || !id || !attributes.get("rendererVersion") || !/^sha256:[a-f0-9]{64}$/.test(outputDigest)
+  if (marker === null || attributes.size !== entries.length || !id || !attributes.get("rendererVersion") || !/^sha256:[a-f0-9]{64}$/.test(outputDigest)
     || [...attributes.keys()].some((key) => !AGENT_CONTEXT_MARKER_ATTRIBUTES.has(key))) {
     throw new Error(`agent-context-marker-malformed: ${id ?? "a BEGIN marker names no id"}`);
   }

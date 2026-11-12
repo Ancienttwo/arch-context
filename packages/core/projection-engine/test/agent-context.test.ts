@@ -311,6 +311,9 @@ test("root markers reject incomplete, duplicate and digest-valid overlapping reg
   const stray = ["# Human\n<!-- BEGIN ARCHCONTEXT AGENT CONTEXT -->\nstray\n", '# Human\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n'];
   // A paired region of another node whose marker lacks a required attribute fails closed too (#572 G2-F1).
   const otherIncomplete = `${file.body}<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.other.root" rendererVersion="archcontext.agent-context-renderer/v2" -->\nOther\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n`;
+  // A repeated attribute fails closed instead of letting the last value win (#572 G4-F1).
+  const repeatedId = `${complete("capability.test.root", innerBody).replace(' id="capability.test.root"', ' id="capability.test.root" id="capability.other.root"')}\n${innerBody}<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n`;
+  expect(() => renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body: repeatedId }] })).toThrow("agent-context-marker-malformed");
   for (const body of [file.body.replace(end, ""), `${file.body}${file.body}`, end, ...stray, otherIncomplete]) {
     expect(() => renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body }] })).toThrow("agent-context-marker");
   }
