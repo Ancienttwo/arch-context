@@ -381,6 +381,23 @@ test("a new base commit force-updates the rolling branch to that base plus exact
   expect(changedFiles(fixture, tip)).toEqual(["docs/architecture/overview.md"]);
 });
 
+test("CodeGraph metadata in the writer worktree is not a projection change; any other untracked non-owned file still is", async () => {
+  // The fixture's .gitignore does not list .codegraph/, so codegraph init leaves .codegraph/.gitignore untracked.
+  const fixture = writerFixture();
+  expect(existsSync(join(fixture.dev, ".gitignore"))).toBe(false);
+  const withMetadata = fakeApply(() => ({ files: { ".codegraph/.gitignore": "*\n!.gitignore\n", "docs/architecture/overview.md": "# overview\n" }, reported: ["docs/architecture/overview.md"] }));
+  const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher: recordingPublisher().publisher, apply: withMetadata.apply, env: fixture.env }));
+  expect(run).toMatchObject({ result: "published", pushed: true, files: ["docs/architecture/overview.md"] });
+  expect(changedFiles(fixture, run.publishedCommit!)).toEqual(["docs/architecture/overview.md"]);
+
+  const other = writerFixture();
+  const lookalike = fakeApply(() => ({ files: { ".codegraph-cache/index": "x\n", "docs/architecture/overview.md": "# overview\n" }, reported: ["docs/architecture/overview.md"] }));
+  const refused = await runProjectionPublishCommand({ cwd: other.clone, publisher: recordingPublisher().publisher, apply: lookalike.apply, env: other.env });
+  expect(refused.error).toMatchObject({ code: "AC_POLICY_VIOLATION", reasonCode: "projection-writer-non-owned-change" });
+  expect(refused.error!.message).toContain(".codegraph-cache/index");
+  expect(originRef(other, "refs/heads/archctx/projection")).toBeNull();
+});
+
 test("render-equal is up to date and pushes nothing; an apply that touches a non-owned path fails and pushes nothing", async () => {
   const fixture = writerFixture();
   const { publisher, calls: published } = recordingPublisher();

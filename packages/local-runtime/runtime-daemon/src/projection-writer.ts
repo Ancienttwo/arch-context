@@ -1229,6 +1229,11 @@ function canonical(path: string): string {
 }
 
 /** Tracked and untracked (non-ignored) changes in the worktree, as repository-relative paths. */
+/**
+ * The worktree's changed paths, without CodeGraph's own metadata directory: `codegraph init` in the
+ * owned worktree writes `.codegraph/` (its `.gitignore` is untracked where the repository does not
+ * ignore the directory), and that is never a projection change, so it is neither compared nor staged.
+ */
 function worktreeChangedPaths(worktree: string): string[] {
   const tokens = git(worktree, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).split("\0");
   const paths = new Set<string>();
@@ -1242,7 +1247,7 @@ function worktreeChangedPaths(worktree: string): string[] {
       index += 1;
     }
   }
-  return [...paths].sort();
+  return [...paths].filter((path) => !path.startsWith(".codegraph/")).sort();
 }
 
 /** `docs/architecture/**` style directory patterns and exact paths, as `projectionOwnedPaths` lists them. */
