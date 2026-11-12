@@ -1197,8 +1197,9 @@ function writeProjectionWriterState(path: string, state: ProjectionWriterStateV1
 
 /**
  * The owned worktree at `sha`, detached and clean. It is reused across runs; `clean` keeps ignored
- * files (no `-x`) so a gitignored CodeGraph index survives. A path that is not a registered
- * worktree of this repository is archctx-owned debris and is recreated.
+ * files (no `-x`) and CodeGraph's `.codegraph/`, which is untracked where the repository does not
+ * ignore it, so the CodeGraph index survives. A path that is not a registered worktree of this
+ * repository is archctx-owned debris and is recreated.
  */
 function prepareProjectionWriterWorktree(repositoryRoot: string, worktree: string, sha: string): void {
   git(repositoryRoot, ["worktree", "prune"]);
@@ -1208,7 +1209,7 @@ function prepareProjectionWriterWorktree(repositoryRoot: string, worktree: strin
   }
   git(worktree, ["checkout", "-q", "--force", "--detach", sha]);
   git(worktree, ["reset", "-q", "--hard", sha]);
-  git(worktree, ["clean", "-ffdq"]);
+  git(worktree, ["clean", "-ffdq", "-e", "/.codegraph/"]);
 }
 
 function isRegisteredWorktree(repositoryRoot: string, worktree: string): boolean {
